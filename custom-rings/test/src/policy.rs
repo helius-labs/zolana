@@ -1,6 +1,8 @@
 //! Entry writes and governed transfers shared by the policy suites, and the
 //! tables they pin.
 
+use std::num::NonZeroU64;
+
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
     CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
@@ -45,13 +47,13 @@ pub const TOKEN_BLOCK: RuleTable = RuleTable::builder()
     .rule(Rule::forbid(Subject::Asset, ListId::Block))
     .build();
 
-pub const VELOCITY_WINDOW_SLOTS: u64 = 1_000;
+pub const VELOCITY_WINDOW_SLOTS: NonZeroU64 = NonZeroU64::new(1_000).unwrap();
 pub const VELOCITY_CAP: u64 = 650_000_000;
 pub const VELOCITY_COSIGN_ABOVE: u64 = 300_000_000;
 
 /// SOL outflow capped per window, dual control above the threshold.
 pub const VELOCITY: RuleTable = RuleTable::builder()
-    .window_slots(VELOCITY_WINDOW_SLOTS)
+    .windowed(VELOCITY_WINDOW_SLOTS)
     .velocity(&[VelocityRow {
         asset: SOL_ASSET_FIELD,
         cap: VELOCITY_CAP,

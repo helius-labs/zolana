@@ -19,15 +19,15 @@ use crate::{
     config::{ConfigError, RingConfig, Target, Urls},
     file::{self, FileError},
     keys, line, probe,
-    release::{self, ReleaseError, RingRelease},
+    release::{self, ReleaseError, RingKey, RingRelease},
     tool::{Tool, ToolError, SOLANA_TEST_VALIDATOR, ZOLANA},
+    ui::{self, Icon},
+    workspace::{Workspace, WorkspaceError},
     AuditorKeyArgs, Context, LocalnetArgs, ProjectRoot, AUDITOR_KEY_FILE,
 };
 
 /// SIMD-0500 off, the ring program deploys as SBPF v0 like on devnet.
 const SBPF_V0_FEATURE: &str = "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g";
-const POLICY_PROVING_KEY_FILE: &str = "custom_ring_policy.key";
-const BASE_PROVING_KEY_FILE: &str = "custom_ring_base.key";
 const RING_RPC: Tool = Tool {
     name: "ring-rpc serve",
     install: "rerun `zolana-ring localnet`, it downloads the ring rpc of the release",
@@ -73,7 +73,7 @@ pub enum LocalnetError {
         source: io::Error,
     },
     #[error(transparent)]
-    Workspace(#[from] crate::workspace::WorkspaceError),
+    Workspace(#[from] WorkspaceError),
     #[error("local workspace service is unavailable at {0}, run `zolana-ring dev` first")]
     WorkspaceService(String),
     #[error("workspace services require a loopback URL, found {0}")]
@@ -133,7 +133,7 @@ fn bring_up(
     config: &RingConfig,
     live_ring_rpc: LiveRingRpc,
 ) -> Result<(), LocalnetError> {
-    if let Some(workspace) = crate::workspace::Workspace::from_env()? {
+    if let Some(workspace) = Workspace::from_env()? {
         return bring_up_workspace(
             workspace,
             WorkspaceRun {
@@ -153,13 +153,8 @@ fn bring_up(
             tool.check_installed()?;
         }
         let keys_dir = prover_keys_dir()?;
-        release.ensure_as(
-            release.proving_key()?,
-            &keys_dir.join(POLICY_PROVING_KEY_FILE),
-        )?;
-        release.ensure_as(release.audit_key()?, &keys_dir.join(BASE_PROVING_KEY_FILE))?;
-        for (asset, name) in release.control_keys()? {
-            release.ensure_as(asset, &keys_dir.join(name))?;
+        for key in RingKey::ALL {
+            release.ensure_as(release.key(key)?, &keys_dir.join(key.file_name()))?;
         }
         start_validator(ports)?;
     }
@@ -195,18 +190,16 @@ struct WorkspaceRun<'a> {
     live_ring_rpc: LiveRingRpc,
 }
 
-fn bring_up_workspace(
-    workspace: crate::workspace::Workspace,
-    run: WorkspaceRun<'_>,
-) -> Result<(), LocalnetError> {
+fn bring_up_workspace(workspace: Workspace, run: WorkspaceRun<'_>) -> Result<(), LocalnetError> {
     let WorkspaceRun {
         config_path,
         config,
         live_ring_rpc,
     } = run;
     if config.target != Target::Localnet {
-        return Err(crate::workspace::WorkspaceError::WrongTarget.into());
+        return Err(WorkspaceError::WrongTarget.into());
     }
+    workspace.check_artifacts()?;
     let urls = config.urls();
     for url in [&urls.rpc, &urls.indexer, &urls.prover, &urls.ring_rpc] {
         let local = reqwest::Url::parse(url).ok().is_some_and(|url| {
@@ -254,7 +247,7 @@ fn bring_up_workspace(
             .arg(snapshots)
             .arg("--sbf-program")
             .arg(zolana_interface::pda::shielded_pool_program_id().to_string())
-            .arg(workspace.artifact("target/deploy/shielded_pool_program.so")?)
+            .arg(workspace.shielded_pool_so()?)
             .args(["--", "--deactivate-feature", SBPF_V0_FEATURE]);
         ZOLANA
             .named("workspace zolana dev start")
@@ -277,9 +270,13 @@ fn bring_up_workspace(
             },
         )?;
     }
-    println!("workspace services ready, run `zolana-ring pipeline` in a second terminal with the same environment");
+    ui::heading(Icon::Ring, "workspace services ready");
+    line(
+        "next",
+        "zolana-ring pipeline in a second terminal with the same environment",
+    );
     RING_RPC.run(
-        Command::new(workspace.artifact("target/debug/ring-rpc")?)
+        Command::new(workspace.ring_rpc()?)
             .arg("serve")
             .args(["--port", &ports.ring_rpc.to_string()])
             .args(["--indexer-url", &urls.indexer])
@@ -340,16 +337,12 @@ fn check_prover_serves_custom_ring(prover_url: &str) -> Result<(), LocalnetError
             url: url.clone(),
             source,
         })?;
-    if [
-        "custom-ring-base",
-        "custom-ring-policy",
-        "custom-ring-compressed-policy",
-        "custom-ring-compressed-register",
-        "custom-ring-delegate-policy",
-    ]
-    .iter()
-    .all(|required| health.circuits.iter().any(|circuit| circuit == required))
-    {
+    if RingKey::ALL.iter().all(|key| {
+        health
+            .circuits
+            .iter()
+            .any(|circuit| circuit == key.circuit())
+    }) {
         return Ok(());
     }
     Err(LocalnetError::StaleProver { url })

@@ -1,8 +1,8 @@
 use thiserror::Error;
 
 use crate::{
-    authority::AuthorityError, config::ConfigError, cosigner::CosignerError,
-    delegate::DelegateError, deploy::DeployError, init::InitError, list::ListError,
+    authority::AuthorityError, config::ConfigError, cosigner::CoSignerError,
+    delegate::DelegateError, deploy::DeployError, init::InitError, key::KeyError, list::ListError,
     localnet::LocalnetError, merge::MergeError, new::NewError, pipeline::PipelineError,
     policy::PolicyCommandError, probe::ProbeError, reader::ReaderError,
     ring_rpc::RingRpcClientError, spend::SpendError, tool::ToolError, transact::TransactError,
@@ -41,7 +41,7 @@ pub enum CliError {
     #[error(transparent)]
     Reader(Box<ReaderError>),
     #[error(transparent)]
-    Cosigner(Box<CosignerError>),
+    CoSigner(Box<CoSignerError>),
     #[error(transparent)]
     Window(Box<WindowError>),
     #[error(transparent)]
@@ -49,15 +49,17 @@ pub enum CliError {
     #[error(transparent)]
     Spend(Box<SpendError>),
     #[error(transparent)]
+    Key(Box<KeyError>),
+    #[error(transparent)]
     List(Box<ListError>),
     #[error(transparent)]
     Policy(Box<PolicyCommandError>),
 }
 
 macro_rules! boxed_from {
-    ($($variant:ident($error:ty)),* $(,)?) => {
+    ($target:ty { $($variant:ident($error:ty)),* $(,)? }) => {
         $(
-            impl From<$error> for CliError {
+            impl From<$error> for $target {
                 fn from(error: $error) -> Self {
                     Self::$variant(Box::new(error))
                 }
@@ -66,7 +68,9 @@ macro_rules! boxed_from {
     };
 }
 
-boxed_from!(
+pub(crate) use boxed_from;
+
+boxed_from!(CliError {
     New(NewError),
     Probe(ProbeError),
     Pipeline(PipelineError),
@@ -80,13 +84,14 @@ boxed_from!(
     RingRpc(RingRpcClientError),
     Authority(AuthorityError),
     Reader(ReaderError),
-    Cosigner(CosignerError),
+    CoSigner(CoSignerError),
     Window(WindowError),
     Delegate(DelegateError),
     Spend(SpendError),
+    Key(KeyError),
     List(ListError),
     Policy(PolicyCommandError),
-);
+});
 
 /// One `Client` variant per module, boxed for enum size.
 macro_rules! client_from {
@@ -101,11 +106,15 @@ macro_rules! client_from {
 
 client_from!(
     crate::ContextError,
+    crate::assets::AssetError,
     crate::catalogue::CatalogueError,
     crate::catalogue::CuratorError,
+    crate::cosigner::CoSignerError,
     crate::deploy::DeployError,
     crate::fund::FundError,
+    crate::key::KeyError,
     crate::status::StatusError,
     crate::transact::TransactError,
     crate::merge::MergeError,
+    crate::window::WindowError,
 );

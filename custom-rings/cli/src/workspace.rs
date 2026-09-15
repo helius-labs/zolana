@@ -2,24 +2,32 @@ use std::{
     collections::BTreeMap,
     env,
     fs::{self, File},
-    io::{self, Read},
+    io,
     path::{Path, PathBuf},
     process::Command,
 };
 
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::tool::{Tool, ToolError};
+use crate::{
+    release::{self, Asset, RingKey},
+    tool::{Tool, ToolError},
+};
 
-const RING_KEYS: [&str; 5] = [
-    "custom_ring_base.key",
-    "custom_ring_policy.key",
-    "custom_ring_compressed_policy.key",
-    "custom_ring_compressed_register.key",
-    "custom_ring_delegate_policy.key",
-];
+pub(crate) const WORKSPACE_ENV: &str = "ZOLANA_RING_WORKSPACE";
+pub(crate) const PROCESS_SCOPE_ENV: &str = "ZOLANA_PROCESS_SCOPE_DIR";
+const SURFPOOL_ENV: &str = "SURFPOOL_BIN";
+const PROVER_KEYS_ENV: &str = "ZOLANA_PROVER_KEYS_DIR";
+const ZOLANA_BIN: &str = "target/debug/zolana";
+const PHOTON_BIN: &str = "target/debug/photon";
+const RING_RPC_BIN: &str = "target/debug/ring-rpc";
+const XTASK_BIN: &str = "target/debug/xtask";
+const PROVER_BIN: &str = "target/prover-server";
+const SHIELDED_POOL_SO: &str = "target/deploy/shielded_pool_program.so";
+const RING_PROGRAM_SO: &str = "target/deploy/custom_ring_program.so";
+const PROVING_KEYS_LOCK: &str = "prover/server/prover/provingkeys/proving-keys.lock";
+const PROVING_KEYS_DIR: &str = "prover/server/proving-keys";
 
 pub(crate) struct Workspace {
     pub root: PathBuf,
@@ -30,7 +38,7 @@ pub(crate) struct Workspace {
 
 #[derive(Debug, Error)]
 pub enum WorkspaceError {
-    #[error("local artifacts require ZOLANA_RING_WORKSPACE and ZOLANA_PROCESS_SCOPE_DIR")]
+    #[error("local artifacts require {WORKSPACE_ENV} and {PROCESS_SCOPE_ENV}")]
     MissingEnvironment,
     #[error("workspace artifacts are only supported on localnet")]
     WrongTarget,
@@ -38,7 +46,7 @@ pub enum WorkspaceError {
     InvalidScope(PathBuf),
     #[error("local artifact {0} is missing or outside the workspace")]
     MissingArtifact(PathBuf),
-    #[error("set SURFPOOL_BIN to the pinned local surfpool binary")]
+    #[error("set {SURFPOOL_ENV} to the pinned local surfpool binary")]
     MissingSurfpool,
     #[error("local key {0} disagrees with the workspace proving key manifest")]
     KeyMismatch(String),
@@ -54,19 +62,20 @@ pub enum WorkspaceError {
 
 #[derive(Deserialize)]
 struct KeyManifest {
-    keys: BTreeMap<String, KeyDigest>,
+    keys: BTreeMap<String, KeyPin>,
 }
 
 #[derive(Deserialize)]
-struct KeyDigest {
+struct KeyPin {
     size: u64,
     sha256: String,
 }
 
 impl Workspace {
+    /// `Ok(None)` outside a workspace, both variables or neither.
     pub fn from_env() -> Result<Option<Self>, WorkspaceError> {
-        let root = env::var_os("ZOLANA_RING_WORKSPACE");
-        let scope = env::var_os("ZOLANA_PROCESS_SCOPE_DIR");
+        let root = env::var_os(WORKSPACE_ENV);
+        let scope = env::var_os(PROCESS_SCOPE_ENV);
         if root.is_none() && scope.is_none() {
             return Ok(None);
         }
@@ -75,59 +84,47 @@ impl Workspace {
         let root =
             fs::canonicalize(&root).map_err(|source| WorkspaceError::Io { path: root, source })?;
         validate_scope(&scope, &root)?;
-        let surfpool = env::var_os("SURFPOOL_BIN")
+        let surfpool = env::var_os(SURFPOOL_ENV)
             .map(PathBuf::from)
             .filter(|path| path.is_absolute() && path.is_file())
             .ok_or(WorkspaceError::MissingSurfpool)?;
-        let keys_dir = env::var_os("ZOLANA_PROVER_KEYS_DIR")
+        let keys_dir = env::var_os(PROVER_KEYS_ENV)
             .map(PathBuf::from)
-            .unwrap_or_else(|| root.join("prover/server/proving-keys"));
+            .unwrap_or_else(|| root.join(PROVING_KEYS_DIR));
         if !keys_dir.is_absolute() {
             return Err(WorkspaceError::MissingArtifact(keys_dir));
         }
         let keys_dir =
             fs::canonicalize(&keys_dir).map_err(|_| WorkspaceError::MissingArtifact(keys_dir))?;
-        let workspace = Self {
+        Ok(Some(Self {
             root,
             scope,
             surfpool,
             keys_dir,
-        };
-        for file in [
-            "Cargo.toml",
-            "target/debug/zolana",
-            "target/debug/photon",
-            "target/debug/ring-rpc",
-            "target/debug/xtask",
-            "target/prover-server",
-            "target/deploy/shielded_pool_program.so",
-            "target/deploy/custom_ring_program.so",
-        ] {
-            workspace.artifact(file)?;
-        }
-        workspace.check_keys()?;
-        Ok(Some(workspace))
+        }))
     }
 
-    pub fn artifact(&self, relative: &str) -> Result<PathBuf, WorkspaceError> {
-        let path = self.root.join(relative);
-        let resolved =
-            fs::canonicalize(&path).map_err(|_| WorkspaceError::MissingArtifact(path.clone()))?;
-        if !resolved.starts_with(&self.root) || !resolved.is_file() {
-            return Err(WorkspaceError::MissingArtifact(path));
-        }
-        Ok(resolved)
+    pub fn ring_program_so(&self) -> Result<PathBuf, WorkspaceError> {
+        self.artifact(RING_PROGRAM_SO)
+    }
+
+    pub fn shielded_pool_so(&self) -> Result<PathBuf, WorkspaceError> {
+        self.artifact(SHIELDED_POOL_SO)
+    }
+
+    pub fn ring_rpc(&self) -> Result<PathBuf, WorkspaceError> {
+        self.artifact(RING_RPC_BIN)
     }
 
     pub fn command(&self) -> Result<Command, WorkspaceError> {
-        let mut command = Command::new(self.artifact("target/debug/zolana")?);
+        let mut command = Command::new(self.artifact(ZOLANA_BIN)?);
         command
             .current_dir(&self.root)
-            .env("ZOLANA_PROCESS_SCOPE_DIR", &self.scope)
-            .env("SURFPOOL_BIN", &self.surfpool)
-            .env("ZOLANA_PHOTON_BIN", self.artifact("target/debug/photon")?)
-            .env("PROVER_BIN", self.artifact("target/prover-server")?)
-            .env("ZOLANA_PROVER_KEYS_DIR", &self.keys_dir);
+            .env(PROCESS_SCOPE_ENV, &self.scope)
+            .env(SURFPOOL_ENV, &self.surfpool)
+            .env("ZOLANA_PHOTON_BIN", self.artifact(PHOTON_BIN)?)
+            .env("PROVER_BIN", self.artifact(PROVER_BIN)?)
+            .env(PROVER_KEYS_ENV, &self.keys_dir);
         Ok(command)
     }
 
@@ -143,7 +140,7 @@ impl Workspace {
             install: "build the workspace xtask",
         }
         .run(
-            Command::new(self.artifact("target/debug/xtask")?)
+            Command::new(self.artifact(XTASK_BIN)?)
                 .arg("generate-account-snapshots")
                 .arg("--deploy-dir")
                 .arg(self.root.join("target/deploy"))
@@ -153,12 +150,25 @@ impl Workspace {
         Ok(accounts)
     }
 
-    fn check_keys(&self) -> Result<(), WorkspaceError> {
-        let path = self.artifact("prover/server/prover/provingkeys/proving-keys.lock")?;
+    pub fn check_artifacts(&self) -> Result<(), WorkspaceError> {
+        for file in [
+            "Cargo.toml",
+            ZOLANA_BIN,
+            PHOTON_BIN,
+            RING_RPC_BIN,
+            XTASK_BIN,
+            PROVER_BIN,
+            SHIELDED_POOL_SO,
+            RING_PROGRAM_SO,
+        ] {
+            self.artifact(file)?;
+        }
+        let path = self.artifact(PROVING_KEYS_LOCK)?;
         let file = File::open(&path).map_err(|source| WorkspaceError::Io { path, source })?;
         let manifest: KeyManifest = serde_json::from_reader(file)?;
-        for name in RING_KEYS {
-            let key = manifest
+        for key in RingKey::ALL {
+            let name = key.file_name();
+            let pin = manifest
                 .keys
                 .get(name)
                 .ok_or_else(|| WorkspaceError::KeyMismatch(name.into()))?;
@@ -168,33 +178,32 @@ impl Workspace {
             if !resolved.starts_with(&self.keys_dir) || !resolved.is_file() {
                 return Err(WorkspaceError::MissingArtifact(path));
             }
-            if !key
-                .matches(&path)
-                .map_err(|source| WorkspaceError::Io { path, source })?
-            {
-                return Err(WorkspaceError::KeyMismatch(name.into()));
-            }
+            let bytes =
+                fs::read(&resolved).map_err(|source| WorkspaceError::Io { path, source })?;
+            release::verify(&bytes, &pin.asset(name))
+                .map_err(|_| WorkspaceError::KeyMismatch(name.into()))?;
         }
         Ok(())
     }
+
+    fn artifact(&self, relative: &str) -> Result<PathBuf, WorkspaceError> {
+        let path = self.root.join(relative);
+        let resolved =
+            fs::canonicalize(&path).map_err(|_| WorkspaceError::MissingArtifact(path.clone()))?;
+        if !resolved.starts_with(&self.root) || !resolved.is_file() {
+            return Err(WorkspaceError::MissingArtifact(path));
+        }
+        Ok(resolved)
+    }
 }
 
-impl KeyDigest {
-    fn matches(&self, path: &Path) -> io::Result<bool> {
-        let mut file = File::open(path)?;
-        if file.metadata()?.len() != self.size {
-            return Ok(false);
+impl KeyPin {
+    fn asset(&self, name: &str) -> Asset {
+        Asset {
+            name: name.to_owned(),
+            size: self.size,
+            sha256: self.sha256.clone(),
         }
-        let mut hash = Sha256::new();
-        let mut buffer = [0u8; 65536];
-        loop {
-            let read = file.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            hash.update(&buffer[..read]);
-        }
-        Ok(hex::encode(hash.finalize()) == self.sha256)
     }
 }
 
@@ -221,7 +230,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn local_keys_must_match_manifest_size_and_digest() {
+    fn the_scope_is_neither_the_workspace_nor_a_link() {
         let root = env::temp_dir().join(format!(
             "ring-workspace-{}-{}",
             std::process::id(),
@@ -231,20 +240,9 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir(&root).unwrap();
-        let path = root.join("key");
-        fs::write(&path, b"pinned key").unwrap();
-        let key = KeyDigest {
-            size: 10,
-            sha256: hex::encode(Sha256::digest(b"pinned key")),
-        };
-        assert!(key.matches(&path).unwrap());
-        fs::write(&path, b"edited key").unwrap();
-        assert!(!key.matches(&path).unwrap());
-        fs::write(&path, b"short").unwrap();
-        assert!(!key.matches(&path).unwrap());
         assert!(validate_scope(&root, &root).is_err());
         assert!(validate_scope(&root, Path::new("/workspace")).is_ok());
-        fs::remove_file(path).unwrap();
+        assert!(validate_scope(Path::new("relative"), Path::new("/workspace")).is_err());
         fs::remove_dir(root).unwrap();
     }
 }

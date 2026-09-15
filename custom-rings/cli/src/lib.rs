@@ -11,6 +11,7 @@ pub mod error;
 pub mod file;
 pub mod fund;
 pub mod init;
+pub mod key;
 pub mod keys;
 pub mod list;
 pub mod localnet;
@@ -116,7 +117,7 @@ pub enum Command {
     Reader(ReaderCommand),
     /// Set, clear or show the ring's co-signer.
     #[command(subcommand)]
-    Cosigner(CosignerCommand),
+    Cosigner(CoSignerCommand),
     /// Set, clear or show a mint's spend window.
     #[command(subcommand)]
     Window(WindowCommand),
@@ -126,6 +127,9 @@ pub enum Command {
     /// Register or show the sender's spend record on a velocity ring.
     #[command(subcommand)]
     Spend(SpendCommand),
+    /// Enroll the member's nullifier key in the ring key registry.
+    #[command(subcommand)]
+    Key(KeyCommand),
     /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
     List(ListCommand),
@@ -187,7 +191,7 @@ pub enum PolicyCommand {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum CosignerCommand {
+pub enum CoSignerCommand {
     /// Create or replace the co-signer, flags absent means the `[cosigner]` table of ring.toml.
     Set {
         /// The Solana key that signs beside the sender.
@@ -195,10 +199,10 @@ pub enum CosignerCommand {
         signer: Option<Address>,
         /// Operation classes the co-signer gates.
         #[arg(long, value_delimiter = ',', requires = "signer")]
-        scope: Vec<cosigner::CosignScope>,
+        scope: Vec<cosigner::CoSignClass>,
         /// `<mint>=<amount>` per mint, `sol` for the native token, withdrawals above it need the co-signer.
         #[arg(long, requires = "signer")]
-        threshold: Vec<cosigner::Threshold>,
+        threshold: Vec<config::ThresholdSpec>,
     },
     /// Close the co-signer account, the rent returns to the authority.
     Clear,
@@ -207,30 +211,36 @@ pub enum CosignerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum DelegateCommand {
-    /// Set the delegate once, signed by the upgrade authority.
+    /// Set the delegate once, signed by the upgrade authority holding the ring auditor key.
     Set {
         #[arg(long)]
         delegate: Address,
     },
     Show,
     /// Move a source member's ring balance to a shielded address over the delegate rail.
-    Move {
-        /// The recipient's base58 shielded address.
-        to: ShieldedAddress,
-        /// The source member's keypair, its ring notes fund the move.
-        #[arg(long)]
-        source: PathBuf,
-        #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
-        amount: u64,
-        /// The mint moved, SOL by default.
-        #[arg(long)]
-        mint: Option<Address>,
-        #[arg(long)]
-        delegate_keypair: PathBuf,
-        /// The co-signer keypair when the ring's co-signer scope covers transfers.
-        #[arg(long)]
-        cosigner_keypair: Option<PathBuf>,
-    },
+    Move(Box<DelegateMoveArgs>),
+}
+
+#[derive(Debug, Args)]
+pub struct DelegateMoveArgs {
+    /// The recipient's base58 shielded address.
+    pub to: ShieldedAddress,
+    /// The source member's base58 shielded address, its ring notes fund the move.
+    #[arg(long)]
+    pub source: ShieldedAddress,
+    #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
+    pub amount: u64,
+    /// The mint moved, `sol` by default.
+    #[arg(long)]
+    pub mint: Option<config::Mint>,
+    #[arg(long)]
+    pub delegate_keypair: PathBuf,
+    /// The ring auditor's secret, it opens the source member's registered key.
+    #[arg(long, default_value = AUDITOR_KEY_FILE)]
+    pub auditor_key: PathBuf,
+    /// The co-signer keypair when the ring's co-signer scope covers transfers.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -241,12 +251,18 @@ pub enum SpendCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum KeyCommand {
+    /// Seal the member's nullifier key to the ring auditor and register it, `transfer` does it on first use.
+    Register,
+}
+
+#[derive(Debug, Subcommand)]
 pub enum WindowCommand {
     /// Create or replace the window, the counters restart.
     Set {
         /// A mint address, `sol` for the native token.
         #[arg(long)]
-        mint: window::Mint,
+        mint: config::Mint,
         /// Window length, windows start at multiples of it.
         #[arg(long)]
         slots: u64,
@@ -260,11 +276,11 @@ pub enum WindowCommand {
     /// Close the window account, the rent returns to the authority.
     Clear {
         #[arg(long)]
-        mint: window::Mint,
+        mint: config::Mint,
     },
     Show {
         #[arg(long)]
-        mint: window::Mint,
+        mint: config::Mint,
     },
 }
 
@@ -385,9 +401,9 @@ pub struct TransferArgs {
     /// Recipient amount in base units, funded by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
-    /// Registered mint, SOL by default.
+    /// Registered mint, `sol` by default.
     #[arg(long)]
-    pub mint: Option<Address>,
+    pub mint: Option<config::Mint>,
     /// Payer's SPL funding account, its ATA by default.
     #[arg(long)]
     pub token_account: Option<Address>,
@@ -476,7 +492,7 @@ pub enum ContextError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Fund(#[from] FundError),
-    #[error("the authority holds {balance} lamports, the move needs {required}")]
+    #[error("the authority holds {balance} lamports, {required} are needed")]
     AuthorityUnderfunded { required: u64, balance: u64 },
     #[error(transparent)]
     Client(Box<ClientError>),
@@ -518,13 +534,9 @@ impl Context {
         Ok(authority)
     }
 
-    /// Reads the authority without funding it.
     pub fn authority_with_balance(&self, required: u64) -> Result<Keypair, ContextError> {
         let authority = self.config.config_authority()?;
-        let balance = self
-            .rpc
-            .get_balance(authority.pubkey())
-            .map_err(|error| ContextError::Client(Box::new(error)))?;
+        let balance = self.rpc.get_balance(authority.pubkey())?;
         if balance < required {
             return Err(ContextError::AuthorityUnderfunded { required, balance });
         }
@@ -686,6 +698,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Window(command) => window::run(&mut ctx, command)?,
         Command::Delegate(command) => delegate::run(&mut ctx, command)?,
         Command::Spend(command) => spend::run(&mut ctx, command)?,
+        Command::Key(command) => key::run(&mut ctx, command)?,
         Command::List(command) => list::run(&mut ctx, command)?,
         Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
@@ -785,7 +798,7 @@ mod tests {
         else {
             panic!("transfer");
         };
-        assert_eq!(args.mint, Some(mint));
+        assert_eq!(args.mint, Some(config::Mint(mint)));
         assert_eq!(args.token_account, Some(token));
         assert_eq!(args.amount, 123);
     }

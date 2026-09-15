@@ -173,7 +173,7 @@ impl RingKeySource {
     }
 }
 
-const RING_KEY_SOURCES: [RingKeySource; 5] = [
+const RING_KEY_SOURCES: [RingKeySource; 6] = [
     RingKeySource {
         section: "proving_key",
         prover_file: "custom_ring_policy.key",
@@ -198,6 +198,11 @@ const RING_KEY_SOURCES: [RingKeySource; 5] = [
         section: "delegate_policy_key",
         prover_file: "custom_ring_delegate_policy.key",
         asset_stem: "custom-ring-delegate-policy-key",
+    },
+    RingKeySource {
+        section: "register_key",
+        prover_file: "custom_ring_register_key.key",
+        asset_stem: "custom-ring-register-key",
     },
 ];
 
@@ -297,8 +302,6 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     }))
 }
 
-/// The ring program, the prover's two ring keys and the ring rpc, the ring cli
-/// embeds the lock and is uploaded next to them.
 fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;
@@ -687,15 +690,10 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    for key in [
-        "ring_program",
-        "proving_key",
-        "audit_key",
-        "compressed_policy_key",
-        "compressed_register_key",
-        "delegate_policy_key",
-        "accounts",
-    ] {
+    for key in std::iter::once("ring_program")
+        .chain(RING_KEY_SOURCES.iter().map(|source| source.section))
+        .chain(std::iter::once("accounts"))
+    {
         if let Some(name) = lock.get(key).and_then(asset_name) {
             names.push(name);
         }
@@ -1171,6 +1169,7 @@ mod tests {
                 PathBuf::from("/stage/custom-ring-compressed-policy-key-v1.key"),
                 PathBuf::from("/stage/custom-ring-compressed-register-key-v1.key"),
                 PathBuf::from("/stage/custom-ring-delegate-policy-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-register-key-v1.key"),
                 PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
             ]
         );

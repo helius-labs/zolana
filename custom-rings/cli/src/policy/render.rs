@@ -48,10 +48,11 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
             "\n# A sender's outflow per mint, capped alone or over a window of slots.\n",
         );
         if velocity.window_slots != 0 {
-            let slots = i64::try_from(velocity.window_slots).map_err(|_| {
-                PolicyError::ThresholdTooLarge {
-                    rule: 0,
-                    amount: velocity.window_slots,
+            let slots = toml_int(velocity.window_slots, |amount| {
+                PolicyError::VelocityTooLarge {
+                    row: 0,
+                    field: "window_slots",
+                    amount,
                 }
             })?;
             table.insert("window_slots", value(slots));
@@ -59,26 +60,21 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
         let rows: Array = velocity
             .rows
             .iter()
-            .map(|row| {
+            .enumerate()
+            .map(|(index, row)| {
+                let too_large = |field| {
+                    move |amount| PolicyError::VelocityTooLarge {
+                        row: index,
+                        field,
+                        amount,
+                    }
+                };
                 let mut inline = InlineTable::new();
                 inline.insert("asset", row.asset.0.to_string().into());
-                inline.insert(
-                    "cap",
-                    i64::try_from(row.cap)
-                        .map_err(|_| PolicyError::ThresholdTooLarge {
-                            rule: 0,
-                            amount: row.cap,
-                        })?
-                        .into(),
-                );
+                inline.insert("cap", toml_int(row.cap, too_large("cap"))?.into());
                 inline.insert(
                     "cosign_above",
-                    i64::try_from(row.cosign_above)
-                        .map_err(|_| PolicyError::ThresholdTooLarge {
-                            rule: 0,
-                            amount: row.cosign_above,
-                        })?
-                        .into(),
+                    toml_int(row.cosign_above, too_large("cosign_above"))?.into(),
                 );
                 Ok(inline)
             })
@@ -158,6 +154,10 @@ fn rule_table(rule: &RuleSpec, index: usize) -> Result<Table, PolicyError> {
         table.insert("limits", value(limits));
     }
     Ok(table)
+}
+
+fn toml_int(value: u64, too_large: impl FnOnce(u64) -> PolicyError) -> Result<i64, PolicyError> {
+    i64::try_from(value).map_err(|_| too_large(value))
 }
 
 fn comment(table: &mut Table, key: &str, text: &str) {

@@ -14,8 +14,7 @@ use zolana_client::{ClientError, ProgramAccountsFilter, Rpc, SolanaRpc};
 use zolana_interface::{
     pda,
     state::{discriminator::SPL_ASSET_REGISTRY, SplAssetRegistry},
-    SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_INITIALIZED,
-    SPL_TOKEN_PROGRAM_ID,
+    SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, TransactionError, SOL_MINT};
 
@@ -45,12 +44,6 @@ pub enum AssetError {
     TokenAccountForSol,
 }
 
-impl From<ClientError> for AssetError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
-    }
-}
-
 pub struct ResolvedAsset {
     pub mint: Address,
     pub registry: AssetRegistry,
@@ -68,14 +61,11 @@ pub fn resolve(rpc: &SolanaRpc, mint: Address) -> Result<ResolvedAsset, AssetErr
     let mut registry = AssetRegistry::default();
     let filter =
         ProgramAccountsFilter::new(SplAssetRegistry::SIZE).with_memcmp(0, [SPL_ASSET_REGISTRY]);
-    for (address, account) in rpc
-        .get_program_accounts_filtered(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), &filter)?
-    {
+    let program = pda::shielded_pool_program_id();
+    for (address, account) in rpc.get_program_accounts_filtered(program, &filter)? {
         let entry = SplAssetRegistry::from_account_bytes(&account.data)
             .map_err(|_| AssetError::InvalidRegistry(address))?;
-        if account.owner != Address::new_from_array(SHIELDED_POOL_PROGRAM_ID)
-            || address != pda::spl_asset_registry(&entry.mint)
-        {
+        if account.owner != program || address != pda::spl_asset_registry(&entry.mint) {
             return Err(AssetError::InvalidRegistry(address));
         }
         registry.insert(entry.asset_id, entry.mint)?;

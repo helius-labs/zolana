@@ -1,41 +1,63 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::Path};
 
 use custom_ring_sdk::{
-    DelegateOutput, DelegateTransfer, DelegateTransferInput, SetDelegate, TransactSend,
-    TransferProofEnvironment, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
+    CoSignScope, DelegateOutput, DelegateTransfer, DelegateTransferInput, KeyRegistrationError,
+    ReadSealedKey, SetDelegate, TransactSend, TransferError, TransferProofEnvironment,
+    SET_DELEGATE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SppProofInputUtxo};
-#[cfg(test)]
-use zolana_interface::pda;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_transaction::{Utxo, Wallet, SOL_MINT};
-use zolana_wallet::sync_wallet;
+use zolana_keypair::{ShieldedAddress, ViewingKey};
+use zolana_ring_client::{
+    RecoveryEnvironment, RecoveryError, RingEnvironment, RingRecovery, SourceMember,
+};
+use zolana_ring_policy::Member;
+use zolana_ring_rpc::KeyFileError;
+use zolana_transaction::{Wallet, WalletUtxo, SOL_MINT};
 
 use crate::{
-    file,
+    assets, file,
     fund::MIN_AUTHORITY_BALANCE,
-    line,
-    transact::{cosigner_keypair, TransactError, PAYER_FEE_BUDGET, SENDER_FEE_BUDGET},
-    ui,
-    ui::Icon,
-    Context, ContextError, DelegateCommand,
+    keys, line,
+    transact::{signers, CoSignerCheck, TransactError, PAYER_FEE_BUDGET, SENDER_FEE_BUDGET},
+    Context, ContextError, DelegateCommand, DelegateMoveArgs, AUDITOR_KEY_FILE,
 };
 
 #[derive(Debug, Error)]
 pub enum DelegateError {
     #[error(transparent)]
     Transact(Box<TransactError>),
+    #[error("the ring has no config, run `zolana-ring init` first")]
+    NoConfig,
     #[error("the ring has no delegate")]
     NotSet,
-    #[error("the delegate keypair {0} is not the ring's delegate {1}")]
-    WrongDelegate(Address, Address),
+    #[error("the delegate keypair {given} is not the ring's delegate {stored}")]
+    WrongDelegate { given: Address, stored: Address },
     #[error("the source holds {held} base units in the selected tree, the move needs {needed}")]
     InsufficientNotes { needed: u64, held: u64 },
+    #[error("no tree holds {needed} base units of the mint for the source")]
+    NoFundedTree { needed: u64 },
     #[error("selected note amounts overflow u64")]
     AmountOverflow,
+    #[error("the ring has no key registry, its authority must run `zolana-ring init` first")]
+    NoKeyRegistry,
+    #[error(transparent)]
+    Auditor(KeyFileError),
+    #[error("{} is not the ring auditor {ring_auditor}, the delegate operator holds the auditor key", path.display())]
+    AuditorKeyRequired {
+        path: std::path::PathBuf,
+        ring_auditor: String,
+    },
+    #[error("the source shielded address does not derive a member identity")]
+    SourceIdentity,
+    #[error("member {0} has no registered key, it runs `zolana-ring key register` first")]
+    MemberUnregistered(ShieldedAddress),
+    #[error(transparent)]
+    Registry(Box<KeyRegistrationError>),
+    #[error(transparent)]
+    Recovery(Box<RecoveryError>),
 }
 
 impl<E: Into<TransactError>> From<E> for DelegateError {
@@ -44,52 +66,43 @@ impl<E: Into<TransactError>> From<E> for DelegateError {
     }
 }
 
-fn client(error: ClientError) -> TransactError {
-    TransactError::Client(Box::new(error))
+struct NoteSelection<'a> {
+    wallet: &'a Wallet,
+    ring: Address,
+    mint: Address,
+    amount: u64,
+}
+
+struct SelectedNotes {
+    notes: Vec<WalletUtxo>,
+    total: u64,
 }
 
 pub fn run(ctx: &mut Context, command: DelegateCommand) -> Result<(), DelegateError> {
     match command {
         DelegateCommand::Set { delegate } => {
+            ring_auditor_key(ctx, Path::new(AUDITOR_KEY_FILE))?;
+            ctx.ring
+                .read_key_registry_root(&ctx.rpc)?
+                .ok_or(DelegateError::NoKeyRegistry)?;
             let authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
             ctx.fund_authority(&authority, MIN_AUTHORITY_BALANCE)?;
-            ctx.rpc
-                .create_and_send_transaction(
-                    &[SetDelegate {
-                        ring: ctx.ring,
-                        payer: authority.pubkey(),
-                        authority: authority.pubkey(),
-                        delegate,
-                    }
-                    .instruction()],
-                    authority.pubkey(),
-                    &[&authority],
-                    ComputeBudgetConfig::new(SET_DELEGATE_COMPUTE_UNIT_LIMIT),
-                )
-                .map_err(client)?;
-            ui::heading(Icon::Auditor, &format!("delegate {delegate} set"));
+            ctx.rpc.create_and_send_transaction(
+                &[SetDelegate {
+                    ring: ctx.ring,
+                    payer: authority.pubkey(),
+                    authority: authority.pubkey(),
+                    delegate,
+                }
+                .instruction()],
+                authority.pubkey(),
+                &[&authority],
+                ComputeBudgetConfig::new(SET_DELEGATE_COMPUTE_UNIT_LIMIT),
+            )?;
+            line("delegate", format_args!("{delegate} set"));
         }
         DelegateCommand::Show => {}
-        DelegateCommand::Move {
-            to,
-            source,
-            amount,
-            mint,
-            delegate_keypair,
-            cosigner_keypair: cosigner_path,
-        } => {
-            return run_move(
-                ctx,
-                MovePlan {
-                    to,
-                    source,
-                    amount,
-                    mint: mint.unwrap_or(SOL_MINT),
-                    delegate_keypair,
-                    cosigner_path,
-                },
-            );
-        }
+        DelegateCommand::Move(args) => return run_move(ctx, *args),
     }
     match ctx.ring.read_delegate(&ctx.rpc)? {
         Some(delegate) => line("delegate", delegate.delegate),
@@ -98,79 +111,115 @@ pub fn run(ctx: &mut Context, command: DelegateCommand) -> Result<(), DelegateEr
     Ok(())
 }
 
-struct MovePlan {
-    to: ShieldedAddress,
-    source: PathBuf,
-    amount: u64,
-    mint: Address,
-    delegate_keypair: PathBuf,
-    cosigner_path: Option<PathBuf>,
-}
-
-/// Moves the source member's own ring notes, the delegate signs and never holds them.
-fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
-    let MovePlan {
+/// The delegate never holds the notes.
+fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateError> {
+    let DelegateMoveArgs {
         to,
         source,
         amount,
         mint,
         delegate_keypair,
-        cosigner_path,
-    } = plan;
+        auditor_key,
+        cosigner_keypair,
+    } = args;
+    let mint = mint.map_or(SOL_MINT, |mint| mint.0);
     let delegate = file::read_keypair(&ctx.project_path(&delegate_keypair))?;
     let stored = ctx
         .ring
         .read_delegate(&ctx.rpc)?
         .ok_or(DelegateError::NotSet)?;
     if stored.delegate != delegate.pubkey() {
-        return Err(DelegateError::WrongDelegate(
-            delegate.pubkey(),
-            stored.delegate,
-        ));
+        return Err(DelegateError::WrongDelegate {
+            given: delegate.pubkey(),
+            stored: stored.delegate,
+        });
     }
-    let cosigner = cosigner_keypair(ctx, cosigner_path.as_deref())?;
-    crate::transact::CoSignerCheck {
-        provided: cosigner.as_ref().map(|signer| signer.pubkey()),
-        scope: custom_ring_interface::COSIGN_TRANSFERS,
+    let cosigner = CoSignerCheck {
+        keypair: cosigner_keypair.as_deref(),
+        scope: CoSignScope::TRANSFERS,
         payment: None,
     }
-    .check(ctx)?;
-
-    // The source key proves the notes, it never signs the transaction.
-    let source_file = file::read_keypair(&ctx.project_path(&source))?;
-    let source = ShieldedKeypair::from_keypair(&source_file)?;
+    .load(ctx)?;
+    let auditor = ring_auditor_key(ctx, &auditor_key)?;
+    let registry = ctx
+        .ring
+        .read_key_registry_root(&ctx.rpc)?
+        .ok_or(DelegateError::NoKeyRegistry)?;
+    let member = Member::owner_tag(
+        &source
+            .confidential_view_tag()
+            .map_err(|_| DelegateError::SourceIdentity)?,
+    )
+    .map_err(|_| DelegateError::SourceIdentity)?;
 
     let indexer = ctx.indexer();
-    let assets = crate::assets::resolve(&ctx.rpc, mint)
+    let assets = assets::resolve(&ctx.rpc, mint)
         .map_err(TransactError::from)?
         .registry;
-    let mut wallet = Wallet::new(source.shielded_address()?, assets.clone())?;
-    sync_wallet(&mut wallet, &source, &indexer).map_err(client)?;
+    let read = ReadSealedKey {
+        ring: ctx.ring,
+        member,
+        root: registry,
+    };
+    let nullifier_key = match read.read(&indexer) {
+        Ok(entry) => entry
+            .open(&auditor)
+            .map_err(|error| DelegateError::Registry(Box::new(error)))?,
+        Err(KeyRegistrationError::Client(error))
+            if matches!(*error, ClientError::RingKeyRegistryMemberUnregistered) =>
+        {
+            return Err(DelegateError::MemberUnregistered(source));
+        }
+        Err(error) => return Err(DelegateError::Registry(Box::new(error))),
+    };
+    let recovered = RingRecovery::new(ctx.ring.program_id(), &auditor)
+        .for_member(SourceMember {
+            address: &source,
+            nullifier_key: &nullifier_key,
+        })
+        .run(RecoveryEnvironment {
+            ring: RingEnvironment {
+                indexer: &indexer,
+                origin: &ctx.rpc,
+            },
+            assets: &assets,
+            tree_ids: |tree| {
+                custom_ring_sdk::tree_id(&ctx.rpc, tree).map_err(|error| match error {
+                    TransferError::Client(source) => RecoveryError::Indexer(source),
+                    _ => RecoveryError::UnknownTree(tree),
+                })
+            },
+        })
+        .map_err(|error| DelegateError::Recovery(Box::new(error)))?;
+    if !recovered.unopened.is_empty() {
+        line("unopened notes", recovered.unopened.len());
+    }
+    let mut wallet = Wallet::new(source, assets.clone())?;
+    wallet.utxos = recovered.utxos;
 
-    let tree = select_tree(&wallet, ctx.ring.program_id(), mint, amount).ok_or(
-        DelegateError::InsufficientNotes {
-            needed: amount,
-            held: 0,
-        },
-    )?;
+    let selection = NoteSelection {
+        wallet: &wallet,
+        ring: ctx.ring.program_id(),
+        mint,
+        amount,
+    };
+    let tree = selection
+        .tree()
+        .ok_or(DelegateError::NoFundedTree { needed: amount })?;
     let tree_id = custom_ring_sdk::tree_id(&ctx.rpc, tree)?;
-    let notes = select_source_notes(&wallet, ctx.ring.program_id(), mint, tree_id, amount)?;
-    let selected = notes
-        .iter()
-        .try_fold(0u64, |total, (utxo, _, _)| total.checked_add(utxo.amount))
-        .ok_or(DelegateError::AmountOverflow)?;
+    let SelectedNotes { notes, total } = selection.notes(tree_id)?;
 
     let authority = ctx.authority_with_balance(SENDER_FEE_BUDGET + PAYER_FEE_BUDGET)?;
     ctx.ring_rpc().check_serves(ctx.ring.program_id())?;
 
     let inputs: Vec<SppProofInputUtxo> = notes
         .into_iter()
-        .map(|(utxo, data_hash, ring_data_hash)| {
-            let mut input = SppProofInputUtxo::new(utxo, &source).in_tree(tree_id);
-            if let Some(data_hash) = data_hash {
+        .map(|held| {
+            let mut input = SppProofInputUtxo::new(held.utxo, &nullifier_key).in_tree(tree_id);
+            if let Some(data_hash) = held.data_hash {
                 input = input.with_data_hash(data_hash);
             }
-            if let Some(ring_data_hash) = ring_data_hash {
+            if let Some(ring_data_hash) = held.ring_data_hash {
                 input = input.with_ring_data_hash(ring_data_hash);
             }
             input
@@ -181,10 +230,15 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
         asset: mint,
         amount,
     }];
-    let change = selected - amount;
+    let change = total
+        .checked_sub(amount)
+        .ok_or(DelegateError::InsufficientNotes {
+            needed: amount,
+            held: total,
+        })?;
     if change > 0 {
         outputs.push(DelegateOutput {
-            recipient: source.shielded_address()?,
+            recipient: source,
             asset: mint,
             amount: change,
         });
@@ -206,8 +260,10 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
         rpc: &ctx.rpc,
         prover: &ctx.prover(),
     })?;
-    let mut signers: Vec<&dyn Signer> = vec![&delegate];
-    signers.extend(cosigner.iter().map(|keypair| keypair as &dyn Signer));
+    let signers = signers(
+        &delegate,
+        cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
+    );
     let moved = TransactSend {
         payer: &authority,
         signers: &signers,
@@ -221,100 +277,146 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
     Ok(())
 }
 
-/// A selected note with the committed hashes that rebuild its input commitment.
-type SelectedNote = (Utxo, Option<[u8; 32]>, Option<[u8; 32]>);
-
-fn select_tree(wallet: &Wallet, ring: Address, mint: Address, amount: u64) -> Option<Address> {
-    let mut balances = BTreeMap::<Address, u128>::new();
-    for held in wallet.utxos.iter().filter(|held| {
-        !held.spent && held.utxo.ring_program_id == Some(ring) && held.utxo.asset == mint
-    }) {
-        *balances.entry(held.output_context.tree).or_default() += u128::from(held.utxo.amount);
-    }
-    balances
-        .into_iter()
-        .filter(|(_, held)| *held >= u128::from(amount))
-        .max_by_key(|(tree, held)| (*held, *tree))
-        .map(|(tree, _)| tree)
-}
-
-/// The source's own unspent notes of the mint in the tree, largest first, up to the amount.
-fn select_source_notes(
-    wallet: &Wallet,
-    ring: Address,
-    mint: Address,
-    tree_id: u16,
-    amount: u64,
-) -> Result<Vec<SelectedNote>, DelegateError> {
-    let mut notes: Vec<SelectedNote> = wallet
-        .utxos
-        .iter()
-        .filter(|held| {
-            !held.spent
-                && held.tree_id == tree_id
-                && held.utxo.ring_program_id == Some(ring)
-                && held.utxo.asset == mint
-        })
-        .map(|held| (held.utxo.clone(), held.data_hash, held.ring_data_hash))
-        .collect();
-    notes.sort_by_key(|(utxo, _, _)| std::cmp::Reverse(utxo.amount));
-    let mut selected = Vec::new();
-    let mut held = 0u64;
-    for note in notes {
-        if held >= amount {
-            break;
-        }
-        held = held.saturating_add(note.0.amount);
-        selected.push(note);
-    }
-    if held < amount {
-        return Err(DelegateError::InsufficientNotes {
-            needed: amount,
-            held,
+/// With a delegate set, the auditor key is spend authority over every registered member's ring notes.
+fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<ViewingKey, DelegateError> {
+    let ring_auditor = ctx
+        .ring
+        .read_config(&ctx.rpc)?
+        .ok_or(DelegateError::NoConfig)?
+        .auditor_pubkey;
+    let path = ctx.project_path(path);
+    let auditor = keys::read_auditor_key(&path).map_err(DelegateError::Auditor)?;
+    if auditor.pubkey() != ring_auditor {
+        return Err(DelegateError::AuditorKeyRequired {
+            path,
+            ring_auditor: hex::encode(ring_auditor.as_bytes()),
         });
     }
-    Ok(selected)
+    Ok(auditor)
+}
+
+impl NoteSelection<'_> {
+    fn held(&self) -> impl Iterator<Item = &WalletUtxo> {
+        self.wallet.utxos.iter().filter(|held| {
+            !held.spent
+                && held.utxo.ring_program_id == Some(self.ring)
+                && held.utxo.asset == self.mint
+        })
+    }
+
+    fn tree(&self) -> Option<Address> {
+        let mut balances = BTreeMap::<Address, u128>::new();
+        for held in self.held() {
+            *balances.entry(held.output_context.tree).or_default() += u128::from(held.utxo.amount);
+        }
+        balances
+            .into_iter()
+            .filter(|(_, held)| *held >= u128::from(self.amount))
+            .max_by_key(|(tree, held)| (*held, *tree))
+            .map(|(tree, _)| tree)
+    }
+
+    /// Largest first, up to the amount.
+    fn notes(&self, tree_id: u16) -> Result<SelectedNotes, DelegateError> {
+        let mut notes: Vec<WalletUtxo> = self
+            .held()
+            .filter(|held| held.tree_id == tree_id)
+            .cloned()
+            .collect();
+        notes.sort_by_key(|held| std::cmp::Reverse(held.utxo.amount));
+        let mut selected = Vec::new();
+        let mut total = 0u64;
+        for note in notes {
+            if total >= self.amount {
+                break;
+            }
+            total = total
+                .checked_add(note.utxo.amount)
+                .ok_or(DelegateError::AmountOverflow)?;
+            selected.push(note);
+        }
+        if total < self.amount {
+            return Err(DelegateError::InsufficientNotes {
+                needed: self.amount,
+                held: total,
+            });
+        }
+        Ok(SelectedNotes {
+            notes: selected,
+            total,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use custom_ring_sdk::CustomRing;
-    use zolana_transaction::{AssetRegistry, Data, OutputContext, Utxo, WalletUtxo};
+    use solana_signature::Signature;
+    use zolana_client::{
+        rpc::GetShieldedTransactionsByNullifiersResponse, Context,
+        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ShieldedTransaction,
+    };
+    use zolana_interface::pda;
+    use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair};
+    use zolana_ring_client::{AuditorEncryption, OriginError, RingOrigin, TransactionOrigin};
+    use zolana_transaction::{
+        serialization::confidential::{
+            Confidential, ConfidentialEncode, ConfidentialOutputPlaintext,
+        },
+        AssetRegistry, Data, OutputContext, OutputSlot, Utxo, UtxoSerialization, SOL_ASSET_ID,
+    };
 
     use super::*;
+
+    const SALT: [u8; SALT_LEN] = [5u8; SALT_LEN];
+    const TREE: Address = Address::new_from_array([4u8; 32]);
 
     fn ring() -> CustomRing {
         CustomRing::new(Address::new_from_array([9; 32]))
     }
 
-    fn note(
-        owner: &ShieldedKeypair,
+    struct NoteFixture {
         ring_id: Option<Address>,
         asset: Address,
         tree_id: u16,
         amount: u64,
         spent: bool,
-    ) -> WalletUtxo {
+    }
+
+    fn note(owner: &ShieldedKeypair, fixture: NoteFixture) -> WalletUtxo {
         WalletUtxo {
-            tree_id,
+            tree_id: fixture.tree_id,
             utxo: Utxo {
                 owner: owner.signing_pubkey(),
-                asset,
-                amount,
-                blinding: [amount as u8; 32],
-                ring_program_id: ring_id,
+                asset: fixture.asset,
+                amount: fixture.amount,
+                blinding: [fixture.amount as u8; 32],
+                ring_program_id: fixture.ring_id,
                 data: Data::default(),
             },
             output_context: OutputContext {
-                hash: [amount as u8; 32],
-                tree: pda::tree(tree_id),
-                leaf_index: amount,
+                hash: [fixture.amount as u8; 32],
+                tree: pda::tree(fixture.tree_id),
+                leaf_index: fixture.amount,
             },
-            nullifier: [amount as u8; 32],
+            nullifier: [fixture.amount as u8; 32],
             data_hash: None,
             ring_data_hash: None,
-            spent,
+            spent: fixture.spent,
         }
+    }
+
+    fn sol_note(owner: &ShieldedKeypair, amount: u64) -> WalletUtxo {
+        note(
+            owner,
+            NoteFixture {
+                ring_id: Some(ring().program_id()),
+                asset: SOL_MINT,
+                tree_id: 0,
+                amount,
+                spent: false,
+            },
+        )
     }
 
     fn wallet_with(owner: &ShieldedKeypair, notes: Vec<WalletUtxo>) -> Wallet {
@@ -327,76 +429,63 @@ mod tests {
         wallet
     }
 
+    fn selection<'a>(wallet: &'a Wallet, mint: Address, amount: u64) -> NoteSelection<'a> {
+        NoteSelection {
+            wallet,
+            ring: ring().program_id(),
+            mint,
+            amount,
+        }
+    }
+
+    fn amounts(notes: &SelectedNotes) -> Vec<u64> {
+        notes.notes.iter().map(|held| held.utxo.amount).collect()
+    }
+
     #[test]
-    fn selects_the_source_notes_up_to_the_amount() {
+    fn selects_the_largest_source_notes_up_to_the_amount() {
         let owner = ShieldedKeypair::new_ed25519().expect("keypair");
-        let wallet = wallet_with(
-            &owner,
-            vec![
-                note(&owner, Some(ring().program_id()), SOL_MINT, 0, 6, false),
-                note(&owner, Some(ring().program_id()), SOL_MINT, 0, 5, false),
-            ],
-        );
-        let selected =
-            select_source_notes(&wallet, ring().program_id(), SOL_MINT, 0, 8).expect("selected");
-        let sum: u64 = selected.iter().map(|(utxo, _, _)| utxo.amount).sum();
-        assert!(sum >= 8);
+        let wallet = wallet_with(&owner, vec![sol_note(&owner, 5), sol_note(&owner, 6)]);
+        let selected = selection(&wallet, SOL_MINT, 8).notes(0).expect("selected");
+        assert_eq!(amounts(&selected), [6, 5]);
+        assert_eq!(selected.total, 11);
     }
 
     #[test]
     fn selects_the_funded_tree_for_the_requested_mint() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let mint = Address::new_from_array([17; 32]);
+        let ring_note = |asset, tree_id, amount| {
+            note(
+                &owner,
+                NoteFixture {
+                    ring_id: Some(ring().program_id()),
+                    asset,
+                    tree_id,
+                    amount,
+                    spent: false,
+                },
+            )
+        };
         let wallet = wallet_with(
             &owner,
             vec![
-                note(&owner, Some(ring().program_id()), mint, 1, 3, false),
-                note(&owner, Some(ring().program_id()), mint, 2, 8, false),
-                note(&owner, Some(ring().program_id()), SOL_MINT, 0, 99, false),
+                ring_note(mint, 1, 3),
+                ring_note(mint, 2, 8),
+                ring_note(SOL_MINT, 0, 99),
             ],
         );
-        assert_eq!(
-            select_tree(&wallet, ring().program_id(), mint, 5),
-            Some(pda::tree(2))
-        );
-        assert_eq!(select_tree(&wallet, ring().program_id(), mint, 9), None);
-        assert_eq!(
-            select_source_notes(&wallet, ring().program_id(), mint, 2, 5).unwrap()[0]
-                .0
-                .asset,
-            mint
-        );
-    }
-
-    #[test]
-    fn carries_the_committed_data_hashes() {
-        let owner = ShieldedKeypair::new_ed25519().expect("keypair");
-        let mut held = note(&owner, Some(ring().program_id()), SOL_MINT, 0, 9, false);
-        held.data_hash = Some([1; 32]);
-        held.ring_data_hash = Some([2; 32]);
-        let wallet = wallet_with(&owner, vec![held]);
-        let selected =
-            select_source_notes(&wallet, ring().program_id(), SOL_MINT, 0, 9).expect("selected");
-        assert_eq!(selected[0].1, Some([1; 32]));
-        assert_eq!(selected[0].2, Some([2; 32]));
+        assert_eq!(selection(&wallet, mint, 5).tree(), Some(pda::tree(2)));
+        assert_eq!(selection(&wallet, mint, 9).tree(), None);
+        assert_eq!(amounts(&selection(&wallet, mint, 5).notes(2).unwrap()), [8]);
     }
 
     #[test]
     fn refuses_when_the_source_holds_too_little() {
         let owner = ShieldedKeypair::new_ed25519().expect("keypair");
-        let wallet = wallet_with(
-            &owner,
-            vec![note(
-                &owner,
-                Some(ring().program_id()),
-                SOL_MINT,
-                0,
-                3,
-                false,
-            )],
-        );
+        let wallet = wallet_with(&owner, vec![sol_note(&owner, 3)]);
         assert!(matches!(
-            select_source_notes(&wallet, ring().program_id(), SOL_MINT, 0, 8),
+            selection(&wallet, SOL_MINT, 8).notes(0),
             Err(DelegateError::InsufficientNotes { needed: 8, held: 3 })
         ));
     }
@@ -406,19 +495,296 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().expect("keypair");
         let other_ring = Address::new_from_array([7; 32]);
         let other_mint = Address::new_from_array([8; 32]);
+        let fixture = |ring_id, asset, tree_id, amount, spent| NoteFixture {
+            ring_id,
+            asset,
+            tree_id,
+            amount,
+            spent,
+        };
         let wallet = wallet_with(
             &owner,
             vec![
-                note(&owner, Some(other_ring), SOL_MINT, 0, 20, false),
-                note(&owner, Some(ring().program_id()), other_mint, 0, 21, false),
-                note(&owner, Some(ring().program_id()), SOL_MINT, 1, 22, false),
-                note(&owner, Some(ring().program_id()), SOL_MINT, 0, 23, true),
-                note(&owner, None, SOL_MINT, 0, 24, false),
+                note(&owner, fixture(Some(other_ring), SOL_MINT, 0, 20, false)),
+                note(
+                    &owner,
+                    fixture(Some(ring().program_id()), other_mint, 0, 21, false),
+                ),
+                note(
+                    &owner,
+                    fixture(Some(ring().program_id()), SOL_MINT, 1, 22, false),
+                ),
+                note(
+                    &owner,
+                    fixture(Some(ring().program_id()), SOL_MINT, 0, 23, true),
+                ),
+                note(&owner, fixture(None, SOL_MINT, 0, 24, false)),
             ],
         );
         assert!(matches!(
-            select_source_notes(&wallet, ring().program_id(), SOL_MINT, 0, 5),
+            selection(&wallet, SOL_MINT, 5).notes(0),
             Err(DelegateError::InsufficientNotes { needed: 5, held: 0 })
+        ));
+    }
+
+    struct RecoveredFixture {
+        slot: OutputSlot,
+        utxo: Utxo,
+        nullifier: [u8; 32],
+    }
+
+    struct RingNote<'a> {
+        tx_key: &'a ViewingKey,
+        source: &'a ShieldedKeypair,
+        amount: u64,
+        blinding: u8,
+    }
+
+    impl RingNote<'_> {
+        /// The committed leaf must come back from the auditor's plaintext alone.
+        fn seal(self) -> RecoveredFixture {
+            let ring = ring().program_id();
+            let address = self.source.shielded_address().expect("address");
+            let plaintext = ConfidentialOutputPlaintext {
+                asset_id: SOL_ASSET_ID,
+                amount: self.amount,
+                blinding: [self.blinding; 32],
+                ring_program_id: Some(ring),
+                data: Data::default(),
+            };
+            let encoded = Confidential::encode_plaintext(
+                &plaintext,
+                address.confidential_view_tag().expect("owner tag"),
+                &ConfidentialEncode {
+                    tx: self.tx_key.clone(),
+                    recipient_pubkey: address.viewing_pubkey,
+                    salt: SALT,
+                    slot_index: 0,
+                },
+            )
+            .expect("encode");
+            let utxo = Utxo {
+                owner: self.source.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: self.amount,
+                blinding: [self.blinding; 32],
+                ring_program_id: Some(ring),
+                data: Data::default(),
+            };
+            let commitment = utxo
+                .hash(&address.nullifier_pubkey, &[0u8; 32], &[0u8; 32], 0)
+                .expect("commitment");
+            let nullifier = utxo
+                .nullifier(&commitment, &self.source.nullifier_key)
+                .expect("nullifier");
+            RecoveredFixture {
+                slot: OutputSlot {
+                    view_tag: encoded.view_tag,
+                    output_context: OutputContext {
+                        hash: commitment,
+                        tree: TREE,
+                        leaf_index: 0,
+                    },
+                    payload: encoded.data,
+                },
+                utxo,
+                nullifier,
+            }
+        }
+    }
+
+    struct RingTx<'a> {
+        tx_key: &'a ViewingKey,
+        auditor: &'a ViewingKey,
+        signature: u8,
+        output_slots: Vec<OutputSlot>,
+        nullifiers: Vec<[u8; 32]>,
+    }
+
+    impl RingTx<'_> {
+        fn indexed(self) -> ShieldedTransaction {
+            let message = AuditorEncryption::new(self.tx_key, &self.auditor.pubkey())
+                .expect("auditor encryption")
+                .message
+                .to_message_data(&self.auditor.pubkey());
+            ShieldedTransaction {
+                slot: u64::from(self.signature),
+                tx_signature: Signature::from([self.signature; 64]),
+                tx_viewing_pk: Some(self.tx_key.pubkey()),
+                salt: Some(SALT),
+                output_slots: self.output_slots,
+                messages: vec![message],
+                nullifiers: self.nullifiers,
+                proofless: false,
+            }
+        }
+    }
+
+    struct StubIndexer {
+        transactions: Vec<ShieldedTransaction>,
+    }
+
+    impl Rpc for StubIndexer {
+        fn get_shielded_transactions_by_tags(
+            &self,
+            _tags: Vec<[u8; 32]>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+            Ok(GetShieldedTransactionsByTagsResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                transactions: self.transactions.clone(),
+                next_cursor: None,
+                scanned_through: None,
+            })
+        }
+
+        fn get_shielded_transactions_by_nullifiers(
+            &self,
+            nullifiers: Vec<[u8; 32]>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+            Ok(GetShieldedTransactionsByNullifiersResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                transactions: self
+                    .transactions
+                    .iter()
+                    .filter(|tx| tx.nullifiers.iter().any(|spent| nullifiers.contains(spent)))
+                    .cloned()
+                    .collect(),
+                next_cursor: None,
+                scanned_through: Some(Vec::new()),
+            })
+        }
+    }
+
+    struct AllRingInvoked;
+
+    impl TransactionOrigin for AllRingInvoked {
+        fn origin(&self, _signature: Signature, _ring: Address) -> Result<RingOrigin, OriginError> {
+            Ok(RingOrigin {
+                ring_invoked: true,
+                signers: Vec::new(),
+                withdrawals: Vec::new(),
+            })
+        }
+    }
+
+    fn recover(
+        indexer: &StubIndexer,
+        auditor: &ViewingKey,
+        source: SourceMember<'_>,
+    ) -> Result<Vec<WalletUtxo>, RecoveryError> {
+        RingRecovery::new(ring().program_id(), auditor)
+            .for_member(source)
+            .run(RecoveryEnvironment {
+                ring: RingEnvironment {
+                    indexer,
+                    origin: &AllRingInvoked,
+                },
+                assets: &AssetRegistry::default(),
+                tree_ids: |_tree| Ok(0u16),
+            })
+            .map(|recovered| recovered.utxos)
+    }
+
+    #[test]
+    fn recovery_returns_the_source_unspent_notes_and_drops_the_spent_one() {
+        let source = ShieldedKeypair::new_ed25519().expect("keypair");
+        let auditor = ViewingKey::new();
+        let tx_unspent = ViewingKey::new();
+        let tx_spent = ViewingKey::new();
+        let tx_burn = ViewingKey::new();
+        let unspent = RingNote {
+            tx_key: &tx_unspent,
+            source: &source,
+            amount: 6,
+            blinding: 0x11,
+        }
+        .seal();
+        let spent = RingNote {
+            tx_key: &tx_spent,
+            source: &source,
+            amount: 5,
+            blinding: 0x22,
+        }
+        .seal();
+        let indexer = StubIndexer {
+            transactions: vec![
+                RingTx {
+                    tx_key: &tx_unspent,
+                    auditor: &auditor,
+                    signature: 1,
+                    output_slots: vec![unspent.slot.clone()],
+                    nullifiers: Vec::new(),
+                }
+                .indexed(),
+                RingTx {
+                    tx_key: &tx_spent,
+                    auditor: &auditor,
+                    signature: 2,
+                    output_slots: vec![spent.slot.clone()],
+                    nullifiers: Vec::new(),
+                }
+                .indexed(),
+                RingTx {
+                    tx_key: &tx_burn,
+                    auditor: &auditor,
+                    signature: 3,
+                    output_slots: Vec::new(),
+                    nullifiers: vec![spent.nullifier],
+                }
+                .indexed(),
+            ],
+        };
+        let address = source.shielded_address().expect("address");
+        let recovered = recover(
+            &indexer,
+            &auditor,
+            SourceMember {
+                address: &address,
+                nullifier_key: &source.nullifier_key,
+            },
+        )
+        .expect("recovery");
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].utxo, unspent.utxo);
+
+        let mut wallet = Wallet::new(address, AssetRegistry::default()).expect("wallet");
+        wallet.utxos = recovered;
+        let selected = selection(&wallet, SOL_MINT, 6).notes(0).expect("selected");
+        assert_eq!(selected.notes.len(), 1);
+        assert_eq!(selected.notes[0].utxo, unspent.utxo);
+    }
+
+    #[test]
+    fn recovery_rejects_a_nullifier_key_from_another_member() {
+        let source = ShieldedKeypair::new_ed25519().expect("keypair");
+        let stranger = ShieldedKeypair::new_ed25519().expect("stranger");
+        let indexer = StubIndexer {
+            transactions: Vec::new(),
+        };
+        let address = source.shielded_address().expect("address");
+        assert!(matches!(
+            recover(
+                &indexer,
+                &ViewingKey::new(),
+                SourceMember {
+                    address: &address,
+                    nullifier_key: &stranger.nullifier_key,
+                },
+            ),
+            Err(RecoveryError::NullifierKeyMismatch)
         ));
     }
 }

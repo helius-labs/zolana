@@ -3,7 +3,8 @@
 use std::{collections::BTreeMap, path::Path};
 
 use custom_ring_sdk::{
-    CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment, MAX_MERGE_INPUTS,
+    CoSignScope, CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment,
+    MergeError as RingMergeError, MAX_MERGE_INPUTS,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -14,9 +15,11 @@ use zolana_transaction::{TransactionError, Wallet, WalletUtxo, SOL_MINT};
 use zolana_wallet::sync_wallet;
 
 use crate::{
+    assets::{self, AssetError},
+    error::boxed_from,
     file::{self, FileError},
     line,
-    transact::{wait_for_indexed_transaction, WaitError},
+    transact::{signers, wait_for_indexed_transaction, CoSignerCheck, TransactError, WaitError},
     Context, ContextError, MergeArgs, SENDER_KEYPAIR_FILE,
 };
 
@@ -33,9 +36,11 @@ pub enum MergeError {
     #[error(transparent)]
     Transaction(#[from] TransactionError),
     #[error(transparent)]
-    Asset(#[from] crate::assets::AssetError),
+    Asset(#[from] AssetError),
     #[error(transparent)]
-    Preflight(Box<crate::transact::TransactError>),
+    Transact(Box<TransactError>),
+    #[error(transparent)]
+    Prove(#[from] RingMergeError),
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
@@ -52,6 +57,10 @@ pub enum MergeError {
     OutputNotFound([u8; 32]),
 }
 
+boxed_from!(MergeError {
+    Transact(TransactError),
+});
+
 pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     if !(2..=MAX_MERGE_INPUTS).contains(&args.count) {
         return Err(MergeError::Count(args.count));
@@ -60,15 +69,13 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     let sender = sender_keypair(ctx)?;
     let indexer = ctx.indexer();
     let mint = args.mint.unwrap_or(SOL_MINT);
-    let registry = crate::assets::resolve(&ctx.rpc, mint)?.registry;
-    let cosigner = crate::transact::cosigner_keypair(ctx, args.cosigner_keypair.as_deref())?;
-    crate::transact::CoSignerCheck {
-        provided: cosigner.as_ref().map(|keypair| keypair.pubkey()),
-        scope: custom_ring_interface::COSIGN_TRANSFERS,
+    let registry = assets::resolve(&ctx.rpc, mint)?.registry;
+    let cosigner = CoSignerCheck {
+        keypair: args.cosigner_keypair.as_deref(),
+        scope: CoSignScope::TRANSFERS,
         payment: None,
     }
-    .check(ctx)
-    .map_err(|error| MergeError::Preflight(Box::new(error)))?;
+    .load(ctx)?;
     let mut wallet = Wallet::new(sender.shielded_address()?, registry)?;
 
     println!("syncing the sender wallet");
@@ -103,8 +110,10 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     };
     let payer = ctx.funded_authority()?;
     let merge = proven.instruction(tree, tree, payer.pubkey());
-    let mut signers: Vec<&dyn Signer> = vec![&payer];
-    signers.extend(cosigner.as_ref().map(|keypair| keypair as &dyn Signer));
+    let signers = signers(
+        &payer,
+        cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
+    );
     let signature = ctx.rpc.create_and_send_transaction(
         &[merge],
         payer.pubkey(),

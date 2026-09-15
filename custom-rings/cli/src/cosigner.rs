@@ -1,64 +1,27 @@
-use std::str::FromStr;
-
 use custom_ring_sdk::{
-    AccountReadError, ClearCoSigner, CustomRingCoSigner, SetCoSigner, COSIGN_DEPOSITS,
-    COSIGN_TRANSFERS, COSIGN_WITHDRAWALS, SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
+    AccountReadError, ClearCoSigner, CoSignScope, CoSignThreshold, CustomRingCoSigner, SetCoSigner,
+    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
 };
 use serde::{Deserialize, Serialize};
-use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
-use zolana_transaction::SOL_MINT;
 
-use crate::{config::CoSignerSpec, line, ui, ui::Icon, Context, ContextError, CosignerCommand};
+use crate::{
+    config::{Base58Address, CoSignerSpec, Mint},
+    line, CoSignerCommand, Context, ContextError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum CosignScope {
+pub enum CoSignClass {
     Transfers,
     Deposits,
     Withdrawals,
 }
 
-impl CosignScope {
-    pub const fn bit(self) -> u8 {
-        match self {
-            Self::Transfers => COSIGN_TRANSFERS,
-            Self::Deposits => COSIGN_DEPOSITS,
-            Self::Withdrawals => COSIGN_WITHDRAWALS,
-        }
-    }
-}
-
-/// `<mint>=<amount>`, `sol` for the native token.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Threshold {
-    pub mint: Address,
-    pub above: u64,
-}
-
-impl FromStr for Threshold {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, String> {
-        let (mint, above) = value
-            .split_once('=')
-            .ok_or_else(|| "expected <mint>=<amount>".to_owned())?;
-        let mint = if mint.eq_ignore_ascii_case("sol") {
-            SOL_MINT
-        } else {
-            mint.parse().map_err(|_| format!("{mint} is not a mint"))?
-        };
-        let above = above
-            .parse()
-            .map_err(|_| format!("{above} is not an amount"))?;
-        Ok(Self { mint, above })
-    }
-}
-
 #[derive(Debug, Error)]
-pub enum CosignerError {
+pub enum CoSignerError {
     #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
@@ -69,36 +32,46 @@ pub enum CosignerError {
     Client(Box<ClientError>),
     #[error("no signer given and ring.toml has no [cosigner] table")]
     NoSigner,
+    #[error("the co-signer gates no operation class")]
+    EmptyScope,
     #[error("the ring has no co-signer")]
     NotSet,
 }
 
-impl From<ClientError> for CosignerError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
+impl CoSignClass {
+    pub const ALL: [Self; 3] = [Self::Transfers, Self::Deposits, Self::Withdrawals];
+
+    pub const fn scope(self) -> CoSignScope {
+        match self {
+            Self::Transfers => CoSignScope::TRANSFERS,
+            Self::Deposits => CoSignScope::DEPOSITS,
+            Self::Withdrawals => CoSignScope::WITHDRAWALS,
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Transfers => "transfers",
+            Self::Deposits => "deposits",
+            Self::Withdrawals => "withdrawals",
+        }
     }
 }
 
-pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerError> {
+pub fn run(ctx: &mut Context, command: CoSignerCommand) -> Result<(), CoSignerError> {
     match command {
-        CosignerCommand::Set {
+        CoSignerCommand::Set {
             signer,
             scope,
             threshold,
         } => {
             let spec = match signer {
                 Some(signer) => CoSignerSpec {
-                    key: crate::config::Base58Address(signer),
+                    key: Base58Address(signer),
                     scope,
-                    thresholds: threshold
-                        .iter()
-                        .map(|row| crate::config::ThresholdSpec {
-                            mint: crate::config::Base58Address(row.mint),
-                            above: row.above,
-                        })
-                        .collect(),
+                    thresholds: threshold,
                 },
-                None => ctx.config.cosigner.clone().ok_or(CosignerError::NoSigner)?,
+                None => ctx.config.cosigner.clone().ok_or(CoSignerError::NoSigner)?,
             };
             let authority = ctx.funded_authority()?;
             let instruction = SetCoSigner {
@@ -106,11 +79,14 @@ pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerEr
                 payer: authority.pubkey(),
                 authority: authority.pubkey(),
                 signer: spec.key.0,
-                scope: spec.scope_bits(),
+                scope: spec.scope().ok_or(CoSignerError::EmptyScope)?,
                 thresholds: spec
                     .thresholds
                     .iter()
-                    .map(|row| (row.mint.0, row.above))
+                    .map(|row| CoSignThreshold {
+                        mint: row.mint.0,
+                        amount: row.above,
+                    })
                     .collect(),
             }
             .instruction()?;
@@ -120,12 +96,12 @@ pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerEr
                 &[&authority],
                 ComputeBudgetConfig::new(SET_CO_SIGNER_COMPUTE_UNIT_LIMIT),
             )?;
-            ui::heading(Icon::Auditor, &format!("co-signer {} set", spec.key.0));
+            line("co-signer", format_args!("{} set", spec.key.0));
         }
-        CosignerCommand::Clear => {
+        CoSignerCommand::Clear => {
             let authority = ctx.funded_authority()?;
             if ctx.ring.read_cosigner(&ctx.rpc)?.is_none() {
-                return Err(CosignerError::NotSet);
+                return Err(CoSignerError::NotSet);
             }
             ctx.rpc.create_and_send_transaction(
                 &[ClearCoSigner {
@@ -140,7 +116,7 @@ pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerEr
             )?;
             line("co-signer", "cleared");
         }
-        CosignerCommand::Show => {}
+        CoSignerCommand::Show => {}
     }
     match ctx.ring.read_cosigner(&ctx.rpc)? {
         Some(cosigner) => print(&cosigner),
@@ -149,27 +125,61 @@ pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerEr
     Ok(())
 }
 
-pub fn print(cosigner: &CustomRingCoSigner) {
+pub(crate) fn print(cosigner: &CustomRingCoSigner) {
     line("co-signer", cosigner.signer);
     line("scope", scope_names(cosigner.scope).join(","));
-    for (mint, above) in &cosigner.thresholds {
-        let mint = if *mint == SOL_MINT {
-            "sol".to_owned()
-        } else {
-            mint.to_string()
-        };
-        line("threshold", format_args!("{mint} above {above}"));
+    for threshold in &cosigner.thresholds {
+        line(
+            "threshold",
+            format_args!("{} above {}", Mint(threshold.mint), threshold.amount),
+        );
     }
 }
 
-fn scope_names(scope: u8) -> Vec<&'static str> {
-    [
-        (COSIGN_TRANSFERS, "transfers"),
-        (COSIGN_DEPOSITS, "deposits"),
-        (COSIGN_WITHDRAWALS, "withdrawals"),
-    ]
-    .into_iter()
-    .filter(|(bit, _)| scope & bit != 0)
-    .map(|(_, name)| name)
-    .collect()
+fn scope_names(scope: CoSignScope) -> Vec<&'static str> {
+    CoSignClass::ALL
+        .into_iter()
+        .filter(|class| scope.contains(class.scope()))
+        .map(CoSignClass::name)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_threshold_parses_the_sol_alias_and_refuses_a_bare_amount() {
+        use crate::config::ThresholdSpec;
+
+        let sol: ThresholdSpec = "sol=5".parse().expect("parses");
+        assert_eq!(sol.mint.0, zolana_transaction::SOL_MINT);
+        assert_eq!(sol.above, 5);
+        assert_eq!(
+            "5".parse::<ThresholdSpec>(),
+            Err(crate::config::ThresholdParseError::Shape)
+        );
+        assert!(matches!(
+            "sol=many".parse::<ThresholdSpec>(),
+            Err(crate::config::ThresholdParseError::Amount(_))
+        ));
+        assert!(matches!(
+            "mint=1".parse::<ThresholdSpec>(),
+            Err(crate::config::ThresholdParseError::Mint(_))
+        ));
+    }
+
+    #[test]
+    fn scope_names_follow_the_classes() {
+        assert_eq!(
+            scope_names(CoSignScope::TRANSFERS | CoSignScope::WITHDRAWALS),
+            ["transfers", "withdrawals"]
+        );
+        let spec = CoSignerSpec {
+            key: Base58Address(solana_address::Address::default()),
+            scope: vec![CoSignClass::Deposits],
+            thresholds: Vec::new(),
+        };
+        assert_eq!(spec.scope(), Some(CoSignScope::DEPOSITS));
+    }
 }

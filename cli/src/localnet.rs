@@ -4,11 +4,11 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     args::TestValidatorOptions,
-    config::{READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
+    config::{READINESS_STABLE_CHECKS, READINESS_TIMEOUT, SCOPED_PHOTON_BLOCK_FETCHES},
     http::{wait_for_http_get_with_child, wait_for_rpc_with_child},
     process::{
         find_binary, path_string, process_scope, remove_launchd_validators,
-        require_scoped_port_available, spawn_service, stop_name, stop_port,
+        require_scoped_port_available, spawn_service, stop_name, stop_port, Service,
     },
     prover::start_prover_service,
     release::Release,
@@ -26,8 +26,8 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
     stop_test_validator(opts.rpc_port);
     require_scoped_port_available(opts.rpc_port)?;
     if opts.use_surfpool_backend() && process_scope()?.is_some() {
-        for (_, port, _) in scoped_surfpool_ports(&opts)? {
-            require_scoped_port_available(port)?;
+        for port in scoped_surfpool_ports(&opts)? {
+            require_scoped_port_available(port.port)?;
         }
     }
     thread::sleep(Duration::from_secs(1));
@@ -62,7 +62,7 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
             surfpool.display(),
             args.join(" ")
         );
-        spawn_service(&surfpool, &args, "surfpool", &opts.log_dir)?
+        spawn_service(&surfpool, &args, Service::Surfpool, &opts.log_dir)?
     } else {
         let validator = find_binary(&[], &[], &["solana-test-validator"])?;
         let args = solana_validator_args(&opts)?;
@@ -71,7 +71,7 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
             validator.display(),
             args.join(" ")
         );
-        spawn_service(&validator, &args, "solana-test-validator", &opts.log_dir)?
+        spawn_service(&validator, &args, Service::Validator, &opts.log_dir)?
     };
 
     wait_for_rpc_with_child(
@@ -132,9 +132,9 @@ pub(crate) fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> 
         opts.gossip_host.clone(),
     ];
     if process_scope()?.is_some() {
-        for (flag, port, explicit) in scoped_surfpool_ports(opts)? {
-            if !explicit {
-                args.extend([flag.to_string(), port.to_string()]);
+        for port in scoped_surfpool_ports(opts)? {
+            if !port.explicit {
+                args.extend([port.flag.to_string(), port.port.to_string()]);
             }
         }
     }
@@ -155,9 +155,16 @@ pub(crate) fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> 
     Ok(args)
 }
 
-fn scoped_surfpool_ports(opts: &TestValidatorOptions) -> Result<[(&'static str, u16, bool); 2]> {
+#[derive(Debug, PartialEq, Eq)]
+struct ScopedPort {
+    flag: &'static str,
+    port: u16,
+    explicit: bool,
+}
+
+fn scoped_surfpool_ports(opts: &TestValidatorOptions) -> Result<[ScopedPort; 2]> {
     let passthrough = opts.validator_args();
-    let port = |flag: &'static str, offset: u16| -> Result<(&'static str, u16, bool)> {
+    let port = |flag: &'static str, offset: u16| -> Result<ScopedPort> {
         let supplied = passthrough.iter().enumerate().find_map(|(index, arg)| {
             if arg == flag {
                 passthrough.get(index + 1).map(String::as_str)
@@ -172,10 +179,17 @@ fn scoped_surfpool_ports(opts: &TestValidatorOptions) -> Result<[(&'static str, 
                 .checked_add(offset)
                 .context("RPC port leaves no room for scoped auxiliary ports")?,
         };
-        Ok((flag, value, supplied.is_some()))
+        Ok(ScopedPort {
+            flag,
+            port: value,
+            explicit: supplied.is_some(),
+        })
     };
     let ports = [port("--ws-port", 1)?, port("--studio-port", 2)?];
-    if ports[0].1 == opts.rpc_port || ports[1].1 == opts.rpc_port || ports[0].1 == ports[1].1 {
+    if ports[0].port == opts.rpc_port
+        || ports[1].port == opts.rpc_port
+        || ports[0].port == ports[1].port
+    {
         bail!("scoped RPC, WebSocket and Studio ports must be distinct");
     }
     Ok(ports)
@@ -299,7 +313,7 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
     if process_scope()?.is_some() {
         args.extend([
             "--max-concurrent-block-fetches".to_string(),
-            "8".to_string(),
+            SCOPED_PHOTON_BLOCK_FETCHES.to_string(),
         ]);
     }
     if let Some(db_url) = &opts.photon_db_url {
@@ -310,7 +324,7 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
     const START_ATTEMPTS: u32 = 3;
     for attempt in 1..=START_ATTEMPTS {
         println!("Starting Photon: {} {}", photon.display(), args.join(" "));
-        let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
+        let mut child = spawn_service(&photon, &args, Service::Photon, &opts.log_dir)?;
         let readiness = wait_for_http_get_with_child(
             opts.photon_port,
             "/readiness",
@@ -358,10 +372,18 @@ mod tests {
 
     #[test]
     fn scoped_auxiliary_ports_follow_rpc_or_explicit_overrides() {
+        let scoped = |flag, port, explicit| ScopedPort {
+            flag,
+            port,
+            explicit,
+        };
         let defaults = parse_validator(&["--rpc-port", "18899"]);
         assert_eq!(
             scoped_surfpool_ports(&defaults).unwrap(),
-            [("--ws-port", 18900, false), ("--studio-port", 18901, false),]
+            [
+                scoped("--ws-port", 18900, false),
+                scoped("--studio-port", 18901, false),
+            ]
         );
         let explicit = parse_validator(&[
             "--rpc-port",
@@ -373,7 +395,10 @@ mod tests {
         ]);
         assert_eq!(
             scoped_surfpool_ports(&explicit).unwrap(),
-            [("--ws-port", 18902, true), ("--studio-port", 18903, true),]
+            [
+                scoped("--ws-port", 18902, true),
+                scoped("--studio-port", 18903, true),
+            ]
         );
         let duplicate = parse_validator(&["--rpc-port", "18899", "--", "--ws-port", "18899"]);
         assert!(scoped_surfpool_ports(&duplicate).is_err());

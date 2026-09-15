@@ -12,8 +12,6 @@ mkdir -p target/deploy
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 
-# tee the build output so a frame overflow can be gated below, PIPESTATUS keeps
-# a real cargo failure fatal under `set -e`.
 build() {
     cargo build-sbf --tools-version "$sbf_tools_version" --sbf-out-dir target/deploy "$@" 2>&1 | tee -a "$log"
     return "${PIPESTATUS[0]}"
@@ -29,8 +27,7 @@ build --manifest-path sdk-tests/dynamic-swap/program/Cargo.toml -- --locked --fe
 build --manifest-path sdk-tests/compression/program/Cargo.toml -- --locked --features bpf-entrypoint
 build --manifest-path custom-rings/program/Cargo.toml -- --locked --features bpf-entrypoint
 
-# The SBF backend prints an over-frame function as a non-fatal Error and exits 0.
-# A frame over 4096 bytes is undefined behaviour on a gap-enabled runtime, fail.
+# cargo build-sbf exits 0 on a frame overflow.
 frame_error='overflows the maximum allowed frame space|overwrites values in the frame'
 if grep -Eq "$frame_error" "$log"; then
     echo "error: SBF stack frame overflow" >&2

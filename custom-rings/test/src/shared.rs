@@ -581,20 +581,39 @@ pub fn send_expecting_rejection(
     payer: &dyn Signer,
     ix: Instruction,
 ) -> Result<ClientError> {
-    let tx = TransactSend {
+    RejectedTransact {
         payer,
         signers: &[],
         instruction: ix,
     }
-    .build(rpc)?;
-    match rpc.client().send_and_confirm_transaction(&tx) {
-        Ok(signature) => Err(anyhow!(
-            "transaction {signature} was expected to be rejected but landed"
-        )),
-        Err(source) => Ok(ClientError::SolanaRpcTransaction {
-            operation: "send v1",
-            source,
-        }),
+    .send(rpc)
+}
+
+/// [`send_expecting_rejection`] with the signers a co-signed or delegated transact needs.
+#[must_use]
+pub struct RejectedTransact<'a> {
+    pub payer: &'a dyn Signer,
+    pub signers: &'a [&'a dyn Signer],
+    pub instruction: Instruction,
+}
+
+impl RejectedTransact<'_> {
+    pub fn send(self, rpc: &SolanaRpc) -> Result<ClientError> {
+        let tx = TransactSend {
+            payer: self.payer,
+            signers: self.signers,
+            instruction: self.instruction,
+        }
+        .build(rpc)?;
+        match rpc.client().send_and_confirm_transaction(&tx) {
+            Ok(signature) => Err(anyhow!(
+                "transaction {signature} was expected to be rejected but landed"
+            )),
+            Err(source) => Ok(ClientError::SolanaRpcTransaction {
+                operation: "send v1",
+                source,
+            }),
+        }
     }
 }
 

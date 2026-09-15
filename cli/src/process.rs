@@ -11,21 +11,47 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::config::TERMINATION_GRACE_PERIOD;
 
+pub(crate) const PROCESS_SCOPE_ENV: &str = "ZOLANA_PROCESS_SCOPE_DIR";
+const RECEIPT_EXTENSION: &str = "owner";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Service {
+    Surfpool,
+    Validator,
+    Photon,
+    Prover,
+}
+
+impl Service {
+    pub(crate) const fn log_name(self) -> &'static str {
+        match self {
+            Self::Surfpool => "surfpool",
+            Self::Validator => "solana-test-validator",
+            Self::Photon => "photon",
+            Self::Prover => "prover-server",
+        }
+    }
+}
+
+struct OwnedReceipt {
+    pid: String,
+    identity: String,
+}
+
 pub(crate) fn spawn_service(
     binary: &Path,
     args: &[String],
-    log_name: &str,
+    service: Service,
     log_dir: &str,
 ) -> Result<Child> {
     let scope = process_scope()?;
-    let scoped_log_dir = scope.as_ref().map(|scope| scope.join("logs"));
-    let log_dir = scoped_log_dir
+    let log_dir = scope
         .as_ref()
-        .map(|path| path.to_string_lossy())
-        .unwrap_or_else(|| log_dir.into());
-    std::fs::create_dir_all(log_dir.as_ref())
-        .with_context(|| format!("failed to create log directory {log_dir}"))?;
-    let log_path = Path::new(log_dir.as_ref()).join(format!("{log_name}.log"));
+        .map_or_else(|| PathBuf::from(log_dir), |scope| scope.join("logs"));
+    std::fs::create_dir_all(&log_dir)
+        .with_context(|| format!("failed to create log directory {}", log_dir.display()))?;
+    let log_name = service.log_name();
+    let log_path = log_dir.join(format!("{log_name}.log"));
     println!("Writing {log_name} logs to {}", log_path.display());
     let log = OpenOptions::new()
         .create(true)
@@ -37,7 +63,7 @@ pub(crate) fn spawn_service(
         .with_context(|| format!("failed to clone {}", log_path.display()))?;
 
     let mut command = Command::new(binary);
-    if let Some(scope) = scope.as_ref().filter(|_| log_name == "photon") {
+    if let Some(scope) = scope.as_ref().filter(|_| service == Service::Photon) {
         let temporary = scope.join(format!("photon-data-{}", std::process::id()));
         if std::fs::symlink_metadata(&temporary)
             .is_ok_and(|metadata| !metadata.file_type().is_dir())
@@ -68,7 +94,7 @@ pub(crate) fn spawn_service(
 }
 
 pub(crate) fn remove_launchd_validators() {
-    if env::var_os("ZOLANA_PROCESS_SCOPE_DIR").is_some() {
+    if !matches!(process_scope(), Ok(None)) {
         return;
     }
     if !cfg!(target_os = "macos") {
@@ -85,16 +111,12 @@ pub(crate) fn remove_launchd_validators() {
 }
 
 pub(crate) fn stop_name(name: &str) {
-    match process_scope() {
-        Ok(Some(scope)) => {
-            stop_owned_receipt(&scope.join(format!("{name}.owner")));
-            return;
-        }
-        Err(error) => {
-            eprintln!("refusing unscoped stop ({error:#})");
-            return;
-        }
-        Ok(None) => {}
+    let Some(scope) = stop_scope() else {
+        return;
+    };
+    if let Some(scope) = scope {
+        stop_owned_receipt(&receipt_path(&scope, name));
+        return;
     }
     let _ = signal_name(name, "-TERM");
     if wait_for_process_exit(|| !process_name_exists(name)) {
@@ -104,12 +126,8 @@ pub(crate) fn stop_name(name: &str) {
 }
 
 pub(crate) fn stop_port(port: u16) {
-    let scope = match process_scope() {
-        Ok(scope) => scope,
-        Err(error) => {
-            eprintln!("refusing unscoped stop ({error:#})");
-            return;
-        }
+    let Some(scope) = stop_scope() else {
+        return;
     };
     let output = Command::new("lsof").arg(format!("-ti:{port}")).output();
     let Ok(output) = output else {
@@ -127,9 +145,8 @@ pub(crate) fn stop_port(port: u16) {
     }
 }
 
-/// Scoped stops require matching process receipts.
 pub(crate) fn process_scope() -> Result<Option<PathBuf>> {
-    let Some(scope) = env::var_os("ZOLANA_PROCESS_SCOPE_DIR") else {
+    let Some(scope) = env::var_os(PROCESS_SCOPE_ENV) else {
         return Ok(None);
     };
     let scope = PathBuf::from(scope);
@@ -138,9 +155,20 @@ pub(crate) fn process_scope() -> Result<Option<PathBuf>> {
         || scope.parent().is_none()
         || std::fs::symlink_metadata(&scope)?.file_type().is_symlink()
     {
-        bail!("ZOLANA_PROCESS_SCOPE_DIR must name an existing absolute task directory");
+        bail!("{PROCESS_SCOPE_ENV} must name an existing absolute task directory");
     }
     Ok(Some(scope))
+}
+
+/// An invalid scope refuses the stop, never an unscoped fallback.
+fn stop_scope() -> Option<Option<PathBuf>> {
+    match process_scope() {
+        Ok(scope) => Some(scope),
+        Err(error) => {
+            eprintln!("refusing unscoped stop ({error:#})");
+            None
+        }
+    }
 }
 
 /// Foreign listeners must remain running.
@@ -153,8 +181,16 @@ pub(crate) fn require_scoped_port_available(port: u16) -> Result<()> {
     Ok(())
 }
 
+fn valid_pid(pid: &str) -> bool {
+    pid.parse::<u32>().is_ok_and(|pid| pid > 1)
+}
+
+fn receipt_path(scope: &Path, name: &str) -> PathBuf {
+    scope.join(name).with_extension(RECEIPT_EXTENSION)
+}
+
 fn process_identity(pid: &str) -> Option<String> {
-    if !pid.parse::<u32>().is_ok_and(|pid| pid > 1) {
+    if !valid_pid(pid) {
         return None;
     }
     let output = Command::new("ps")
@@ -173,13 +209,11 @@ fn record_owned_process(scope: &Path, name: &str, pid: u32) -> Result<()> {
     {
         bail!("invalid scoped service name");
     }
-    let path = scope.join(format!("{name}.owner"));
+    let path = receipt_path(scope, name);
     if std::fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.file_type().is_file()) {
         bail!("scoped service receipt is not a regular file");
     }
-    if owned_receipt(&path)
-        .is_some_and(|(pid, identity)| process_identity(&pid).as_deref() == Some(identity.as_str()))
-    {
+    if OwnedReceipt::read(&path).is_some_and(|receipt| receipt.alive()) {
         bail!("task-owned {name} is still running");
     }
     let pid = pid.to_string();
@@ -188,30 +222,38 @@ fn record_owned_process(scope: &Path, name: &str, pid: u32) -> Result<()> {
     std::fs::write(path, format!("{pid}\n{identity}\n")).context("record task-owned service")
 }
 
-fn owned_receipt(path: &Path) -> Option<(String, String)> {
-    if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
-        return None;
+impl OwnedReceipt {
+    fn read(path: &Path) -> Option<Self> {
+        if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
+            return None;
+        }
+        let receipt = std::fs::read_to_string(path).ok()?;
+        let (pid, identity) = receipt.trim_end().split_once('\n')?;
+        if !valid_pid(pid) || identity.is_empty() {
+            return None;
+        }
+        Some(Self {
+            pid: pid.to_owned(),
+            identity: identity.to_owned(),
+        })
     }
-    let receipt = std::fs::read_to_string(path).ok()?;
-    let (pid, identity) = receipt.trim_end().split_once('\n')?;
-    if !pid.parse::<u32>().is_ok_and(|pid| pid > 1) || identity.is_empty() {
-        return None;
+
+    /// A reused pid with another identity is another process.
+    fn alive(&self) -> bool {
+        process_identity(&self.pid).as_deref() == Some(self.identity.as_str())
     }
-    Some((pid.to_owned(), identity.to_owned()))
 }
 
 fn stop_owned_receipt(path: &Path) {
-    let Some((pid, identity)) = owned_receipt(path) else {
+    let Some(receipt) = OwnedReceipt::read(path) else {
         return;
     };
-    if process_identity(&pid).as_deref() != Some(identity.as_str()) {
+    if !receipt.alive() {
         return;
     }
-    let _ = signal_pid(&pid, "-TERM");
-    if !wait_for_process_exit(|| process_identity(&pid).as_deref() != Some(identity.as_str()))
-        && process_identity(&pid).as_deref() == Some(identity.as_str())
-    {
-        let _ = signal_pid(&pid, "-KILL");
+    let _ = signal_pid(&receipt.pid, "-TERM");
+    if !wait_for_process_exit(|| !receipt.alive()) && receipt.alive() {
+        let _ = signal_pid(&receipt.pid, "-KILL");
     }
 }
 
@@ -223,8 +265,8 @@ fn stop_owned_pid(scope: &Path, target: &str) {
         let path = entry.path();
         if path
             .extension()
-            .is_some_and(|extension| extension == "owner")
-            && owned_receipt(&path).is_some_and(|(pid, _)| pid == target)
+            .is_some_and(|extension| extension == RECEIPT_EXTENSION)
+            && OwnedReceipt::read(&path).is_some_and(|receipt| receipt.pid == target)
         {
             stop_owned_receipt(&path);
         }
@@ -411,7 +453,7 @@ mod scope_tests {
         let receipt = scope.join("probe.owner");
         for pid in ["0", "1", "-1", "42 -TERM", ""] {
             std::fs::write(&receipt, format!("{pid}\nidentity\n")).unwrap();
-            assert!(owned_receipt(&receipt).is_none());
+            assert!(OwnedReceipt::read(&receipt).is_none());
         }
         std::fs::remove_file(receipt).unwrap();
         std::fs::remove_dir(scope).unwrap();
@@ -425,7 +467,7 @@ mod scope_tests {
         let receipt = scope.join("probe.owner");
         std::fs::write(&target, "42\nidentity\n").unwrap();
         std::os::unix::fs::symlink(&target, &receipt).unwrap();
-        assert!(owned_receipt(&receipt).is_none());
+        assert!(OwnedReceipt::read(&receipt).is_none());
         assert!(record_owned_process(&scope, "probe", std::process::id()).is_err());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "42\nidentity\n");
         std::fs::remove_file(receipt).unwrap();

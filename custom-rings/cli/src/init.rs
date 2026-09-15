@@ -2,11 +2,12 @@ use std::path::{Path, PathBuf};
 
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    AccountReadError, CreateConfig, CreateConfigError, CreatePolicy, CustomRing, CustomRingConfig,
-    EntryError, InitSppRingConfig, PolicyConfig, SetAuthority, SetSourceOwner, SourceOwner,
-    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    AccountReadError, CreateConfig, CreateConfigError, CreateHeadMapRoot, CreateKeyRegistryRoot,
+    CreatePolicy, CustomRing, CustomRingConfig, EntryError, InitSppRingConfig, PolicyConfig,
+    SetAuthority, SetSourceOwner, SourceOwner, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
+    CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT, CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT,
+    CREATE_POLICY_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+    SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -80,6 +81,8 @@ pub struct InitOutcome {
     pub config: StepOutcome,
     pub authority: StepOutcome,
     pub policy: StepOutcome,
+    /// Every ring, the delegate rail is not tier bound.
+    pub key_registry: StepOutcome,
     pub ring: StepOutcome,
 }
 
@@ -277,6 +280,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         },
     );
     line("policy", outcome.policy.label());
+    line("key registry", outcome.key_registry.label());
     line(
         "spp ring",
         match outcome.ring {
@@ -424,6 +428,22 @@ impl Init<'_> {
             None => StepOutcome::Absent,
             Some(policy) => self.pin_policy(rpc, policy)?,
         };
+        let key_registry = self
+            .step(
+                rpc,
+                "create_key_registry_root",
+                &[],
+                CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT,
+            )
+            .ensure_present(
+                Observed::of(&self.ring.read_key_registry_root(rpc)?),
+                &[CreateKeyRegistryRoot {
+                    ring: self.ring,
+                    payer: config_authority,
+                    authority: config_authority,
+                }
+                .instruction()],
+            )?;
         // The program registers a policy ring only after its policy is pinned.
         let ring = self
             .step(
@@ -446,6 +466,7 @@ impl Init<'_> {
             config,
             authority,
             policy,
+            key_registry,
             ring,
         })
     }
@@ -481,11 +502,11 @@ impl Init<'_> {
                 rpc,
                 "create_head_map_root",
                 &[],
-                custom_ring_sdk::CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
+                CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
             )
             .ensure_present(
                 Observed::of(&self.ring.read_head_map_root(rpc)?),
-                &[custom_ring_sdk::CreateHeadMapRoot {
+                &[CreateHeadMapRoot {
                     ring: self.ring,
                     payer: self.config_authority.pubkey(),
                     authority: self.config_authority.pubkey(),

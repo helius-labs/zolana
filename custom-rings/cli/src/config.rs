@@ -1,18 +1,21 @@
 //! `ring.toml`, the answers `new` recorded.
 
 use std::{
-    io,
+    fmt, io,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
+use custom_ring_sdk::CoSignScope;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use thiserror::Error;
 use toml_edit::{DocumentMut, Item};
+use zolana_transaction::SOL_MINT;
 
 use crate::{
-    cosigner::CosignScope,
+    cosigner::CoSignClass,
     file::{self, FileError},
     policy::{render, PolicyError, PolicySpec},
     ProjectRoot,
@@ -47,20 +50,79 @@ pub struct RingConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct CoSignerSpec {
     pub key: Base58Address,
-    pub scope: Vec<CosignScope>,
+    pub scope: Vec<CoSignClass>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub thresholds: Vec<ThresholdSpec>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ThresholdSpec {
     pub mint: Base58Address,
     pub above: u64,
 }
 
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ThresholdParseError {
+    #[error("expected <mint>=<amount>")]
+    Shape,
+    #[error(transparent)]
+    Mint(#[from] MintParseError),
+    #[error("{0} is not an amount")]
+    Amount(String),
+}
+
+/// `sol` names the native token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mint(pub Address);
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("{0} is not a mint")]
+pub struct MintParseError(String);
+
 impl CoSignerSpec {
-    pub fn scope_bits(&self) -> u8 {
-        self.scope.iter().fold(0, |bits, scope| bits | scope.bit())
+    /// `None` without a class, the program refuses an empty scope.
+    pub fn scope(&self) -> Option<CoSignScope> {
+        self.scope
+            .iter()
+            .map(|class| class.scope())
+            .reduce(|scope, class| scope | class)
+    }
+}
+
+impl FromStr for ThresholdSpec {
+    type Err = ThresholdParseError;
+
+    fn from_str(value: &str) -> Result<Self, ThresholdParseError> {
+        let (mint, above) = value.split_once('=').ok_or(ThresholdParseError::Shape)?;
+        let mint = Base58Address(mint.parse::<Mint>()?.0);
+        let above = above
+            .parse()
+            .map_err(|_| ThresholdParseError::Amount(above.to_owned()))?;
+        Ok(Self { mint, above })
+    }
+}
+
+impl FromStr for Mint {
+    type Err = MintParseError;
+
+    fn from_str(value: &str) -> Result<Self, MintParseError> {
+        if value.eq_ignore_ascii_case("sol") {
+            return Ok(Self(SOL_MINT));
+        }
+        value
+            .parse()
+            .map(Self)
+            .map_err(|_| MintParseError(value.to_owned()))
+    }
+}
+
+impl fmt::Display for Mint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0 == SOL_MINT {
+            f.write_str("sol")
+        } else {
+            fmt::Display::fmt(&self.0, f)
+        }
     }
 }
 

@@ -10,7 +10,7 @@ case "$suite" in
   ring|shared_sources|policy_rules|policy_repin) ;;
   *) echo "Unknown ring suite $suite" >&2; exit 2 ;;
 esac
-: "${SURFPOOL_BIN:?Set SURFPOOL_BIN to the release-pinned Surfpool binary}"
+export SURFPOOL_BIN="${SURFPOOL_BIN:-$repo_root/target/tools/surfpool}"
 
 export ZOLANA_PROCESS_SCOPE_DIR
 ZOLANA_PROCESS_SCOPE_DIR="$(mktemp -d -t zolana-ring-tests.XXXXXX)"
@@ -28,10 +28,13 @@ for artifact in custom_ring_program shielded_pool_program zolana_user_registry s
   }
 done
 export ZOLANA_CONFIG_DIR="$ZOLANA_PROCESS_SCOPE_DIR/config"
-export ZOLANA_PROVER_KEYS_DIR="$ZOLANA_PROCESS_SCOPE_DIR/keys"
-export ZOLANA_LOCALNET_RPC_PORT="${RING_TEST_RPC_PORT:-40899}"
-export ZOLANA_LOCALNET_PHOTON_PORT="${RING_TEST_PHOTON_PORT:-40784}"
-prover_port="${RING_TEST_PROVER_PORT:-43001}"
+port_offset="${ZOLANA_PORT_OFFSET:-0}"
+export ZOLANA_LOCALNET_RPC_PORT="${RING_TEST_RPC_PORT:-$((40899 + port_offset))}"
+export ZOLANA_LOCALNET_PHOTON_PORT="${RING_TEST_PHOTON_PORT:-$((40784 + port_offset))}"
+prover_port="${RING_TEST_PROVER_PORT:-$((43001 + port_offset))}"
+# DEFAULT_METRICS_PORT minus DEFAULT_PROVER_PORT, cli/src/config.rs.
+prover_metrics_offset=6997
+metrics_port=$((prover_port + prover_metrics_offset))
 for port in "$ZOLANA_LOCALNET_RPC_PORT" "$ZOLANA_LOCALNET_PHOTON_PORT" "$prover_port"; do
   [[ "$port" =~ ^[1-9][0-9]{3,4}$ ]] && ((port >= 3001 && port <= 58538)) || {
     echo "Test ports must be integers from 3001 to 58538 (including room for auxiliary ports)" >&2
@@ -45,27 +48,30 @@ export ZOLANA_PROVER_URL="http://127.0.0.1:$prover_port"
 command -v lsof >/dev/null || { echo "lsof is required to check test ports" >&2; exit 1; }
 for port in "$ZOLANA_LOCALNET_RPC_PORT" "$((ZOLANA_LOCALNET_RPC_PORT + 1))" \
   "$((ZOLANA_LOCALNET_RPC_PORT + 2))" "$ZOLANA_LOCALNET_PHOTON_PORT" \
-  "$prover_port" "$((prover_port + 6997))"; do
+  "$prover_port" "$metrics_port"; do
   if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "Port $port is occupied" >&2
     exit 1
   fi
 done
 
-mkdir -p "$ZOLANA_PROVER_KEYS_DIR"
-for key in custom_ring_base custom_ring_policy custom_ring_compressed_policy custom_ring_compressed_register custom_ring_delegate_policy; do
-  file="prover/server/proving-keys/$key.key"
-  expected="$(jq -er --arg name "$key.key" '.keys[$name].sha256' prover/server/prover/provingkeys/proving-keys.lock)"
+# The ring keys are verified in place, the transfer keys download beside them once.
+lock="prover/server/prover/provingkeys/proving-keys.lock"
+keys_dir="$repo_root/prover/server/proving-keys"
+for key in $(jq -r '.keys | keys[] | select(startswith("custom_ring_"))' "$lock"); do
+  file="$keys_dir/$key"
+  expected="$(jq -er --arg name "$key" '.keys[$name].sha256' "$lock")"
   actual="$(shasum -a 256 "$file" | awk '{print $1}')"
   [[ "$actual" == "$expected" ]] || { echo "$file does not match the key manifest" >&2; exit 1; }
-  cp "$file" "$ZOLANA_PROVER_KEYS_DIR/$key.key"
 done
+export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
 
+# Under the scope dir, --stop signals only recorded receipts.
 cleanup() {
   "$ZOLANA_CLI_BIN" dev start --local --stop \
     --rpc-port "$ZOLANA_LOCALNET_RPC_PORT" --photon-port "$ZOLANA_LOCALNET_PHOTON_PORT" \
     --prover-port "$prover_port" || true
-  echo "Ring test logs and key cache: $ZOLANA_PROCESS_SCOPE_DIR"
+  echo "Ring test logs: $ZOLANA_PROCESS_SCOPE_DIR"
 }
 trap cleanup EXIT
 

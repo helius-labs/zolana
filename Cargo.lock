@@ -1998,6 +1998,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
@@ -2086,7 +2087,6 @@ dependencies = [
  "sha2 0.10.9",
  "solana-account 4.3.2",
  "solana-address 2.6.1",
- "solana-bn254",
  "solana-instruction",
  "solana-instruction-error",
  "solana-message",
@@ -11341,6 +11341,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-ring-head-map",
  "zolana-ring-policy",
  "zolana-transaction",
 ]

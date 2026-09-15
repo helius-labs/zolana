@@ -34,7 +34,18 @@ pub struct RingRelease {
     pub compressed_policy_key: Option<Asset>,
     pub compressed_register_key: Option<Asset>,
     pub delegate_policy_key: Option<Asset>,
+    pub register_key: Option<Asset>,
     pub binaries: Vec<Binary>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RingKey {
+    Policy,
+    Base,
+    CompressedPolicy,
+    CompressedRegister,
+    DelegatePolicy,
+    RegisterKey,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -56,7 +67,7 @@ pub struct Binary {
 
 #[derive(Debug, Error)]
 pub enum ReleaseError {
-    #[error("release {tag} ships no {circuit} key, use a complete custom-rings release")]
+    #[error("release {tag} ships no key for {circuit}, use a complete custom-rings release")]
     MissingCircuitKey { tag: String, circuit: &'static str },
     #[error("the embedded release lock does not parse")]
     Lock(#[from] serde_json::Error),
@@ -120,6 +131,8 @@ struct ReleaseLock {
     #[serde(default)]
     delegate_policy_key: Option<Asset>,
     #[serde(default)]
+    register_key: Option<Asset>,
+    #[serde(default)]
     binaries: Vec<Binary>,
 }
 
@@ -133,49 +146,63 @@ impl From<ReleaseLock> for RingRelease {
             compressed_policy_key: lock.compressed_policy_key,
             compressed_register_key: lock.compressed_register_key,
             delegate_policy_key: lock.delegate_policy_key,
+            register_key: lock.register_key,
             binaries: lock.binaries,
         }
     }
 }
 
-impl RingRelease {
-    pub fn control_keys(&self) -> Result<[(&Asset, &'static str); 3], ReleaseError> {
-        fn required<'a>(
-            key: Option<&'a Asset>,
-            tag: &str,
-            circuit: &'static str,
-        ) -> Result<&'a Asset, ReleaseError> {
-            key.ok_or_else(|| ReleaseError::MissingCircuitKey {
-                tag: tag.to_owned(),
-                circuit,
-            })
+impl RingKey {
+    pub const ALL: [Self; 6] = [
+        Self::Policy,
+        Self::Base,
+        Self::CompressedPolicy,
+        Self::CompressedRegister,
+        Self::DelegatePolicy,
+        Self::RegisterKey,
+    ];
+
+    /// Also the key's name in proving-keys.lock.
+    pub const fn file_name(self) -> &'static str {
+        match self {
+            Self::Policy => "custom_ring_policy.key",
+            Self::Base => "custom_ring_base.key",
+            Self::CompressedPolicy => "custom_ring_compressed_policy.key",
+            Self::CompressedRegister => "custom_ring_compressed_register.key",
+            Self::DelegatePolicy => "custom_ring_delegate_policy.key",
+            Self::RegisterKey => "custom_ring_register_key.key",
         }
-        Ok([
-            (
-                required(
-                    self.compressed_policy_key.as_ref(),
-                    &self.tag,
-                    "compressed policy",
-                )?,
-                "custom_ring_compressed_policy.key",
-            ),
-            (
-                required(
-                    self.compressed_register_key.as_ref(),
-                    &self.tag,
-                    "compressed registration",
-                )?,
-                "custom_ring_compressed_register.key",
-            ),
-            (
-                required(
-                    self.delegate_policy_key.as_ref(),
-                    &self.tag,
-                    "delegate policy",
-                )?,
-                "custom_ring_delegate_policy.key",
-            ),
-        ])
+    }
+
+    /// The prover's circuit type, the name its health lists.
+    pub const fn circuit(self) -> &'static str {
+        match self {
+            Self::Policy => "custom-ring-policy",
+            Self::Base => "custom-ring-base",
+            Self::CompressedPolicy => "custom-ring-compressed-policy",
+            Self::CompressedRegister => "custom-ring-compressed-register",
+            Self::DelegatePolicy => "custom-ring-delegate-policy",
+            Self::RegisterKey => "custom-ring-register-key",
+        }
+    }
+}
+
+impl RingRelease {
+    pub fn key(&self, key: RingKey) -> Result<&Asset, ReleaseError> {
+        let asset = match key {
+            RingKey::Policy => &self.proving_key,
+            RingKey::Base => &self.audit_key,
+            RingKey::CompressedPolicy => &self.compressed_policy_key,
+            RingKey::CompressedRegister => &self.compressed_register_key,
+            RingKey::DelegatePolicy => &self.delegate_policy_key,
+            RingKey::RegisterKey => &self.register_key,
+        };
+        asset
+            .as_ref()
+            .ok_or_else(|| ReleaseError::MissingCircuitKey {
+                tag: self.tag.clone(),
+                circuit: key.circuit(),
+            })
     }
 
     pub fn from_lock() -> Result<Self, ReleaseError> {
@@ -353,7 +380,7 @@ fn download(url: &str, asset: &Asset) -> Result<Vec<u8>, ReleaseError> {
     Ok(bytes)
 }
 
-fn verify(bytes: &[u8], asset: &Asset) -> Result<(), ReleaseError> {
+pub(crate) fn verify(bytes: &[u8], asset: &Asset) -> Result<(), ReleaseError> {
     if bytes.len() as u64 != asset.size {
         return Err(ReleaseError::Size {
             name: asset.name.clone(),
@@ -440,6 +467,34 @@ mod tests {
         );
         let program = RingProgram::of(release).expect("program");
         assert_eq!(program.tag, "v1");
+    }
+
+    #[test]
+    fn every_ring_key_is_served_or_named_as_missing() {
+        let mut lock: serde_json::Value = serde_json::from_str(FULL_LOCK).expect("json");
+        for key in RingKey::ALL {
+            let section = match key {
+                RingKey::Policy => "proving_key",
+                RingKey::Base => "audit_key",
+                RingKey::CompressedPolicy => "compressed_policy_key",
+                RingKey::CompressedRegister => "compressed_register_key",
+                RingKey::DelegatePolicy => "delegate_policy_key",
+                RingKey::RegisterKey => "register_key",
+            };
+            lock[section] = serde_json::json!({"asset": key.file_name(), "size": 1, "sha256": "x"});
+        }
+        let release = RingRelease::parse(&lock.to_string()).expect("parses");
+        for key in RingKey::ALL {
+            assert_eq!(release.key(key).expect("served").name, key.file_name());
+        }
+        let partial = RingRelease::parse(FULL_LOCK).expect("parses");
+        assert!(matches!(
+            partial.key(RingKey::RegisterKey),
+            Err(ReleaseError::MissingCircuitKey {
+                circuit: "custom-ring-register-key",
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -1,34 +1,12 @@
-use std::str::FromStr;
-
 use custom_ring_sdk::{
     AccountReadError, ClearSpendWindow, CustomRingSpendWindow, SetSpendWindow,
     SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
 };
-use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
-use zolana_transaction::SOL_MINT;
 
-use crate::{line, ui, ui::Icon, Context, ContextError, WindowCommand};
-
-/// A mint address, `sol` for the native token.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Mint(pub Address);
-
-impl FromStr for Mint {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, String> {
-        if value.eq_ignore_ascii_case("sol") {
-            return Ok(Self(SOL_MINT));
-        }
-        value
-            .parse()
-            .map(Self)
-            .map_err(|_| format!("{value} is not a mint"))
-    }
-}
+use crate::{config::Mint, line, Context, ContextError, WindowCommand};
 
 #[derive(Debug, Error)]
 pub enum WindowError {
@@ -42,12 +20,6 @@ pub enum WindowError {
     Client(Box<ClientError>),
     #[error("the mint has no spend window")]
     NotSet,
-}
-
-impl From<ClientError> for WindowError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
-    }
 }
 
 pub fn run(ctx: &mut Context, command: WindowCommand) -> Result<(), WindowError> {
@@ -75,10 +47,7 @@ pub fn run(ctx: &mut Context, command: WindowCommand) -> Result<(), WindowError>
                 &[&authority],
                 ComputeBudgetConfig::new(SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT),
             )?;
-            ui::heading(
-                Icon::Auditor,
-                &format!("spend window for {} set", name(&mint.0)),
-            );
+            line("spend window", format_args!("{mint} set"));
             mint
         }
         WindowCommand::Clear { mint } => {
@@ -105,13 +74,13 @@ pub fn run(ctx: &mut Context, command: WindowCommand) -> Result<(), WindowError>
     };
     match ctx.ring.read_spend_window(&ctx.rpc, &mint.0)? {
         Some(window) => print(&window),
-        None => line("spend window", format_args!("{} uncapped", name(&mint.0))),
+        None => line("spend window", format_args!("{mint} uncapped")),
     }
     Ok(())
 }
 
 fn print(window: &CustomRingSpendWindow) {
-    line("spend window", name(&window.mint));
+    line("spend window", Mint(window.mint));
     line("slots", window.window_slots);
     line("window start", window.window_start_slot);
     line(
@@ -122,14 +91,6 @@ fn print(window: &CustomRingSpendWindow) {
         "withdrawals",
         format_args!("{} of {}", window.withdrawn, cap(window.withdrawal_cap)),
     );
-}
-
-fn name(mint: &Address) -> String {
-    if *mint == SOL_MINT {
-        "sol".to_owned()
-    } else {
-        mint.to_string()
-    }
 }
 
 fn cap(cap: u64) -> String {

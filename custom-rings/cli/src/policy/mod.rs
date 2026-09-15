@@ -275,14 +275,12 @@ fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
 
 fn print_velocity(table: &RuleTable) {
     let mode = table.velocity_mode();
-    if matches!(mode, VelocityMode::Off) {
-        return;
-    }
     match mode {
+        VelocityMode::Off => return,
         VelocityMode::PerWindow { window_slots } => {
             line("velocity", format_args!("windows of {window_slots} slots"))
         }
-        _ => line("velocity", format_args!("each transfer")),
+        VelocityMode::PerTransfer => line("velocity", "each transfer"),
     }
     for row in table.velocity() {
         line("velocity", describe_velocity(row, mode));

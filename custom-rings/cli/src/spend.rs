@@ -2,8 +2,8 @@
 
 use custom_ring_sdk::{
     policy_config_table, AccountReadError, CustomRing, EntryError, EntryProofError,
-    LiveSpendRecord, PolicyMatchError, ReadSpendRecord, RegisterSpend, SpendProofEnvironment,
-    REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+    LiveSpendRecord, PolicyConfig, PolicyMatchError, ReadEnvironment, ReadSpendRecord,
+    RegisterSpend, TransferProofEnvironment, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 };
 use solana_signer::Signer;
 use thiserror::Error;
@@ -12,6 +12,7 @@ use zolana_keypair::KeypairError;
 use zolana_ring_policy::{Member, MemberError};
 
 use crate::{
+    error::boxed_from,
     file::FileError,
     line,
     step::{no_hint, IdempotentStep, Observed, StepError},
@@ -39,9 +40,13 @@ pub enum SpendError {
     #[error(transparent)]
     Step(#[from] StepError),
     #[error(transparent)]
-    Indexer(#[from] WaitError<ClientError>),
-    #[error(transparent)]
     File(#[from] FileError),
+    #[error("timed out waiting for {label}")]
+    Timeout {
+        label: String,
+        #[source]
+        last: Option<Box<SpendError>>,
+    },
     #[error("the ring has no policy config, run `zolana-ring init` first")]
     NoPolicy,
     #[error("the ring has no velocity window, nothing to register")]
@@ -50,32 +55,42 @@ pub enum SpendError {
     MissingHeadMap,
 }
 
-impl From<PolicyMatchError> for SpendError {
-    fn from(error: PolicyMatchError) -> Self {
-        Self::PolicyMatch(Box::new(error))
-    }
+boxed_from!(SpendError {
+    PolicyMatch(PolicyMatchError),
+    Proof(EntryProofError),
+    Build(EntryError),
+});
+
+pub(crate) enum RegistrationOutcome {
+    Registered,
+    Present { version: u64 },
 }
 
-impl From<EntryProofError> for SpendError {
-    fn from(error: EntryProofError) -> Self {
-        Self::Proof(Box::new(error))
-    }
+pub(crate) struct Registration<'a> {
+    pub ring: CustomRing,
+    pub sender: &'a dyn Signer,
+    pub config: &'a PolicyConfig,
+    pub rpc: &'a SolanaRpc,
+    pub indexer: &'a ZolanaIndexer,
+    pub prover: &'a ProverClient,
 }
 
-impl From<EntryError> for SpendError {
-    fn from(error: EntryError) -> Self {
-        Self::Build(Box::new(error))
-    }
+struct RecordQuery<'a> {
+    ring: CustomRing,
+    config: &'a PolicyConfig,
+    member: Member,
 }
 
 pub fn run(ctx: &mut Context, command: SpendCommand) -> Result<(), SpendError> {
     let sender = sender_keypair_file(ctx)?;
+    let config = windowed_config(ctx.ring, &ctx.rpc)?;
     match command {
         SpendCommand::Register => {
             ctx.fund_authority(&sender, SENDER_FEE_BUDGET)?;
             let registration = Registration {
                 ring: ctx.ring,
                 sender: &sender,
+                config: &config,
                 rpc: &ctx.rpc,
                 indexer: &ctx.indexer(),
                 prover: &ctx.prover(),
@@ -85,7 +100,15 @@ pub fn run(ctx: &mut Context, command: SpendCommand) -> Result<(), SpendError> {
             line("record", registration.label());
         }
         SpendCommand::Show => {
-            let live = read_record(ctx.ring, &ctx.rpc, &ctx.indexer(), &sender.pubkey())?;
+            let live = RecordQuery {
+                ring: ctx.ring,
+                config: &config,
+                member: Member::owner_tag(sender.pubkey().as_array())?,
+            }
+            .read(ReadEnvironment {
+                indexer: &ctx.indexer(),
+                rpc: &ctx.rpc,
+            })?;
             ui::heading(
                 Icon::Policy,
                 &format!("spend record of {}", sender.pubkey()),
@@ -103,11 +126,6 @@ pub fn run(ctx: &mut Context, command: SpendCommand) -> Result<(), SpendError> {
     Ok(())
 }
 
-pub enum RegistrationOutcome {
-    Registered,
-    Present { version: u64 },
-}
-
 impl RegistrationOutcome {
     pub(crate) fn label(&self) -> String {
         match self {
@@ -117,22 +135,23 @@ impl RegistrationOutcome {
     }
 }
 
-/// A member's record, registered by the sender itself when absent.
-pub(crate) struct Registration<'a> {
-    pub ring: CustomRing,
-    pub sender: &'a dyn Signer,
-    pub rpc: &'a SolanaRpc,
-    pub indexer: &'a ZolanaIndexer,
-    pub prover: &'a ProverClient,
-}
-
 impl Registration<'_> {
+    /// The record is claimed once, an existing head is kept.
     pub(crate) fn ensure(self) -> Result<RegistrationOutcome, SpendError> {
         if self.ring.read_head_map_root(self.rpc)?.is_none() {
             return Err(SpendError::MissingHeadMap);
         }
         let member = self.sender.pubkey();
-        if let Some(live) = read_record(self.ring, self.rpc, self.indexer, &member)? {
+        let query = RecordQuery {
+            ring: self.ring,
+            config: self.config,
+            member: Member::owner_tag(member.as_array())?,
+        };
+        let env = ReadEnvironment {
+            indexer: self.indexer,
+            rpc: self.rpc,
+        };
+        if let Some(live) = query.read(env)? {
             return Ok(RegistrationOutcome::Present {
                 version: live.record.version,
             });
@@ -141,7 +160,7 @@ impl Registration<'_> {
             ring: self.ring,
             payer: member,
         }
-        .prove(SpendProofEnvironment {
+        .prove(TransferProofEnvironment {
             indexer: self.indexer,
             rpc: self.rpc,
             prover: self.prover,
@@ -155,58 +174,58 @@ impl Registration<'_> {
             hint: no_hint,
         }
         .ensure_present(Observed::Absent, &[proven.instruction()?])?;
-        // The transfer discovers the record through the indexer.
         wait_for(format!("spend record of {member}"), || {
-            Ok(
-                match read_record(self.ring, self.rpc, self.indexer, &member) {
-                    Ok(Some(_)) => Probe::Ready(()),
-                    Ok(None) => Probe::NotYet,
-                    Err(error) => return Err(error),
-                },
-            )
+            query
+                .read(env)
+                .map(|record| record.map_or(Probe::NotYet, |_| Probe::Ready(())))
         })
-        .map_err(|error| match error {
-            WaitError::Failed(error) => error,
-            WaitError::Timeout { label, .. } => {
-                SpendError::Indexer(WaitError::Timeout { label, last: None })
-            }
-        })?;
+        .map_err(timed_out)?;
         Ok(RegistrationOutcome::Registered)
     }
 }
 
-fn read_record(
+pub(crate) fn windowed_config(
     ring: CustomRing,
     rpc: &SolanaRpc,
-    indexer: &ZolanaIndexer,
-    member: &solana_address::Address,
-) -> Result<Option<LiveSpendRecord>, SpendError> {
+) -> Result<PolicyConfig, SpendError> {
     let config = ring.read_policy_config(rpc)?.ok_or(SpendError::NoPolicy)?;
     if policy_config_table(&config)?.window_slots() == 0 {
         return Err(SpendError::NotVelocity);
     }
-    let member = Member::owner_tag(member.as_array())?;
-    wait_for(
-        "current compressed spend record".to_owned(),
-        || match (ReadSpendRecord {
-            entries_tree: config.entries_tree,
-            entries_tree_id: config.entries_tree_id(),
-            namespace: ring.namespace_pda(),
-            member,
+    Ok(config)
+}
+
+impl RecordQuery<'_> {
+    /// Waits out a head map Photon has not caught up with.
+    fn read(
+        &self,
+        env: ReadEnvironment<'_, ZolanaIndexer, SolanaRpc>,
+    ) -> Result<Option<LiveSpendRecord>, SpendError> {
+        wait_for("current compressed spend record".to_owned(), || {
+            let read = ReadSpendRecord {
+                ring: self.ring,
+                entries_tree: self.config.entries_tree,
+                entries_tree_id: self.config.entries_tree_id(),
+                member: self.member,
+            };
+            match read.read_current(env) {
+                Ok(record) => Ok(Probe::Ready(record)),
+                Err(error) if is_head_map_retryable(&error) => Ok(Probe::Retry(error)),
+                Err(error) => Err(error),
+            }
         })
-        .read_current(ring, indexer, rpc)
-        {
-            Ok(record) => Ok(Probe::Ready(record)),
-            Err(error) if is_head_map_retryable(&error) => Ok(Probe::Retry(error)),
-            Err(error) => Err(error),
-        },
-    )
-    .map_err(|error| match error {
+        .map_err(timed_out)
+    }
+}
+
+fn timed_out<E: Into<SpendError> + std::error::Error + 'static>(error: WaitError<E>) -> SpendError {
+    match error {
         WaitError::Failed(error) => error.into(),
-        WaitError::Timeout { label, .. } => {
-            SpendError::Indexer(WaitError::Timeout { label, last: None })
-        }
-    })
+        WaitError::Timeout { label, last } => SpendError::Timeout {
+            label,
+            last: last.map(|error| Box::new((*error).into())),
+        },
+    }
 }
 
 fn is_head_map_retryable(error: &EntryProofError) -> bool {

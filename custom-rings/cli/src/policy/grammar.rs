@@ -1,6 +1,6 @@
 //! The `[policy]` table of `ring.toml` and its compilation to the pinned rule table.
 
-use std::{collections::BTreeMap, fmt, str::FromStr};
+use std::{collections::BTreeMap, fmt, num::NonZeroU64, str::FromStr};
 
 use custom_ring_sdk::CustomRing;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -25,7 +25,6 @@ pub struct PolicySpec {
     /// Every rule must hold, in row order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<RuleSpec>,
-    /// A sender's outflow per mint over a fixed window, absent leaves spending unbounded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub velocity: Option<VelocitySpec>,
 }
@@ -35,13 +34,12 @@ pub type Sources = BTreeMap<ListName, Base58Address>;
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VelocitySpec {
-    /// Absent caps each transfer alone, else the window the counters reset at.
+    /// Zero caps each transfer alone, nonzero resets counters at fixed slot boundaries.
     #[serde(default)]
     pub window_slots: u64,
     pub rows: Vec<VelocityRowSpec>,
 }
 
-/// A zero cap leaves the mint uncapped, a zero threshold never asks the co-signer.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VelocityRowSpec {
@@ -162,6 +160,12 @@ pub enum PolicyError {
     },
     #[error("the velocity table is refused, {message}")]
     VelocityRefused { message: &'static str },
+    #[error("velocity row {} {field} {amount} exceeds what a toml integer holds", row + 1)]
+    VelocityTooLarge {
+        row: usize,
+        field: &'static str,
+        amount: u64,
+    },
 }
 
 #[derive(Deserialize, Serialize)]
@@ -676,16 +680,16 @@ impl VelocitySpec {
 
 impl PolicyRows {
     fn build(&self, rule_count: usize) -> Result<RuleTable, RuleTableError> {
+        let mut builder = RuleTable::builder()
+            .inline_assets(&self.assets)
+            .inline_limits(&self.limits)
+            .velocity(&self.velocity);
+        if let Some(window_slots) = NonZeroU64::new(self.window_slots) {
+            builder = builder.windowed(window_slots);
+        }
         self.rules[..rule_count]
             .iter()
-            .fold(
-                RuleTable::builder()
-                    .inline_assets(&self.assets)
-                    .inline_limits(&self.limits)
-                    .window_slots(self.window_slots)
-                    .velocity(&self.velocity),
-                |builder, rule| builder.rule(*rule),
-            )
+            .fold(builder, |builder, rule| builder.rule(*rule))
             .try_build()
     }
 }
@@ -719,7 +723,7 @@ pub fn describe_velocity(row: &VelocityRow, mode: VelocityMode) -> String {
     let asset = hex::encode(&row.asset[..4]);
     let per = match mode {
         VelocityMode::PerWindow { .. } => "per window",
-        _ => "per transfer",
+        VelocityMode::PerTransfer | VelocityMode::Off => "per transfer",
     };
     match (row.cap, row.cosign_above) {
         (0, cosign) => format!("asset {asset}.. needs the co-signer above {cosign} per transfer"),

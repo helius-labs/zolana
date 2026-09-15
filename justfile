@@ -5,6 +5,7 @@ export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.6.0-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.6.0")
+surfpool-bin := env_var_or_default("SURFPOOL_BIN", "target/tools/surfpool")
 
 # Stop whichever localnet backend is running. surfpool is the default and
 # solana-test-validator remains reachable behind `--no-use-surfpool`, so a
@@ -28,6 +29,8 @@ spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving
 # cannot drift.
 proving-keys-base := env_var_or_default("ZOLANA_PROVING_KEYS_URL", "https://d3gbdb0egjwcw9.cloudfront.net")
 proving-keys-url := proving-keys-base + "/" + `python3 -c "import json;print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])"`
+# The ring keys the lockfile pins, released on GitHub rather than the object store.
+custom-ring-keys := `python3 -c "import json;print(' '.join(sorted(k for k in json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['keys'] if k.startswith('custom_ring_'))))"`
 
 # Exported so every `cargo test` recipe (and the prover the tests spawn) picks up
 # the per-clone prover address without each recipe wiring it explicitly. The
@@ -273,8 +276,8 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
         fi
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
-    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7"
-    for name in custom_ring_policy.key custom_ring_base.key custom_ring_compressed_policy.key custom_ring_compressed_register.key custom_ring_delegate_policy.key; do
+    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v9"
+    for name in {{custom-ring-keys}}; do
         installed "$name" || fetch "$name" "$release_url/$name"
     done
     for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
@@ -287,9 +290,9 @@ check-custom-ring-keys: build-prover-server
     set -euo pipefail
     export_dir="$(mktemp -d)"
     trap 'rm -rf "$export_dir"' EXIT
-    for pair in custom_ring_policy.key:policy_verifying_key.rs custom_ring_base.key:base_verifying_key.rs custom_ring_compressed_policy.key:compressed_policy_verifying_key.rs custom_ring_compressed_register.key:compressed_register_verifying_key.rs custom_ring_delegate_policy.key:delegate_policy_verifying_key.rs; do
-        key="${pair%%:*}"
-        module="${pair##*:}"
+    for key in {{custom-ring-keys}}; do
+        module="${key#custom_ring_}"
+        module="${module%.key}_verifying_key.rs"
         if [[ ! -f "prover/server/proving-keys/$key" ]]; then
             echo "prover/server/proving-keys/$key is missing, run just ensure-custom-ring-live-keys" >&2
             exit 1
@@ -714,7 +717,7 @@ regen-swap-keys:
         done
     done
 
-# Rotate both ring proving keys with their verifying keys and lock entries,
+# Rotate ring proving keys with their verifying keys and lock entries,
 # then repin the circuit fingerprints and run release-custom-rings.
 regen-custom-ring-keys:
     prover/server/scripts/generate_keys_custom_ring.sh prover/server/proving-keys
@@ -1257,7 +1260,7 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
 # auditor key, register it with SPP, ring-deposit, then a ring transact whose
 # proof binds the verifiable encryption of the transaction viewing key to the
 # auditor key -- and assert the auditor client decrypts the outputs.
-test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account
+test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
     #!/usr/bin/env bash
     set -euo pipefail
     # `eval "$(...)"` alone cannot fail the recipe: a command substitution that
@@ -1285,7 +1288,7 @@ test-custom-ring-rules: (_custom-ring-suite "policy_rules")
 # table of a live ring.
 test-custom-ring-repin: (_custom-ring-suite "policy_repin")
 
-_custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account
+_custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
     #!/usr/bin/env bash
     set -euo pipefail
     program_ids=$(cargo run -q -p xtask -- program-ids)
@@ -1441,6 +1444,19 @@ install-surfpool:
     cp "$surfpool_bin" target/tools/surfpool
     chmod +x target/tools/surfpool
     target/tools/surfpool --version | grep "{{surfpool-version}}"
+
+# The pinned surfpool, installed under target/tools unless SURFPOOL_BIN names it.
+ensure-surfpool:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if "{{surfpool-bin}}" --version 2>/dev/null | grep -q "{{surfpool-version}}"; then
+        exit 0
+    fi
+    if [[ "{{surfpool-bin}}" != "target/tools/surfpool" ]]; then
+        echo "SURFPOOL_BIN={{surfpool-bin}} is not surfpool {{surfpool-version}}" >&2
+        exit 1
+    fi
+    just install-surfpool
 
 # Build local SBF programs into `target/deploy`.
 build-programs:

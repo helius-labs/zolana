@@ -11,7 +11,7 @@ use crate::{
     http::wait_for_http_get_with_child,
     process::{
         find_binary, path_string_with_trailing_separator, require_scoped_port_available,
-        spawn_service, stop_port,
+        spawn_service, stop_port, Service,
     },
 };
 
@@ -65,7 +65,7 @@ pub(crate) fn start_prover_service(
         &keys_dir,
     )?;
     println!("Starting prover: {} {}", prover.display(), args.join(" "));
-    let mut child = spawn_service(&prover, &args, "prover-server", log_dir)?;
+    let mut child = spawn_service(&prover, &args, Service::Prover, log_dir)?;
     wait_for_http_get_with_child(
         prover_port,
         "/health",
