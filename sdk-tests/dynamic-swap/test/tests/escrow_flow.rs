@@ -20,7 +20,9 @@ use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc};
 use zolana_interface::instruction::Transact;
 use zolana_keypair::random_blinding;
-use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
+use zolana_test_utils::test_validator_asserts::{
+    wait_for_indexed_transaction, wait_for_indexed_utxo,
+};
 use zolana_transaction::{
     instructions::transact::{
         assign_output_blindings, encrypt_transaction_data, first_nullifier,
@@ -391,8 +393,21 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .instruction()
             .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
 
-            send(env.client.rpc(), &authority_solana, &[&user_solana], ix)
+            let signature = send(env.client.rpc(), &authority_solana, &[&user_solana], ix)
                 .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
+
+            // Photon indexes a confirmed transaction asynchronously, so block
+            // until create_escrow is queryable under the escrow authority's view
+            // tag. The settler below recovers the order note from a single scan
+            // of that tag and fails outright if the indexer has not caught up.
+            wait_for_indexed_transaction(
+                env.client.indexer(),
+                escrow_owner
+                    .shielded_address()?
+                    .confidential_view_tag()
+                    .map_err(|e| anyhow!("escrow authority view tag: {e:?}"))?,
+                signature,
+            );
 
             escrow
         };
