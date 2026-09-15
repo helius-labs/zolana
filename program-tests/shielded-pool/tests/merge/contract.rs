@@ -306,8 +306,9 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
             TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
         assert!(
             on_chain
-                .allow_dummy_inputs(MERGE_DEFAULT_INPUT_COUNT as u64)
-                .expect("dummy-input policy"),
+                .dummy_input_headroom()
+                .expect("dummy-input headroom")
+                >= MERGE_DEFAULT_INPUT_COUNT as u64,
             "fresh tree must allow dummy inputs"
         );
         let required_capacity = on_chain.utxo_tree().capacity() + MERGE_DEFAULT_INPUT_COUNT as u64;
@@ -325,14 +326,18 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
             nullifier.queue_next_index = next_leaf;
         }
         assert!(
-            !on_chain
-                .allow_dummy_inputs(MERGE_DEFAULT_INPUT_COUNT as u64)
-                .expect("dummy-input policy"),
+            on_chain
+                .dummy_input_headroom()
+                .expect("dummy-input headroom")
+                < MERGE_DEFAULT_INPUT_COUNT as u64,
             "fixture must cross the dummy-input threshold"
         );
-        assert!(on_chain
-            .allow_dummy_inputs(0)
-            .expect("pre-transaction reserve"));
+        assert!(
+            on_chain
+                .dummy_input_headroom()
+                .expect("pre-transaction headroom")
+                > 0
+        );
     }
     rpc.svm
         .set_account(tree, account)

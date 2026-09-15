@@ -69,9 +69,8 @@ pub(crate) fn apply_input_trees(
                 TREE_ACCOUNT_DISCRIMINATOR,
             )
             .map_err(tree_error)?;
-            allow_dummy_inputs &= input_tree
-                .allow_dummy_inputs(tree_inputs.len() as u64)
-                .map_err(tree_error)?;
+            allow_dummy_inputs &=
+                input_tree.dummy_input_headroom().map_err(tree_error)? >= tree_inputs.len() as u64;
             tree_slots
                 .try_push(resolve_input_tree_slot(&input_tree, context)?)
                 .map_err(|_| shape)?;

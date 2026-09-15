@@ -54,7 +54,12 @@ fn deposit_succeeds_when_dummy_inputs_are_disabled() {
             .get_current_batch_mut()
             .expect("current batch")
             .start_index = queue_index;
-        assert!(!on_chain.allow_dummy_inputs(1).expect("dummy-input policy"));
+        assert_eq!(
+            on_chain
+                .dummy_input_headroom()
+                .expect("dummy-input headroom"),
+            0
+        );
         queue_index
     };
     pool.rpc
@@ -67,8 +72,13 @@ fn deposit_succeeds_when_dummy_inputs_are_disabled() {
         .expect("deposit with reserved nullifier capacity");
     assert_eq!(tree_progress(&pool.rpc, &tree), (1, queue_index));
     let mut data = pool.rpc.account_data(&tree).expect("tree data");
-    let mut on_chain = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
-    assert!(!on_chain.allow_dummy_inputs(1).expect("dummy-input policy"));
+    let on_chain = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
+    assert_eq!(
+        on_chain
+            .dummy_input_headroom()
+            .expect("dummy-input headroom"),
+        0
+    );
 }
 
 #[test]
