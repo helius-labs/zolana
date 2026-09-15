@@ -272,7 +272,8 @@ impl<'a> CustomRingTransfer<'a> {
         let input_tree = read_tree_state(environment.rpc, staged.input_tree)?;
         let output_tree = read_tree_state(environment.rpc, staged.output_tree)?;
         staged.check_tree_ids(input_tree.tree_id, output_tree.tree_id)?;
-        let allow_dummy_inputs = input_tree.allow_dummy_inputs;
+        let allow_dummy_inputs =
+            input_tree.dummy_input_headroom >= staged.proof_inputs.input_utxos.len() as u64;
         let spend_inputs = RingSpendInputs {
             indexer: environment.indexer,
             tree: staged.input_tree,
@@ -318,7 +319,8 @@ impl<'a> CustomRingTransfer<'a> {
         let input_tree = read_tree_state_async(environment.rpc, staged.input_tree).await?;
         let output_tree = read_tree_state_async(environment.rpc, staged.output_tree).await?;
         staged.check_tree_ids(input_tree.tree_id, output_tree.tree_id)?;
-        let allow_dummy_inputs = input_tree.allow_dummy_inputs;
+        let allow_dummy_inputs =
+            input_tree.dummy_input_headroom >= staged.proof_inputs.input_utxos.len() as u64;
         let spend_inputs = RingSpendInputs {
             indexer: environment.indexer,
             tree: staged.input_tree,
@@ -795,7 +797,7 @@ pub async fn tree_id_async<R: AsyncRpc>(rpc: &R, tree: Address) -> Result<u16, T
 }
 
 struct TreeState {
-    allow_dummy_inputs: bool,
+    dummy_input_headroom: u64,
     tree_id: u16,
 }
 
@@ -819,9 +821,9 @@ fn tree_state(account: Option<Account>, tree: Address) -> Result<TreeState, Tran
     if account.data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
         return Err(TransferError::InvalidTreeDiscriminator);
     }
-    let mut tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
+    let tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
     Ok(TreeState {
-        allow_dummy_inputs: tree_account.allow_dummy_inputs()?,
+        dummy_input_headroom: tree_account.dummy_input_headroom()?,
         tree_id: tree_account.tree_id(),
     })
 }

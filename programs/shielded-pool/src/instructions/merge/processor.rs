@@ -131,7 +131,8 @@ pub(crate) fn process_merge_core(
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
+        let allow_dummy_inputs =
+            tree.dummy_input_headroom().map_err(tree_error)? >= ix.nullifiers.len() as u64;
         let mut derived = MergeProofInputs {
             tree_slot: TreeSlot::ZERO,
             output_tree_id: [0u8; 32],
