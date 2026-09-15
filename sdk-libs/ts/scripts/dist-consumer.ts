@@ -41,3 +41,14 @@ export type {
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,
 } from "@heliuslabs/zolana";
+
+import type { RpcTransport } from "@solana/kit";
+import type { ZolanaClientConfig } from "@heliuslabs/zolana/client";
+
+export function rpcTransportConfig(transport: RpcTransport): ZolanaClientConfig {
+  return {
+    solanaRpcUrl: "https://rpc.example",
+    solanaRpcTransport: transport,
+    solanaRpcRequestTimeoutMs: 5_000,
+  };
+}

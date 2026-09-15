@@ -113,6 +113,15 @@ config.
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
 
+### RPC requests
+
+`ZolanaClientConfig.solanaRpcTransport` accepts a Solana Kit transport, and
+`solanaRpcRequestTimeoutMs` bounds each RPC request (30,000 ms by default).
+A request's `RequestContext` can cancel it or set a shorter timeout. Cancellation
+stops waiting even when an injected transport ignores the signal; it does not
+undo a transaction already submitted to the network. Requests are not retried
+by this wrapper.
+
 ### Transaction format
 
 Every builder returns a version 1 transaction, up to 4,096 bytes, which is what

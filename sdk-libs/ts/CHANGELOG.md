@@ -255,6 +255,9 @@ Breaking
 
 Added
 
+- `ZolanaClientConfig.solanaRpcTransport` accepts a Solana Kit transport and
+  `solanaRpcRequestTimeoutMs` sets the per-request timeout, defaulting to 30,000 ms.
+
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
@@ -431,6 +434,11 @@ Changed
   into the tree it spends from.
 
 Fixed
+
+- `buildRingWithdrawalTransaction` accepts a sponsored withdrawal of the entire
+  selected balance when every output is a dummy slot.
+- `ZolanaClient` RPC calls stop waiting on cancellation or timeout even when an
+  injected transport ignores its abort signal, without retrying the request.
 
 - `deployRingProgram` splits uploads into writes the loader accepts and packs
   them into v1 transactions; `writeBufferInstruction` rejects payloads above
