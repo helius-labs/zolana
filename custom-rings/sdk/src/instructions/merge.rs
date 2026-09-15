@@ -1,7 +1,8 @@
 //! Custom-ring binding for SPP's owner-preserving merge.
 
 use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::Instruction;
+use thiserror::Error;
 use zolana_client::{
     ClientError, NonInclusionProof, ProofCompressed, ProverClient, Rpc, SpendProof,
 };
@@ -16,7 +17,10 @@ use zolana_transaction::{
     SppProofOutputUtxo,
 };
 
-use crate::{instructions::cosigner::cosigner_metas, AccountReadError, CustomRing};
+use crate::{
+    instructions::cosigner::{RingPolicy, RingPrefix},
+    AccountReadError, CustomRing,
+};
 
 pub use zolana_client::{MergeRingProver, MergeRingWitness};
 pub use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
@@ -57,6 +61,18 @@ impl CustomRingMerge {
 pub struct PreparedCustomRingMerge {
     ring: CustomRing,
     inner: PreparedMergeRing,
+}
+
+#[derive(Debug, Error)]
+pub enum MergeError {
+    #[error(transparent)]
+    AccountRead(#[from] AccountReadError),
+    #[error(transparent)]
+    Client(#[from] ClientError),
+    #[error(transparent)]
+    Transaction(#[from] TransactionError),
+    #[error("custom ring config does not exist")]
+    MissingRingConfig,
 }
 
 pub struct CustomRingMergeProofEnvironment<'a, I, R> {
@@ -119,14 +135,12 @@ impl PreparedCustomRingMerge {
         nullifier_key: NullifierKey,
         input_tree: Address,
         env: CustomRingMergeProofEnvironment<'_, I, R>,
-    ) -> Result<ProvenCustomRingMerge, ClientError> {
+    ) -> Result<ProvenCustomRingMerge, MergeError> {
         let ring = self.ring;
-        // A malformed config faults at the on-chain load, treat it as no policy.
-        let has_policy = match ring.read_config(env.rpc) {
-            Ok(config) => config.is_some_and(|config| config.has_policy),
-            Err(AccountReadError::Client(client)) => return Err(client),
-            Err(AccountReadError::InvalidAccount { .. }) => false,
-        };
+        let has_policy = ring
+            .read_config(env.rpc)?
+            .ok_or(MergeError::MissingRingConfig)?
+            .has_policy;
         let output_ring_data_hash = self.inner.output.ring_data_hash.unwrap_or_default();
         let merged_amount = self.inner.output.amount;
         let commitments = self.input_utxo_hashes()?;
@@ -159,7 +173,6 @@ impl PreparedCustomRingMerge {
 }
 
 impl ProvenCustomRingMerge {
-    /// The ring's co-signer, a signer of the transaction when set.
     #[must_use = "use the updated merge"]
     pub fn with_cosigner(mut self, cosigner: Address) -> Self {
         self.cosigner = Some(cosigner);
@@ -268,11 +281,16 @@ impl CustomRingMergeInstruction {
             output_ring_data_hash: data.output_ring_data_hash,
         }
         .instruction();
-        let mut prefix = vec![AccountMeta::new_readonly(ring.config_pda(), false)];
-        prefix.extend(cosigner_metas(ring, cosigner));
-        if has_policy {
-            prefix.push(AccountMeta::new_readonly(ring.policy_config_pda(), false));
+        let prefix = RingPrefix {
+            ring,
+            cosigner,
+            policy: if has_policy {
+                RingPolicy::Config
+            } else {
+                RingPolicy::Off
+            },
         }
+        .metas();
         instruction.accounts.splice(0..0, prefix);
         instruction
     }

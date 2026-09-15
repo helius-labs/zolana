@@ -7,7 +7,10 @@ use zolana_interface::instruction::{
 use zolana_transaction::SOL_MINT;
 
 use crate::{
-    instructions::{cosigner::cosigner_metas, spend_window::window_metas},
+    instructions::{
+        cosigner::{RingPolicy, RingPrefix},
+        spend_window::window_metas,
+    },
     CustomRing,
 };
 
@@ -38,23 +41,21 @@ pub struct CustomRingTransact {
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring
     /// whose layout drops the policy_config and entries_tree accounts.
     pub entries_tree: Option<Address>,
-    /// The sender's record head, `Some` only on a windowed velocity transfer.
+    /// The ring's shared current-record root, present only for windowed transfers.
     pub head_map_root: Option<Address>,
-    /// The ring's co-signer, a signer of the transaction when set.
     pub cosigner: Option<Address>,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
     /// Settlement accounts for the content's `interface_transfers`, in the same
     /// order.
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    /// Proof of the `audit` circuit, in the program's wire encoding. Convert a
-    /// prover result with `CustomRingProof::from(..)`.
+    /// Proof of the selected ring statement, from `to_instruction_proof`.
     pub proof: CustomRingProof,
     /// The SPP content. Its `messages` must already carry the auditor message that
     /// the proof commits to, and its `private_tx_hash` must be the one the SPP
     /// proof was generated for.
     pub transact: TransactIxData,
-    /// History entries a policy statement binds, unread by a ring without rules.
+    /// History entries a policy statement binds, unread by an audit-only ring.
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
     /// The dual control bit the velocity statement proves, the co-signer then signs.
@@ -111,19 +112,17 @@ impl CustomRingTransact {
 
         let mut accounts = Vec::with_capacity(6 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
-        accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
-        accounts.extend(cosigner_metas(deployment, cosigner));
-        if let Some(entries_tree) = entries_tree {
-            accounts.push(AccountMeta::new_readonly(
-                deployment.policy_config_pda(),
-                false,
-            ));
-            // An existing ring may alias entries_tree with the writable SPP input
-            // tree.
-            accounts.push(AccountMeta::new_readonly(entries_tree, false));
-            if let Some(head_map_root) = head_map_root {
-                accounts.push(AccountMeta::new(head_map_root, false));
+        // An existing ring may alias entries_tree with the writable SPP input tree.
+        accounts.extend(
+            RingPrefix {
+                ring: deployment,
+                cosigner,
+                policy: entries_tree.map_or(RingPolicy::Off, RingPolicy::Entries),
             }
+            .metas(),
+        );
+        if let Some(head_map_root) = head_map_root.filter(|_| entries_tree.is_some()) {
+            accounts.push(AccountMeta::new(head_map_root, false));
         }
         accounts.extend(windows);
         accounts.extend(spp_accounts);

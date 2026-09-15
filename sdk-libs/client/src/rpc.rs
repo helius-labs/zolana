@@ -14,7 +14,9 @@ use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
 pub use zolana_indexer_api::{
-    GetRingHeadProofRequest, GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
+    GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
+    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
+    RingMemberProofRequest,
 };
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
@@ -465,14 +467,28 @@ pub trait Rpc {
 
     fn get_ring_head_register_proof(
         &self,
-        request: GetRingHeadProofRequest,
+        request: RingMemberProofRequest,
     ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
         Err(unsupported("get_ring_head_register_proof"))
     }
 
+    fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        Err(unsupported("get_ring_key_registry_entry"))
+    }
+
+    fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        Err(unsupported("get_ring_key_registry_register_proof"))
+    }
+
     fn get_ring_head_transfer_proof(
         &self,
-        request: GetRingHeadProofRequest,
+        request: RingMemberProofRequest,
     ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
         Err(unsupported("get_ring_head_transfer_proof"))
     }
@@ -673,14 +689,28 @@ pub trait AsyncRpc: Send + Sync {
 
     async fn get_ring_head_register_proof(
         &self,
-        request: GetRingHeadProofRequest,
+        request: RingMemberProofRequest,
     ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
         Err(unsupported("get_ring_head_register_proof"))
     }
 
+    async fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        Err(unsupported("get_ring_key_registry_entry"))
+    }
+
+    async fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        Err(unsupported("get_ring_key_registry_register_proof"))
+    }
+
     async fn get_ring_head_transfer_proof(
         &self,
-        request: GetRingHeadProofRequest,
+        request: RingMemberProofRequest,
     ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
         Err(unsupported("get_ring_head_transfer_proof"))
     }

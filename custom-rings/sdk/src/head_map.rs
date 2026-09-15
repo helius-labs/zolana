@@ -1,24 +1,27 @@
 use custom_ring_interface::{
-    HeadMapInsert, HeadMapRoot, HeadMapTransfer, HeadMapTransition, HEAD_MAP_HEIGHT,
+    CompressedRegisterPublicInput, HeadMapInsert, HeadMapTransfer, HeadMapTransition,
+    HEAD_MAP_CAPACITY,
 };
 use serde::Serialize;
 use zeroize::Zeroizing;
 use zolana_client::{
+    indexer::decode_shielded_transaction,
     prover::{Delivery, ProveRequest},
     AsyncRpc, ClientError, Rpc,
 };
-use zolana_hasher::primitives::right_align;
 use zolana_indexer_api::{
-    GetRingHeadProofRequest, GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
-    Hash, SerializablePubkey,
+    GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
+    GetRingKeyRegistryRegisterProofResponse, Hash, RingMemberProofRequest, SerializablePubkey,
 };
+use zolana_ring_policy::Member;
 
 use crate::{
     instructions::{
-        entry::{EntryProofError, LineageLookup},
-        spend::{discovery::SpendLookup, LiveSpendRecord, ReadSpendRecord},
+        entry::{EntryProofError, LineageLookup, SpentSlot},
+        spend::{LiveSpendRecord, ReadEnvironment, ReadSpendRecord},
+        transact::request::{field_hex, index_hex, json_body},
     },
-    AccountReadError, CustomRing,
+    AccountReadError, CustomRing, IndexedMapRoot,
 };
 
 #[derive(Clone, Debug)]
@@ -29,19 +32,23 @@ pub(crate) struct HeadWitness {
     pub proof: Vec<[u8; 32]>,
 }
 
+pub(crate) struct HeadMove<'a> {
+    pub member: &'a [u8; 32],
+    pub spent: &'a [u8; 32],
+    pub successor: &'a [u8; 32],
+}
+
 impl HeadWitness {
     pub fn transition(
         &self,
-        member: &[u8; 32],
-        spent: &[u8; 32],
-        successor: &[u8; 32],
+        head_move: HeadMove<'_>,
     ) -> Result<HeadMapTransition, EntryProofError> {
         let new_root = HeadMapTransfer {
             root: &self.root,
-            member,
+            member: head_move.member,
             next: &self.next,
-            spent,
-            successor,
+            spent: head_move.spent,
+            successor: head_move.successor,
             index: self.index,
             proof: &self.proof,
         }
@@ -52,108 +59,225 @@ impl HeadWitness {
             new_root,
         })
     }
-}
 
-pub(crate) fn request(
-    ring: CustomRing,
-    member: &[u8; 32],
-    root: &HeadMapRoot,
-) -> GetRingHeadProofRequest {
-    GetRingHeadProofRequest {
-        ring_program_id: SerializablePubkey::from(ring.program_id().to_bytes()),
-        member: Hash(*member),
-        expected_root: Hash(root.root),
-        expected_next_index: root.next_index(),
+    fn verify_current(
+        &self,
+        member: &[u8; 32],
+        nullifier: &[u8; 32],
+    ) -> Result<(), EntryProofError> {
+        self.transition(HeadMove {
+            member,
+            spent: nullifier,
+            successor: nullifier,
+        })
+        .map(drop)
     }
 }
 
-pub(crate) fn read<I: Rpc, R: Rpc>(
-    ring: CustomRing,
-    read: ReadSpendRecord,
-    indexer: &I,
-    rpc: &R,
-) -> Result<(LiveSpendRecord, HeadWitness), EntryProofError> {
-    let root = ring
-        .read_head_map_root(rpc)
-        .map_err(account_error)?
-        .ok_or(EntryProofError::MissingHeadMap)?;
-    let query = request(ring, read.member.as_bytes(), &root);
-    let response = indexer.get_ring_head_transfer_proof(query.clone())?;
-    decode(read, &query, response)
+pub(crate) struct CurrentHead {
+    pub record: LiveSpendRecord,
+    pub witness: HeadWitness,
 }
 
-pub(crate) async fn read_async<I: AsyncRpc, R: AsyncRpc>(
-    ring: CustomRing,
-    read: ReadSpendRecord,
-    indexer: &I,
-    rpc: &R,
-) -> Result<(LiveSpendRecord, HeadWitness), EntryProofError> {
-    let root = ring
-        .read_head_map_root_async(rpc)
-        .await
-        .map_err(account_error)?
-        .ok_or(EntryProofError::MissingHeadMap)?;
-    let query = request(ring, read.member.as_bytes(), &root);
-    let response = indexer.get_ring_head_transfer_proof(query.clone()).await?;
-    decode(read, &query, response)
+impl CustomRing {
+    pub(crate) fn member_proof_request(
+        self,
+        member: &Member,
+        root: IndexedMapRoot,
+    ) -> RingMemberProofRequest {
+        RingMemberProofRequest {
+            ring_program_id: SerializablePubkey::from(self.program_id().to_bytes()),
+            member: Hash(*member.as_bytes()),
+            expected_root: Hash(root.root),
+            expected_next_index: root.next_index,
+        }
+    }
+}
+
+impl ReadSpendRecord {
+    /// The root comes from Solana, the indexer serves only the record under it.
+    pub(crate) fn current<I: Rpc, R: Rpc>(
+        self,
+        env: ReadEnvironment<'_, I, R>,
+    ) -> Result<CurrentHead, EntryProofError> {
+        let root = self
+            .ring
+            .read_head_map_root(env.rpc)
+            .map_err(account_error)?
+            .ok_or(EntryProofError::MissingHeadMap)?;
+        let query = self.ring.member_proof_request(&self.member, root);
+        let response = env.indexer.get_ring_head_transfer_proof(query.clone())?;
+        self.authenticate(&query, response)
+    }
+
+    pub(crate) async fn current_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        env: ReadEnvironment<'_, I, R>,
+    ) -> Result<CurrentHead, EntryProofError> {
+        let root = self
+            .ring
+            .read_head_map_root_async(env.rpc)
+            .await
+            .map_err(account_error)?
+            .ok_or(EntryProofError::MissingHeadMap)?;
+        let query = self.ring.member_proof_request(&self.member, root);
+        let response = env
+            .indexer
+            .get_ring_head_transfer_proof(query.clone())
+            .await?;
+        self.authenticate(&query, response)
+    }
+
+    fn authenticate(
+        self,
+        query: &RingMemberProofRequest,
+        response: GetRingHeadTransferProofResponse,
+    ) -> Result<CurrentHead, EntryProofError> {
+        if response.root != query.expected_root
+            || response.member != query.member
+            || response.next_index != query.expected_next_index
+            || response.index == 0
+            || response.index >= response.next_index
+            || response.next_index > HEAD_MAP_CAPACITY
+        {
+            return Err(EntryProofError::InvalidHeadProof);
+        }
+        let witness = HeadWitness {
+            root: response.root.0,
+            next: response.next.0,
+            index: response.index,
+            proof: response.proof.into_iter().map(|hash| hash.0).collect(),
+        };
+        witness.verify_current(self.member.as_bytes(), &response.nullifier.0)?;
+        let transaction = decode_shielded_transaction(response.record.transaction)?;
+        let output = transaction
+            .output_slots
+            .get(usize::from(response.record.output_index))
+            .ok_or(EntryProofError::InvalidHeadProof)?;
+        if output.output_context.tree != self.entries_tree || transaction.proofless {
+            return Err(EntryProofError::InvalidHeadProof);
+        }
+        let lookup = self.lookup()?;
+        let record = lookup
+            .decode(
+                &lookup.address()?,
+                SpentSlot {
+                    transaction: &transaction,
+                    slot: output,
+                },
+            )
+            .ok_or(EntryProofError::InvalidHeadProof)?;
+        if record.nullifier != response.nullifier.0 {
+            return Err(EntryProofError::InvalidHeadProof);
+        }
+        Ok(CurrentHead { record, witness })
+    }
 }
 
 fn account_error(error: AccountReadError) -> EntryProofError {
     match error {
         AccountReadError::Client(error) => error.into(),
-        AccountReadError::InvalidAccount { .. } => EntryProofError::InvalidHeadProof,
+        AccountReadError::InvalidAccount { address } => {
+            EntryProofError::InvalidHeadMapRoot { address }
+        }
     }
 }
 
-fn decode(
-    read: ReadSpendRecord,
-    query: &GetRingHeadProofRequest,
-    response: GetRingHeadTransferProofResponse,
-) -> Result<(LiveSpendRecord, HeadWitness), EntryProofError> {
-    if response.root != query.expected_root
-        || response.member != query.member
-        || response.next_index != query.expected_next_index
-        || response.index == 0
-        || response.index >= response.next_index
-        || response.next_index > (1u64 << HEAD_MAP_HEIGHT)
-    {
-        return Err(EntryProofError::InvalidHeadProof);
+pub(crate) struct InsertProof<'a> {
+    root: &'a Hash,
+    next_index: u64,
+    member: &'a Hash,
+    low_member: &'a Hash,
+    low_next: &'a Hash,
+    low_nullifier: &'a Hash,
+    low_index: u64,
+    low_proof: &'a [Hash],
+    new_proof: &'a [Hash],
+}
+
+impl<'a> From<&'a GetRingHeadRegisterProofResponse> for InsertProof<'a> {
+    fn from(response: &'a GetRingHeadRegisterProofResponse) -> Self {
+        Self {
+            root: &response.root,
+            next_index: response.next_index,
+            member: &response.member,
+            low_member: &response.low_member,
+            low_next: &response.low_next,
+            low_nullifier: &response.low_nullifier,
+            low_index: response.low_index,
+            low_proof: &response.low_proof,
+            new_proof: &response.new_proof,
+        }
     }
-    let witness = HeadWitness {
-        root: response.root.0,
-        next: response.next.0,
-        index: response.index,
-        proof: response.proof.into_iter().map(|hash| hash.0).collect(),
-    };
-    witness.transition(
-        read.member.as_bytes(),
-        &response.nullifier.0,
-        &response.nullifier.0,
-    )?;
-    let transaction = zolana_client::indexer::convert_shielded_transaction(
-        "record.transaction",
-        response.record.transaction,
-    )?;
-    let output = transaction
-        .output_slots
-        .get(usize::from(response.record.output_index))
-        .ok_or(EntryProofError::InvalidHeadProof)?;
-    if output.output_context.tree != read.entries_tree || transaction.proofless {
-        return Err(EntryProofError::InvalidHeadProof);
+}
+
+impl<'a> From<&'a GetRingKeyRegistryRegisterProofResponse> for InsertProof<'a> {
+    fn from(response: &'a GetRingKeyRegistryRegisterProofResponse) -> Self {
+        Self {
+            root: &response.root,
+            next_index: response.next_index,
+            member: &response.member,
+            low_member: &response.low_member,
+            low_next: &response.low_next,
+            low_nullifier: &response.low_ct_commitment,
+            low_index: response.low_index,
+            low_proof: &response.low_proof,
+            new_proof: &response.new_proof,
+        }
     }
-    let lookup = SpendLookup {
-        owner: zolana_ring_policy::ListNamespace::new(read.namespace.as_array())
-            .map_err(|_| EntryProofError::Hashing)?,
-        member: read.member,
-        tree_id: read.entries_tree_id,
-    };
-    let live = lookup
-        .decode(&lookup.address()?, &transaction, output)
-        .ok_or(EntryProofError::InvalidHeadProof)?;
-    if live.nullifier != response.nullifier.0 {
-        return Err(EntryProofError::InvalidHeadProof);
+}
+
+pub(crate) struct IndexedInsert<'a> {
+    pub query: &'a RingMemberProofRequest,
+    pub response: InsertProof<'a>,
+    pub genesis: &'a [u8; 32],
+}
+
+pub(crate) struct VerifiedInsert {
+    pub transition: HeadMapTransition,
+    pub low_proof: Vec<[u8; 32]>,
+    pub new_proof: Vec<[u8; 32]>,
+}
+
+/// The response answers another query or breaks the ordered insertion.
+#[derive(Debug)]
+pub(crate) struct InsertMismatch;
+
+impl IndexedInsert<'_> {
+    pub(crate) fn verify(self) -> Result<VerifiedInsert, InsertMismatch> {
+        let response = self.response;
+        if response.root != &self.query.expected_root
+            || response.member != &self.query.member
+            || response.next_index != self.query.expected_next_index
+            || response.low_index >= response.next_index
+        {
+            return Err(InsertMismatch);
+        }
+        let low_proof: Vec<_> = response.low_proof.iter().map(|hash| hash.0).collect();
+        let new_proof: Vec<_> = response.new_proof.iter().map(|hash| hash.0).collect();
+        let new_root = HeadMapInsert {
+            root: &response.root.0,
+            append_index: response.next_index,
+            member: &response.member.0,
+            genesis: self.genesis,
+            low_member: &response.low_member.0,
+            low_next: &response.low_next.0,
+            low_nullifier: &response.low_nullifier.0,
+            low_index: response.low_index,
+            low_proof: &low_proof,
+            new_proof: &new_proof,
+        }
+        .verify()
+        .map_err(|_| InsertMismatch)?;
+        Ok(VerifiedInsert {
+            transition: HeadMapTransition {
+                old_root: response.root.0,
+                new_root,
+            },
+            low_proof,
+            new_proof,
+        })
     }
-    Ok((live, witness))
 }
 
 #[derive(Serialize)]
@@ -174,152 +298,162 @@ pub(crate) struct RegisterProofRequest {
     new_proof: Vec<String>,
 }
 
-impl RegisterProofRequest {
-    pub fn build(
-        query: &GetRingHeadProofRequest,
-        response: GetRingHeadRegisterProofResponse,
-        genesis: &[u8; 32],
-    ) -> Result<(Self, HeadMapTransition), EntryProofError> {
-        if response.root != query.expected_root
-            || response.member != query.member
-            || response.next_index != query.expected_next_index
-            || response.low_index >= response.next_index
-        {
-            return Err(EntryProofError::InvalidHeadProof);
-        }
-        let low_proof: Vec<_> = response.low_proof.iter().map(|hash| hash.0).collect();
-        let new_proof: Vec<_> = response.new_proof.iter().map(|hash| hash.0).collect();
-        let new_root = HeadMapInsert {
-            root: &response.root.0,
-            append_index: response.next_index,
-            member: &response.member.0,
-            genesis,
-            low_member: &response.low_member.0,
-            low_next: &response.low_next.0,
-            low_nullifier: &response.low_nullifier.0,
-            low_index: response.low_index,
-            low_proof: &low_proof,
-            new_proof: &new_proof,
-        }
-        .verify()
-        .map_err(|_| EntryProofError::InvalidHeadProof)?;
-        let transition = HeadMapTransition {
-            old_root: response.root.0,
-            new_root,
-        };
-        let public_input = custom_ring_interface::CompressedRegisterPublicInput {
-            head_old_root: &transition.old_root,
-            head_new_root: &transition.new_root,
-            member: &response.member.0,
-            genesis,
-            new_index: response.next_index,
-        }
-        .hash()
-        .map_err(|_| EntryProofError::Hashing)?;
-        Ok((
-            Self {
-                circuit_type: "custom-ring-compressed-register",
-                public_input_hash: hex(&public_input),
-                head_old_root: hex(&transition.old_root),
-                head_new_root: hex(&transition.new_root),
-                member: hex(&response.member.0),
-                genesis: hex(genesis),
-                new_index: index_hex(response.next_index),
-                low_member: hex(&response.low_member.0),
-                low_next: hex(&response.low_next.0),
-                low_nullifier: hex(&response.low_nullifier.0),
-                low_index: index_hex(response.low_index),
-                low_proof: low_proof.iter().map(hex).collect(),
-                new_proof: new_proof.iter().map(hex).collect(),
-            },
-            transition,
-        ))
-    }
-}
-
 impl ProveRequest for RegisterProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
-        serde_json::to_string(self)
-            .map(Zeroizing::new)
-            .map_err(|error| ClientError::Prover(error.to_string()))
+        json_body(self)
     }
+
     fn delivery(&self) -> Delivery {
         Delivery::Queued
     }
 }
 
-pub(crate) fn hex(field: &[u8; 32]) -> String {
-    use std::fmt::Write;
-    let mut encoded = String::with_capacity(66);
-    encoded.push_str("0x");
-    for byte in field {
-        write!(&mut encoded, "{byte:02x}").expect("writing to a String");
-    }
-    encoded
+pub(crate) struct RegisterHead<'a> {
+    pub query: &'a RingMemberProofRequest,
+    pub response: GetRingHeadRegisterProofResponse,
+    pub genesis: [u8; 32],
 }
 
-pub(crate) fn index_hex(index: u64) -> String {
-    hex(&right_align(&index.to_be_bytes()))
+pub(crate) struct HeadRegistration {
+    pub request: RegisterProofRequest,
+    pub transition: HeadMapTransition,
+}
+
+impl RegisterHead<'_> {
+    pub(crate) fn prepare(self) -> Result<HeadRegistration, EntryProofError> {
+        let response = self.response;
+        let VerifiedInsert {
+            transition,
+            low_proof,
+            new_proof,
+        } = IndexedInsert {
+            query: self.query,
+            response: (&response).into(),
+            genesis: &self.genesis,
+        }
+        .verify()
+        .map_err(|_| EntryProofError::InvalidHeadProof)?;
+        let public_input = CompressedRegisterPublicInput {
+            head_old_root: &transition.old_root,
+            head_new_root: &transition.new_root,
+            member: &response.member.0,
+            genesis: &self.genesis,
+            new_index: response.next_index,
+        }
+        .hash()
+        .map_err(|_| EntryProofError::Hashing)?;
+        Ok(HeadRegistration {
+            request: RegisterProofRequest {
+                circuit_type: "custom-ring-compressed-register",
+                public_input_hash: field_hex(&public_input),
+                head_old_root: field_hex(&transition.old_root),
+                head_new_root: field_hex(&transition.new_root),
+                member: field_hex(&response.member.0),
+                genesis: field_hex(&self.genesis),
+                new_index: index_hex(response.next_index),
+                low_member: field_hex(&response.low_member.0),
+                low_next: field_hex(&response.low_next.0),
+                low_nullifier: field_hex(&response.low_nullifier.0),
+                low_index: index_hex(response.low_index),
+                low_proof: low_proof.iter().map(field_hex).collect(),
+                new_proof: new_proof.iter().map(field_hex).collect(),
+            },
+            transition,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use custom_ring_interface::HEAD_MAP_HEIGHT;
     use solana_address::Address;
+    use zolana_hasher::primitives::right_align;
     use zolana_indexer_api::{
         Base64String, Context, RingHeadRecord, RingsOutputContext, RingsOutputSlot,
         ShieldedTransaction,
     };
-    use zolana_ring_head_map::HeadMap;
-    use zolana_ring_policy::{entry_nullifier, ListNamespace, Member, SpendCounters, SpendRecord};
+    use zolana_ring_head_map::{HeadMap, HeadTransfer, Registration};
+    use zolana_ring_policy::{entry_nullifier, ListNamespace, SpendCounters, SpendRecord};
 
-    fn register_fixture() -> (
-        GetRingHeadProofRequest,
-        GetRingHeadRegisterProofResponse,
-        [u8; 32],
-        [u8; 32],
-    ) {
-        let mut map = HeadMap::new().unwrap();
-        let member = Member::owner_tag(&[7; 32]).unwrap();
-        let genesis = right_align(&19u64.to_be_bytes());
-        let witness = map.register(*member.as_bytes(), genesis).unwrap();
-        let query = GetRingHeadProofRequest {
-            ring_program_id: SerializablePubkey::from([5; 32]),
-            member: Hash(witness.member),
-            expected_root: Hash(witness.old_root),
-            expected_next_index: witness.new_index,
-        };
-        let response = GetRingHeadRegisterProofResponse {
-            context: Context::default(),
-            root: Hash(witness.old_root),
-            next_index: witness.new_index,
-            member: Hash(witness.member),
-            low_member: Hash(witness.low_member),
-            low_next: Hash(witness.low_next),
-            low_nullifier: Hash(witness.low_nullifier),
-            low_index: witness.low_index,
-            low_proof: witness.low_proof.into_iter().map(Hash).collect(),
-            new_proof: witness.new_proof.into_iter().map(Hash).collect(),
-        };
-        (query, response, genesis, witness.new_root)
+    struct RegisterFixture {
+        query: RingMemberProofRequest,
+        response: GetRingHeadRegisterProofResponse,
+        genesis: [u8; 32],
+        new_root: [u8; 32],
+    }
+
+    impl RegisterFixture {
+        fn new() -> Self {
+            let mut map = HeadMap::new().unwrap();
+            let member = Member::owner_tag(&[7; 32]).unwrap();
+            let genesis = right_align(&19u64.to_be_bytes());
+            let proof_inputs = map
+                .register(Registration {
+                    member: *member.as_bytes(),
+                    genesis,
+                })
+                .unwrap();
+            let query = CustomRing::new(Address::new_from_array([5; 32])).member_proof_request(
+                &member,
+                IndexedMapRoot {
+                    root: proof_inputs.old_root,
+                    next_index: proof_inputs.new_index,
+                },
+            );
+            let response = GetRingHeadRegisterProofResponse {
+                context: Context::default(),
+                root: Hash(proof_inputs.old_root),
+                next_index: proof_inputs.new_index,
+                member: Hash(proof_inputs.member),
+                low_member: Hash(proof_inputs.low_member),
+                low_next: Hash(proof_inputs.low_next),
+                low_nullifier: Hash(proof_inputs.low_nullifier),
+                low_index: proof_inputs.low_index,
+                low_proof: proof_inputs.low_proof.into_iter().map(Hash).collect(),
+                new_proof: proof_inputs.new_proof.into_iter().map(Hash).collect(),
+            };
+            Self {
+                query,
+                response,
+                genesis,
+                new_root: proof_inputs.new_root,
+            }
+        }
+
+        fn prepare(
+            &self,
+            response: GetRingHeadRegisterProofResponse,
+        ) -> Result<HeadRegistration, EntryProofError> {
+            RegisterHead {
+                query: &self.query,
+                response,
+                genesis: self.genesis,
+            }
+            .prepare()
+        }
     }
 
     #[test]
     fn registration_matches_the_reference_and_encodes_full_width_indexes() {
-        let (query, response, genesis, expected) = register_fixture();
-        let (proof, transition) = RegisterProofRequest::build(&query, response, &genesis).unwrap();
-        assert_eq!(transition.old_root, query.expected_root.0);
-        assert_eq!(transition.new_root, expected);
-        let json: serde_json::Value = serde_json::from_str(proof.body().unwrap().as_str()).unwrap();
+        let fixture = RegisterFixture::new();
+        let HeadRegistration {
+            request,
+            transition,
+        } = fixture.prepare(fixture.response.clone()).unwrap();
+        assert_eq!(transition.old_root, fixture.query.expected_root.0);
+        assert_eq!(transition.new_root, fixture.new_root);
+        let json: serde_json::Value =
+            serde_json::from_str(request.body().unwrap().as_str()).unwrap();
         assert_eq!(json["circuitType"], "custom-ring-compressed-register");
         assert_eq!(json["newIndex"], index_hex(1));
         assert_eq!(json["lowProof"].as_array().unwrap().len(), HEAD_MAP_HEIGHT);
-        assert_eq!(json["headNewRoot"], hex(&expected));
+        assert_eq!(json["headNewRoot"], field_hex(&fixture.new_root));
     }
 
     #[test]
     fn registration_rejects_response_substitution_and_malformed_paths() {
-        let (query, response, genesis, _) = register_fixture();
+        let fixture = RegisterFixture::new();
         let mutations: [fn(&mut GetRingHeadRegisterProofResponse); 6] = [
             |response| response.root.0[31] ^= 1,
             |response| response.member.0[31] ^= 1,
@@ -327,103 +461,119 @@ mod tests {
             |response| {
                 response.low_proof.pop();
             },
-            |response| response.low_index = 1u64 << HEAD_MAP_HEIGHT,
+            |response| response.low_index = HEAD_MAP_CAPACITY,
             |response| response.new_proof[0].0[31] ^= 1,
         ];
         for mutate in mutations {
-            let mut changed = response.clone();
+            let mut changed = fixture.response.clone();
             mutate(&mut changed);
             assert!(matches!(
-                RegisterProofRequest::build(&query, changed, &genesis),
+                fixture.prepare(changed),
                 Err(EntryProofError::InvalidHeadProof)
             ));
         }
     }
 
-    fn transfer_fixture() -> (
-        ReadSpendRecord,
-        GetRingHeadProofRequest,
-        GetRingHeadTransferProofResponse,
-    ) {
-        let ring = CustomRing::new(Address::new_from_array([5; 32]));
-        let namespace = ring.namespace_pda();
-        let owner = ListNamespace::new(namespace.as_array()).unwrap();
-        let member = Member::owner_tag(&[7; 32]).unwrap();
-        let address = owner.spend_address(&member, 4).unwrap();
-        let record = SpendRecord {
-            member,
-            version: 0,
-            window: 3,
-            blinding: right_align(&91u64.to_be_bytes()),
-            counters_commitment: SpendCounters::zero(&[]).commitment().unwrap(),
-        };
-        let hash = record.utxo_hash(&owner, &address, 4).unwrap();
-        let nullifier = entry_nullifier(&hash, &record.blinding).unwrap();
-        let mut map = HeadMap::new().unwrap();
-        map.register(*member.as_bytes(), nullifier).unwrap();
-        let proof = map
-            .transfer(member.as_bytes(), &nullifier, nullifier)
-            .unwrap();
-        let tree = Address::new_from_array([6; 32]);
-        let query = GetRingHeadProofRequest {
-            ring_program_id: SerializablePubkey::from(ring.program_id().to_bytes()),
-            member: Hash(*member.as_bytes()),
-            expected_root: Hash(proof.old_root),
-            expected_next_index: 2,
-        };
-        let response = GetRingHeadTransferProofResponse {
-            context: Context::default(),
-            root: Hash(proof.old_root),
-            next_index: 2,
-            member: Hash(proof.member),
-            next: Hash(proof.next),
-            nullifier: Hash(nullifier),
-            index: proof.index,
-            proof: proof.proof.into_iter().map(Hash).collect(),
-            record: RingHeadRecord {
-                output_index: 0,
-                transaction: ShieldedTransaction {
-                    slot: 2,
-                    tx_signature: Default::default(),
-                    tx_viewing_pk: None,
-                    salt: None,
-                    output_slots: vec![RingsOutputSlot {
-                        view_tag: Hash(namespace.to_bytes()),
-                        payload: Base64String(record.to_output_data().to_vec()),
-                        output_context: RingsOutputContext {
-                            hash: Hash(hash),
-                            tree: SerializablePubkey::from(tree.to_bytes()),
-                            leaf_index: 7,
-                        },
-                    }],
-                    messages: Vec::new(),
-                    nullifiers: vec![Hash(address)],
-                    proofless: false,
-                    ring_config: None,
-                    ring_program_id: Some(query.ring_program_id),
-                },
-            },
-        };
-        (
-            ReadSpendRecord {
-                entries_tree: tree,
-                entries_tree_id: 4,
-                namespace,
+    struct TransferFixture {
+        read: ReadSpendRecord,
+        query: RingMemberProofRequest,
+        response: GetRingHeadTransferProofResponse,
+    }
+
+    impl TransferFixture {
+        fn new() -> Self {
+            let ring = CustomRing::new(Address::new_from_array([5; 32]));
+            let namespace = ring.namespace_pda();
+            let owner = ListNamespace::new(namespace.as_array()).unwrap();
+            let member = Member::owner_tag(&[7; 32]).unwrap();
+            let address = owner.spend_address(&member, 4).unwrap();
+            let record = SpendRecord {
                 member,
-            },
-            query,
-            response,
-        )
+                version: 0,
+                window: 3,
+                blinding: right_align(&91u64.to_be_bytes()),
+                counters_commitment: SpendCounters::EMPTY.commitment().unwrap(),
+            };
+            let hash = record.utxo_hash(&owner, &address, 4).unwrap();
+            let nullifier = entry_nullifier(&hash, &record.blinding).unwrap();
+            let mut map = HeadMap::new().unwrap();
+            map.register(Registration {
+                member: *member.as_bytes(),
+                genesis: nullifier,
+            })
+            .unwrap();
+            let proof = map
+                .transfer(HeadTransfer {
+                    member: *member.as_bytes(),
+                    spent: nullifier,
+                    successor: nullifier,
+                })
+                .unwrap();
+            let tree = Address::new_from_array([6; 32]);
+            let query = ring.member_proof_request(
+                &member,
+                IndexedMapRoot {
+                    root: proof.old_root,
+                    next_index: 2,
+                },
+            );
+            let response = GetRingHeadTransferProofResponse {
+                context: Context::default(),
+                root: Hash(proof.old_root),
+                next_index: 2,
+                member: Hash(proof.member),
+                next: Hash(proof.next),
+                nullifier: Hash(nullifier),
+                index: proof.index,
+                proof: proof.proof.into_iter().map(Hash).collect(),
+                record: RingHeadRecord {
+                    output_index: 0,
+                    transaction: ShieldedTransaction {
+                        slot: 2,
+                        tx_signature: Default::default(),
+                        tx_viewing_pk: None,
+                        salt: None,
+                        output_slots: vec![RingsOutputSlot {
+                            view_tag: Hash(namespace.to_bytes()),
+                            payload: Base64String(record.to_output_data().to_vec()),
+                            output_context: RingsOutputContext {
+                                hash: Hash(hash),
+                                tree: SerializablePubkey::from(tree.to_bytes()),
+                                leaf_index: 7,
+                            },
+                        }],
+                        messages: Vec::new(),
+                        nullifiers: vec![Hash(address)],
+                        proofless: false,
+                        ring_config: None,
+                        ring_program_id: Some(query.ring_program_id),
+                    },
+                },
+            };
+            Self {
+                read: ReadSpendRecord {
+                    ring,
+                    entries_tree: tree,
+                    entries_tree_id: 4,
+                    member,
+                },
+                query,
+                response,
+            }
+        }
     }
 
     #[test]
     fn the_current_record_is_bound_to_the_requested_head() {
-        let (read, query, response) = transfer_fixture();
-        let nullifier = response.nullifier.0;
-        let (live, witness) = decode(read, &query, response).unwrap();
-        assert_eq!(live.nullifier, nullifier);
-        assert_eq!(live.record.version, 0);
-        assert_eq!(witness.root, query.expected_root.0);
+        let fixture = TransferFixture::new();
+        let nullifier = fixture.response.nullifier.0;
+        let head = fixture
+            .read
+            .authenticate(&fixture.query, fixture.response)
+            .unwrap();
+        assert_eq!(head.record.nullifier, nullifier);
+        assert_eq!(head.record.record.version, 0);
+        assert_eq!(head.witness.root, fixture.query.expected_root.0);
     }
 
     #[test]
@@ -444,16 +594,16 @@ mod tests {
                     .tree = SerializablePubkey::from([8; 32])
             },
             |response| response.record.transaction.proofless = true,
-            |response| response.index = 1u64 << HEAD_MAP_HEIGHT,
+            |response| response.index = HEAD_MAP_CAPACITY,
             |response| {
                 response.proof.pop();
             },
         ];
         for mutate in mutations {
-            let (read, query, mut response) = transfer_fixture();
-            mutate(&mut response);
+            let mut fixture = TransferFixture::new();
+            mutate(&mut fixture.response);
             assert!(matches!(
-                decode(read, &query, response),
+                fixture.read.authenticate(&fixture.query, fixture.response),
                 Err(EntryProofError::InvalidHeadProof)
             ));
         }

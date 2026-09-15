@@ -8,6 +8,7 @@ use std::fmt;
 use zeroize::Zeroizing;
 use zolana_keypair::P256Pubkey;
 use zolana_ring_policy::{SpendCounters, SpendRecord};
+use zolana_transaction::Data;
 
 #[derive(PartialEq, Eq)]
 /// One output slot the auditor opened with the recovered transaction viewing
@@ -26,6 +27,7 @@ pub struct AuditedOutput {
     pub blinding: Zeroizing<[u8; 32]>,
     /// Set when the output is owned by a ring program rather than a plain user.
     pub ring_program_id: Option<Address>,
+    pub data: Data,
 }
 
 impl fmt::Debug for AuditedOutput {
@@ -39,6 +41,7 @@ impl fmt::Debug for AuditedOutput {
             .field("amount", &self.amount)
             .field("blinding", &"redacted")
             .field("ring_program_id", &self.ring_program_id)
+            .field("data", &self.data)
             .finish()
     }
 }
@@ -52,7 +55,6 @@ pub struct AuditedTransaction {
     /// auditor message.
     pub tx_viewing_pk: P256Pubkey,
     pub outputs: Vec<AuditedOutput>,
-    /// The sender's spend record a velocity transfer publishes in the clear.
     pub spend_records: Vec<AuditedSpendRecord>,
     /// Positions of output slots this audit could not open as a confidential
     /// plaintext: dummy slots (random bytes by construction), slots published
@@ -62,7 +64,6 @@ pub struct AuditedTransaction {
     pub undecryptable_slots: Vec<u32>,
 }
 
-/// A plaintext record slot and the counters published under the transaction key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditedSpendRecord {
     pub slot_index: u32,

@@ -31,20 +31,22 @@ mod encryption;
 mod error;
 mod origin;
 mod reader;
+mod record;
+mod recover;
 mod scan;
 mod types;
 
 #[cfg(feature = "solana-rpc")]
 pub use crate::origin::{ConfirmedTransaction, ORIGIN_TRANSACTION_CONFIG};
 pub use crate::{
-    counters::{
-        counters_message, decrypt_counters, encrypt_counters, find_counters_message,
-        SpendCountersError, SPEND_COUNTERS_SLOT_INDEX,
-    },
+    counters::{find_counters_message, CountersSeal, SealedCounters, SpendCountersError},
     decrypt::TransactionAudit,
     deposit::{ring_deposits_in, RingDeposit},
-    encryption::{auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage},
-    error::AuditError,
+    encryption::{
+        auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage,
+        NullifierKeyEnvelope, SealedNullifierKey,
+    },
+    error::{AuditError, RecoveryError},
     origin::{
         ring_invoked_in, ring_withdrawals_in, OriginError, RingOrigin, RingWithdrawal,
         TransactionOrigin,
@@ -52,6 +54,8 @@ pub use crate::{
     reader::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,
     },
+    record::{MalformedRecordCarrier, RecordCarrier},
+    recover::{MemberRecovery, RecoveredNotes, RecoveryEnvironment, RingRecovery, SourceMember},
     scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
     types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
 };

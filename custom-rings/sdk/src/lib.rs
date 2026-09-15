@@ -7,6 +7,7 @@ mod budget;
 mod delegate;
 mod head_map;
 mod instructions;
+mod key_registry;
 mod shared;
 #[cfg(feature = "solana-rpc")]
 mod submission;
@@ -17,32 +18,34 @@ mod velocity;
 mod witness;
 
 pub use custom_ring_interface::{
-    tag, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
-    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, COSIGN_DEPOSITS, COSIGN_SCOPE_MASK,
-    COSIGN_TRANSFERS, COSIGN_WITHDRAWALS, CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT, DELEGATE_PDA_SEED,
-    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
-    SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
-    SET_DELEGATE_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
-    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT, SPEND_WINDOW_PDA_SEED,
+    tag, CoSignScope, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
+    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, CO_SIGNER_PDA_SEED,
+    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
+    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    DELEGATE_PDA_SEED, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+    REGISTER_SPEND_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
+    SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT, SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
+    SPEND_WINDOW_PDA_SEED,
 };
 
 pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
 pub use zolana_ring_client::{
-    auditor_view_tag, counters_message, decrypt_counters, encrypt_counters, find_counters_message,
-    AuditEncryptionError, AuditorEncryption, AuditorMessage, SpendCountersError,
-    AUDITOR_MESSAGE_LEN, SPEND_COUNTERS_SLOT_INDEX,
+    auditor_view_tag, find_counters_message, AuditEncryptionError, AuditorEncryption,
+    AuditorMessage, CountersSeal, SealedCounters, SealedNullifierKey, SpendCountersError,
+    AUDITOR_MESSAGE_LEN,
 };
 pub use zolana_ring_policy::RuleTableError;
 
 pub use crate::{
     delegate::{DelegateOutput, DelegateTransfer, DelegateTransferInput, ProvenDelegateTransfer},
     instructions::{
-        cosigner::{ClearCoSigner, SetCoSigner},
+        cosigner::{ClearCoSigner, CoSignThreshold, SetCoSigner},
         create_config::{CreateConfig, CreateConfigError},
         create_head_map_root::CreateHeadMapRoot,
+        create_key_registry_root::CreateKeyRegistryRoot,
         delegate::{CustomRingDelegateTransact, DelegateInstructionError, SetDelegate},
         deposit::Deposit,
         entry::{
@@ -53,8 +56,8 @@ pub use crate::{
         init_spp_ring_config::InitSppRingConfig,
         merge::{
             CustomRingMerge, CustomRingMergeInstruction, CustomRingMergeProofEnvironment,
-            MergeRingProver, MergeRingWitness, PreparedCustomRingMerge, ProvenCustomRingMerge,
-            MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
+            MergeError, MergeRingProver, MergeRingWitness, PreparedCustomRingMerge,
+            ProvenCustomRingMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
         },
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
@@ -62,21 +65,24 @@ pub use crate::{
         set_policy_rules::SetPolicyRules,
         set_policy_source::{SetSourceOwner, SourceOwner},
         spend::{
-            AsyncSpendProofEnvironment, LiveSpendRecord, ProvenSpendRegistration, ReadSpendRecord,
-            RecordOrigin, RegisterSpend, SpendProofEnvironment,
+            LiveSpendRecord, ProvenSpendRegistration, ReadEnvironment, ReadSpendRecord,
+            RecordOrigin, RegisterSpend,
         },
         spend_window::{ClearSpendWindow, SetSpendWindow},
         transact::{
-            to_instruction_proof, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
-            CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
-            CustomRingProofParams, CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
-            SpendRecordWitness, VelocityWitness,
+            to_instruction_proof, to_plain_proof, CustomRingBaseProofRequest,
+            CustomRingPolicyProofRequest, CustomRingPrivateTxHash, CustomRingProofError,
+            CustomRingProofInputError, CustomRingProofParams, CustomRingTransact, EncryptedAudit,
+            PendingCustomRingProof, RingIdentity, SpendRecordProofInput, VelocityProofInput,
         },
+    },
+    key_registry::{
+        KeyRegistrationError, ProvenKeyRegistration, ReadSealedKey, RegisterKey, SealedKeyEntry,
     },
     shared::{
         client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
-        CustomRingConfig, CustomRingDelegate, CustomRingSpendWindow, PolicyMatchError, ReaderKey,
-        ReaderKeyError,
+        CustomRingConfig, CustomRingDelegate, CustomRingSpendWindow, IndexedMapRoot, PinnedPolicy,
+        PolicyMatchError, ReaderKey, ReaderKeyError,
     },
     transfer::{
         tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,

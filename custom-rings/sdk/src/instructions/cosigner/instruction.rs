@@ -1,21 +1,24 @@
-use custom_ring_interface::{tag, SetCoSignerIxData, WithdrawalThresholdIxData};
+use custom_ring_interface::{tag, CoSignScope, SetCoSignerIxData, WithdrawalThreshold};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 
 use crate::CustomRing;
 
-/// Creates or replaces the ring's co-signer under the config authority.
+/// SOL under the zero address, a mint without a row always needs the co-signer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CoSignThreshold {
+    pub mint: Address,
+    pub amount: u64,
+}
+
 #[must_use]
 pub struct SetCoSigner {
     pub ring: CustomRing,
     pub payer: Address,
     pub authority: Address,
     pub signer: Address,
-    /// A nonzero subset of the `COSIGN_*` bits.
-    pub scope: u8,
-    /// Per mint, SOL under the zero address, a withdrawn mint without a row
-    /// always needs the co-signer.
-    pub thresholds: Vec<(Address, u64)>,
+    pub scope: CoSignScope,
+    pub thresholds: Vec<CoSignThreshold>,
 }
 
 impl SetCoSigner {
@@ -31,12 +34,12 @@ impl SetCoSigner {
         let mut data = vec![tag::SET_CO_SIGNER];
         data.extend_from_slice(&wincode::serialize(&SetCoSignerIxData {
             signer: signer.to_bytes(),
-            scope,
+            scope: scope.bits(),
             thresholds: thresholds
                 .into_iter()
-                .map(|(mint, amount)| WithdrawalThresholdIxData {
-                    mint: mint.to_bytes(),
-                    amount,
+                .map(|threshold| WithdrawalThreshold {
+                    mint: threshold.mint.to_bytes(),
+                    amount: threshold.amount,
                 })
                 .collect(),
         })?);
@@ -81,15 +84,48 @@ impl ClearCoSigner {
     }
 }
 
-/// `[cosigner_pda, cosigner]`, unset the slot repeats the PDA, a top-level
-/// slot inherits the message signer flag of its address.
-pub(crate) fn cosigner_metas(ring: CustomRing, cosigner: Option<Address>) -> [AccountMeta; 2] {
-    let pda = ring.cosigner_pda();
-    [
-        AccountMeta::new_readonly(pda, false),
-        match cosigner {
-            Some(cosigner) => AccountMeta::new_readonly(cosigner, true),
-            None => AccountMeta::new_readonly(pda, false),
-        },
-    ]
+#[derive(Clone, Copy)]
+pub(crate) enum RingPolicy {
+    Off,
+    Config,
+    Entries(Address),
+}
+
+/// `[config, cosigner_pda, cosigner, policy accounts]`, unset the co-signer slot repeats the PDA.
+pub(crate) struct RingPrefix {
+    pub ring: CustomRing,
+    pub cosigner: Option<Address>,
+    pub policy: RingPolicy,
+}
+
+impl RingPrefix {
+    /// A top-level slot inherits the signer flag of its address.
+    pub(crate) fn metas(self) -> Vec<AccountMeta> {
+        let pda = self.ring.cosigner_pda();
+        let mut metas = vec![
+            AccountMeta::new_readonly(self.ring.config_pda(), false),
+            AccountMeta::new_readonly(pda, false),
+            match self.cosigner {
+                Some(cosigner) => AccountMeta::new_readonly(cosigner, true),
+                None => AccountMeta::new_readonly(pda, false),
+            },
+        ];
+        match self.policy {
+            RingPolicy::Off => {}
+            RingPolicy::Config => {
+                metas.push(AccountMeta::new_readonly(
+                    self.ring.policy_config_pda(),
+                    false,
+                ));
+            }
+            RingPolicy::Entries(entries_tree) => {
+                metas.push(AccountMeta::new_readonly(
+                    self.ring.policy_config_pda(),
+                    false,
+                ));
+                metas.push(AccountMeta::new_readonly(entries_tree, false));
+            }
+        }
+        metas
+    }
 }

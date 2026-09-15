@@ -23,7 +23,7 @@ use zolana_tree::TreeAccount;
 use crate::{
     instructions::entry::{EntryLookup, LineageLookup, Lineages, LiveEntry},
     instructions::transact::{
-        CustomRingOpening, RuleAnswer, SourceOwnerEntry, VelocityWitness, NULLIFIER_PATH_LEN,
+        CustomRingOpening, RuleAnswer, SourceOwnerEntry, VelocityProofInput, NULLIFIER_PATH_LEN,
         STATE_PATH_LEN,
     },
     shared::source_map,
@@ -54,7 +54,7 @@ pub struct CustomRingWitness {
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_limits: [u64; MAX_INLINE_ASSETS],
     pub inline_count: u8,
-    pub velocity: VelocityWitness,
+    pub velocity: VelocityProofInput,
     pub answers: Vec<RuleAnswer>,
 }
 
@@ -67,8 +67,8 @@ pub struct CustomRingWitnessInput<'a> {
     pub outputs: &'a [SppProofOutputUtxo],
     /// The tree the outputs are appended to, every output hashes under it.
     pub output_tree_id: u16,
-    /// The velocity half, `VelocityWitness::off` on a ring without a window.
-    pub velocity: VelocityWitness,
+    /// Outflow proof inputs, with a nonzero window only when record slots are present.
+    pub velocity: VelocityProofInput,
 }
 
 impl<'a> CustomRingWitnessInput<'a> {
@@ -752,8 +752,16 @@ mod tests {
     use crate::instructions::entry::discovery::tests::{
         lookup, namespace, tree, Lineage, NullifierRpc,
     };
+    use crate::RingIdentity;
 
     /// Every referenced list reads the ring's own entries.
+    fn velocity_off() -> VelocityProofInput {
+        VelocityProofInput::off(RingIdentity {
+            ring_id: [0u8; 32],
+            namespace_owner_hash: [0u8; 32],
+        })
+    }
+
     fn config(policy: &RuleTable) -> PolicyConfig {
         let mut sources = [SourceSlot {
             list_id: 0,
@@ -859,7 +867,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
 
         assert_eq!(
@@ -882,7 +890,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
         let guarded = Rule::require(Subject::OutputOwner, ListId::Allow).above(2000);
         assert!(!input
@@ -898,7 +906,7 @@ mod tests {
             inputs: &[],
             outputs: &one,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
         assert!(below
             .guard_exempts(&guarded, &member)
@@ -918,7 +926,7 @@ mod tests {
             inputs: &[],
             outputs: &one_recipient,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
         assert!(!input
             .guard_exempts(&guarded, &member)
@@ -930,7 +938,7 @@ mod tests {
             inputs: &[],
             outputs: &two_recipients,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
         assert!(split
             .guard_exempts(&guarded, &member)
@@ -967,7 +975,7 @@ mod tests {
             inputs: &[],
             outputs: &below,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
         assert!(input.guard_exempts(rule, &owner).expect("at both limits"));
 
@@ -978,7 +986,7 @@ mod tests {
             inputs: &[],
             outputs: &above,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
         assert!(!input
             .guard_exempts(rule, &owner)
@@ -991,7 +999,7 @@ mod tests {
             inputs: &[],
             outputs: &unknown,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
         assert!(matches!(
             input.guard_exempts(rule, &owner),
@@ -1009,7 +1017,7 @@ mod tests {
             inputs: &[],
             outputs: &[],
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         };
         let guarded = Rule::require(Subject::Sender, ListId::Allow).above(u64::MAX);
         assert!(!input.guard_exempts(&guarded, &member).expect("sender"));
@@ -1194,7 +1202,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1242,7 +1250,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1264,7 +1272,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1293,7 +1301,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRootMismatch)));
@@ -1312,7 +1320,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1339,7 +1347,7 @@ mod tests {
             inputs: &[],
             outputs: &[],
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1376,7 +1384,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1409,7 +1417,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1442,7 +1450,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1463,7 +1471,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
-            velocity: VelocityWitness::off([0u8; 32], [0u8; 32]),
+            velocity: velocity_off(),
         }
         .build(&rpc, &rpc)
         .expect("witness");

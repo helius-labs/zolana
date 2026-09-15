@@ -1,13 +1,12 @@
-//! The record slots a velocity transfer adds and the witness the circuit charges them with.
+//! Per-mint outflow accounting and the compressed record transition committed by the policy proof.
 
-use rand::{rngs::OsRng, RngCore};
 use solana_address::Address;
 use zolana_client::Shape;
 use zolana_interface::instruction::MessageData;
-use zolana_keypair::{NullifierKey, PublicKey, ShieldedAddress, ViewingKey, ViewingKeyTrait};
+use zolana_keypair::{random_blinding, PublicKey, ShieldedAddress, ViewingKey, ViewingKeyTrait};
+use zolana_ring_client::{find_counters_message, CountersSeal, SealedCounters};
 use zolana_ring_policy::{
-    ring_id_field, ListNamespace, Member, SpendCounters, SpendRecord, VelocityRow,
-    MAX_VELOCITY_ASSETS,
+    ListNamespace, Member, SpendCounters, SpendRecord, VelocityRow, MAX_VELOCITY_ASSETS,
 };
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
@@ -15,20 +14,21 @@ use zolana_transaction::{
     Data, Utxo, SOL_MINT,
 };
 
-use zolana_ring_client::{
-    counters_message, decrypt_counters, encrypt_counters, find_counters_message,
-};
-
 use crate::{
-    instructions::spend::LiveSpendRecord,
-    instructions::transact::{SpendRecordWitness, VelocityWitness},
+    head_map::{CurrentHead, HeadMove, HeadWitness},
+    instructions::{
+        entry::zero_nullifier_key,
+        spend::LiveSpendRecord,
+        transact::{RingIdentity, SpendRecordProofInput, VelocityProofInput},
+    },
     TransferError,
 };
 
 pub(crate) struct VelocityFacts {
-    pub head: crate::head_map::HeadWitness,
+    pub head: HeadWitness,
     pub namespace: Address,
     pub owner: ListNamespace,
+    pub identity: RingIdentity,
     pub entries_tree_id: u16,
     pub window_slots: u64,
     pub rows: Vec<VelocityRow>,
@@ -41,6 +41,7 @@ pub(crate) struct VelocityFacts {
 pub(crate) struct VelocityContext<'a> {
     pub namespace: Address,
     pub owner: ListNamespace,
+    pub identity: RingIdentity,
     pub entries_tree_id: u16,
     pub window_slots: u64,
     pub rows: Vec<VelocityRow>,
@@ -50,38 +51,31 @@ pub(crate) struct VelocityContext<'a> {
 impl VelocityContext<'_> {
     pub(crate) fn facts(
         self,
-        live: LiveSpendRecord,
-        head: crate::head_map::HeadWitness,
+        head: CurrentHead,
         slot: u64,
     ) -> Result<VelocityFacts, TransferError> {
         let window_index = slot / self.window_slots;
-        let counters = VelocityFacts::recover_counters(
-            &live,
-            window_index,
-            self.namespace.as_array(),
-            self.sender,
-        )?;
+        let counters = self.recover_counters(&head.record, window_index)?;
         Ok(VelocityFacts {
-            head,
+            head: head.witness,
             namespace: self.namespace,
             owner: self.owner,
+            identity: self.identity,
             entries_tree_id: self.entries_tree_id,
             window_slots: self.window_slots,
             rows: self.rows,
             window_index,
-            live,
+            live: head.record,
             counters,
         })
     }
-}
 
-impl VelocityFacts {
-    pub(crate) fn recover_counters(
+    fn recover_counters(
+        &self,
         live: &LiveSpendRecord,
         window_index: u64,
-        namespace: &[u8; 32],
-        sender: &(dyn ViewingKeyTrait + Send + Sync),
     ) -> Result<Option<SpendCounters>, TransferError> {
+        // A future record cannot reset, an expired one resets without opening counters.
         if live.record.window > window_index {
             return Err(TransferError::SpendRecordFromFutureWindow);
         }
@@ -89,17 +83,23 @@ impl VelocityFacts {
             return Ok(None);
         }
         let counters = if live.record.version == 0 {
-            SpendCounters::zero(&[])
+            SpendCounters::EMPTY
         } else {
-            let message = find_counters_message(&live.origin.messages, namespace)
+            let message = find_counters_message(&live.origin.messages, self.namespace.as_array())
                 .ok_or(TransferError::SpendCountersUnknown)?;
             let salt = live
                 .origin
                 .salt
                 .ok_or(TransferError::SpendCountersUnknown)?;
-            let tx_key = sender.get_transaction_viewing_key(&live.origin.first_nullifier)?;
-            decrypt_counters(&tx_key, &message.data, salt)
-                .map_err(|_| TransferError::SpendCountersUnknown)?
+            let tx_key = self
+                .sender
+                .get_transaction_viewing_key(&live.origin.first_nullifier)?;
+            SealedCounters {
+                body: &message.data,
+                salt,
+            }
+            .open(&tx_key)
+            .map_err(|_| TransferError::SpendCountersUnknown)?
         };
         if counters
             .commitment()
@@ -156,14 +156,13 @@ impl Outflows<'_> {
                     .ok_or(TransferError::VelocityOverflow)?;
             }
         }
-        inflow
+        let outflow = inflow
             .checked_sub(change)
-            .and_then(|outflow| u64::try_from(outflow).ok())
-            .ok_or(TransferError::VelocityOverflow)
+            .ok_or(TransferError::VelocityChangeExceedsInflow { asset: *asset })?;
+        u64::try_from(outflow).map_err(|_| TransferError::VelocityOverflow)
     }
 }
 
-/// The rows charged for one transfer, shared by both velocity modes.
 #[derive(Debug)]
 pub(crate) struct RowCharges {
     pub rows: [VelocityRow; MAX_VELOCITY_ASSETS],
@@ -172,7 +171,6 @@ pub(crate) struct RowCharges {
     pub approval_required: bool,
 }
 
-/// Charges each row's outflow, `previous` supplied only inside a live window.
 pub(crate) struct ChargeRows<'a> {
     pub rows: &'a [VelocityRow],
     pub outflows: &'a Outflows<'a>,
@@ -182,11 +180,7 @@ pub(crate) struct ChargeRows<'a> {
 impl ChargeRows<'_> {
     pub(crate) fn charge(self) -> Result<RowCharges, TransferError> {
         let mut charges = RowCharges {
-            rows: [VelocityRow {
-                asset: [0u8; 32],
-                cap: 0,
-                cosign_above: 0,
-            }; MAX_VELOCITY_ASSETS],
+            rows: [VelocityRow::EMPTY; MAX_VELOCITY_ASSETS],
             row_count: self.rows.len() as u8,
             spent: [0u64; MAX_VELOCITY_ASSETS],
             approval_required: false,
@@ -214,21 +208,13 @@ impl ChargeRows<'_> {
     }
 }
 
-/// A field element below the modulus, the Poseidon commitment rejects the rest.
-fn canonical_salt() -> [u8; 32] {
-    let mut salt = [0u8; 32];
-    OsRng.fill_bytes(&mut salt);
-    salt[0] = 0;
-    salt
-}
-
 pub(crate) struct VelocityPlan {
     pub head_transition: custom_ring_interface::HeadMapTransition,
     pub input: SppProofInputUtxo,
     pub output: SppProofOutputUtxo,
     pub record_message: MessageData,
     pub counters_message: MessageData,
-    pub witness: VelocityWitness,
+    pub proof_input: VelocityProofInput,
     pub shape: Shape,
 }
 
@@ -255,8 +241,8 @@ impl VelocityPlanInput<'_> {
             previous,
         }
         .charge()?;
-        let mut next = SpendCounters::zero(&[]);
-        next.salt = canonical_salt();
+        let mut next = SpendCounters::EMPTY;
+        next.salt = random_blinding();
         for index in 0..usize::from(charges.row_count) {
             next.assets[index] = charges.rows[index].asset;
             next.spent[index] = charges.spent[index];
@@ -297,14 +283,14 @@ impl VelocityPlanInput<'_> {
                 .map_err(|_| TransferError::PolicyHashing)?;
         let head_transition = facts
             .head
-            .transition(
-                spent.member.as_bytes(),
-                &facts.live.nullifier,
-                &successor_nullifier,
-            )
+            .transition(HeadMove {
+                member: spent.member.as_bytes(),
+                spent: &facts.live.nullifier,
+                successor: &successor_nullifier,
+            })
             .map_err(crate::witness::list_entry)?;
         let namespace_owner = PublicKey::from_pda(&facts.namespace);
-        let zero_nullifier = NullifierKey::from_secret([0u8; 31]);
+        let zero_nullifier = zero_nullifier_key();
         let input = SppProofInputUtxo {
             utxo: Utxo {
                 owner: namespace_owner,
@@ -334,23 +320,23 @@ impl VelocityPlanInput<'_> {
             owner_tag: Some(facts.namespace.to_bytes()),
             data: Data::default(),
         };
-        let counters_body = encrypt_counters(
-            self.tx_viewing_key,
-            &self.tx_viewing_key.pubkey(),
-            self.salt,
-            &next,
-        )?;
-        let opened = facts.counters.unwrap_or_else(|| SpendCounters::zero(&[]));
-        let witness = VelocityWitness {
+        let counters_body = CountersSeal {
+            tx: self.tx_viewing_key,
+            recipient: &self.tx_viewing_key.pubkey(),
+            salt: self.salt,
+            counters: &next,
+        }
+        .encrypt()?;
+        let opened = facts.counters.unwrap_or(SpendCounters::EMPTY);
+        let proof_input = VelocityProofInput {
             window_slots: facts.window_slots,
             rows: charges.rows,
             row_count: charges.row_count,
-            ring_id: ring_id_field(self.outflows.ring.as_array())
-                .map_err(|_| TransferError::PolicyHashing)?,
-            namespace_owner_hash: facts.owner.owner_hash,
+            ring_id: facts.identity.ring_id,
+            namespace_owner_hash: facts.identity.namespace_owner_hash,
             window_index: facts.window_index,
             approval_required: charges.approval_required,
-            record: SpendRecordWitness {
+            record: SpendRecordProofInput {
                 version: spent.version,
                 window: spent.window,
                 commitment: spent.counters_commitment,
@@ -369,8 +355,11 @@ impl VelocityPlanInput<'_> {
                     .map_err(|_| TransferError::PolicyHashing)?,
                 data: successor.to_output_data().to_vec(),
             },
-            counters_message: counters_message(facts.namespace.to_bytes(), counters_body),
-            witness,
+            counters_message: MessageData {
+                view_tag: facts.namespace.to_bytes(),
+                data: counters_body,
+            },
+            proof_input,
             shape,
         })
     }
@@ -394,6 +383,13 @@ pub(crate) fn record_shape(money: Shape) -> Result<Shape, TransferError> {
 mod tests {
     use super::*;
 
+    fn identity() -> RingIdentity {
+        RingIdentity {
+            ring_id: [1u8; 32],
+            namespace_owner_hash: [2u8; 32],
+        }
+    }
+
     #[test]
     fn only_an_older_record_can_skip_counter_recovery() {
         let sender = zolana_keypair::ShieldedKeypair::new_ed25519().unwrap();
@@ -414,18 +410,24 @@ mod tests {
                 messages: Vec::new(),
             },
         };
+        let context = VelocityContext {
+            namespace: Address::default(),
+            owner: ListNamespace::new(&[0u8; 32]).unwrap(),
+            identity: identity(),
+            entries_tree_id: 0,
+            window_slots: 1,
+            rows: Vec::new(),
+            sender: &sender,
+        };
         assert!(matches!(
-            VelocityFacts::recover_counters(&live, 7, &[0; 32], &sender),
+            context.recover_counters(&live, 7),
             Err(TransferError::SpendRecordFromFutureWindow)
         ));
         assert!(matches!(
-            VelocityFacts::recover_counters(&live, 8, &[0; 32], &sender),
+            context.recover_counters(&live, 8),
             Err(TransferError::SpendCountersUnknown)
         ));
-        assert_eq!(
-            VelocityFacts::recover_counters(&live, 9, &[0; 32], &sender).unwrap(),
-            None
-        );
+        assert_eq!(context.recover_counters(&live, 9).unwrap(), None);
     }
 
     fn mint() -> Address {
@@ -446,7 +448,7 @@ mod tests {
                 ring_program_id: None,
                 data: Data::default(),
             },
-            nullifier_key: NullifierKey::from_secret([0u8; 31]),
+            nullifier_key: zero_nullifier_key(),
             data_hash: None,
             ring_data_hash: None,
             tree_id: 0,
@@ -473,7 +475,7 @@ mod tests {
             cosign_above,
         };
         let counters = previous.map(|spent| {
-            let mut counters = SpendCounters::zero(&[row_asset()]);
+            let mut counters = SpendCounters::zero(&[row_asset()]).expect("one asset");
             counters.spent[0] = spent;
             counters
         });
@@ -542,19 +544,34 @@ mod tests {
     }
 
     #[test]
-    fn the_salt_stays_below_the_modulus() {
-        for _ in 0..1000 {
-            assert_eq!(canonical_salt()[0], 0);
-        }
+    fn change_past_the_inflow_is_a_shape_error() {
+        let sender = zolana_keypair::ShieldedKeypair::new_ed25519().unwrap();
+        let ring = Address::new_from_array([3u8; 32]);
+        let inputs = [money_input(5)];
+        let outputs = [SppProofOutputUtxo {
+            ring_program_id: Some(ring),
+            ..SppProofOutputUtxo::new(mint(), 6, sender.shielded_address().unwrap()).unwrap()
+        }];
+        let sender_identity = sender.signing_pubkey().owner_proof_input_hash().unwrap();
+        let outflows = Outflows {
+            sender: Member::owner_identity(&sender_identity).unwrap(),
+            ring,
+            inputs: &inputs,
+            outputs: &outputs,
+        };
+        assert!(matches!(
+            outflows.outflow(&row_asset()),
+            Err(TransferError::VelocityChangeExceedsInflow { asset }) if asset == row_asset()
+        ));
     }
 
     #[test]
-    fn a_per_transfer_witness_carries_the_rows_and_no_record() {
+    fn per_transfer_proof_input_carries_the_rows_without_a_record() {
         let charges = charge(100, 1000, 0, None).expect("charges");
-        let witness = VelocityWitness::per_transfer(&charges, [1u8; 32], [2u8; 32]);
-        assert_eq!(witness.window_slots, 0);
-        assert_eq!(witness.window_index, 0);
-        assert_eq!(witness.row_count, 1);
-        assert_eq!(witness.record, SpendRecordWitness::default());
+        let proof_input = VelocityProofInput::per_transfer(&charges, identity());
+        assert_eq!(proof_input.window_slots, 0);
+        assert_eq!(proof_input.window_index, 0);
+        assert_eq!(proof_input.row_count, 1);
+        assert_eq!(proof_input.record, SpendRecordProofInput::default());
     }
 }

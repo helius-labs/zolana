@@ -26,7 +26,6 @@ rand = { workspace = true }
 # witnesses; `zolana-keypair` hands out compressed keys.
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
-solana-bn254 = { workspace = true }
 solana-instruction = { workspace = true }
 solana-instruction-error = { workspace = true }
 # `v1::MAX_TRANSACTION_SIZE` is the bound the policy builders measure against.

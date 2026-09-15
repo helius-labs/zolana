@@ -1,5 +1,7 @@
 use serde::Serialize;
 use zeroize::Zeroizing;
+use zolana_client::ClientError;
+use zolana_hasher::primitives::right_align;
 
 use super::proof::CustomRingProofInputError;
 
@@ -20,15 +22,20 @@ impl AsRef<[u8; 32]> for CustomRingPrivateTxHash {
     }
 }
 
-pub(crate) struct SecretHex<'a>(pub &'a [u8]);
+pub(crate) struct SecretHex(Zeroizing<String>);
 
-impl Serialize for SecretHex<'_> {
+impl SecretHex {
+    pub(crate) fn new(secret: &[u8]) -> Self {
+        Self(Zeroizing::new(bytes_to_hex(secret)))
+    }
+}
+
+impl Serialize for SecretHex {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let encoded = Zeroizing::new(bytes_to_hex(self.0));
-        serializer.serialize_str(&encoded)
+        serializer.serialize_str(&self.0)
     }
 }
 
@@ -42,6 +49,16 @@ pub(crate) fn bytes_to_hex(bytes: &[u8]) -> String {
         out.push_str(&format!("{byte:02x}"));
         out
     })
+}
+
+pub(crate) fn index_hex(index: u64) -> String {
+    field_hex(&right_align(&index.to_be_bytes()))
+}
+
+pub(crate) fn json_body<T: Serialize>(value: &T) -> Result<Zeroizing<String>, ClientError> {
+    serde_json::to_string(value)
+        .map(Zeroizing::new)
+        .map_err(|error| ClientError::Prover(error.to_string()))
 }
 
 const BN254_SCALAR_MODULUS: [u8; 32] = [

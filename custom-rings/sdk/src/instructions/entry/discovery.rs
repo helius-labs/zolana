@@ -67,18 +67,20 @@ impl ReadEntry {
     }
 }
 
+/// One output of the transaction consuming the lineage's current nullifier.
+#[derive(Clone, Copy)]
+pub(crate) struct SpentSlot<'a> {
+    pub transaction: &'a ShieldedTransaction,
+    pub slot: &'a OutputSlot,
+}
+
 pub(crate) trait LineageLookup {
     type Live: Clone;
 
     fn address(&self) -> Result<[u8; 32], EntryProofError>;
 
     /// `None` unless the slot reproduces the on-chain leaf at `address`.
-    fn decode(
-        &self,
-        address: &[u8; 32],
-        spender: &ShieldedTransaction,
-        slot: &OutputSlot,
-    ) -> Option<Self::Live>;
+    fn decode(&self, address: &[u8; 32], slot: SpentSlot<'_>) -> Option<Self::Live>;
 
     fn nullifier(live: &Self::Live) -> [u8; 32];
 
@@ -104,12 +106,8 @@ impl LineageLookup for EntryLookup {
             .map_err(|_| EntryProofError::Hashing)
     }
 
-    fn decode(
-        &self,
-        address: &[u8; 32],
-        _spender: &ShieldedTransaction,
-        slot: &OutputSlot,
-    ) -> Option<LiveEntry> {
+    fn decode(&self, address: &[u8; 32], slot: SpentSlot<'_>) -> Option<LiveEntry> {
+        let slot = slot.slot;
         let OutputDataEncoding::Plaintext(content) = slot.output_data()? else {
             return None;
         };
@@ -275,7 +273,15 @@ impl<'a, L: LineageLookup> LineageWalk<'a, L> {
                 .output_slots
                 .iter()
                 .filter(|slot| slot.output_context.tree == self.entries_tree)
-                .find_map(|slot| head.lookup.decode(&head.address, spender, slot));
+                .find_map(|slot| {
+                    head.lookup.decode(
+                        &head.address,
+                        SpentSlot {
+                            transaction: spender,
+                            slot,
+                        },
+                    )
+                });
             let Some(successor) = successor else {
                 let version = head
                     .live
@@ -613,16 +619,22 @@ pub(crate) mod tests {
         let address = lineage.address();
         let genuine = slot(&live, tree());
         let spender = transaction(address, Vec::new());
-        assert_eq!(
-            lineage.lookup.decode(&address, &spender, &genuine),
-            Some(live)
-        );
+        let decode = |slot: &OutputSlot| {
+            lineage.lookup.decode(
+                &address,
+                SpentSlot {
+                    transaction: &spender,
+                    slot,
+                },
+            )
+        };
+        assert_eq!(decode(&genuine), Some(live));
         let mut tampered = genuine.clone();
         // Flipping the state byte breaks the commitment.
         tampered.payload[38] = EntryState::Cleared as u8;
-        assert_eq!(lineage.lookup.decode(&address, &spender, &tampered), None);
+        assert_eq!(decode(&tampered), None);
         let mut wrong_pair = genuine;
         wrong_pair.payload[5] = ListId::Block as u8;
-        assert_eq!(lineage.lookup.decode(&address, &spender, &wrong_pair), None);
+        assert_eq!(decode(&wrong_pair), None);
     }
 }

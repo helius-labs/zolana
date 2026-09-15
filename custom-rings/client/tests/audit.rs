@@ -156,12 +156,12 @@ fn free_form_message() -> MessageData {
 
 #[test]
 fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as_money() {
-    use zolana_ring_client::{counters_message, encrypt_counters};
+    use zolana_ring_client::CountersSeal;
     use zolana_ring_policy::{spend_record_message_tag, Member, SpendCounters, SpendRecord};
     let auditor = ViewingKey::new();
     let tx_key = ViewingKey::new();
     let namespace = [7u8; 32];
-    let counters = SpendCounters::zero(&[]);
+    let counters = SpendCounters::EMPTY;
     let record = SpendRecord {
         member: Member::owner_tag(&[8; 32]).unwrap(),
         version: 1,
@@ -180,10 +180,17 @@ fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as
         vec![slot],
         vec![
             record_message.clone(),
-            counters_message(
-                namespace,
-                encrypt_counters(&tx_key, &tx_key.pubkey(), SALT, &counters).unwrap(),
-            ),
+            MessageData {
+                view_tag: namespace,
+                data: CountersSeal {
+                    tx: &tx_key,
+                    recipient: &tx_key.pubkey(),
+                    salt: SALT,
+                    counters: &counters,
+                }
+                .encrypt()
+                .unwrap(),
+            },
             auditor_message_data(&tx_key, &auditor.pubkey()),
         ],
     );
@@ -272,6 +279,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                     amount: 1_234_567,
                     blinding: Zeroizing::new([0x21; 32]),
                     ring_program_id: None,
+                    data: Data::default(),
                 },
                 AuditedOutput {
                     slot_index: 1,
@@ -281,6 +289,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                     amount: 99,
                     blinding: Zeroizing::new([0x22; 32]),
                     ring_program_id: None,
+                    data: Data::default(),
                 },
             ],
             spend_records: vec![],
@@ -322,6 +331,7 @@ fn ring_owned_output_keeps_its_ring_program_id() {
             amount: 500,
             blinding: Zeroizing::new([0x31; 32]),
             ring_program_id: Some(ring_program_id),
+            data: Data::default(),
         }]
     );
 }
@@ -368,6 +378,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                     amount: 10,
                     blinding: Zeroizing::new([0x41; 32]),
                     ring_program_id: None,
+                    data: Data::default(),
                 },
                 AuditedOutput {
                     slot_index: 2,
@@ -377,6 +388,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                     amount: 20,
                     blinding: Zeroizing::new([0x42; 32]),
                     ring_program_id: None,
+                    data: Data::default(),
                 },
             ],
             vec![1, 3]
@@ -791,6 +803,7 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
             amount: 111,
             blinding: Zeroizing::new([0xa1; 32]),
             ring_program_id: None,
+            data: Data::default(),
         }]
     );
     assert_eq!(audited[1].tx_viewing_pk, tx_key_two.pubkey());
@@ -804,6 +817,7 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
             amount: 222,
             blinding: Zeroizing::new([0xa2; 32]),
             ring_program_id: None,
+            data: Data::default(),
         }]
     );
 }

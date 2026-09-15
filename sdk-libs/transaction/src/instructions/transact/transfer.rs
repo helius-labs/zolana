@@ -777,6 +777,10 @@ fn named_input_owner_tag(
 ) -> Result<Option<[u8; 32]>, TransactionError> {
     let payer_bytes = payer.to_bytes();
     for spend in inputs.iter().filter(|spend| !spend.is_dummy()) {
+        // A PDA owner signs through its program, no owner signer slot names it.
+        if spend.utxo.owner.curve()? == Curve::Pda {
+            continue;
+        }
         let tag = spend.utxo.owner.confidential_view_tag()?;
         if tag != payer_bytes {
             return Ok(Some(tag));
@@ -792,7 +796,7 @@ fn named_input_owner_tag(
 /// transaction to a third party. Self-attribution is always available, which is
 /// why [`ConfidentialTransfer::prepare`] keeps a real zero-amount change output
 /// for a self-paid transfer that would otherwise name nobody.
-pub(crate) fn dummy_owner_tag(
+fn dummy_owner_tag(
     inputs: &[SppProofInputUtxo],
     outputs: &[SppProofOutputUtxo],
     payer: &Address,
@@ -816,10 +820,15 @@ pub(crate) fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
     data
 }
 
+pub(crate) fn dummy_len(salt: [u8; SALT_LEN]) -> Result<usize, TransactionError> {
+    let throwaway = ViewingKey::new();
+    dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt)
+}
+
 /// The exact ciphertext byte length of a real confidential slot, derived by
 /// encoding a throwaway output through the same path. This keeps dummy slots
 /// byte-length-indistinguishable from real ones without pinning a brittle constant.
-pub(crate) fn dummy_ciphertext_len(
+fn dummy_ciphertext_len(
     tx: &ViewingKey,
     throwaway_pubkey: P256Pubkey,
     salt: [u8; SALT_LEN],
@@ -845,7 +854,7 @@ pub(crate) fn dummy_ciphertext_len(
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::{ShieldedKeypair, SigningKey};
+    use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey};
 
     use super::*;
 
@@ -998,6 +1007,36 @@ mod tests {
         assert_eq!(
             dummy_owner_tag(&inputs, &[], &payer).unwrap(),
             other.signing_pubkey().confidential_view_tag().unwrap()
+        );
+    }
+
+    /// A namespace-owned record input rides beside the sender's notes.
+    #[test]
+    fn dummy_tag_skips_a_pda_owned_input() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&sender);
+        let record = SppProofInputUtxo::new(
+            crate::Utxo {
+                owner: PublicKey::from_pda(&Address::new_from_array([7u8; 32])),
+                asset: SOL_MINT,
+                amount: 0,
+                blinding: random_blinding(),
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            NullifierKey::from_secret([0u8; 31]),
+        );
+        let inputs = vec![ed25519_input(&sender, 1), record];
+        let outputs = vec![SppProofOutputUtxo {
+            owner_address: Some(recipient.shielded_address().unwrap()),
+            ..Default::default()
+        }];
+
+        assert_eq!(named_input_owner_tag(&inputs, &payer).unwrap(), None);
+        assert_eq!(
+            dummy_owner_tag(&inputs, &outputs, &payer).unwrap(),
+            recipient.signing_pubkey().confidential_view_tag().unwrap()
         );
     }
 

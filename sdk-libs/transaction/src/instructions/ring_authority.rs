@@ -19,7 +19,7 @@ use crate::{
             shape::Shape,
             slots::encode_confidential_slots,
             spp_proof_inputs::{first_nullifier, prepare_output_blindings, PublicTransfers},
-            transfer::{dummy_ciphertext_len, random_dummy_ciphertext},
+            transfer::{dummy_len, random_dummy_ciphertext},
         },
         types::{InputUtxoContext, SppProofInputUtxo},
     },
@@ -27,13 +27,12 @@ use crate::{
     AssetRegistry, ExternalData, SppProofOutputUtxo,
 };
 
-/// The rail proves square shapes only.
+/// Largest square shape the authority rail proves.
 const MAX_AUTHORITY_SLOTS: usize = 4;
 
-/// A delegate's move before proving, every output a recipient slot.
 pub struct RingAuthorityMove {
     pub ring_program_id: Address,
-    /// Real spends first, the delegate holds each nullifier key.
+    /// The delegate holds every nullifier key.
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub payer: Address,
@@ -41,14 +40,27 @@ pub struct RingAuthorityMove {
     pub output_tree_id: u16,
 }
 
+/// Every blinding derived, nothing encrypted yet.
+pub struct RingAuthorityDraft {
+    pub inputs: Vec<SppProofInputUtxo>,
+    pub outputs: Vec<SppProofOutputUtxo>,
+    pub shape: Shape,
+    ring_program_id: Address,
+    payer: Address,
+    output_tree_id: u16,
+    blinding_seed: [u8; 32],
+    dummy_tag: [u8; 32],
+    padded_outputs: usize,
+}
+
+pub struct AuthoritySeal<'a> {
+    pub tx: &'a ViewingKey,
+    pub assets: &'a AssetRegistry,
+    pub salt: [u8; SALT_LEN],
+}
+
 impl RingAuthorityMove {
-    /// Pads to the smallest square shape inside the ring and encrypts every output to its owner.
-    pub fn prepare(
-        self,
-        tx: &ViewingKey,
-        assets: &AssetRegistry,
-        salt: [u8; SALT_LEN],
-    ) -> Result<PreparedRingAuthority, TransactionError> {
+    pub fn prepare(self) -> Result<RingAuthorityDraft, TransactionError> {
         let Self {
             ring_program_id,
             mut inputs,
@@ -72,8 +84,7 @@ impl RingAuthorityMove {
         }
         let shape = Shape::new(width, width);
         let padded_outputs = width - outputs.len();
-        // Input owners stay private on this rail, a pad names a recipient the
-        // transaction publishes anyway.
+        // A pad names a recipient, never a private input owner.
         let dummy_tag = outputs
             .iter()
             .find_map(|output| output.owner_address.as_ref())
@@ -94,10 +105,40 @@ impl RingAuthorityMove {
             inputs.push(SppProofInputUtxo::new_dummy().in_tree(input_tree_id));
         }
         let blinding_seed = prepare_output_blindings(&inputs, &mut outputs)?;
+        Ok(RingAuthorityDraft {
+            inputs,
+            outputs,
+            shape,
+            ring_program_id,
+            payer,
+            output_tree_id,
+            blinding_seed,
+            dummy_tag,
+            padded_outputs,
+        })
+    }
+}
+
+impl RingAuthorityDraft {
+    pub fn finalize(
+        self,
+        seal: AuthoritySeal<'_>,
+    ) -> Result<PreparedRingAuthority, TransactionError> {
+        let Self {
+            inputs,
+            outputs,
+            shape,
+            ring_program_id,
+            payer,
+            output_tree_id,
+            blinding_seed,
+            dummy_tag,
+            padded_outputs,
+        } = self;
+        let AuthoritySeal { tx, assets, salt } = seal;
         let slots = encode_confidential_slots(&outputs, assets, tx, salt)?;
-        let dummy_len = if padded_outputs > 0 {
-            let throwaway = ViewingKey::new();
-            dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt)?
+        let pad_len = if padded_outputs > 0 {
+            dummy_len(salt)?
         } else {
             0
         };
@@ -107,7 +148,7 @@ impl RingAuthorityMove {
             let utxo_hash = output.hash(output_tree_id)?;
             let (tag, data) = match slot {
                 Some(slot) => (slot.view_tag, slot.data),
-                None => (dummy_tag, random_dummy_ciphertext(dummy_len)),
+                None => (dummy_tag, random_dummy_ciphertext(pad_len)),
             };
             transact_outputs.push(TransactOutput {
                 utxo_hash,
@@ -238,7 +279,12 @@ mod tests {
             input_tree_id: 3,
             output_tree_id: 3,
         }
-        .prepare(&ViewingKey::new(), &AssetRegistry::default(), random_salt())
+        .prepare()?
+        .finalize(AuthoritySeal {
+            tx: &ViewingKey::new(),
+            assets: &AssetRegistry::default(),
+            salt: random_salt(),
+        })
     }
 
     #[test]

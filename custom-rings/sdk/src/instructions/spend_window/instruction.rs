@@ -4,7 +4,6 @@ use solana_instruction::{AccountMeta, Instruction};
 
 use crate::CustomRing;
 
-/// Replacing an existing window restarts its counters.
 #[must_use]
 pub struct SetSpendWindow {
     pub ring: CustomRing,

@@ -2,10 +2,12 @@
 //! fixture `prover/server/circuits/custom_ring/policy/circuit_test.go` prints
 //! under `PRINT_POLICY_VECTORS=1`, so a change on either side fails here.
 
+use core::num::NonZeroU64;
 use custom_ring_interface::{
     CustomRingBasePublicInput, CustomRingPolicyPublicInput, PolicyConfig, SourceSlot,
     N_SOURCE_SLOTS, POLICY_CONFIG,
 };
+
 use solana_address::Address;
 use zolana_ring_policy::{
     entry_nullifier, entry_seed, EntryState, Guard, ListEntry, ListId, ListNamespace, ListSet,
@@ -263,7 +265,7 @@ fn per_asset_limit_hashing_matches_the_go_fixture() {
 fn velocity_rows_hash_to_the_go_fixture() {
     let table = RuleTable::builder()
         .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .window_slots(216_000)
+        .windowed(NonZeroU64::new(216_000).expect("nonzero"))
         .velocity(&[VelocityRow {
             asset: ASSET_MEMBERS[0],
             cap: 5000,
@@ -305,7 +307,7 @@ fn spend_record_hashing_matches_the_go_fixture() {
     let address = owner.spend_address(&sender, TREE_ID).expect("address");
     assert_eq!(address, hex32(SPEND_ADDRESS));
 
-    let mut counters = SpendCounters::zero(&[ASSET_MEMBERS[0]]);
+    let mut counters = SpendCounters::zero(&[ASSET_MEMBERS[0]]).expect("one asset");
     counters.salt = field(0x5a17);
     counters.spent[0] = 700;
     assert_eq!(
@@ -328,7 +330,7 @@ fn spend_record_hashing_matches_the_go_fixture() {
         hex32(SPEND_UTXO_HASH)
     );
 
-    let mut next = SpendCounters::zero(&[ASSET_MEMBERS[0]]);
+    let mut next = SpendCounters::zero(&[ASSET_MEMBERS[0]]).expect("one asset");
     next.salt = field(0x5a18);
     next.spent[0] = 1700;
     assert_eq!(
@@ -345,7 +347,7 @@ fn spend_record_hashing_matches_the_go_fixture() {
         hex32(SPEND_NEXT_DATA_HASH)
     );
     assert_eq!(
-        SpendCounters::zero(&[]).commitment().expect("zero"),
+        SpendCounters::EMPTY.commitment().expect("zero"),
         hex32(ZERO_COUNTERS_COMMITMENT)
     );
 }
@@ -447,9 +449,11 @@ fn the_policy_transact_carries_the_policy_config() {
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: custom_ring_sdk::CustomRingProof {
-            proof_a: [0; 32],
-            proof_b: [0; 64],
-            proof_c: [0; 32],
+            groth16: custom_ring_interface::PlainGroth16Proof {
+                proof_a: [0; 32],
+                proof_b: [0; 64],
+                proof_c: [0; 32],
+            },
             commitment: [0; 32],
             commitment_pok: [0; 32],
         },

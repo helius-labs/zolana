@@ -1,9 +1,12 @@
 use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::Instruction;
 use zolana_interface::instruction::{DepositBuildError, RingAssetDeposit, RingDeposit};
 
 use crate::{
-    instructions::{cosigner::cosigner_metas, spend_window::window_metas},
+    instructions::{
+        cosigner::{RingPolicy, RingPrefix},
+        spend_window::window_metas,
+    },
     CustomRing,
 };
 
@@ -48,11 +51,16 @@ impl Deposit {
         };
         let windows = window_metas(ring, deposit.settled_mints()?);
         let mut instruction = deposit.instruction()?;
-        let mut prefix = vec![AccountMeta::new_readonly(ring.config_pda(), false)];
-        prefix.extend(cosigner_metas(ring, cosigner));
-        if has_policy {
-            prefix.push(AccountMeta::new_readonly(ring.policy_config_pda(), false));
+        let mut prefix = RingPrefix {
+            ring,
+            cosigner,
+            policy: if has_policy {
+                RingPolicy::Config
+            } else {
+                RingPolicy::Off
+            },
         }
+        .metas();
         prefix.extend(windows);
         instruction.accounts.splice(0..0, prefix);
         Ok(instruction)

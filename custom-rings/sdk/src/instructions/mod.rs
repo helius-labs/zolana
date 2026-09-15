@@ -1,6 +1,7 @@
 pub mod cosigner;
 pub mod create_config;
 pub mod create_head_map_root;
+pub mod create_key_registry_root;
 pub mod delegate;
 pub mod deposit;
 pub mod entry;

@@ -12,7 +12,7 @@
 use crate::encryption::{auditor_view_tag, AuditorMessage};
 use p256::{elliptic_curve::ops::Reduce, FieldBytes, Scalar, U256};
 use zeroize::Zeroizing;
-use zolana_interface::event::{confidential_encrypted_output_body, OutputDataEncoding};
+use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_transaction::{
     serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
@@ -20,11 +20,12 @@ use zolana_transaction::{
 };
 
 use zolana_event::MessageData;
-use zolana_ring_policy::{spend_record_message_tag, SpendRecord};
+use zolana_ring_policy::SpendRecord;
 
 use crate::{
-    counters::{decrypt_counters, find_counters_message},
+    counters::{find_counters_message, SealedCounters},
     error::AuditError,
+    record::RecordCarrier,
     types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
 };
 
@@ -69,11 +70,16 @@ impl TransactionAudit<'_> {
                 assets: self.assets,
             }
             .run()?;
-            let record = spend_record(
-                slot,
-                &self.transaction.messages,
-                position + 1 == self.transaction.output_slots.len(),
-            )?;
+            let record = match RecordCarrier::decode(slot, &self.transaction.messages)? {
+                None => None,
+                Some(RecordCarrier::Inline(record)) => Some(record),
+                Some(RecordCarrier::Sidecar(record)) => {
+                    if position + 1 != self.transaction.output_slots.len() {
+                        return Err(AuditError::InvalidSpendRecordMessage);
+                    }
+                    Some(record)
+                }
+            };
             if let Some(record) = record {
                 if !matches!(slot.output_data(), Some(OutputDataEncoding::Plaintext(_)))
                     && !opened.as_ref().is_some_and(|output| {
@@ -154,8 +160,7 @@ pub fn recover_tx_viewing_key(
 }
 
 #[must_use]
-/// `Ok(None)` for a slot this audit cannot open: an unparseable payload, another
-/// encryption scheme, or a ciphertext under a different transaction key.
+/// `Ok(None)` for a slot the audit cannot open.
 struct OutputAudit<'a> {
     tx_key: &'a ViewingKey,
     slot: &'a OutputSlot,
@@ -201,33 +206,9 @@ impl OutputAudit<'_> {
             amount: plaintext.amount,
             blinding: Zeroizing::new(plaintext.blinding),
             ring_program_id: plaintext.ring_program_id,
+            data: plaintext.data,
         }))
     }
-}
-
-fn spend_record(
-    slot: &OutputSlot,
-    messages: &[MessageData],
-    last: bool,
-) -> Result<Option<SpendRecord>, AuditError> {
-    if let Some(record) = SpendRecord::from_output_data(&slot.payload) {
-        return Ok((record.version == 0).then_some(record));
-    }
-    let tag = spend_record_message_tag(&slot.view_tag)
-        .map_err(|_| AuditError::InvalidSpendRecordMessage)?;
-    let mut tagged = messages.iter().filter(|message| message.view_tag == tag);
-    let Some(message) = tagged.next() else {
-        return Ok(None);
-    };
-    if !last
-        || tagged.next().is_some()
-        || confidential_encrypted_output_body(&slot.payload).is_none()
-    {
-        return Err(AuditError::InvalidSpendRecordMessage);
-    }
-    SpendRecord::from_output_data(&message.data)
-        .map(Some)
-        .ok_or(AuditError::InvalidSpendRecordMessage)
 }
 
 fn opened_counters(
@@ -238,7 +219,12 @@ fn opened_counters(
     record: &SpendRecord,
 ) -> Option<zolana_ring_policy::SpendCounters> {
     let message = find_counters_message(messages, &slot.view_tag)?;
-    let counters = decrypt_counters(tx_key, &message.data, salt).ok()?;
+    let counters = SealedCounters {
+        body: &message.data,
+        salt,
+    }
+    .open(tx_key)
+    .ok()?;
     (counters.commitment().ok()? == record.counters_commitment).then_some(counters)
 }
 

@@ -4,9 +4,11 @@ use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zolana_interface::instruction::{RingAuthorityTransact, TransactIxData};
 
-use crate::{instructions::cosigner::cosigner_metas, CustomRing};
+use crate::{
+    instructions::cosigner::{RingPolicy, RingPrefix},
+    CustomRing,
+};
 
-/// Sets the delegate once under the upgrade authority, no instruction replaces it.
 #[must_use]
 pub struct SetDelegate {
     pub ring: CustomRing,
@@ -48,9 +50,6 @@ pub enum DelegateInstructionError {
     Serialize(#[from] wincode::WriteError),
 }
 
-/// A delegate move over the SPP authority rail, `[payer(w,s), config, cosigner_pda,
-/// cosigner, delegate_pda, delegate(s)]` then a policy ring's `[policy_config,
-/// entries_tree]` precede SPP's `RING_AUTHORITY_TRANSACT` list.
 #[must_use]
 pub struct CustomRingDelegateTransact {
     pub ring: CustomRing,
@@ -98,17 +97,18 @@ impl CustomRingDelegateTransact {
 
         let mut accounts = Vec::with_capacity(8 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
-        accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
-        accounts.extend(cosigner_metas(deployment, cosigner));
-        accounts.push(AccountMeta::new_readonly(deployment.delegate_pda(), false));
-        accounts.push(AccountMeta::new_readonly(delegate, true));
-        if let Some(entries_tree) = entries_tree {
-            accounts.push(AccountMeta::new_readonly(
-                deployment.policy_config_pda(),
-                false,
-            ));
-            accounts.push(AccountMeta::new_readonly(entries_tree, false));
+        let mut prefix = RingPrefix {
+            ring: deployment,
+            cosigner,
+            policy: entries_tree.map_or(RingPolicy::Off, RingPolicy::Entries),
         }
+        .metas();
+        prefix.insert(
+            3,
+            AccountMeta::new_readonly(deployment.delegate_pda(), false),
+        );
+        prefix.insert(4, AccountMeta::new_readonly(delegate, true));
+        accounts.extend(prefix);
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {

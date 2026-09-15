@@ -3,7 +3,5 @@
 pub(crate) mod discovery;
 mod instruction;
 
-pub use discovery::{LiveSpendRecord, ReadSpendRecord, RecordOrigin};
-pub use instruction::{
-    AsyncSpendProofEnvironment, ProvenSpendRegistration, RegisterSpend, SpendProofEnvironment,
-};
+pub use discovery::{LiveSpendRecord, ReadEnvironment, ReadSpendRecord, RecordOrigin};
+pub use instruction::{ProvenSpendRegistration, RegisterSpend};

@@ -2,9 +2,10 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    CoSigner, Delegate, HeadMapRoot, PolicyConfig, ReadAccessRecord, RingProgramConfig,
-    SpendWindow, CO_SIGNER, DELEGATE, HEAD_MAP_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
-    RING_PROGRAM_CONFIG, SPEND_WINDOW,
+    pda as ring_pda, CoSignScope, CoSigner, Delegate, HeadMapRoot, KeyRegistryRoot, PolicyConfig,
+    ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE, HEAD_MAP_CAPACITY,
+    HEAD_MAP_ROOT, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -21,6 +22,8 @@ use zolana_ring_policy::{
     MAX_SOURCES, NAMESPACE_PDA_SEED,
 };
 
+use crate::instructions::cosigner::CoSignThreshold;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CustomRing {
     program_id: Address,
@@ -34,22 +37,30 @@ pub struct CustomRingConfig {
     pub has_policy: bool,
 }
 
-/// The ring's second signature, `scope` is a subset of the `COSIGN_*` bits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CustomRingCoSigner {
     pub signer: Address,
-    pub scope: u8,
-    /// Per mint, SOL under the zero address.
-    pub thresholds: Vec<(Address, u64)>,
+    pub scope: CoSignScope,
+    pub thresholds: Vec<CoSignThreshold>,
 }
 
-/// The key that moves notes between members on the authority rail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CustomRingDelegate {
     pub delegate: Address,
 }
 
-/// A mint's public-leg caps over fixed windows, zero caps do not bind.
+/// The head map and the key registry share one root layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IndexedMapRoot {
+    pub root: [u8; 32],
+    pub next_index: u64,
+}
+
+pub struct PinnedPolicy {
+    pub config: PolicyConfig,
+    pub table: RuleTable,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CustomRingSpendWindow {
     pub mint: Address,
@@ -98,6 +109,18 @@ impl From<PolicyHashError> for PolicyMatchError {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Pda {
+    address: Address,
+    bump: u8,
+}
+
+impl From<(Address, u8)> for Pda {
+    fn from((address, bump): (Address, u8)) -> Self {
+        Self { address, bump }
+    }
+}
+
 impl CustomRing {
     pub const fn new(program_id: Address) -> Self {
         Self { program_id }
@@ -123,62 +146,75 @@ impl CustomRing {
     }
 
     pub fn cosigner_pda(self) -> Address {
-        Address::find_program_address(&[CoSigner::SEED], &self.program_id).0
+        self.cosigner_pda_with_bump().address
+    }
+
+    fn cosigner_pda_with_bump(self) -> Pda {
+        Address::find_program_address(&[CoSigner::SEED], &self.program_id).into()
     }
 
     pub fn delegate_pda(self) -> Address {
-        self.delegate_pda_with_bump().0
+        self.delegate_pda_with_bump().address
     }
 
-    fn delegate_pda_with_bump(self) -> (Address, u8) {
-        Address::find_program_address(&[Delegate::SEED], &self.program_id)
+    fn delegate_pda_with_bump(self) -> Pda {
+        Address::find_program_address(&[Delegate::SEED], &self.program_id).into()
     }
 
     pub fn head_map_root_pda(self) -> Address {
-        Address::find_program_address(&[HeadMapRoot::SEED], &self.program_id).0
+        self.head_map_root_pda_with_bump().address
+    }
+
+    fn head_map_root_pda_with_bump(self) -> Pda {
+        ring_pda::head_map_root(&self.program_id).into()
     }
 
     pub fn read_head_map_root<R: Rpc>(
         self,
         rpc: &R,
-    ) -> Result<Option<HeadMapRoot>, AccountReadError> {
-        self.decode_head_map_root(rpc.get_account(self.head_map_root_pda())?)
+    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
+        let pda = self.head_map_root_pda_with_bump();
+        self.decode_indexed_root::<HeadMapRoot>(pda, rpc.get_account(pda.address)?)
     }
 
     pub async fn read_head_map_root_async<R: AsyncRpc>(
         self,
         rpc: &R,
-    ) -> Result<Option<HeadMapRoot>, AccountReadError> {
-        self.decode_head_map_root(rpc.get_account(self.head_map_root_pda()).await?)
+    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
+        let pda = self.head_map_root_pda_with_bump();
+        self.decode_indexed_root::<HeadMapRoot>(pda, rpc.get_account(pda.address).await?)
     }
 
-    fn decode_head_map_root(
+    /// Slot 0 holds the sentinel, the cursor never reads zero.
+    fn decode_indexed_root<T: IndexedRootAccount>(
         self,
+        pda: Pda,
         account: Option<Account>,
-    ) -> Result<Option<HeadMapRoot>, AccountReadError> {
-        let address = self.head_map_root_pda();
-        let Some(root) =
-            AccountRead::decode_optional::<HeadMapRoot>(self.program_id, address, account)?
+    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
+        let Some(root) = AccountRead::decode_optional::<T>(self.program_id, pda.address, account)?
         else {
             return Ok(None);
         };
-        let bump = Address::find_program_address(&[HeadMapRoot::SEED], &self.program_id).1;
-        if root.bump != bump
-            || root.next_index() == 0
-            || root.next_index() > (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT)
-        {
-            return Err(AccountReadError::InvalidAccount { address });
+        let root = root.indexed_root();
+        if root.bump != pda.bump || root.next_index == 0 || root.next_index > HEAD_MAP_CAPACITY {
+            return Err(AccountReadError::InvalidAccount {
+                address: pda.address,
+            });
         }
-        Ok(Some(root))
+        Ok(Some(IndexedMapRoot {
+            root: root.root,
+            next_index: root.next_index,
+        }))
     }
 
     /// SOL under the zero address.
     pub fn spend_window_pda(self, mint: &Address) -> Address {
-        self.spend_window_pda_with_bump(mint).0
+        self.spend_window_pda_with_bump(mint).address
     }
 
-    fn spend_window_pda_with_bump(self, mint: &Address) -> (Address, u8) {
+    fn spend_window_pda_with_bump(self, mint: &Address) -> Pda {
         Address::find_program_address(&[SpendWindow::SEED, mint.as_array()], &self.program_id)
+            .into()
     }
 
     pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
@@ -247,8 +283,8 @@ impl CustomRing {
         self,
         rpc: &R,
     ) -> Result<Option<CustomRingCoSigner>, AccountReadError> {
-        let address = self.cosigner_pda();
-        self.decode_cosigner(address, rpc.get_account(address)?)
+        let pda = self.cosigner_pda_with_bump();
+        self.decode_cosigner(pda, rpc.get_account(pda.address)?)
     }
 
     /// The async twin of [`Self::read_cosigner`], over [`AsyncRpc`].
@@ -256,31 +292,35 @@ impl CustomRing {
         self,
         rpc: &R,
     ) -> Result<Option<CustomRingCoSigner>, AccountReadError> {
-        let address = self.cosigner_pda();
-        self.decode_cosigner(address, rpc.get_account(address).await?)
+        let pda = self.cosigner_pda_with_bump();
+        self.decode_cosigner(pda, rpc.get_account(pda.address).await?)
     }
 
     fn decode_cosigner(
         self,
-        address: Address,
+        pda: Pda,
         account: Option<Account>,
     ) -> Result<Option<CustomRingCoSigner>, AccountReadError> {
         let Some(cosigner) =
-            AccountRead::decode_optional::<CoSigner>(self.program_id, address, account)?
+            AccountRead::decode_optional::<CoSigner>(self.program_id, pda.address, account)?
         else {
             return Ok(None);
         };
-        let bump = Address::find_program_address(&[CoSigner::SEED], &self.program_id).1;
-        if cosigner.bump != bump {
-            return Err(AccountReadError::InvalidAccount { address });
+        if cosigner.bump != pda.bump {
+            return Err(AccountReadError::InvalidAccount {
+                address: pda.address,
+            });
         }
         Ok(Some(CustomRingCoSigner {
             signer: cosigner.signer,
-            scope: cosigner.scope,
+            scope: cosigner.scope(),
             thresholds: cosigner
                 .thresholds()
                 .iter()
-                .map(|row| (row.mint, row.amount()))
+                .map(|row| CoSignThreshold {
+                    mint: row.mint,
+                    amount: row.amount(),
+                })
                 .collect(),
         }))
     }
@@ -290,8 +330,8 @@ impl CustomRing {
         self,
         rpc: &R,
     ) -> Result<Option<CustomRingDelegate>, AccountReadError> {
-        let address = self.delegate_pda();
-        self.decode_delegate(address, rpc.get_account(address)?)
+        let pda = self.delegate_pda_with_bump();
+        self.decode_delegate(pda, rpc.get_account(pda.address)?)
     }
 
     /// The async twin of [`Self::read_delegate`], over [`AsyncRpc`].
@@ -299,28 +339,54 @@ impl CustomRing {
         self,
         rpc: &R,
     ) -> Result<Option<CustomRingDelegate>, AccountReadError> {
-        let address = self.delegate_pda();
-        self.decode_delegate(address, rpc.get_account(address).await?)
+        let pda = self.delegate_pda_with_bump();
+        self.decode_delegate(pda, rpc.get_account(pda.address).await?)
     }
 
     fn decode_delegate(
         self,
-        address: Address,
+        pda: Pda,
         account: Option<Account>,
     ) -> Result<Option<CustomRingDelegate>, AccountReadError> {
         let Some(delegate) =
-            AccountRead::decode_optional::<Delegate>(self.program_id, address, account)?
+            AccountRead::decode_optional::<Delegate>(self.program_id, pda.address, account)?
         else {
             return Ok(None);
         };
-        if delegate.bump != self.delegate_pda_with_bump().1
-            || delegate.delegate == Address::default()
-        {
-            return Err(AccountReadError::InvalidAccount { address });
+        if delegate.bump != pda.bump || delegate.delegate == Address::default() {
+            return Err(AccountReadError::InvalidAccount {
+                address: pda.address,
+            });
         }
         Ok(Some(CustomRingDelegate {
             delegate: delegate.delegate,
         }))
+    }
+
+    pub fn key_registry_root_pda(self) -> Address {
+        self.key_registry_root_pda_with_bump().address
+    }
+
+    fn key_registry_root_pda_with_bump(self) -> Pda {
+        ring_pda::key_registry_root(&self.program_id).into()
+    }
+
+    /// `None` until the authority creates the registry root.
+    pub fn read_key_registry_root<R: Rpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
+        let pda = self.key_registry_root_pda_with_bump();
+        self.decode_indexed_root::<KeyRegistryRoot>(pda, rpc.get_account(pda.address)?)
+    }
+
+    /// The async twin of [`Self::read_key_registry_root`], over [`AsyncRpc`].
+    pub async fn read_key_registry_root_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
+        let pda = self.key_registry_root_pda_with_bump();
+        self.decode_indexed_root::<KeyRegistryRoot>(pda, rpc.get_account(pda.address).await?)
     }
 
     /// `None` when the mint is uncapped.
@@ -329,8 +395,8 @@ impl CustomRing {
         rpc: &R,
         mint: &Address,
     ) -> Result<Option<CustomRingSpendWindow>, AccountReadError> {
-        let address = self.spend_window_pda(mint);
-        self.decode_spend_window(mint, address, rpc.get_account(address)?)
+        let pda = self.spend_window_pda_with_bump(mint);
+        self.decode_spend_window(pda, rpc.get_account(pda.address)?)
     }
 
     /// The async twin of [`Self::read_spend_window`], over [`AsyncRpc`].
@@ -339,24 +405,27 @@ impl CustomRing {
         rpc: &R,
         mint: &Address,
     ) -> Result<Option<CustomRingSpendWindow>, AccountReadError> {
-        let address = self.spend_window_pda(mint);
-        self.decode_spend_window(mint, address, rpc.get_account(address).await?)
+        let pda = self.spend_window_pda_with_bump(mint);
+        self.decode_spend_window(pda, rpc.get_account(pda.address).await?)
     }
 
     fn decode_spend_window(
         self,
-        mint: &Address,
-        address: Address,
+        pda: Pda,
         account: Option<Account>,
     ) -> Result<Option<CustomRingSpendWindow>, AccountReadError> {
         let Some(window) =
-            AccountRead::decode_optional::<SpendWindow>(self.program_id, address, account)?
+            AccountRead::decode_optional::<SpendWindow>(self.program_id, pda.address, account)?
         else {
             return Ok(None);
         };
-        let bump = self.spend_window_pda_with_bump(mint).1;
-        if window.mint != *mint || window.bump != bump || window.window_slots() == 0 {
-            return Err(AccountReadError::InvalidAccount { address });
+        if window.bump != pda.bump
+            || window.window_slots() == 0
+            || self.spend_window_pda(&window.mint) != pda.address
+        {
+            return Err(AccountReadError::InvalidAccount {
+                address: pda.address,
+            });
         }
         Ok(Some(CustomRingSpendWindow {
             mint: window.mint,
@@ -375,6 +444,23 @@ impl CustomRing {
     ) -> Result<Option<PolicyConfig>, AccountReadError> {
         let address = self.policy_config_pda();
         self.decode_policy_config(address, rpc.get_account(address)?)
+    }
+
+    pub fn read_pinned_policy<R: Rpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<PinnedPolicy>, PolicyMatchError> {
+        self.read_policy_config(rpc)?.map(pinned_policy).transpose()
+    }
+
+    pub async fn read_pinned_policy_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<PinnedPolicy>, PolicyMatchError> {
+        self.read_policy_config_async(rpc)
+            .await?
+            .map(pinned_policy)
+            .transpose()
     }
 
     /// The async twin of [`Self::read_policy_config`], over [`AsyncRpc`].
@@ -461,6 +547,13 @@ pub fn policy_config_table(config: &PolicyConfig) -> Result<RuleTable, PolicyMat
     let table = config.rule_table()?;
     check_pinned_hash(config)?;
     Ok(table)
+}
+
+fn pinned_policy(config: PolicyConfig) -> Result<PinnedPolicy, PolicyMatchError> {
+    Ok(PinnedPolicy {
+        table: policy_config_table(&config)?,
+        config,
+    })
 }
 
 pub fn client_rules_match(
@@ -559,6 +652,44 @@ impl ReadableAccount for HeadMapRoot {
     }
 }
 
+impl ReadableAccount for KeyRegistryRoot {
+    const DISCRIMINATOR: u8 = KEY_REGISTRY_ROOT;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
+struct StoredIndexedRoot {
+    bump: u8,
+    root: [u8; 32],
+    next_index: u64,
+}
+
+trait IndexedRootAccount: ReadableAccount {
+    fn indexed_root(self) -> StoredIndexedRoot;
+}
+
+impl IndexedRootAccount for HeadMapRoot {
+    fn indexed_root(self) -> StoredIndexedRoot {
+        StoredIndexedRoot {
+            bump: self.bump,
+            root: self.root,
+            next_index: self.next_index(),
+        }
+    }
+}
+
+impl IndexedRootAccount for KeyRegistryRoot {
+    fn indexed_root(self) -> StoredIndexedRoot {
+        StoredIndexedRoot {
+            bump: self.bump,
+            root: self.root,
+            next_index: self.next_index(),
+        }
+    }
+}
+
 struct AccountRead;
 
 impl AccountRead {
@@ -584,8 +715,7 @@ impl AccountRead {
         Ok(Some(*value))
     }
 
-    /// An existing but empty canonical PDA reads as unconfigured, matching the
-    /// program's `data_len() == 0`, a nonempty malformed account stays strict.
+    /// An empty account reads as unconfigured, the program's own rule.
     fn decode_optional<T: ReadableAccount>(
         program_id: Address,
         address: Address,
@@ -795,7 +925,7 @@ mod tests {
         let value = Delegate {
             discriminator: DELEGATE,
             delegate: key,
-            bump: ring().delegate_pda_with_bump().1,
+            bump: ring().delegate_pda_with_bump().bump,
         };
         let valid = AccountRpc {
             address,
@@ -837,7 +967,7 @@ mod tests {
             window_start_slot: 1200u64.to_le_bytes(),
             deposited: 1u64.to_le_bytes(),
             withdrawn: 0u64.to_le_bytes(),
-            bump: ring().spend_window_pda_with_bump(&mint).1,
+            bump: ring().spend_window_pda_with_bump(&mint).bump,
         };
         let valid = AccountRpc {
             address,

@@ -1,16 +1,17 @@
-//! Every velocity transfer spends the version before it, the counters ride its messages.
+//! Record discovery separates current-head authentication from counter recovery.
 
 use solana_address::Address;
-use zolana_client::{AsyncRpc, OutputSlot, Rpc, ShieldedTransaction};
-use zolana_interface::instruction::{
-    instruction_data::transact::confidential_encrypted_output_body, MessageData,
-};
+use zolana_client::{AsyncRpc, Rpc};
+use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey};
+use zolana_ring_client::RecordCarrier;
 use zolana_ring_policy::{entry_nullifier, ListNamespace, Member, SpendRecord};
 
-use crate::instructions::entry::{EntryProofError, LineageLookup, Lineages};
+use crate::{
+    instructions::entry::{EntryProofError, LineageLookup, Lineages, SpentSlot},
+    CustomRing,
+};
 
-/// The publishing transaction, its messages carry the counters under its key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordOrigin {
     pub first_nullifier: [u8; 32],
@@ -19,7 +20,6 @@ pub struct RecordOrigin {
     pub messages: Vec<MessageData>,
 }
 
-/// The current version of a member's record and its origin.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveSpendRecord {
     pub record: SpendRecord,
@@ -28,11 +28,24 @@ pub struct LiveSpendRecord {
     pub origin: RecordOrigin,
 }
 
+pub struct ReadEnvironment<'a, I, R> {
+    pub indexer: &'a I,
+    pub rpc: &'a R,
+}
+
+impl<I, R> Clone for ReadEnvironment<'_, I, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<I, R> Copy for ReadEnvironment<'_, I, R> {}
+
 #[must_use]
 pub struct ReadSpendRecord {
+    pub ring: CustomRing,
     pub entries_tree: Address,
     pub entries_tree_id: u16,
-    pub namespace: Address,
     pub member: Member,
 }
 
@@ -40,20 +53,24 @@ impl ReadSpendRecord {
     /// Authenticated against the exact current head root.
     pub fn read_current<I: Rpc, R: Rpc>(
         self,
-        ring: crate::CustomRing,
-        indexer: &I,
-        rpc: &R,
+        env: ReadEnvironment<'_, I, R>,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
-        current_result(crate::head_map::read(ring, self, indexer, rpc))
+        match self.current(env) {
+            Ok(head) => Ok(Some(head.record)),
+            Err(error) if error.is_unregistered() => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn read_current_async<I: AsyncRpc, R: AsyncRpc>(
         self,
-        ring: crate::CustomRing,
-        indexer: &I,
-        rpc: &R,
+        env: ReadEnvironment<'_, I, R>,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
-        current_result(crate::head_map::read_async(ring, self, indexer, rpc).await)
+        match self.current_async(env).await {
+            Ok(head) => Ok(Some(head.record)),
+            Err(error) if error.is_unregistered() => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// Unauthenticated history, unsuitable for transfer preparation.
@@ -81,31 +98,14 @@ impl ReadSpendRecord {
         Ok(lineages.into_iter().next().flatten())
     }
 
-    fn lookup(&self) -> Result<SpendLookup, EntryProofError> {
-        let owner =
-            ListNamespace::new(self.namespace.as_array()).map_err(|_| EntryProofError::Hashing)?;
+    pub(crate) fn lookup(&self) -> Result<SpendLookup, EntryProofError> {
+        let owner = ListNamespace::new(self.ring.namespace_pda().as_array())
+            .map_err(|_| EntryProofError::Hashing)?;
         Ok(SpendLookup {
             owner,
             member: self.member,
             tree_id: self.entries_tree_id,
         })
-    }
-}
-
-fn current_result(
-    result: Result<(LiveSpendRecord, crate::head_map::HeadWitness), EntryProofError>,
-) -> Result<Option<LiveSpendRecord>, EntryProofError> {
-    match result {
-        Ok((live, _)) => Ok(Some(live)),
-        Err(EntryProofError::Client(error))
-            if matches!(
-                *error,
-                zolana_client::ClientError::RingHeadMemberUnregistered
-            ) =>
-        {
-            Ok(None)
-        }
-        Err(error) => Err(error),
     }
 }
 
@@ -125,30 +125,14 @@ impl LineageLookup for SpendLookup {
             .map_err(|_| EntryProofError::Hashing)
     }
 
-    fn decode(
-        &self,
-        address: &[u8; 32],
-        spender: &ShieldedTransaction,
-        slot: &OutputSlot,
-    ) -> Option<LiveSpendRecord> {
+    fn decode(&self, address: &[u8; 32], slot: SpentSlot<'_>) -> Option<LiveSpendRecord> {
+        let SpentSlot { transaction, slot } = slot;
         if ListNamespace::new(&slot.view_tag).ok()? != self.owner {
             return None;
         }
-        let record = if let Some(record) = SpendRecord::from_output_data(&slot.payload) {
-            (record.version == 0).then_some(record)?
-        } else {
-            confidential_encrypted_output_body(&slot.payload)?;
-            let tag = zolana_ring_policy::spend_record_message_tag(&slot.view_tag).ok()?;
-            let mut messages = spender
-                .messages
-                .iter()
-                .filter(|message| message.view_tag == tag);
-            let message = messages.next()?;
-            if messages.next().is_some() {
-                return None;
-            }
-            SpendRecord::from_output_data(&message.data)?
-        };
+        let record = RecordCarrier::decode(slot, &transaction.messages)
+            .ok()??
+            .record();
         if record.member != self.member {
             return None;
         }
@@ -162,10 +146,10 @@ impl LineageLookup for SpendLookup {
             utxo_hash,
             nullifier,
             origin: RecordOrigin {
-                first_nullifier: spender.nullifiers.first().copied()?,
-                tx_viewing_pk: spender.tx_viewing_pk,
-                salt: spender.salt,
-                messages: spender.messages.clone(),
+                first_nullifier: transaction.nullifiers.first().copied()?,
+                tx_viewing_pk: transaction.tx_viewing_pk,
+                salt: transaction.salt,
+                messages: transaction.messages.clone(),
             },
         })
     }
@@ -188,11 +172,23 @@ impl LineageLookup for SpendLookup {
 
 #[cfg(test)]
 mod tests {
-    use zolana_client::{Context, OutputContext};
+    use zolana_client::{OutputContext, OutputSlot, ShieldedTransaction};
     use zolana_ring_policy::SpendCounters;
 
     use super::*;
-    use crate::instructions::entry::discovery::tests::{namespace, owner, tree, NullifierRpc};
+    use crate::instructions::entry::discovery::tests::{tree, NullifierRpc};
+
+    fn ring() -> CustomRing {
+        CustomRing::new(Address::new_from_array([8u8; 32]))
+    }
+
+    fn namespace() -> Address {
+        ring().namespace_pda()
+    }
+
+    fn owner() -> ListNamespace {
+        ListNamespace::new(namespace().as_array()).expect("owner")
+    }
 
     fn member() -> Member {
         Member::owner_tag(&[5u8; 32]).expect("member")
@@ -203,7 +199,7 @@ mod tests {
             member: member(),
             version,
             window: 3,
-            counters_commitment: SpendCounters::zero(&[]).commitment().expect("commitment"),
+            counters_commitment: SpendCounters::EMPTY.commitment().expect("commitment"),
             blinding: [version as u8 + 1; 32],
         };
         let address = owner().spend_address(&member(), 0).expect("address");
@@ -273,6 +269,16 @@ mod tests {
         }
     }
 
+    fn read(rpc: &NullifierRpc) -> Result<Option<LiveSpendRecord>, EntryProofError> {
+        ReadSpendRecord {
+            ring: ring(),
+            entries_tree: tree(),
+            entries_tree_id: 0,
+            member: member(),
+        }
+        .read(rpc)
+    }
+
     #[test]
     fn the_walk_returns_the_live_version_with_its_origin() {
         let address = owner().spend_address(&member(), 0).expect("address");
@@ -282,24 +288,12 @@ mod tests {
             spender(address, &first, first_hash),
             spender(first_nullifier, &second, second_hash),
         ]);
-        let live = ReadSpendRecord {
-            entries_tree: tree(),
-            entries_tree_id: 0,
-            namespace: namespace(),
-            member: member(),
-        }
-        .read(&rpc)
-        .expect("walk")
-        .expect("registered");
+        let live = read(&rpc).expect("walk").expect("registered");
         assert_eq!(live.record, second);
         assert_eq!(live.nullifier, second_nullifier);
         assert_eq!(live.origin.first_nullifier, first_nullifier);
         assert_eq!(live.origin.salt, Some([9u8; SALT_LEN]));
         assert_eq!(live.origin.messages.len(), 2);
-        let _ = Context {
-            block_time: 0,
-            slot: 0,
-        };
     }
 
     #[test]
@@ -312,13 +306,16 @@ mod tests {
             member: member(),
             tree_id: 0,
         };
-        assert_eq!(
-            lookup
-                .decode(&address, &transaction, &transaction.output_slots[0])
-                .unwrap()
-                .record,
-            record
-        );
+        let decode = |transaction: &ShieldedTransaction| {
+            lookup.decode(
+                &address,
+                SpentSlot {
+                    transaction,
+                    slot: &transaction.output_slots[0],
+                },
+            )
+        };
+        assert_eq!(decode(&transaction).unwrap().record, record);
         let mutations: [fn(&mut ShieldedTransaction); 6] = [
             |tx| {
                 tx.messages.remove(0);
@@ -334,23 +331,13 @@ mod tests {
         for mutate in mutations {
             let mut changed = transaction.clone();
             mutate(&mut changed);
-            assert!(lookup
-                .decode(&address, &changed, &changed.output_slots[0])
-                .is_none());
+            assert!(decode(&changed).is_none());
         }
     }
 
     #[test]
     fn an_unregistered_member_reads_none() {
         let rpc = NullifierRpc::new(Vec::new());
-        let live = ReadSpendRecord {
-            entries_tree: tree(),
-            entries_tree_id: 0,
-            namespace: namespace(),
-            member: member(),
-        }
-        .read(&rpc)
-        .expect("walk");
-        assert_eq!(live, None);
+        assert_eq!(read(&rpc).expect("walk"), None);
     }
 }

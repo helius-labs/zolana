@@ -4,15 +4,14 @@
 //! `custom-rings/program/tests/common/mod.rs`.
 
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
-use custom_ring_interface::{SetCoSignerIxData, SetPausedIxData, SourceSpec};
+use custom_ring_interface::{PlainGroth16Proof, SetCoSignerIxData, SetPausedIxData, SourceSpec};
 use custom_ring_sdk::{
-    tag, ClearCoSigner, ClearSpendWindow, CreateConfig, CreateConfigIxData, CreatePolicy,
-    CustomRing, CustomRingDelegateTransact, CustomRingProof, CustomRingTransact,
-    CustomRingTransactIxData, DelegateInstructionError, Deposit, EntryError, GrantReadAccess,
-    InitSppRingConfig, PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError,
+    tag, ClearCoSigner, ClearSpendWindow, CoSignScope, CoSignThreshold, CreateConfig,
+    CreateConfigIxData, CreatePolicy, CustomRing, CustomRingDelegateTransact, CustomRingProof,
+    CustomRingTransact, CustomRingTransactIxData, DelegateInstructionError, Deposit, EntryError,
+    GrantReadAccess, InitSppRingConfig, PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError,
     RevokeReadAccess, SetAuthority, SetCoSigner, SetDelegate, SetPaused, SetPolicyRules,
-    SetSpendWindow, CONFIG_PDA_SEED, COSIGN_WITHDRAWALS, READ_ACCESS_RECORD_PDA_SEED,
-    SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    SetSpendWindow, CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED, SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -621,9 +620,11 @@ fn owner_signer() -> Address {
 
 fn sample_proof() -> CustomRingProof {
     CustomRingProof {
-        proof_a: [51; 32],
-        proof_b: [52; 64],
-        proof_c: [53; 32],
+        groth16: PlainGroth16Proof {
+            proof_a: [51; 32],
+            proof_b: [52; 64],
+            proof_c: [53; 32],
+        },
         commitment: [54; 32],
         commitment_pok: [55; 32],
     }
@@ -1103,10 +1104,16 @@ fn set_cosigner_creates_or_replaces_under_the_config_authority() {
         payer: payer(),
         authority: authority(),
         signer,
-        scope: COSIGN_WITHDRAWALS,
+        scope: CoSignScope::WITHDRAWALS,
         thresholds: vec![
-            (Address::default(), 10),
-            (Address::new_from_array([60; 32]), 20),
+            CoSignThreshold {
+                mint: Address::default(),
+                amount: 10,
+            },
+            CoSignThreshold {
+                mint: Address::new_from_array([60; 32]),
+                amount: 20,
+            },
         ],
     }
     .instruction()
@@ -1128,7 +1135,7 @@ fn set_cosigner_creates_or_replaces_under_the_config_authority() {
     let decoded: SetCoSignerIxData =
         wincode::deserialize_exact(body).expect("body is a complete SetCoSignerIxData");
     assert_eq!(decoded.signer, signer.to_bytes());
-    assert_eq!(decoded.scope, COSIGN_WITHDRAWALS);
+    assert_eq!(decoded.scope, CoSignScope::WITHDRAWALS.bits());
     assert_eq!(decoded.thresholds.len(), 2);
     assert_eq!(decoded.thresholds[0].mint, [0; 32]);
     assert_eq!(decoded.thresholds[1].amount, 20);
@@ -1316,9 +1323,11 @@ fn the_cosigner_slot_signs_only_when_set() {
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             proof: CustomRingProof {
-                proof_a: [0; 32],
-                proof_b: [0; 64],
-                proof_c: [0; 32],
+                groth16: PlainGroth16Proof {
+                    proof_a: [0; 32],
+                    proof_b: [0; 64],
+                    proof_c: [0; 32],
+                },
                 commitment: [0; 32],
                 commitment_pok: [0; 32],
             },

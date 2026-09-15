@@ -36,6 +36,8 @@ pub enum EntryError {
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
     #[error(transparent)]
+    HeadProof(#[from] crate::CustomRingProofError),
+    #[error(transparent)]
     AccountRead(#[from] crate::AccountReadError),
     #[error(transparent)]
     PolicyMatch(#[from] crate::PolicyMatchError),
@@ -45,6 +47,12 @@ pub enum EntryError {
     VelocityDisabled,
     #[error("the member already registered a spend record")]
     SpendRecordExists,
+}
+
+impl From<ClientError> for EntryError {
+    fn from(error: ClientError) -> Self {
+        Self::Proof(EntryProofError::Client(Box::new(error)))
+    }
 }
 
 /// Pins the table and its source map, signed by the upgrade authority.
