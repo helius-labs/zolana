@@ -1,0 +1,132 @@
+{
+  "address": "sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG",
+  "metadata": {
+    "name": "shielded_pool",
+    "version": "0.0.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "batch_update_nullifier_tree",
+      "discriminator": [
+        4
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "protocol_config"
+        },
+        {
+          "name": "tree",
+          "writable": true
+        },
+        {
+          "name": "reimbursement_recipient",
+          "writable": true
+        },
+        {
+          "name": "program_id",
+          "address": "sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "old_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "zkp_batch_index",
+          "type": "u16"
+        },
+        {
+          "name": "compressed_proof",
+          "type": {
+            "defined": {
+              "name": "CompressedProof"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_ring_config",
+      "discriminator": [
+        8
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "ring_config",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "ring_authority_transact_is_enabled",
+          "type": "bool"
+        },
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    }
+  ],
+  "types": [
+    {
+      "name": "CompressedProof",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "a",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "b",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "c",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
