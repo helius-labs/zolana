@@ -62,6 +62,7 @@ paths:
                       type: array
                       items:
                         $ref: '#/components/schemas/Hash'
+                      description: Empty tags require a ring and select its full history.
                   additionalProperties: false
         required: true
       responses:
@@ -104,7 +105,7 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/EncryptedUtxoMatch'
-                        description: Output-level matches; every returned output slot has a view tag from the request.
+                        description: All outputs in the selected ring when tags are empty.
                       nextCursor:
                         oneOf:
                         - type: 'null'
@@ -1443,6 +1444,7 @@ paths:
                       type: array
                       items:
                         $ref: '#/components/schemas/Hash'
+                      description: Empty tags require a ring and select its full history.
                   additionalProperties: false
         required: true
       responses:
@@ -1495,8 +1497,8 @@ paths:
                         items:
                           $ref: '#/components/schemas/ShieldedTransaction'
                         description: |-
-                          Transaction-level matches; each returned transaction has at least one requested
-                          output view tag and includes all of its output slots.
+                          All slots of each matched transaction, including full ring history when
+                          tags are empty.
                     additionalProperties: false
         '429':
           description: Exceeded rate limit.
