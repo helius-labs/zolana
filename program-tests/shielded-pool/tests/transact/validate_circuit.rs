@@ -174,3 +174,31 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 3), Ok(()));
 }
+
+#[test]
+fn cached_utxos_are_only_supported_on_default_eddsa_transact() {
+    use zolana_interface::verifying_keys::CachedInputs;
+    let circuit = CircuitId::ConfidentialEddsaCached(2, 2, 3, CachedInputs { input_bitmap: 3 });
+    assert_eq!(validate(circuit, InstructionTag::Transact, 2, 2), Ok(()));
+    for instruction in [
+        InstructionTag::RingTransact,
+        InstructionTag::RingAuthorityTransact,
+    ] {
+        assert_eq!(
+            validate(circuit, instruction, 2, 2),
+            Err(ShieldedPoolError::MismatchedCircuitType.into())
+        );
+    }
+}
+
+#[test]
+fn cached_input_bitmap_must_select_only_declared_inputs() {
+    use zolana_interface::verifying_keys::CachedInputs;
+    for input_bitmap in [0, 4, 1 << 36] {
+        let circuit = CircuitId::ConfidentialEddsaCached(2, 2, 3, CachedInputs { input_bitmap });
+        assert_eq!(
+            validate(circuit, InstructionTag::Transact, 2, 2),
+            Err(ShieldedPoolError::InvalidCacheBitmap.into())
+        );
+    }
+}

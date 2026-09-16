@@ -27,6 +27,7 @@ pub struct TransactAccounts<'a> {
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
+    pub cache: Option<&'a mut AccountView>,
 }
 
 impl<'a> TransactAccounts<'a> {
@@ -37,7 +38,8 @@ impl<'a> TransactAccounts<'a> {
     /// 5. T input trees - mut, one per declared tree context, in context order
     ///    5 + T: I nullifier PDAs - mut, one per input in `inputs` order
     ///    5 + T + I: N signers - signer
-    ///    5 + T + I + N: transfer settlement accounts -
+    ///    5 + T + I + N: transfer settlement accounts
+    ///    Optional cache account follows all settlement accounts.
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
@@ -71,6 +73,7 @@ impl<'a> TransactAccounts<'a> {
             nullifier_pdas: ArrayVec::new(),
             owner_signers: &[],
             settlements: ArrayVec::new(),
+            cache: None,
         });
         for _ in 0..ix.inputs.len() {
             this.nullifier_pdas
@@ -100,7 +103,11 @@ impl<'a> TransactAccounts<'a> {
                 total.checked_add(transfer.settlement_account_count())
             })
             .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
-        if settlement_accounts.len() != settlement_account_count {
+        let cache_present = ix.circuit.cached_inputs().is_some();
+        let remaining_count = settlement_account_count
+            .checked_add(usize::from(cache_present))
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        if settlement_accounts.len() != remaining_count {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
         let mut iter = AccountIterator::new(settlement_accounts);
@@ -182,6 +189,7 @@ impl<'a> TransactAccounts<'a> {
                 .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
         }
 
+        this.cache = iter.next_option_mut("cache", cache_present)?;
         Ok(this)
     }
 }

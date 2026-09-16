@@ -292,6 +292,7 @@ mod tests {
         let data = MergeRingIxData {
             output_ring_data_hash: [7; 32],
             merge: zolana_interface::instruction::MergeTransactIxData {
+                cache_slot: None,
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [0; 32],

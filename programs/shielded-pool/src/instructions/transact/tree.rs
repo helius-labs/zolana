@@ -1,7 +1,7 @@
 use crate::instructions::shared::caused_by;
 use arrayvec::ArrayVec;
 use light_program_profiler::profile;
-use pinocchio::{error::ProgramError, AccountView};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_interface::{
     error::ShieldedPoolError,
     event::InputTreeSequence,
@@ -14,6 +14,7 @@ use zolana_tree::TreeAccount;
 
 use super::{account::TransactAccounts, event::TreeWrite, verify::TransactProofInputs};
 use crate::instructions::{
+    cache::loader::load_cache_mut,
     nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     shared::tree_error,
 };
@@ -57,9 +58,16 @@ pub(crate) fn apply_input_trees(
     let mut input_groups = ix
         .inputs
         .chunk_by(|left, right| left.tree_index == right.tree_index);
+    let mut input_offset = 0usize;
     for (input_tree_account, context) in input_trees.iter_mut().zip(&ix.tree_contexts) {
         // 1. Select the tree's contiguous input group.
         let tree_inputs = input_groups.next().ok_or(shape)?;
+        let input_end = input_offset.checked_add(tree_inputs.len()).ok_or(shape)?;
+        let requires_state_root = ix
+            .circuit
+            .cached_inputs()
+            .is_none_or(|selection| (input_offset..input_end).any(|i| !selection.selects(i)));
+        input_offset = input_end;
         let input_tree_address = input_tree_account.address().to_bytes();
         let result = {
             // 2. Load the tree, combine its dummy-input policy and resolve its roots.
@@ -71,7 +79,11 @@ pub(crate) fn apply_input_trees(
             .map_err(tree_error)?;
             allow_dummy_inputs &= input_tree.allow_dummy_inputs().map_err(tree_error)?;
             tree_slots
-                .try_push(resolve_input_tree_slot(&input_tree, context)?)
+                .try_push(resolve_input_tree_slot(
+                    &input_tree,
+                    context,
+                    requires_state_root,
+                )?)
                 .map_err(|_| shape)?;
 
             // 3. Queue its nullifiers and credit its insertion fee.
@@ -138,12 +150,24 @@ pub(crate) fn apply_input_trees(
 pub(crate) fn resolve_input_tree_slot(
     input_tree: &TreeAccount<'_>,
     context: &TreeContext,
+    requires_state_root: bool,
 ) -> Result<TreeSlot, ProgramError> {
     Ok(TreeSlot {
         id: input_tree.tree_id_array(),
-        utxo_root: input_tree
-            .get_utxo_tree_root(context.utxo_tree_root_index)
-            .map_err(tree_error)?,
+        utxo_root: if requires_state_root {
+            input_tree
+                .get_utxo_tree_root(context.utxo_tree_root_index)
+                .map_err(tree_error)?
+        } else {
+            // Every input in this group proves a cached commitment. The circuit's
+            // bitmap skips state inclusion; zero canonically encodes the unused root.
+            // Cache commitments outlive state-root history, but each spend still
+            // requires an existing cache, a valid nullifier root and an unexpired tx.
+            if context.utxo_tree_root_index != 0 {
+                return Err(ShieldedPoolError::InvalidCacheRootIndex.into());
+            }
+            [0; 32]
+        },
         nullifier_root: input_tree
             .get_nullifier_tree_root(context.nullifier_tree_root_index)
             .map_err(tree_error)?,
@@ -174,4 +198,17 @@ pub(crate) fn apply_output_tree(
         output_tree: output_tree_address,
         output_tree_id: output_tree.tree_id(),
     })
+}
+
+/// Load once, bind the cached inputs, and freeze further merge insertions.
+/// Proof or settlement failure rolls back the flag along with tree mutations.
+pub(crate) fn apply_cached_inputs(
+    account: &mut AccountView,
+    ix: &TransactIxDataRef<'_>,
+    proof_inputs: &mut TransactProofInputs,
+) -> ProgramResult {
+    let mut cache = load_cache_mut(account)?;
+    proof_inputs.assign_cached_inputs(ix, &cache)?;
+    cache.frozen = 1;
+    Ok(())
 }

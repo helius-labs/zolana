@@ -1,0 +1,123 @@
+package shared_test
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"math/big"
+	"os"
+	"testing"
+
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend/groth16"
+	bn254 "github.com/consensys/gnark/backend/groth16/bn254"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
+	defaultring "zolana/prover/circuits/spp_transaction/default"
+	. "zolana/prover/circuits/spp_transaction/shared"
+	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover-test/spp/spptest"
+)
+
+// Copied temporarily into shared_test by generate.sh to reuse the circuit's
+// validated fixtures. No service or witness-building SDK is involved.
+func TestGenerateProgramCacheFixtures(t *testing.T) {
+	output := os.Getenv("CACHE_FIXTURE_DIR")
+	if output == "" {
+		t.Fatal("CACHE_FIXTURE_DIR required")
+	}
+	field := func(v frontend.Variable) string { return fmt.Sprintf("%064x", spptest.AsBigInt(v)) }
+	fields := func(v []frontend.Variable) []string {
+		r := make([]string, len(v))
+		for i, x := range v {
+			r[i] = field(x)
+		}
+		return r
+	}
+	for _, tc := range []struct {
+		name   string
+		n      int
+		bitmap uint64
+	}{{"all", 2, 3}, {"mixed", 2, 1}, {"wide", 36, (1 << 36) - 1}} {
+		a := buildDefaultRingEddsaOnlyAssignment(t, protocol.Shape{NInputs: tc.n, NOutputs: 2})
+		for i := range a.TreeSlots {
+			if i > 0 {
+				a.TreeSlots[i] = TreeSlot{ID: 0, UtxoRoot: 0, NullifierRoot: 0}
+			}
+		}
+		// One actual EdDSA payer/owner, with zero padding in the circuit signer run.
+		for i := range a.SignerPkHashes {
+			a.SignerPkHashes[i] = 0
+		}
+		a.SignerPkHashes[0] = testSolanaPkField(t)
+		// Serialized external prefix: expiry, viewing key, salt, no public legs or
+		// data hashes, two inline-owner outputs without ciphertext, no messages.
+		prefix := make([]byte, 8+33+16)
+		for i := 0; i < 8; i++ {
+			prefix[i] = 255
+		}
+		prefix = append(prefix, 0, 0, 0, 2)
+		for _, o := range a.Outputs {
+			h := spptest.AsBigInt(o.Hash).FillBytes(make([]byte, 32))
+			prefix = append(prefix, h...)
+			prefix = append(prefix, 0)
+			prefix = append(prefix, testSolanaPubkey()...)
+			prefix = append(prefix, 0)
+		}
+		prefix = append(prefix, 0)
+		a.ExternalDataHash = protocol.Sha256BEField(append([]byte{16}, prefix...))
+		inputHashes := make([]*big.Int, tc.n)
+		for i, in := range a.Inputs {
+			inputHashes[i] = testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), a.inputTreeID(i))
+		}
+		a.PrivateTxHash = spptest.MustPrivateTxHash(t, inputHashes, spptest.ToBigInts(a.OutputHashes()), noAddressNullifiers(tc.n), spptest.AsBigInt(a.ExternalDataHash), a.privateTxBlinding(t))
+		originalStateRoot := a.TreeSlots[0].UtxoRoot
+		c := cachedAssignment(t, a, tc.bitmap)
+		clearStatePaths(c, tc.bitmap)
+		if tc.name != "mixed" {
+			c.Public.TreeSlots[0].UtxoRoot = 0
+		}
+		refreshCachedHash(t, c)
+		skeleton, err := defaultring.NewDefaultRingEddsaOnlyCachedCircuit(Shape{NInputs: tc.n, NOutputs: 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, skeleton)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pk := groth16.NewProvingKey(ecc.BN254)
+		f, err := os.Open(fmt.Sprintf("../../../proving-keys/cached/transfer_confidential_cached_%d_2.pk", tc.n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = pk.ReadFrom(f)
+		f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		witness, err := frontend.NewWitness(c, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		proof, err := groth16.Prove(ccs, pk, witness)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := proof.(*bn254.Proof)
+		p.Ar.Neg(&p.Ar)
+		ar, bs, krs := p.Ar.RawBytes(), p.Bs.RawBytes(), p.Krs.RawBytes()
+		hashes := make([]string, tc.n)
+		for i, h := range inputHashes {
+			hashes[i] = field(h)
+		}
+		value := map[string]any{"bitmap": tc.bitmap, "commitments": hashes, "nullifiers": fields(c.Public.Nullifiers), "outputs": fields(c.Public.OutputHashes), "state_root": field(originalStateRoot), "nullifier_root": field(a.TreeSlots[0].NullifierRoot), "private_tx_hash": field(c.Public.PrivateTxHash), "external_data_hash": field(c.Public.ExternalDataHash), "public_input_hash": field(c.Public.PublicInputHash), "cache_chain": field(c.CachedInputs.InputHashChain), "proof_a": hex.EncodeToString(ar[:]), "proof_b": hex.EncodeToString(bs[:]), "proof_c": hex.EncodeToString(krs[:])}
+		data, err := json.MarshalIndent(value, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(output+"/"+tc.name+".json", append(data, '\n'), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

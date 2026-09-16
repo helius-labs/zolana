@@ -6,7 +6,7 @@ pub use zolana_event::{
 };
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData};
+pub use crate::verifying_keys::{Bsb22Commitment, CachedInputs, CircuitId, RingP256ProofData};
 use crate::{error::ShieldedPoolError, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
 
 /// The Groth16 proof carried by a `transact` instruction: `a` and `c` are

@@ -48,6 +48,7 @@ fn merge_nullifiers() -> Vec<[u8; 32]> {
 
 fn merge_data() -> MergeTransactIxData {
     MergeTransactIxData {
+        cache_slot: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0u8; 32],

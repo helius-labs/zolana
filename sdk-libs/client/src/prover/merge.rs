@@ -91,6 +91,7 @@ impl MergeProofResult {
     /// user_record accounts.
     pub fn instruction_data(&self, proof: MergeProof) -> MergeTransactIxData {
         MergeTransactIxData {
+            cache_slot: None,
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
@@ -223,6 +224,7 @@ impl MergeProver {
         // external_data_hash binds the instruction's discriminator, expiry, and
         // output commitment to the proof; the program recomputes it identically.
         let external_data_hash = MergeExternalDataHash {
+            cache: None,
             spp_instruction_discriminator,
             expiry_unix_ts: self.expiry_unix_ts,
             output_utxo_hash: &output_hash,

@@ -28,6 +28,7 @@ use zolana_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
     batch_update_nullifier_tree::process_batch_update_nullifier_tree,
+    cache::{process_close_cache, process_create_cache},
     claim_tree_lamports::process_claim_tree_lamports,
     close_nullifier_pdas::process_close_nullifier_pdas,
     create_asset_counter::process_create_asset_counter,
@@ -98,6 +99,8 @@ pub fn process_instruction(
         InstructionTag::SetRingActivation => process_set_ring_activation(accounts, payload),
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
         InstructionTag::RingMergeTransact => process_merge_ring_ix(accounts, payload),
+        InstructionTag::CreateCache => process_create_cache(accounts, payload),
+        InstructionTag::CloseCache => process_close_cache(accounts, payload),
         InstructionTag::CloseNullifierPdas => process_close_nullifier_pdas(accounts, payload),
         InstructionTag::SetTreeFees => process_set_tree_fees(accounts, payload),
         InstructionTag::ClaimTreeLamports => process_claim_tree_lamports(accounts, payload),

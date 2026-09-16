@@ -1,4 +1,4 @@
-use crate::instructions::shared::caused_by;
+use crate::instructions::{cache::loader::check_cache_alias, shared::caused_by};
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -15,6 +15,7 @@ use zolana_interface::{
 use super::account::MergeRingAccounts;
 use crate::instructions::{
     merge::{
+        cache::{CacheAuthority, CacheSlot},
         processor::{process_merge_core, validate_field_elements, MergeCoreAccounts},
         verify::MergeOwnerBinding,
     },
@@ -40,9 +41,20 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len())?;
+    check_cache_alias(accounts, merge.cache_slot.is_some())?;
+    let merge_accounts =
+        MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len(), merge.cache_slot)?;
+    let cache = match (merge_accounts.cache, merge.cache_slot) {
+        (Some(account), Some(slot)) => Some(CacheSlot::open(
+            account,
+            slot,
+            CacheAuthority::Ring(merge_accounts.ring_program_id.to_bytes()),
+        )?),
+        _ => None,
+    };
 
     let external_data_hash = MergeExternalDataHash {
+        cache: cache.as_ref().map(CacheSlot::destination),
         spp_instruction_discriminator: RING_MERGE_TRANSACT,
         expiry_unix_ts: merge.expiry_unix_ts,
         output_utxo_hash: merge.output_utxo_hash,
@@ -82,5 +94,6 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
             .first()
             .ok_or(ShieldedPoolError::InvalidMergeShape)?,
         clock.slot,
+        cache,
     )
 }

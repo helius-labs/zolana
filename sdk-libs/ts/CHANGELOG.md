@@ -23,6 +23,8 @@ answer without releasing long-lived secrets.
 
 Breaking
 
+- Merge instructions and proofs use the updated pool format → rebuild pending merges before submitting them.
+
 - `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
   `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
   `WalletSyncMaterial` are removed → build
@@ -48,7 +50,7 @@ Breaking
   from it, while `InstructionTag` renumbers every tag → point at a deployment of
   the matching program and re-read any address or tag byte you cached.
 - `ShieldedPoolError` and `decodeShieldedPoolError` use consecutive codes
-  7000–7065 matching the program, remove retired names, and include tree-context
+  7000–7076 matching the program, remove retired names, and include cache and tree-context
   errors → replace hardcoded codes with the exported constants and use this SDK
   with the matching program version.
 - `MAX_INPUT_TREES` limits each transact to two input trees → split inputs from

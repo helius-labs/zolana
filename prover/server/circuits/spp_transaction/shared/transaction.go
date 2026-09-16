@@ -103,6 +103,12 @@ type Transaction struct {
 //
 // The relay carries no policy of its own: every rule about which inputs may
 // skip, and what stands in for inclusion, belongs to the variant.
+//
+// Every Skip element must already be constrained to a bit. The core multiplies
+// by it and selects on it, so a value outside {0,1} would forge a state root
+// and disable an inclusion check at once.
+//
+// Hashes and TreeIDs are filled by Constrain and are nil until it has run.
 type InclusionRelay struct {
 	Skip []frontend.Variable
 
