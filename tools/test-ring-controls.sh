@@ -75,6 +75,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture
-cargo build --locked -p custom-ring-cli
-cargo test --locked -p custom-ring-test-validator --test "$suite" "$@" -- --test-threads=1 --nocapture
+ring_cli_bin="$repo_root/target/debug/zolana-ring"
+if [[ -n "${ZOLANA_PREBUILT:-}" ]]; then
+  for binary in "$ZOLANA_PHOTON_BIN" "$ring_cli_bin"; do
+    [[ -x "$binary" ]] || { echo "Missing prebuilt executable $binary, unset ZOLANA_PREBUILT to build it" >&2; exit 1; }
+  done
+  tools/ci/nextest-suite.sh -p custom-ring-test-validator --test "$suite" --no-capture "$@"
+else
+  cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture
+  cargo build --locked -p custom-ring-cli
+  cargo test --locked -p custom-ring-test-validator --test "$suite" "$@" -- --test-threads=1 --nocapture
+fi

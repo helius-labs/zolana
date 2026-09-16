@@ -246,6 +246,8 @@ jobs:
             target/deploy/*.so
             target/debug/zolana
             target/debug/xtask
+            target/debug/zolana-ring
+            target/debug/photon
             target/prover-server
           if-no-files-found: error
           retention-days: 1
@@ -356,7 +358,7 @@ jobs:
         with:
           name: localnet-tests-${{ github.sha }}
           path: target
-      - run: chmod 0755 target/debug/zolana target/debug/xtask target/prover-server
+      - run: chmod 0755 target/debug/zolana target/debug/xtask target/debug/zolana-ring target/debug/photon target/prover-server
       - name: Cache Squads smart account binary
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: squads-cache

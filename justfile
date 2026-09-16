@@ -364,7 +364,7 @@ test-ts-e2e: (_test-ts-live "test:ts:e2e")
 # Public TypeScript SDK example against a fresh validator, Photon, and prover.
 test-ts-example: (_test-ts-live "test:ts:example")
 
-_test-ts-live test-script: build-programs build-prover-server build-cli ensure-photon ensure-custom-ring-live-keys
+_test-ts-live test-script: build-programs build-prover-server build-cli ensure-custom-ring-live-keys
     #!/usr/bin/env bash
     set -euo pipefail
     # A command substitution that exits nonzero is no `set -e` trigger, so the
@@ -385,13 +385,16 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     }
     trap cleanup EXIT
     rm -rf "$workdir"
-    mkdir -p "$workdir"
+    mkdir -p "$workdir/scope"
     export ZOLANA_CONFIG_DIR="$PWD/$workdir"
-    photon_bin="{{photon-bin}}"
-    [[ "$photon_bin" = /* ]] || photon_bin="$PWD/$photon_bin"
+    # The ring controls suite jumps the surfpool clock only inside a scoped runtime.
+    export ZOLANA_PROCESS_SCOPE_DIR="$PWD/$workdir/scope"
+    # Surfpool gives empty slots synthetic hashes, only the fixture keeps ring blocks linked across the jump.
+    cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture --target-dir target
+    export ZOLANA_PHOTON_BIN="$PWD/target/debug/photon"
+    export ZOLANA_RING_SURFPOOL_FIXTURE=1
     keys_dir="{{spp-keys-dir}}"
     [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
-    export ZOLANA_PHOTON_BIN="$photon_bin"
     export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
     cleanup
     sleep 2
@@ -505,6 +508,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" rpc-check
 
     ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
+      ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}" \
       ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
       ZOLANA_TREE="$DEFAULT_TREE_ADDRESS" \
@@ -1521,6 +1525,9 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
     cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --archive-file {{dir}}/custom-ring-test-validator.tar.zst
+    cargo build --locked -p custom-ring-cli --target-dir target
+    # The ring suites run the fixture Photon, not the shared release one.
+    cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture --target-dir target
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
 
