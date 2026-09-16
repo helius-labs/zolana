@@ -58,6 +58,12 @@ export const InstructionTag = Object.freeze({
 } as const);
 export type InstructionTag = (typeof InstructionTag)[keyof typeof InstructionTag];
 
+export const UserRegistryInstructionTag = Object.freeze({
+  register: 0,
+  setMergingEnabled: 1,
+  updateKeys: 2,
+} as const);
+
 export function addressTreeParams(): AddressTreeParams {
   return Object.freeze({
     inputQueueBatchSize: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,

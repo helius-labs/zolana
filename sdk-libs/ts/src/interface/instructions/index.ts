@@ -9,6 +9,7 @@ import {
 
 import {
   InstructionTag,
+  UserRegistryInstructionTag,
   SHIELDED_POOL_CPI_AUTHORITY,
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
@@ -75,7 +76,7 @@ export function registerInstruction(
   input: Readonly<{ userRecord: Address; owner: SignerAccount; data: RegisterInstructionData }>,
 ): Instruction {
   return instruction(
-    registryKeysData(0, input.data),
+    registryKeysData(UserRegistryInstructionTag.register, input.data),
     [
       meta(input.userRecord, false, true),
       meta(input.owner, true, true),
@@ -89,7 +90,10 @@ export function setMergingEnabledInstruction(
   input: Readonly<{ userRecord: Address; owner: SignerAccount; enabled: boolean }>,
 ): Instruction {
   return instruction(
-    new Writer().u8(1, "discriminator").bool(input.enabled, "enabled").finish(),
+    new Writer()
+      .u8(UserRegistryInstructionTag.setMergingEnabled, "discriminator")
+      .bool(input.enabled, "enabled")
+      .finish(),
     [meta(input.userRecord, false, true), meta(input.owner, true, false)],
     USER_REGISTRY_PROGRAM_ID,
   );
@@ -99,7 +103,7 @@ export function updateRegistryKeysInstruction(
   input: Readonly<{ userRecord: Address; owner: SignerAccount; data: RegisterInstructionData }>,
 ): Instruction {
   return instruction(
-    registryKeysData(2, input.data),
+    registryKeysData(UserRegistryInstructionTag.updateKeys, input.data),
     [meta(input.userRecord, false, true), meta(input.owner, true, false)],
     USER_REGISTRY_PROGRAM_ID,
   );
