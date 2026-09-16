@@ -6,6 +6,12 @@ import {
   type Instruction,
   type TransactionSigner,
 } from "@solana/kit";
+import { CUSTOM_RING_PROOF_LENGTH } from "../custom-ring-proof.js";
+import {
+  AUDITED_RING_DEPOSIT_TAG,
+  RING_DEPOSIT_AUDIT_SLOTS,
+  readRingDepositCapsule,
+} from "../ring-deposit-audit.js";
 
 import {
   InstructionTag,
@@ -30,11 +36,16 @@ import {
   type TransactWithdrawal,
   type TreeFeeSchedule,
 } from "../types.js";
-import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
+import { Writer, addressBytes, checkedAddress, copyBytes, fail } from "../internal.js";
 import {
   nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
+  ringCoSignerAddress,
+  ringDepositAuditAddress,
+  ringConfigAddress,
+  ringPolicyConfigAddress,
+  ringSpendWindowAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
   splAssetRegistryAddress,
@@ -58,12 +69,12 @@ type Meta = NonNullable<Instruction["accounts"]>[number];
 
 export type SignerAccount = Address | TransactionSigner;
 
-function accountAddress(account: SignerAccount): Address {
+export function signerAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
 }
 
 export function meta(account: SignerAccount, isSigner: boolean, isWritable: boolean): Meta {
-  const address = accountAddress(account);
+  const address = signerAddress(account);
   return {
     address,
     role: isSigner
@@ -303,47 +314,116 @@ export async function depositInstruction(
   );
 }
 
-/** Mirrors Rust `RingDeposit::instruction`. The ring program forwards it to the shielded pool unchanged. */
+/** Mirrors Rust `RingDeposit::instruction`, the shielded pool gets everything after the ring prefix unchanged. */
 export async function ringDepositInstruction(
   input: Readonly<{
     ringProgramId: Address;
     tree: Address;
     depositor: SignerAccount;
     deposits: readonly RingAssetDeposit[];
+    proof?: Uint8Array;
+    cosigner?: SignerAccount;
+    /** True when the ring runs a policy, its `policy_config` joins the prefix. */
+    hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
+  if (input.proof !== undefined) {
+    if (input.deposits.length > RING_DEPOSIT_AUDIT_SLOTS)
+      fail("INTERFACE_CODEC", { field: "deposit count" });
+    let ephemeralKey: Uint8Array | undefined;
+    for (const [index, deposit] of input.deposits.entries()) {
+      const capsule = readRingDepositCapsule(deposit.encrypted.ciphertext);
+      if (
+        capsule === undefined ||
+        capsule.slotIndex !== index ||
+        (ephemeralKey !== undefined &&
+          !ephemeralKey.every((byte, offset) => capsule.ephemeralPublicKey[offset] === byte))
+      )
+        fail("INTERFACE_CODEC", { field: "deposit capsule" });
+      ephemeralKey = capsule.ephemeralPublicKey;
+    }
+  }
+  const [ringAuth, config, cosignerPda, depositAudit, policyConfig, windows] = await Promise.all([
+    ringAuthAddress(input.ringProgramId),
+    ringConfigAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+    ringDepositAuditAddress(input.ringProgramId),
+    input.hasPolicy ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
+    ringSpendWindowMetas(input.ringProgramId, [
+      ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
+      ...layout.splGroups.map((spl) => spl.mint),
+    ]),
+  ]);
   const { accounts, splInterfaceBumps } = await depositAccounts(
     input.tree,
     input.depositor,
     layout,
-    await ringAuthAddress(input.ringProgramId),
+    ringAuth,
+  );
+  accounts.unshift(
+    meta(config, false, false),
+    ...ringCoSignerMetas(cosignerPda, input.cosigner),
+    meta(depositAudit, false, false),
+    ...(policyConfig === undefined ? [] : [meta(policyConfig, false, false)]),
+    ...windows,
+  );
+  const sppWire = tagged(
+    InstructionTag.ringDeposit,
+    encodeRingDepositInstructionData({
+      assets: [
+        ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
+        ...splInterfaceBumps.map((splInterfaceBump) => ({
+          kind: "spl" as const,
+          splInterfaceBump,
+        })),
+      ],
+      deposits: input.deposits.map((deposit) => ({
+        assetIndex: depositAssetIndex(layout, deposit),
+        viewTag: deposit.viewTag,
+        ownerUtxoHash: deposit.ownerUtxoHash,
+        amount: deposit.amount,
+        ...(deposit.dataHash === undefined ? {} : { dataHash: deposit.dataHash }),
+        ringDataHash: deposit.ringDataHash,
+        encrypted: deposit.encrypted,
+      })),
+    }),
   );
   return instruction(
-    tagged(
-      InstructionTag.ringDeposit,
-      encodeRingDepositInstructionData({
-        assets: [
-          ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
-          ...splInterfaceBumps.map((splInterfaceBump) => ({
-            kind: "spl" as const,
-            splInterfaceBump,
-          })),
-        ],
-        deposits: input.deposits.map((deposit) => ({
-          assetIndex: depositAssetIndex(layout, deposit),
-          viewTag: deposit.viewTag,
-          ownerUtxoHash: deposit.ownerUtxoHash,
-          amount: deposit.amount,
-          ...(deposit.dataHash === undefined ? {} : { dataHash: deposit.dataHash }),
-          ringDataHash: deposit.ringDataHash,
-          encrypted: deposit.encrypted,
-        })),
-      }),
-    ),
+    input.proof === undefined
+      ? sppWire
+      : tagged(
+          AUDITED_RING_DEPOSIT_TAG,
+          new Uint8Array([
+            ...copyBytes(input.proof, CUSTOM_RING_PROOF_LENGTH, "deposit proof"),
+            ...sppWire,
+          ]),
+        ),
     accounts,
     input.ringProgramId,
   );
+}
+
+/** An unset co-signer repeats the PDA, the message signer flag comes from the address. */
+export function ringCoSignerMetas(
+  cosignerPda: Address,
+  cosigner: SignerAccount | undefined,
+): Meta[] {
+  return [
+    meta(cosignerPda, false, false),
+    cosigner === undefined ? meta(cosignerPda, false, false) : meta(cosigner, true, false),
+  ];
+}
+
+/** One writable spend window slot per public leg, in leg order. */
+export async function ringSpendWindowMetas(
+  ringProgramId: Address,
+  mints: readonly Address[],
+): Promise<Meta[]> {
+  const windows = await Promise.all(
+    mints.map((mint) => ringSpendWindowAddress(ringProgramId, mint)),
+  );
+  return windows.map((window) => meta(window, false, true));
 }
 
 function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
@@ -511,7 +591,7 @@ export async function updateProtocolConfigInstruction(
   let newAuthority: SignerAccount | undefined;
   switch (input.update.field) {
     case "protocolAuthority":
-      writer.u8(0, "update.field").bytes(addressBytes(accountAddress(input.update.value)));
+      writer.u8(0, "update.field").bytes(addressBytes(signerAddress(input.update.value)));
       newAuthority = input.update.value;
       break;
     case "treeCreationAuthority":

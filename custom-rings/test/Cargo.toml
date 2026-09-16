@@ -40,6 +40,10 @@ zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zeroize = { workspace = true }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+solana-rpc-client-api = { workspace = true }
+
 [[test]]
 name = "ring"
 path = "tests/ring.rs"

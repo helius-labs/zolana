@@ -19,3 +19,7 @@ wincode = { workspace = true }
 zolana-ring-policy = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(target_os, values("solana"))']

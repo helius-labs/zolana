@@ -1,11 +1,15 @@
 import { p256 } from "@noble/curves/nist.js";
 
 import { type Bytes32, type Bytes33, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
-import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "./constants.js";
+import {
+  P256_PUBLIC_KEY_LENGTH,
+  SHIELDED_PUBLIC_KEY_LENGTH,
+  SIGNATURE_TYPE_PDA,
+} from "./constants.js";
 import { p256OwnerIdentity, solanaOwnerIdentity } from "../hasher/index.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 
-export type SignatureType = "p256" | "ed25519";
+export type SignatureType = "p256" | "ed25519" | "pda";
 export type ViewTag = Bytes32;
 
 export class P256PublicKey {
@@ -86,6 +90,14 @@ export class ShieldedPublicKey {
     return new ShieldedPublicKey(bytes);
   }
 
+  /** Mirrors Rust `PublicKey::from_pda`. */
+  static fromPda(address: Bytes32): ShieldedPublicKey {
+    const bytes = new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH);
+    bytes[0] = SIGNATURE_TYPE_PDA;
+    bytes.set(checkedBytes<Bytes32>(address, 32, "PDA address"), 1);
+    return new ShieldedPublicKey(bytes);
+  }
+
   static fromBytes(bytes: Bytes34): ShieldedPublicKey {
     const owned = checkedBytes<Uint8Array>(
       bytes,
@@ -94,7 +106,7 @@ export class ShieldedPublicKey {
     );
     if (owned[0] === 0) {
       P256PublicKey.fromBytes(owned.subarray(1) as Bytes33);
-    } else if (owned[0] === 1) {
+    } else if (owned[0] === 1 || owned[0] === SIGNATURE_TYPE_PDA) {
       if (owned[SHIELDED_PUBLIC_KEY_LENGTH - 1] !== 0) {
         throw new KeypairError("KEYPAIR_INVALID_PUBLIC_KEY", { reason: "nonzeroPadding" });
       }
@@ -122,6 +134,7 @@ export class ShieldedPublicKey {
   signatureType(): SignatureType {
     if (this.#bytes[0] === 0) return "p256";
     if (this.#bytes[0] === 1) return "ed25519";
+    if (this.#bytes[0] === SIGNATURE_TYPE_PDA) return "pda";
     throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { prefix: this.#bytes[0] ?? 0 });
   }
 
@@ -139,13 +152,20 @@ export class ShieldedPublicKey {
     return (
       this.signatureType() === "p256"
         ? p256OwnerIdentity(this.p256().x())
-        : solanaOwnerIdentity(this.ed25519())
+        : solanaOwnerIdentity(this.confidentialViewTag())
     ) as Bytes32;
   }
 
   ed25519(): Bytes32 {
     if (this.signatureType() !== "ed25519") {
       throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "ed25519" });
+    }
+    return copyBytes(this.#bytes.subarray(1, 33)) as Bytes32;
+  }
+
+  pda(): Bytes32 {
+    if (this.signatureType() !== "pda") {
+      throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "pda" });
     }
     return copyBytes(this.#bytes.subarray(1, 33)) as Bytes32;
   }

@@ -4,32 +4,50 @@
 //! definition serves both sides.
 
 mod budget;
+mod delegate;
+mod head_map;
 mod instructions;
+mod key_registry;
 mod shared;
+#[cfg(feature = "solana-rpc")]
+mod submission;
 mod transfer;
 #[cfg(feature = "solana-rpc")]
 mod v1;
+mod velocity;
 mod witness;
 
 pub use custom_ring_interface::{
-    tag, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
-    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_POLICY_COMPUTE_UNIT_LIMIT, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
-    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    tag, CoSignScope, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
+    PolicyTableIxData, ReaderIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT, CONFIG_PDA_SEED,
+    CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
+    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    DELEGATE_PDA_SEED, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+    REGISTER_SPEND_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
+    SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
     SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT, SPEND_WINDOW_PDA_SEED,
 };
 
 pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
 pub use zolana_ring_client::{
-    auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, find_counters_message, AuditEncryptionError, AuditorEncryption,
+    AuditorMessage, CountersSeal, SealedCounters, SealedNullifierKey, SpendCountersError,
+    AUDITOR_MESSAGE_LEN,
 };
 pub use zolana_ring_policy::RuleTableError;
 
 pub use crate::{
+    delegate::{DelegateOutput, DelegateTransfer, DelegateTransferInput, ProvenDelegateTransfer},
     instructions::{
+        cosigner::{ClearCoSigner, CoSignThreshold, SetCoSigner},
         create_config::{CreateConfig, CreateConfigError},
-        deposit::Deposit,
+        create_head_map_root::CreateHeadMapRoot,
+        create_key_registry_root::CreateKeyRegistryRoot,
+        delegate::{CustomRingDelegateTransact, DelegateInstructionError, SetDelegate},
+        deposit::{Deposit, SetDepositAudit},
         entry::{
             CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
             EntryProofError, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry,
@@ -38,7 +56,7 @@ pub use crate::{
         init_spp_ring_config::InitSppRingConfig,
         merge::{
             CustomRingMerge, CustomRingMergeInstruction, CustomRingMergeProofEnvironment,
-            CustomRingMergeProver, CustomRingMergeWitness, PreparedCustomRingMerge,
+            MergeError, MergeRingProver, MergeRingWitness, PreparedCustomRingMerge,
             ProvenCustomRingMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
         },
         revoke_read_access::RevokeReadAccess,
@@ -46,20 +64,30 @@ pub use crate::{
         set_paused::SetPaused,
         set_policy_rules::SetPolicyRules,
         set_policy_source::{SetSourceOwner, SourceOwner},
+        spend::{
+            LiveSpendRecord, ProvenSpendRegistration, ReadEnvironment, ReadSpendRecord,
+            RecordOrigin, RegisterSpend,
+        },
+        spend_window::{ClearSpendWindow, SetSpendWindow},
         transact::{
-            to_instruction_proof, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
-            CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
-            CustomRingProofParams, CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
+            to_instruction_proof, to_plain_proof, CustomRingBaseProofRequest,
+            CustomRingPolicyProofRequest, CustomRingPrivateTxHash, CustomRingProofError,
+            CustomRingProofInputError, CustomRingProofParams, CustomRingTransact, EncryptedAudit,
+            PendingCustomRingProof, RingIdentity, SpendRecordProofInput, VelocityProofInput,
         },
     },
+    key_registry::{
+        KeyRegistrationError, ProvenKeyRegistration, ReadSealedKey, RegisterKey, SealedKeyEntry,
+    },
     shared::{
-        client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingConfig,
+        client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
+        CustomRingConfig, CustomRingDelegate, CustomRingSpendWindow, IndexedMapRoot, PinnedPolicy,
         PolicyMatchError, ReaderKey, ReaderKeyError,
     },
     transfer::{
         tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,
-        CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit, RingDepositReceipt,
-        TransferError, TransferProofEnvironment,
+        CustomRingTransferInput, DepositError, DepositProofEnvironment, ProvenTransfer,
+        RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,
     },
 };
 
@@ -67,5 +95,9 @@ pub use crate::{
 /// v1 message itself must write the same value into its header, where an unset
 /// field means zero rather than a default.
 pub use crate::budget::TRANSACT_COMPUTE_UNIT_LIMIT;
+#[cfg(feature = "solana-rpc")]
+pub use crate::submission::{
+    RingTransferSubmission, SubmissionEnvironment, SubmissionError, SubmissionStatus,
+};
 #[cfg(feature = "solana-rpc")]
 pub use crate::v1::{SendError, TransactSend};

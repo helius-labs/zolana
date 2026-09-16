@@ -1,5 +1,8 @@
 //! `auditor-key`, the key file a local ring rpc serves.
 
+use std::path::Path;
+
+use zolana_keypair::ViewingKey;
 use zolana_ring_rpc::{write_auditor_key, KeyAccess, KeyFile, KeyFileError};
 
 use crate::{AuditorKeyArgs, ProjectRoot};
@@ -14,12 +17,16 @@ pub fn run(project_root: &ProjectRoot, args: AuditorKeyArgs) -> Result<(), KeyFi
             key_file.display()
         );
     } else {
-        let key = KeyFile {
-            path: &key_file,
-            access: KeyAccess::OwnerOnly,
-        }
-        .auditor_key()?;
+        let key = read_auditor_key(&key_file)?;
         println!("{}", hex::encode(key.pubkey().as_bytes()));
     }
     Ok(())
+}
+
+pub(crate) fn read_auditor_key(path: &Path) -> Result<ViewingKey, KeyFileError> {
+    KeyFile {
+        path,
+        access: KeyAccess::OwnerOnly,
+    }
+    .auditor_key()
 }

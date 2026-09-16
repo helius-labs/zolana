@@ -19,7 +19,7 @@ fn error_codes_are_stable() {
         (UnsupportedCircuit as u32, 8113),
         (UnauthorizedInitializer as u32, 8114),
         (TooManyAccounts as u32, 8115),
-        (ReadAccessEntryAlreadyExists as u32, 8116),
+        (ReadAccessRecordAlreadyExists as u32, 8116),
         (InvalidReadAccessRecord as u32, 8117),
         (InvalidReaderKey as u32, 8118),
         (UnsupportedOutputScheme as u32, 8119),
@@ -43,6 +43,35 @@ fn error_codes_are_stable() {
         (InvalidEntryContent as u32, 8139),
         (InvalidPolicyRules as u32, 8140),
         (PolicyGenerationOverflow as u32, 8141),
+        (PolicyOnAuditOnlyRing as u32, 8142),
+        (MissingCoSigner as u32, 8143),
+        (UnauthorizedCoSigner as u32, 8144),
+        (InvalidCoSignerScope as u32, 8145),
+        (InvalidCoSigner as u32, 8146),
+        (InvalidCoSignerThresholds as u32, 8147),
+        (SpendWindowExceeded as u32, 8148),
+        (InvalidSpendWindow as u32, 8149),
+        (DelegateDisabled as u32, 8150),
+        (UnauthorizedDelegate as u32, 8151),
+        (DelegatePublicLeg as u32, 8152),
+        (DelegateAlreadySet as u32, 8153),
+        (InvalidDelegate as u32, 8154),
+        (VelocityDepositLeg as u32, 8155),
+        (InvalidSpendRecord as u32, 8156),
+        (ApprovalWithoutCoSigner as u32, 8158),
+        (VelocityDisabled as u32, 8159),
+        (VelocityWindowImmutable as u32, 8164),
+        (InvalidHeadMapRoot as u32, 8165),
+        (StaleHeadMapRoot as u32, 8166),
+        (InvalidHeadMapCursor as u32, 8167),
+        (InvalidKeyRegistryRoot as u32, 8168),
+        (StaleKeyRegistryRoot as u32, 8169),
+        (InvalidKeyRegistryCursor as u32, 8170),
+        (HeadMapRootAlreadyExists as u32, 8171),
+        (KeyRegistryRootAlreadyExists as u32, 8172),
+        (InvalidDepositAudit as u32, 8173),
+        (DepositAuditRequired as u32, 8174),
+        (InvalidDepositDisclosure as u32, 8175),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -69,7 +98,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnsupportedCircuit
         | UnauthorizedInitializer
         | TooManyAccounts
-        | ReadAccessEntryAlreadyExists
+        | ReadAccessRecordAlreadyExists
         | InvalidReadAccessRecord
         | InvalidReaderKey
         | UnsupportedOutputScheme
@@ -92,6 +121,35 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | ForeignSource
         | InvalidEntryContent
         | InvalidPolicyRules
-        | PolicyGenerationOverflow => {}
+        | PolicyGenerationOverflow
+        | PolicyOnAuditOnlyRing
+        | MissingCoSigner
+        | UnauthorizedCoSigner
+        | InvalidCoSignerScope
+        | InvalidCoSigner
+        | InvalidCoSignerThresholds
+        | SpendWindowExceeded
+        | InvalidSpendWindow
+        | DelegateDisabled
+        | UnauthorizedDelegate
+        | DelegatePublicLeg
+        | DelegateAlreadySet
+        | InvalidDelegate
+        | VelocityDepositLeg
+        | InvalidSpendRecord
+        | ApprovalWithoutCoSigner
+        | VelocityDisabled
+        | VelocityWindowImmutable
+        | InvalidHeadMapRoot
+        | StaleHeadMapRoot
+        | InvalidHeadMapCursor
+        | InvalidKeyRegistryRoot
+        | StaleKeyRegistryRoot
+        | InvalidKeyRegistryCursor
+        | HeadMapRootAlreadyExists
+        | KeyRegistryRootAlreadyExists
+        | InvalidDepositAudit
+        | DepositAuditRequired
+        | InvalidDepositDisclosure => {}
     }
 }

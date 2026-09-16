@@ -14,6 +14,7 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
+import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
@@ -21,6 +22,7 @@ import { addressBytes, copyBytes } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
 import { RingError } from "./error.js";
+import { memberOfIdentity, type Member } from "./policy.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 
 const base58Decoder = getBase58Decoder();
@@ -307,6 +309,24 @@ export interface DecryptedRingWithdrawal {
   readonly amount: bigint;
 }
 
+/** Reports the member's published record with any recovered counters. */
+export interface DecryptedRingSpendRecord {
+  readonly slotIndex: number;
+  readonly member: Member;
+  readonly version: bigint;
+  readonly window: bigint;
+  readonly countersCommitment: Bytes32;
+  /** Absent when no sealed message opened to the commitment, populated slots only. */
+  readonly counters?: readonly DecryptedRingSpendCounter[];
+}
+
+/** Reports one populated asset counter from a decrypted spend record. */
+export interface DecryptedRingSpendCounter {
+  readonly slot: number;
+  readonly asset: Bytes32;
+  readonly spent: bigint;
+}
+
 export interface DecryptedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
@@ -318,6 +338,8 @@ export interface DecryptedRingTransaction {
   readonly signers: readonly Address[];
   /** Empty when nothing left the ring. */
   readonly withdrawals: readonly DecryptedRingWithdrawal[];
+  /** Empty unless a velocity transfer published one. */
+  readonly spendRecords: readonly DecryptedRingSpendRecord[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -665,7 +687,58 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
         });
       }),
     ),
+    spendRecords: Object.freeze(
+      list(wire["spendRecords"], "spendRecords").map((entry, index) =>
+        spendRecordFromWire(record(entry, `spendRecords[${index}]`)),
+      ),
+    ),
   });
+}
+
+function spendRecordFromWire(entry: Record<string, unknown>): DecryptedRingSpendRecord {
+  const counters = entry["counters"];
+  return Object.freeze({
+    slotIndex: u32(entry["slotIndex"], "spendRecords.slotIndex"),
+    member: memberOfIdentity(hash(entry["member"], "spendRecords.member")),
+    version: u64(entry["version"], "spendRecords.version"),
+    window: u64(entry["window"], "spendRecords.window"),
+    countersCommitment: hash(entry["countersCommitment"], "spendRecords.countersCommitment"),
+    ...(counters === undefined || counters === null
+      ? {}
+      : { counters: spendCountersFromWire(list(counters, "spendRecords.counters")) }),
+  });
+}
+
+/** One entry per populated slot in ascending slot order. */
+function spendCountersFromWire(counters: readonly unknown[]): readonly DecryptedRingSpendCounter[] {
+  let previous = -1;
+  return Object.freeze(
+    counters.map((entry) => {
+      const counter = record(entry, "spendRecords.counters");
+      const slot = u32(counter["slot"], "spendRecords.counters.slot");
+      if (slot <= previous || slot >= RING_VELOCITY_SLOTS)
+        throw invalid("spendRecords.counters.slot");
+      previous = slot;
+      return Object.freeze({
+        slot,
+        asset: hash(counter["asset"], "spendRecords.counters.asset"),
+        spent: u64(counter["spent"], "spendRecords.counters.spent"),
+      });
+    }),
+  );
+}
+
+/** A slot index, rejected outside the u32 range. */
+function u32(value: unknown, path: string): number {
+  const decoded = integer(value, path);
+  if (decoded < 0n || decoded > 0xffff_ffffn) throw invalid(path);
+  return Number(decoded);
+}
+
+function u64(value: unknown, path: string): bigint {
+  const decoded = integer(value, path);
+  if (decoded < 0n || decoded > 0xffff_ffff_ffff_ffffn) throw invalid(path);
+  return decoded;
 }
 
 function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {

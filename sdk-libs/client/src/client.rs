@@ -610,6 +610,16 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: crate::RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.async_indexer
+            .get_shielded_transactions_by_ring(options, Some(config.unwrap_or(self.indexer_config)))
+            .await
+    }
+
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
@@ -633,6 +643,42 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     ) -> Result<ShieldedTransactionStream, ClientError> {
         self.async_indexer
             .subscribe_to_shielded_transactions_by_tags(tags)
+            .await
+    }
+
+    async fn get_ring_head_register_proof(
+        &self,
+        request: zolana_indexer_api::RingMemberProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadRegisterProofResponse, ClientError> {
+        self.async_indexer
+            .get_ring_head_register_proof(request)
+            .await
+    }
+
+    async fn get_ring_key_registry_entry(
+        &self,
+        request: zolana_indexer_api::RingMemberProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingKeyRegistryEntryResponse, ClientError> {
+        self.async_indexer
+            .get_ring_key_registry_entry(request)
+            .await
+    }
+
+    async fn get_ring_key_registry_register_proof(
+        &self,
+        request: zolana_indexer_api::RingMemberProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        self.async_indexer
+            .get_ring_key_registry_register_proof(request)
+            .await
+    }
+
+    async fn get_ring_head_transfer_proof(
+        &self,
+        request: zolana_indexer_api::RingMemberProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadTransferProofResponse, ClientError> {
+        self.async_indexer
+            .get_ring_head_transfer_proof(request)
             .await
     }
 
@@ -844,6 +890,15 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             )
     }
 
+    fn get_shielded_transactions_by_ring(
+        &self,
+        options: crate::RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.blocking_indexer()
+            .get_shielded_transactions_by_ring(options, Some(config.unwrap_or(self.indexer_config)))
+    }
+
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
@@ -866,6 +921,37 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     ) -> Result<ShieldedTransactionStream, ClientError> {
         self.blocking_indexer()
             .subscribe_to_shielded_transactions_by_tags(tags)
+    }
+
+    fn get_ring_head_register_proof(
+        &self,
+        request: zolana_indexer_api::RingMemberProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadRegisterProofResponse, ClientError> {
+        self.blocking_indexer()
+            .get_ring_head_register_proof(request)
+    }
+
+    fn get_ring_key_registry_entry(
+        &self,
+        request: zolana_indexer_api::RingMemberProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingKeyRegistryEntryResponse, ClientError> {
+        self.blocking_indexer().get_ring_key_registry_entry(request)
+    }
+
+    fn get_ring_key_registry_register_proof(
+        &self,
+        request: zolana_indexer_api::RingMemberProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        self.blocking_indexer()
+            .get_ring_key_registry_register_proof(request)
+    }
+
+    fn get_ring_head_transfer_proof(
+        &self,
+        request: zolana_indexer_api::RingMemberProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadTransferProofResponse, ClientError> {
+        self.blocking_indexer()
+            .get_ring_head_transfer_proof(request)
     }
 
     fn get_merkle_proofs(

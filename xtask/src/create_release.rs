@@ -173,7 +173,7 @@ impl RingKeySource {
     }
 }
 
-const RING_KEY_SOURCES: [RingKeySource; 2] = [
+const RING_KEY_SOURCES: [RingKeySource; 7] = [
     RingKeySource {
         section: "proving_key",
         prover_file: "custom_ring_policy.key",
@@ -183,6 +183,31 @@ const RING_KEY_SOURCES: [RingKeySource; 2] = [
         section: "audit_key",
         prover_file: "custom_ring_base.key",
         asset_stem: "custom-ring-base-key",
+    },
+    RingKeySource {
+        section: "compressed_policy_key",
+        prover_file: "custom_ring_compressed_policy.key",
+        asset_stem: "custom-ring-compressed-policy-key",
+    },
+    RingKeySource {
+        section: "compressed_register_key",
+        prover_file: "custom_ring_compressed_register.key",
+        asset_stem: "custom-ring-compressed-register-key",
+    },
+    RingKeySource {
+        section: "delegate_policy_key",
+        prover_file: "custom_ring_delegate_policy.key",
+        asset_stem: "custom-ring-delegate-policy-key",
+    },
+    RingKeySource {
+        section: "register_key",
+        prover_file: "custom_ring_register_key.key",
+        asset_stem: "custom-ring-register-key",
+    },
+    RingKeySource {
+        section: "deposit_key",
+        prover_file: "custom_ring_deposit.key",
+        asset_stem: "custom-ring-deposit-key",
     },
 ];
 
@@ -573,12 +598,12 @@ fn git_head() -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
-/// Build the initialized account set fully in-process with LiteSVM. No maintainer
-/// keypairs and no running validator are needed: every authority is generated
-/// here.
 /// Public on purpose, the localnet protocol authority is nobody's secret.
 const LOCALNET_SNAPSHOT_AUTHORITY_SEED: [u8; 32] = *b"zolana localnet snapshot authori";
 
+/// Build the initialized account set fully in-process with LiteSVM. No maintainer
+/// keypairs and no running validator are needed: every authority is generated
+/// here.
 pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path) -> Result<()> {
     let shielded_so = deploy_dir.join("shielded_pool_program.so");
     require_file(&shielded_so, "run `just build-programs` first")?;
@@ -670,7 +695,10 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    for key in ["ring_program", "proving_key", "audit_key", "accounts"] {
+    for key in std::iter::once("ring_program")
+        .chain(RING_KEY_SOURCES.iter().map(|source| source.section))
+        .chain(std::iter::once("accounts"))
+    {
         if let Some(name) = lock.get(key).and_then(asset_name) {
             names.push(name);
         }
@@ -1120,14 +1148,19 @@ mod tests {
 
     #[test]
     fn custom_rings_lock_shape_matches_the_ring_cli_parser() {
-        let lock = json!({
+        let mut lock = json!({
             "release_tag": "v1",
             "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
             "proving_key": {"asset": RING_KEY_SOURCES[0].asset("v1"), "size": 1, "sha256": "x"},
             "audit_key": {"asset": RING_KEY_SOURCES[1].asset("v1"), "size": 1, "sha256": "x"},
             "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for section in ["ring_program", "proving_key", "audit_key"] {
+        for source in &RING_KEY_SOURCES {
+            lock[source.section] = json!({"asset": source.asset("v1"), "size": 1, "sha256": "x"});
+        }
+        for section in std::iter::once("ring_program")
+            .chain(RING_KEY_SOURCES.iter().map(|source| source.section))
+        {
             for key in ["asset", "size", "sha256"] {
                 assert!(lock[section].get(key).is_some(), "{section} missing {key}");
             }
@@ -1138,6 +1171,11 @@ mod tests {
                 PathBuf::from("/stage/custom-ring-program-v1.so"),
                 PathBuf::from("/stage/custom-ring-policy-key-v1.key"),
                 PathBuf::from("/stage/custom-ring-base-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-compressed-policy-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-compressed-register-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-delegate-policy-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-register-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-deposit-key-v1.key"),
                 PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
             ]
         );

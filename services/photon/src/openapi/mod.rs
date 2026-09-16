@@ -9,11 +9,14 @@ use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingHeadRegisterProofResponse,
+    GetRingHeadTransferProofResponse, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, GetRingsByTagsRequest,
     GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
     GetShieldedTransactionsByTagsResponse, Hash, IndexedShieldedTransaction, Limit, MerkleContext,
-    MerkleProof, NonInclusionProof, NullifierQueueElement, RingsMessage, RingsOutputContext,
-    RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction,
+    MerkleProof, NonInclusionProof, NullifierQueueElement, RingHeadRecord, RingMemberProofRequest,
+    RingsMessage, RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
+    ShieldedTransaction,
 };
 
 use crate::common::relative_project_path;
@@ -69,6 +72,12 @@ const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
     GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse,
     NullifierQueueElement,
+    RingMemberProofRequest,
+    RingHeadRecord,
+    GetRingHeadRegisterProofResponse,
+    GetRingHeadTransferProofResponse,
+    GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse,
 )))]
 struct ApiDoc;
 

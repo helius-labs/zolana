@@ -325,13 +325,11 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 }
 
 func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType) string {
-	if circuitType == CustomRingPolicyCircuitType {
-		return m.keyPath(CustomRingPolicyKeyFile)
+	file, ok := RingKeyFiles[circuitType]
+	if !ok {
+		return ""
 	}
-	if circuitType == CustomRingBaseCircuitType {
-		return m.keyPath(CustomRingBaseKeyFile)
-	}
-	return ""
+	return m.keyPath(file)
 }
 
 func (m *LazyKeyManager) GetStats() map[string]interface{} {

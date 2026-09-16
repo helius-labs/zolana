@@ -28,7 +28,7 @@ use zeroize::Zeroizing;
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
-    symmetric_apply, KeypairError, P256Pubkey, ViewingKey,
+    symmetric_apply, KeypairError, NullifierKey, P256Pubkey, ViewingKey,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -37,11 +37,18 @@ pub enum AuditEncryptionError {
     ViewTagMismatch,
     #[error("auditor message data must be {AUDITOR_MESSAGE_LEN} bytes, got {0}")]
     MessageLength(usize),
+    #[error("nullifier ciphertext did not decrypt to a zero-padded secret")]
+    NullifierPad,
+    #[error("deposit count must be between one and eight, got {0}")]
+    DepositCount(usize),
+    #[error("deposit slot must be below eight, got {0}")]
+    DepositSlot(usize),
+    #[error("deposit opening does not match the owner commitment")]
+    DepositOpeningMismatch,
     #[error(transparent)]
     Keypair(#[from] KeypairError),
 }
 
-/// The auditor content published in `TransactIxData::messages`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuditorMessage {
     /// SEC1-compressed ephemeral public key.
@@ -139,6 +146,88 @@ impl AuditorEncryption {
     }
 }
 
+/// Info string separating the nullifier key stream from the audit key stream.
+pub(crate) const NF_KEY_ENC_INFO: &[u8; 10] = b"CRING/nfk1";
+
+/// Nullifier key sealed to the ring auditor, plaintext byte zero is the pad the circuit pins.
+pub struct NullifierKeyEnvelope {
+    pub ephemeral_sk: Zeroizing<[u8; 32]>,
+    pub sealed: SealedNullifierKey,
+    pub nullifier_pk: [u8; 32],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SealedNullifierKey {
+    pub eph_pk: P256Pubkey,
+    pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
+}
+
+#[must_use]
+struct NullifierKeySeal<'a> {
+    nullifier_key: &'a NullifierKey,
+    auditor_pk: &'a P256Pubkey,
+    ephemeral: ViewingKey,
+}
+
+impl NullifierKeyEnvelope {
+    pub fn new(nullifier_key: &NullifierKey, auditor_pk: &P256Pubkey) -> Result<Self> {
+        NullifierKeySeal {
+            nullifier_key,
+            auditor_pk,
+            ephemeral: ViewingKey::new(),
+        }
+        .seal()
+    }
+}
+
+impl NullifierKeySeal<'_> {
+    fn seal(self) -> Result<NullifierKeyEnvelope> {
+        let ephemeral_sk = self.ephemeral.secret_bytes();
+        let eph_pk = self.ephemeral.pubkey();
+        let dh = Zeroizing::new(self.ephemeral.ecdh(self.auditor_pk)?);
+        let shared_secret = AuditSharedSecret {
+            diffie_hellman_x: &dh,
+            ephemeral_key: &eph_pk,
+            auditor_key: self.auditor_pk,
+        }
+        .derive()?;
+        let secret = self.nullifier_key.secret();
+        let mut ciphertext = Zeroizing::new(right_align(&secret));
+        symmetric_apply(&shared_secret, NF_KEY_ENC_INFO, ciphertext.as_mut_slice())?;
+        Ok(NullifierKeyEnvelope {
+            ephemeral_sk,
+            sealed: SealedNullifierKey {
+                eph_pk,
+                ciphertext: *ciphertext,
+            },
+            nullifier_pk: self.nullifier_key.pubkey()?,
+        })
+    }
+}
+
+impl SealedNullifierKey {
+    /// Padding alone does not authenticate the recovered key against its
+    /// registry leaf.
+    pub fn open(&self, auditor: &ViewingKey) -> Result<NullifierKey> {
+        let dh = Zeroizing::new(auditor.ecdh(&self.eph_pk)?);
+        let auditor_key = auditor.pubkey();
+        let shared_secret = AuditSharedSecret {
+            diffie_hellman_x: &dh,
+            ephemeral_key: &self.eph_pk,
+            auditor_key: &auditor_key,
+        }
+        .derive()?;
+        let mut plaintext = Zeroizing::new(self.ciphertext);
+        symmetric_apply(&shared_secret, NF_KEY_ENC_INFO, plaintext.as_mut_slice())?;
+        if plaintext[0] != 0 {
+            return Err(AuditEncryptionError::NullifierPad);
+        }
+        let mut secret = Zeroizing::new([0u8; 31]);
+        secret.copy_from_slice(&plaintext[1..]);
+        Ok(NullifierKey::from_secret(*secret))
+    }
+}
+
 /// The view tag the auditor scans for: the auditor key's x-coordinate, i.e. the
 /// compressed key without its SEC1 prefix.
 pub fn auditor_view_tag(pk: &P256Pubkey) -> [u8; 32] {
@@ -215,6 +304,10 @@ impl AuditDecryption<'_> {
 
 #[cfg(test)]
 mod tests {
+    use custom_ring_interface::{RegisterKeyPublicInput, RegisteredKey, HEAD_MAP_EMPTY_ROOT};
+    use zolana_ring_head_map::{HeadMap, Registration};
+    use zolana_ring_policy::Member;
+
     use super::*;
 
     fn bytes<const N: usize>(value: &str) -> [u8; N] {
@@ -272,5 +365,114 @@ mod tests {
             secret,
             derive(&[7u8; 32], &ephemeral_key, &other_auditor_key)
         );
+    }
+
+    #[test]
+    fn nullifier_key_envelope_round_trips_through_the_auditor() {
+        let auditor = ViewingKey::new();
+        let nullifier_key = NullifierKey::from_secret([7u8; 31]);
+        let envelope =
+            NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("encrypt");
+        let recovered = envelope.sealed.open(&auditor).expect("decrypt");
+        assert_eq!(
+            recovered.secret().as_slice(),
+            nullifier_key.secret().as_slice()
+        );
+        assert_eq!(
+            envelope.nullifier_pk,
+            nullifier_key.pubkey().expect("pubkey")
+        );
+    }
+
+    #[test]
+    fn a_stranger_auditor_cannot_recover_the_nullifier_key() {
+        let auditor = ViewingKey::new();
+        let stranger = ViewingKey::new();
+        let nullifier_key = NullifierKey::from_secret([9u8; 31]);
+        let envelope =
+            NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("encrypt");
+        match envelope.sealed.open(&stranger) {
+            Err(AuditEncryptionError::NullifierPad) => {}
+            Ok(recovered) => {
+                assert_ne!(
+                    recovered.secret().as_slice(),
+                    nullifier_key.secret().as_slice()
+                )
+            }
+            Err(other) => panic!("unexpected error {other}"),
+        }
+    }
+
+    /// The `go_vectors.rs` auditor scalar, the TypeScript mirror pins the same values.
+    const AUDITOR_SK: &str = "01323130373635343b3a39383f3e3d3c23222120272625242b2a29282f2e2d2c";
+    const EPHEMERAL_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
+    const NULLIFIER_SECRET: &str = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    const MEMBER_TAG: [u8; 32] = [9u8; 32];
+    const NULLIFIER_PK: &str = "2d1faf6cf358763421511eb637adf7b6609443d38edc4ed2b042dfbf834b03f5";
+    const EPH_PK: &str = "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5";
+    const CIPHERTEXT: &str = "f329a32e36717753ba70f955e2102b53fa3a1bfd7389ebda109030ea70602d40";
+    const GENESIS: &str = "095939aeb6e0dc92dd4455bab6058c5c5f639b52a610932c22e517fc87d64a94";
+    const REGISTRY_NEW_ROOT: &str =
+        "01c9026ae3349a610ca0d39793c06c924e3ad8e2dcacb64c120c800185372618";
+    const PUBLIC_INPUT_HASH: &str =
+        "2f3163cf5ea64c46bcf1a4b97b0aabccc674aa6056daa42cb63007bb1d9534a9";
+
+    #[test]
+    fn the_sealed_key_and_its_registration_statement_match_the_pinned_vector() {
+        let auditor = ViewingKey::from_bytes(&bytes(AUDITOR_SK)).expect("auditor");
+        let nullifier_key = NullifierKey::from_secret(bytes(NULLIFIER_SECRET));
+        let envelope = NullifierKeySeal {
+            nullifier_key: &nullifier_key,
+            auditor_pk: &auditor.pubkey(),
+            ephemeral: ViewingKey::from_bytes(&bytes(EPHEMERAL_SK)).expect("ephemeral"),
+        }
+        .seal()
+        .expect("seal");
+        assert_eq!(envelope.nullifier_pk, bytes(NULLIFIER_PK));
+        assert_eq!(envelope.sealed.eph_pk.as_bytes(), &bytes::<33>(EPH_PK));
+        assert_eq!(envelope.sealed.ciphertext, bytes(CIPHERTEXT));
+        assert_eq!(
+            envelope
+                .sealed
+                .open(&auditor)
+                .expect("open")
+                .secret()
+                .as_slice(),
+            &bytes::<31>(NULLIFIER_SECRET)
+        );
+
+        let genesis = RegisteredKey {
+            nullifier_pk: &envelope.nullifier_pk,
+            ciphertext: &envelope.sealed.ciphertext,
+        }
+        .commitment()
+        .expect("genesis");
+        assert_eq!(genesis, bytes(GENESIS));
+
+        let member = Member::owner_tag(&MEMBER_TAG).expect("member");
+        let inserted = HeadMap::new()
+            .expect("empty registry")
+            .register(Registration {
+                member: *member.as_bytes(),
+                genesis,
+            })
+            .expect("first registration");
+        assert_eq!(inserted.old_root, HEAD_MAP_EMPTY_ROOT);
+        assert_eq!(inserted.new_root, bytes(REGISTRY_NEW_ROOT));
+        assert_eq!(inserted.new_index, 1);
+
+        let public_input = RegisterKeyPublicInput {
+            registry_old_root: &inserted.old_root,
+            registry_new_root: &inserted.new_root,
+            member: member.as_bytes(),
+            nullifier_pk: &envelope.nullifier_pk,
+            auditor_pk: auditor.pubkey().as_bytes(),
+            eph_pk: envelope.sealed.eph_pk.as_bytes(),
+            ciphertext: &envelope.sealed.ciphertext,
+            new_index: inserted.new_index,
+        }
+        .hash()
+        .expect("public input");
+        assert_eq!(public_input, bytes(PUBLIC_INPUT_HASH));
     }
 }

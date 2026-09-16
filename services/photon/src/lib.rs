@@ -6,5 +6,6 @@ pub mod ingester;
 pub mod migration;
 pub mod monitor;
 pub mod openapi;
+pub mod ring_projection;
 pub mod rpc;
 pub mod snapshot;

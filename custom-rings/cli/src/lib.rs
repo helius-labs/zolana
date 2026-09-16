@@ -1,13 +1,18 @@
 //! Every command but `new` reads `ring.toml`, the answers `new` recorded.
 
+pub mod assets;
 pub mod authority;
 pub mod catalogue;
 pub mod config;
+pub mod cosigner;
+pub mod delegate;
 pub mod deploy;
+pub mod deposit_audit;
 pub mod error;
 pub mod file;
 pub mod fund;
 pub mod init;
+pub mod key;
 pub mod keys;
 pub mod list;
 pub mod localnet;
@@ -19,12 +24,15 @@ pub mod probe;
 pub mod reader;
 pub mod release;
 pub mod ring_rpc;
+pub mod spend;
 pub mod status;
 pub mod step;
 pub mod tool;
 pub mod transact;
 pub mod ui;
+pub mod window;
 pub mod wizard;
+mod workspace;
 
 use std::path::{Path, PathBuf};
 
@@ -86,6 +94,7 @@ pub enum Command {
     /// Record devnet in ring.toml and probe the deployed services.
     Devnet,
     /// Record localnet in ring.toml and start the validator, Photon, the prover and the ring rpc.
+    #[command(alias = "dev")]
     Localnet(LocalnetArgs),
     /// Deploy the released program under the authority, or upgrade it in place.
     Deploy(DeployArgs),
@@ -107,6 +116,24 @@ pub enum Command {
     /// Grant or revoke reads on the ring RPC.
     #[command(subcommand)]
     Reader(ReaderCommand),
+    /// Set, clear or show the ring's co-signer.
+    #[command(subcommand)]
+    Cosigner(CoSignerCommand),
+    /// Require an auditor disclosure proof for new direct deposits.
+    #[command(subcommand)]
+    DepositAudit(DepositAuditCommand),
+    /// Set, clear or show a mint's spend window.
+    #[command(subcommand)]
+    Window(WindowCommand),
+    /// Set or show the permanent delegate, or move a note as the delegate.
+    #[command(subcommand)]
+    Delegate(DelegateCommand),
+    /// Register or show the sender's spend record on a velocity ring.
+    #[command(subcommand)]
+    Spend(SpendCommand),
+    /// Enroll the member's nullifier key in the ring key registry.
+    #[command(subcommand)]
+    Key(KeyCommand),
     /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
     List(ListCommand),
@@ -168,10 +195,104 @@ pub enum PolicyCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum CoSignerCommand {
+    /// Create or replace the co-signer, flags absent means the `[cosigner]` table of ring.toml.
+    Set {
+        /// The Solana key that signs beside the sender.
+        #[arg(long)]
+        signer: Option<Address>,
+        /// Operation classes the co-signer gates.
+        #[arg(long, value_delimiter = ',', requires = "signer")]
+        scope: Vec<cosigner::CoSignClass>,
+        /// `<mint>=<amount>` per mint, `sol` for the native token, withdrawals above it need the co-signer.
+        #[arg(long, requires = "signer")]
+        threshold: Vec<config::ThresholdSpec>,
+    },
+    /// Close the co-signer account, the rent returns to the authority.
+    Clear,
+    Show,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DelegateCommand {
+    /// Set the delegate once, signed by the upgrade authority holding the ring auditor key.
+    Set {
+        #[arg(long)]
+        delegate: Address,
+    },
+    Show,
+    /// Move a source member's ring balance to a shielded address over the delegate rail.
+    Move(Box<DelegateMoveArgs>),
+}
+
+#[derive(Debug, Args)]
+pub struct DelegateMoveArgs {
+    /// The recipient's base58 shielded address.
+    pub to: ShieldedAddress,
+    /// The source member's base58 shielded address, its ring notes fund the move.
+    #[arg(long)]
+    pub source: ShieldedAddress,
+    #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
+    pub amount: u64,
+    /// The mint moved, `sol` by default.
+    #[arg(long)]
+    pub mint: Option<config::Mint>,
+    #[arg(long)]
+    pub delegate_keypair: PathBuf,
+    /// The P256 auditor read key, separate from the Solana delegate signer.
+    #[arg(long, default_value = AUDITOR_KEY_FILE)]
+    pub auditor_key: PathBuf,
+    /// The co-signer keypair when the ring's co-signer scope covers transfers.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SpendCommand {
+    /// Claim the sender's record with zero counters, once per member.
+    Register,
+    Show,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum KeyCommand {
+    /// Seal the member's nullifier key to the ring auditor and register it, `transfer` does it on first use.
+    Register,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum WindowCommand {
+    /// Create or replace the window, the counters restart.
+    Set {
+        /// A mint address, `sol` for the native token.
+        #[arg(long)]
+        mint: config::Mint,
+        /// Window length, windows start at multiples of it.
+        #[arg(long)]
+        slots: u64,
+        /// Public deposits per window, zero leaves them uncapped.
+        #[arg(long, default_value_t = 0)]
+        deposit_cap: u64,
+        /// Public withdrawals per window, zero leaves them uncapped.
+        #[arg(long, default_value_t = 0)]
+        withdrawal_cap: u64,
+    },
+    /// Close the window account, the rent returns to the authority.
+    Clear {
+        #[arg(long)]
+        mint: config::Mint,
+    },
+    Show {
+        #[arg(long)]
+        mint: config::Mint,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum ReaderCommand {
     /// A base58 Solana key or the 66-hex P-256 key of a passkey.
     Grant { reader: ReaderKey },
-    /// Close the reader's entry, the rent returns to the authority.
+    /// Close the reader's record, the rent returns to the authority.
     Revoke { reader: ReaderKey },
 }
 
@@ -246,6 +367,10 @@ pub struct AuditorKeyArgs {
 
 #[derive(Debug, Args)]
 pub struct DeployArgs {
+    /// Record whether first init must require an auditor disclosure proof for
+    /// deposits.
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    pub deposit_audit: Option<bool>,
     /// A local binary instead of the released ring program.
     #[arg(long)]
     pub program_so: Option<PathBuf>,
@@ -253,8 +378,23 @@ pub struct DeployArgs {
     pub program_keypair: PathBuf,
 }
 
+#[derive(Debug, Subcommand)]
+pub enum DepositAuditCommand {
+    /// Set the requirement for future deposits and save it in ring.toml.
+    Set {
+        #[arg(long, action = clap::ArgAction::Set, required = true)]
+        required: bool,
+    },
+    /// Read the current requirement from the ring.
+    Show,
+}
+
 #[derive(Debug, Args)]
 pub struct InitArgs {
+    /// Override the deposit proof requirement, ring.toml applies only on first
+    /// init.
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    pub deposit_audit: Option<bool>,
     /// Hex SEC1 compressed auditor key, created by the ring RPC and written here when absent.
     #[arg(long, default_value = AUDITOR_PUBKEY_FILE)]
     pub auditor_pubkey_file: PathBuf,
@@ -272,15 +412,27 @@ pub struct TransactArgs {
     /// Lamports the recipient receives, deposited twice by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+    /// The co-signer keypair when the ring's co-signer scope covers the demo.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
 pub struct TransferArgs {
     /// The recipient's base58 shielded address, `signing_pk || nullifier_pk || viewing_pk`.
     pub to: ShieldedAddress,
-    /// Lamports the recipient receives, deposited by the authority.
+    /// Recipient amount in base units, funded by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+    /// Registered mint, `sol` by default.
+    #[arg(long)]
+    pub mint: Option<config::Mint>,
+    /// Payer's SPL funding account, its ATA by default.
+    #[arg(long)]
+    pub token_account: Option<Address>,
+    /// The co-signer keypair when the ring's co-signer scope covers the transfer.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -291,6 +443,9 @@ pub struct MergeArgs {
     /// Maximum number of notes to merge, from 2 through 8.
     #[arg(long, default_value_t = 8, value_parser = parse_merge_count)]
     pub count: usize,
+    /// The co-signer keypair when the ring's co-signer scope covers transfers.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 fn parse_merge_count(value: &str) -> Result<usize, String> {
@@ -308,6 +463,7 @@ fn parse_merge_count(value: &str) -> Result<usize, String> {
 impl Default for DeployArgs {
     fn default() -> Self {
         Self {
+            deposit_audit: None,
             program_so: None,
             program_keypair: PathBuf::from(PROGRAM_KEYPAIR_FILE),
         }
@@ -317,6 +473,7 @@ impl Default for DeployArgs {
 impl Default for InitArgs {
     fn default() -> Self {
         Self {
+            deposit_audit: None,
             auditor_pubkey_file: PathBuf::from(AUDITOR_PUBKEY_FILE),
             trust_ring_rpc: false,
             local_auditor: false,
@@ -327,6 +484,7 @@ impl Default for InitArgs {
 impl Default for TransactArgs {
     fn default() -> Self {
         Self {
+            cosigner_keypair: None,
             amount: DEFAULT_TRANSACT_AMOUNT,
         }
     }
@@ -359,6 +517,8 @@ pub enum ContextError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Fund(#[from] FundError),
+    #[error("the authority holds {balance} lamports, {required} are needed")]
+    AuthorityUnderfunded { required: u64, balance: u64 },
     #[error(transparent)]
     Client(Box<ClientError>),
 }
@@ -396,6 +556,15 @@ impl Context {
     pub fn authority_funded_for(&mut self, required: u64) -> Result<Keypair, ContextError> {
         let authority = self.config.config_authority()?;
         self.fund_authority(&authority, required)?;
+        Ok(authority)
+    }
+
+    pub fn authority_with_balance(&self, required: u64) -> Result<Keypair, ContextError> {
+        let authority = self.config.config_authority()?;
+        let balance = self.rpc.get_balance(authority.pubkey())?;
+        if balance < required {
+            return Err(ContextError::AuthorityUnderfunded { required, balance });
+        }
         Ok(authority)
     }
 
@@ -550,6 +719,12 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
         Command::Authority(command) => authority::run(&mut ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
+        Command::Cosigner(command) => cosigner::run(&mut ctx, command)?,
+        Command::DepositAudit(command) => deposit_audit::run(&mut ctx, command)?,
+        Command::Window(command) => window::run(&mut ctx, command)?,
+        Command::Delegate(command) => delegate::run(&mut ctx, command)?,
+        Command::Spend(command) => spend::run(&mut ctx, command)?,
+        Command::Key(command) => key::run(&mut ctx, command)?,
         Command::List(command) => list::run(&mut ctx, command)?,
         Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
@@ -595,6 +770,53 @@ mod tests {
     }
 
     #[test]
+    fn deposit_audit_is_opt_in_and_can_be_disabled_explicitly() {
+        let parse = |args| Cli::try_parse_from(args).unwrap().command;
+        assert!(matches!(
+            parse(vec!["zolana-ring", "deploy"]),
+            Command::Deploy(DeployArgs {
+                deposit_audit: None,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(vec!["zolana-ring", "deploy", "--deposit-audit"]),
+            Command::Deploy(DeployArgs {
+                deposit_audit: Some(true),
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(vec!["zolana-ring", "init", "--deposit-audit=false"]),
+            Command::Init(InitArgs {
+                deposit_audit: Some(false),
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(vec![
+                "zolana-ring",
+                "deposit-audit",
+                "set",
+                "--required",
+                "false"
+            ]),
+            Command::DepositAudit(DepositAuditCommand::Set { required: false })
+        ));
+        assert!(Cli::try_parse_from(["zolana-ring", "deposit-audit", "set"]).is_err());
+    }
+
+    #[test]
+    fn dev_uses_the_localnet_command() {
+        assert!(matches!(
+            Cli::try_parse_from(["zolana-ring", "dev", "--no-start"])
+                .unwrap()
+                .command,
+            Command::Localnet(LocalnetArgs { no_start: true })
+        ));
+    }
+
+    #[test]
     fn merge_takes_an_optional_mint_and_a_bounded_count() {
         let mint = Address::new_from_array([7; 32]);
         let Command::Merge(args) = Cli::try_parse_from([
@@ -613,6 +835,35 @@ mod tests {
         assert_eq!(args.mint, Some(mint));
         assert_eq!(args.count, 4);
         assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "9"]).is_err());
+    }
+
+    #[test]
+    fn transfer_accepts_registered_mint_and_funding_account() {
+        let mint = Address::new_from_array([7; 32]);
+        let token = Address::new_from_array([8; 32]);
+        let to = zolana_keypair::ShieldedKeypair::new_ed25519()
+            .unwrap()
+            .shielded_address()
+            .unwrap();
+        let Command::Transfer(args) = Cli::try_parse_from([
+            "zolana-ring",
+            "transfer",
+            &to.to_string(),
+            "--amount",
+            "123",
+            "--mint",
+            &mint.to_string(),
+            "--token-account",
+            &token.to_string(),
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!("transfer");
+        };
+        assert_eq!(args.mint, Some(config::Mint(mint)));
+        assert_eq!(args.token_account, Some(token));
+        assert_eq!(args.amount, 123);
     }
 
     #[test]

@@ -1,8 +1,12 @@
-import type { Bytes16, Bytes32, MessageData } from "../../interface/types.js";
+import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../../interface/constants.js";
+import type { Bytes16, Bytes32, Bytes33, MessageData } from "../../interface/types.js";
 import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
 import { randomSalt } from "../../keypair/bytes.js";
-import type { P256PublicKey } from "../../keypair/public-key.js";
+import { P256_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
+import { P256PublicKey } from "../../keypair/public-key.js";
+import { ShieldedAddress } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
+import { TransactionError } from "../error.js";
 
 import { encodeConfidentialSlots } from "../instructions/transact.js";
 import {
@@ -17,8 +21,8 @@ import {
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
-import type { ProofOutputUtxo } from "../utxo.js";
-import type { AssetRegistry } from "../asset.js";
+import { createProofOutput, type ProofOutputUtxo } from "../utxo.js";
+import { SOL_MINT, type AssetRegistry } from "../asset.js";
 
 export type { SplitBundlePlaintext };
 
@@ -55,7 +59,15 @@ export interface AuditWitness {
 
 export interface EncryptedCustomRingTransfer extends EncryptedTransfer {
   readonly auditorMessage: MessageData;
+  readonly sealedMessages: readonly MessageData[];
   readonly audit: AuditWitness;
+}
+
+/** Plaintext sealed to the transaction viewing key under its own slot index. */
+export interface SealedMessageInput {
+  readonly viewTag: Bytes32;
+  readonly plaintext: Uint8Array;
+  readonly slotIndex: number;
 }
 
 export interface AnonymousRecipientSlot {
@@ -81,13 +93,21 @@ export function encryptConfidentialTransfer(
   };
 }
 
-/** The caller wipes the returned audit secrets after proving. */
+/**
+ * The caller wipes the returned audit secrets after proving. `recordOutputIndex`
+ * names the last output as the spend record carrier, encrypted to the
+ * transaction viewing key itself. `counterMessage` is the protocol counter seal,
+ * never a caller message channel.
+ */
 export function encryptCustomRingTransfer(
   tx: ViewingKey,
   input: Readonly<{
     outputs: readonly ProofOutputUtxo[];
     assets: AssetRegistry;
     auditorPublicKey: P256PublicKey;
+    recordOutputIndex?: number;
+    sealedMessages?: readonly SealedMessageInput[];
+    counterMessage?: Omit<SealedMessageInput, "slotIndex">;
   }>,
 ): EncryptedCustomRingTransfer {
   let txViewingSecret: Bytes32 | undefined;
@@ -97,11 +117,38 @@ export function encryptCustomRingTransfer(
     txViewingSecret = tx.secretBytes();
     const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
     ephemeralSecret = encryption.ephemeralSecret;
+    const recipient = tx.publicKey();
+    const outputs = recordCarrierOutputs(
+      input.outputs,
+      input.recordOutputIndex === undefined
+        ? undefined
+        : { index: input.recordOutputIndex, recipient },
+    );
+    const callerMessages = (input.sealedMessages ?? []).map((message) => ({
+      slotIndex: message.slotIndex,
+      plaintext: message.plaintext,
+      viewTag: message.viewTag,
+    }));
+    checkDistinctSlots(outputs.length, callerMessages);
+    const outbound = [
+      ...callerMessages,
+      ...(input.counterMessage === undefined
+        ? []
+        : [{ ...input.counterMessage, slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX }]),
+    ];
+    const sealedMessages: readonly MessageData[] = outbound.map((message) => {
+      const ciphertext = tx.encryptSlot(recipient, message.plaintext, salt, message.slotIndex);
+      const body = new Uint8Array(P256_PUBLIC_KEY_LENGTH + ciphertext.length);
+      body.set(recipient.toBytes(), 0);
+      body.set(ciphertext, P256_PUBLIC_KEY_LENGTH);
+      return { viewTag: message.viewTag, data: body };
+    });
     const encrypted = {
-      txViewingPublicKey: tx.publicKey(),
+      txViewingPublicKey: recipient,
       salt,
-      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+      payload: encodeConfidentialSlots(outputs, input.assets, tx, salt),
       auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
+      sealedMessages,
       audit: Object.freeze({ txViewingSecret, ephemeralSecret }),
     };
     // The finally must not wipe the secrets the returned object owns.
@@ -112,6 +159,78 @@ export function encryptCustomRingTransfer(
     txViewingSecret?.fill(0);
     ephemeralSecret?.fill(0);
   }
+}
+
+/** The recipient viewing key does not affect the UTXO commitment. */
+function recordCarrierOutputs(
+  outputs: readonly ProofOutputUtxo[],
+  carrier: Readonly<{ index: number; recipient: P256PublicKey }> | undefined,
+): readonly ProofOutputUtxo[] {
+  if (carrier === undefined) return outputs;
+  const { index, recipient } = carrier;
+  const output = outputs[index];
+  const owner = output?.ownerAddress;
+  if (
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index !== outputs.length - 1 ||
+    output === undefined ||
+    owner === undefined
+  ) {
+    throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
+      index,
+    });
+  }
+  if (
+    owner.signingPublicKey.signatureType() !== "pda" ||
+    output.asset !== SOL_MINT ||
+    output.amount !== 0n ||
+    output.ringProgramId !== undefined ||
+    output.dataHash === undefined ||
+    output.data.records().length !== 0
+  )
+    throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH");
+  return outputs.map((candidate, position) =>
+    position !== index
+      ? candidate
+      : createProofOutput({
+          ...output,
+          ownerAddress: ShieldedAddress.fromPublicKeys(
+            owner.signingPublicKey,
+            owner.nullifierPublicKey,
+            recipient,
+          ),
+        }),
+  );
+}
+
+/** One keystream per slot under a fixed key and salt. */
+function checkDistinctSlots(
+  outputCount: number,
+  messages: readonly Readonly<{ slotIndex: number }>[],
+): void {
+  const slots = new Set<number>([
+    RING_SPEND_COUNTERS_SLOT_INDEX,
+    ...Array.from({ length: outputCount }, (_, index) => index),
+  ]);
+  for (const message of messages) {
+    if (slots.has(message.slotIndex)) {
+      throw new TransactionError("TRANSACTION_DUPLICATE_SLOT_INDEX", {
+        slotIndex: message.slotIndex,
+      });
+    }
+    slots.add(message.slotIndex);
+  }
+}
+
+/** `data` is the recipient key followed by the slot ciphertext. */
+export function openSealedMessage(
+  tx: ViewingKey,
+  input: Readonly<{ salt: Bytes16; slotIndex: number; data: Uint8Array }>,
+): Uint8Array {
+  const recipient = P256PublicKey.fromBytes(input.data.slice(0, P256_PUBLIC_KEY_LENGTH) as Bytes33);
+  const ciphertext = input.data.slice(P256_PUBLIC_KEY_LENGTH);
+  return tx.decryptSlotEphemeral(recipient, ciphertext, input.salt, input.slotIndex);
 }
 
 /**

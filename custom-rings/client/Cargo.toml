@@ -33,12 +33,15 @@ zolana-client = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
+zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
 bs58 = { workspace = true }
+zolana-ring-head-map = { workspace = true }
 serde_json = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 zolana-ring-client = { path = ".", features = ["solana-rpc"] }

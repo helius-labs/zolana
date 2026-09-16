@@ -32,25 +32,43 @@ func sampleBaseParams() *BaseParameters {
 func sampleParams() *PolicyParameters {
 	base := sampleBaseParams()
 	p := &PolicyParameters{
-		PublicInputHash:   base.PublicInputHash,
-		PrivateTxHash:     base.PrivateTxHash,
-		TxViewingSk:       base.TxViewingSk,
-		EphSk:             base.EphSk,
-		AuditorPk:         base.AuditorPk,
-		NIn:               2,
-		NOut:              2,
-		AddressChain:      big.NewInt(0x31),
-		ExternalDataHash:  big.NewInt(0x32),
-		PrivateTxBlinding: big.NewInt(0x36),
-		PolicyLen:         3,
-		InlineCount:       1,
-		StateRoot:         big.NewInt(0x34),
-		NullifierRoot:     big.NewInt(0x35),
-		EntriesTreeID:     big.NewInt(0x37),
+		PublicInputHash:    base.PublicInputHash,
+		PrivateTxHash:      base.PrivateTxHash,
+		TxViewingSk:        base.TxViewingSk,
+		EphSk:              base.EphSk,
+		AuditorPk:          base.AuditorPk,
+		NIn:                2,
+		NOut:               2,
+		AddressChain:       big.NewInt(0x31),
+		ExternalDataHash:   big.NewInt(0x32),
+		PrivateTxBlinding:  big.NewInt(0x36),
+		PolicyLen:          3,
+		InlineCount:        1,
+		WindowSlots:        216000,
+		VelocityCount:      1,
+		StateRoot:          big.NewInt(0x34),
+		NullifierRoot:      big.NewInt(0x35),
+		EntriesTreeID:      big.NewInt(0x37),
+		RingID:             big.NewInt(0x38),
+		NamespaceOwnerHash: big.NewInt(0x39),
+		WindowIndex:        4,
+		ApprovalRequired:   true,
+		Record:             zeroedRecord(),
 	}
+	p.Record.Version = 2
+	p.Record.Window = 3
+	p.Record.Commitment = big.NewInt(0x3a)
+	p.Record.Salt = big.NewInt(0x3b)
+	p.Record.NextSalt = big.NewInt(0x3c)
+	p.Record.Assets[0] = big.NewInt(0x61)
+	p.Record.Spent[0] = big.NewInt(500)
 	for i := range p.Sources {
 		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
 	}
+	for i := range p.Velocity {
+		p.Velocity[i] = VelocityRow{Asset: big.NewInt(0), Cap: big.NewInt(0), CosignAbove: big.NewInt(0)}
+	}
+	p.Velocity[0] = VelocityRow{Asset: big.NewInt(0x61), Cap: big.NewInt(1000), CosignAbove: big.NewInt(600)}
 	p.Sources[0] = SourceOwner{ListId: 1, OwnerHash: big.NewInt(0x33)}
 	p.Sources[6] = SourceOwner{ListId: 7, OwnerHash: big.NewInt(0x34)}
 	for i := range p.Inputs {
@@ -138,6 +156,17 @@ func TestPolicyParametersJSONRoundTrip(t *testing.T) {
 	if got.NIn != p.NIn || got.NOut != p.NOut || got.PolicyLen != p.PolicyLen || got.InlineCount != p.InlineCount {
 		t.Fatalf("count mismatch")
 	}
+	if got.WindowSlots != p.WindowSlots || got.VelocityCount != p.VelocityCount ||
+		got.WindowIndex != p.WindowIndex || got.ApprovalRequired != p.ApprovalRequired {
+		t.Fatalf("velocity scalar mismatch")
+	}
+	if got.Velocity[0].Cap.Cmp(p.Velocity[0].Cap) != 0 || got.Velocity[0].CosignAbove.Cmp(p.Velocity[0].CosignAbove) != 0 {
+		t.Fatalf("velocity row mismatch")
+	}
+	if got.Record.Version != p.Record.Version || got.Record.Commitment.Cmp(p.Record.Commitment) != 0 ||
+		got.Record.Spent[0].Cmp(p.Record.Spent[0]) != 0 || got.RingID.Cmp(p.RingID) != 0 {
+		t.Fatalf("record mismatch")
+	}
 	if got.RuleEnc != p.RuleEnc {
 		t.Fatalf("rule table mismatch")
 	}
@@ -166,7 +195,8 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 		"txViewingSk", "ephSk", "auditorPk", "nIn", "nOut", "inputs",
 		"outputs", "addressChain", "externalDataHash", "privateTxBlinding", "sources",
 		"policyLen", "ruleEnc", "inlineAssets", "inlineLimits", "inlineCount", "stateRoot", "entriesTreeId",
-		"nullifierRoot", "answers",
+		"nullifierRoot", "answers", "windowSlots", "velocity", "velocityCount", "ringId",
+		"namespaceOwnerHash", "windowIndex", "approvalRequired", "record",
 	}
 	if len(raw) != len(keys) {
 		t.Fatalf("key set: got %d keys, want %d", len(raw), len(keys))
@@ -196,6 +226,7 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 		"inlineAssets": policy.NInlineAssets,
 		"inlineLimits": policy.NInlineAssets,
 		"answers":      policy.NListFacts,
+		"velocity":     policy.NVelocityAssets,
 	} {
 		var entries []json.RawMessage
 		if err := json.Unmarshal(raw[key], &entries); err != nil {
@@ -264,6 +295,27 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 			paths := listFacts(m)["nfPathElements"].([]interface{})
 			listFacts(m)["nfPathElements"] = paths[:len(paths)-1]
 		},
+		"velocity count too high": func(m map[string]interface{}) {
+			m["velocityCount"] = policy.NVelocityAssets + 1
+		},
+		"a window without velocity rows": func(m map[string]interface{}) { m["velocityCount"] = 0 },
+		"nonzero velocity padding": func(m map[string]interface{}) {
+			m["velocity"].([]interface{})[1].(map[string]interface{})["cap"] = "0x" + strings.Repeat("00", 31) + "01"
+		},
+		"velocity cap above 64 bits": func(m map[string]interface{}) {
+			m["velocity"].([]interface{})[0].(map[string]interface{})["cap"] = "0x" + strings.Repeat("00", 23) + "01" + strings.Repeat("00", 8)
+		},
+		"short velocity": func(m map[string]interface{}) {
+			m["velocity"] = m["velocity"].([]interface{})[:policy.NVelocityAssets-1]
+		},
+		"short record counters": func(m map[string]interface{}) {
+			record := m["record"].(map[string]interface{})
+			record["spent"] = record["spent"].([]interface{})[:policy.NVelocityAssets-1]
+		},
+		"record counter above 64 bits": func(m map[string]interface{}) {
+			record := m["record"].(map[string]interface{})
+			record["spent"].([]interface{})[0] = "0x" + strings.Repeat("00", 23) + "01" + strings.Repeat("00", 8)
+		},
 	}
 	rejectTampered[PolicyParameters](t, base, tests)
 }
@@ -309,6 +361,22 @@ func rejectTampered[P any](t *testing.T, base []byte, tests map[string]func(map[
 				t.Fatalf("expected an error")
 			}
 		})
+	}
+}
+
+// A per-transfer cap carries rows with no window, WindowSlots zero.
+func TestPolicyParametersAcceptRowsWithoutAWindow(t *testing.T) {
+	p := sampleParams()
+	p.WindowSlots = 0
+	p.WindowIndex = 0
+	p.Record = zeroedRecord()
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got PolicyParameters
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("rows without a window are a per-transfer cap: %v", err)
 	}
 }
 

@@ -12,10 +12,16 @@ use zolana_client::{
 use zolana_interface::tree_slot::tree_id_field;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_policy::{
-    MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
+    VelocityRow, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS,
+    POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
 };
 
-use crate::instructions::transact::request::{bytes_to_hex, field_hex, SecretHex};
+use crate::{head_map::HeadWitness, velocity::RowCharges};
+
+use crate::{
+    instructions::transact::request::{bytes_to_hex, field_hex, index_hex, json_body, SecretHex},
+    CustomRing, TransferError,
+};
 
 pub const STATE_PATH_LEN: usize = 32;
 pub const NULLIFIER_PATH_LEN: usize = 40;
@@ -81,6 +87,91 @@ impl Default for RuleAnswer {
 /// One positional source slot, slot `i` is empty or serves list `i + 1`.
 pub use zolana_ring_policy::SourceOwner as SourceOwnerEntry;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SpendRecordProofInput {
+    pub version: u64,
+    pub window: u64,
+    pub commitment: [u8; 32],
+    pub salt: [u8; 32],
+    pub assets: [[u8; 32]; MAX_VELOCITY_ASSETS],
+    pub spent: [u64; MAX_VELOCITY_ASSETS],
+    pub next_salt: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingIdentity {
+    pub ring_id: [u8; 32],
+    pub namespace_owner_hash: [u8; 32],
+}
+
+impl RingIdentity {
+    pub(crate) fn new(
+        ring: CustomRing,
+        namespace_owner_hash: [u8; 32],
+    ) -> Result<Self, TransferError> {
+        Ok(Self {
+            ring_id: zolana_ring_policy::ring_id_field(ring.program_id().as_array())
+                .map_err(|_| TransferError::PolicyHashing)?,
+            namespace_owner_hash,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProvedWindow {
+    pub slots: u64,
+    pub index: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VelocityProofInput {
+    pub window_slots: u64,
+    pub rows: [VelocityRow; MAX_VELOCITY_ASSETS],
+    pub row_count: u8,
+    pub ring_id: [u8; 32],
+    pub namespace_owner_hash: [u8; 32],
+    pub window_index: u64,
+    pub approval_required: bool,
+    pub record: SpendRecordProofInput,
+}
+
+impl VelocityProofInput {
+    /// Rows without a window carry the charges, no record accompanies them.
+    pub(crate) fn per_transfer(charges: &RowCharges, identity: RingIdentity) -> Self {
+        Self {
+            window_slots: 0,
+            rows: charges.rows,
+            row_count: charges.row_count,
+            ring_id: identity.ring_id,
+            namespace_owner_hash: identity.namespace_owner_hash,
+            window_index: 0,
+            approval_required: charges.approval_required,
+            record: SpendRecordProofInput::default(),
+        }
+    }
+
+    /// A ring without a window still binds its id and namespace.
+    pub fn off(identity: RingIdentity) -> Self {
+        Self {
+            window_slots: 0,
+            rows: [VelocityRow::EMPTY; MAX_VELOCITY_ASSETS],
+            row_count: 0,
+            ring_id: identity.ring_id,
+            namespace_owner_hash: identity.namespace_owner_hash,
+            window_index: 0,
+            approval_required: false,
+            record: SpendRecordProofInput::default(),
+        }
+    }
+
+    pub(crate) fn window(&self) -> Option<ProvedWindow> {
+        (self.window_slots != 0).then_some(ProvedWindow {
+            slots: self.window_slots,
+            index: self.window_index,
+        })
+    }
+}
+
 pub struct CustomRingPolicyProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
@@ -103,6 +194,7 @@ pub struct CustomRingPolicyProofRequest {
     pub state_root: [u8; 32],
     pub nullifier_root: [u8; 32],
     pub entries_tree_id: u16,
+    pub velocity: VelocityProofInput,
     pub answers: Vec<RuleAnswer>,
 }
 
@@ -128,8 +220,8 @@ impl ProveRequest for CustomRingBaseProofRequest {
             circuit_type: "custom-ring-base",
             public_input_hash: field_hex(&self.public_input_hash),
             private_tx_hash: field_hex(&self.private_tx_hash),
-            tx_viewing_sk: SecretHex(tx_viewing_secret.as_slice()),
-            eph_sk: SecretHex(ephemeral_secret.as_slice()),
+            tx_viewing_sk: SecretHex::new(tx_viewing_secret.as_slice()),
+            eph_sk: SecretHex::new(ephemeral_secret.as_slice()),
             auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
         };
         serde_json::to_string(&json)
@@ -143,7 +235,7 @@ impl ProveRequest for CustomRingBaseProofRequest {
 }
 
 #[derive(Serialize)]
-struct CustomRingBaseProofRequestJson<'a> {
+struct CustomRingBaseProofRequestJson {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
     #[serde(rename = "publicInputHash")]
@@ -151,15 +243,15 @@ struct CustomRingBaseProofRequestJson<'a> {
     #[serde(rename = "privateTxHash")]
     private_tx_hash: String,
     #[serde(rename = "txViewingSk")]
-    tx_viewing_sk: SecretHex<'a>,
+    tx_viewing_sk: SecretHex,
     #[serde(rename = "ephSk")]
-    eph_sk: SecretHex<'a>,
+    eph_sk: SecretHex,
     #[serde(rename = "auditorPk")]
     auditor_pk: String,
 }
 
-impl ProveRequest for CustomRingPolicyProofRequest {
-    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+impl CustomRingPolicyProofRequest {
+    pub(crate) fn json(&self) -> Result<CustomRingPolicyProofRequestJson, ClientError> {
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
         let auditor_key = self
@@ -167,12 +259,12 @@ impl ProveRequest for CustomRingPolicyProofRequest {
             .to_p256()
             .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
         let auditor_pk = auditor_key.to_encoded_point(false);
-        let json = CustomRingPolicyProofRequestJson {
+        Ok(CustomRingPolicyProofRequestJson {
             circuit_type: "custom-ring-policy",
             public_input_hash: field_hex(&self.public_input_hash),
             private_tx_hash: field_hex(&self.private_tx_hash),
-            tx_viewing_sk: SecretHex(tx_viewing_secret.as_slice()),
-            eph_sk: SecretHex(ephemeral_secret.as_slice()),
+            tx_viewing_sk: SecretHex::new(tx_viewing_secret.as_slice()),
+            eph_sk: SecretHex::new(ephemeral_secret.as_slice()),
             auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
             n_in: self.n_in,
             n_out: self.n_out,
@@ -190,15 +282,51 @@ impl ProveRequest for CustomRingPolicyProofRequest {
             state_root: field_hex(&self.state_root),
             nullifier_root: field_hex(&self.nullifier_root),
             entries_tree_id: field_hex(&tree_id_field(self.entries_tree_id)),
+            window_slots: self.velocity.window_slots,
+            velocity: self.velocity.rows.iter().map(velocity_row_json).collect(),
+            velocity_count: self.velocity.row_count,
+            ring_id: field_hex(&self.velocity.ring_id),
+            namespace_owner_hash: field_hex(&self.velocity.namespace_owner_hash),
+            window_index: self.velocity.window_index,
+            approval_required: self.velocity.approval_required,
+            record: record_json(&self.velocity.record),
             answers: self.answers.iter().map(answers_json).collect(),
-        };
-        serde_json::to_string(&json)
-            .map(Zeroizing::new)
-            .map_err(|_| ClientError::Prover("policy request serialization failed".to_string()))
+        })
+    }
+}
+
+impl ProveRequest for CustomRingPolicyProofRequest {
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        json_body(&self.json()?)
     }
 
     fn delivery(&self) -> Delivery {
         Delivery::Queued
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HeadTransitionJson {
+    head_old_root: String,
+    head_new_root: String,
+    head_next: String,
+    head_index: String,
+    head_proof: Vec<String>,
+}
+
+impl HeadTransitionJson {
+    pub(crate) fn new(
+        witness: &HeadWitness,
+        transition: &custom_ring_interface::HeadMapTransition,
+    ) -> Self {
+        Self {
+            head_old_root: field_hex(&transition.old_root),
+            head_new_root: field_hex(&transition.new_root),
+            head_next: field_hex(&witness.next),
+            head_index: index_hex(witness.index),
+            head_proof: witness.proof.iter().map(field_hex).collect(),
+        }
     }
 }
 
@@ -228,6 +356,26 @@ fn limit_hex(limit: &u64) -> String {
     let mut field = [0u8; 32];
     field[24..].copy_from_slice(&limit.to_be_bytes());
     field_hex(&field)
+}
+
+fn velocity_row_json(row: &VelocityRow) -> VelocityRowJson {
+    VelocityRowJson {
+        asset: field_hex(&row.asset),
+        cap: limit_hex(&row.cap),
+        cosign_above: limit_hex(&row.cosign_above),
+    }
+}
+
+fn record_json(record: &SpendRecordProofInput) -> SpendRecordJson {
+    SpendRecordJson {
+        version: record.version,
+        window: record.window,
+        commitment: field_hex(&record.commitment),
+        salt: field_hex(&record.salt),
+        assets: record.assets.iter().map(field_hex).collect(),
+        spent: record.spent.iter().map(limit_hex).collect(),
+        next_salt: field_hex(&record.next_salt),
+    }
 }
 
 fn answers_json(entry: &RuleAnswer) -> RuleAnswerJson {
@@ -279,6 +427,26 @@ struct CustomRingSourceJson {
 }
 
 #[derive(Serialize)]
+struct VelocityRowJson {
+    asset: String,
+    cap: String,
+    #[serde(rename = "cosignAbove")]
+    cosign_above: String,
+}
+
+#[derive(Serialize)]
+struct SpendRecordJson {
+    version: u64,
+    window: u64,
+    commitment: String,
+    salt: String,
+    assets: Vec<String>,
+    spent: Vec<String>,
+    #[serde(rename = "nextSalt")]
+    next_salt: String,
+}
+
+#[derive(Serialize)]
 struct RuleAnswerJson {
     enabled: bool,
     mode: u8,
@@ -305,7 +473,7 @@ struct RuleAnswerJson {
 }
 
 #[derive(Serialize)]
-struct CustomRingPolicyProofRequestJson<'a> {
+pub(crate) struct CustomRingPolicyProofRequestJson {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
     #[serde(rename = "publicInputHash")]
@@ -313,9 +481,9 @@ struct CustomRingPolicyProofRequestJson<'a> {
     #[serde(rename = "privateTxHash")]
     private_tx_hash: String,
     #[serde(rename = "txViewingSk")]
-    tx_viewing_sk: SecretHex<'a>,
+    tx_viewing_sk: SecretHex,
     #[serde(rename = "ephSk")]
-    eph_sk: SecretHex<'a>,
+    eph_sk: SecretHex,
     #[serde(rename = "auditorPk")]
     auditor_pk: String,
     #[serde(rename = "nIn")]
@@ -347,6 +515,20 @@ struct CustomRingPolicyProofRequestJson<'a> {
     nullifier_root: String,
     #[serde(rename = "entriesTreeId")]
     entries_tree_id: String,
+    #[serde(rename = "windowSlots")]
+    window_slots: u64,
+    velocity: Vec<VelocityRowJson>,
+    #[serde(rename = "velocityCount")]
+    velocity_count: u8,
+    #[serde(rename = "ringId")]
+    ring_id: String,
+    #[serde(rename = "namespaceOwnerHash")]
+    namespace_owner_hash: String,
+    #[serde(rename = "windowIndex")]
+    window_index: u64,
+    #[serde(rename = "approvalRequired")]
+    approval_required: bool,
+    record: SpendRecordJson,
     answers: Vec<RuleAnswerJson>,
 }
 
@@ -381,6 +563,10 @@ mod tests {
             state_root: [8u8; 32],
             nullifier_root: [9u8; 32],
             entries_tree_id: 3,
+            velocity: VelocityProofInput::off(RingIdentity {
+                ring_id: [10u8; 32],
+                namespace_owner_hash: [11u8; 32],
+            }),
             answers: vec![RuleAnswer::default(); ANSWER_SLOTS],
         }
     }
@@ -397,6 +583,7 @@ mod tests {
             [
                 "addressChain",
                 "answers",
+                "approvalRequired",
                 "auditorPk",
                 "circuitType",
                 "entriesTreeId",
@@ -408,16 +595,23 @@ mod tests {
                 "inputs",
                 "nIn",
                 "nOut",
+                "namespaceOwnerHash",
                 "nullifierRoot",
                 "outputs",
                 "policyLen",
                 "privateTxBlinding",
                 "privateTxHash",
                 "publicInputHash",
+                "record",
+                "ringId",
                 "ruleEnc",
                 "sources",
                 "stateRoot",
                 "txViewingSk",
+                "velocity",
+                "velocityCount",
+                "windowIndex",
+                "windowSlots",
             ]
         );
         assert_eq!(object["circuitType"], "custom-ring-policy");
@@ -441,6 +635,29 @@ mod tests {
             .collect();
         slot_keys.sort_unstable();
         assert_eq!(slot_keys, ["listId", "ownerHash"]);
+        assert_eq!(
+            object["velocity"].as_array().expect("rows").len(),
+            MAX_VELOCITY_ASSETS
+        );
+        let mut record_keys: Vec<&str> = object["record"]
+            .as_object()
+            .expect("record")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        record_keys.sort_unstable();
+        assert_eq!(
+            record_keys,
+            [
+                "assets",
+                "commitment",
+                "nextSalt",
+                "salt",
+                "spent",
+                "version",
+                "window"
+            ]
+        );
     }
 
     #[test]

@@ -18,16 +18,19 @@ use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+            confidential_encrypted_output_body, CircuitId, OwnerTag, TransactIxData,
+            TransactOutput, TransactProof,
         },
         tag::TRANSACT,
+        MessageData,
     },
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program::{TransactExternalData, TransactInputs};
 use zolana_ring_policy::{
-    entry_nullifier, mutation_private_tx_hash, EncodedRuleTable, ListEntry, ListId, ListNamespace,
-    ListSet, Member, PolicyHashError, SourceMap, Writer, NAMESPACE_PDA_SEED,
+    entry_nullifier, mutation_private_tx_hash, spend_record_message_tag, EncodedRuleTable,
+    ListEntry, ListId, ListNamespace, ListSet, Member, PolicyHashError, SourceMap, SpendRecord,
+    TableParts, Writer, NAMESPACE_PDA_SEED,
 };
 
 use crate::{
@@ -37,6 +40,20 @@ use crate::{
         shared::PdaCheck,
     },
 };
+
+/// Every listed tree is the policy's entries tree, else the ring escapes it.
+pub(crate) fn require_entries_trees(
+    trees: &[AccountView],
+    entries_tree: &Address,
+) -> ProgramResult {
+    if trees
+        .iter()
+        .any(|tree| !address_eq(tree.address(), entries_tree))
+    {
+        return Err(CustomRingError::InvalidPolicyTree.into());
+    }
+    Ok(())
+}
 
 /// The ring's own namespace owner, curator sources enter only through the
 /// authority gated source map writes.
@@ -50,6 +67,23 @@ pub(crate) fn namespace_pda(program_id: &Address) -> Result<(Address, u8), Custo
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
 pub(crate) fn namespace_pda(_program_id: &Address) -> Result<(Address, u8), CustomRingError> {
+    Err(CustomRingError::InvalidNamespacePda)
+}
+
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+pub(crate) fn namespace_address(
+    program_id: &Address,
+    bump: u8,
+) -> Result<Address, CustomRingError> {
+    Address::create_program_address(&[NAMESPACE_PDA_SEED, &[bump]], program_id)
+        .map_err(|_| CustomRingError::InvalidNamespacePda)
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+pub(crate) fn namespace_address(
+    _program_id: &Address,
+    _bump: u8,
+) -> Result<Address, CustomRingError> {
     Err(CustomRingError::InvalidNamespacePda)
 }
 
@@ -96,11 +130,12 @@ pub(crate) struct TableBinding<'a> {
 }
 
 impl TableBinding<'_> {
+    /// The bound table must remain off the caller's SBF stack frame.
     #[inline(never)]
-    pub fn bind(self) -> Result<BoundTable, ProgramError> {
+    pub fn bind(self) -> Result<Box<BoundTable>, ProgramError> {
         let rules = decode_policy_table(self.table)?;
         let sources = self.resolve_sources(rules.referenced())?;
-        Ok(BoundTable { rules, sources })
+        Ok(Box::new(BoundTable { rules, sources }))
     }
 
     /// The map is a bijection with the lists the table references.
@@ -171,16 +206,17 @@ pub(crate) fn repin(live: &mut PolicyConfig, repin: Repin<'_>) -> ProgramResult 
 
 #[inline(never)]
 fn decode_policy_table(table: &PolicyTableIxData) -> Result<EncodedRuleTable, CustomRingError> {
-    EncodedRuleTable::from_parts_with_limits(
-        &table.rules,
-        &table.inline_assets,
-        &table.inline_limits,
-    )
+    let velocity: Vec<_> = table.velocity.iter().map(Into::into).collect();
+    TableParts {
+        rows: &table.rules,
+        inline_assets: &table.inline_assets,
+        inline_limits: &table.inline_limits,
+        window_slots: table.window_slots,
+        velocity: &velocity,
+    }
+    .encode()
     .and_then(|encoded| encoded.decode().map(|_| encoded))
-    .map_err(|error| {
-        solana_msg::sol_log(error.message());
-        CustomRingError::InvalidPolicyRules
-    })
+    .map_err(|_| CustomRingError::InvalidPolicyRules)
 }
 
 #[inline(never)]
@@ -213,6 +249,8 @@ pub(crate) struct MutationAccounts<'a> {
     pub owner: ListNamespace,
     pub authority: Address,
     pub entries_tree_id: u16,
+    sources: [SourceSlot; N_SOURCE_SLOTS],
+    pub window_slots: u64,
 }
 
 impl<'a> MutationAccounts<'a> {
@@ -221,7 +259,6 @@ impl<'a> MutationAccounts<'a> {
     pub fn validate_and_parse(
         program_id: &Address,
         accounts: &'a mut [AccountView],
-        list_id: ListId,
     ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let config = iter.next_account("config")?;
@@ -262,15 +299,9 @@ impl<'a> MutationAccounts<'a> {
         if namespace_bump != policy_config.namespace_bump {
             return Err(CustomRingError::InvalidNamespacePda.into());
         }
-        // A referenced list serves its mapped entries only, an unmapped list
-        // stays mutable against the ring's own.
-        let slot = policy_config.sources[list_id.slot()];
-        if slot.list_id != 0 && !address_eq(&slot.namespace, entries.address()) {
-            return Err(CustomRingError::ForeignSource.into());
-        }
-
-        let owner = ListNamespace::new(entries.address().as_array())
-            .map_err(|_| CustomRingError::HashingFailed)?;
+        let owner = ListNamespace {
+            owner_hash: policy_config.namespace_owner_hash,
+        };
 
         Ok(Self {
             payer,
@@ -279,7 +310,19 @@ impl<'a> MutationAccounts<'a> {
             owner,
             authority: config.authority,
             entries_tree_id: policy_config.entries_tree_id(),
+            sources: policy_config.sources,
+            window_slots: policy_config.rules.window_slots(),
         })
+    }
+
+    /// A referenced list serves its mapped entries only, an unmapped list
+    /// stays mutable against the ring's own.
+    pub fn check_source(&self, list_id: ListId) -> ProgramResult {
+        let slot = self.sources[list_id.slot()];
+        if slot.list_id != 0 && !address_eq(&slot.namespace, &self.namespace_address) {
+            return Err(CustomRingError::ForeignSource.into());
+        }
+        Ok(())
     }
 
     pub fn check_mutator(&self, list_id: ListId, member: &Member) -> ProgramResult {
@@ -326,18 +369,49 @@ impl EntryTransition {
             .utxo_hash(owner, &address, tree_id)
             .map_err(|_| CustomRingError::HashingFailed)?;
         let content = self.entry.to_output_data();
-        let entry_bytes = namespace_address.to_bytes();
+        NamespaceWrite {
+            output_hash,
+            content: &content,
+            inputs: self.inputs,
+            input_hash: self.input_hash,
+            address_nullifier: self.address_nullifier,
+            private_tx_blinding: self.private_tx_blinding,
+            proof: self.proof,
+        }
+        .into_transact(namespace_address)
+    }
+}
+
+/// Canonical SPP statement for creating or replacing one namespace-owned data
+/// record.
+pub(crate) struct NamespaceWrite<'a> {
+    pub output_hash: [u8; 32],
+    pub content: &'a [u8],
+    pub inputs: TransactInputs,
+    pub input_hash: [u8; 32],
+    /// The address a claim inserts, zero for a spend.
+    pub address_nullifier: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
+    pub proof: TransactProof,
+}
+
+impl NamespaceWrite<'_> {
+    pub fn into_transact(
+        self,
+        namespace_address: &Address,
+    ) -> Result<TransactIxData, ProgramError> {
+        let owner_bytes = namespace_address.to_bytes();
         let external = TransactExternalData::single_output(TransactOutput {
-            utxo_hash: output_hash,
-            owner_tag: OwnerTag::Inline(entry_bytes),
-            data: Some(content.to_vec()),
+            utxo_hash: self.output_hash,
+            owner_tag: OwnerTag::Inline(owner_bytes),
+            data: Some(self.content.to_vec()),
         });
         let external_data_hash = external
-            .hash(TRANSACT, &[], &[entry_bytes])
+            .hash(TRANSACT, &[], &[owner_bytes])
             .map_err(|_| CustomRingError::HashingFailed)?;
         let private_tx_hash = mutation_private_tx_hash(
             self.input_hash,
-            output_hash,
+            self.output_hash,
             self.address_nullifier,
             &external_data_hash,
             &self.private_tx_blinding,
@@ -350,6 +424,63 @@ impl EntryTransition {
             self.proof,
             self.inputs,
         ))
+    }
+}
+
+/// The namespace every spend record of the ring is addressed under.
+pub(crate) struct RecordNamespace {
+    pub owner: ListNamespace,
+    pub address: Address,
+    pub tree_id: u16,
+}
+
+/// The last output of a windowed transfer plus the messages carrying its plaintext.
+pub(crate) struct SpendRecordCarrier<'a> {
+    pub output: &'a TransactOutput,
+    pub messages: &'a [MessageData],
+}
+
+impl SpendRecordCarrier<'_> {
+    pub fn verify(&self, namespace: &RecordNamespace) -> Result<(), ProgramError> {
+        // 1. Require the namespace-owned final output and its unique public
+        // record message.
+        if self.output.owner_tag != OwnerTag::Inline(namespace.address.to_bytes()) {
+            return Err(CustomRingError::InvalidSpendRecord.into());
+        }
+        if self
+            .output
+            .data
+            .as_deref()
+            .and_then(confidential_encrypted_output_body)
+            .is_none()
+        {
+            return Err(CustomRingError::InvalidSpendRecord.into());
+        }
+        let tag = spend_record_message_tag(namespace.address.as_array())
+            .map_err(|_| CustomRingError::HashingFailed)?;
+        let mut tagged = self
+            .messages
+            .iter()
+            .filter(|message| message.view_tag == tag);
+        let message = tagged.next().ok_or(CustomRingError::InvalidSpendRecord)?;
+        if tagged.next().is_some() {
+            return Err(CustomRingError::InvalidSpendRecord.into());
+        }
+        // 2. Rebuild the leaf from published record fields before granting the
+        // namespace signature.
+        let record = SpendRecord::from_output_data(&message.data)
+            .ok_or(CustomRingError::InvalidSpendRecord)?;
+        let address = namespace
+            .owner
+            .spend_address(&record.member, namespace.tree_id)
+            .map_err(|_| CustomRingError::HashingFailed)?;
+        let leaf = record
+            .utxo_hash(&namespace.owner, &address, namespace.tree_id)
+            .map_err(|_| CustomRingError::HashingFailed)?;
+        if leaf != self.output.utxo_hash {
+            return Err(CustomRingError::InvalidSpendRecord.into());
+        }
+        Ok(())
     }
 }
 

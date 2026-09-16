@@ -1,5 +1,10 @@
-use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
+use custom_ring_interface::{
+    tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, PolicyConfig,
+    AUDITOR_MESSAGE_LEN,
+};
 use custom_ring_program::{CustomRingError, NULLIFIER_ROOT_WINDOW};
+use pinocchio::cpi::MAX_CPI_ACCOUNTS;
+use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_interface::{
@@ -19,15 +24,16 @@ use crate::common::{
     account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
     entries_tree, entries_tree_account, initialized_config_account,
     initialized_entries_tree_account, initialized_entries_tree_account_with_roots,
-    initialized_policy_config_account, nullifier_root_cursor, paused_entries_tree_account,
-    setup_mollusk, transact_fixture, Fixture,
+    initialized_entries_tree_account_with_state_roots, initialized_policy_config_account,
+    nullifier_root_cursor, paused_entries_tree_account, setup_mollusk, transact_fixture,
+    utxo_root_cursor, Fixture, Slot,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
 }
 
-fn confidential_output() -> TransactOutput {
+pub(crate) fn confidential_output() -> TransactOutput {
     let mut key = [0u8; 33];
     key[0] = 0x02;
     let mut body = vec![RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG];
@@ -43,7 +49,7 @@ fn confidential_output() -> TransactOutput {
     }
 }
 
-fn transact_data() -> TransactIxData {
+pub(crate) fn transact_data() -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [3u8; 32],
@@ -72,19 +78,32 @@ fn transact_data() -> TransactIxData {
 }
 
 fn transact_body(state_root_index: u16, nullifier_root_index: u16) -> Vec<u8> {
+    body(state_root_index, nullifier_root_index, 0, transact_data())
+}
+
+pub(crate) fn body(
+    state_root_index: u16,
+    nullifier_root_index: u16,
+    approval_required: u8,
+    transact: TransactIxData,
+) -> Vec<u8> {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
         &wincode::serialize(&CustomRingTransactIxData {
             proof: CustomRingProof {
-                proof_a: [0; 32],
-                proof_b: [0; 64],
-                proof_c: [0; 32],
+                groth16: PlainGroth16Proof {
+                    proof_a: [0; 32],
+                    proof_b: [0; 64],
+                    proof_c: [0; 32],
+                },
                 commitment: [0xFF; 32],
                 commitment_pok: [0xFF; 32],
             },
             state_root_index,
             nullifier_root_index,
-            transact: transact_data(),
+            approval_required,
+            head_transition: None,
+            transact,
         })
         .expect("serialize policy transact body"),
     );
@@ -243,4 +262,56 @@ fn the_entries_tree_address_is_the_configured_one() {
         initialized_policy_config_account().data[33..65],
         entries_tree().to_bytes()
     );
+}
+
+/// State roots use history bounds without the nullifier freshness window.
+#[test]
+fn a_state_root_index_past_the_history_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let fixture = policy_fixture(u16::MAX, 0);
+    fixture.expect_err(&mollusk, custom(CustomRingError::StalePolicyRoot));
+}
+
+#[test]
+fn an_old_live_state_root_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let tree = initialized_entries_tree_account_with_state_roots(3);
+    let oldest = utxo_root_cursor(&tree) - 3;
+    let mut fixture = policy_fixture(oldest, 0);
+    fixture.set_account("entries_tree", tree);
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+/// The stored id enters the statement, not the live tree's.
+#[test]
+fn a_drifted_entries_tree_id_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_fixture(0, 0);
+    let mut config = initialized_policy_config_account();
+    config.data[core::mem::offset_of!(PolicyConfig, entries_tree_id)] ^= 0x01;
+    fixture.set_account("policy_config", config);
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+/// `ring_auth` and the list size are checked at the CPI, after the proof.
+#[test]
+fn a_forwarded_list_without_ring_auth_still_fails_at_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_fixture(0, 0);
+    fixture.substitute("ring_config", Pubkey::new_from_array([72; 32]));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn an_oversized_forwarded_list_still_fails_at_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_fixture(0, 0);
+    for index in 0..MAX_CPI_ACCOUNTS {
+        fixture.push(Slot {
+            label: "extra",
+            meta: AccountMeta::new_readonly(Pubkey::new_from_array([index as u8 + 100; 32]), false),
+            account: account(1),
+        });
+    }
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }

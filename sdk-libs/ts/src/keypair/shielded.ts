@@ -66,6 +66,17 @@ export class ShieldedAddress {
     );
   }
 
+  /** Mirrors Rust `ShieldedAddress::for_pda`. */
+  static forPda(
+    keys: Readonly<{ pda: Bytes32; nullifierPublicKey: Bytes32; viewingPublicKey: P256PublicKey }>,
+  ): ShieldedAddress {
+    return ShieldedAddress.fromPublicKeys(
+      ShieldedPublicKey.fromPda(keys.pda),
+      keys.nullifierPublicKey,
+      keys.viewingPublicKey,
+    );
+  }
+
   get nullifierPublicKey(): Bytes32 {
     return copyBytes(this.#nullifierPublicKey) as Bytes32;
   }
@@ -78,7 +89,9 @@ export class ShieldedAddress {
   }
 
   solanaAddress(): Address {
-    return addressDecoder.decode(this.signingPublicKey.ed25519());
+    const key = this.signingPublicKey;
+    const bytes = key.signatureType() === "pda" ? key.pda() : key.ed25519();
+    return addressDecoder.decode(bytes);
   }
 
   confidentialViewTag(): ViewTag {

@@ -81,6 +81,7 @@ export {
   encryptConfidentialTransfer,
   encryptCustomRingTransfer,
   encryptSplit,
+  openSealedMessage,
   serializeWallet,
 } from "./wallet/index.js";
 export {
@@ -111,6 +112,7 @@ export type {
   PrivateTransactionKind,
   PrivateTransactionStatus,
   RingBalance,
+  SealedMessageInput,
   ShieldedKeys,
   SplitBundlePlaintext,
   SyncReport,

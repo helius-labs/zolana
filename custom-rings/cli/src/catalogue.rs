@@ -390,6 +390,7 @@ mod tests {
             entries_tree: TREE,
             entries_tree_id: [0; 2],
             namespace_bump: 0,
+            namespace_owner_hash: [0u8; 32],
             bump: 0,
             sources,
             rules: EncodedRuleTable::empty(),

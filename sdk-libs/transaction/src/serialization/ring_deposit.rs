@@ -1,6 +1,6 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_event::EncryptedRingDepositData;
+use zolana_event::{EncryptedRingDepositData, RingDepositAuditCapsule};
 use zolana_keypair::{random_salt, P256Pubkey, PublicKey, ViewingKey};
 
 use crate::{
@@ -42,11 +42,13 @@ impl RingDepositPlaintext {
         viewing_key: &ViewingKey,
     ) -> Result<Self, TransactionError> {
         let tx_viewing_pk = P256Pubkey::from_bytes(encrypted.tx_viewing_pk)?;
-        let plaintext = viewing_key.decrypt_ring_deposit(
-            &encrypted.ciphertext,
-            &tx_viewing_pk,
-            encrypted.salt,
-        )?;
+        let capsule = RingDepositAuditCapsule::parse(&encrypted.ciphertext)
+            .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
+        let ciphertext = capsule.map_or(encrypted.ciphertext.as_slice(), |capsule| {
+            capsule.recipient_ciphertext
+        });
+        let plaintext =
+            viewing_key.decrypt_ring_deposit(ciphertext, &tx_viewing_pk, encrypted.salt)?;
         Ok(wincode::deserialize_exact(&plaintext)?)
     }
 
@@ -72,5 +74,39 @@ impl RingDepositPlaintext {
             ring_program_id: Some(ring_program_id),
             data: Data::new(records),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recipient_opens_legacy_and_auditor_wrapped_ciphertexts() {
+        let recipient = ViewingKey::new();
+        let plaintext = RingDepositPlaintext {
+            blinding: [7; 32],
+            utxo_data: Some(vec![1, 2]),
+            memo: Some(vec![3]),
+            ring_data: vec![4],
+        };
+        let mut encrypted = plaintext.encrypt(&recipient.pubkey()).unwrap();
+        assert_eq!(
+            RingDepositPlaintext::decrypt(&encrypted, &recipient).unwrap(),
+            plaintext
+        );
+        encrypted.ciphertext = RingDepositAuditCapsule {
+            slot_index: 7,
+            eph_pk: &[2; 33],
+            ciphertext: &[3; 64],
+            recipient_ciphertext: &encrypted.ciphertext,
+        }
+        .encode();
+        assert_eq!(
+            RingDepositPlaintext::decrypt(&encrypted, &recipient).unwrap(),
+            plaintext
+        );
+        encrypted.ciphertext.truncate(105);
+        assert!(RingDepositPlaintext::decrypt(&encrypted, &recipient).is_err());
     }
 }

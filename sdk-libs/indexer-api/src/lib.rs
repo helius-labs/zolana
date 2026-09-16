@@ -18,12 +18,27 @@ pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "getShieldedTransactionsByTa
 pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "getShieldedTransactionsBySignature";
 pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactionsByNullifiers";
 pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
+pub const GET_RING_HEAD_REGISTER_PROOF: &str = "getRingHeadRegisterProof";
+pub const GET_RING_KEY_REGISTRY_ENTRY: &str = "getRingKeyRegistryEntry";
+pub const GET_RING_KEY_REGISTRY_REGISTER_PROOF: &str = "getRingKeyRegistryRegisterProof";
+pub const GET_RING_HEAD_TRANSFER_PROOF: &str = "getRingHeadTransferProof";
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 
 const MAX_BASE58_32_LEN: usize = 44;
 const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
 const LIMIT_ERROR: &str = "value must be between 1 and 1000";
+
+pub mod error_code {
+    pub const RING_HEAD_MAP_OUT_OF_SYNC: i64 = -32070;
+    pub const RING_HEAD_ROOT_CHANGED: i64 = -32071;
+    pub const RING_HEAD_MEMBER_UNREGISTERED: i64 = -32072;
+    pub const RING_HEAD_MEMBER_ALREADY_REGISTERED: i64 = -32073;
+    pub const RING_KEY_REGISTRY_OUT_OF_SYNC: i64 = -32074;
+    pub const RING_KEY_REGISTRY_ROOT_CHANGED: i64 = -32075;
+    pub const RING_KEY_REGISTRY_MEMBER_UNREGISTERED: i64 = -32076;
+    pub const RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: i64 = -32077;
+}
 
 /// Associates one canonical JSON-RPC method name with its parameter and result types.
 pub trait RpcMethod {
@@ -40,6 +55,10 @@ pub mod method {
     pub struct GetShieldedTransactionsBySignature;
     pub struct GetShieldedTransactionsByNullifiers;
     pub struct GetMerkleProofs;
+    pub struct GetRingHeadRegisterProof;
+    pub struct GetRingKeyRegistryEntry;
+    pub struct GetRingKeyRegistryRegisterProof;
+    pub struct GetRingHeadTransferProof;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
 
@@ -71,6 +90,30 @@ pub mod method {
         const NAME: &'static str = GET_MERKLE_PROOFS;
         type Request = GetMerkleProofsRequest;
         type Response = GetMerkleProofsResponse;
+    }
+
+    impl RpcMethod for GetRingHeadRegisterProof {
+        const NAME: &'static str = GET_RING_HEAD_REGISTER_PROOF;
+        type Request = RingMemberProofRequest;
+        type Response = GetRingHeadRegisterProofResponse;
+    }
+
+    impl RpcMethod for GetRingKeyRegistryEntry {
+        const NAME: &'static str = GET_RING_KEY_REGISTRY_ENTRY;
+        type Request = RingMemberProofRequest;
+        type Response = GetRingKeyRegistryEntryResponse;
+    }
+
+    impl RpcMethod for GetRingKeyRegistryRegisterProof {
+        const NAME: &'static str = GET_RING_KEY_REGISTRY_REGISTER_PROOF;
+        type Request = RingMemberProofRequest;
+        type Response = GetRingKeyRegistryRegisterProofResponse;
+    }
+
+    impl RpcMethod for GetRingHeadTransferProof {
+        const NAME: &'static str = GET_RING_HEAD_TRANSFER_PROOF;
+        type Request = RingMemberProofRequest;
+        type Response = GetRingHeadTransferProofResponse;
     }
 
     impl RpcMethod for GetNonInclusionProofs {
@@ -500,6 +543,7 @@ pub struct Context {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetRingsByTagsRequest {
+    /// Empty tags require a ring and select its full history.
     pub tags: Vec<Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<Base64String>,
@@ -539,7 +583,7 @@ pub struct EncryptedUtxoMatch {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetEncryptedUtxosByTagsResponse {
     pub context: Context,
-    /// Output-level matches; every returned output slot has a view tag from the request.
+    /// All outputs in the selected ring when tags are empty.
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Base64String>,
     /// Where the scan reached on a terminal page, including an empty page.
@@ -606,8 +650,8 @@ pub struct ShieldedTransaction {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
-    /// Transaction-level matches; each returned transaction has at least one requested
-    /// output view tag and includes all of its output slots.
+    /// All slots of each matched transaction, including full ring history when
+    /// tags are empty.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
     /// Where the scan reached on a terminal page, including an empty page.
@@ -672,6 +716,88 @@ pub struct GetMerkleProofsRequest {
 pub struct GetMerkleProofsResponse {
     pub context: Context,
     pub proofs: Vec<MerkleProof>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingMemberProofRequest {
+    pub ring_program_id: SerializablePubkey,
+    pub member: Hash,
+    pub expected_root: Hash,
+    pub expected_next_index: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingHeadRegisterProofResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub next_index: u64,
+    pub member: Hash,
+    pub low_member: Hash,
+    pub low_next: Hash,
+    pub low_nullifier: Hash,
+    pub low_index: u64,
+    pub low_proof: Vec<Hash>,
+    /// Computed after the predecessor update.
+    pub new_proof: Vec<Hash>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingKeyRegistryEntryResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub next_index: u64,
+    pub member: Hash,
+    pub next: Hash,
+    pub index: u64,
+    pub eph_pk: Base64String,
+    pub ciphertext: Base64String,
+    pub proof: Vec<Hash>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingKeyRegistryRegisterProofResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub next_index: u64,
+    pub member: Hash,
+    pub low_member: Hash,
+    pub low_next: Hash,
+    pub low_ct_commitment: Hash,
+    pub low_index: u64,
+    pub low_proof: Vec<Hash>,
+    /// Computed after the predecessor update.
+    pub new_proof: Vec<Hash>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingHeadRecord {
+    pub transaction: ShieldedTransaction,
+    pub output_index: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingHeadTransferProofResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub next_index: u64,
+    pub member: Hash,
+    pub next: Hash,
+    pub nullifier: Hash,
+    pub index: u64,
+    pub proof: Vec<Hash>,
+    pub record: RingHeadRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

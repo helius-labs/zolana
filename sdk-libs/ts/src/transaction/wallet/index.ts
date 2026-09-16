@@ -12,12 +12,14 @@ export {
   encryptConfidentialTransfer,
   encryptCustomRingTransfer,
   encryptSplit,
+  openSealedMessage,
   type AnonymousRecipientSlot,
   type AuditWitness,
   type EncryptedCustomRingTransfer,
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
+  type SealedMessageInput,
   type SplitBundlePlaintext,
 } from "./encrypt-rails.js";
 export {

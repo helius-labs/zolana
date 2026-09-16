@@ -82,7 +82,7 @@ pub async fn get_shielded_transactions_by_tags(
     conn: &DatabaseConnection,
     request: GetRingsByTagsRequest,
 ) -> Result<GetShieldedTransactionsByTagsResponse, PhotonApiError> {
-    validate_tags(&request.tags)?;
+    validate_tags(&request.tags, request.ring_program_id.as_ref())?;
     // The config account is derived, not looked up, so filtering by ring works
     // even for a ring whose registration this index never saw.
     let ring_config = request
@@ -332,6 +332,8 @@ async fn fetch_matching_rings_transactions(
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
     let match_filter = match match_by {
+        // Recipient tags are unknown until the deposit openings are decrypted.
+        MatchBy::Tags if values.is_empty() && ring_config.is_some() => "TRUE".to_string(),
         MatchBy::Tags => {
             let output_filter = tags_sql(values, backend, &mut params);
             let message_filter = tags_sql(values, backend, &mut params);
@@ -392,8 +394,8 @@ async fn fetch_matching_rings_transactions(
          FROM rings_transactions pt
          LEFT JOIN ring_configs rc ON rc.ring_config = pt.ring_config
          WHERE ({match_filter})
-         {ring_filter}
          {cursor_filter}
+         {ring_filter}
          ORDER BY pt.slot ASC, pt.signature ASC, pt.event_index ASC
          LIMIT {limit}"
     );
@@ -768,6 +770,148 @@ mod tests {
             assert_eq!(tags_query(&db, Some(ring_program)).await.len(), 1);
             assert!(tags_query(&db, Some(Pubkey::new_unique())).await.is_empty());
         }
+    }
+
+    async fn insert_history_output(
+        db: &DatabaseConnection,
+        id: u8,
+        ring: Option<Pubkey>,
+        source_tag: u8,
+    ) {
+        transactions::Entity::insert(transactions::ActiveModel {
+            signature: Set(vec![id; 64]),
+            slot: Set(7),
+            error: Set(None),
+        })
+        .exec(db)
+        .await
+        .unwrap();
+        rings_transactions::Entity::insert(rings_transactions::ActiveModel {
+            rings_tx_id: Set(i64::from(id)),
+            signature: Set(vec![id; 64]),
+            event_index: Set(0),
+            slot: Set(7),
+            ring_config: Set(ring.map(|program| pda::ring_auth(&program).0.to_bytes().to_vec())),
+            source_instruction_tag: Set(i16::from(source_tag)),
+            output_tree: Set(vec![8; 32]),
+            first_output_leaf_index: Set(i64::from(id)),
+            tx_viewing_pk: Set(None),
+            salt: Set(None),
+            proofless: Set(source_tag == zolana_event::tag::RING_DEPOSIT),
+        })
+        .exec(db)
+        .await
+        .unwrap();
+        rings_outputs::Entity::insert(rings_outputs::ActiveModel {
+            output_id: Set(i64::from(id)),
+            rings_tx_id: Set(i64::from(id)),
+            slot: Set(7),
+            output_index: Set(0),
+            output_tree: Set(vec![8; 32]),
+            leaf_index: Set(i64::from(id)),
+            view_tag: Set(hash(id + 20).to_vec()),
+            utxo_hash: Set(vec![id; 32]),
+            signature: Set(Some(vec![id; 64])),
+            event_index: Set(Some(0)),
+        })
+        .exec(db)
+        .await
+        .unwrap();
+        rings_output_payloads::Entity::insert(rings_output_payloads::ActiveModel {
+            output_id: Set(i64::from(id)),
+            payload: Set(vec![id]),
+        })
+        .exec(db)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn ring_history_pages_include_unknown_tag_deposits_and_merges_only_in_that_ring() {
+        use crate::api::method::rings::get_encrypted_utxos_by_tags::get_encrypted_utxos_by_tags;
+        use zolana_event::tag;
+
+        let (db, ring) = setup_ring(false).await;
+        insert_history_output(&db, 3, Some(ring), tag::RING_DEPOSIT).await;
+        insert_history_output(&db, 4, Some(ring), tag::RING_MERGE_TRANSACT).await;
+        insert_history_output(&db, 5, Some(Pubkey::new_unique()), tag::RING_DEPOSIT).await;
+        insert_history_output(&db, 6, None, tag::DEPOSIT).await;
+        let request = GetRingsByTagsRequest {
+            tags: vec![],
+            cursor: None,
+            limit: Some(Limit::new(2).unwrap()),
+            ring_program_id: Some(SerializablePubkey::from(ring)),
+        };
+
+        // 1. Unknown recipient tags must not exclude ring deposits.
+        let first = get_shielded_transactions_by_tags(&db, request.clone())
+            .await
+            .unwrap();
+        assert_eq!(first.transactions.len(), 2);
+        assert!(!first.transactions[0].proofless);
+        assert!(first.transactions[1].proofless);
+        assert!(first.scanned_through.is_none());
+        assert!(first
+            .transactions
+            .iter()
+            .all(|tx| tx.ring_program_id.is_none()));
+
+        // 2. Resumed pages must retain the ring filter.
+        let second = get_shielded_transactions_by_tags(
+            &db,
+            GetRingsByTagsRequest {
+                cursor: first.next_cursor,
+                ..request.clone()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.transactions.len(), 1);
+        assert_eq!(second.transactions[0].output_slots[0].payload.0, vec![4]);
+        let terminal = second.scanned_through.expect("terminal scan frontier");
+        let resumed = get_shielded_transactions_by_tags(
+            &db,
+            GetRingsByTagsRequest {
+                cursor: Some(terminal),
+                ..request.clone()
+            },
+        )
+        .await
+        .unwrap();
+        assert!(resumed.transactions.is_empty());
+
+        // 3. Output pages must retain the same ring filter.
+        let outputs = get_encrypted_utxos_by_tags(&db, request.clone())
+            .await
+            .unwrap();
+        assert_eq!(outputs.matches.len(), 2);
+        assert!(outputs.scanned_through.is_none());
+        let rest = get_encrypted_utxos_by_tags(
+            &db,
+            GetRingsByTagsRequest {
+                cursor: outputs.next_cursor,
+                ..request.clone()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(rest.matches.len(), 1);
+        assert_eq!(rest.matches[0].output_slot.payload.0, vec![4]);
+        assert!(rest.scanned_through.is_some());
+
+        let unscoped = GetRingsByTagsRequest {
+            ring_program_id: None,
+            ..request
+        };
+        assert!(matches!(
+            get_shielded_transactions_by_tags(&db, unscoped.clone()).await,
+            Err(PhotonApiError::ValidationError(_))
+        ));
+        assert!(matches!(
+            get_encrypted_utxos_by_tags(&db, unscoped).await,
+            Err(PhotonApiError::ValidationError(_))
+        ));
+        assert_eq!(tags_query(&db, Some(ring)).await.len(), 1);
     }
 
     #[tokio::test]

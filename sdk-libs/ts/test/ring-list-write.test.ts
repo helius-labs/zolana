@@ -10,16 +10,16 @@ import type { MerkleProof, NonInclusionProof } from "../src/client/rpc.js";
 import { initializePoseidon } from "../src/hasher/index.js";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { addressBytes } from "../src/interface/internal.js";
-import { nullifierPdaAddress } from "../src/interface/pda/index.js";
+import {
+  nullifierPdaAddress,
+  ringConfigAddress,
+  ringPolicyConfigAddress,
+} from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, TransactProof } from "../src/interface/types.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { bigintToBytes, bytesToBigInt } from "../src/client/internal.js";
-import {
-  ringConfigAddress,
-  ringPolicyConfigAddress,
-  ringPolicyNamespaceAddress,
-} from "../src/ring/config.js";
+import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
 import {
   proveRingEntryTransition,
   ringEntryTransitionInputs,

@@ -16,12 +16,17 @@ use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_transaction::{
     serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
-    ShieldedTransaction,
+    ShieldedTransaction, SOL_MINT,
 };
 
+use zolana_event::MessageData;
+use zolana_ring_policy::SpendRecord;
+
 use crate::{
+    counters::{find_counters_message, SealedCounters},
     error::AuditError,
-    types::{AuditedOutput, AuditedTransaction},
+    record::RecordCarrier,
+    types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
 };
 
 #[must_use]
@@ -52,21 +57,56 @@ impl TransactionAudit<'_> {
         }
 
         let mut outputs = Vec::new();
+        let mut spend_records = Vec::new();
         let mut undecryptable_slots = Vec::new();
         for (position, slot) in self.transaction.output_slots.iter().enumerate() {
             let slot_index =
                 u32::try_from(position).map_err(|_| AuditError::SlotIndexOverflow(position))?;
-            match (OutputAudit {
+            let opened = OutputAudit {
                 tx_key: &tx_key,
                 slot,
                 salt,
                 slot_index,
                 assets: self.assets,
-            })
-            .run()?
-            {
-                Some(output) => outputs.push(output),
-                None => undecryptable_slots.push(slot_index),
+            }
+            .run()?;
+            let record = match RecordCarrier::decode(slot, &self.transaction.messages)? {
+                None => None,
+                Some(RecordCarrier::Inline(record)) => Some(record),
+                Some(RecordCarrier::Sidecar(record)) => {
+                    if position + 1 != self.transaction.output_slots.len() {
+                        return Err(AuditError::InvalidSpendRecordMessage);
+                    }
+                    Some(record)
+                }
+            };
+            if let Some(record) = record {
+                if !matches!(slot.output_data(), Some(OutputDataEncoding::Plaintext(_)))
+                    && !opened.as_ref().is_some_and(|output| {
+                        output.asset == SOL_MINT
+                            && output.amount == 0
+                            && output.ring_program_id.is_none()
+                            && output.recipient_viewing_pk == tx_viewing_pk
+                            && *output.blinding == record.blinding
+                    })
+                {
+                    return Err(AuditError::InvalidSpendRecordMessage);
+                }
+                spend_records.push(AuditedSpendRecord {
+                    slot_index,
+                    counters: opened_counters(
+                        &tx_key,
+                        salt,
+                        &self.transaction.messages,
+                        slot,
+                        &record,
+                    ),
+                    record,
+                });
+            } else if let Some(output) = opened {
+                outputs.push(output);
+            } else {
+                undecryptable_slots.push(slot_index);
             }
         }
 
@@ -75,6 +115,7 @@ impl TransactionAudit<'_> {
             slot: self.transaction.slot,
             tx_viewing_pk,
             outputs,
+            spend_records,
             undecryptable_slots,
         })
     }
@@ -119,8 +160,7 @@ pub fn recover_tx_viewing_key(
 }
 
 #[must_use]
-/// `Ok(None)` for a slot this audit cannot open: unparseable content, another
-/// encryption scheme, or a ciphertext under a different transaction key.
+/// `Ok(None)` for a slot the audit cannot open.
 struct OutputAudit<'a> {
     tx_key: &'a ViewingKey,
     slot: &'a OutputSlot,
@@ -166,8 +206,26 @@ impl OutputAudit<'_> {
             amount: plaintext.amount,
             blinding: Zeroizing::new(plaintext.blinding),
             ring_program_id: plaintext.ring_program_id,
+            data: plaintext.data,
         }))
     }
+}
+
+fn opened_counters(
+    tx_key: &ViewingKey,
+    salt: [u8; SALT_LEN],
+    messages: &[MessageData],
+    slot: &OutputSlot,
+    record: &SpendRecord,
+) -> Option<zolana_ring_policy::SpendCounters> {
+    let message = find_counters_message(messages, &slot.view_tag)?;
+    let counters = SealedCounters {
+        body: &message.data,
+        salt,
+    }
+    .open(tx_key)
+    .ok()?;
+    (counters.commitment().ok()? == record.counters_commitment).then_some(counters)
 }
 
 /// Reduces the recovered 32 bytes modulo the P-256 group order `n`.

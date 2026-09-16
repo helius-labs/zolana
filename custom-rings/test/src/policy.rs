@@ -1,6 +1,8 @@
 //! Entry writes and governed transfers shared by the policy suites, and the
 //! tables they pin.
 
+use std::num::NonZeroU64;
+
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
     CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
@@ -12,9 +14,10 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, ProverClient, Rpc};
+use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_ring_policy::{
-    EntryState, ListEntry, ListId, ListSet, Member, Rule, RuleTable, Subject,
+    EntryState, ListEntry, ListId, ListSet, Member, Rule, RuleTable, Subject, VelocityRow,
 };
 use zolana_test_utils::test_validator_asserts::{wait_for_indexed_utxo, wait_for_merkle_proof};
 use zolana_transaction::{
@@ -42,6 +45,29 @@ pub const BLOCK_ONLY: RuleTable = RuleTable::builder()
 
 pub const TOKEN_BLOCK: RuleTable = RuleTable::builder()
     .rule(Rule::forbid(Subject::Asset, ListId::Block))
+    .build();
+
+pub const VELOCITY_WINDOW_SLOTS: NonZeroU64 = NonZeroU64::new(1_000).unwrap();
+pub const VELOCITY_CAP: u64 = 650_000_000;
+pub const VELOCITY_COSIGN_ABOVE: u64 = 300_000_000;
+
+/// SOL outflow capped per window, dual control above the threshold.
+pub const VELOCITY: RuleTable = RuleTable::builder()
+    .windowed(VELOCITY_WINDOW_SLOTS)
+    .velocity(&[VelocityRow {
+        asset: SOL_ASSET_FIELD,
+        cap: VELOCITY_CAP,
+        cosign_above: VELOCITY_COSIGN_ABOVE,
+    }])
+    .build();
+
+/// SOL outflow capped per transfer, dual control above the threshold, no window.
+pub const TRANSFER_CAP: RuleTable = RuleTable::builder()
+    .velocity(&[VelocityRow {
+        asset: SOL_ASSET_FIELD,
+        cap: VELOCITY_CAP,
+        cosign_above: VELOCITY_COSIGN_ABOVE,
+    }])
     .build();
 
 /// An Approval entry or no Block entry admits an output owner.
@@ -113,8 +139,12 @@ impl RingNotes<'_> {
                     tree: self.env.tree,
                     asset: DepositAsset::Sol,
                     amount: self.amount,
+                    cosigner: None,
                 }
-                .send(rpc)?;
+                .send(custom_ring_sdk::DepositProofEnvironment {
+                    rpc,
+                    prover: &zolana_client::ProverClient::local(),
+                })?;
                 let leaf = SppProofInputUtxo::new(utxo.clone(), self.owner).hash()?;
                 wait_for_merkle_proof(indexer, self.env.tree, leaf);
                 Ok(utxo)

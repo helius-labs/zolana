@@ -1,6 +1,7 @@
 pub mod output_data;
 pub mod output_utxo;
 pub mod proofless;
+pub mod ring_deposit_audit;
 pub mod tag;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -15,6 +16,10 @@ pub use proofless::{
     CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
     ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN,
     RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+};
+pub use ring_deposit_audit::{
+    RingDepositAuditCapsule, RingDepositAuditError, MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN, RING_DEPOSIT_AUDIT_INFO, RING_DEPOSIT_AUDIT_PREFIX_LEN,
 };
 
 /// The indexer-facing view of one state-changing instruction (spec: General

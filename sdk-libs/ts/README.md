@@ -367,6 +367,9 @@ resume, or reclaim its rent with `closeBufferInstruction`.
 The deploy path is tested on Agave 4.0.2. The shipped Ring binaries are
 SBPF v0 and do not load on Agave 4.1.2.
 
+The live ring controls test is described in
+[test/e2e/RING-CONTROLS.md](test/e2e/RING-CONTROLS.md).
+
 ## Public API
 
 Common exports from `@heliuslabs/zolana` include:

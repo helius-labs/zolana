@@ -6,6 +6,7 @@ import {
 } from "../../interface/external-data-hash.js";
 import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
+  RING_AUTHORITY_MAX_WIDTH,
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
   selectSppShape,
   type Shape,
@@ -713,6 +714,8 @@ export const WithdrawalTarget = Object.freeze({
 export type ChangeLayout = "padded" | "compact";
 
 export interface PreparedTransfer {
+  /** `"opaque"` names no private input owner in the padding tags. */
+  readonly ownerMode: "signed" | "opaque";
   readonly owner: ShieldedAddress;
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
@@ -732,6 +735,10 @@ export interface PreparedTransfer {
   readonly changeLayout: ChangeLayout;
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
+  /** Appends the velocity record after the dummy padding, Rust `append_record_slots`. */
+  withAppendedSlot(
+    extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+  ): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
@@ -988,6 +995,7 @@ export class ConfidentialTransfer {
             ];
     return preparedTransfer({
       owner: this.#owner,
+      ownerMode: "signed",
       inputs: Object.freeze(inputs),
       outputs: Object.freeze(outputs),
       firstNullifier,
@@ -1025,7 +1033,109 @@ export class ConfidentialTransfer {
   }
 }
 
-type PreparedTransferFields = Omit<PreparedTransfer, "finalize" | "outputBlindingSeed">;
+type PreparedTransferFields = Omit<
+  PreparedTransfer,
+  "finalize" | "outputBlindingSeed" | "withAppendedSlot"
+>;
+
+export function prepareRingAuthorityTransfer(
+  input: Readonly<{
+    owner: ShieldedAddress;
+    inputs: readonly ProofInputUtxo[];
+    outputs: readonly Readonly<{ recipient: ShieldedAddress; asset: Address; amount: bigint }>[];
+    payer: Address;
+    ringProgramId: Address;
+    outputTreeId: TreeId;
+  }>,
+): PreparedTransfer {
+  if (
+    input.inputs.length < 1 ||
+    input.inputs.length > RING_AUTHORITY_MAX_WIDTH ||
+    input.outputs.length < 1 ||
+    input.outputs.length > RING_AUTHORITY_MAX_WIDTH
+  )
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      inputs: input.inputs.length,
+      outputs: input.outputs.length,
+    });
+  const totals = new Map<Address, bigint>();
+  for (const [index, spend] of input.inputs.entries()) {
+    if (spend.isDummy() || spend.utxo.ringProgramId !== input.ringProgramId) {
+      throw new TransactionError("TRANSACTION_INPUT_OUTSIDE_RING", {
+        index,
+        ringProgramId: input.ringProgramId,
+      });
+    }
+    if (
+      !equal(
+        spend.utxo.owner.ownerProofInputHash(),
+        input.owner.signingPublicKey.ownerProofInputHash(),
+      )
+    )
+      throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
+    totals.set(spend.utxo.asset, (totals.get(spend.utxo.asset) ?? 0n) + spend.utxo.amount);
+  }
+  for (const output of input.outputs) {
+    checkU64(output.amount, "authority amount");
+    if (output.amount === 0n)
+      throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { name: "authority amount" });
+    totals.set(output.asset, (totals.get(output.asset) ?? 0n) - output.amount);
+  }
+  const layouts: ProofOutputInit[] = [];
+  for (const [asset, amount] of totals) {
+    if (amount < 0n) throw new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", { asset });
+    checkU64(amount, "authority change");
+    if (amount > 0n)
+      layouts.push({
+        ownerAddress: input.owner,
+        asset,
+        amount,
+        ringProgramId: input.ringProgramId,
+      });
+  }
+  const senderOutputCount = layouts.length;
+  layouts.push(
+    ...input.outputs.map((output) => ({
+      ownerAddress: output.recipient,
+      asset: output.asset,
+      amount: output.amount,
+      ringProgramId: input.ringProgramId,
+    })),
+  );
+  const width = Math.max(input.inputs.length, layouts.length);
+  if (width > RING_AUTHORITY_MAX_WIDTH)
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      inputs: input.inputs.length,
+      outputs: layouts.length,
+    });
+  const first = input.inputs[0];
+  if (first === undefined || input.inputs.some((spend) => spend.treeId !== first.treeId))
+    throw new TransactionError("TRANSACTION_NO_INPUTS");
+  const firstNullifier = first.nullifier();
+  const seed = randomBlinding();
+  const outputSeed = outputBlindingSeed(firstNullifier, seed);
+  const outputs = layouts.map((layout, index) =>
+    createProofOutput({
+      ...layout,
+      blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
+    }),
+  );
+  return preparedTransfer({
+    owner: input.owner,
+    ownerMode: "opaque",
+    inputs: Object.freeze([...input.inputs]),
+    outputs: Object.freeze(outputs),
+    firstNullifier,
+    blindingSeed: seed,
+    inputTreeIds: [first.treeId],
+    outputTreeId: checkedTreeId(input.outputTreeId),
+    shape: { inputs: width, outputs: width },
+    payer: input.payer,
+    interfaceTransfers: [],
+    senderOutputCount,
+    changeLayout: "compact",
+  });
+}
 
 function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
   return Object.freeze({
@@ -1034,7 +1144,53 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
       outputBlindingSeed(fields.firstNullifier, fields.blindingSeed),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
+    withAppendedSlot: (
+      extension: Parameters<PreparedTransfer["withAppendedSlot"]>[0],
+    ): PreparedTransfer => appendRecordSlot(fields, extension),
   });
+}
+
+/** Mirrors Rust `append_record_slots`. */
+function appendRecordSlot(
+  fields: PreparedTransferFields,
+  extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+): PreparedTransfer {
+  const supported = SPP_SUPPORTED_SHAPES.some(
+    (candidate) =>
+      candidate.inputs === extension.shape.inputs && candidate.outputs === extension.shape.outputs,
+  );
+  if (!supported)
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { ...extension.shape });
+  const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
+  const ownerTag = fields.owner.confidentialViewTag();
+  const inputs = [...fields.inputs];
+  while (inputs.length + 1 < extension.shape.inputs) {
+    inputs.push(ProofInputUtxo.dummy(undefined, fields.inputTreeIds[0]));
+  }
+  const outputs = [...fields.outputs];
+  while (outputs.length + 1 < extension.shape.outputs) {
+    outputs.push(
+      createProofOutput({
+        asset: ZERO_ADDRESS,
+        amount: 0n,
+        blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
+        ownerTag,
+      }),
+    );
+  }
+  const expected = transactOutputBlinding(
+    fields.firstNullifier,
+    outputSeed,
+    extension.shape.outputs - 1,
+  );
+  if (!equal(extension.output.blinding, expected)) {
+    throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
+      reason: "recordBlinding",
+    });
+  }
+  inputs.push(extension.input);
+  outputs.push(extension.output);
+  return preparedTransfer({ ...fields, inputs, outputs, shape: extension.shape });
 }
 
 /**
@@ -1100,7 +1256,11 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
-  const padTag = dummyOwnerTag(prepared.inputs, prepared.outputs, prepared.payer);
+  const padTag = dummyOwnerTag(
+    prepared.ownerMode === "opaque" ? [] : prepared.inputs,
+    prepared.outputs,
+    prepared.payer,
+  );
   const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
   const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
   // `prepare` tags its zero-value change slots with the sender, but the pad tag

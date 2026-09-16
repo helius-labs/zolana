@@ -145,6 +145,16 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
         None => line("program", "not deployed"),
     }
     let state = ring.read_config(rpc)?;
+    if state.is_some() {
+        line(
+            "deposit audit",
+            if ring.read_deposit_audit(rpc)? {
+                "required"
+            } else {
+                "optional"
+            },
+        );
+    }
     match &state {
         Some(state) => line(
             "config",
@@ -159,6 +169,10 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
             "config",
             format_args!("not created ({})", ring.config_pda()),
         ),
+    }
+    match ring.read_cosigner(rpc)? {
+        Some(cosigner) => crate::cosigner::print(&cosigner),
+        None => line("co-signer", "none"),
     }
     // Until the config exists, ring.toml names the tier.
     let has_policy = state

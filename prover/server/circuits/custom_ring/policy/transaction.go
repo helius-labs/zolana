@@ -31,8 +31,18 @@ type utxoView struct {
 	ownerPkHash frontend.Variable
 	asset       frontend.Variable
 	amount      frontend.Variable
-	// Only selected UTXO slots can create policy obligations.
+	// Poseidon(ownerPkHash, nullifierPk), the owner the leaf commits to.
+	owner         frontend.Variable
+	ringProgramID frontend.Variable
+	// Selected, whatever the domain.
+	active frontend.Variable
+	// The final selected slot when windowed accounting requires a record.
+	record frontend.Variable
+	// Only selected UTXO slots outside the record can create policy obligations.
 	live frontend.Variable
+	// The compressed head map folds the record entry nullifier over these.
+	hash     frontend.Variable
+	blinding frontend.Variable
 }
 
 // transactionContext supplies checked inputs and outputs to policy evaluation.
@@ -43,7 +53,7 @@ type transactionContext struct {
 
 // constrainTransactionContext binds subjects and amounts to the transaction
 // checked by SPP.
-func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, rangeChecker frontend.Rangechecker) transactionContext {
+func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, rangeChecker frontend.Rangechecker, recordEnabled frontend.Variable) transactionContext {
 	// 1. Select the transaction slot prefixes.
 	assertOneHot(api, c.InputCountSelected[:])
 	assertOneHot(api, c.OutputCountSelected[:])
@@ -54,13 +64,15 @@ func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, 
 	// 2. Check input domains and commitments.
 	inputHashes := make([]frontend.Variable, NInputs)
 	for i, wires := range c.Inputs {
-		inputHashes[i], txContext.inputs[i] = wires.checkInput(api, rangeChecker, activeIn[i])
+		record := api.Mul(recordEnabled, c.InputCountSelected[i])
+		inputHashes[i], txContext.inputs[i] = wires.checkInput(api, rangeChecker, activeIn[i], record)
 	}
 
 	// 3. Check output domains and commitments.
 	outputHashes := make([]frontend.Variable, NOutputs)
 	for i, wires := range c.Outputs {
-		outputHashes[i], txContext.outputs[i] = wires.checkOutput(api, rangeChecker, activeOut[i])
+		record := api.Mul(recordEnabled, c.OutputCountSelected[i])
+		outputHashes[i], txContext.outputs[i] = wires.checkOutput(api, rangeChecker, activeOut[i], record)
 	}
 
 	// 4. Bind the openings to the SPP transaction.
@@ -79,28 +91,28 @@ func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, 
 func (w UtxoWires) checkInput(
 	api frontend.API,
 	rangeChecker frontend.Rangechecker,
-	active frontend.Variable,
+	active, record frontend.Variable,
 ) (frontend.Variable, utxoView) {
 	// 1. Restrict selected inputs to supported domains.
 	isUtxo := w.isDomain(api, shared.UtxoDomain)
 	shared.AssertWhen(api, active, api.Add(isUtxo, w.isDomain(api, shared.AddressDomain), w.isDomain(api, shared.DummyDomain)))
 
 	// 2. Derive the input hash and bounded subject values.
-	return w.checkSlot(api, rangeChecker, active, isUtxo)
+	return w.checkSlot(api, rangeChecker, active, isUtxo, record)
 }
 
 // checkOutput admits UTXO and dummy outputs while exposing only UTXO subjects.
 func (w UtxoWires) checkOutput(
 	api frontend.API,
 	rangeChecker frontend.Rangechecker,
-	active frontend.Variable,
+	active, record frontend.Variable,
 ) (frontend.Variable, utxoView) {
 	// 1. Restrict selected outputs to UTXO or dummy domains.
 	isUtxo := w.isDomain(api, shared.UtxoDomain)
 	shared.AssertWhen(api, active, api.Add(isUtxo, w.isDomain(api, shared.DummyDomain)))
 
 	// 2. Derive the output hash and bounded subject values.
-	return w.checkSlot(api, rangeChecker, active, isUtxo)
+	return w.checkSlot(api, rangeChecker, active, isUtxo, record)
 }
 
 // checkSlot reconstructs the commitment and marks UTXO fields for rule
@@ -108,7 +120,7 @@ func (w UtxoWires) checkOutput(
 func (w UtxoWires) checkSlot(
 	api frontend.API,
 	rangeChecker frontend.Rangechecker,
-	active, isUtxo frontend.Variable,
+	active, isUtxo, record frontend.Variable,
 ) (frontend.Variable, utxoView) {
 	// 1. Bound the amount before summing guard totals.
 	rangeChecker.Check(w.Amount, amountBits)
@@ -126,12 +138,18 @@ func (w UtxoWires) checkSlot(
 		RingProgramID: w.RingProgramID,
 	}, w.TreeID)
 
-	// 3. Mark selected UTXOs for rule evaluation.
+	// 3. Mark selected UTXOs outside the record for rule evaluation.
 	return api.Select(isUtxo, hash, frontend.Variable(0)), utxoView{
-		ownerPkHash: w.OwnerPkHash,
-		asset:       w.Asset,
-		amount:      w.Amount,
-		live:        api.Mul(active, isUtxo),
+		ownerPkHash:   w.OwnerPkHash,
+		asset:         w.Asset,
+		amount:        w.Amount,
+		owner:         owner,
+		ringProgramID: w.RingProgramID,
+		active:        active,
+		record:        record,
+		live:          api.Mul(active, isUtxo, api.Sub(1, record)),
+		hash:          hash,
+		blinding:      w.Blinding,
 	}
 }
 

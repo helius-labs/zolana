@@ -10,8 +10,10 @@ import type {
   TransactWithdrawal,
   Bytes32,
 } from "../interface/types.js";
+import type { P256PublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
+import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
 import type { TransactionIntent } from "../transaction/wallet/intent.js";
 import { intentHash } from "../transaction/wallet/intent.js";
@@ -22,7 +24,11 @@ import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth } from "./prover/client.js";
 import type {
   CustomRingBaseProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterKeyProofRequest,
+  CustomRingRegisterProofRequest,
   MergeInputs,
   Proof,
   ProverInputs,
@@ -59,6 +65,111 @@ export interface ChainReader {
 
 export interface BlockhashProvider {
   getLatestBlockhash(context?: RequestContext): Promise<LatestBlockhash>;
+}
+
+/** Spending windows follow the chain slot clock. */
+export interface SlotReader {
+  getSlot(context?: RequestContext): Promise<bigint>;
+}
+
+/** Requests one member proof against an expected on-chain root. */
+export interface RingMemberProofRequest {
+  readonly ringProgramId: Address;
+  readonly member: Bytes32;
+  readonly expectedRoot: Bytes32;
+  readonly expectedNextIndex: bigint;
+}
+
+/** Correlates a member proof with its indexed root and cursor. */
+export interface RingMemberProofContext {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly root: Bytes32;
+  readonly nextIndex: bigint;
+  readonly member: Bytes32;
+}
+
+/** Authenticates the predecessor and empty append slot for registration. */
+export interface RingHeadRegisterProof extends RingMemberProofContext {
+  readonly lowMember: Bytes32;
+  readonly lowNext: Bytes32;
+  readonly lowNullifier: Bytes32;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Bytes32[];
+  readonly newProof: readonly Bytes32[];
+}
+
+/** Authenticates the current member head and its compressed record. */
+export interface RingHeadTransferProof extends RingMemberProofContext {
+  readonly next: Bytes32;
+  readonly nullifier: Bytes32;
+  readonly index: bigint;
+  readonly proof: readonly Bytes32[];
+  readonly record: Readonly<{ transaction: IndexedShieldedTransaction; outputIndex: number }>;
+}
+
+/** Reads authenticated paths for compressed spending state. */
+export interface RingHeadReader {
+  getRingHeadRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadRegisterProof>;
+  getRingHeadTransferProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadTransferProof>;
+}
+
+/** Authenticates insertion of a member's encrypted nullifier key. */
+export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
+  readonly lowMember: Bytes32;
+  readonly lowNext: Bytes32;
+  readonly lowCtCommitment: Bytes32;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Bytes32[];
+  readonly newProof: readonly Bytes32[];
+}
+
+/** Carries an encrypted key and the path needed to authenticate its opening. */
+export interface RingKeyRegistryEntry extends RingMemberProofContext {
+  readonly next: Bytes32;
+  readonly index: bigint;
+  readonly ephemeralPublicKey: P256PublicKey;
+  readonly ciphertext: Bytes32;
+  readonly proof: readonly Bytes32[];
+}
+
+/** Reads encrypted member keys and their registry paths. */
+export interface RingKeyRegistryReader {
+  getRingKeyRegistryEntry(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryEntry>;
+  getRingKeyRegistryRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryRegisterProof>;
+}
+
+export type RingSubmissionStatus =
+  | Readonly<{ kind: "unknown" }>
+  | Readonly<{ kind: "confirmed"; slot: bigint }>
+  | Readonly<{ kind: "failed"; instructionIndex?: number; customCode?: number }>;
+
+/** Identifies a broadcast awaiting confirmation or expiry. */
+export interface RingSubmissionPending {
+  readonly signature: Signature;
+  readonly lastValidBlockHeight: bigint;
+}
+
+/** Separates signing and broadcast from submission status resolution. */
+export interface RingSubmissionTransport {
+  sign(transaction: Transaction, context?: RequestContext): Promise<Transaction>;
+  /** A refusal before broadcast returns `failed`, a throw leaves the signature pending. */
+  send(
+    transaction: Transaction,
+    context?: RequestContext,
+  ): Promise<RingSubmissionStatus | undefined>;
+  status(pending: RingSubmissionPending, context?: RequestContext): Promise<RingSubmissionStatus>;
 }
 
 export interface IndexerReader {
@@ -133,6 +244,32 @@ export interface ProofAuthority {
 export type WalletKeys = ShieldedKeys & ProofAuthority;
 
 export interface Prover {
+  proveCustomRingDeposit(
+    inputs: CustomRingDepositProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveRingAuthorityTransact(
+    proofInputs: SppProofInputs,
+    ringProgramId: Address,
+    keys: ProofAuthority,
+    context?: RequestContext,
+  ): Promise<ProvenRingTransact>;
+  proveCustomRingDelegatePolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingCompressedPolicy(
+    inputs: CustomRingCompressedPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingRegister(
+    inputs: CustomRingRegisterProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingRegisterKey(
+    inputs: CustomRingRegisterKeyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
   proveTransact(
     proofInputs: SppProofInputs,
     keys: ProofAuthority,

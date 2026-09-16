@@ -8,11 +8,11 @@ import {
 } from "@solana/kit";
 
 import type { Address, Bytes32, Signature } from "../interface/types.js";
+import { MIN_PAGE_LIMIT, PAGE_LIMIT } from "../interface/indexer-limits.js";
 
 import type { Base64String, Hash, Limit } from "./types.js";
 
-export const MIN_PAGE_LIMIT = 1n;
-export const PAGE_LIMIT = 1000n;
+export { MIN_PAGE_LIMIT, PAGE_LIMIT };
 
 const base58Decoder = getBase58Decoder();
 const base58Encoder = getBase58Encoder();

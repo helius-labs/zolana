@@ -10,8 +10,6 @@ import {
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import type { CustomRingSourceOwner } from "../src/client/index.js";
-import type { CustomRingBasePublicInput as KeypairRingInput } from "../src/keypair/index.js";
-import type { CustomRingBasePublicInput as RingInput } from "../src/ring/index.js";
 
 import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
 // The encoder stays internal; only the decoders are needed by a relayed client.
@@ -83,7 +81,6 @@ async function kitTreePda(treeId: number) {
 
 describe("public package surface", () => {
   it("exports every type named by the custom-ring public API", () => {
-    expectTypeOf<KeypairRingInput>().toEqualTypeOf<RingInput>();
     expectTypeOf<CustomRingSourceOwner>().toMatchTypeOf<{
       readonly listId: number;
       readonly ownerHash: Bytes32;
@@ -100,6 +97,7 @@ describe("public package surface", () => {
     expect(client.proveRingTransact).toBeTypeOf("function");
     expect(client.proveCustomRingPolicy).toBeTypeOf("function");
     expect(client.proveCustomRingBase).toBeTypeOf("function");
+    expect(client.proveCustomRingDeposit).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {
@@ -249,6 +247,9 @@ describe("public package surface", () => {
       "createRingEntryInstruction",
       "buildRingListWriteTransaction",
       "deployRingProgram",
+      "registerRingKeyInstruction",
+      "prepareRingKeyRegistration",
+      "recoverRingMemberNotes",
     ] as const) {
       expect(ring[name]).toBeTypeOf("function");
       for (const other of others) expect(other).not.toHaveProperty(name);

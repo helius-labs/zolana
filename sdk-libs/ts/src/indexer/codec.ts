@@ -18,7 +18,13 @@ import type {
   RingsOutputContext,
   RingsOutputSlot,
   SignatureIndexedShieldedTransaction,
+  RingMemberProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
+  RingKeyRegistryEntry,
+  RingKeyRegistryRegisterProof,
 } from "./types.js";
+import { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "../interface/head-map.js";
 import {
   checkedAddress,
   checkedBase64,
@@ -29,6 +35,136 @@ import {
 } from "./scalars.js";
 
 type WireObject = Record<string, unknown>;
+
+export function encodeRingMemberProofRequest(
+  value: RingMemberProofRequest,
+): Readonly<Record<string, unknown>> {
+  return {
+    ringProgramId: checkedAddress(value.ringProgramId, "ringProgramId"),
+    member: checkedHash(value.member, "member"),
+    expectedRoot: checkedHash(value.expectedRoot, "expectedRoot"),
+    expectedNextIndex: toWireInteger(
+      value.expectedNextIndex,
+      "expectedNextIndex",
+      1n,
+      HEAD_MAP_CAPACITY,
+    ),
+  };
+}
+
+function headPath(value: unknown, path: string) {
+  const proof = array(value, path, checkedHash);
+  if (proof.length !== HEAD_MAP_HEIGHT) {
+    return schemaFailure(
+      "INDEXER_SCHEMA_INVALID_TYPE",
+      path,
+      `${String(HEAD_MAP_HEIGHT)} siblings`,
+      value,
+    );
+  }
+  return proof;
+}
+
+function memberContext(record: WireObject) {
+  return {
+    context: context(record["context"], "context"),
+    root: checkedHash(record["root"], "root"),
+    member: checkedHash(record["member"], "member"),
+    nextIndex: wireInteger(record["nextIndex"], "nextIndex", 1n, HEAD_MAP_CAPACITY),
+  };
+}
+
+/** The head map and the key registry name the predecessor's leaf slot differently. */
+function insertionProof(value: unknown, lowLeaf: "lowNullifier" | "lowCtCommitment") {
+  const row = object(value, "$", [
+    "context",
+    "root",
+    "member",
+    "nextIndex",
+    "lowMember",
+    "lowNext",
+    lowLeaf,
+    "lowIndex",
+    "lowProof",
+    "newProof",
+  ]);
+  const common = memberContext(row);
+  return {
+    ...common,
+    lowMember: checkedHash(row["lowMember"], "lowMember"),
+    lowNext: checkedHash(row["lowNext"], "lowNext"),
+    lowLeaf: checkedHash(row[lowLeaf], lowLeaf),
+    lowIndex: wireInteger(row["lowIndex"], "lowIndex", 0n, common.nextIndex - 1n),
+    lowProof: headPath(row["lowProof"], "lowProof"),
+    newProof: headPath(row["newProof"], "newProof"),
+  };
+}
+
+export function decodeRingHeadRegisterProof(value: unknown): RingHeadRegisterProof {
+  const { lowLeaf, ...proof } = insertionProof(value, "lowNullifier");
+  return { ...proof, lowNullifier: lowLeaf };
+}
+
+export function decodeRingKeyRegistryRegisterProof(value: unknown): RingKeyRegistryRegisterProof {
+  const { lowLeaf, ...proof } = insertionProof(value, "lowCtCommitment");
+  return { ...proof, lowCtCommitment: lowLeaf };
+}
+
+export function decodeRingKeyRegistryEntry(value: unknown): RingKeyRegistryEntry {
+  const row = object(value, "$", [
+    "context",
+    "root",
+    "member",
+    "nextIndex",
+    "next",
+    "index",
+    "ephPk",
+    "ciphertext",
+    "proof",
+  ]);
+  const common = memberContext(row);
+  return {
+    ...common,
+    next: checkedHash(row["next"], "next"),
+    index: wireInteger(row["index"], "index", 1n, common.nextIndex - 1n),
+    ephPk: checkedBase64(row["ephPk"], "ephPk"),
+    ciphertext: checkedBase64(row["ciphertext"], "ciphertext"),
+    proof: headPath(row["proof"], "proof"),
+  };
+}
+
+export function decodeRingHeadTransferProof(value: unknown): RingHeadTransferProof {
+  const row = object(value, "$", [
+    "context",
+    "root",
+    "member",
+    "nextIndex",
+    "next",
+    "nullifier",
+    "index",
+    "proof",
+    "record",
+  ]);
+  const common = memberContext(row);
+  const record = object(row["record"], "record", ["transaction", "outputIndex"]);
+  const transaction = indexedTransaction(record["transaction"], "record.transaction");
+  const outputIndex = u16(record["outputIndex"], "record.outputIndex");
+  if (outputIndex >= transaction.outputSlots.length)
+    return schemaFailure(
+      "INDEXER_SCHEMA_INVALID_INTEGER",
+      "record.outputIndex",
+      "an existing output",
+      outputIndex,
+    );
+  return {
+    ...common,
+    next: checkedHash(row["next"], "next"),
+    nullifier: checkedHash(row["nullifier"], "nullifier"),
+    index: wireInteger(row["index"], "index", 1n, common.nextIndex - 1n),
+    proof: headPath(row["proof"], "proof"),
+    record: { transaction, outputIndex },
+  };
+}
 
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
@@ -356,8 +492,11 @@ function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
       ? undefined
       : checkedPageLimit(record["limit"], "$.limit");
   const ringProgramId = optional(record["ringProgramId"], "$.ringProgramId", checkedAddress);
+  const tags = array(record["tags"], "$.tags", checkedHash);
+  if (tags.length === 0 && ringProgramId === undefined)
+    schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "$.tags", "nonempty tags or ringProgramId");
   return {
-    tags: array(record["tags"], "$.tags", checkedHash),
+    tags,
     ...(cursor === undefined ? {} : { cursor }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
     ...(ringProgramId === undefined ? {} : { ringProgramId }),

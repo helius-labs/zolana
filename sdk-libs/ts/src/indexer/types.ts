@@ -10,6 +10,60 @@ export interface IndexerContext {
   readonly slot: bigint;
 }
 
+/** Selects a member and expected root for a projection proof. */
+export interface RingMemberProofRequest {
+  readonly ringProgramId: Address;
+  readonly member: Hash;
+  readonly expectedRoot: Hash;
+  readonly expectedNextIndex: bigint;
+}
+
+/** Reports the projection cursor and root of a member proof. */
+export interface RingMemberProofContext {
+  readonly context: IndexerContext;
+  readonly root: Hash;
+  readonly nextIndex: bigint;
+  readonly member: Hash;
+}
+
+/** Carries the predecessor and append paths for a new member. */
+export interface RingHeadRegisterProof extends RingMemberProofContext {
+  readonly lowMember: Hash;
+  readonly lowNext: Hash;
+  readonly lowNullifier: Hash;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Hash[];
+  readonly newProof: readonly Hash[];
+}
+
+/** Links a member head to the transaction carrying its record. */
+export interface RingHeadTransferProof extends RingMemberProofContext {
+  readonly next: Hash;
+  readonly nullifier: Hash;
+  readonly index: bigint;
+  readonly proof: readonly Hash[];
+  readonly record: Readonly<{ transaction: IndexedShieldedTransaction; outputIndex: number }>;
+}
+
+/** Carries the insertion paths for a member's key commitment. */
+export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
+  readonly lowMember: Hash;
+  readonly lowNext: Hash;
+  readonly lowCtCommitment: Hash;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Hash[];
+  readonly newProof: readonly Hash[];
+}
+
+/** Carries the encrypted nullifier key and its registry path. */
+export interface RingKeyRegistryEntry extends RingMemberProofContext {
+  readonly next: Hash;
+  readonly index: bigint;
+  readonly ephPk: Base64String;
+  readonly ciphertext: Base64String;
+  readonly proof: readonly Hash[];
+}
+
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
   readonly cursor?: Base64String;

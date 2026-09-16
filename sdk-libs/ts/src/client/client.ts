@@ -52,6 +52,11 @@ import {
   type TransactionAssembler,
   type TransactionConfirmer,
   type TreeContext,
+  type RingMemberProofRequest,
+  type RingHeadRegisterProof,
+  type RingHeadTransferProof,
+  type RingKeyRegistryEntry,
+  type RingKeyRegistryRegisterProof,
 } from "./ports.js";
 import {
   createKitClients,
@@ -66,7 +71,12 @@ import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import type {
   CustomRingBaseProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterKeyProofRequest,
+  CustomRingRegisterProofRequest,
+  TransferCircuit,
   TransferInputs,
 } from "./prover/types.js";
 import {
@@ -355,6 +365,12 @@ export class ZolanaClient
     return value;
   }
 
+  async getSlot(context?: RequestContext): Promise<bigint> {
+    return runKitRpc("getSlot", context, (abortSignal) =>
+      this.solanaRpc.getSlot({ commitment: this.commitment }).send({ abortSignal }),
+    );
+  }
+
   getEncryptedUtxosByTags(
     request: GetByTagsRequest,
     config?: IndexerRpcConfig,
@@ -513,6 +529,34 @@ export class ZolanaClient
     );
   }
 
+  getRingHeadRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadRegisterProof> {
+    return this.#indexer.getRingHeadRegisterProof(request, context);
+  }
+
+  getRingHeadTransferProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadTransferProof> {
+    return this.#indexer.getRingHeadTransferProof(request, context);
+  }
+
+  getRingKeyRegistryEntry(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryEntry> {
+    return this.#indexer.getRingKeyRegistryEntry(request, context);
+  }
+
+  getRingKeyRegistryRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryRegisterProof> {
+    return this.#indexer.getRingKeyRegistryRegisterProof(request, context);
+  }
+
   /// `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes
   /// nothing gets the client's config, not the indexer's own default.
   #configOr(config: IndexerRpcConfig | undefined): IndexerRpcConfig {
@@ -633,7 +677,8 @@ export class ZolanaClient
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
-    return (await this.#proveTransfer(proofInputs, undefined, keys, config, context)).data;
+    return (await this.#proveTransfer(proofInputs, { kind: "confidential" }, keys, config, context))
+      .data;
   }
 
   async proveRingTransact(
@@ -644,7 +689,13 @@ export class ZolanaClient
     context?: RequestContext,
   ): Promise<ProvenRingTransact> {
     checkedAddress(ringProgramId, "ringProgramId");
-    return this.#proveTransfer(proofInputs, ringProgramId, keys, config, context);
+    return this.#proveTransfer(
+      proofInputs,
+      { kind: "ring", ring: ringProgramId },
+      keys,
+      config,
+      context,
+    );
   }
 
   async proverHealth(context?: RequestContext): Promise<ProverHealth> {
@@ -667,6 +718,74 @@ export class ZolanaClient
     }
   }
 
+  async proveCustomRingCompressedPolicy(
+    inputs: CustomRingCompressedPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingCompressedPolicy(inputs, context),
+      ).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingRegister(
+    inputs: CustomRingRegisterProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingRegister(inputs, context),
+      ).toPlainProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingRegisterKey(
+    inputs: CustomRingRegisterKeyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingRegisterKey(inputs, context),
+      ).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingDelegatePolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingDelegatePolicy(inputs, context),
+      ).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveRingAuthorityTransact(
+    proofInputs: SppProofInputs,
+    ringProgramId: Address,
+    keys: ProofAuthority,
+    context?: RequestContext,
+  ): Promise<ProvenRingTransact> {
+    checkedAddress(ringProgramId, "ringProgramId");
+    return this.#proveTransfer(
+      proofInputs,
+      { kind: "ringAuthority", ring: ringProgramId },
+      keys,
+      undefined,
+      context,
+    );
+  }
+
   async proveCustomRingBase(
     inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
@@ -674,6 +793,19 @@ export class ZolanaClient
     try {
       const proof = await this.#prover.proveCustomRingBase(inputs, context);
       return compressProof(proof).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingDeposit(
+    inputs: CustomRingDepositProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingDeposit(inputs, context),
+      ).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }
@@ -693,7 +825,7 @@ export class ZolanaClient
 
   async #proveTransfer(
     proofInputs: SppProofInputs,
-    ring: Address | undefined,
+    circuit: TransferCircuit,
     keys: ProofAuthority,
     config: IndexerRpcConfig | undefined,
     context: RequestContext | undefined,
@@ -751,7 +883,7 @@ export class ZolanaClient
           });
         }
       });
-      const assembled = assemble(proofInputs, proofs, dummyProofs, ring);
+      const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
       return Object.freeze({
         data: assembled.withProof(compressProof(proof).toTransactProof()),

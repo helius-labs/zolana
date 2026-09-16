@@ -21,6 +21,13 @@ export type {
   ShieldedPoolErrorName,
 } from "./errors.js";
 export { externalDataHash } from "./external-data-hash.js";
+export { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "./head-map.js";
+export {
+  RING_DEPOSIT_AUDIT_SLOTS,
+  encodeRingDepositCapsule,
+  readRingDepositCapsule,
+} from "./ring-deposit-audit.js";
+export type { RingDepositCapsule } from "./ring-deposit-audit.js";
 export type { ExternalDataHashInput, SettlementAccounts } from "./external-data-hash.js";
 export {
   depositInstruction,
@@ -73,9 +80,7 @@ export {
   TREE_FEES_OFFSET,
   TREE_FEE_BALANCE_OFFSET,
   UTXO_ROOT_HISTORY_CAPACITY,
-  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_CURSOR_OFFSET,
-  UTXO_ROOT_HISTORY_LEN_OFFSET,
   UTXO_ROOT_HISTORY_OFFSET,
   UTXO_SUBTREES_LEN_OFFSET,
   defaultTreeFees,

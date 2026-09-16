@@ -1,4 +1,7 @@
-use crate::{encryption::AuditEncryptionError, origin::OriginError};
+use crate::{
+    encryption::AuditEncryptionError, origin::OriginError, record::MalformedRecordCarrier,
+};
+use solana_address::Address;
 use thiserror::Error;
 use zolana_client::ClientError;
 use zolana_keypair::KeypairError;
@@ -29,6 +32,8 @@ pub enum AuditError {
     RecoveredKeyInvalid(KeypairError),
     #[error("output slot count exceeds the bound u32 slot index {0}")]
     SlotIndexOverflow(usize),
+    #[error("the public spend record message is malformed or does not match its carrier")]
+    InvalidSpendRecordMessage,
     #[error("decrypted output references unknown asset id {asset_id}")]
     UnknownAsset {
         asset_id: u64,
@@ -42,4 +47,34 @@ pub enum AuditError {
     Indexer(#[from] ClientError),
     #[error(transparent)]
     Origin(#[from] OriginError),
+}
+
+#[derive(Debug, Error)]
+pub enum RecoveryError {
+    #[error("ring deposit opening does not match its commitment")]
+    DepositOpeningMismatch,
+    #[error(transparent)]
+    Audit(#[from] AuditError),
+    #[error(transparent)]
+    Indexer(#[from] ClientError),
+    #[error(transparent)]
+    Keypair(#[from] KeypairError),
+    #[error(transparent)]
+    Transaction(#[from] TransactionError),
+    #[error(transparent)]
+    Member(#[from] zolana_ring_policy::MemberError),
+    #[error("recovered nullifier key does not match the source member identity")]
+    NullifierKeyMismatch,
+    #[error("ring history exceeds the scan bound, spent notes cannot be excluded")]
+    IncompleteScan,
+    #[error("audited output slot index {0} is absent from its transaction")]
+    MissingOutputSlot(u32),
+    #[error("the tree {0} does not resolve a tree id")]
+    UnknownTree(Address),
+}
+
+impl From<MalformedRecordCarrier> for AuditError {
+    fn from(_: MalformedRecordCarrier) -> Self {
+        Self::InvalidSpendRecordMessage
+    }
 }

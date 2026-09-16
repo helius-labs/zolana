@@ -97,7 +97,14 @@ jobs:
                 ('rings_transaction_payloads'),
                 ('rings_outputs'),
                 ('rings_output_payloads'),
-                ('rings_tx_nullifiers')
+                ('rings_tx_nullifiers'),
+                ('ring_projection_cursor'),
+                ('ring_projection_blocks'),
+                ('ring_projection_pending'),
+                ('ring_head_map_roots'),
+                ('ring_head_map_members'),
+                ('ring_key_registry_roots'),
+                ('ring_key_registry_members')
             )
             SELECT bool_and(to_regclass('public.' || name) IS NOT NULL)
             FROM required;

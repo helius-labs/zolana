@@ -1,8 +1,9 @@
 export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, ZolanaClient } from "./client.js";
 export type { AuthorizedPrivateTransaction, ProvedMerge, ZolanaClientConfig } from "./client.js";
-export { LocalKeys } from "./keys.js";
+export { LocalKeys, NullifierKeyProofAuthority } from "./keys.js";
 export type {
   BlockhashProvider,
+  SlotReader,
   ChainReader,
   IndexerReader,
   KitRpcAccess,
@@ -15,6 +16,17 @@ export type {
   TransactionAssembler,
   TransactionConfirmer,
   TreeContext,
+  RingHeadReader,
+  RingKeyRegistryEntry,
+  RingKeyRegistryReader,
+  RingKeyRegistryRegisterProof,
+  RingMemberProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
+  RingMemberProofContext,
+  RingSubmissionPending,
+  RingSubmissionStatus,
+  RingSubmissionTransport,
   WalletKeys,
 } from "./ports.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
@@ -45,16 +57,26 @@ export {
   RING_ANSWER_SLOTS,
   RING_RULE_SLOTS,
   RING_STATE_PATH_LENGTH,
+  RING_VELOCITY_SLOTS,
   disabledRuleAnswer,
+  velocityProofInputOff,
 } from "./prover/types.js";
 export type {
   CircuitUtxo,
   CompressedProof,
   CustomRingBaseProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingOpening,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingHeadInsertion,
+  CustomRingRegisterKeyProofRequest,
+  CustomRingRegisterProofRequest,
   CustomRingSourceOwner,
+  CustomRingSpendRecordProofInput,
+  CustomRingVelocityRow,
+  CustomRingVelocityProofInput,
   Field,
   MergeInputs,
   Proof,

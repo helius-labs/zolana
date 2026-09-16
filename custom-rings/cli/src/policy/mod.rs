@@ -6,8 +6,9 @@ pub mod grammar;
 pub mod render;
 
 pub use grammar::{
-    compile_rows, describe, list_name, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
-    PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName,
+    describe, describe_velocity, list_name, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
+    PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName, VelocityRowSpec,
+    VelocitySpec,
 };
 pub use render::render;
 
@@ -18,7 +19,7 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_ring_policy::RuleTable;
+use zolana_ring_policy::{RuleTable, VelocityMode};
 
 use crate::{
     catalogue::{CuratorCheck, CuratorError},
@@ -144,6 +145,7 @@ pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
                     format_args!("{} listed inline", table.inline_assets().len()),
                 );
             }
+            print_velocity(&table);
         }
         Err(error) => line("rules", format_args!("undecodable ({error})")),
     }
@@ -271,6 +273,20 @@ fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
     Ok(())
 }
 
+fn print_velocity(table: &RuleTable) {
+    let mode = table.velocity_mode();
+    match mode {
+        VelocityMode::Off => return,
+        VelocityMode::PerWindow { window_slots } => {
+            line("velocity", format_args!("windows of {window_slots} slots"))
+        }
+        VelocityMode::PerTransfer => line("velocity", "each transfer"),
+    }
+    for row in table.velocity() {
+        line("velocity", describe_velocity(row, mode));
+    }
+}
+
 fn print_diff(old: &RuleTable, new: &RuleTable) {
     for rule in old.rules() {
         if !new.rules().contains(rule) {
@@ -287,5 +303,8 @@ fn print_diff(old: &RuleTable, new: &RuleTable) {
             "assets",
             format_args!("{} listed inline", new.inline_assets().len()),
         );
+    }
+    if old.window_slots() != new.window_slots() || old.velocity() != new.velocity() {
+        print_velocity(new);
     }
 }

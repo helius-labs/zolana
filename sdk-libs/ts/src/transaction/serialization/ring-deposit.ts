@@ -6,6 +6,7 @@ import type {
   EncryptedRingDepositData,
 } from "../../interface/types.js";
 import { Reader, Writer, encodeBase58 } from "../../interface/internal.js";
+import { readRingDepositCapsule } from "../../interface/ring-deposit-audit.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
 import type { ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ViewingKeyLike } from "../../keypair/shielded.js";
@@ -101,7 +102,8 @@ export function decryptRingDepositUtxo(
   return ringDepositUtxo(
     output,
     key.decryptRingDeposit(
-      output.encrypted.ciphertext,
+      readRingDepositCapsule(output.encrypted.ciphertext)?.recipientCiphertext ??
+        output.encrypted.ciphertext,
       P256PublicKey.fromBytes(output.encrypted.txViewingPublicKey),
       output.encrypted.salt,
     ),

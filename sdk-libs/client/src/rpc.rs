@@ -13,6 +13,11 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
+pub use zolana_indexer_api::{
+    GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
+    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
+    RingMemberProofRequest,
+};
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
@@ -25,6 +30,13 @@ use crate::{
 
 pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
+
+#[derive(Clone, Debug)]
+pub struct RingHistoryOptions {
+    pub ring_program_id: Address,
+    pub cursor: Option<Vec<u8>>,
+    pub limit: Option<u32>,
+}
 
 /// The runtime's ceiling on the account data one transaction may load, and what
 /// a transaction carrying no `set_loaded_accounts_data_size_limit` instruction
@@ -434,6 +446,14 @@ pub trait Rpc {
         Err(unsupported("get_shielded_transactions_by_signature"))
     }
 
+    fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_ring"))
+    }
+
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
@@ -458,6 +478,34 @@ pub trait Rpc {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         Err(unsupported("get_merkle_proofs"))
+    }
+
+    fn get_ring_head_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        Err(unsupported("get_ring_head_register_proof"))
+    }
+
+    fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        Err(unsupported("get_ring_key_registry_entry"))
+    }
+
+    fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        Err(unsupported("get_ring_key_registry_register_proof"))
+    }
+
+    fn get_ring_head_transfer_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        Err(unsupported("get_ring_head_transfer_proof"))
     }
 
     fn get_non_inclusion_proofs(
@@ -628,6 +676,14 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("get_shielded_transactions_by_signature"))
     }
 
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_ring"))
+    }
+
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
@@ -652,6 +708,34 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         Err(unsupported("get_merkle_proofs"))
+    }
+
+    async fn get_ring_head_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        Err(unsupported("get_ring_head_register_proof"))
+    }
+
+    async fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        Err(unsupported("get_ring_key_registry_entry"))
+    }
+
+    async fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        Err(unsupported("get_ring_key_registry_register_proof"))
+    }
+
+    async fn get_ring_head_transfer_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        Err(unsupported("get_ring_head_transfer_proof"))
     }
 
     async fn get_non_inclusion_proofs(

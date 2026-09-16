@@ -29,6 +29,7 @@ import {
   splitEmbeddedKey,
   type ProoflessOutput,
 } from "../serialization/codecs.js";
+import { readRingDepositCapsule } from "../../interface/ring-deposit-audit.js";
 import { decodeRingDepositOutput, ringDepositUtxo } from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
 import { KeyMemo } from "./key-memo.js";
@@ -812,15 +813,20 @@ class SyncPass {
       let ringDataHash: Bytes32 | undefined;
       let output: ReturnType<typeof decodeRingDepositOutput>;
       let txViewingPublicKey: P256PublicKey;
+      let ciphertext: Uint8Array;
       try {
         output = decodeRingDepositOutput(body);
         txViewingPublicKey = P256PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
+        // An audited deposit wraps the recipient ciphertext in the auditor capsule.
+        ciphertext =
+          readRingDepositCapsule(output.encrypted.ciphertext)?.recipientCiphertext ??
+          output.encrypted.ciphertext;
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
       }
       const decrypted = this.#keys.decrypt({
-        ciphertext: output.encrypted.ciphertext,
+        ciphertext,
         viewingPublicKey,
         txViewingPublicKey,
         salt: output.encrypted.salt,

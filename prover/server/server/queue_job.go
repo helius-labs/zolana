@@ -623,21 +623,21 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 
 	log.Printf("proofRequestMeta.CircuitType: %s", proofRequestMeta.CircuitType)
 
-	switch proofRequestMeta.CircuitType {
-	case common.BatchAddressAppendCircuitType:
-		proof, proofError = w.processBatchAddressAppendProof(job.Payload)
-	case common.TransferConfidentialCircuitType,
-		common.TransferRingCircuitType,
-		common.TransferRingAuthorityCircuitType:
-		proof, proofError = w.processTransferEddsaProof(job.Payload)
-	case common.TransferP256RingCircuitType:
-		proof, proofError = w.processTransferP256Proof(job.Payload)
-	case common.MergeCircuitType:
-		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
-	case common.MergeRingCircuitType:
-		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+	switch {
+	case proofRequestMeta.CircuitType.IsRing():
 		proof, proofError = w.processCustomRingProof(job.Payload, proofRequestMeta.CircuitType)
+	case proofRequestMeta.CircuitType == common.BatchAddressAppendCircuitType:
+		proof, proofError = w.processBatchAddressAppendProof(job.Payload)
+	case proofRequestMeta.CircuitType == common.TransferConfidentialCircuitType,
+		proofRequestMeta.CircuitType == common.TransferRingCircuitType,
+		proofRequestMeta.CircuitType == common.TransferRingAuthorityCircuitType:
+		proof, proofError = w.processTransferEddsaProof(job.Payload)
+	case proofRequestMeta.CircuitType == common.TransferP256RingCircuitType:
+		proof, proofError = w.processTransferP256Proof(job.Payload)
+	case proofRequestMeta.CircuitType == common.MergeCircuitType:
+		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
+	case proofRequestMeta.CircuitType == common.MergeRingCircuitType:
+		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -724,30 +724,15 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 }
 
 func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {
-	switch circuitType {
-	case common.CustomRingBaseCircuitType:
-		var params customring.BaseParameters
-		if err := json.Unmarshal(payload, &params); err != nil {
-			return nil, fmt.Errorf("unmarshal custom-ring base params: %w", err)
-		}
-		ps, err := w.keyManager.GetRingSystem(common.CustomRingBaseCircuitType)
-		if err != nil {
-			return nil, fmt.Errorf("custom-ring base: %w", err)
-		}
-		return customring.ProveBase(ps, &params)
-	case common.CustomRingPolicyCircuitType:
-		var params customring.PolicyParameters
-		if err := json.Unmarshal(payload, &params); err != nil {
-			return nil, fmt.Errorf("unmarshal custom-ring policy params: %w", err)
-		}
-		ps, err := w.keyManager.GetRingSystem(common.CustomRingPolicyCircuitType)
-		if err != nil {
-			return nil, fmt.Errorf("custom-ring policy: %w", err)
-		}
-		return customring.ProvePolicy(ps, &params)
-	default:
-		return nil, fmt.Errorf("unknown custom-ring circuit type: %s", circuitType)
+	request, err := customring.DecodeRequest(circuitType, payload)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal %s params: %w", circuitType, err)
 	}
+	ps, err := w.keyManager.GetRingSystem(circuitType)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", circuitType, err)
+	}
+	return customring.Prove(ps, request)
 }
 
 // removeFromProcessingQueue drops the entry a worker added when it started, by

@@ -2,7 +2,7 @@ export {
   auditorMessageData,
   auditorViewTag,
   auditPublicInputHash,
-  customRingPublicInputHash,
+  policyPublicInputHash,
   auditSharedSecret,
   AUDIT_ENC_INFO,
   AUDITOR_MESSAGE_LENGTH,
@@ -10,12 +10,106 @@ export {
   encryptTransactionViewingSecret,
   parseAuditorMessage,
 } from "../keypair/audit.js";
-export type {
-  AuditorEncryption,
-  AuditorMessage,
-  CustomRingBasePublicInput,
-} from "../keypair/audit.js";
+export type { AuditorEncryption, AuditorMessage } from "../keypair/audit.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
+export {
+  ringHeadMapRootAddress,
+  ringHeadMapRootPda,
+  ringKeyRegistryRootAddress,
+  ringKeyRegistryRootPda,
+} from "../interface/pda/index.js";
+export {
+  fetchRingHeadMapRoot,
+  createRingHeadMapRootInstruction,
+  fetchRingKeyRegistryRoot,
+  createRingKeyRegistryRootInstruction,
+} from "./config.js";
+export { decodeRingHeadMapRoot, decodeRingKeyRegistryRoot } from "./codecs.js";
+export type { RingHeadMapRoot, RingKeyRegistryRoot } from "./codecs.js";
+export {
+  NF_KEY_ENC_INFO,
+  buildRingKeyRegistrationTransaction,
+  createRingKeyRegistrationSubmission,
+  fetchRingSealedKey,
+  openNullifierKey,
+  openRingSealedKey,
+  prepareRingKeyRegistration,
+  registeredKeyCommitment,
+  registerKeyPublicInputHash,
+  sealNullifierKey,
+} from "./key-registry.js";
+export type {
+  NullifierKeyEnvelope,
+  RegisterKeyStatement,
+  RingKeyRegistrationClient,
+  RingKeyRegistrationMember,
+  RingKeyRegistrationParams,
+  RingKeyRegistrationPreparation,
+  RingSealedKeyClient,
+  RingSealedKeyEntry,
+  SealedNullifierKey,
+} from "./key-registry.js";
+export { recoverRingMemberNotes } from "./recover.js";
+export type { RecoveredRingNotes, RingRecoveryClient, RingRecoveryParams } from "./recover.js";
+export {
+  HEAD_MAP_HEIGHT,
+  HEAD_MAP_CAPACITY,
+  headMapLeaf,
+  headMapRootFromProof,
+  verifyHeadMapInsert,
+  verifyHeadMapTransfer,
+} from "./head-map.js";
+export type {
+  HeadMapInsertProofInput,
+  HeadMapLeaf,
+  HeadMapPath,
+  HeadMapTransferProofInput,
+} from "./head-map.js";
+export {
+  buildRingSpendRegistrationTransaction,
+  prepareRingSpendRegistration,
+  createRingSpendRegistrationSubmission,
+  readRingVelocityState,
+} from "./register-spend.js";
+export type {
+  RingSpendRegistrationClient,
+  RingSpendRegistrationParams,
+  RingSpendRegistrationPreparation,
+} from "./register-spend.js";
+export type { VelocityFacts } from "./velocity.js";
+export {
+  buildRingDelegateRecoveredTransaction,
+  buildRingDelegateTransferTransaction,
+  createRingDelegateRecoveredSubmission,
+  createRingDelegateSubmission,
+} from "./delegate.js";
+export {
+  createRingTransferSubmission,
+  createRingExitSubmission,
+  createRingWithdrawalSubmission,
+} from "./transfer.js";
+export { RingTransactionSubmission, createKitRingSubmissionTransport } from "./submission.js";
+export type {
+  ReservationHold,
+  RingSubmissionAttempt,
+  RingSubmissionBuild,
+  RingSubmissionResult,
+  RingSubmissionWindowChanged,
+} from "./submission.js";
+export { RingProgramError } from "./error.js";
+export type {
+  RingDelegateRecoveredClient,
+  RingDelegateRecoveredParams,
+  RingDelegateTransferClient,
+  RingDelegateTransferParams,
+} from "./delegate.js";
+export { proveCustomRingDelegateTransfer } from "./transfer.js";
+export type {
+  CustomRingDelegateTransferParams,
+  RingDelegateProofClient,
+  RingDelegateSpender,
+} from "./transfer.js";
+export { currentRingSpendRecord } from "./policy.js";
 export { ringDepositInstruction, ringTransactAccounts } from "../interface/instructions/index.js";
 export {
   decodeRingDepositOutput,
@@ -34,7 +128,32 @@ export {
   decodeRingProgramConfig,
 } from "./codecs.js";
 export { ringRole, type RingRole } from "./role.js";
-export type { RingPolicyConfig, RingPolicySource, RingProgramConfig } from "./codecs.js";
+export type {
+  RingCoSigner,
+  RingDelegate,
+  RingDepositAudit,
+  RingPolicyConfig,
+  RingPolicySource,
+  RingProgramConfig,
+  RingSpendWindow,
+} from "./codecs.js";
+export {
+  RING_COSIGN_DEPOSITS,
+  RING_COSIGN_SCOPE_MASK,
+  RING_COSIGN_THRESHOLD_SLOTS,
+  RING_COSIGN_TRANSFERS,
+  RING_COSIGN_WITHDRAWALS,
+  decodeRingCoSigner,
+  decodeRingDelegate,
+  decodeRingDepositAudit,
+  decodeRingSpendWindow,
+} from "./codecs.js";
+export {
+  ringCoSignerAddress,
+  ringDelegateAddress,
+  ringDepositAuditAddress,
+  ringSpendWindowAddress,
+} from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";
 export {
   LIST_IDS,
@@ -53,6 +172,7 @@ export {
   listSet,
   listWriter,
   memberOfAsset,
+  memberOfIdentity,
   memberOfTag,
   policySourceOwners,
   readRingEntries,
@@ -63,6 +183,17 @@ export {
   ringPolicyHash,
   ruleAlternatives,
   verifiedRuleTable,
+  SPEND_COUNTERS_LENGTH,
+  decodeSpendCounters,
+  decodeSpendRecord,
+  encodeSpendCounters,
+  encodeSpendRecord,
+  spendRecordMessageTag,
+  readRingSpendRecord,
+  spendCountersCommitment,
+  spendCountersSpent,
+  spendSeed,
+  zeroSpendCounters,
 } from "./policy.js";
 export type {
   EncodedRuleTable,
@@ -85,20 +216,41 @@ export type {
   RuleSubject,
   RuleTable,
   RuleTableInput,
+  LiveSpendRecord,
+  ReadRingSpendRecordInput,
+  SpendCounters,
+  SpendRecord,
+  SpendRecordHashes,
 } from "./policy.js";
+export { ringConfigAddress, ringPolicyConfigAddress } from "../interface/pda/index.js";
 export {
   fetchRingConfigs,
   fetchRingPolicyConfig,
   fetchRingProgramConfig,
-  ringConfigAddress,
-  ringPolicyConfigAddress,
   ringPolicyNamespaceAddress,
   ringProgramDataAddress,
+  clearRingCoSignerInstruction,
+  clearRingSpendWindowInstruction,
+  fetchRingCoSigner,
+  fetchRingDelegate,
+  fetchRingDepositAudit,
+  fetchRingSpendWindow,
   setRingAuthorityInstruction,
+  setRingCoSignerInstruction,
+  setRingDelegateInstruction,
+  setRingDepositAuditInstruction,
   setRingPausedInstruction,
+  setRingSpendWindowInstruction,
 } from "./config.js";
-export { buildRingDepositTransaction } from "./deposit.js";
-export type { RingDepositTransactionParams } from "./deposit.js";
+export { buildRingDepositTransaction, RING_DEPOSIT_COMPUTE_UNIT_LIMIT } from "./deposit.js";
+export type { RingDepositClient, RingDepositTransactionParams } from "./deposit.js";
+export {
+  sealRingDepositOpenings,
+  openRingDepositOpening,
+  ringDepositContextHash,
+  ringDepositPublicInputHash,
+} from "./deposit-audit.js";
+export type { RingDepositOpening } from "./deposit-audit.js";
 export { RING_ERROR_CODES, RingError, wrapRingError } from "./error.js";
 export type { RingErrorCode } from "./error.js";
 export {
@@ -106,14 +258,20 @@ export {
   RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT,
   RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
   RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+  RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+  RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+  registerRingKeyInstruction,
+  registerRingSpendInstruction,
   RING_READ_ACCESS_COMPUTE_UNIT_LIMIT,
   RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
   RING_SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
+  initializeRingConfigInstructions,
   createRingEntryInstruction,
   createRingPolicyInstruction,
   initSppRingConfigInstruction,
+  ringDelegateTransactInstruction,
   ringTransactInstruction,
   setRingPolicyRulesInstruction,
   setRingPolicySourceInstruction,
@@ -157,6 +315,8 @@ export {
 } from "./rpc.js";
 export type {
   DecryptedRingOutput,
+  DecryptedRingSpendCounter,
+  DecryptedRingSpendRecord,
   DecryptedRingTransaction,
   DecryptedRingTransactionsPage,
   DecryptedRingWithdrawal,
@@ -183,6 +343,7 @@ export {
 } from "./audit.js";
 export type {
   AuditedRingOutput,
+  AuditedRingSpendRecord,
   AuditedRingTransaction,
   RingAuditPage,
   RingAuditReader,

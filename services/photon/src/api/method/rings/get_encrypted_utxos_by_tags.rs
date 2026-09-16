@@ -54,7 +54,7 @@ pub async fn get_encrypted_utxos_by_tags(
     request: GetRingsByTagsRequest,
 ) -> Result<GetEncryptedUtxosByTagsResponse, PhotonApiError> {
     let limit = request.limit.unwrap_or_default().value();
-    validate_tags(&request.tags)?;
+    validate_tags(&request.tags, request.ring_program_id.as_ref())?;
     let cursor = request
         .cursor
         .as_ref()
@@ -151,7 +151,11 @@ async fn fetch_encrypted_utxo_rows(
 ) -> Result<Vec<EncryptedUtxoRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
-    let tag_filter = tags_sql(tags, backend, &mut params);
+    let tag_filter = if tags.is_empty() && ring_config.is_some() {
+        "TRUE".to_string()
+    } else {
+        format!("po.view_tag IN ({})", tags_sql(tags, backend, &mut params))
+    };
     let cursor_filter = cursor
         .map(|cursor| encrypted_utxo_cursor_sql(cursor, backend, &mut params))
         .transpose()?
@@ -181,9 +185,9 @@ async fn fetch_encrypted_utxo_rows(
          FROM rings_outputs po
          JOIN rings_transactions pt ON pt.rings_tx_id = po.rings_tx_id
          JOIN rings_output_payloads pop ON pop.output_id = po.output_id
-         WHERE po.view_tag IN ({tag_filter})
-         {ring_filter}
+         WHERE {tag_filter}
          {cursor_filter}
+         {ring_filter}
          ORDER BY po.slot ASC, po.signature ASC, po.event_index ASC, po.output_index ASC
          LIMIT {limit}"
     );

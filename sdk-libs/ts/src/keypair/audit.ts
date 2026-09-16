@@ -3,7 +3,7 @@ import { hashBytes } from "../hasher/index.js";
 import { pack33 } from "../interface/merge-utils.js";
 import type { MessageData } from "../interface/types.js";
 
-import { type Bytes32, checkedBytes, concatBytes, u32be } from "./bytes.js";
+import { type Bytes32, bigIntToBytes, checkedBytes, concatBytes, u32be } from "./bytes.js";
 import { symmetricApply } from "./merge/index.js";
 import { poseidon } from "./poseidon.js";
 import { P256PublicKey } from "./public-key.js";
@@ -168,13 +168,20 @@ export function auditPublicInputHash(input: CustomRingBasePublicInput): Bytes32 
 }
 
 /** The audit prefix then policy hash and roots, Rust `CustomRingPolicyPublicInput::hash`. */
-export function customRingPublicInputHash(
+export function policyPublicInputHash(
   input: CustomRingBasePublicInput &
     Readonly<{
       policyHash: Bytes32;
       stateRoot: Bytes32;
       nullifierRoot: Bytes32;
       entriesTreeId: number;
+      /** `hashBytes` of the ring program id. */
+      ringId: Bytes32;
+      namespaceOwnerHash: Bytes32;
+      /** Zero for per-transfer caps and delegate moves. */
+      windowIndex: bigint;
+      approvalRequired: boolean;
+      headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
     }>,
 ): Bytes32 {
   return hashChain([
@@ -183,5 +190,21 @@ export function customRingPublicInputHash(
     checkedBytes(input.stateRoot, 32, "state root"),
     checkedBytes(input.nullifierRoot, 32, "nullifier root"),
     treeIdField(input.entriesTreeId),
+    checkedBytes(input.ringId, 32, "ring id"),
+    checkedBytes(input.namespaceOwnerHash, 32, "namespace owner hash"),
+    u64Field(input.windowIndex),
+    u64Field(input.approvalRequired ? 1n : 0n),
+    ...(input.headTransition === undefined
+      ? []
+      : [
+          checkedBytes(input.headTransition.oldRoot, 32, "head old root"),
+          checkedBytes(input.headTransition.newRoot, 32, "head new root"),
+        ]),
   ]);
+}
+
+function u64Field(value: bigint): Bytes32 {
+  const field = new Uint8Array(32);
+  field.set(bigIntToBytes(value, 8), 24);
+  return field as Bytes32;
 }

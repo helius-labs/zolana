@@ -28,12 +28,19 @@ type RuleWires struct {
 	Threshold frontend.Variable
 }
 
+type checkedPolicy struct {
+	hash          frontend.Variable
+	ruleEnabled   [NRules]frontend.Variable
+	inlineEnabled [NInlineAssets]frontend.Variable
+	velocity      velocityPolicy
+}
+
 // checkPolicy binds evaluation to the committed rules, source map and inline
 // assets.
 func (c *CustomRingPolicyCircuit) checkPolicy(
 	api frontend.API,
 	rangeChecker frontend.Rangechecker,
-) (frontend.Variable, [NRules]frontend.Variable, [NInlineAssets]frontend.Variable) {
+) checkedPolicy {
 	// 1. Select the committed rule and inline asset prefixes.
 	assertOneHot(api, c.RuleCountSelected[:])
 	assertOneHot(api, c.InlineAssetCountSelected[:])
@@ -64,8 +71,15 @@ func (c *CustomRingPolicyCircuit) checkPolicy(
 	// 5. Establish the asset units required by amount guards.
 	c.checkGuardAssets(api, ruleEnabled, inlineEnabled)
 
+	velocity := c.checkVelocityTable(api, rangeChecker)
+
 	// 6. Commit to the checked policy fields.
-	return c.policyHash(api, inlineEnabled), ruleEnabled, inlineEnabled
+	return checkedPolicy{
+		hash:          c.policyHash(api, inlineEnabled, velocity.rowEnabled),
+		ruleEnabled:   ruleEnabled,
+		inlineEnabled: inlineEnabled,
+		velocity:      velocity,
+	}
 }
 
 // check binds decoded fields to the row and rejects unsupported rule
@@ -155,22 +169,28 @@ func (c *CustomRingPolicyCircuit) checkGuardAssets(api frontend.API, ruleEnabled
 	}
 }
 
-// policyHash reproduces the ring's commitment to its sources, rules and inline
-// asset limits.
-func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, inlineEnabled [NInlineAssets]frontend.Variable) frontend.Variable {
+// Section counts bind the boundaries between rule, inline asset and velocity data.
+func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, inlineEnabled [NInlineAssets]frontend.Variable, velocityEnabled [NVelocityAssets]frontend.Variable) frontend.Variable {
 	// 1. Decode the committed rule count.
 	length := frontend.Variable(0)
 	for size, bit := range c.RuleCountSelected {
 		length = api.Add(length, api.Mul(bit, size))
 	}
 
-	// 2. Hash the domain, version, source map and rule count.
+	inlineLength := frontend.Variable(0)
+	for _, bit := range inlineEnabled {
+		inlineLength = api.Add(inlineLength, bit)
+	}
+	velocityLength := frontend.Variable(0)
+	for _, bit := range velocityEnabled {
+		velocityLength = api.Add(velocityLength, bit)
+	}
 	preimage := make([]frontend.Variable, 0, 3+2*NSources)
 	preimage = append(preimage, policyTableDomain, PolicyVersion)
 	for _, source := range c.Sources {
 		preimage = append(preimage, source.ListId, source.OwnerHash)
 	}
-	head := gadget.HashChain(api, append(preimage, length))
+	head := gadget.HashChain(api, append(preimage, length, inlineLength, velocityLength))
 
 	// 3. Append the selected packed rules.
 	packed := make([]frontend.Variable, NRules)
@@ -183,6 +203,12 @@ func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, inlineEnabled [NI
 	for i, asset := range c.InlineAssets {
 		next := gadget.HashChain(api, []frontend.Variable{hash, asset, c.InlineLimits[i]})
 		hash = api.Select(inlineEnabled[i], next, hash)
+	}
+
+	hash = gadget.HashChain(api, []frontend.Variable{hash, c.WindowSlots})
+	for i, row := range c.Velocity {
+		next := gadget.HashChain(api, []frontend.Variable{hash, row.Asset, row.Cap, row.CosignAbove})
+		hash = api.Select(velocityEnabled[i], next, hash)
 	}
 	return hash
 }

@@ -6,7 +6,9 @@
 //! real BSB22 verifier against the committed verifying key, which is what proves
 //! the recomputed public-input hash path is reached.
 
-use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
+use custom_ring_interface::{
+    tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, AUDITOR_MESSAGE_LEN,
+};
 use custom_ring_program::CustomRingError;
 use solana_account::Account;
 use solana_program_error::ProgramError;
@@ -44,7 +46,7 @@ fn auditor_view_tag() -> [u8; 32] {
     view_tag
 }
 
-fn auditor_message(data_len: usize) -> MessageData {
+pub(crate) fn auditor_message(data_len: usize) -> MessageData {
     let mut data = Vec::from(auditor_pubkey(3));
     data.extend_from_slice(&[4u8; 32]);
     data.resize(data_len, 4);
@@ -62,7 +64,7 @@ fn other_message() -> MessageData {
 }
 
 /// Wire-valid `RingEddsa` content; callers override the fields they attack.
-fn transact(messages: Vec<MessageData>) -> TransactIxData {
+pub(crate) fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [1; 32],
@@ -86,23 +88,27 @@ fn transact(messages: Vec<MessageData>) -> TransactIxData {
 /// A syntactically well-formed proof that cannot verify. Zeroed points decompress
 /// to the identity, so a `0xFF` commitment is the first point the verifier fails
 /// on, which exercises the BSB22 commitment path itself.
-fn bogus_proof() -> CustomRingProof {
+pub(crate) fn bogus_proof() -> CustomRingProof {
     CustomRingProof {
-        proof_a: [0; 32],
-        proof_b: [0; 64],
-        proof_c: [0; 32],
+        groth16: PlainGroth16Proof {
+            proof_a: [0; 32],
+            proof_b: [0; 64],
+            proof_c: [0; 32],
+        },
         commitment: [0xFF; 32],
         commitment_pok: [0xFF; 32],
     }
 }
 
-fn instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
+pub(crate) fn instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
         &wincode::serialize(&CustomRingTransactIxData {
             proof,
             state_root_index: 0,
             nullifier_root_index: 0,
+            approval_required: 0,
+            head_transition: None,
             transact,
         })
         .expect("serialize transact body"),
@@ -424,9 +430,11 @@ fn zeroed_proof_is_rejected_exactly() {
         valid_config(),
         instruction_data(
             CustomRingProof {
-                proof_a: [0; 32],
-                proof_b: [0; 64],
-                proof_c: [0; 32],
+                groth16: PlainGroth16Proof {
+                    proof_a: [0; 32],
+                    proof_b: [0; 64],
+                    proof_c: [0; 32],
+                },
                 commitment: [0; 32],
                 commitment_pok: [0; 32],
             },

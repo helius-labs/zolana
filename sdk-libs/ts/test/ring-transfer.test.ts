@@ -56,13 +56,16 @@ import {
   checkRingMembership,
   frameDummyOutputs,
   proveCustomRingTransfer,
+  proveCustomRingDelegateTransfer,
   ringAddressChain,
+  type CustomRingDelegateTransferParams,
 } from "../src/ring/transfer.js";
 import {
   ListId,
   buildRuleTable,
   encodeRuleTable,
   memberOfTag,
+  memberOfAsset,
   ringNamespaceOwnerHash,
   type Rule,
 } from "../src/ring/policy.js";
@@ -74,12 +77,19 @@ import {
   ConfidentialTransfer,
   SppProofInputs,
   privateTxHash,
+  prepareRingAuthorityTransfer,
+  createExternalData,
   type IndexedShieldedTransaction,
   type PreparedTransfer,
 } from "../src/transaction/instructions/transact.js";
-import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
+import {
+  EncryptedScheme,
+  encodeConfidential,
+  readOutputData,
+} from "../src/transaction/serialization/codecs.js";
+import { Data } from "../src/transaction/data.js";
 import { ProofInputUtxo, Utxo, createProofOutput } from "../src/transaction/utxo.js";
-import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
+import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
 import { LocalKeys } from "../src/client/keys.js";
 import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
 import { LocalShieldedKeys } from "../src/transaction/wallet/keys.js";
@@ -205,19 +215,38 @@ const unusedProofService = {
   proveMerge: () => Promise.reject(new Error("proveMerge must not be called directly")),
 };
 
+function delegateSpender(keys: LocalKeys): CustomRingDelegateTransferParams["spender"] {
+  return {
+    proofs: keys,
+    withTransactionKey: (firstNullifier, use, context) =>
+      withTransactionKey(keys, firstNullifier, use, context),
+  };
+}
+
 function walletKeys(owner: ReturnType<typeof actor>): LocalKeys {
   return LocalKeys.fromKeypair(owner.keypair, unusedProofService);
 }
 
 /** The ring's config and, for a policy ring, a policy config over `ACTIVE_TREE` pinning `rules` sourced from the ring's own namespace. */
-async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean, rules: readonly Rule[] = []) {
+async function ringAccounts(
+  auditor: ViewingKey,
+  hasPolicy: boolean,
+  rules: readonly Rule[] = [],
+  windowSlots = 0n,
+) {
   const encoder = new TextEncoder();
   const pda = (seed: string) =>
     getProgramDerivedAddress({ programAddress: RING, seeds: [encoder.encode(seed)] });
   const [configAddress, configBump] = await pda("config");
   const [policyAddress, policyBump] = await pda("policy");
-  const table = buildRuleTable({ rules });
+  const table = buildRuleTable({
+    rules,
+    ...(windowSlots === 0n
+      ? {}
+      : { windowSlots, velocity: [{ asset: memberOfAsset(SOL_MINT), cap: 1n, cosignAbove: 1n }] }),
+  });
   const sources = ownSources(table, await ringPolicyNamespaceAddress(RING));
+  const namespaceOwnerHash = ringNamespaceOwnerHash(await ringPolicyNamespaceAddress(RING));
   const read: Address[] = [];
   const getAccount = async (account: Address) => {
     read.push(account);
@@ -250,6 +279,7 @@ async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean, rules: read
           entriesTree: ACTIVE_TREE,
           bump: policyBump,
           generation: 0,
+          namespaceOwnerHash,
         }),
       };
     }
@@ -257,6 +287,169 @@ async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean, rules: read
   };
   return { getAccount, read, policyAddress, policy: encodeRuleTable(table) };
 }
+
+describe("delegate policy rail", () => {
+  it("keeps a gross mint sum above u64 when payment and change each fit u64", () => {
+    const sender = actor(3),
+      recipient = actor(4);
+    const amount = (1n << 63n) + 1n;
+    const inputs = [0, 1].map((offset) =>
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
+          owner: sender.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount,
+          blinding: scalar(70 + offset),
+          ringProgramId: RING,
+        }),
+        sender.keypair,
+      ),
+    );
+    const prepared = prepareRingAuthorityTransfer({
+      owner: sender.address,
+      inputs,
+      outputs: [{ recipient: recipient.address, asset: SOL_MINT, amount: (1n << 64n) - 1n }],
+      payer: actor(8).address.solanaAddress(),
+      ringProgramId: RING,
+      outputTreeId: 0,
+    });
+    expect(prepared.outputs.map((output) => output.amount)).toEqual([3n, (1n << 64n) - 1n]);
+  });
+  it("names the input outside the ring and the foreign owner separately", () => {
+    const sender = actor(3),
+      other = actor(5);
+    const spend = (owner: ReturnType<typeof actor>, ring: boolean) =>
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
+          owner: owner.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 10n,
+          blinding: scalar(90),
+          ...(ring ? { ringProgramId: RING } : {}),
+        }),
+        owner.keypair,
+      );
+    const prepare = (input: ProofInputUtxo) =>
+      prepareRingAuthorityTransfer({
+        owner: sender.address,
+        inputs: [input],
+        outputs: [{ recipient: other.address, asset: SOL_MINT, amount: 5n }],
+        payer: actor(8).address.solanaAddress(),
+        ringProgramId: RING,
+        outputTreeId: 0,
+      });
+    expect(() => prepare(spend(sender, false))).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_INPUT_OUTSIDE_RING" }),
+    );
+    expect(() => prepare(spend(other, true))).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_INPUT_OWNER_MISMATCH" }),
+    );
+  });
+  it("keeps the table and audit but never discovers or charges a velocity record", async () => {
+    const auditor = ViewingKey.fromBytes(scalar(9));
+    const sender = actor(3);
+    const recipient = actor(4);
+    const { prepared: money } = preparedTransfer(5n);
+    const prepared = prepareRingAuthorityTransfer({
+      owner: sender.address,
+      inputs: money.inputs,
+      outputs: [{ recipient: recipient.address, asset: SOL_MINT, amount: 5n }],
+      payer: actor(8).address.solanaAddress(),
+      ringProgramId: RING,
+      outputTreeId: 0,
+    });
+    const accounts = await ringAccounts(auditor, true, [], 100n);
+    let policy: CustomRingPolicyProofRequest | undefined;
+    let finalized: SppProofInputs | undefined;
+    const client = ringTransferClient({ tree: TREE, getAccount: accounts.getAccount });
+    const proved = await proveCustomRingDelegateTransfer({
+      client: {
+        tree: client.tree,
+        treeId: client.treeId,
+        getAccount: client.getAccount,
+        getMerkleProofs: client.getMerkleProofs,
+        getNonInclusionProofs: client.getNonInclusionProofs,
+        getEncryptedUtxosByTags: client.getEncryptedUtxosByTags,
+        getShieldedTransactionsByNullifiers: client.getShieldedTransactionsByNullifiers,
+        proveRingAuthorityTransact: async (inputs) => {
+          finalized = inputs;
+          return {
+            data: {
+              ...ringInstructionData(scalar(8)),
+              circuit: { kind: "ringAuthority", inputs: 2, outputs: 2, publicAssetSlots: 3 },
+            },
+            roots: SPP_ROOTS,
+          };
+        },
+        proveCustomRingDelegatePolicy: async (input) => {
+          policy = input;
+          return new Uint8Array(192);
+        },
+        proveCustomRingBase: client.proveCustomRingBase,
+      },
+      ringProgramId: RING,
+      prepared,
+      spender: delegateSpender(walletKeys(sender)),
+      assets: new AssetRegistry(),
+      tree: TREE,
+    });
+    expect(policy?.velocity).toMatchObject({
+      windowSlots: 100n,
+      windowIndex: 0n,
+      approvalRequired: false,
+      rows: [{ cap: 1n, cosignAbove: 1n }],
+    });
+    expect(finalized?.inputUtxos.filter((input) => !input.isDummy())).toHaveLength(1);
+    expect(finalized?.outputs.filter((output) => !output.isDummy())).toHaveLength(2);
+    expect(finalized?.externalData.messages).toHaveLength(1);
+    expect(proved.ownerSigners).toEqual([]);
+    expect(proved.headTransition).toBeUndefined();
+    expect(proved.approvalRequired).toBe(false);
+    auditor.destroy();
+  });
+
+  it("plans two SPL mints with per-mint change and no source signer", () => {
+    const sender = actor(3),
+      recipient = actor(4);
+    const mintA = actor(30).address.solanaAddress(),
+      mintB = actor(31).address.solanaAddress();
+    const inputs = [mintA, mintB].map((asset, index) =>
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
+          owner: sender.keypair.signingPublicKey(),
+          asset,
+          amount: 10n,
+          blinding: scalar(40 + index),
+          ringProgramId: RING,
+        }),
+        sender.keypair,
+        {},
+        7,
+      ),
+    );
+    const prepared = prepareRingAuthorityTransfer({
+      owner: sender.address,
+      inputs,
+      outputs: [
+        { recipient: recipient.address, asset: mintA, amount: 4n },
+        { recipient: recipient.address, asset: mintB, amount: 6n },
+      ],
+      payer: actor(8).address.solanaAddress(),
+      ringProgramId: RING,
+      outputTreeId: 7,
+    });
+    expect(prepared.shape).toEqual({ inputs: 4, outputs: 4 });
+    expect(prepared.senderOutputCount).toBe(2);
+    expect(prepared.outputs.map(({ asset, amount }) => ({ asset, amount }))).toEqual([
+      { asset: mintA, amount: 6n },
+      { asset: mintB, amount: 4n },
+      { asset: mintA, amount: 4n },
+      { asset: mintB, amount: 6n },
+    ]);
+    expect(prepared.interfaceTransfers).toEqual([]);
+    expect(prepared.ownerMode).toBe("opaque");
+  });
+});
 
 const SPP_ROOTS = {
   stateRoot: scalar(92),
@@ -404,6 +597,56 @@ describe("withCompactChange", () => {
 });
 
 describe("frameDummyOutputs", () => {
+  for (const ringProgramId of [undefined, RING]) {
+    it(`frames all-dummy outputs without a real template (${ringProgramId === undefined ? "default" : "ring"})`, async () => {
+      const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate());
+      const outputs = proofInputs.outputs.map((output) =>
+        createProofOutput({
+          asset: SOL_MINT,
+          amount: 0n,
+          blinding: output.blinding,
+          ownerTag: scalar(3),
+          ...(ringProgramId === undefined ? {} : { ringProgramId }),
+        }),
+      );
+      const unframed = new SppProofInputs({
+        payer: proofInputs.payer,
+        inputUtxos: proofInputs.inputUtxos,
+        outputs,
+        blindingSeed: proofInputs.blindingSeed,
+        outputTreeId: proofInputs.outputTreeId,
+        externalData: createExternalData({
+          ...proofInputs.externalData,
+          outputs: proofInputs.externalData.outputs.map((output, index) => ({
+            ownerTag: output.ownerTag,
+            utxoHash: outputs[index]!.hash(proofInputs.outputTreeId),
+          })),
+        }),
+      });
+      const framed = frameDummyOutputs(unframed);
+      const plaintext = encodeConfidential({
+        assetId: SOL_ASSET_ID,
+        amount: 0n,
+        blinding: scalar(0),
+        data: new Data(),
+        ...(ringProgramId === undefined ? {} : { ringProgramId }),
+      });
+      for (const output of framed.externalData.outputs) {
+        const body = readOutputData(output.data ?? new Uint8Array());
+        expect(body).toMatchObject({
+          encoding: "encrypted",
+          scheme:
+            ringProgramId === undefined
+              ? EncryptedScheme.confidential
+              : EncryptedScheme.ringConfidential,
+        });
+        expect(body.body).toHaveLength(33 + plaintext.length);
+        expect([2, 3]).toContain(body.body[0]);
+      }
+      expect(framed.outputs).toEqual(unframed.outputs);
+      expect(framed.externalData.messages).toEqual(unframed.externalData.messages);
+    });
+  }
   it("frames dummy slots as confidential bodies of the real length like Rust `frame_dummy_outputs`", async () => {
     // Five real outputs pad to the (1, 8) shape.
     const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
@@ -487,7 +730,7 @@ describe("ring witness", () => {
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
     const spendProof = spendProofFor(input);
-    const assembled = assemble(proofInputs, [spendProof], [], RING);
+    const assembled = assemble(proofInputs, [spendProof], [], { kind: "ring", ring: RING });
     const published = assembled.proverInputs.payload.publishedOutputOwnerPublicKeyHashes;
     const tags = proofInputs.externalData.resolvedOwnerTags;
     expect(published).toHaveLength(8);
@@ -616,7 +859,10 @@ describe("ring openings", () => {
     );
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
-    const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
+    const assembled = assemble(proofInputs, [spendProofFor(input)], [], {
+      kind: "ring",
+      ring: RING,
+    });
     const vector = assembled.proverInputs.payload.signerPublicKeyHashes;
     // Signers enter the chain as tagged Solana identities, `hash(0x53 || pk)`.
     const hashOf = (target: Address) =>
@@ -685,7 +931,10 @@ describe("ring openings", () => {
     const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [], [], null);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
-    const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
+    const assembled = assemble(proofInputs, [spendProofFor(input)], [], {
+      kind: "ring",
+      ring: RING,
+    });
     const slot = assembled.proverInputs.payload.inputs[0];
     if (!slot) throw new Error("input slot");
     expect(slot.circuit.ringProgramId).toBe(0n);

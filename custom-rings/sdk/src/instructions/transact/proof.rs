@@ -24,7 +24,7 @@
 //! [`CustomRingProofParams`]) and invalidates an SPP proof taken over the first
 //! message, so it is called once per transaction.
 
-use custom_ring_interface::{CustomRingBasePublicInput, CustomRingProof};
+use custom_ring_interface::{CustomRingBasePublicInput, CustomRingProof, PlainGroth16Proof};
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed};
@@ -54,6 +54,8 @@ pub enum CustomRingProofError {
     Compression(#[from] ClientError),
     #[error("the auditor key encryption proof is missing its BSB22 commitment")]
     MissingCommitment,
+    #[error("a plain Groth16 proof carries a BSB22 commitment")]
+    UnexpectedCommitment,
 }
 
 /// Everything the client knows before the auditor ciphertext exists.
@@ -169,6 +171,10 @@ impl PendingCustomRingProof {
             state_root: &witness.roots.state,
             nullifier_root: &witness.roots.nullifier,
             entries_tree_id: witness.entries_tree_id,
+            ring_id: &witness.velocity.ring_id,
+            namespace_owner_hash: &witness.velocity.namespace_owner_hash,
+            window_index: witness.velocity.window_index,
+            approval_required: witness.velocity.approval_required,
         }
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;
@@ -202,6 +208,7 @@ impl PendingCustomRingProof {
                 state_root: witness.roots.state,
                 nullifier_root: witness.roots.nullifier,
                 entries_tree_id: witness.entries_tree_id,
+                velocity: witness.velocity,
                 answers: witness.answers,
             },
         )
@@ -249,17 +256,31 @@ pub fn to_instruction_proof(proof: Proof) -> Result<CustomRingProof, CustomRingP
         .commitment
         .ok_or(CustomRingProofError::MissingCommitment)?;
     Ok(CustomRingProof {
-        proof_a: compressed.a,
-        proof_b: compressed.compressed_b()?,
-        proof_c: compressed.c,
+        groth16: PlainGroth16Proof {
+            proof_a: compressed.a,
+            proof_b: compressed.compressed_b()?,
+            proof_c: compressed.c,
+        },
         commitment: commitment.commitment,
         commitment_pok: commitment.commitment_pok,
     })
 }
 
+pub fn to_plain_proof(proof: Proof) -> Result<PlainGroth16Proof, CustomRingProofError> {
+    let compressed = ProofCompressed::try_from(proof)?;
+    if compressed.commitment.is_some() {
+        return Err(CustomRingProofError::UnexpectedCommitment);
+    }
+    Ok(PlainGroth16Proof {
+        proof_a: compressed.a,
+        proof_b: compressed.compressed_b()?,
+        proof_c: compressed.c,
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::{CustomRingOpening, SourceOwnerEntry};
+    use super::super::{CustomRingOpening, RingIdentity, SourceOwnerEntry, VelocityProofInput};
     use super::*;
     use crate::witness::{CustomRingWitness, TransactRoots};
     use custom_ring_interface::CustomRingPolicyPublicInput;
@@ -298,6 +319,10 @@ mod tests {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
+            velocity: VelocityProofInput::off(RingIdentity {
+                ring_id: [10u8; 32],
+                namespace_owner_hash: [11u8; 32],
+            }),
             answers: Vec::new(),
         }
     }
@@ -346,6 +371,10 @@ mod tests {
             state_root: &state,
             nullifier_root: &nullifier,
             entries_tree_id: 0,
+            ring_id: &[10u8; 32],
+            namespace_owner_hash: &[11u8; 32],
+            window_index: 0,
+            approval_required: false,
         }
         .hash()
         .expect("public input hash");

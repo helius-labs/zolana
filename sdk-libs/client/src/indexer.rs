@@ -9,9 +9,12 @@ use async_trait::async_trait;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{
-    Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
-    SerializablePubkey, SerializableSignature, ZolanaApi,
+    Base64String, BlockingZolanaApi, GetRingHeadRegisterProofResponse,
+    GetRingHeadTransferProofResponse, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, Hash as ApiHash, RingMemberProofRequest,
+    RingsOutputSlot as ApiOutputSlot, SerializablePubkey, SerializableSignature, ZolanaApi,
 };
+use zolana_indexer_api::error_code;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 use zolana_transaction::instructions::transact::SppProofInputs;
@@ -25,7 +28,8 @@ use crate::{
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext,
-        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc, ShieldedTransaction,
+        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, RingHistoryOptions, Rpc,
+        ShieldedTransaction,
     },
 };
 
@@ -42,6 +46,27 @@ const MERKLE_PROOF_POLL_MAX: Duration = Duration::from_millis(500);
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
+
+fn ring_history_request(
+    options: RingHistoryOptions,
+) -> Result<zolana_api::GetRingsByTagsRequest, ClientError> {
+    let limit = options
+        .limit
+        .map(|value| zolana_api::Limit::new(u64::from(value)))
+        .transpose()
+        .map_err(|message| {
+            indexer_error(zolana_api::ApiError::InvalidRequest {
+                field: "limit",
+                message,
+            })
+        })?;
+    Ok(zolana_api::GetRingsByTagsRequest {
+        tags: Vec::new(),
+        ring_program_id: Some(SerializablePubkey(options.ring_program_id)),
+        cursor: encode_cursor(options.cursor),
+        limit,
+    })
+}
 
 fn wait_for_indexer<T>(
     config: Option<IndexerRpcConfig>,
@@ -293,6 +318,25 @@ impl Rpc for ZolanaIndexer {
         )
     }
 
+    fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let request = ring_history_request(options)?;
+        wait_for_indexer(
+            config,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context,
+            || {
+                let response = self
+                    .api
+                    .get_shielded_transactions(request.clone())
+                    .map_err(indexer_error)?;
+                convert_shielded_transactions_response(response)
+            },
+        )
+    }
+
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
@@ -328,6 +372,42 @@ impl Rpc for ZolanaIndexer {
                 })
             },
         )
+    }
+
+    fn get_ring_head_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        self.api
+            .get_ring_head_register_proof(request)
+            .map_err(indexer_error)
+    }
+
+    fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        self.api
+            .get_ring_key_registry_entry(request)
+            .map_err(indexer_error)
+    }
+
+    fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        self.api
+            .get_ring_key_registry_register_proof(request)
+            .map_err(indexer_error)
+    }
+
+    fn get_ring_head_transfer_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        self.api
+            .get_ring_head_transfer_proof(request)
+            .map_err(indexer_error)
     }
 
     fn get_merkle_proofs(
@@ -510,6 +590,27 @@ impl AsyncRpc for AsyncZolanaIndexer {
         .await
     }
 
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let request = ring_history_request(options)?;
+        wait_for_indexer_async(
+            config,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context,
+            || async {
+                let response = self
+                    .api
+                    .get_shielded_transactions(request.clone())
+                    .await
+                    .map_err(indexer_error)?;
+                convert_shielded_transactions_response(response)
+            },
+        )
+        .await
+    }
+
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
@@ -547,6 +648,46 @@ impl AsyncRpc for AsyncZolanaIndexer {
             },
         )
         .await
+    }
+
+    async fn get_ring_head_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        self.api
+            .get_ring_head_register_proof(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        self.api
+            .get_ring_key_registry_entry(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        self.api
+            .get_ring_key_registry_register_proof(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_head_transfer_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        self.api
+            .get_ring_head_transfer_proof(request)
+            .await
+            .map_err(indexer_error)
     }
 
     async fn get_merkle_proofs(
@@ -622,6 +763,38 @@ impl AsyncRpc for AsyncZolanaIndexer {
 fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
+        zolana_api::ApiError::JsonRpc {
+            code: Some(error_code::RING_HEAD_MAP_OUT_OF_SYNC),
+            ..
+        } => ClientError::RingHeadMapOutOfSync,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(error_code::RING_HEAD_ROOT_CHANGED),
+            ..
+        } => ClientError::RingHeadRootChanged,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(error_code::RING_HEAD_MEMBER_UNREGISTERED),
+            ..
+        } => ClientError::RingHeadMemberUnregistered,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(error_code::RING_HEAD_MEMBER_ALREADY_REGISTERED),
+            ..
+        } => ClientError::RingHeadMemberAlreadyRegistered,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(error_code::RING_KEY_REGISTRY_OUT_OF_SYNC),
+            ..
+        } => ClientError::RingKeyRegistryOutOfSync,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(error_code::RING_KEY_REGISTRY_ROOT_CHANGED),
+            ..
+        } => ClientError::RingKeyRegistryRootChanged,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(error_code::RING_KEY_REGISTRY_MEMBER_UNREGISTERED),
+            ..
+        } => ClientError::RingKeyRegistryMemberUnregistered,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(error_code::RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED),
+            ..
+        } => ClientError::RingKeyRegistryMemberAlreadyRegistered,
         zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
             ClientError::IndexerUnavailable(message)
         }
@@ -704,6 +877,12 @@ fn convert_shielded_transactions_by_signature_response(
             })
             .collect::<Result<Vec<_>, ClientError>>()?,
     })
+}
+
+pub fn decode_shielded_transaction(
+    item: zolana_api::ShieldedTransaction,
+) -> Result<ShieldedTransaction, ClientError> {
+    convert_shielded_transaction("transaction", item)
 }
 
 fn convert_shielded_transaction(
@@ -835,6 +1014,27 @@ fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ring_history_request_pins_the_ring_without_a_view_tag() {
+        let ring = solana_address::Address::new_from_array([19; 32]);
+        let request = super::ring_history_request(crate::RingHistoryOptions {
+            ring_program_id: ring,
+            cursor: Some(vec![7]),
+            limit: Some(17),
+        })
+        .unwrap();
+        assert!(request.tags.is_empty());
+        assert_eq!(request.ring_program_id.unwrap().0, ring);
+        assert_eq!(request.cursor.unwrap().0, vec![7]);
+        assert_eq!(request.limit.unwrap().value(), 17);
+        assert!(super::ring_history_request(crate::RingHistoryOptions {
+            ring_program_id: ring,
+            cursor: None,
+            limit: Some(0)
+        })
+        .is_err());
+    }
+
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
@@ -1260,6 +1460,99 @@ mod tests {
             message: Some("Internal error".to_string()),
         });
         assert!(matches!(internal_error, ClientError::IndexerUnavailable(_)));
+    }
+
+    fn head_query() -> zolana_indexer_api::RingMemberProofRequest {
+        zolana_indexer_api::RingMemberProofRequest {
+            ring_program_id: SerializablePubkey::from(bytes32(1)),
+            member: ApiHash(bytes32(2)),
+            expected_root: ApiHash(bytes32(3)),
+            expected_next_index: 19,
+        }
+    }
+
+    fn head_registration() -> Value {
+        let hash = encode_hash_string(bytes32(4));
+        json!({
+            "context": {"blockTime": 90, "slot": 20},
+            "root": encode_hash_string(bytes32(3)), "member": encode_hash_string(bytes32(2)),
+            "nextIndex": 19, "lowMember": hash, "lowNext": hash, "lowNullifier": hash,
+            "lowIndex": 7, "lowProof": vec![hash.clone(); 40], "newProof": vec![hash; 40],
+        })
+    }
+
+    #[test]
+    fn head_registration_transport_preserves_the_exact_root_and_cursor() {
+        let server = MockServer::respond_once(rpc_result(head_registration()));
+        let query = head_query();
+        let response = ZolanaIndexer::new(server.url())
+            .get_ring_head_register_proof(query.clone())
+            .unwrap();
+        let request = server.request();
+        assert_eq!(request.path, "/getRingHeadRegisterProof");
+        assert_json_rpc_request(&request.body, "getRingHeadRegisterProof");
+        assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
+        assert_eq!(response.next_index, 19);
+        assert_eq!(response.low_index, 7);
+        assert_eq!(response.low_proof.len(), 40);
+        assert_eq!(response.new_proof.len(), 40);
+    }
+
+    #[tokio::test]
+    async fn async_head_registration_uses_the_same_contract() {
+        let server = MockServer::respond_once(rpc_result(head_registration()));
+        let query = head_query();
+        let response = AsyncZolanaIndexer::new(server.url())
+            .get_ring_head_register_proof(query.clone())
+            .await
+            .unwrap();
+        let request = server.request();
+        assert_json_rpc_request(&request.body, "getRingHeadRegisterProof");
+        assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
+        assert_eq!(response.root.0, bytes32(3));
+        assert_eq!(response.member.0, bytes32(2));
+    }
+
+    #[test]
+    fn head_errors_never_become_an_absence_result() {
+        for code in [-32070, -32071, -32072, -32073] {
+            let server = MockServer::respond_once(json!({
+                "id": "test-account", "jsonrpc": "2.0", "error": {"code": code, "message": "head unavailable"},
+            }));
+            let error = ZolanaIndexer::new(server.url())
+                .get_ring_head_transfer_proof(head_query())
+                .unwrap_err();
+            let request = server.request();
+            assert_json_rpc_request(&request.body, "getRingHeadTransferProof");
+            assert!(matches!(
+                (code, error),
+                (-32070, ClientError::RingHeadMapOutOfSync)
+                    | (-32071, ClientError::RingHeadRootChanged)
+                    | (-32072, ClientError::RingHeadMemberUnregistered)
+                    | (-32073, ClientError::RingHeadMemberAlreadyRegistered)
+            ));
+        }
+    }
+
+    #[test]
+    fn key_registry_codes_map_to_dedicated_variants() {
+        for code in [-32074i64, -32075, -32076, -32077] {
+            let mapped = indexer_error(zolana_api::ApiError::JsonRpc {
+                method: "getRingKeyRegistryEntry",
+                code: Some(code),
+                message: Some("key registry".to_string()),
+            });
+            assert!(
+                matches!(
+                    (code, &mapped),
+                    (-32074, ClientError::RingKeyRegistryOutOfSync)
+                        | (-32075, ClientError::RingKeyRegistryRootChanged)
+                        | (-32076, ClientError::RingKeyRegistryMemberUnregistered)
+                        | (-32077, ClientError::RingKeyRegistryMemberAlreadyRegistered)
+                ),
+                "code {code} mapped to {mapped:?}"
+            );
+        }
     }
 
     #[test]

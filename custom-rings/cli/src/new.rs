@@ -81,6 +81,8 @@ pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<
         upgrade_authority_keypair: None,
         config_authority_keypair: None,
         policy: answers.policy,
+        cosigner: None,
+        deposit_audit: false,
         localnet: answers.localnet,
         devnet: answers.devnet,
     };
