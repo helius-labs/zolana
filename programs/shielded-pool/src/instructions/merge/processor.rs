@@ -21,7 +21,7 @@ use zolana_tree::TreeAccount;
 
 use super::{
     account::{load_user_record, MergeTransactAccounts},
-    cache::{CacheAuthority, CacheSlot},
+    cache::CacheSlot,
     event::{build_merge_event, MergeTreeWrite},
     verify::{MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
@@ -92,7 +92,8 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 
     let cache = CacheSlot::load_and_validate_optional(
         merge_accounts.cache,
-        CacheAuthority::Registry(output_view_tag),
+        Some(&signing_pk_field),
+        clock.unix_timestamp,
     )?;
     let external_data_hash = MergeExternalDataHash {
         spp_instruction_discriminator: MERGE_TRANSACT,

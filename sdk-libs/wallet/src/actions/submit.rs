@@ -147,6 +147,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         payer: payer.pubkey(),
         user_record: user_record_pda(&owner).0,
         data,
+        cache: None,
     }
     .instruction();
     let signature = rpc.create_and_send_transaction(

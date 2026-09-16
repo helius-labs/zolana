@@ -303,3 +303,99 @@ nullifiers.
   - Error: `ShieldedPoolError::NullifierTreeUpdateFailed = 7002` (replay), `TransactProofVerificationFailed = 7008` (binding mismatch)
   - Severity: Critical
   - Suggested test: negative (replay) + negative (foreign-ring proof); harness: program-tests integration (`cargo test-sbf`)
+
+## Merge Cache
+
+Both tags may carry an optional `cache_slot` plus a trailing `CacheAccount` PDA
+(`program-libs/interface/src/state/cache.rs`), so these entries apply to
+`MergeTransact` and `RingMergeTransact` alike and keep the `INV-MERGE` prefix for
+that reason. Three mechanisms are deliberately separate: identity governs
+insertion, nullification governs spending, and the timeout governs closure. The
+cached *spend* rail belongs to `Transact`; INV-MERGE-23 records why it needs no
+identity check, and its remaining codes (`CacheSlotEmpty`, `InvalidCacheBitmap`,
+`InvalidCacheRootIndex`) carry no entries of their own yet.
+
+### Write Authorization
+
+- [x] **INV-MERGE-20: a confidential merge writes only a cache bound to the proof's signing key**
+  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `merge_rejects_overwrites_frozen_caches_and_foreign_owners` (perturbed `owner_identity` -> 7074), `program-tests/shielded-pool/tests/cache/functional.rs` `confidential_merge_cannot_write_a_cache_bound_to_another_identity` (real proof; the cache is byte-identical afterwards)
+  - Kind: precondition
+  - Statement: `merge_transact` returns Err unless the cache account's `owner_identity` equals exactly the `signing_pk_field` derived from the registry record, which is the owner element its proof already publishes (INV-MERGE-12). No owner signature is consulted, at create or at merge.
+  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_transact_ix`), `merge/cache.rs` (`fn CacheSlot::load_and_validate_optional`)
+  - Error: `ShieldedPoolError::CacheOwnerMismatch = 7074`
+  - Severity: Critical (cache takeover)
+  - Suggested test: negative; harness: litesvm + program-tests integration (`cargo test-sbf`)
+
+- [ ] **INV-MERGE-21: a ring merge writes only a cache whose stored identity its proof opens**
+  - Partial coverage: `program-tests/shielded-pool/tests/cache/functional.rs` `ring_merge_writes_the_bound_slot` and `ring_merge_cannot_write_another_users_cache_on_the_same_ring` exist but are `#[ignore]`d until the `merge_ring_8_1` / `merge_ring_36_1` key rotation lands; the circuit side is covered by `prover/server/circuits/spp_merge/ring_test.go`
+  - Kind: postcondition
+  - Statement: the program makes no equality check on this rail. It reads `owner_identity` out of the cache account and chains it into the ring public-input hash as the cache owner commitment (zero when the merge writes no cache), so the value never comes from instruction data and a ring merge by a user who cannot open that commitment fails pairing. Two users of one custom ring therefore cannot write each other's slots, which the earlier per-ring cache allowed.
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs` (`fn process_merge_ring_ix`), `merge/verify.rs` (`fn public_input_hash`, `Ring` arm), `prover/server/circuits/spp_merge/ring.go` (`func (c *RingCircuit) Define`)
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
+  - Severity: Critical (cross-user cache takeover)
+  - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
+
+- [ ] **INV-MERGE-22: the two rails cannot write each other's caches**
+  - Partial coverage: `program-tests/shielded-pool/tests/cache/functional.rs` `cross_rail_caches_are_mutually_unwritable` (`#[ignore]`d pending the same key rotation)
+  - Kind: precondition
+  - Statement: the two identity constructions are preimage-resistant hashes over unrelated inputs -- the registered signing key on one rail, the user's owner hash and operation id on the other -- so a confidential merge cannot match a ring cache's `owner_identity` and a ring merge cannot open a confidential one. The 32 bytes are therefore self-discriminating and the account carries no rail tag.
+  - Location: `program-libs/interface/src/state/cache.rs` (`struct CacheAccount`), `programs/shielded-pool/src/instructions/merge/processor.rs`, `merge_ring/processor.rs`
+  - Error: `ShieldedPoolError::CacheOwnerMismatch = 7074` (confidential merge against a ring cache) / `TransactProofVerificationFailed = 7008` (ring merge against a confidential cache)
+  - Severity: High
+  - Suggested test: negative in both directions; harness: program-tests integration (`cargo test-sbf`)
+
+- [ ] **INV-MERGE-23: the cache substitutes for the inclusion proof, never for authority**
+  - Partial coverage: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `cached_input_bitmap_must_select_only_declared_inputs` (7072) and `cached_utxos_are_only_supported_on_default_eddsa_transact` (7076); there is no end-to-end cached *spend* test because the prover server has no cached transfer circuit type and no `transfer_confidential_cached_*` proving keys
+  - Kind: state
+  - Statement: identity authorizes insertion only, because a merge output has no nullifier yet and nothing else could authorize placing it in a slot. Spending is authorized by nullification instead: the selected commitments are chained into the transact public-input hash and the circuit independently requires a valid nullifier for each selected input, so referencing another party's cache forces you to spend their UTXO. The spend path consequently checks no identity and no expiry; its two checks are deliberately not ownership checks -- `CacheTreeMismatch` because the commitments stand in for that tree's inclusion, `CacheSlotEmpty` because the bitmap selected a slot no merge ever wrote.
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn assign_cached_inputs`), `transact/tree.rs` (`fn resolve_input_tree_slot`, `fn apply_cached_inputs`)
+  - Error: `ShieldedPoolError::CacheTreeMismatch = 7073`, `CacheSlotEmpty = 7070`
+  - Severity: Critical (double-spend boundary)
+  - Suggested test: negative; harness: litesvm
+
+- [x] **INV-MERGE-24: `frozen` cannot be griefed**
+  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `merge_rejects_overwrites_frozen_caches_and_foreign_owners` (a frozen cache rejects further insertion with 7068)
+  - Kind: state
+  - Statement: `frozen = 1` is set only while a transact spends cached inputs, and that spend has to nullify an entry; every entry in a cache belongs to the one identity the merge proof had to publish (INV-MERGE-20, INV-MERGE-21), so no third party can freeze a cache to deny its owner further insertions. Proof or settlement failure rolls the flag back with the tree mutations (INV-XC-04).
+  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs` (`fn apply_cached_inputs`), `merge/cache.rs` (`fn CacheSlot::load_and_validate_optional`)
+  - Error: `ShieldedPoolError::CacheFrozen = 7068`
+  - Severity: Medium (availability)
+  - Suggested test: negative; harness: litesvm
+
+### Lifecycle
+
+- [x] **INV-MERGE-25: create is permissionless and its address belongs to the signing sponsor**
+  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `create_is_idempotent_and_close_refunds_sponsor` and the permissionless-create case (a second sponsor creating for the same `owner_identity` lands at a different address and leaves the first untouched)
+  - Kind: precondition
+  - Statement: `create_cache` takes `payer` (signer, stored as `rent_sponsor`), `cache` (writable) and the system program, with no owner and no `ring_config` signer, and derives the PDA from `[CACHE_SEED, rent_sponsor, nonce]` with a canonical bump. Because the sponsor signs, no third party can create that address at all, so nobody can pre-create a conflicting configuration to block a legitimate create; a squatter creating at another party's identity only occupies their own address and wastes their own rent. The identity bytes are checked only for usability, not for ownership: zero is rejected because it is the no-cache sentinel the ring rail publishes, and a non-canonical value is rejected because the ring rail folds the identity into a Poseidon chain. A cache nobody can open is still merely unwritable.
+  - Location: `programs/shielded-pool/src/instructions/cache/create.rs` (`fn process_create_cache`), `instructions/shared.rs` (`fn verify_pda`)
+  - Error: `ShieldedPoolError::InvalidCache = 7066`, `NonCanonicalCacheOwnerIdentity = 7079`
+  - Severity: High (availability)
+  - Suggested test: positive + negative; harness: litesvm
+
+- [x] **INV-MERGE-26: `owner_identity`, `tree_id`, `expires_at` and `rent_sponsor` are immutable**
+  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `create_and_close_reject_unauthorized_configuration` (`tree_id`, `owner_identity` and `expires_at` mismatches -> 7067)
+  - Kind: state
+  - Statement: a repeated `create_cache` on an existing account compares those four fields plus the bump and returns Err on any difference, and it never compares or resets `commitments` or `frozen`. A re-send can therefore neither extend the timeout nor clear the cache.
+  - Location: `programs/shielded-pool/src/instructions/cache/create.rs` (`fn process_create_cache`)
+  - Error: `ShieldedPoolError::CacheConfigMismatch = 7067`
+  - Severity: High
+  - Suggested test: negative per field; harness: litesvm
+
+- [x] **INV-MERGE-27: an expired cache accepts no further merge writes**
+  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `merge_rejects_overwrites_frozen_caches_and_foreign_owners` (expired case -> 7077) and `create_is_permissionless_and_scoped_to_the_signing_sponsor` (an `expires_at` that is not in the future -> 7080)
+  - Kind: precondition
+  - Statement: both rails reject a cache once `Clock::unix_timestamp >= expires_at`, and `create_cache` rejects an `expires_at` that is not in the future with its own error. Entries inserted before expiry stay spendable until the account is closed, and the merged outputs stay spendable afterwards regardless: `process_merge_core` appends the output to the output tree before it touches the cache, and does so whether or not a cache is supplied.
+  - Location: `programs/shielded-pool/src/instructions/merge/cache.rs` (`fn CacheSlot::load_and_validate_optional`), `cache/create.rs` (`fn process_create_cache`), `merge/processor.rs` (`fn process_merge_core`)
+  - Error: `ShieldedPoolError::CacheExpired = 7077`, `CacheExpiryNotInFuture = 7080`
+  - Severity: Medium
+  - Suggested test: negative; harness: litesvm
+
+- [x] **INV-MERGE-28: closure is permissionless, timeout-only, and refunds the stored sponsor**
+  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `create_is_idempotent_and_close_refunds_sponsor` (clock warped past `expires_at`, no authority signature, sponsor credited the full balance) and `create_and_close_reject_unauthorized_configuration` (close before expiry -> 7078; wrong recipient -> 7050)
+  - Kind: precondition
+  - Statement: `close_cache` takes `cache` (writable) and `rent_recipient` (writable) and no signer at all. It returns Err while `Clock::unix_timestamp < expires_at`, and after that succeeds for any caller, always moving the whole balance to the stored `rent_sponsor`; any other recipient, or the cache itself, returns Err. There is no early closure and no close authority.
+  - Location: `programs/shielded-pool/src/instructions/cache/close.rs` (`fn process_close_cache`)
+  - Error: `ShieldedPoolError::CacheNotExpired = 7078`, `InvalidReimbursementRecipient = 7050`
+  - Severity: High (rent custody)
+  - Suggested test: negative both legs + positive; harness: litesvm

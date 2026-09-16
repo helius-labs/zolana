@@ -381,3 +381,58 @@ fn slice_ref_matches_the_slice_variant_and_the_kat() {
     assert_eq!(via_ref, create_hash_chain_from_slice(&inputs).unwrap());
     assert_eq!(via_ref, hard_coded_expected_hash);
 }
+
+/// The merge public-input hash is assembled in two steps on chain
+/// (`merge/verify.rs`): the seven shared elements fold into a prefix, then the
+/// rail's tail continues from it. The circuits fold all of them flat, so the
+/// two must agree. Seven is `1 + 3 + 3`, so the prefix ends on a complete
+/// group; the confidential rail adds one tail element, the policy-ring rail
+/// three.
+#[test]
+fn a_seven_element_prefix_folds_like_a_flat_chain_for_every_merge_tail() {
+    let elements: [[u8; 32]; 10] =
+        core::array::from_fn(|index| [u8::try_from(index + 1).expect("index fits a byte"); 32]);
+
+    for tail_len in 1..=3usize {
+        let all = elements
+            .get(..7 + tail_len)
+            .expect("merge element count within the fixture");
+        let prefix = all.get(..7).expect("prefix within the fixture");
+        let tail = all.get(7..).expect("tail within the fixture");
+
+        let mut continued = Vec::with_capacity(1 + tail.len());
+        continued.push(create_hash_chain_4_from_slice(prefix).unwrap());
+        continued.extend_from_slice(tail);
+
+        assert_eq!(
+            create_hash_chain_4_from_slice(&continued).unwrap(),
+            create_hash_chain_4_from_slice(all).unwrap(),
+            "tail length {tail_len}"
+        );
+    }
+}
+
+/// The final group is zero-padded, so appending a zero to a chain whose length
+/// is a multiple of three leaves the digest untouched. The policy-ring merge
+/// relies on this: adding `cache_owner_commitment` as a tenth element keeps a
+/// merge that writes no cache publishing exactly the digest the nine-element
+/// preimage produced.
+#[test]
+fn appending_a_zero_to_a_multiple_of_three_chain_keeps_the_digest() {
+    let elements: [[u8; 32]; 9] =
+        core::array::from_fn(|index| [u8::try_from(index + 1).expect("index fits a byte"); 32]);
+    let mut extended = elements.to_vec();
+    extended.push([0u8; 32]);
+
+    assert_eq!(
+        create_hash_chain_4_from_slice(&extended).unwrap(),
+        create_hash_chain_4_from_slice(&elements).unwrap()
+    );
+
+    let mut nonzero = elements.to_vec();
+    nonzero.push([7u8; 32]);
+    assert_ne!(
+        create_hash_chain_4_from_slice(&nonzero).unwrap(),
+        create_hash_chain_4_from_slice(&elements).unwrap()
+    );
+}

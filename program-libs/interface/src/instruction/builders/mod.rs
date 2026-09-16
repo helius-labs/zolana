@@ -1,4 +1,5 @@
 mod batch_update_nullifier_tree;
+mod cache;
 mod close_nullifier_pdas;
 mod create_asset_counter;
 mod create_associated_token_account;
@@ -15,6 +16,7 @@ mod ring_transact;
 mod transact;
 
 pub use batch_update_nullifier_tree::BatchUpdateNullifierTree;
+pub use cache::{CloseCache, CreateCache};
 pub use close_nullifier_pdas::CloseNullifierPdas;
 pub use create_asset_counter::CreateAssetCounter;
 pub use create_associated_token_account::CreateAssociatedTokenAccount;

@@ -17,8 +17,8 @@ pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
     TransferP256Inputs, TreeSlotFields,
 };
-pub use merge::{MergeProofResult, MergeProver};
-pub use merge_ring::{MergeRingProver, MergeRingWitness};
+pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
+pub use merge_ring::{MergeRingCacheTarget, MergeRingProver, MergeRingWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness};
 pub use transact::{

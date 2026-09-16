@@ -181,6 +181,14 @@ pub enum ShieldedPoolError {
     InvalidCacheRootIndex = 7075,
     #[error("registry cache merges require an EdDSA owner")]
     CacheUnsupportedOwner = 7076,
+    #[error("cache is past its expiry")]
+    CacheExpired = 7077,
+    #[error("cache is not past its expiry")]
+    CacheNotExpired = 7078,
+    #[error("cache owner identity is not a canonical BN254 field element")]
+    NonCanonicalCacheOwnerIdentity = 7079,
+    #[error("cache expiry must be in the future")]
+    CacheExpiryNotInFuture = 7080,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -304,6 +312,10 @@ mod tests {
                 CacheOwnerMismatch => 7074,
                 InvalidCacheRootIndex => 7075,
                 CacheUnsupportedOwner => 7076,
+                CacheExpired => 7077,
+                CacheNotExpired => 7078,
+                NonCanonicalCacheOwnerIdentity => 7079,
+                CacheExpiryNotInFuture => 7080,
             }
         }
 
@@ -387,6 +399,10 @@ mod tests {
             CacheOwnerMismatch,
             InvalidCacheRootIndex,
             CacheUnsupportedOwner,
+            CacheExpired,
+            CacheNotExpired,
+            NonCanonicalCacheOwnerIdentity,
+            CacheExpiryNotInFuture,
         ];
         for (variant, code) in variants.into_iter().zip(7000_u32..) {
             assert_eq!(
@@ -397,7 +413,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 77, "variant count drifted");
+        assert_eq!(variants.len(), 81, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

@@ -195,6 +195,11 @@ name = "merge_functional"
 path = "tests/merge/functional.rs"
 required-features = ["proofs"]
 
+[[test]]
+name = "cache_functional"
+path = "tests/cache/functional.rs"
+required-features = ["proofs"]
+
 # --- Mollusk mutation coverage ---
 
 [[test]]

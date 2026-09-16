@@ -979,6 +979,7 @@ fn tx_size(args: Vec<String>) {
             payer: vault,
             user_record: Pubkey::new_unique(),
             data,
+            cache: None,
         }
         .instruction();
         let merge_ix_accounts = merge_ix.accounts.len();

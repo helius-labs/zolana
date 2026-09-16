@@ -207,6 +207,7 @@ impl LifecycleHarness {
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
             output_tree_id: tree_id,
+            cache: None,
         }
         .build()?;
 
@@ -226,6 +227,7 @@ impl LifecycleHarness {
             payer: self.merge_vault,
             user_record,
             data,
+            cache: None,
         }
         .instruction();
         let sync_ix = execute_sync_ix(

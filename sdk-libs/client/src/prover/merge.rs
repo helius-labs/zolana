@@ -5,6 +5,7 @@
 //! public-input-hash element set are merge-specific.
 
 use num_bigint::BigUint;
+use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::{
     instruction::instruction_data::{
@@ -57,6 +58,13 @@ pub struct MergeProver {
     pub nullifier_key: NullifierKey,
     /// Raw id of the tree the merged output is appended to.
     pub output_tree_id: u16,
+    pub cache: Option<MergeCacheTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MergeCacheTarget {
+    pub address: Address,
+    pub slot: u8,
 }
 
 /// The built merge witness and the instruction-data ingredients, produced by
@@ -82,6 +90,7 @@ pub struct MergeProofResult {
     /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
     /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
     pub eddsa_owner: bool,
+    pub cache_slot: Option<u8>,
 }
 
 impl MergeProofResult {
@@ -91,7 +100,7 @@ impl MergeProofResult {
     /// user_record accounts.
     pub fn instruction_data(&self, proof: MergeProof) -> MergeTransactIxData {
         MergeTransactIxData {
-            cache_slot: None,
+            cache_slot: self.cache_slot,
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
@@ -131,8 +140,24 @@ impl MergeProver {
         let public_input = create_hash_chain_4_from_slice(&elements)?;
 
         // Default merge is non-ring; the merge-ring builder sets the ring binding.
-        Ok(merge.finish(public_input, BigUint::ZERO, BigUint::ZERO))
+        Ok(merge.finish(MergeRailTail {
+            public_input,
+            ring_program_id: BigUint::ZERO,
+            output_ring_data_hash: BigUint::ZERO,
+            operation_id: BigUint::ZERO,
+            has_cache: BigUint::ZERO,
+            cache_owner_commitment: BigUint::ZERO,
+        }))
     }
+}
+
+pub(crate) struct MergeRailTail {
+    pub public_input: [u8; 32],
+    pub ring_program_id: BigUint,
+    pub output_ring_data_hash: BigUint,
+    pub operation_id: BigUint,
+    pub has_cache: BigUint,
+    pub cache_owner_commitment: BigUint,
 }
 
 /// Everything the default ([`MergeProver`]) and policy-ring
@@ -159,8 +184,9 @@ pub(crate) struct CommonMerge {
     pub user_signing_pk_hash: [u8; 32],
     eddsa_owner: bool,
     owner_pk_hash: BigUint,
-    user_nullifier_pk: [u8; 32],
+    pub user_nullifier_pk: [u8; 32],
     user_nullifier_secret: [u8; 32],
+    cache_slot: Option<u8>,
 }
 
 impl MergeProver {
@@ -224,7 +250,10 @@ impl MergeProver {
         // external_data_hash binds the instruction's discriminator, expiry, and
         // output commitment to the proof; the program recomputes it identically.
         let external_data_hash = MergeExternalDataHash {
-            cache: None,
+            cache: self
+                .cache
+                .as_ref()
+                .map(|target| (target.address.as_array(), target.slot)),
             spp_instruction_discriminator,
             expiry_unix_ts: self.expiry_unix_ts,
             output_utxo_hash: &output_hash,
@@ -287,20 +316,23 @@ impl MergeProver {
             owner_pk_hash,
             user_nullifier_pk,
             user_nullifier_secret,
+            cache_slot: self.cache.as_ref().map(|target| target.slot),
         })
     }
 }
 
 impl CommonMerge {
-    /// Fold the rail's completed public-input hash, ring binding, and output
-    /// ring-data hash (both zero for the default merge) into the final witness
-    /// and proof result.
-    pub(crate) fn finish(
-        self,
-        public_input: [u8; 32],
-        ring_program_id: BigUint,
-        output_ring_data_hash: BigUint,
-    ) -> MergeProofResult {
+    /// Fold the rail's tail values (all zero for the default merge) into the
+    /// final witness and proof result.
+    pub(crate) fn finish(self, tail: MergeRailTail) -> MergeProofResult {
+        let MergeRailTail {
+            public_input,
+            ring_program_id,
+            output_ring_data_hash,
+            operation_id,
+            has_cache,
+            cache_owner_commitment,
+        } = tail;
         let inputs = MergeInputs {
             inputs: self.inputs,
             output: self.output,
@@ -315,6 +347,9 @@ impl CommonMerge {
             public_input_hash: be(&public_input),
             output_ring_data_hash,
             ring_program_id,
+            operation_id,
+            has_cache,
+            cache_owner_commitment,
         };
         MergeProofResult {
             inputs,
@@ -327,6 +362,7 @@ impl CommonMerge {
             external_data_hash: self.external_data_hash,
             expiry_unix_ts: self.expiry_unix_ts,
             eddsa_owner: self.eddsa_owner,
+            cache_slot: self.cache_slot,
         }
     }
 }
@@ -374,6 +410,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             signing_pubkey,
             nullifier_key,
             output_tree_id,
+            cache: None,
         })
     }
 }

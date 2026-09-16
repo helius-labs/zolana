@@ -175,6 +175,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         payer,
         user_record,
         data: merge_data.clone(),
+        cache: None,
     }
     .instruction();
     let mut expected_merge = vec![
@@ -195,6 +196,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         payer,
         data: merge_data,
         output_ring_data_hash: [0u8; 32],
+        cache: None,
     }
     .cpi_instruction();
     let mut expected_merge_ring = vec![

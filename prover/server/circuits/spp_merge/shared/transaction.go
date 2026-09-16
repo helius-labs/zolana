@@ -97,10 +97,10 @@ type Transaction struct {
 	RingProgramID frontend.Variable
 }
 
-// Derived contains the owner identity a wrapper may publish in its
+// Derived contains the owner identity a wrapper may bind into its
 // public-input-hash preimage.
 type Derived struct {
-	OwnerPkHash frontend.Variable
+	UserOwnerHash frontend.Variable
 }
 
 // NewInputs allocates n merge input slots and their Merkle paths.
@@ -262,6 +262,6 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	}
 
 	return Derived{
-		OwnerPkHash: t.OwnerPkHash,
+		UserOwnerHash: userOwnerHash,
 	}, nil
 }

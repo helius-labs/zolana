@@ -74,7 +74,13 @@ func TestMergeParametersJSONKeys(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatalf("unmarshal to map: %v", err)
 	}
-	for _, key := range []string{"treeSlots", "outputTreeId"} {
+	for _, key := range []string{
+		"treeSlots",
+		"outputTreeId",
+		"operationId",
+		"hasCache",
+		"cacheOwnerCommitment",
+	} {
 		if _, ok := fields[key]; !ok {
 			t.Fatalf("missing top-level key %q in %s", key, data)
 		}
@@ -251,6 +257,10 @@ func sampleParams() *MergeParameters {
 		AllowDummyInputs:    big.NewInt(1),
 		PublicInputHash:     big.NewInt(0x8888),
 		RingProgramID:       big.NewInt(0),
+
+		OperationID:          big.NewInt(0),
+		HasCache:             big.NewInt(0),
+		CacheOwnerCommitment: big.NewInt(0),
 	}
 }
 

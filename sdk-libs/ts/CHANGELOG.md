@@ -50,8 +50,12 @@ Breaking
   from it, while `InstructionTag` renumbers every tag → point at a deployment of
   the matching program and re-read any address or tag byte you cached.
 - `ShieldedPoolError` and `decodeShieldedPoolError` use consecutive codes
-  7000–7076 matching the program, remove retired names, and include cache and tree-context
-  errors, with `CacheUnsupportedOwner` identifying P256 cache merges → replace
+  7000–7080 matching the program, remove retired names, and include cache and tree-context
+  errors, with `CacheUnsupportedOwner` identifying P256 cache merges,
+  `CacheExpired` and `CacheNotExpired` reporting a cache written after its
+  expiry and a cache closed before it, and `NonCanonicalCacheOwnerIdentity`
+  and `CacheExpiryNotInFuture` rejecting a cache created with an out-of-range
+  owner identity or an expiry that has already passed → replace
   hardcoded codes with the exported constants and use this SDK
   with the matching program version.
 - `MAX_INPUT_TREES` limits each transact to two input trees → split inputs from
