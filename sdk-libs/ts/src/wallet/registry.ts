@@ -364,16 +364,8 @@ export async function recipientConfidentialViewTag(
  * change, which only the rotating path may write.
  */
 function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boolean {
-  const ownerP256 =
-    address.signingPublicKey.signatureType() === "p256"
-      ? address.signingPublicKey.p256().toBytes()
-      : undefined;
-  const ownerMatches =
-    ownerP256 === undefined
-      ? record.ownerP256 === undefined
-      : record.ownerP256 !== undefined && equalBytes(record.ownerP256, ownerP256);
   return (
-    ownerMatches &&
+    record.ownerP256 === undefined &&
     equalBytes(record.nullifierPublicKey, address.nullifierPublicKey) &&
     equalBytes(record.viewingPublicKey, address.viewingPublicKey.toBytes())
   );

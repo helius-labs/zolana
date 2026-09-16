@@ -214,6 +214,27 @@ describe("registry transaction helper compatibility", () => {
     expect(client.getLatestBlockhash).not.toHaveBeenCalled();
   });
 
+  it("updates an existing P256 owner even when the other published keys match", async () => {
+    const { shieldedAddress, data, record, recordData } = registrationFixture();
+    const client = {
+      getAccount: vi.fn(async () => ({
+        ...record,
+        data: Uint8Array.of(
+          ...recordData.slice(0, 34),
+          1,
+          ...data.viewingPublicKey,
+          ...recordData.slice(35),
+        ),
+      })),
+      getLatestBlockhash: vi.fn(async () => LIFETIME),
+    };
+    expect(
+      await buildRegistrationTransaction({ client, owner: OWNER, address: shieldedAddress }),
+    ).toBeDefined();
+    expect(client.getAccount).toHaveBeenCalledOnce();
+    expect(client.getLatestBlockhash).toHaveBeenCalledOnce();
+  });
+
   it("updates differing keys with discriminator 2 and no system account", async () => {
     const { shieldedAddress, data, record, recordData } = registrationFixture();
     const client = {
