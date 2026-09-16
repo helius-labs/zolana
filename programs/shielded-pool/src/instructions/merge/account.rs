@@ -18,19 +18,21 @@ use zolana_user_registry_interface::{
 /// Validated accounts for `merge_transact`, in loader order: `input_tree` and
 /// `output_tree` (writable), `payer` (signer, pays fees), `user_record`
 /// (read-only), System Program, the program account (for the `emit_event`
-/// self-CPI), then one writable nullifier PDA per input.
+/// self-CPI), then one writable nullifier PDA per input and an optional writable cache.
 pub struct MergeTransactAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
+    pub cache: Option<&'a mut AccountView>,
 }
 
 impl<'a> MergeTransactAccounts<'a> {
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         input_count: usize,
+        cache_slot: Option<u8>,
     ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let input_tree = iter.next_mut("input_tree")?;
@@ -51,7 +53,12 @@ impl<'a> MergeTransactAccounts<'a> {
                 .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
         }
+        let cache = iter.next_option_mut("cache", cache_slot.is_some())?;
+        if !iter.remaining_unchecked_mut()?.is_empty() {
+            return Err(ShieldedPoolError::InvalidMergeShape.into());
+        }
         Ok(Self {
+            cache,
             input_tree,
             output_tree,
             payer,

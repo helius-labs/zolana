@@ -55,6 +55,7 @@ pub struct MergeTransactIxData {
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
+    pub cache_slot: Option<u8>,
 }
 
 impl MergeTransactIxData {
@@ -89,6 +90,7 @@ pub struct MergeTransactIxDataRef<'a> {
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
+    pub cache_slot: Option<u8>,
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
@@ -116,6 +118,7 @@ pub struct MergeExternalDataHash<'a> {
     pub spp_instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
     pub output_utxo_hash: &'a [u8; 32],
+    pub cache: Option<(&'a [u8; 32], u8)>,
 }
 
 impl MergeExternalDataHash<'_> {
@@ -124,6 +127,11 @@ impl MergeExternalDataHash<'_> {
         preimage.push(self.spp_instruction_discriminator);
         preimage.extend_from_slice(&self.expiry_unix_ts.to_be_bytes());
         preimage.extend_from_slice(self.output_utxo_hash);
+        preimage.push(u8::from(self.cache.is_some()));
+        if let Some((address, slot)) = self.cache {
+            preimage.extend_from_slice(address);
+            preimage.push(slot);
+        }
         Sha256BE::hash(&preimage)
     }
 }
@@ -134,6 +142,7 @@ mod tests {
 
     fn data() -> MergeTransactIxData {
         MergeTransactIxData {
+            cache_slot: None,
             expiry_unix_ts: 42,
             proof: MergeProof {
                 a: [1u8; 32],
@@ -175,7 +184,7 @@ mod tests {
     fn fixed_shape_wire_length_matches_the_protocol_contract() {
         let bytes = data().serialize().expect("serialize merge instruction");
 
-        assert_eq!(bytes.len(), 270 + 32 * MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(bytes.len(), 271 + 32 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]
@@ -188,6 +197,7 @@ mod tests {
 
     fn hash_of(discriminator: u8, expiry: u64, output: &[u8; 32]) -> [u8; 32] {
         MergeExternalDataHash {
+            cache: None,
             spp_instruction_discriminator: discriminator,
             expiry_unix_ts: expiry,
             output_utxo_hash: output,

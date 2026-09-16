@@ -16,9 +16,9 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
-func compileByIndex(t testing.TB, shape Shape) constraint.ConstraintSystem {
+func compileCached(t testing.TB, shape Shape) constraint.ConstraintSystem {
 	t.Helper()
-	c, err := defaultring.NewDefaultRingEddsaOnlyByIndexCircuit(shape)
+	c, err := defaultring.NewDefaultRingEddsaOnlyCachedCircuit(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func compileByIndex(t testing.TB, shape Shape) constraint.ConstraintSystem {
 	return ccs
 }
 
-func checkByIndexWitness(t testing.TB, ccs constraint.ConstraintSystem, c frontend.Circuit, wantValid bool) {
+func checkCachedWitness(t testing.TB, ccs constraint.ConstraintSystem, c frontend.Circuit, wantValid bool) {
 	t.Helper()
 	w, err := frontend.NewWitness(c, ecc.BN254.ScalarField())
 	if err != nil {
@@ -44,7 +44,7 @@ func checkByIndexWitness(t testing.TB, ccs constraint.ConstraintSystem, c fronte
 	}
 }
 
-func byIndexAssignment(t testing.TB, a *testAssignment, bitmap uint64) *defaultring.DefaultRingEddsaOnlyByIndexCircuit {
+func cachedAssignment(t testing.TB, a *testAssignment, bitmap uint64) *defaultring.DefaultRingEddsaOnlyCachedCircuit {
 	t.Helper()
 	hashes := make([]*big.Int, len(a.Inputs))
 	for i, in := range a.Inputs {
@@ -57,18 +57,18 @@ func byIndexAssignment(t testing.TB, a *testAssignment, bitmap uint64) *defaultr
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &defaultring.DefaultRingEddsaOnlyByIndexCircuit{
+	c := &defaultring.DefaultRingEddsaOnlyCachedCircuit{
 		DefaultRingEddsaOnlyCircuit: *asDefaultRingEddsaOnly(a).(*defaultring.DefaultRingEddsaOnlyCircuit),
-		ProveByIndex: defaultring.ProveByIndex{
+		CachedInputs: defaultring.CachedInputs{
 			InputBitmap: new(big.Int).SetUint64(bitmap), TreeID: a.TreeSlots[0].ID, InputHashChain: chain,
 		},
 	}
-	refreshByIndexHash(t, c)
+	refreshCachedHash(t, c)
 	return c
 }
 
 // Independent native preimage, kept test-local until the prover integration phase.
-func refreshByIndexHash(t testing.TB, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
+func refreshCachedHash(t testing.TB, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
 	t.Helper()
 	chain := func(values []frontend.Variable) *big.Int {
 		h, err := protocol.HashChain4(spptest.ToBigInts(values))
@@ -91,7 +91,7 @@ func refreshByIndexHash(t testing.TB, c *defaultring.DefaultRingEddsaOnlyByIndex
 		fields = append(fields, spptest.AsBigInt(p.PublicAssets[i]), spptest.AsBigInt(p.PublicAmounts[i]))
 	}
 	fields = append(fields, big.NewInt(0), signerChain, spptest.AsBigInt(p.InputFlags), chain(p.OutputOwnerPkHashes),
-		spptest.AsBigInt(c.ProveByIndex.InputBitmap), spptest.AsBigInt(c.ProveByIndex.TreeID), spptest.AsBigInt(c.ProveByIndex.InputHashChain))
+		spptest.AsBigInt(c.CachedInputs.InputBitmap), spptest.AsBigInt(c.CachedInputs.TreeID), spptest.AsBigInt(c.CachedInputs.InputHashChain))
 	h, err := protocol.HashChain4(fields)
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func refreshByIndexHash(t testing.TB, c *defaultring.DefaultRingEddsaOnlyByIndex
 	c.Public.PublicInputHash = h
 }
 
-func clearStatePaths(c *defaultring.DefaultRingEddsaOnlyByIndexCircuit, bitmap uint64) {
+func clearStatePaths(c *defaultring.DefaultRingEddsaOnlyCachedCircuit, bitmap uint64) {
 	for i := range c.Private.Inputs {
 		if bitmap&(uint64(1)<<i) != 0 {
 			c.Private.Inputs[i].StatePathIndex = 0
@@ -108,73 +108,73 @@ func clearStatePaths(c *defaultring.DefaultRingEddsaOnlyByIndexCircuit, bitmap u
 	}
 }
 
-func TestProveByIndexConstraints(t *testing.T) {
+func TestCacheConstraints(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	ccs := compileByIndex(t, Shape(shape))
+	ccs := compileCached(t, Shape(shape))
 	for _, tc := range []struct {
 		name   string
 		bitmap uint64
 		valid  bool
-		mutate func(*testing.T, *defaultring.DefaultRingEddsaOnlyByIndexCircuit)
+		mutate func(*testing.T, *defaultring.DefaultRingEddsaOnlyCachedCircuit)
 	}{
-		{"all indexed without state root", 3, true, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
+		{"all cached without state root", 3, true, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
 			c.Public.TreeSlots[0].UtxoRoot = 0
 		}},
 		{"mixed inclusion", 1, true, nil},
-		{"unmarked bad state path", 1, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
+		{"unmarked bad state path", 1, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
 			c.Private.Inputs[1].StatePathElements[0] = 999
 		}},
-		{"unmarked requires state root", 1, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
+		{"unmarked requires state root", 1, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
 			c.Public.TreeSlots[0].UtxoRoot = 0
 		}},
 		{"empty bitmap", 0, false, nil},
 		{"bitmap past input count", 5, false, nil},
-		{"negative bitmap", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
-			c.ProveByIndex.InputBitmap = new(big.Int).Sub(ecc.BN254.ScalarField(), big.NewInt(1))
+		{"negative bitmap", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
+			c.CachedInputs.InputBitmap = new(big.Int).Sub(ecc.BN254.ScalarField(), big.NewInt(1))
 		}},
-		{"wrong receipt tree", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) { c.ProveByIndex.TreeID = 17 }},
-		{"tree exceeds u16", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) { c.ProveByIndex.TreeID = 65536 }},
-		{"wrong receipt commitments", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
-			c.ProveByIndex.InputHashChain = 123
+		{"wrong cache tree", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) { c.CachedInputs.TreeID = 17 }},
+		{"tree exceeds u16", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) { c.CachedInputs.TreeID = 65536 }},
+		{"wrong cache commitments", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
+			c.CachedInputs.InputHashChain = 123
 		}},
-		{"swapped receipt slots", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
-			hashes := []*big.Int{testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[1].Utxo), c.ProveByIndex.TreeID), testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[0].Utxo), c.ProveByIndex.TreeID)}
+		{"swapped cache slots", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
+			hashes := []*big.Int{testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[1].Utxo), c.CachedInputs.TreeID), testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[0].Utxo), c.CachedInputs.TreeID)}
 			h, err := protocol.HashChain4(hashes)
 			if err != nil {
 				t.Fatal(err)
 			}
-			c.ProveByIndex.InputHashChain = h
+			c.CachedInputs.InputHashChain = h
 		}},
-		{"unmasked unselected slot", 1, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
-			hashes := []*big.Int{testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[0].Utxo), c.ProveByIndex.TreeID), testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[1].Utxo), c.ProveByIndex.TreeID)}
+		{"unmasked unselected slot", 1, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
+			hashes := []*big.Int{testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[0].Utxo), c.CachedInputs.TreeID), testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[1].Utxo), c.CachedInputs.TreeID)}
 			h, err := protocol.HashChain4(hashes)
 			if err != nil {
 				t.Fatal(err)
 			}
-			c.ProveByIndex.InputHashChain = h
+			c.CachedInputs.InputHashChain = h
 		}},
-		{"nullifier path still required", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
+		{"nullifier path still required", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
 			c.Private.Inputs[0].NullifierLowPathElements[0] = 999
 		}},
-		{"nullifier derivation still required", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) { c.Public.Nullifiers[0] = 999 }},
-		{"owner authorization still required", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
+		{"nullifier derivation still required", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) { c.Public.Nullifiers[0] = 999 }},
+		{"owner authorization still required", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
 			c.Private.InputOwnerPkHashes[0] = 999
 		}},
-		{"balance still required", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyByIndexCircuit) {
+		{"balance still required", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCachedCircuit) {
 			c.Public.PublicAssets[0] = c.Private.Inputs[0].Utxo.Asset
 			c.Public.PublicAmounts[0] = 1
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := buildDefaultRingEddsaOnlyAssignment(t, shape)
-			c := byIndexAssignment(t, a, tc.bitmap)
+			c := cachedAssignment(t, a, tc.bitmap)
 			clearStatePaths(c, tc.bitmap)
 			if tc.mutate != nil {
 				tc.mutate(t, c)
 			}
 			// Rebind public mutations so rejection cannot be just a stale hash.
-			refreshByIndexHash(t, c)
-			checkByIndexWitness(t, ccs, c, tc.valid)
+			refreshCachedHash(t, c)
+			checkCachedWitness(t, ccs, c, tc.valid)
 		})
 	}
 
@@ -182,13 +182,13 @@ func TestProveByIndexConstraints(t *testing.T) {
 		a := buildDefaultRingEddsaOnlyAssignment(t, shape)
 		moveInputToSlot(t, a, 1, 1)
 		makeDefaultRing(t, a)
-		c := byIndexAssignment(t, a, 1)
+		c := cachedAssignment(t, a, 1)
 		clearStatePaths(c, 1)
-		checkByIndexWitness(t, ccs, c, true)
-		// The same otherwise-valid input cannot use this receipt's other tree.
-		c = byIndexAssignment(t, a, 3)
+		checkCachedWitness(t, ccs, c, true)
+		// The same otherwise-valid input cannot use this cache's other tree.
+		c = cachedAssignment(t, a, 3)
 		clearStatePaths(c, 3)
-		checkByIndexWitness(t, ccs, c, false)
+		checkCachedWitness(t, ccs, c, false)
 	})
 
 	for _, bitmap := range []uint64{1, 3} {
@@ -199,39 +199,39 @@ func TestProveByIndexConstraints(t *testing.T) {
 				outputs[i].Amount = inputs[0].Amount
 			}
 			a := buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
-			checkByIndexWitness(t, ccs, byIndexAssignment(t, a, bitmap), true)
+			checkCachedWitness(t, ccs, cachedAssignment(t, a, bitmap), true)
 			// Keep balance, ownership, paths and both transaction hashes valid,
 			// but spend the same UTXO twice, including across inclusion modes.
 			inputs[1] = inputs[0]
 			a = buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
-			checkByIndexWitness(t, ccs, byIndexAssignment(t, a, bitmap), false)
+			checkCachedWitness(t, ccs, cachedAssignment(t, a, bitmap), false)
 		})
 	}
 
 	for _, field := range []string{"bitmap", "tree", "commitments"} {
 		t.Run("public hash binds "+field, func(t *testing.T) {
-			c := byIndexAssignment(t, buildDefaultRingEddsaOnlyAssignment(t, shape), 3)
-			checkByIndexWitness(t, ccs, c, true)
-			original := c.ProveByIndex
+			c := cachedAssignment(t, buildDefaultRingEddsaOnlyAssignment(t, shape), 3)
+			checkCachedWitness(t, ccs, c, true)
+			original := c.CachedInputs
 			switch field {
 			case "bitmap":
-				c.ProveByIndex.InputBitmap = 1
+				c.CachedInputs.InputBitmap = 1
 			case "tree":
-				c.ProveByIndex.TreeID = 17
+				c.CachedInputs.TreeID = 17
 			case "commitments":
-				c.ProveByIndex.InputHashChain = 123
+				c.CachedInputs.InputHashChain = 123
 			}
-			refreshByIndexHash(t, c)
-			c.ProveByIndex = original
-			checkByIndexWitness(t, ccs, c, false)
+			refreshCachedHash(t, c)
+			c.CachedInputs = original
+			checkCachedWitness(t, ccs, c, false)
 		})
 	}
 }
 
-func TestProveByIndexRejectsNonUtxos(t *testing.T) {
+func TestCacheRejectsNonUtxos(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
-	ccs := compileByIndex(t, shape)
-	checkByIndexWitness(t, ccs, byIndexAssignment(t, buildDefaultRingEddsaOnlyAssignment(t, protocol.Shape(shape)), 1), true)
+	ccs := compileCached(t, shape)
+	checkCachedWitness(t, ccs, cachedAssignment(t, buildDefaultRingEddsaOnlyAssignment(t, protocol.Shape(shape)), 1), true)
 	ordinary, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, MustNewDefaultRingEddsaOnlyCircuit(shape))
 	if err != nil {
 		t.Fatal(err)
@@ -244,32 +244,32 @@ func TestProveByIndexRejectsNonUtxos(t *testing.T) {
 				finalizeAddressAssignment(t, a, false, true)
 			}
 			makeDefaultRing(t, a)
-			checkByIndexWitness(t, ordinary, asDefaultRingEddsaOnly(a), true)
-			checkByIndexWitness(t, ccs, byIndexAssignment(t, a, 1), false)
+			checkCachedWitness(t, ordinary, asDefaultRingEddsaOnly(a), true)
+			checkCachedWitness(t, ccs, cachedAssignment(t, a, 1), false)
 		})
 	}
 }
 
-func TestProveByIndexCapacity(t *testing.T) {
-	shape := protocol.Shape{NInputs: defaultring.ProveByIndexCapacity, NOutputs: 2}
-	ccs := compileByIndex(t, Shape(shape))
+func TestCacheCapacity(t *testing.T) {
+	shape := protocol.Shape{NInputs: defaultring.CacheCapacity, NOutputs: 2}
+	ccs := compileCached(t, Shape(shape))
 	a := buildDefaultRingEddsaOnlyAssignment(t, shape)
 	for _, bitmap := range []uint64{1 << 35, (1 << 36) - 1, 1 << 36} {
 		t.Run(fmt.Sprintf("bitmap_%x", bitmap), func(t *testing.T) {
-			c := byIndexAssignment(t, a, bitmap)
+			c := cachedAssignment(t, a, bitmap)
 			clearStatePaths(c, bitmap)
-			checkByIndexWitness(t, ccs, c, bitmap < 1<<36)
+			checkCachedWitness(t, ccs, c, bitmap < 1<<36)
 		})
 	}
 }
 
-func TestProveByIndexLayout(t *testing.T) {
+func TestCacheLayout(t *testing.T) {
 	for _, shape := range []Shape{{NInputs: 0, NOutputs: 2}, {NInputs: 1, NOutputs: 0}, {NInputs: 37, NOutputs: 2}} {
-		if _, err := defaultring.NewDefaultRingEddsaOnlyByIndexCircuit(shape); err == nil {
+		if _, err := defaultring.NewDefaultRingEddsaOnlyCachedCircuit(shape); err == nil {
 			t.Fatalf("accepted invalid shape %+v", shape)
 		}
 	}
-	c, err := defaultring.NewDefaultRingEddsaOnlyByIndexCircuit(Shape{NInputs: 1, NOutputs: 2})
+	c, err := defaultring.NewDefaultRingEddsaOnlyCachedCircuit(Shape{NInputs: 1, NOutputs: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

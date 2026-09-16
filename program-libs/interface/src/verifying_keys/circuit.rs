@@ -5,6 +5,8 @@ use wincode::{
     ReadError, ReadResult, SchemaRead, SchemaWrite, TypeMeta, WriteResult,
 };
 
+use crate::state::cache::CACHE_CAPACITY;
+
 const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 
 /// The compressed BSB22 commitment carried by a committed Groth16 proof.
@@ -25,6 +27,29 @@ pub struct RingP256ProofData {
     /// address slots do not count. `None` keeps ring-only P256 ownership private.
     #[wincode(with = "FixedOptionOwnerTag")]
     pub default_owner_tag: Option<[u8; 32]>,
+}
+
+/// Carried by the new circuit selector; input i selects cache slot i.
+/// The cache is the final account and must not alias another instruction account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct CachedInputs {
+    pub input_bitmap: u64,
+}
+
+impl CachedInputs {
+    pub fn valid_bitmap(self, input_count: usize) -> bool {
+        (1..=CACHE_CAPACITY).contains(&input_count)
+            && self.input_bitmap != 0
+            && self.input_bitmap >> input_count == 0
+    }
+
+    pub fn selects(self, input_index: usize) -> bool {
+        self.input_bitmap
+            .checked_shr(input_index as u32)
+            .unwrap_or(0)
+            & 1
+            != 0
+    }
 }
 
 /// Fixed-width wire adapter for the optional owner tag. Keeping the circuit
@@ -94,10 +119,11 @@ pub enum OutputOwnerMode {
 
 /// A supported `transact` circuit instantiation.
 ///
-/// The tuple fields are `(number of inputs, number of outputs, number of
-/// public asset slots)`. The selector is not a circuit public input: it selects
-/// the verifying key and is validated against the dispatched instruction and
-/// the instruction data before verification.
+/// The first three tuple fields are `(number of inputs, number of outputs,
+/// number of public asset slots)`, followed by any variant-specific payload.
+/// The enum tag selects the verifying key and is validated against the dispatched
+/// instruction and its data. The tag is not a circuit public input; payload fields
+/// such as `CachedInputs::input_bitmap` contribute to the proof's public input hash.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u16")]
 pub enum CircuitId {
@@ -106,15 +132,24 @@ pub enum CircuitId {
     RingEddsa(u8, u8, u8),
     RingAuthority(u8, u8, u8),
     RingP256(u8, u8, u8, RingP256ProofData),
+    ConfidentialEddsaCached(u8, u8, u8, CachedInputs),
 }
 
 impl CircuitId {
+    pub const fn cached_inputs(self) -> Option<CachedInputs> {
+        match self {
+            Self::ConfidentialEddsaCached(_, _, _, selection) => Some(selection),
+            _ => None,
+        }
+    }
+
     pub const fn num_inputs(self) -> u8 {
         match self {
             Self::ConfidentialEddsa(n, _, _)
             | Self::RingEddsa(n, _, _)
             | Self::RingAuthority(n, _, _)
-            | Self::RingP256(n, _, _, _) => n,
+            | Self::RingP256(n, _, _, _)
+            | Self::ConfidentialEddsaCached(n, _, _, _) => n,
         }
     }
 
@@ -123,7 +158,8 @@ impl CircuitId {
             Self::ConfidentialEddsa(_, n, _)
             | Self::RingEddsa(_, n, _)
             | Self::RingAuthority(_, n, _)
-            | Self::RingP256(_, n, _, _) => n,
+            | Self::RingP256(_, n, _, _)
+            | Self::ConfidentialEddsaCached(_, n, _, _) => n,
         }
     }
 
@@ -132,7 +168,8 @@ impl CircuitId {
             Self::ConfidentialEddsa(_, _, n)
             | Self::RingEddsa(_, _, n)
             | Self::RingAuthority(_, _, n)
-            | Self::RingP256(_, _, n, _) => n,
+            | Self::RingP256(_, _, n, _)
+            | Self::ConfidentialEddsaCached(_, _, n, _) => n,
         }
     }
 
@@ -147,7 +184,10 @@ impl CircuitId {
     pub const fn is_confidential(self) -> bool {
         matches!(
             self,
-            Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingP256(..)
+            Self::ConfidentialEddsa(..)
+                | Self::ConfidentialEddsaCached(..)
+                | Self::RingEddsa(..)
+                | Self::RingP256(..)
         )
     }
 
@@ -186,7 +226,7 @@ impl CircuitId {
 
     pub const fn output_owner_mode(self) -> OutputOwnerMode {
         match self {
-            Self::ConfidentialEddsa(..) => OutputOwnerMode::All,
+            Self::ConfidentialEddsa(..) | Self::ConfidentialEddsaCached(..) => OutputOwnerMode::All,
             Self::RingEddsa(..) | Self::RingP256(..) => OutputOwnerMode::ConfidentialMarked,
             Self::RingAuthority(..) => OutputOwnerMode::None,
         }
@@ -199,7 +239,10 @@ impl CircuitId {
             return false;
         }
         match self {
-            Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingP256(..) => matches!(
+            Self::ConfidentialEddsa(..)
+            | Self::ConfidentialEddsaCached(..)
+            | Self::RingEddsa(..)
+            | Self::RingP256(..) => matches!(
                 (n_inputs, n_outputs),
                 (1, 1)
                     | (1, 2)
@@ -314,6 +357,39 @@ impl CircuitId {
             }
             Self::RingAuthority(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
                 &transfer_ring_authority_4_4::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(1, 1, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_1_1::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(1, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_1_2::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(1, 8, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_1_8::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(2, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_2_2::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(2, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_2_3::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(3, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_3_3::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(4, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_4_3::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(4, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_4_4::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(5, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_5_3::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(5, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_5_4::VERIFYINGKEY
+            }
+            Self::ConfidentialEddsaCached(36, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_confidential_cached_36_2::VERIFYINGKEY
             }
             _ => return None,
         };

@@ -285,3 +285,7 @@ path = "tests/spl_interface/validation.rs"
 [[test]]
 name = "dispatch_validation"
 path = "tests/dispatch/validation.rs"
+
+[[test]]
+name = "cache"
+path = "tests/cache/contract.rs"

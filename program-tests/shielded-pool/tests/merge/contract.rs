@@ -28,6 +28,7 @@ use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 /// ciphertext-free (recovered from the first input and its nullifier).
 fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     MergeTransactIxData {
+        cache_slot: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
@@ -680,6 +681,7 @@ mod program_unit {
         let error = match MergeTransactAccounts::validate_and_parse(
             &mut accounts,
             MERGE_DEFAULT_INPUT_COUNT,
+            None,
         ) {
             Ok(_) => panic!("invalid System Program must fail"),
             Err(error) => error,
@@ -707,6 +709,7 @@ mod program_unit {
         let error = match MergeTransactAccounts::validate_and_parse(
             &mut accounts,
             MERGE_DEFAULT_INPUT_COUNT,
+            None,
         ) {
             Ok(_) => panic!("a non-SPP program account must fail"),
             Err(error) => error,

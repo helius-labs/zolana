@@ -12,7 +12,7 @@ describe("shielded-pool error codes", () => {
     expect(decodeShieldedPoolError(code)).toEqual({ kind: "known", code, name });
   });
 
-  it.each([6999, 7066, 7071, 0xffffffff])("keeps unknown code %i unnamed", (code) => {
+  it.each([6999, 7077, 7082, 0xffffffff])("keeps unknown code %i unnamed", (code) => {
     expect(decodeShieldedPoolError(code)).toEqual({ kind: "unknown", code });
   });
 });

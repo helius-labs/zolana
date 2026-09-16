@@ -656,3 +656,35 @@ fn emit_event_data_must_start_with_the_emit_event_tag() {
         Err(EventDecodeError::InvalidEventKind(200))
     );
 }
+
+#[test]
+fn cached_merges_reconstruct_under_the_existing_tags() {
+    for ring in [false, true] {
+        let mut merge = merge_ix([0xC0; 32]);
+        merge.cache_slot = Some(35);
+        let (tag, bytes, output_data) = if ring {
+            let mut wrapper = merge_ring_ix([0xC0; 32], [0xE0; 32]);
+            wrapper.merge = merge;
+            (
+                tag::RING_MERGE_TRANSACT,
+                wrapper.serialize().unwrap(),
+                vec![0xE0; 32],
+            )
+        } else {
+            (tag::MERGE_TRANSACT, merge.serialize().unwrap(), Vec::new())
+        };
+        let src = source(
+            Pubkey::new_unique(),
+            tag,
+            vec![Pubkey::new_unique()],
+            bytes,
+            1,
+        );
+        let event = reconstruct_general_event(
+            &src,
+            &emit_event_data(EventKind::Merge, &merge_event([0xD0; 32])),
+        )
+        .unwrap();
+        assert_eq!(event, expected_merge([0xD0; 32], output_data));
+    }
+}

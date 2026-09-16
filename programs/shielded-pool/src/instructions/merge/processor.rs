@@ -1,4 +1,4 @@
-use crate::instructions::shared::caused_by;
+use crate::instructions::{cache::loader::check_cache_alias, shared::caused_by};
 use arrayvec::ArrayVec;
 use pinocchio::{
     error::ProgramError,
@@ -21,6 +21,7 @@ use zolana_tree::TreeAccount;
 
 use super::{
     account::{load_user_record, MergeTransactAccounts},
+    cache::{CacheAuthority, CacheSlot},
     event::{build_merge_event, MergeTreeWrite},
     verify::{MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
@@ -68,7 +69,9 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeTransactAccounts::validate_and_parse(accounts, ix.nullifiers.len())?;
+    check_cache_alias(accounts, ix.cache_slot.is_some())?;
+    let merge_accounts =
+        MergeTransactAccounts::validate_and_parse(accounts, ix.nullifiers.len(), ix.cache_slot)?;
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
 
@@ -85,10 +88,24 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     // alter it.
     let output_view_tag = pk_fields.signing_view_tag;
 
+    let cache = match (merge_accounts.cache, ix.cache_slot) {
+        (Some(account), Some(slot)) => {
+            if !ix.eddsa_owner {
+                return Err(ShieldedPoolError::CacheOwnerMismatch.into());
+            }
+            Some(CacheSlot::open(
+                account,
+                slot,
+                CacheAuthority::Registry(output_view_tag),
+            )?)
+        }
+        _ => None,
+    };
     let external_data_hash = MergeExternalDataHash {
         spp_instruction_discriminator: MERGE_TRANSACT,
         expiry_unix_ts: ix.expiry_unix_ts,
         output_utxo_hash: ix.output_utxo_hash,
+        cache: cache.as_ref().map(CacheSlot::destination),
     }
     .hash()
     .map_err(caused_by(
@@ -107,6 +124,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         MergeOwnerBinding::Registry { signing_pk_field },
         output_view_tag,
         clock.slot,
+        cache,
     )
 }
 
@@ -122,6 +140,7 @@ pub(crate) fn process_merge_core(
     owner_binding: MergeOwnerBinding,
     output_view_tag: [u8; 32],
     slot: u64,
+    cache: Option<CacheSlot<'_>>,
 ) -> ProgramResult {
     let (input_tree_result, mut derived) = {
         let input_tree = accounts.input_tree.address().to_bytes();
@@ -183,7 +202,11 @@ pub(crate) fn process_merge_core(
     };
 
     let event = build_merge_event(tree_write, output_view_tag);
+    let output_tree_id = derived.output_tree_id;
     MergeProof::new(ix, derived).verify()?;
+    if let Some(cache) = cache {
+        cache.write(ix.output_utxo_hash, output_tree_id)?;
+    }
     emit_event(EventKind::Merge, &event)
 }
 
