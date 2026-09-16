@@ -1,0 +1,25 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.59s
+     Running tests/direct_spend/localnet.rs (/Users/tsv/Developer/zolana/zolana-direct-spend/target/debug/deps/direct_spend_localnet-553a083954778eab)
+
+running 1 test
+Starting local validator
+Starting surfpool: /Users/tsv/Developer/zolana/zolana-10x-direct/target/tools/surfpool start --offline --no-tui --no-deploy --no-studio --port 8999 --host 127.0.0.1 --bpf-program regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD /Users/tsv/Developer/zolana/zolana-10x-direct/target/deploy/zolana_user_registry.so --bpf-program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG /Users/tsv/Developer/zolana/zolana-10x-direct/target/deploy/squads_smart_account_program.so --upgradeable-program sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6 /Users/tsv/Developer/zolana/zolana-10x-direct/target/deploy/shielded_pool_program.so EdMSvMoHfsemd2s7eHCrRnuM1dzPu2CpUrHJN98XYC9y --account-dir /var/folders/2j/bdwsm15103l0k1pp9xm1bmz80000gn/T/zolana-direct-spend-bench-smart-accounts-13631
+Writing surfpool logs to test-ledger/surfpool.log
+Starting Photon: /Users/tsv/Developer/zolana/zolana-direct-spend/target/debug/photon --rpc-url http://127.0.0.1:8999 --port 8884 --start-slot latest
+Writing photon logs to test-ledger/photon.log
+Photon indexer is ready at http://127.0.0.1:8884
+Local validator environment is ready
+Starting prover: /Users/tsv/Developer/zolana/zolana-direct-spend/target/prover-server start --keys-dir /Users/tsv/Developer/zolana/zolana-10x-direct/prover/server/proving-keys/ --prover-address 0.0.0.0:3102 --metrics-address 0.0.0.0:10099 --auto-download=true
+Writing prover-server logs to test-ledger/prover-server.log
+Prover started successfully
+packed transaction: 3818 bytes, 6 addresses
+packed spend: 430224 CU (limit 1400000)
+packed transaction: 3818 bytes, 6 addresses
+packed spend: 428418 CU (limit 1400000)
+packed transaction: 1332 bytes, 10 addresses
+packed spend: 288480 CU (limit 1400000)
+E2E_PIPELINE {"certificate_prove_ms":5061,"concurrency":4,"confirmed_ms":715,"final_transaction_cu":288480,"indexed_ms":901,"inputs":144,"preparation_cu":858642,"preparation_ms":6181,"prepared":true,"prove_ms":28,"send_transactions":1,"setup_ms":34495,"submit_ms":672,"total_cu":1147122,"total_ms":7704,"transactions":3,"warm_keys":true,"warmup_ms":4231,"witness_ms":621}
+test direct_spend_e2e_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 46.43s
+

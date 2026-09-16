@@ -7,11 +7,11 @@ use pinocchio_system::instructions::{Allocate, Assign, CreateAccount, Transfer};
 use zolana_interface::{error::ShieldedPoolError, state::TREE_ALLOCATION_STEP, TREE_PDA_SEED};
 use zolana_tree::UNINITIALIZED;
 
-pub(super) fn is_unallocated(tree: &AccountView) -> bool {
+pub(crate) fn is_unallocated(tree: &AccountView) -> bool {
     pinocchio_system::check_id(tree.owner()) && tree.data_len() == 0
 }
 
-pub(super) struct TreeAllocation<'a> {
+pub(crate) struct TreeAllocation<'a> {
     pub payer: &'a AccountView,
     pub tree: &'a mut AccountView,
     pub tree_id_seed: [u8; 2],
@@ -29,34 +29,12 @@ impl TreeAllocation<'_> {
             Seed::from(self.tree_id_seed.as_ref()),
             Seed::from(bump_seed.as_ref()),
         ];
-        let signer = Signer::from(&seeds);
-        let space = self.full_size.min(TREE_ALLOCATION_STEP) as u64;
-        if self.tree.lamports() == 0 {
-            return CreateAccount {
-                from: self.payer,
-                to: self.tree,
-                lamports: self.lamports,
-                space,
-                owner: &crate::ID,
-            }
-            .invoke_signed(&[signer]);
-        }
-        Allocate {
-            account: self.tree,
-            space,
-        }
-        .invoke_signed(core::slice::from_ref(&signer))?;
-        Assign {
-            account: self.tree,
-            owner: &crate::ID,
-        }
-        .invoke_signed(core::slice::from_ref(&signer))?;
-        fund_tree(self.payer, self.tree, self.lamports)
+        create_account(self.payer, self.tree, &seeds, self.full_size, self.lamports)
     }
 }
 
 #[inline(never)]
-pub(super) fn fund_tree(payer: &AccountView, tree: &AccountView, lamports: u64) -> ProgramResult {
+pub(crate) fn fund_tree(payer: &AccountView, tree: &AccountView, lamports: u64) -> ProgramResult {
     let missing = lamports.saturating_sub(tree.lamports());
     if missing == 0 {
         return Ok(());
@@ -70,7 +48,7 @@ pub(super) fn fund_tree(payer: &AccountView, tree: &AccountView, lamports: u64) 
 }
 
 #[inline(never)]
-pub(super) fn grow_tree(tree: &mut AccountView, full_size: usize) -> ProgramResult {
+pub(crate) fn grow_tree(tree: &mut AccountView, full_size: usize) -> ProgramResult {
     if !tree.is_writable() || !tree.owned_by(&crate::ID) {
         return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
@@ -86,6 +64,41 @@ pub(super) fn grow_tree(tree: &mut AccountView, full_size: usize) -> ProgramResu
             return Err(ShieldedPoolError::InvalidTreeAccounts.into());
         }
     }
-    let target = current.saturating_add(TREE_ALLOCATION_STEP).min(full_size);
-    tree.resize(target)
+    grow_account(tree, full_size)
+}
+
+pub(crate) fn create_account(
+    payer: &AccountView,
+    account: &mut AccountView,
+    seeds: &[Seed<'_>],
+    full_size: usize,
+    lamports: u64,
+) -> ProgramResult {
+    let signer = Signer::from(seeds);
+    let space = full_size.min(TREE_ALLOCATION_STEP) as u64;
+    if account.lamports() == 0 {
+        return CreateAccount {
+            from: payer,
+            to: account,
+            lamports,
+            space,
+            owner: &crate::ID,
+        }
+        .invoke_signed(&[signer]);
+    }
+    Allocate { account, space }.invoke_signed(core::slice::from_ref(&signer))?;
+    Assign {
+        account,
+        owner: &crate::ID,
+    }
+    .invoke_signed(core::slice::from_ref(&signer))?;
+    fund_tree(payer, account, lamports)
+}
+
+pub(crate) fn grow_account(account: &mut AccountView, full_size: usize) -> ProgramResult {
+    let target = account
+        .data_len()
+        .saturating_add(TREE_ALLOCATION_STEP)
+        .min(full_size);
+    account.resize(target)
 }

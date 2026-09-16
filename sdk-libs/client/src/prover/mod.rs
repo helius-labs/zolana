@@ -1,4 +1,5 @@
 mod client;
+pub mod direct_spend;
 pub mod field;
 mod inputs;
 mod json;

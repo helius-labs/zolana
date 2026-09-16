@@ -14,6 +14,7 @@ import (
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
+	directprover "zolana/prover/prover/direct_spend"
 	"zolana/prover/prover/extractor"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
@@ -137,6 +138,32 @@ func runCli() {
 						Str("output", path).
 						Msg("Transfer proving system written")
 					return nil
+				},
+			},
+			{
+				Name: "setup-direct-spend",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Required: true},
+					&cli.StringFlag{Name: "circuit", Required: true},
+					&cli.UintFlag{Name: "n-inputs", Required: true},
+					&cli.UintFlag{Name: "n-outputs"},
+				},
+				Action: func(context *cli.Context) error {
+					ps, err := directprover.Setup(
+						common.CircuitType(context.String("circuit")),
+						uint32(context.Uint("n-inputs")),
+						uint32(context.Uint("n-outputs")),
+					)
+					if err != nil {
+						return err
+					}
+					file, err := os.Create(context.String("output"))
+					if err != nil {
+						return err
+					}
+					defer file.Close()
+					_, err = ps.WriteTo(file)
+					return err
 				},
 			},
 			{

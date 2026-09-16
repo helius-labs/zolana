@@ -25,6 +25,9 @@ bash scripts/generate_keys_transfer.sh "$keys_dir"
 echo "==> generating merge proving keys"
 bash scripts/generate_keys_merge.sh "$keys_dir"
 
+echo "==> generating direct-spend proving keys"
+bash scripts/generate_keys_direct_spend.sh "$keys_dir"
+
 echo "==> generating the custom-ring policy proving key and its verifying key"
 vkey_dir="$repo_root/custom-rings/interface/src"
 tmp_dir="$(mktemp -d)"

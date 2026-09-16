@@ -77,6 +77,7 @@
 pub mod error;
 pub mod fees;
 pub mod nullifier_tree;
+pub mod pending_nullifiers;
 pub mod smt;
 
 use core::mem::{size_of, MaybeUninit};
@@ -143,7 +144,7 @@ unsafe impl<'de, C: ConfigCore, const UH: usize, const ZKP_BATCHES: usize> Schem
     }
 }
 
-type SppTreeLayout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
+pub type SppTreeLayout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
 
 /// The layout reference either borrows caller-provided bytes (`init`,
 /// `from_bytes`) or owns the account-data borrow guard, so the account's
@@ -229,6 +230,13 @@ impl<'a> TreeAccount<'a> {
             pubkey,
             layout: LayoutRef::Raw(layout),
         })
+    }
+
+    pub fn read_layout(bytes: &[u8]) -> Result<&SppTreeLayout, TreeError> {
+        let layout: &SppTreeLayout =
+            wincode::deserialize(bytes).map_err(|_| TreeError::Deserialize)?;
+        check_layout(layout)?;
+        Ok(layout)
     }
 
     pub fn from_bytes(bytes: &'a mut [u8], pubkey: [u8; 32]) -> Result<Self, TreeError> {
@@ -327,6 +335,36 @@ impl<'a> TreeAccount<'a> {
 
     pub fn close_before_index(&self) -> u64 {
         self.layout().nullifier.close_before_index
+    }
+
+    pub fn uses_compact_nullifiers(&self) -> bool {
+        self.layout()._reserved[0] == 1
+    }
+
+    pub fn read_compact_nullifiers(bytes: &[u8]) -> Result<bool, TreeError> {
+        let offset = core::mem::offset_of!(SppTreeLayout, _reserved);
+        match bytes.get(offset) {
+            Some(0) => Ok(false),
+            Some(1) => Ok(true),
+            _ => Err(TreeError::Deserialize),
+        }
+    }
+
+    pub fn enable_compact_nullifiers(&mut self) -> Result<(), TreeError> {
+        if self.uses_compact_nullifiers() {
+            return Err(TreeError::InvalidCapacity);
+        }
+        let tree = &mut self.layout_mut().nullifier;
+        if tree.queue_next_index != tree.next_index {
+            return Err(TreeError::InvalidCapacity);
+        }
+        let root = tree.get_root().ok_or(TreeError::InvalidRootIndex)?;
+        tree.root_history.roots.fill([0; 32]);
+        tree.root_history.roots[0] = root;
+        tree.root_history.current_index = 1;
+        tree.close_before_index = tree.next_index;
+        self.layout_mut()._reserved[0] = 1;
+        Ok(())
     }
 
     /// Whether a proof may contain dummy input slots at the current tree state.
