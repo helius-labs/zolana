@@ -443,6 +443,14 @@ website proxies `/privacy/api/*` to the GitHub Pages `/zolana/ts-sdk/*` origin.
 At that point, update the release workflow's `PUBLIC_BASE_URL`; existing GitHub
 Pages URLs remain available as the backing origin.
 
+## Test fixtures
+
+Regenerate the user-registry fixture from the repository root:
+
+```sh
+UPDATE_USER_REGISTRY_FIXTURES=1 cargo test -p zolana-user-registry-interface --features solana --test typescript_fixture
+```
+
 ## Important notes
 
 - Ed25519 is the supported owner scheme for registration and private
