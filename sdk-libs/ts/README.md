@@ -219,6 +219,9 @@ P-256 owner registration is unsupported.
 `getRegisterInstruction` creates a new record and fails on-chain if one already
 exists. `buildRegistrationTransaction` retains its registration check: matching
 keys return `undefined`, while different keys produce an update transaction.
+The key-update instruction builder is internal. Use
+`buildRegistrationTransaction` for key rotation; this SDK does not expose a
+standalone key-update instruction for composing your own transaction.
 `buildSetMergingEnabledTransaction` builds a separate merge opt-in transaction.
 
 ### Deposit
