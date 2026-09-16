@@ -5,6 +5,7 @@ use custom_ring_interface::{
     HEAD_MAP_ROOT, KEY_REGISTRY_ROOT, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
     SPEND_WINDOW,
 };
+use custom_ring_interface::{DepositAudit, DEPOSIT_AUDIT};
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
@@ -27,6 +28,40 @@ pub(crate) trait Account: Pod + sealed::Sealed {
 
     fn discriminator(&self) -> u8;
     fn bump(&self) -> u8;
+}
+
+impl Account for DepositAudit {
+    const DISCRIMINATOR: u8 = DEPOSIT_AUDIT;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidDepositAudit;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidDepositAudit;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidDepositAudit;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+
+    fn bump(&self) -> u8 {
+        self.bump
+    }
+}
+
+/// Initial disclosure requirement stored at the canonical deposit-audit PDA.
+pub(crate) struct DepositAuditInit {
+    pub required: u8,
+    pub bump: u8,
+}
+
+impl DepositAuditInit {
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(
+            account,
+            DepositAudit {
+                discriminator: DEPOSIT_AUDIT,
+                required: self.required,
+                bump: self.bump,
+            },
+        )
+    }
 }
 
 impl Account for RingProgramConfig {
@@ -125,6 +160,7 @@ impl Account for ReadAccessRecord {
     }
 }
 
+/// Authorizes a reader to query the ring's auditor view.
 pub(crate) struct ReadAccessRecordInitParams {
     pub reader: ReaderKeyBytes,
     pub bump: u8,
@@ -205,6 +241,8 @@ impl Account for CoSigner {
     }
 }
 
+/// Validated signer and public thresholds for creating or replacing co-signing
+/// controls.
 pub(crate) struct CoSignerInitParams {
     pub signer: Address,
     pub scope: u8,
@@ -246,6 +284,8 @@ impl Account for Delegate {
     }
 }
 
+/// Solana spend authority installed once, independent of the auditor viewing
+/// key.
 pub(crate) struct DelegateInitParams {
     pub delegate: Address,
     pub bump: u8,
@@ -280,6 +320,8 @@ impl Account for SpendWindow {
     }
 }
 
+/// Per-mint public caps initialized with empty counters in the current fixed
+/// window.
 pub(crate) struct SpendWindowInitParams {
     pub mint: Address,
     pub window_slots: u64,
@@ -409,6 +451,8 @@ impl AppendRoot for KeyRegistryRoot {
     }
 }
 
+/// Initializes an empty indexed registry with its sentinel and first append
+/// position.
 pub(crate) struct SentinelRootInit {
     pub bump: u8,
 }
@@ -420,6 +464,8 @@ impl SentinelRootInit {
     }
 }
 
+/// Registration allocates a leaf, transfer changes only the existing leaf
+/// commitment.
 #[derive(Clone, Copy)]
 pub(crate) enum Advance {
     Register,
@@ -456,6 +502,7 @@ impl RootTransition<'_> {
 
 mod sealed {
     pub trait Sealed {}
+    impl Sealed for super::DepositAudit {}
     impl Sealed for super::RingProgramConfig {}
     impl Sealed for super::ReadAccessRecord {}
     impl Sealed for super::PolicyConfig {}

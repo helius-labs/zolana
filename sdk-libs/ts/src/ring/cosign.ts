@@ -9,7 +9,7 @@ import {
 } from "./codecs.js";
 import { RingError } from "./error.js";
 
-/** Mirrors Rust `CoSignerRequirement`, a withdrawal leg carries its mint and public amount. */
+/** Describes the operation classes and withdrawal amount requiring approval. */
 export interface CoSignDemand {
   readonly classes: number;
   readonly withdrawal?: Readonly<{ mint: Address; amount: bigint }>;

@@ -77,6 +77,7 @@ impl RegisterKey<'_> {
         self,
         env: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenKeyRegistration, KeyRegistrationError> {
+        // 1. Solana state pins the auditor recipient and the registry root.
         let auditor = self
             .ring
             .read_config(env.rpc)?
@@ -94,6 +95,8 @@ impl RegisterKey<'_> {
             request,
             transition,
         } = staged.request(response)?;
+        // 2. Registration proves key disclosure without authorizing ownership
+        // transfers or withdrawals.
         let proof = to_instruction_proof(env.prover.prove(&request)?)?;
         Ok(staged.finish(transition, proof))
     }
@@ -126,7 +129,7 @@ impl RegisterKey<'_> {
         Ok(staged.finish(transition, proof))
     }
 
-    /// The circuit binds a free nullifier key, the address check is the only tie to the member.
+    /// Registration binds the submitted key, not the keys of future notes.
     fn stage(
         self,
         auditor: P256Pubkey,
@@ -236,7 +239,8 @@ pub struct ReadSealedKey {
     pub root: IndexedMapRoot,
 }
 
-/// The sealed key is bound to the root only once it opens, the leaf commits to the plaintext key.
+/// Membership requires the recovered or expected nullifier public key to verify
+/// the leaf.
 pub struct SealedKeyEntry {
     pub sealed: SealedNullifierKey,
     member: Member,
@@ -250,7 +254,7 @@ impl ReadSealedKey {
     pub fn read<I: Rpc>(self, indexer: &I) -> Result<SealedKeyEntry, KeyRegistrationError> {
         let query = self.ring.member_proof_request(&self.member, self.root);
         let response = indexer.get_ring_key_registry_entry(query.clone())?;
-        self.authenticate(&query, response)
+        self.decode_entry(&query, response)
     }
 
     pub async fn read_async<I: AsyncRpc>(
@@ -259,10 +263,10 @@ impl ReadSealedKey {
     ) -> Result<SealedKeyEntry, KeyRegistrationError> {
         let query = self.ring.member_proof_request(&self.member, self.root);
         let response = indexer.get_ring_key_registry_entry(query.clone()).await?;
-        self.authenticate(&query, response)
+        self.decode_entry(&query, response)
     }
 
-    fn authenticate(
+    fn decode_entry(
         self,
         query: &RingMemberProofRequest,
         response: GetRingKeyRegistryEntryResponse,
@@ -307,9 +311,23 @@ impl ReadSealedKey {
 impl SealedKeyEntry {
     /// The opened key must reproduce the leaf under the root read from Solana.
     pub fn open(&self, auditor: &ViewingKey) -> Result<NullifierKey, KeyRegistrationError> {
+        // 1. The auditor recovers the nullifier key without an owner signing
+        // key.
         let nullifier_key = self.sealed.open(auditor)?;
+        self.verify_nullifier_pubkey(&nullifier_key.pubkey()?)?;
+        Ok(nullifier_key)
+    }
+
+    /// Verifies membership for a known nullifier public key without the auditor
+    /// read key.
+    pub fn verify_nullifier_pubkey(
+        &self,
+        nullifier_pubkey: &[u8; 32],
+    ) -> Result<(), KeyRegistrationError> {
+        // 1. The expected key and ciphertext must reproduce the pinned registry
+        // root.
         let commitment = RegisteredKey {
-            nullifier_pk: &nullifier_key.pubkey()?,
+            nullifier_pk: nullifier_pubkey,
             ciphertext: &self.sealed.ciphertext,
         }
         .commitment()
@@ -330,7 +348,7 @@ impl SealedKeyEntry {
         if root != self.root {
             return Err(KeyRegistrationError::InvalidEntryProof);
         }
-        Ok(nullifier_key)
+        Ok(())
     }
 }
 
@@ -664,7 +682,7 @@ mod tests {
         let (query, response) = fixture.entry();
         let entry = fixture
             .read()
-            .authenticate(&query, response)
+            .decode_entry(&query, response)
             .expect("included");
         assert_eq!(entry.sealed, fixture.envelope.sealed);
         let opened = entry.open(&fixture.auditor).expect("open");
@@ -673,6 +691,36 @@ mod tests {
             fixture.nullifier_key.secret().as_slice()
         );
         assert!(entry.open(&ViewingKey::new()).is_err());
+    }
+
+    #[test]
+    fn a_known_nullifier_public_key_authenticates_the_entry_without_decryption() {
+        let mut fixture = Fixture::new();
+        let (query, response) = fixture.entry();
+        let public_key = fixture.nullifier_key.pubkey().unwrap();
+        let entry = fixture
+            .read()
+            .decode_entry(&query, response.clone())
+            .unwrap();
+        entry.verify_nullifier_pubkey(&public_key).unwrap();
+        assert!(matches!(
+            entry.verify_nullifier_pubkey(&NullifierKey::from_secret([8; 31]).pubkey().unwrap()),
+            Err(KeyRegistrationError::InvalidEntryProof)
+        ));
+
+        let mutations: [fn(&mut GetRingKeyRegistryEntryResponse); 2] = [
+            |response| response.ciphertext.0[31] ^= 1,
+            |response| response.proof[0].0[31] ^= 1,
+        ];
+        for mutate in mutations {
+            let mut changed = response.clone();
+            mutate(&mut changed);
+            let entry = fixture.read().decode_entry(&query, changed).unwrap();
+            assert!(matches!(
+                entry.verify_nullifier_pubkey(&public_key),
+                Err(KeyRegistrationError::InvalidEntryProof)
+            ));
+        }
     }
 
     #[test]
@@ -692,7 +740,7 @@ mod tests {
             let (query, mut response) = fixture.entry();
             mutate(&mut response);
             assert!(matches!(
-                fixture.read().authenticate(&query, response),
+                fixture.read().decode_entry(&query, response),
                 Err(KeyRegistrationError::InvalidEntryProof)
             ));
         }
@@ -702,7 +750,7 @@ mod tests {
         response.proof[0].0[31] ^= 1;
         let entry = fixture
             .read()
-            .authenticate(&query, response)
+            .decode_entry(&query, response)
             .expect("shape checks pass");
         assert!(matches!(
             entry.open(&fixture.auditor),

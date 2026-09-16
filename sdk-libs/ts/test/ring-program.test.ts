@@ -46,10 +46,45 @@ const AUTHORITY = addressOf(12);
 const PAYER = addressOf(11);
 const BUFFER = addressOf(13);
 
-/** The ELF magic over a byte pattern. */
 function elf(length: number, byte = (index: number) => index % 251): Uint8Array {
   const bytes = Uint8Array.from({ length }, (_, index) => byte(index));
-  bytes.set([0x7f, 0x45, 0x4c, 0x46]);
+  bytes.fill(0, 0, 128);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]);
+  view.setUint16(16, 3, true);
+  view.setUint16(18, 263, true);
+  view.setUint32(20, 1, true);
+  view.setBigUint64(24, 128n, true);
+  view.setBigUint64(32, 64n, true);
+  view.setBigUint64(40, BigInt(length - 192), true);
+  view.setUint16(52, 64, true);
+  view.setUint16(54, 56, true);
+  view.setUint16(56, 1, true);
+  view.setUint16(58, 64, true);
+  view.setUint16(60, 3, true);
+  view.setUint16(62, 2, true);
+  view.setUint32(64, 1, true);
+  view.setUint32(68, 5, true);
+  view.setBigUint64(72, 128n, true);
+  view.setBigUint64(80, 128n, true);
+  view.setBigUint64(96, BigInt(length - 344), true);
+  view.setBigUint64(104, BigInt(length - 344), true);
+  const names = new TextEncoder().encode("\0.text\0.shstrtab\0");
+  const namesStart = length - 192 - names.length;
+  bytes.set(names, namesStart);
+  bytes.fill(0, length - 192);
+  const text = length - 128;
+  view.setUint32(text, 1, true);
+  view.setUint32(text + 4, 1, true);
+  view.setBigUint64(text + 8, 6n, true);
+  view.setBigUint64(text + 16, 128n, true);
+  view.setBigUint64(text + 24, 128n, true);
+  view.setBigUint64(text + 32, BigInt(length - 344), true);
+  const strings = length - 64;
+  view.setUint32(strings, 7, true);
+  view.setUint32(strings + 4, 3, true);
+  view.setBigUint64(strings + 24, BigInt(namesStart), true);
+  view.setBigUint64(strings + 32, BigInt(names.length), true);
   return bytes;
 }
 
@@ -97,32 +132,86 @@ describe("program data", () => {
     );
   });
 
-  it("refuses a binary the loader would refuse and a structural copy", () => {
-    for (const bytes of [new Uint8Array(), elf(63), new Uint8Array(64)]) {
+  it("rejects truncated ELF tables and bodies", () => {
+    const complete = elf(512);
+    for (const bytes of [
+      new Uint8Array(),
+      new Uint8Array(64),
+      complete.subarray(0, 63),
+      complete.subarray(0, 64),
+      complete.subarray(0, 127),
+      complete.subarray(0, complete.length - 1),
+    ]) {
       expect(() => RingProgramBinary.parse(bytes)).toThrow(
         expect.objectContaining({ code: "RING_PROGRAM_BINARY_INVALID" }),
       );
     }
-    const binary = RingProgramBinary.parse(elf(64));
-    const copy = { bytes: binary.bytes, sha256: binary.sha256 };
+  });
+
+  it("rejects ELF ranges beyond the complete artifact", () => {
+    for (const field of [32, 40, 72, 96, 408, 416]) {
+      const bytes = elf(512);
+      new DataView(bytes.buffer).setBigUint64(field, 0xffff_ffff_ffff_ffffn, true);
+      expect(() => RingProgramBinary.parse(bytes)).toThrow(
+        expect.objectContaining({ code: "RING_PROGRAM_BINARY_INVALID" }),
+      );
+    }
+  });
+
+  it("rejects unchecked descriptors before reading accounts", async () => {
+    const binary = RingProgramBinary.parse(elf(512));
     const client = { getAccount: vi.fn(async () => undefined) };
-    // @ts-expect-error a structural copy is not a checked binary
-    void verifyRingProgram(client, PROGRAM, copy).catch(() => undefined);
-    expect(binary.sha256).toEqual(sha256(elf(64)));
+    for (const copy of [
+      { bytes: new Uint8Array(512), sha256: binary.sha256, byteLength: binary.byteLength },
+      { ...binary },
+    ]) {
+      // @ts-expect-error Unchecked binary descriptor.
+      await expect(verifyRingProgram(client, PROGRAM, copy)).rejects.toMatchObject({
+        code: "RING_PROGRAM_BINARY_INVALID",
+      });
+    }
+    expect(client.getAccount).not.toHaveBeenCalled();
+    expect(() => Reflect.construct(RingProgramBinary, [binary.bytes])).toThrow(
+      expect.objectContaining({ code: "RING_PROGRAM_BINARY_INVALID" }),
+    );
   });
 
   it("pins its bytes and hash against mutation through the exposed copy", () => {
-    const binary = RingProgramBinary.parse(elf(128));
+    const binary = RingProgramBinary.parse(elf(512));
     const pinned = new Uint8Array(binary.sha256);
     binary.bytes.fill(0xff);
     binary.sha256.fill(0);
-    expect(binary.bytes).toEqual(elf(128));
+    expect(binary.bytes).toEqual(elf(512));
     expect(binary.sha256).toEqual(pinned);
-    expect(binary.byteLength).toBe(128);
+    expect(binary.byteLength).toBe(512);
+  });
+
+  it("requires the artifact to cover every nonzero deployed byte", async () => {
+    const bytes = elf(512);
+    const longer = new Uint8Array(600);
+    longer.set(bytes);
+    longer[599] = 1;
+    const dataAddress = await ringProgramDataAddress(PROGRAM);
+    const client = {
+      getAccount: async (account: Address) =>
+        ownedAccount(
+          BPF_LOADER_UPGRADEABLE_ID,
+          account === PROGRAM
+            ? programAccount(dataAddress)
+            : programData({ slot: 3n, bytes: longer }),
+        ),
+    };
+    await expect(
+      verifyRingProgram(client, PROGRAM, RingProgramBinary.parse(bytes)),
+    ).rejects.toMatchObject({ code: "RING_PROGRAM_NOT_DEPLOYED" });
+    longer[599] = 0;
+    await expect(
+      verifyRingProgram(client, PROGRAM, RingProgramBinary.parse(bytes)),
+    ).resolves.toMatchObject({ capacity: 600 });
   });
 
   it("verifies the deployed bytes and names a missing, different or occupied program", async () => {
-    const binary = RingProgramBinary.parse(elf(80));
+    const binary = RingProgramBinary.parse(elf(512));
     const dataAddress = await ringProgramDataAddress(PROGRAM);
     const accounts = new Map([
       [PROGRAM, ownedAccount(BPF_LOADER_UPGRADEABLE_ID, programAccount(dataAddress))],
@@ -138,7 +227,7 @@ describe("program data", () => {
     await expect(verifyRingProgram(client, PROGRAM, binary)).resolves.toMatchObject({
       lastDeploySlot: 3n,
     });
-    const other = RingProgramBinary.parse(elf(80, () => 0));
+    const other = RingProgramBinary.parse(elf(512, () => 0));
     await expect(verifyRingProgram(client, PROGRAM, other)).rejects.toMatchObject({
       code: "RING_PROGRAM_MISMATCH",
     });
@@ -490,6 +579,27 @@ describe("deployment", () => {
     authority: keys.authority,
     program: keys.program,
     buffer: keys.buffer,
+  });
+
+  it("rejects an unchecked binary before paid deployment work", async () => {
+    const keys = await signers();
+    const client = chain(keys);
+    const unchecked = { bytes: new Uint8Array(3_000), byteLength: 3_000, sha256: binary.sha256 };
+    await expect(
+      deployRingProgram({
+        ...params(keys, client),
+        // @ts-expect-error Unchecked binary descriptor.
+        binary: unchecked,
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "RING_PROGRAM_BINARY_INVALID",
+    });
+    expect(client.getAccount).not.toHaveBeenCalled();
+    expect(client.getBalance).not.toHaveBeenCalled();
+    expect(client.rents).toEqual([]);
+    expect(client.sends).toEqual([]);
+    expect(client.writes).toEqual([]);
   });
 
   it("deploys through version 1 packets, one blockhash per transaction, within the concurrency", async () => {

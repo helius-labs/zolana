@@ -6,6 +6,12 @@ import {
   type Instruction,
   type TransactionSigner,
 } from "@solana/kit";
+import { CUSTOM_RING_PROOF_LENGTH } from "../custom-ring-proof.js";
+import {
+  AUDITED_RING_DEPOSIT_TAG,
+  RING_DEPOSIT_AUDIT_SLOTS,
+  readRingDepositCapsule,
+} from "../ring-deposit-audit.js";
 
 import {
   InstructionTag,
@@ -30,12 +36,13 @@ import {
   type TransactWithdrawal,
   type TreeFeeSchedule,
 } from "../types.js";
-import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
+import { Writer, addressBytes, checkedAddress, copyBytes, fail } from "../internal.js";
 import {
   nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
   ringCoSignerAddress,
+  ringDepositAuditAddress,
   ringConfigAddress,
   ringPolicyConfigAddress,
   ringSpendWindowAddress,
@@ -314,16 +321,34 @@ export async function ringDepositInstruction(
     tree: Address;
     depositor: SignerAccount;
     deposits: readonly RingAssetDeposit[];
+    proof?: Uint8Array;
     cosigner?: SignerAccount;
     /** True when the ring runs a policy, its `policy_config` joins the prefix. */
     hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
-  const [ringAuth, config, cosignerPda, policyConfig, windows] = await Promise.all([
+  if (input.proof !== undefined) {
+    if (input.deposits.length > RING_DEPOSIT_AUDIT_SLOTS)
+      fail("INTERFACE_CODEC", { field: "deposit count" });
+    let ephemeralKey: Uint8Array | undefined;
+    for (const [index, deposit] of input.deposits.entries()) {
+      const capsule = readRingDepositCapsule(deposit.encrypted.ciphertext);
+      if (
+        capsule === undefined ||
+        capsule.slotIndex !== index ||
+        (ephemeralKey !== undefined &&
+          !ephemeralKey.every((byte, offset) => capsule.ephemeralPublicKey[offset] === byte))
+      )
+        fail("INTERFACE_CODEC", { field: "deposit capsule" });
+      ephemeralKey = capsule.ephemeralPublicKey;
+    }
+  }
+  const [ringAuth, config, cosignerPda, depositAudit, policyConfig, windows] = await Promise.all([
     ringAuthAddress(input.ringProgramId),
     ringConfigAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
+    ringDepositAuditAddress(input.ringProgramId),
     input.hasPolicy ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
     ringSpendWindowMetas(input.ringProgramId, [
       ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
@@ -339,31 +364,41 @@ export async function ringDepositInstruction(
   accounts.unshift(
     meta(config, false, false),
     ...ringCoSignerMetas(cosignerPda, input.cosigner),
+    meta(depositAudit, false, false),
     ...(policyConfig === undefined ? [] : [meta(policyConfig, false, false)]),
     ...windows,
   );
-  return instruction(
-    tagged(
-      InstructionTag.ringDeposit,
-      encodeRingDepositInstructionData({
-        assets: [
-          ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
-          ...splInterfaceBumps.map((splInterfaceBump) => ({
-            kind: "spl" as const,
-            splInterfaceBump,
-          })),
-        ],
-        deposits: input.deposits.map((deposit) => ({
-          assetIndex: depositAssetIndex(layout, deposit),
-          viewTag: deposit.viewTag,
-          ownerUtxoHash: deposit.ownerUtxoHash,
-          amount: deposit.amount,
-          ...(deposit.dataHash === undefined ? {} : { dataHash: deposit.dataHash }),
-          ringDataHash: deposit.ringDataHash,
-          encrypted: deposit.encrypted,
+  const sppWire = tagged(
+    InstructionTag.ringDeposit,
+    encodeRingDepositInstructionData({
+      assets: [
+        ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
+        ...splInterfaceBumps.map((splInterfaceBump) => ({
+          kind: "spl" as const,
+          splInterfaceBump,
         })),
-      }),
-    ),
+      ],
+      deposits: input.deposits.map((deposit) => ({
+        assetIndex: depositAssetIndex(layout, deposit),
+        viewTag: deposit.viewTag,
+        ownerUtxoHash: deposit.ownerUtxoHash,
+        amount: deposit.amount,
+        ...(deposit.dataHash === undefined ? {} : { dataHash: deposit.dataHash }),
+        ringDataHash: deposit.ringDataHash,
+        encrypted: deposit.encrypted,
+      })),
+    }),
+  );
+  return instruction(
+    input.proof === undefined
+      ? sppWire
+      : tagged(
+          AUDITED_RING_DEPOSIT_TAG,
+          new Uint8Array([
+            ...copyBytes(input.proof, CUSTOM_RING_PROOF_LENGTH, "deposit proof"),
+            ...sppWire,
+          ]),
+        ),
     accounts,
     input.ringProgramId,
   );

@@ -170,6 +170,7 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
     data: &[u8],
     signers: SppSigners,
 ) -> ProgramResult {
+    // 1. Derive only the ring PDAs authorized by the verified instruction path.
     let (ring_auth, bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], program_id);
     let namespace = signers.namespace(program_id)?;
     if !accounts
@@ -182,6 +183,7 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
     if accounts.len() > MAX_CPI_ACCOUNTS {
         return Err(CustomRingError::TooManyAccounts.into());
     }
+    // 2. Preserve caller privileges and add only the selected PDA signatures.
     let metas: Vec<InstructionAccount> = accounts
         .iter()
         .map(|account| {

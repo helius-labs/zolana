@@ -42,6 +42,7 @@ pub(crate) async fn insertion<P: Projection>(
     rpc: &RpcClient,
     request: &RingMemberProofRequest,
 ) -> Result<Insertion<P::Leaf>, PhotonApiError> {
+    // 1. Read the requested root and both paths from one database snapshot.
     let tx = db.begin().await?;
     set_transaction_isolation_if_needed(&tx).await?;
     let snapshot = snapshot::<P>(&tx, request).await?;
@@ -84,6 +85,7 @@ pub(crate) async fn insertion<P: Projection>(
         return Err(internal(format!("{} append slot is occupied", P::KIND)));
     }
     tx.commit().await?;
+    // 2. Rebase the empty append path onto the predecessor's updated root.
     let mut spliced = low.clone();
     spliced.set_next(request.member.0);
     PathOverlay {
@@ -93,6 +95,7 @@ pub(crate) async fn insertion<P: Projection>(
     }
     .apply(root.next_index, &mut new_path)
     .map_err(internal)?;
+    // 3. Require the proof's block and root to match the chain.
     let context = confirm::<P>(rpc, &snapshot).await?;
     Ok(Insertion {
         context,
@@ -179,6 +182,13 @@ async fn snapshot<P: Projection>(
         .map_err(internal)?
         .filter(ProjectionCursor::is_ready)
         .ok_or_else(|| out_of_sync::<P>("projector is catching up or recovering"))?;
+    if storage::pending_ring(tx, &request.ring_program_id.0.to_bytes())
+        .await
+        .map_err(internal)?
+        .is_some()
+    {
+        return Err(out_of_sync::<P>("ring history is being replayed"));
+    }
     let root = RingStore::<_, P>::new(tx, request.ring_program_id.0.to_bytes())
         .root()
         .await

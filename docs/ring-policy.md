@@ -188,12 +188,15 @@ hash into the public input chain.
 
 The **upgrade authority** deploys the binary, pins the table at
 `create_policy`, replaces it with `set_policy_rules` and sets the delegate
-once. The **delegate** moves notes between members over the authority rail
-and cannot withdraw. Its dedicated policy key keeps ordinary rules and
+once. The **auditor** decrypts transfers and registered nullifier keys but
+cannot authorize an ownership transfer or withdrawal. The **permanent
+delegate** signs moves between members over the authority rail and cannot
+withdraw. Its dedicated policy key keeps ordinary rules and
 exempts velocity. Scoped co-signing still applies. It spends a member's notes
 with the member's nullifier key, escrowed to the ring auditor in the key
-registry, so the delegate's operator holds the auditor secret, see the
-custom-rings [README](../custom-rings/README.md#controls). The **config
+registry. The current delegate workflow needs both the auditor secret for
+recovery and the configured delegate's Solana signature for authorization,
+see the custom-rings [README](../custom-rings/README.md#controls). The **config
 authority** writes the authority-written lists, re-points sources, grants
 readers, sets or clears the co-signer and the spend windows, and pauses the
 ring. The **co-signer**

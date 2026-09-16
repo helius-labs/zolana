@@ -44,6 +44,7 @@ import {
 
 export type RingDelegateTransferClient = RingDelegateProofClient & BlockhashProvider & KitRpcAccess;
 
+/** Builds a move authorized by the configured Solana delegate. */
 export interface RingDelegateTransferParams {
   readonly client: RingDelegateTransferClient;
   readonly ringProgramId: Address;
@@ -63,7 +64,7 @@ export interface RingDelegateTransferParams {
 
 type DelegateMove = Omit<RingDelegateTransferParams, "wallet" | "source">;
 
-/** The notes `recoverRingMemberNotes` returned stand in for the source's wallet, nobody approves. */
+/** Recovered openings still require the configured delegate's signature. */
 export type RingDelegateRecoveredParams = DelegateMove &
   Readonly<{
     source: ShieldedAddress;
@@ -75,6 +76,7 @@ type DelegateSource =
   | Readonly<{ kind: "authority"; authority: WalletAuthority }>
   | Readonly<{ kind: "recovered"; address: ShieldedAddress; nullifierKey: NullifierKey }>;
 
+/** Retains source notes and intent across delegate proof retries. */
 interface DelegateBuild {
   readonly move: DelegateMove;
   readonly wallet: Wallet;
@@ -178,6 +180,7 @@ async function buildDelegateTransaction(
     let reservation: UtxoReservation | undefined;
     const spends: ProofInputUtxo[] = [];
     try {
+      // 1. Bind the requested move to the source identity and delegate signer.
       const owner =
         source.kind === "authority" ? await source.authority.shieldedAddress() : source.address;
       if (!equalBytes(owner.toBytes(), wallet.identity.toBytes()))
@@ -195,6 +198,7 @@ async function buildDelegateTransaction(
       if (retry.intent !== undefined && !equalBytes(retry.intent, hash))
         throw ringIntentMismatch("retryIntent");
       retry.intent = hash;
+      // 2. Require the configured delegate independently of the recovered keys.
       const [stored, coSigner] = await Promise.all([
         fetchRingDelegate(move.client, move.ringProgramId, context),
         fetchRingCoSigner(move.client, move.ringProgramId, context),
@@ -216,6 +220,7 @@ async function buildDelegateTransaction(
         assets.assetId(output.asset);
         amounts.set(output.asset, (amounts.get(output.asset) ?? 0n) + output.amount);
       }
+      // 3. Retain the selected source notes across retries.
       if (retry.entries !== undefined) checkRetainedEntries(wallet, retry.entries);
       const selected = retry.entries ?? selectSourceNotes(move, wallet, owner, amounts);
       reservation = retry.reservation ?? reserveEntries(wallet, selected);
@@ -248,6 +253,7 @@ async function buildDelegateTransaction(
         checkIntentApproval(approval, intent, ringIntentMismatch);
       }
       checkPreparedTransfer(prepared, intent, ringIntentMismatch);
+      // 4. Prove audit disclosure and delegate policy compliance.
       const proven = await proveCustomRingDelegateTransfer(
         {
           client: move.client,

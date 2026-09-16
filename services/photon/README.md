@@ -88,6 +88,19 @@ storage.
 
 ## Operations
 
+### Ring-scoped history
+
+`getShieldedTransactionsByTags` and `getEncryptedUtxosByTags` accept `tags: []`
+only with an explicit `ringProgramId`. The scan includes the ring's deposits,
+transfers and merges without recipient tags. The filter uses the SPP instruction's
+ring-config account, including rings whose registration was not indexed.
+An empty tag list without a ring is rejected. Nonempty tags still narrow the scan.
+
+The existing page limit and ordered cursors apply. Follow `nextCursor` while pages
+are full. Save `scannedThrough` from the terminal page to resume after new indexing.
+Ciphertexts stay opaque to Photon. Auditor recovery decrypts the returned deposit
+capsules and transfer messages client-side.
+
 ### Ring projections
 
 `getRingHeadRegisterProof` and `getRingHeadTransferProof` take the ring program,
@@ -105,9 +118,16 @@ gap can still prevent an ordinary SPP proof from being obtained.
 
 A ring whose instruction fails validation, or whose root or policy account is
 missing, is quarantined. Its proofs stay unavailable, every other ring keeps
-serving, and only a rollback of the offending block lifts the quarantine.
+serving, and a rollback of the fault's journaled block lifts the quarantine.
+An otherwise valid root ahead of the projector is retried, not quarantined.
+Late activation resumes from the ring's durable checkpoint after interruption.
+Proof requests wait until replay reaches the global projection tip.
 
 Use a persistent `--db-url` and run migrations before starting a new binary.
+Databases from the separate head/key projectors retain their migration IDs.
+The compatibility migration rebuilds only ring projections from the earlier
+stored start slot and preserves indexed SPP data. RPC history must still cover
+that start slot. Already unified projections keep their existing progress.
 The default temporary database is discarded on startup. For a fresh ring,
 `--ring-projection-start-slot` may name its creation slot and must repeat the
 stored value on every restart. Do not start after the `CREATE_HEAD_MAP_ROOT` or

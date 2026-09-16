@@ -70,6 +70,7 @@ import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import type {
   CustomRingBaseProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
   CustomRingRegisterKeyProofRequest,
@@ -771,6 +772,19 @@ export class ZolanaClient
     try {
       const proof = await this.#prover.proveCustomRingBase(inputs, context);
       return compressProof(proof).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingDeposit(
+    inputs: CustomRingDepositProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingDeposit(inputs, context),
+      ).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }

@@ -10,6 +10,8 @@ mod create_config;
 mod delegate;
 #[path = "failing/deposit.rs"]
 mod deposit;
+#[path = "failing/deposit_audit.rs"]
+mod deposit_audit;
 #[path = "failing/dispatch.rs"]
 mod dispatch;
 #[path = "failing/head_map_root.rs"]

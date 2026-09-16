@@ -20,11 +20,14 @@ which holds 4,096 bytes instead of 1,232, carries its compute budget and
 priority fee in the message itself, and uses no address lookup tables.
 A ring gains a scoped co-signer, a permanent delegate, public spend windows
 and private per-window velocity caps kept in compressed member spend records,
-and every ring builder can return a submission that settles its broadcast
-before releasing the notes it spends.
+and transfer submissions settle their broadcast before releasing the notes
+they spend.
 
 Breaking
 
+- `ringDepositInstruction` adds the canonical deposit-audit account, and
+  `buildRingDepositTransaction` takes `RingDepositClient` with a deposit prover
+  → upgrade ring deposit callers with the program even when auditing is disabled.
 - `SHIELDED_POOL_PROGRAM_ID` is `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`, and
   `SOL_INTERFACE`, `SHIELDED_POOL_CPI_AUTHORITY` and every tree address derive
   from it, while `InstructionTag` renumbers every tag → point at a deployment of
@@ -294,6 +297,14 @@ Breaking
 
 Added
 
+- `GetByTagsRequest.ringProgramId` scopes a scan to one ring, including
+  deposits whose recipient tags do not identify a known member.
+- `initializeRingConfigInstructions` accepts `depositAudit` with a default of
+  `false`, `setRingDepositAuditInstruction` toggles it under the config authority,
+  and `fetchRingDepositAudit` reads whether deposit disclosure is required.
+- `buildRingDepositTransaction` proves auditor-readable deposit openings only
+  when required, while `sealRingDepositOpenings`, `ringDepositPublicInputHash`
+  and `ZolanaClient.proveCustomRingDeposit` support batches of up to eight.
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
@@ -392,11 +403,12 @@ Added
   `prepareRingKeyRegistration` returns a `RingKeyRegistrationPreparation`,
   `registeredKeyCommitment` and `registerKeyPublicInputHash` hash the registry
   leaf and the `RegisterKeyStatement`, `fetchRingSealedKey` reads the member's
-  `RingSealedKeyEntry` for a `RingSealedKeyClient` and `openRingSealedKey` or
-  `openNullifierKey` opens it with the auditor's `ViewingKey` into the
+  `RingSealedKeyEntry` for a `RingSealedKeyClient` and `openRingSealedKey`
+  authenticates the key opened with the auditor's `ViewingKey` into the
   `NullifierKey`, a stale, malformed or missing registry is
   `RING_KEY_REGISTRY_STALE`, `RING_KEY_REGISTRY_INVALID` or
-  `RING_KEY_REGISTRY_MISSING`, a key sealed to another auditor is
+  `RING_KEY_REGISTRY_MISSING`, `openNullifierKey` checks plaintext encoding
+  without authenticating registry inclusion and reports malformed encoding as
   `RING_KEY_ENVELOPE_INVALID`, and a nullifier key that does not derive its
   address is `RING_NULLIFIER_KEY_MISMATCH`.
 - `SpendRecord`, `SpendCounters`, `encodeSpendRecord`, `decodeSpendRecord`,
@@ -419,8 +431,9 @@ Added
   `createRingSpendRegistrationSubmission` return a
   `RingTransactionSubmission` whose `send(transport)` retries a confirmed
   stale-root or window failure up to three times, reports an unresolved
-  broadcast as `unknown` until its signature settles or its blockhash
-  expires, and keeps the wallet reservation alive while it runs,
+  broadcast as `unknown` until its signature settles or a valid status response
+  confirms absence after blockhash expiry, retains pending state when history
+  is unavailable or has the wrong result count, and keeps the wallet reservation alive while it runs,
   `createKitRingSubmissionTransport` is the `RingSubmissionTransport` over
   `@solana/kit`, `RingSubmissionAttempt`, `RingSubmissionResult`,
   `RingSubmissionStatus` and `RingSubmissionPending` type the exchange,
@@ -436,8 +449,9 @@ Added
   `DecryptedRingSpendCounter`.
 - `SpendSession.openSealedMessage` opens a message sealed under a past
   transaction key, `SpendSession.encryptCustomRingTransfer` takes a
-  `counterMessage` and a `recordOutputIndex` sealed to the transaction viewing
-  key and refuses a slot index shared by an output or another message with
+  `counterMessage` without a caller slot index and a `recordOutputIndex`
+  sealed to the transaction viewing key and refuses caller messages on the
+  reserved counter slot or a slot shared by an output or another message with
   `TRANSACTION_DUPLICATE_SLOT_INDEX`, and `ZolanaClient.getSlot`,
   `getRingHeadRegisterProof`, `getRingHeadTransferProof`,
   `getRingKeyRegistryEntry` and `getRingKeyRegistryRegisterProof` read the
@@ -506,7 +520,7 @@ Added
   positive integer with `RING_DEPLOY_OPTIONS_INVALID`, and a program that
   stays unusable with `RING_PROGRAM_NOT_USABLE`.
 - `RingProgramBinary.parse` checks and hashes a program binary and refuses
-  one without an ELF header with `RING_PROGRAM_BINARY_INVALID`,
+  a malformed or truncated ELF artifact with `RING_PROGRAM_BINARY_INVALID`,
   `fetchRingProgramData` reads a deployed program's upgrade authority,
   capacity and deploy slot as `RingProgramData`, `verifyRingProgram` refuses
   a missing or different deployed binary with `RING_PROGRAM_NOT_DEPLOYED` or
@@ -607,6 +621,10 @@ Changed
 
 Fixed
 
+- `recoverRingMemberNotes` follows successive merges, batches large histories,
+  recovers disclosed deposits, accepts `resolveOutputHashes` for committed data
+  hashes and reports deposits lacking disclosure in `unsupportedDeposits`
+  without claiming their spend status.
 - `deployRingProgram` splits uploads into writes the loader accepts and packs
   them into v1 transactions; `writeBufferInstruction` rejects payloads above
   1,216 bytes with `RING_PROGRAM_WRITE_TOO_LARGE`.
@@ -622,12 +640,17 @@ Fixed
   first and refuses the upgrade with `RING_POLICY_CONFIG_INCOMPATIBLE` before
   any transaction is sent.
 - `RingProgramBinary.bytes` and `RingProgramBinary.sha256` handed out the
-  parsed buffers, a caller could change the binary a deploy and
-  `verifyRingProgram` check against the hash, both now return copies and the
-  class adds `byteLength`.
+  parsed buffers and `verifyRingProgram` accepted unchecked descriptors and
+  deployed prefixes, both accessors now return copies, deployment and
+  verification require a parsed instance, and verification covers every
+  deployed byte except zeroed loader capacity.
+- `decodeRingCoSigner` accepted a zero signer, duplicate mints and nonzero
+  unused rows, it now rejects that state and `setRingCoSignerInstruction`
+  rejects zero signers before building an instruction.
 - `RingRpc.getDecryptedTransactions` accepted a spend record with a
   `slotIndex` outside u32, a counter slot outside `RING_VELOCITY_SLOTS` or a
-  slot listed twice, it now rejects the page.
+  slot listed twice, or a version, window or spent amount above u64, it now
+  rejects the page.
 
 Dependencies
 

@@ -320,6 +320,7 @@ pub struct DecryptedWithdrawal {
     pub amount: u64,
 }
 
+/// Public record metadata with counters authenticated by auditor decryption.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DecryptedSpendRecord {

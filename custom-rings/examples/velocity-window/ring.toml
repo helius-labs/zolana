@@ -1,5 +1,5 @@
 # Caps each member's outflow per mint across a fixed window.
-# The first transfer registers the member's spend record.
+# The CLI registers the member's spend record before its first transfer.
 # Transfers above cosign_above also require the configured co-signer.
 
 name = "velocity-window"

@@ -84,6 +84,8 @@ pub(crate) fn spawn_service(
         .spawn()
         .with_context(|| format!("failed to spawn {}", binary.display()))?;
     if let Some(scope) = scope {
+        // 1. A scoped child without an ownership receipt must not survive
+        // startup.
         if let Err(error) = record_owned_process(&scope, log_name, child.id()) {
             let _ = child.kill();
             let _ = child.wait();
@@ -245,6 +247,7 @@ impl OwnedReceipt {
 }
 
 fn stop_owned_receipt(path: &Path) {
+    // 1. Only a receipt matching the live process may authorize a signal.
     let Some(receipt) = OwnedReceipt::read(path) else {
         return;
     };
@@ -252,6 +255,7 @@ fn stop_owned_receipt(path: &Path) {
         return;
     }
     let _ = signal_pid(&receipt.pid, "-TERM");
+    // 2. Escalation requires the same process identity after the grace period.
     if !wait_for_process_exit(|| !receipt.alive()) && receipt.alive() {
         let _ = signal_pid(&receipt.pid, "-KILL");
     }

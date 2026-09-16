@@ -1,3 +1,4 @@
+import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../../interface/constants.js";
 import type { Bytes16, Bytes32, Bytes33, MessageData } from "../../interface/types.js";
 import { TransactionError } from "../error.js";
 import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
@@ -102,7 +103,7 @@ export function encryptCustomRingTransferWith(
     auditorPublicKey: P256PublicKey;
     recordOutputIndex?: number;
     sealedMessages?: readonly SealedMessageInput[];
-    counterMessage?: SealedMessageInput;
+    counterMessage?: Omit<SealedMessageInput, "slotIndex">;
   }>,
 ): EncryptedCustomRingTransfer {
   const tx = viewingKey.transactionViewingKey(input.firstNullifier);
@@ -120,11 +121,18 @@ export function encryptCustomRingTransferWith(
         ? undefined
         : { index: input.recordOutputIndex, recipient },
     );
+    const callerMessages = (input.sealedMessages ?? []).map((message) => ({
+      slotIndex: message.slotIndex,
+      plaintext: message.plaintext,
+      viewTag: message.viewTag,
+    }));
+    checkDistinctSlots(outputs.length, callerMessages);
     const outbound = [
-      ...(input.sealedMessages ?? []),
-      ...(input.counterMessage === undefined ? [] : [input.counterMessage]),
+      ...callerMessages,
+      ...(input.counterMessage === undefined
+        ? []
+        : [{ ...input.counterMessage, slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX }]),
     ];
-    checkDistinctSlots(input.outputs.length, outbound);
     const sealedMessages: readonly MessageData[] = outbound.map((message) => {
       const ciphertext = tx.encryptSlot(recipient, message.plaintext, salt, message.slotIndex);
       const body = new Uint8Array(P256_PUBLIC_KEY_LENGTH + ciphertext.length);
@@ -199,7 +207,10 @@ function checkDistinctSlots(
   outputCount: number,
   messages: readonly Readonly<{ slotIndex: number }>[],
 ): void {
-  const slots = new Set<number>(Array.from({ length: outputCount }, (_, index) => index));
+  const slots = new Set<number>([
+    RING_SPEND_COUNTERS_SLOT_INDEX,
+    ...Array.from({ length: outputCount }, (_, index) => index),
+  ]);
   for (const message of messages) {
     if (slots.has(message.slotIndex)) {
       throw new TransactionError("TRANSACTION_DUPLICATE_SLOT_INDEX", {

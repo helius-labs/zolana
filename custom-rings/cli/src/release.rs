@@ -35,6 +35,7 @@ pub struct RingRelease {
     pub compressed_register_key: Option<Asset>,
     pub delegate_policy_key: Option<Asset>,
     pub register_key: Option<Asset>,
+    pub deposit_key: Option<Asset>,
     pub binaries: Vec<Binary>,
 }
 
@@ -46,6 +47,7 @@ pub enum RingKey {
     CompressedRegister,
     DelegatePolicy,
     RegisterKey,
+    Deposit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -133,6 +135,8 @@ struct ReleaseLock {
     #[serde(default)]
     register_key: Option<Asset>,
     #[serde(default)]
+    deposit_key: Option<Asset>,
+    #[serde(default)]
     binaries: Vec<Binary>,
 }
 
@@ -147,19 +151,21 @@ impl From<ReleaseLock> for RingRelease {
             compressed_register_key: lock.compressed_register_key,
             delegate_policy_key: lock.delegate_policy_key,
             register_key: lock.register_key,
+            deposit_key: lock.deposit_key,
             binaries: lock.binaries,
         }
     }
 }
 
 impl RingKey {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Policy,
         Self::Base,
         Self::CompressedPolicy,
         Self::CompressedRegister,
         Self::DelegatePolicy,
         Self::RegisterKey,
+        Self::Deposit,
     ];
 
     /// Also the key's name in proving-keys.lock.
@@ -171,6 +177,7 @@ impl RingKey {
             Self::CompressedRegister => "custom_ring_compressed_register.key",
             Self::DelegatePolicy => "custom_ring_delegate_policy.key",
             Self::RegisterKey => "custom_ring_register_key.key",
+            Self::Deposit => "custom_ring_deposit.key",
         }
     }
 
@@ -183,6 +190,7 @@ impl RingKey {
             Self::CompressedRegister => "custom-ring-compressed-register",
             Self::DelegatePolicy => "custom-ring-delegate-policy",
             Self::RegisterKey => "custom-ring-register-key",
+            Self::Deposit => "custom-ring-deposit",
         }
     }
 }
@@ -196,6 +204,7 @@ impl RingRelease {
             RingKey::CompressedRegister => &self.compressed_register_key,
             RingKey::DelegatePolicy => &self.delegate_policy_key,
             RingKey::RegisterKey => &self.register_key,
+            RingKey::Deposit => &self.deposit_key,
         };
         asset
             .as_ref()
@@ -480,6 +489,7 @@ mod tests {
                 RingKey::CompressedRegister => "compressed_register_key",
                 RingKey::DelegatePolicy => "delegate_policy_key",
                 RingKey::RegisterKey => "register_key",
+                RingKey::Deposit => "deposit_key",
             };
             lock[section] = serde_json::json!({"asset": key.file_name(), "size": 1, "sha256": "x"});
         }
@@ -492,6 +502,13 @@ mod tests {
             partial.key(RingKey::RegisterKey),
             Err(ReleaseError::MissingCircuitKey {
                 circuit: "custom-ring-register-key",
+                ..
+            })
+        ));
+        assert!(matches!(
+            partial.key(RingKey::Deposit),
+            Err(ReleaseError::MissingCircuitKey {
+                circuit: "custom-ring-deposit",
                 ..
             })
         ));

@@ -608,6 +608,7 @@ const SPEND_RECORD_LEN = 112;
 /** Rust `SPEND_COUNTERS_LEN`. */
 export const SPEND_COUNTERS_LENGTH = 32 + RING_VELOCITY_SLOTS * 40;
 
+/** Publishes the current member window and commitment to private counters. */
 export interface SpendRecord {
   readonly member: Member;
   readonly version: bigint;
@@ -616,6 +617,7 @@ export interface SpendRecord {
   readonly blinding: Bytes32;
 }
 
+/** Opens accumulated outflow bound to each asset identity. */
 export interface SpendCounters {
   readonly salt: Bytes32;
   readonly assets: readonly Bytes32[];
@@ -752,6 +754,7 @@ export function spendSeed(member: Member): Bytes32 {
   return poseidon([SPEND_ADDRESS_DOMAIN, member]);
 }
 
+/** Binds a record to its compressed address, leaf and spend nullifier. */
 export interface SpendRecordHashes {
   readonly address: Bytes32;
   readonly dataHash: Bytes32;
@@ -1068,6 +1071,7 @@ export async function readRingEntryLineages(
   return heads.map((head) => head.live);
 }
 
+/** Links a verified record to its transaction for counter recovery. */
 export interface LiveSpendRecord {
   readonly record: SpendRecord;
   readonly utxoHash: Bytes32;
@@ -1081,6 +1085,7 @@ export interface LiveSpendRecord {
   }>;
 }
 
+/** Locates a member's record through its compressed entry lineage. */
 export interface ReadRingSpendRecordInput {
   readonly indexer: EntryIndexer;
   readonly entriesTree: Address;

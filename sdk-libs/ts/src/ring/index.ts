@@ -119,6 +119,7 @@ export { ringRole, type RingRole } from "./role.js";
 export type {
   RingCoSigner,
   RingDelegate,
+  RingDepositAudit,
   RingPolicyConfig,
   RingPolicySource,
   RingProgramConfig,
@@ -132,11 +133,13 @@ export {
   RING_COSIGN_WITHDRAWALS,
   decodeRingCoSigner,
   decodeRingDelegate,
+  decodeRingDepositAudit,
   decodeRingSpendWindow,
 } from "./codecs.js";
 export {
   ringCoSignerAddress,
   ringDelegateAddress,
+  ringDepositAuditAddress,
   ringSpendWindowAddress,
 } from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";
@@ -218,15 +221,24 @@ export {
   clearRingSpendWindowInstruction,
   fetchRingCoSigner,
   fetchRingDelegate,
+  fetchRingDepositAudit,
   fetchRingSpendWindow,
   setRingAuthorityInstruction,
   setRingCoSignerInstruction,
   setRingDelegateInstruction,
+  setRingDepositAuditInstruction,
   setRingPausedInstruction,
   setRingSpendWindowInstruction,
 } from "./config.js";
-export { buildRingDepositTransaction } from "./deposit.js";
-export type { RingDepositTransactionParams } from "./deposit.js";
+export { buildRingDepositTransaction, RING_DEPOSIT_COMPUTE_UNIT_LIMIT } from "./deposit.js";
+export type { RingDepositClient, RingDepositTransactionParams } from "./deposit.js";
+export {
+  sealRingDepositOpenings,
+  openRingDepositOpening,
+  ringDepositContextHash,
+  ringDepositPublicInputHash,
+} from "./deposit-audit.js";
+export type { RingDepositOpening } from "./deposit-audit.js";
 export { RING_ERROR_CODES, RingError, wrapRingError } from "./error.js";
 export type { RingErrorCode } from "./error.js";
 export {
@@ -243,6 +255,7 @@ export {
   RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
   RING_SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
+  initializeRingConfigInstructions,
   createRingEntryInstruction,
   createRingPolicyInstruction,
   initSppRingConfigInstruction,

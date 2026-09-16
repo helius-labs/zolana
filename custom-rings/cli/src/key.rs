@@ -71,7 +71,6 @@ pub(crate) enum KeyOutcome {
 pub(crate) struct KeyEnrolment<'a> {
     pub ring: CustomRing,
     pub member: &'a ShieldedKeypair,
-    pub root: IndexedMapRoot,
 }
 
 pub fn run(ctx: &mut Context, command: KeyCommand) -> Result<(), KeyError> {
@@ -82,11 +81,11 @@ pub fn run(ctx: &mut Context, command: KeyCommand) -> Result<(), KeyError> {
             let enrolment = KeyEnrolment {
                 ring: ctx.ring,
                 member: &member,
-                root: registry_root(ctx.ring, &ctx.rpc)?,
             };
             let indexer = ctx.indexer();
             line("member", sender.pubkey());
-            match enrolment.plan(&indexer, ctx.ask.as_mut())? {
+            let registered = enrolment.registered(&indexer, &ctx.rpc)?;
+            match enrolment.plan(registered, ctx.ask.as_mut())? {
                 Plan::AlreadyRegistered => line("key", "already registered"),
                 Plan::Declined => line("key", "not registered"),
                 Plan::Enroll => {
@@ -123,15 +122,15 @@ impl KeyEnrolment<'_> {
         &self,
         env: TransferProofEnvironment<'_, I, SolanaRpc>,
     ) -> Result<KeyOutcome, KeyError> {
-        if self.registered(env.indexer)? {
+        if self.registered(env.indexer, env.rpc)? {
             return Ok(KeyOutcome::Present);
         }
         self.register(env)?;
         Ok(KeyOutcome::Registered)
     }
 
-    fn plan(&self, indexer: &impl Rpc, ask: &mut dyn Ask) -> Result<Plan, KeyError> {
-        if self.registered(indexer)? {
+    fn plan(&self, registered: bool, ask: &mut dyn Ask) -> Result<Plan, KeyError> {
+        if registered {
             return Ok(Plan::AlreadyRegistered);
         }
         if ask.confirm(
@@ -144,29 +143,44 @@ impl KeyEnrolment<'_> {
         }
     }
 
-    /// Only an entry under the current root counts, a lagging Photon is waited out.
-    fn registered(&self, indexer: &impl Rpc) -> Result<bool, KeyError> {
+    /// Only the sender's key included under the current registry root counts as
+    /// enrolled.
+    fn registered(&self, indexer: &impl Rpc, rpc: &impl Rpc) -> Result<bool, KeyError> {
         let member = self.member_tag()?;
+        let nullifier_pubkey = self.member.shielded_address()?.nullifier_pubkey;
         wait_for(
             format!("key registry entry of {}", self.member.pubkey()),
-            || match (ReadSealedKey {
-                ring: self.ring,
-                member,
-                root: self.root,
-            })
-            .read(indexer)
-            {
-                Ok(_) => Ok(Probe::Ready(true)),
-                Err(KeyRegistrationError::Client(error))
-                    if matches!(*error, ClientError::RingKeyRegistryMemberUnregistered) =>
+            || {
+                let root = registry_root(self.ring, rpc)?;
+                match (ReadSealedKey {
+                    ring: self.ring,
+                    member,
+                    root,
+                })
+                .read(indexer)
                 {
-                    Ok(Probe::Ready(false))
+                    Ok(entry) => {
+                        // 1. Indexer metadata alone cannot suppress key
+                        // registration.
+                        entry.verify_nullifier_pubkey(&nullifier_pubkey)?;
+                        Ok(Probe::Ready(true))
+                    }
+                    Err(KeyRegistrationError::Client(error))
+                        if matches!(*error, ClientError::RingKeyRegistryMemberUnregistered) =>
+                    {
+                        Ok(Probe::Ready(false))
+                    }
+                    Err(error) if is_key_registry_retryable(&error) => {
+                        Ok(Probe::Retry(KeyError::from(error)))
+                    }
+                    Err(error) => Err(KeyError::from(error)),
                 }
-                Err(error) if is_key_registry_retryable(&error) => Ok(Probe::Retry(error)),
-                Err(error) => Err(error),
             },
         )
-        .map_err(timed_out)
+        .map_err(|error| match error {
+            WaitError::Failed(error) => error,
+            WaitError::Timeout { label, last } => KeyError::Timeout { label, last },
+        })
     }
 
     fn register<I: Rpc>(
@@ -230,7 +244,13 @@ fn timed_out(error: WaitError<KeyRegistrationError>) -> KeyError {
 
 #[cfg(test)]
 mod tests {
-    use custom_ring_interface::HEAD_MAP_HEIGHT;
+    use std::cell::Cell;
+
+    use custom_ring_interface::{
+        HeadMapLeaf, KeyRegistryRoot, MerklePath, RegisteredKey, HEAD_MAP_HEIGHT, KEY_REGISTRY_ROOT,
+    };
+    use solana_account::Account;
+    use solana_address::Address;
     use zolana_indexer_api::{
         Base64String, Context as RegistryContext, GetRingKeyRegistryEntryResponse, Hash,
         RingMemberProofRequest,
@@ -250,29 +270,115 @@ mod tests {
         next_index: 2,
     };
 
-    struct StubIndexer {
-        registered: bool,
+    struct RegistryRpc {
+        reads: Cell<u8>,
+        advance: bool,
+        root: IndexedMapRoot,
     }
+
+    impl RegistryRpc {
+        fn fixed() -> Self {
+            Self {
+                reads: Cell::new(0),
+                advance: false,
+                root: ROOT,
+            }
+        }
+    }
+
+    impl Rpc for RegistryRpc {
+        fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+            let (expected, bump) =
+                custom_ring_interface::pda::key_registry_root(&ring().program_id());
+            assert_eq!(address, expected);
+            let reads = self.reads.get();
+            self.reads.set(reads + 1);
+            let root = KeyRegistryRoot {
+                discriminator: KEY_REGISTRY_ROOT,
+                root: if self.advance && reads > 0 {
+                    [1; 32]
+                } else {
+                    self.root.root
+                },
+                next_index: (self.root.next_index + u64::from(self.advance && reads > 0))
+                    .to_le_bytes(),
+                bump,
+            };
+            Ok(Some(Account {
+                lamports: 1,
+                data: bytemuck::bytes_of(&root).to_vec(),
+                owner: ring().program_id(),
+                executable: false,
+                rent_epoch: 0,
+            }))
+        }
+    }
+
+    struct StubIndexer(Option<GetRingKeyRegistryEntryResponse>);
 
     impl Rpc for StubIndexer {
         fn get_ring_key_registry_entry(
             &self,
-            request: RingMemberProofRequest,
+            _request: RingMemberProofRequest,
         ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-            if !self.registered {
-                return Err(ClientError::RingKeyRegistryMemberUnregistered);
-            }
-            Ok(GetRingKeyRegistryEntryResponse {
-                context: RegistryContext::default(),
-                root: request.expected_root,
-                next_index: request.expected_next_index,
-                member: request.member,
-                next: Hash([0u8; 32]),
-                index: 1,
-                eph_pk: Base64String(ViewingKey::new().pubkey().as_bytes().to_vec()),
-                ciphertext: Base64String(vec![0u8; 32]),
-                proof: vec![Hash([0u8; 32]); HEAD_MAP_HEIGHT],
-            })
+            self.0
+                .clone()
+                .ok_or(ClientError::RingKeyRegistryMemberUnregistered)
+        }
+    }
+
+    struct RegisteredEntry {
+        rpc: RegistryRpc,
+        indexer: StubIndexer,
+    }
+
+    fn registered_entry(member: &ShieldedKeypair) -> RegisteredEntry {
+        let envelope = zolana_ring_client::NullifierKeyEnvelope::new(
+            &member.nullifier_key,
+            &ViewingKey::new().pubkey(),
+        )
+        .unwrap();
+        let member_tag = Member::owner_tag(member.pubkey().as_array()).unwrap();
+        let commitment = RegisteredKey {
+            nullifier_pk: &envelope.nullifier_pk,
+            ciphertext: &envelope.sealed.ciphertext,
+        }
+        .commitment()
+        .unwrap();
+        let leaf = HeadMapLeaf {
+            member: member_tag.as_bytes(),
+            next: &[0; 32],
+            nullifier: &commitment,
+        }
+        .hash()
+        .unwrap();
+        let proof = vec![[0; 32]; HEAD_MAP_HEIGHT];
+        let root = MerklePath {
+            index: 1,
+            siblings: &proof,
+        }
+        .root_of(leaf)
+        .unwrap();
+        let response = GetRingKeyRegistryEntryResponse {
+            context: RegistryContext::default(),
+            root: Hash(root),
+            next_index: 2,
+            member: Hash(*member_tag.as_bytes()),
+            next: Hash([0; 32]),
+            index: 1,
+            eph_pk: Base64String(envelope.sealed.eph_pk.as_bytes().to_vec()),
+            ciphertext: Base64String(envelope.sealed.ciphertext.to_vec()),
+            proof: proof.into_iter().map(Hash).collect(),
+        };
+        RegisteredEntry {
+            rpc: RegistryRpc {
+                root: IndexedMapRoot {
+                    root,
+                    next_index: 2,
+                },
+                ..RegistryRpc::fixed()
+            },
+            indexer: StubIndexer(Some(response)),
         }
     }
 
@@ -286,13 +392,12 @@ mod tests {
         let enrolment = KeyEnrolment {
             ring: ring(),
             member: &member,
-            root: ROOT,
         };
         let mut ask = Scripted::new([]);
+        let RegisteredEntry { rpc, indexer } = registered_entry(&member);
+        let registered = enrolment.registered(&indexer, &rpc).expect("registered");
         assert_eq!(
-            enrolment
-                .plan(&StubIndexer { registered: true }, &mut ask)
-                .expect("plan"),
+            enrolment.plan(registered, &mut ask).expect("plan"),
             Plan::AlreadyRegistered
         );
     }
@@ -303,17 +408,19 @@ mod tests {
         let enrolment = KeyEnrolment {
             ring: ring(),
             member: &member,
-            root: ROOT,
         };
-        let indexer = StubIndexer { registered: false };
+        let indexer = StubIndexer(None);
+        let registered = enrolment
+            .registered(&indexer, &RegistryRpc::fixed())
+            .expect("registered");
         let mut yes = Scripted::new([Answer::Yes(true)]);
         assert_eq!(
-            enrolment.plan(&indexer, &mut yes).expect("plan"),
+            enrolment.plan(registered, &mut yes).expect("plan"),
             Plan::Enroll
         );
         let mut no = Scripted::new([Answer::Yes(false)]);
         assert_eq!(
-            enrolment.plan(&indexer, &mut no).expect("plan"),
+            enrolment.plan(registered, &mut no).expect("plan"),
             Plan::Declined
         );
     }
@@ -338,11 +445,88 @@ mod tests {
         let enrolment = KeyEnrolment {
             ring: ring(),
             member: &member,
-            root: ROOT,
         };
         let indexer = Lagging(std::cell::Cell::new(0));
-        assert!(!enrolment.registered(&indexer).expect("registered"));
+        assert!(!enrolment
+            .registered(&indexer, &RegistryRpc::fixed())
+            .expect("registered"));
         assert_eq!(indexer.0.get(), 2);
+    }
+
+    #[test]
+    fn a_changed_registry_root_is_refetched_before_retrying() {
+        struct Advanced(Cell<u8>);
+        impl Rpc for Advanced {
+            fn get_ring_key_registry_entry(
+                &self,
+                request: RingMemberProofRequest,
+            ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+                let calls = self.0.get();
+                self.0.set(calls + 1);
+                if calls == 0 {
+                    assert_eq!(request.expected_root.0, ROOT.root);
+                    assert_eq!(request.expected_next_index, ROOT.next_index);
+                    return Err(ClientError::RingKeyRegistryRootChanged);
+                }
+                assert_eq!(request.expected_root.0, [1; 32]);
+                assert_eq!(request.expected_next_index, ROOT.next_index + 1);
+                Err(ClientError::RingKeyRegistryMemberUnregistered)
+            }
+        }
+        let member = member();
+        let enrolment = KeyEnrolment {
+            ring: ring(),
+            member: &member,
+        };
+        let indexer = Advanced(Cell::new(0));
+        let rpc = RegistryRpc {
+            reads: Cell::new(0),
+            advance: true,
+            root: ROOT,
+        };
+        assert!(!enrolment.registered(&indexer, &rpc).expect("registered"));
+        assert_eq!(indexer.0.get(), 2);
+        assert_eq!(rpc.reads.get(), 2);
+    }
+
+    #[test]
+    fn forged_inclusion_cannot_skip_key_enrollment() {
+        let member = member();
+        let enrolment = KeyEnrolment {
+            ring: ring(),
+            member: &member,
+        };
+        let mutations: [fn(&mut GetRingKeyRegistryEntryResponse); 3] = [
+            |entry| entry.proof[0].0[31] ^= 1,
+            |entry| entry.ciphertext.0[31] ^= 1,
+            |entry| entry.member.0[31] ^= 1,
+        ];
+        for mutate in mutations {
+            let RegisteredEntry { rpc, mut indexer } = registered_entry(&member);
+            mutate(indexer.0.as_mut().unwrap());
+            assert!(matches!(
+                enrolment.registered(&indexer, &rpc),
+                Err(KeyError::Registration(error))
+                    if matches!(*error, KeyRegistrationError::InvalidEntryProof)
+            ));
+        }
+    }
+
+    #[test]
+    fn an_included_different_nullifier_key_does_not_enroll_the_sender() {
+        let member = member();
+        let mut different_key = ShieldedKeypair::new_ed25519().unwrap();
+        different_key.signing_key = member.signing_key.clone();
+        let RegisteredEntry { rpc, indexer } = registered_entry(&different_key);
+        let enrolment = KeyEnrolment {
+            ring: ring(),
+            member: &member,
+        };
+        assert!(matches!(
+            enrolment.registered(&indexer, &rpc),
+            Err(KeyError::Registration(error))
+                if matches!(*error, KeyRegistrationError::InvalidEntryProof)
+        ));
     }
 
     #[test]
@@ -360,11 +544,9 @@ mod tests {
         let enrolment = KeyEnrolment {
             ring: ring(),
             member: &member,
-            root: ROOT,
         };
-        let mut ask = Scripted::new([]);
         assert!(matches!(
-            enrolment.plan(&Down, &mut ask),
+            enrolment.registered(&Down, &RegistryRpc::fixed()),
             Err(KeyError::Registration(error)) if matches!(*error, KeyRegistrationError::Client(_))
         ));
     }

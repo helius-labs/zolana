@@ -61,6 +61,7 @@ export interface AuditedRingOutput {
   readonly ringProgramId?: Address;
 }
 
+/** Reports a spend record and any counters authenticated by its commitment. */
 export interface AuditedRingSpendRecord {
   readonly slotIndex: number;
   readonly record: SpendRecord;

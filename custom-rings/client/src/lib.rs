@@ -18,15 +18,13 @@
 //!
 //! ## Audit coverage
 //!
-//! The recovered transaction viewing key opens confidential output slots of
-//! ring transactions. Ring deposits encrypt to the recipient
-//! (`EncryptedRingDepositData`) and are not auditor-decryptable; their amounts
-//! are public on-chain anyway, so an auditor reads those from the deposit
-//! instruction or event rather than by decryption.
+//! Auditor keys open transaction slots and verified deposit disclosures.
+//! Deposits without disclosure expose no opening to the auditor.
 
 mod counters;
 mod decrypt;
 mod deposit;
+mod deposit_encryption;
 mod encryption;
 mod error;
 mod origin;
@@ -42,6 +40,7 @@ pub use crate::{
     counters::{find_counters_message, CountersSeal, SealedCounters, SpendCountersError},
     decrypt::TransactionAudit,
     deposit::{ring_deposits_in, RingDeposit},
+    deposit_encryption::{DepositEncryption, DepositOpen, DepositOpening, DepositSeal},
     encryption::{
         auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage,
         NullifierKeyEnvelope, SealedNullifierKey,
@@ -55,7 +54,10 @@ pub use crate::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,
     },
     record::{MalformedRecordCarrier, RecordCarrier},
-    recover::{MemberRecovery, RecoveredNotes, RecoveryEnvironment, RingRecovery, SourceMember},
+    recover::{
+        MemberRecovery, NoteDataHashes, NoteHashResolver, RecoveredNotes, RecoveryEnvironment,
+        RingRecovery, SourceMember,
+    },
     scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
     types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
 };

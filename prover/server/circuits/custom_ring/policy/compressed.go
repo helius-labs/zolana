@@ -6,6 +6,7 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
+// Adds current-head authentication to the member's windowed policy proof.
 type CompressedPolicyCircuit struct {
 	Policy CustomRingPolicyCircuit
 
@@ -20,9 +21,11 @@ type CompressedPolicyCircuit struct {
 }
 
 func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
+	// 1. Prove the member's windowed policy and record transition.
 	api.AssertIsDifferent(c.Policy.WindowSlots, 0)
 	chain, txContext := c.Policy.constrainPolicyRail(api, memberRail)
 
+	// 2. Replace the consumed record's head with its successor nullifier.
 	newRoot := headTransition{
 		oldRoot: c.HeadOldRoot,
 		leaf: headLeaf{
@@ -36,6 +39,7 @@ func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
 	}.newRoot(api)
 	api.AssertIsEqual(newRoot, c.HeadNewRoot)
 
+	// 3. Bind both head roots for the program's atomic compare-and-replace.
 	chain = append(chain, c.HeadOldRoot, c.HeadNewRoot)
 	api.AssertIsEqual(c.Policy.PublicInputHash, gadget.HashChain(api, chain))
 	return nil

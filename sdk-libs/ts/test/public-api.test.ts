@@ -97,6 +97,7 @@ describe("public package surface", () => {
     expect(client.proveRingTransact).toBeTypeOf("function");
     expect(client.proveCustomRingPolicy).toBeTypeOf("function");
     expect(client.proveCustomRingBase).toBeTypeOf("function");
+    expect(client.proveCustomRingDeposit).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {

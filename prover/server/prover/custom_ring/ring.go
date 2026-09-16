@@ -13,10 +13,12 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	base "zolana/prover/circuits/custom_ring/base"
+	"zolana/prover/circuits/custom_ring/deposit"
 	"zolana/prover/circuits/custom_ring/policy"
 	"zolana/prover/prover/common"
 )
 
+// Keeps each ring statement's decoder and compiled witness shape together.
 type RingCircuit struct {
 	Type    common.CircuitType
 	circuit func() frontend.Circuit
@@ -64,6 +66,11 @@ var (
 		circuit: func() frontend.Circuit { return &policy.KeyRegisterCircuit{} },
 		request: func() Request { return new(KeyRegisterParameters) },
 	}
+	depositRing = RingCircuit{
+		Type:    common.CustomRingDepositCircuitType,
+		circuit: func() frontend.Circuit { return &deposit.CustomRingDepositCircuit{} },
+		request: func() Request { return new(DepositParameters) },
+	}
 )
 
 var RingCircuits = []RingCircuit{
@@ -73,6 +80,7 @@ var RingCircuits = []RingCircuit{
 	compressedPolicyRing,
 	compressedRegisterRing,
 	keyRegisterRing,
+	depositRing,
 }
 
 func R1CSPolicy() (constraint.ConstraintSystem, error) {
@@ -97,6 +105,10 @@ func R1CSCompressedRegister() (constraint.ConstraintSystem, error) {
 
 func R1CSKeyRegister() (constraint.ConstraintSystem, error) {
 	return keyRegisterRing.R1CS()
+}
+
+func R1CSDeposit() (constraint.ConstraintSystem, error) {
+	return depositRing.R1CS()
 }
 
 func (r RingCircuit) R1CS() (constraint.ConstraintSystem, error) {
@@ -179,6 +191,10 @@ func (p *CompressedRegisterParameters) assignment() (frontend.Circuit, error) {
 }
 
 func (p *KeyRegisterParameters) assignment() (frontend.Circuit, error) {
+	return p.CreateWitness()
+}
+
+func (p *DepositParameters) assignment() (frontend.Circuit, error) {
 	return p.CreateWitness()
 }
 

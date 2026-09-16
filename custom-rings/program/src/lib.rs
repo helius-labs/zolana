@@ -22,9 +22,9 @@ use crate::instructions::{
     process_create_policy_ix, process_delegate_transact_ix, process_grant_read_access_ix,
     process_init_spp_ring_config_ix, process_register_key_ix, process_register_spend_ix,
     process_revoke_read_access_ix, process_set_authority_ix, process_set_cosigner_ix,
-    process_set_delegate_ix, process_set_paused_ix, process_set_policy_rules_ix,
-    process_set_policy_source_ix, process_set_spend_window_ix, process_transact_ix,
-    process_update_entry_ix,
+    process_set_delegate_ix, process_set_deposit_audit_ix, process_set_paused_ix,
+    process_set_policy_rules_ix, process_set_policy_source_ix, process_set_spend_window_ix,
+    process_transact_ix, process_update_entry_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -47,6 +47,9 @@ pub fn process_instruction(
         tag::TRANSACT => process_transact_ix(program_id, accounts, ix_data),
         // The forwarder passes the tag byte on as well: SPP's dispatcher strips it.
         tag::DEPOSIT => Forward::Deposit.process(program_id, accounts, instruction_data),
+        tag::AUDITED_DEPOSIT => {
+            Forward::AuditedDeposit.process(program_id, accounts, instruction_data)
+        }
         // SPP proves that owner, asset, value, and ring ownership stay unchanged.
         tag::MERGE => Forward::Merge.process(program_id, accounts, instruction_data),
         tag::GRANT_READ_ACCESS => process_grant_read_access_ix(program_id, accounts, ix_data),
@@ -63,6 +66,7 @@ pub fn process_instruction(
         tag::SET_SPEND_WINDOW => process_set_spend_window_ix(program_id, accounts, ix_data),
         tag::CLEAR_SPEND_WINDOW => process_clear_spend_window_ix(program_id, accounts, ix_data),
         tag::SET_DELEGATE => process_set_delegate_ix(program_id, accounts, ix_data),
+        tag::SET_DEPOSIT_AUDIT => process_set_deposit_audit_ix(program_id, accounts, ix_data),
         tag::DELEGATE_TRANSACT => process_delegate_transact_ix(program_id, accounts, ix_data),
         tag::REGISTER_SPEND => process_register_spend_ix(program_id, accounts, ix_data),
         tag::CREATE_HEAD_MAP_ROOT => {

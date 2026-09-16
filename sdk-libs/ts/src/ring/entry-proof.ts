@@ -193,6 +193,7 @@ function transitionInputs(
   return Object.freeze({ entry, ...transition });
 }
 
+/** Binds a compressed account spend to its namespace-owned successor. */
 interface DataTransition {
   readonly slot: InputSlot;
   readonly namespace: RingListNamespace;
@@ -309,6 +310,7 @@ function dataTransitionInputs(
   return Object.freeze({ inputs, privateTxBlinding: txBlinding });
 }
 
+/** Creates a member's first compressed record with empty counters. */
 export interface RingSpendRegistrationInput {
   readonly client: RingEntryProofClient;
   readonly ringProgramId: Address;

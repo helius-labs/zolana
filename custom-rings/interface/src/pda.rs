@@ -1,6 +1,10 @@
 use solana_address::Address;
 
-use crate::{HeadMapRoot, KeyRegistryRoot};
+use crate::{DepositAudit, HeadMapRoot, KeyRegistryRoot};
+
+pub fn deposit_audit(program: &Address) -> (Address, u8) {
+    Address::find_program_address(&[DepositAudit::SEED], program)
+}
 
 pub fn head_map_root(program: &Address) -> (Address, u8) {
     Address::find_program_address(&[HeadMapRoot::SEED], program)

@@ -42,7 +42,11 @@ import { Writer } from "../interface/internal.js";
 
 import { CUSTOM_RING_PROOF_LENGTH } from "../client/prover/proof.js";
 import { checkedCustomRingProof } from "./codecs.js";
-import { ringPolicyNamespaceAddress, ringProgramDataAddress } from "./config.js";
+import {
+  ringPolicyNamespaceAddress,
+  ringProgramDataAddress,
+  setRingDepositAuditInstruction,
+} from "./config.js";
 import type { RingEntryProof } from "./entry-proof.js";
 import { RingError } from "./error.js";
 import {
@@ -125,6 +129,19 @@ export async function createRingConfigInstruction(
     ],
     data,
   };
+}
+
+export async function initializeRingConfigInstructions(
+  input: Parameters<typeof createRingConfigInstruction>[0] & Readonly<{ depositAudit?: boolean }>,
+): Promise<readonly Instruction[]> {
+  if (input.depositAudit !== undefined && typeof input.depositAudit !== "boolean")
+    throw new RingError("RING_DEPOSIT_AUDIT_INVALID");
+  const config = await createRingConfigInstruction(input);
+  return Object.freeze(
+    input.depositAudit === true
+      ? [config, await setRingDepositAuditInstruction({ ...input, required: true })]
+      : [config],
+  );
 }
 
 /** Mirrors Rust `InitSppRingConfig`. `ringAuth` stays unsigned, the ring program signs it inside its CPI. */

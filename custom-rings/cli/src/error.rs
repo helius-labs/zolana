@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::deposit_audit::DepositAuditError;
 use crate::{
     authority::AuthorityError, config::ConfigError, cosigner::CoSignerError,
     delegate::DelegateError, deploy::DeployError, init::InitError, key::KeyError, list::ListError,
@@ -12,6 +13,8 @@ use zolana_ring_rpc::KeyFileError;
 
 #[derive(Debug, Error)]
 pub enum CliError {
+    #[error(transparent)]
+    DepositAudit(Box<DepositAuditError>),
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
@@ -71,6 +74,7 @@ macro_rules! boxed_from {
 pub(crate) use boxed_from;
 
 boxed_from!(CliError {
+    DepositAudit(DepositAuditError),
     New(NewError),
     Probe(ProbeError),
     Pipeline(PipelineError),

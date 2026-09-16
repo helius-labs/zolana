@@ -382,6 +382,8 @@ impl EntryTransition {
     }
 }
 
+/// Canonical SPP statement for creating or replacing one namespace-owned data
+/// record.
 pub(crate) struct NamespaceWrite<'a> {
     pub output_hash: [u8; 32],
     pub content: &'a [u8],
@@ -440,6 +442,8 @@ pub(crate) struct SpendRecordCarrier<'a> {
 
 impl SpendRecordCarrier<'_> {
     pub fn verify(&self, namespace: &RecordNamespace) -> Result<(), ProgramError> {
+        // 1. Require the namespace-owned final output and its unique public
+        // record message.
         if self.output.owner_tag != OwnerTag::Inline(namespace.address.to_bytes()) {
             return Err(CustomRingError::InvalidSpendRecord.into());
         }
@@ -462,6 +466,8 @@ impl SpendRecordCarrier<'_> {
         if tagged.next().is_some() {
             return Err(CustomRingError::InvalidSpendRecord.into());
         }
+        // 2. Rebuild the leaf from published record fields before granting the
+        // namespace signature.
         let record = SpendRecord::from_output_data(&message.data)
             .ok_or(CustomRingError::InvalidSpendRecord)?;
         let address = namespace

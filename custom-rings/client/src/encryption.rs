@@ -39,6 +39,12 @@ pub enum AuditEncryptionError {
     MessageLength(usize),
     #[error("nullifier ciphertext did not decrypt to a zero-padded secret")]
     NullifierPad,
+    #[error("deposit count must be between one and eight, got {0}")]
+    DepositCount(usize),
+    #[error("deposit slot must be below eight, got {0}")]
+    DepositSlot(usize),
+    #[error("deposit opening does not match the owner commitment")]
+    DepositOpeningMismatch,
     #[error(transparent)]
     Keypair(#[from] KeypairError),
 }
@@ -200,7 +206,8 @@ impl NullifierKeySeal<'_> {
 }
 
 impl SealedNullifierKey {
-    /// A nonzero pad byte rejects a ciphertext sealed to another auditor.
+    /// Padding alone does not authenticate the recovered key against its
+    /// registry leaf.
     pub fn open(&self, auditor: &ViewingKey) -> Result<NullifierKey> {
         let dh = Zeroizing::new(auditor.ecdh(&self.eph_pk)?);
         let auditor_key = auditor.pubkey();

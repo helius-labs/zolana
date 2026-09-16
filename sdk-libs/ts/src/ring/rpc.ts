@@ -309,7 +309,7 @@ export interface DecryptedRingWithdrawal {
   readonly amount: bigint;
 }
 
-/** Mirrors Rust `DecryptedSpendRecord`. */
+/** Reports the member's published record with any recovered counters. */
 export interface DecryptedRingSpendRecord {
   readonly slotIndex: number;
   readonly member: Member;
@@ -320,7 +320,7 @@ export interface DecryptedRingSpendRecord {
   readonly counters?: readonly DecryptedRingSpendCounter[];
 }
 
-/** Mirrors Rust `DecryptedSpendCounter`. */
+/** Reports one populated asset counter from a decrypted spend record. */
 export interface DecryptedRingSpendCounter {
   readonly slot: number;
   readonly asset: Bytes32;

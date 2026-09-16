@@ -141,7 +141,10 @@ impl RingNotes<'_> {
                     amount: self.amount,
                     cosigner: None,
                 }
-                .send(rpc)?;
+                .send(custom_ring_sdk::DepositProofEnvironment {
+                    rpc,
+                    prover: &zolana_client::ProverClient::local(),
+                })?;
                 let leaf = SppProofInputUtxo::new(utxo.clone(), self.owner).hash()?;
                 wait_for_merkle_proof(indexer, self.env.tree, leaf);
                 Ok(utxo)

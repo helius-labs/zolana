@@ -19,16 +19,16 @@ mod witness;
 
 pub use custom_ring_interface::{
     tag, CoSignScope, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
-    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, CO_SIGNER_PDA_SEED,
-    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
+    PolicyTableIxData, ReaderIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT, CONFIG_PDA_SEED,
+    CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
     CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     DELEGATE_PDA_SEED, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
     REGISTER_SPEND_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
     SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
-    SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT, SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
-    SPEND_WINDOW_PDA_SEED,
+    SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT, SPEND_WINDOW_PDA_SEED,
 };
 
 pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
@@ -47,7 +47,7 @@ pub use crate::{
         create_head_map_root::CreateHeadMapRoot,
         create_key_registry_root::CreateKeyRegistryRoot,
         delegate::{CustomRingDelegateTransact, DelegateInstructionError, SetDelegate},
-        deposit::Deposit,
+        deposit::{Deposit, SetDepositAudit},
         entry::{
             CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
             EntryProofError, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry,
@@ -86,8 +86,8 @@ pub use crate::{
     },
     transfer::{
         tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,
-        CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit, RingDepositReceipt,
-        TransferError, TransferProofEnvironment,
+        CustomRingTransferInput, DepositError, DepositProofEnvironment, ProvenTransfer,
+        RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,
     },
 };
 

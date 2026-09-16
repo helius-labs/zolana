@@ -113,6 +113,9 @@ pub(crate) struct PendingRing {
     pub program: [u8; 32],
     pub slot: u64,
     pub blockhash: Hash,
+    /// Last historical block committed with the ring's projection changes.
+    #[serde(default)]
+    pub replayed_tip: Option<BlockMetadata>,
 }
 
 #[derive(Debug, Error)]
@@ -153,21 +156,39 @@ pub(crate) async fn pending<C: ConnectionTrait>(conn: &C) -> Result<Vec<PendingR
     .await
 }
 
-pub(crate) async fn delete_pending<C: ConnectionTrait>(conn: &C, program: &[u8; 32]) -> Result<()> {
+pub(crate) async fn pending_ring<C: ConnectionTrait>(
+    conn: &C,
+    program: &[u8; 32],
+) -> Result<Option<PendingRing>> {
+    read_json(
+        conn,
+        &format!("SELECT state FROM {PENDING_TABLE} WHERE program=$1"),
+        vec![program.to_vec().into()],
+    )
+    .await
+}
+
+pub(crate) async fn checkpoint_pending<C: ConnectionTrait>(
+    conn: &C,
+    pending: &PendingRing,
+) -> Result<()> {
     conn.execute(statement(
         conn,
-        &format!("DELETE FROM {PENDING_TABLE} WHERE program=$1"),
-        vec![program.to_vec().into()],
+        &format!("UPDATE {PENDING_TABLE} SET state=$2 WHERE program=$1"),
+        vec![
+            pending.program.to_vec().into(),
+            serde_json::to_string(pending)?.into(),
+        ],
     ))
     .await?;
     Ok(())
 }
 
-pub(crate) async fn expire_pending<C: ConnectionTrait>(conn: &C, below: u64) -> Result<()> {
+pub(crate) async fn delete_pending<C: ConnectionTrait>(conn: &C, program: &[u8; 32]) -> Result<()> {
     conn.execute(statement(
         conn,
-        &format!("DELETE FROM {PENDING_TABLE} WHERE slot<$1"),
-        vec![i64::try_from(below)?.into()],
+        &format!("DELETE FROM {PENDING_TABLE} WHERE program=$1"),
+        vec![program.to_vec().into()],
     ))
     .await?;
     Ok(())
@@ -280,6 +301,20 @@ pub(crate) async fn rollback(
     .await?;
     restore::<super::head_map::HeadMap>(tx, cursor, &journal.undo.head_map).await?;
     restore::<super::key_registry::KeyRegistry>(tx, cursor, &journal.undo.key_registry).await?;
+    // Partial replay must rewind with the block that advanced it.
+    for mut candidate in pending(tx).await? {
+        if candidate
+            .replayed_tip
+            .as_ref()
+            .is_some_and(|tip| tip.slot == journal.metadata.slot)
+        {
+            candidate.replayed_tip = journal
+                .previous_tip
+                .clone()
+                .filter(|tip| tip.slot >= candidate.slot);
+            checkpoint_pending(tx, &candidate).await?;
+        }
+    }
     delete_journal(tx, journal.metadata.slot).await?;
     cursor.tip = journal.previous_tip;
     cursor.scanned_slot = cursor

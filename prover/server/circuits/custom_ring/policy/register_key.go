@@ -35,7 +35,7 @@ type KeyRegisterCircuit struct {
 }
 
 func (c *KeyRegisterCircuit) Define(api frontend.API) error {
-	// The emulated P-256 arithmetic does not range-check its bytes.
+	// 1. Bound all bytes and limit the nullifier secret to 31 bytes.
 	rangeChecker := rangecheck.New(api)
 	for _, b := range c.NullifierSecret {
 		rangeChecker.Check(b, 8)
@@ -50,6 +50,7 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.NullifierSecret[0], 0)
 	p256.PointOnCurve(api, c.AuditorPk)
 
+	// 2. Bind the encrypted secret to the registered nullifier public key.
 	secretFE := frontend.Variable(0)
 	for _, b := range c.NullifierSecret {
 		secretFE = api.Add(api.Mul(secretFE, 256), b)
@@ -63,6 +64,7 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 		Info:      NfKeyEncInfo,
 	}.Seal(api)
 
+	// 3. Require member absence before inserting the ciphertext commitment.
 	ctCommitment := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, sealed.CiphertextHash})
 	newRoot := headRegistration{
 		oldRoot:  c.HeadOldRoot,
@@ -76,6 +78,7 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	}.newRoot(api)
 	api.AssertIsEqual(newRoot, c.HeadNewRoot)
 
+	// 4. Bind registration to the program's public statement.
 	chain := []frontend.Variable{
 		c.HeadOldRoot, c.HeadNewRoot, c.Member,
 		nullifierPk, sealed.AuditorLo, sealed.AuditorHi, sealed.EphLo, sealed.EphHi, sealed.CiphertextHash,

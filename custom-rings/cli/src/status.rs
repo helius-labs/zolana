@@ -145,6 +145,16 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
         None => line("program", "not deployed"),
     }
     let state = ring.read_config(rpc)?;
+    if state.is_some() {
+        line(
+            "deposit audit",
+            if ring.read_deposit_audit(rpc)? {
+                "required"
+            } else {
+                "optional"
+            },
+        );
+    }
     match &state {
         Some(state) => line(
             "config",

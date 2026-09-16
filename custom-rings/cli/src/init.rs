@@ -4,7 +4,7 @@ use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     AccountReadError, CreateConfig, CreateConfigError, CreateHeadMapRoot, CreateKeyRegistryRoot,
     CreatePolicy, CustomRing, CustomRingConfig, EntryError, InitSppRingConfig, PolicyConfig,
-    SetAuthority, SetSourceOwner, SourceOwner, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
+    SetAuthority, SetDepositAudit, SetSourceOwner, SourceOwner, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
     CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT, CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT,
     CREATE_POLICY_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
@@ -75,6 +75,7 @@ pub struct Init<'a> {
     /// `None` for an audit-only ring.
     pub policy: Option<&'a CompiledPolicy>,
     pub existing: Option<CustomRingConfig>,
+    pub deposit_audit: Option<bool>,
 }
 
 pub struct InitOutcome {
@@ -84,6 +85,7 @@ pub struct InitOutcome {
     /// Every ring, the delegate rail is not tier bound.
     pub key_registry: StepOutcome,
     pub ring: StepOutcome,
+    pub deposit_audit: StepOutcome,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +110,8 @@ pub struct ForeignConfigAuthority(pub Address);
 
 #[derive(Debug, Error)]
 pub enum InitError {
+    #[error(transparent)]
+    Encoding(#[from] wincode::Error),
     #[error(transparent)]
     Context(#[from] ContextError),
     #[error(transparent)]
@@ -246,6 +250,9 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         },
     };
     let auditor_pk = source.resolve()?;
+    let deposit_audit = args
+        .deposit_audit
+        .or_else(|| existing.is_none().then_some(ctx.config.deposit_audit));
     let outcome = Init {
         ring: ctx.ring,
         upgrade_authority: upgrade_authority
@@ -255,8 +262,14 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         auditor_pk,
         policy: policy.as_ref(),
         existing,
+        deposit_audit,
     }
     .run(&ctx.rpc)?;
+    if let Some(required) = args.deposit_audit {
+        crate::config::RingConfig::set_deposit_audit(&ctx.config_path, required)
+            .map_err(ContextError::from)?;
+        ctx.config.deposit_audit = required;
+    }
     // Written after the chain agrees, a failed init must not leave a file
     // that the next run mistakes for a local key.
     if matches!(source, AuditorKeySource::RingRpc { .. }) {
@@ -281,6 +294,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     );
     line("policy", outcome.policy.label());
     line("key registry", outcome.key_registry.label());
+    line("deposit audit", outcome.deposit_audit.label());
     line(
         "spp ring",
         match outcome.ring {
@@ -444,6 +458,30 @@ impl Init<'_> {
                 }
                 .instruction()],
             )?;
+        let deposit_audit = if let Some(required) = self.deposit_audit {
+            if self.ring.read_deposit_audit(rpc)? == required {
+                StepOutcome::Present
+            } else {
+                self.step(
+                    rpc,
+                    "set_deposit_audit",
+                    &[],
+                    custom_ring_sdk::SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT,
+                )
+                .ensure_present(
+                    Observed::Absent,
+                    &[SetDepositAudit {
+                        ring: self.ring,
+                        payer: config_authority,
+                        authority: config_authority,
+                        required,
+                    }
+                    .instruction()?],
+                )?
+            }
+        } else {
+            StepOutcome::Present
+        };
         // The program registers a policy ring only after its policy is pinned.
         let ring = self
             .step(
@@ -468,6 +506,7 @@ impl Init<'_> {
             policy,
             key_registry,
             ring,
+            deposit_audit,
         })
     }
 

@@ -97,6 +97,7 @@ export function signerIdentity(address: Address): bigint {
   return bytesToBigInt(solanaOwnerIdentity(addressBytes(address)));
 }
 
+/** Selects owner and signer commitments for each transaction rail. */
 interface CircuitPlan {
   readonly ring: Address | undefined;
   readonly authority: boolean;
@@ -138,7 +139,7 @@ function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
   }
 }
 
-/** With a ring circuit, every real UTXO is in that ring or in the default ring, per its own fields. */
+/** The authority rail forbids default ring inputs and outputs. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],

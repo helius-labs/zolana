@@ -1,5 +1,7 @@
 use bytemuck::{from_bytes, from_bytes_mut};
-use custom_ring_interface::{CoSigner, Delegate, PolicyConfig, SpendWindow, HEAD_MAP_CAPACITY};
+use custom_ring_interface::{
+    CoSigner, Delegate, DepositAudit, PolicyConfig, SpendWindow, HEAD_MAP_CAPACITY,
+};
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{
     account::{Ref, RefMut},
@@ -130,6 +132,45 @@ fn cosigner_pda(program_id: &Address) -> OptionalPda<'_> {
         program_id,
         seeds: &[CoSigner::SEED],
         mismatch: CustomRingError::InvalidCoSigner,
+    }
+}
+
+pub fn load_deposit_audit<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Option<Ref<'a, DepositAudit>>, ProgramError> {
+    check_empty_deposit_audit(account)?;
+    let audit = deposit_audit_pda(program_id).load::<DepositAudit>(account)?;
+    if audit.as_deref().is_some_and(|audit| audit.required > 1) {
+        return Err(CustomRingError::InvalidDepositAudit.into());
+    }
+    Ok(audit)
+}
+
+pub fn load_deposit_audit_mut<'a>(
+    program_id: &Address,
+    account: &'a mut AccountView,
+) -> Result<Option<RefMut<'a, DepositAudit>>, ProgramError> {
+    check_empty_deposit_audit(account)?;
+    let audit = deposit_audit_pda(program_id).load_mut::<DepositAudit>(account)?;
+    if audit.as_deref().is_some_and(|audit| audit.required > 1) {
+        return Err(CustomRingError::InvalidDepositAudit.into());
+    }
+    Ok(audit)
+}
+
+fn check_empty_deposit_audit(account: &AccountView) -> Result<(), ProgramError> {
+    if account.data_len() == 0 && !pinocchio_system::check_id(account.owner()) {
+        return Err(CustomRingError::InvalidDepositAudit.into());
+    }
+    Ok(())
+}
+
+fn deposit_audit_pda(program_id: &Address) -> OptionalPda<'_> {
+    OptionalPda {
+        program_id,
+        seeds: &[DepositAudit::SEED],
+        mismatch: CustomRingError::InvalidDepositAudit,
     }
 }
 

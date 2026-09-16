@@ -165,7 +165,7 @@ describe("custom ring transfer seals each slot once", () => {
   const encrypt = (
     extra: Readonly<{
       sealedMessages?: readonly ReturnType<typeof message>[];
-      counterMessage?: ReturnType<typeof message>;
+      counterMessage?: Omit<ReturnType<typeof message>, "slotIndex">;
       recordOutputIndex?: number;
     }>,
   ) =>
@@ -191,6 +191,27 @@ describe("custom ring transfer seals each slot once", () => {
     });
   });
 
+  it("encrypts with the slot indices that were validated", async () => {
+    let reads = 0;
+    const changing = {
+      ...message(5),
+      get slotIndex() {
+        reads += 1;
+        return reads <= 2 ? 5 : 6;
+      },
+    };
+    const encryptSlot = vi.spyOn(ViewingKey.prototype, "encryptSlot");
+    try {
+      const encrypted = await encrypt({ sealedMessages: [changing, message(6)] });
+      expect(reads).toBe(1);
+      expect(encryptSlot.mock.calls.slice(0, 2).map((call) => call[3])).toEqual([5, 6]);
+      encrypted.audit.txViewingSecret.fill(0);
+      encrypted.audit.ephemeralSecret.fill(0);
+    } finally {
+      encryptSlot.mockRestore();
+    }
+  });
+
   it("rejects a caller message on the protocol counter slot", async () => {
     await expect(
       encrypt({
@@ -198,6 +219,27 @@ describe("custom ring transfer seals each slot once", () => {
         counterMessage: message(RING_SPEND_COUNTERS_SLOT_INDEX),
       }),
     ).rejects.toMatchObject({ code: "TRANSACTION_DUPLICATE_SLOT_INDEX" });
+  });
+
+  it("reserves the counter slot without a counter message", async () => {
+    const minted = trackMintedTxViewingKeys();
+    await expect(
+      encrypt({ sealedMessages: [message(RING_SPEND_COUNTERS_SLOT_INDEX)] }),
+    ).rejects.toMatchObject({ code: "TRANSACTION_DUPLICATE_SLOT_INDEX" });
+    expectWiped(minted);
+  });
+
+  it("assigns the protocol counter slot before encryption", async () => {
+    const encryptSlot = vi.spyOn(ViewingKey.prototype, "encryptSlot");
+    try {
+      const encrypted = await encrypt({ counterMessage: message(7) });
+      expect(encrypted.sealedMessages).toHaveLength(1);
+      expect(encryptSlot.mock.calls[0]?.[3]).toBe(RING_SPEND_COUNTERS_SLOT_INDEX);
+      encrypted.audit.txViewingSecret.fill(0);
+      encrypted.audit.ephemeralSecret.fill(0);
+    } finally {
+      encryptSlot.mockRestore();
+    }
   });
 
   it("seals the protocol counter on its own slot", async () => {

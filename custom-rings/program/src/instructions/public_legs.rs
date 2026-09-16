@@ -23,12 +23,14 @@ const MAX_LEGS: usize = if MAX_INTERFACE_TRANSFERS > MAX_DEPOSIT_ASSETS {
     MAX_DEPOSIT_ASSETS
 };
 
+/// Public value entering or leaving SPP, independent of private UTXO movements.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Direction {
     Deposit,
     Withdrawal,
 }
 
+/// Native SOL or the mint address in a leg's actual SPP settlement accounts.
 #[derive(Clone, Copy)]
 enum LegMint {
     Sol,
@@ -36,6 +38,7 @@ enum LegMint {
     Settlement(u8),
 }
 
+/// One public settlement amount with its mint and direction.
 #[derive(Clone, Copy)]
 struct Leg {
     mint: LegMint,
@@ -51,6 +54,8 @@ impl Leg {
     };
 }
 
+/// Public settlement flows shared by co-signer thresholds and ring-wide mint
+/// caps.
 pub(crate) struct PublicLegs<'a> {
     settlements: &'a [AccountView],
     legs: [Leg; MAX_LEGS],
@@ -178,11 +183,14 @@ impl<'a> PublicLegs<'a> {
         program_id: &Address,
         windows: &mut [AccountView],
     ) -> ProgramResult {
+        // 1. Repeated mint legs must name the same window account.
         for (leg, window) in windows.iter().enumerate() {
             if window.address() != windows[self.first_leg(leg)].address() {
                 return Err(CustomRingError::InvalidSpendWindow.into());
             }
         }
+        // 2. Load each canonical mint window once and charge the transaction's
+        // aggregate flows.
         let slot = Clock::get()?.slot;
         for (leg, window) in windows.iter_mut().enumerate() {
             if self.first_leg(leg) != leg {
@@ -249,6 +257,7 @@ struct WindowCharge {
 
 impl WindowCharge {
     fn apply(self, state: &mut SpendWindow) -> ProgramResult {
+        // 1. Reset counters only at a fixed-window boundary.
         let window = FixedWindow {
             slots: NonZeroU64::new(state.window_slots())
                 .ok_or(CustomRingError::InvalidSpendWindow)?,
@@ -259,6 +268,8 @@ impl WindowCharge {
             state.deposited = [0; 8];
             state.withdrawn = [0; 8];
         }
+        // 2. Reject overflow or either exceeded cap before storing the new
+        // totals.
         let deposited = state
             .deposited()
             .checked_add(self.deposited)

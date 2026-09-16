@@ -416,3 +416,55 @@ fn a_transfer_scope_gates_the_merge() {
     )
     .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
 }
+
+#[test]
+fn withdrawal_thresholds_do_not_sum_different_mints() {
+    let (mollusk, _) = setup_mollusk();
+    let mut settlements = sol_settlement();
+    settlements.extend(spl_settlement(USDC));
+    let fixture = with_windows(
+        gated_transact(
+            vec![
+                InterfaceTransfer::SolWithdrawal { amount: 6 },
+                InterfaceTransfer::SplWithdrawal {
+                    amount: 6,
+                    spl_interface_bump: 250,
+                },
+            ],
+            settlements,
+        ),
+        &[SOL, USDC],
+    );
+    with_cosigner(
+        fixture,
+        cosigner_account(CoSignScope::WITHDRAWALS, &[(SOL, 10), (USDC, 10)]),
+        false,
+    )
+    .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn overflowing_withdrawals_cannot_skip_the_cosigner() {
+    let (mollusk, _) = setup_mollusk();
+    let mut settlements = sol_settlement();
+    settlements.extend(sol_settlement());
+    let fixture = with_windows(
+        gated_transact(
+            vec![
+                InterfaceTransfer::SolWithdrawal { amount: u64::MAX },
+                InterfaceTransfer::SolWithdrawal { amount: 1 },
+            ],
+            settlements,
+        ),
+        &[SOL, SOL],
+    );
+    with_cosigner(
+        fixture,
+        cosigner_account(CoSignScope::WITHDRAWALS, &[(SOL, u64::MAX)]),
+        false,
+    )
+    .expect_err(
+        &mollusk,
+        solana_program_error::ProgramError::ArithmeticOverflow,
+    );
+}

@@ -7,6 +7,7 @@ pub mod config;
 pub mod cosigner;
 pub mod delegate;
 pub mod deploy;
+pub mod deposit_audit;
 pub mod error;
 pub mod file;
 pub mod fund;
@@ -118,6 +119,9 @@ pub enum Command {
     /// Set, clear or show the ring's co-signer.
     #[command(subcommand)]
     Cosigner(CoSignerCommand),
+    /// Require an auditor disclosure proof for new direct deposits.
+    #[command(subcommand)]
+    DepositAudit(DepositAuditCommand),
     /// Set, clear or show a mint's spend window.
     #[command(subcommand)]
     Window(WindowCommand),
@@ -235,7 +239,7 @@ pub struct DelegateMoveArgs {
     pub mint: Option<config::Mint>,
     #[arg(long)]
     pub delegate_keypair: PathBuf,
-    /// The ring auditor's secret, it opens the source member's registered key.
+    /// The P256 auditor read key, separate from the Solana delegate signer.
     #[arg(long, default_value = AUDITOR_KEY_FILE)]
     pub auditor_key: PathBuf,
     /// The co-signer keypair when the ring's co-signer scope covers transfers.
@@ -363,6 +367,10 @@ pub struct AuditorKeyArgs {
 
 #[derive(Debug, Args)]
 pub struct DeployArgs {
+    /// Record whether first init must require an auditor disclosure proof for
+    /// deposits.
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    pub deposit_audit: Option<bool>,
     /// A local binary instead of the released ring program.
     #[arg(long)]
     pub program_so: Option<PathBuf>,
@@ -370,8 +378,23 @@ pub struct DeployArgs {
     pub program_keypair: PathBuf,
 }
 
+#[derive(Debug, Subcommand)]
+pub enum DepositAuditCommand {
+    /// Set the requirement for future deposits and save it in ring.toml.
+    Set {
+        #[arg(long, action = clap::ArgAction::Set, required = true)]
+        required: bool,
+    },
+    /// Read the current requirement from the ring.
+    Show,
+}
+
 #[derive(Debug, Args)]
 pub struct InitArgs {
+    /// Override the deposit proof requirement, ring.toml applies only on first
+    /// init.
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    pub deposit_audit: Option<bool>,
     /// Hex SEC1 compressed auditor key, created by the ring RPC and written here when absent.
     #[arg(long, default_value = AUDITOR_PUBKEY_FILE)]
     pub auditor_pubkey_file: PathBuf,
@@ -440,6 +463,7 @@ fn parse_merge_count(value: &str) -> Result<usize, String> {
 impl Default for DeployArgs {
     fn default() -> Self {
         Self {
+            deposit_audit: None,
             program_so: None,
             program_keypair: PathBuf::from(PROGRAM_KEYPAIR_FILE),
         }
@@ -449,6 +473,7 @@ impl Default for DeployArgs {
 impl Default for InitArgs {
     fn default() -> Self {
         Self {
+            deposit_audit: None,
             auditor_pubkey_file: PathBuf::from(AUDITOR_PUBKEY_FILE),
             trust_ring_rpc: false,
             local_auditor: false,
@@ -695,6 +720,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Authority(command) => authority::run(&mut ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
         Command::Cosigner(command) => cosigner::run(&mut ctx, command)?,
+        Command::DepositAudit(command) => deposit_audit::run(&mut ctx, command)?,
         Command::Window(command) => window::run(&mut ctx, command)?,
         Command::Delegate(command) => delegate::run(&mut ctx, command)?,
         Command::Spend(command) => spend::run(&mut ctx, command)?,
@@ -741,6 +767,43 @@ mod tests {
     #[test]
     fn the_command_tree_is_well_formed() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn deposit_audit_is_opt_in_and_can_be_disabled_explicitly() {
+        let parse = |args| Cli::try_parse_from(args).unwrap().command;
+        assert!(matches!(
+            parse(vec!["zolana-ring", "deploy"]),
+            Command::Deploy(DeployArgs {
+                deposit_audit: None,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(vec!["zolana-ring", "deploy", "--deposit-audit"]),
+            Command::Deploy(DeployArgs {
+                deposit_audit: Some(true),
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(vec!["zolana-ring", "init", "--deposit-audit=false"]),
+            Command::Init(InitArgs {
+                deposit_audit: Some(false),
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(vec![
+                "zolana-ring",
+                "deposit-audit",
+                "set",
+                "--required",
+                "false"
+            ]),
+            Command::DepositAudit(DepositAuditCommand::Set { required: false })
+        ));
+        assert!(Cli::try_parse_from(["zolana-ring", "deposit-audit", "set"]).is_err());
     }
 
     #[test]

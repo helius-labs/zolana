@@ -377,3 +377,68 @@ fn a_ring_deposit_with_unreadable_data_is_rejected_exactly() {
     dangling.data_mut()[4] = 3;
     dangling.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
+
+#[test]
+fn successful_deposits_charge_the_window_and_preserve_withdrawals() {
+    let (mut mollusk, _) = setup_mollusk();
+    let spp_id = Pubkey::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID);
+    mollusk.add_program(&spp_id, "spp_recorder_program");
+    let mut state = window(SOL, 10, 10);
+    state.deposited = 2;
+    state.withdrawn = 3;
+    let mut fixture = deposit_fixture();
+    fixture.set_account("window", state.account());
+    let mut recorder = account(1_000_000_000);
+    recorder.owner = spp_id;
+    recorder.data = vec![0; fixture.instruction().accounts.len()];
+    fixture.set_account("tree", recorder);
+
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    let charged = stored_window(&result, SOL);
+    assert_eq!(charged.deposited(), 2 + SOL_DEPOSIT_AMOUNT);
+    assert_eq!(charged.withdrawn(), 3);
+
+    let rejected = mollusk.process_instruction(fixture.instruction(), &result.resulting_accounts);
+    assert_eq!(
+        rejected.program_result,
+        ProgramResult::Failure(custom(CustomRingError::SpendWindowExceeded))
+    );
+    assert_eq!(stored_window(&rejected, SOL), charged);
+
+    mollusk.warp_to_slot(WINDOW_SLOTS);
+    let renewed = mollusk.process_instruction(fixture.instruction(), &result.resulting_accounts);
+    assert_eq!(renewed.program_result, ProgramResult::Success);
+    let reset = stored_window(&renewed, SOL);
+    assert_eq!(reset.window_start_slot(), WINDOW_SLOTS);
+    assert_eq!(reset.deposited(), SOL_DEPOSIT_AMOUNT);
+    assert_eq!(reset.withdrawn(), 0);
+}
+
+#[test]
+fn failed_deposit_settlement_rolls_back_the_window_charge_and_rollover() {
+    let (mut mollusk, _) = setup_mollusk();
+    let spp_id = Pubkey::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID);
+    mollusk.add_program(&spp_id, "spp_recorder_program");
+    let mut state = window(SOL, 10, 10);
+    state.deposited = 2;
+    state.withdrawn = 3;
+    for slot in [0, WINDOW_SLOTS] {
+        mollusk.warp_to_slot(slot);
+        let mut fixture = deposit_fixture();
+        fixture.set_account("window", state.account());
+        let mut recorder = account(1_000_000_000);
+        recorder.owner = spp_id;
+        fixture.set_account("tree", recorder);
+
+        let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+        assert_eq!(
+            result.program_result,
+            ProgramResult::Failure(ProgramError::AccountDataTooSmall)
+        );
+        assert_eq!(
+            stored_window(&result, SOL),
+            *bytemuck::from_bytes::<SpendWindow>(&state.account().data)
+        );
+    }
+}

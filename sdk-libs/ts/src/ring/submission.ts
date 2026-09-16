@@ -29,6 +29,7 @@ import {
 import { equalBytes } from "../wallet/internal.js";
 import { RingError, RingProgramError } from "./error.js";
 
+/** Keeps the signed intent and validity bounds of one transaction attempt. */
 export interface RingSubmissionAttempt {
   readonly transaction: Transaction;
   readonly lastValidBlockHeight: bigint;
@@ -48,13 +49,14 @@ export type RingSubmissionResult =
       customCode?: number;
     }>;
 
-/** @internal */
+/** @internal Retains the same notes and intent across proof rebuilds. */
 export interface RingSubmissionBuildState {
   entries?: readonly WalletUtxo[];
   reservation?: UtxoReservation;
   intent?: Bytes32;
 }
 
+/** Keeps selected notes unavailable until submission resolves. */
 export interface ReservationHold {
   release(): void;
   extend(): void;
@@ -69,6 +71,7 @@ type WindowChanged = (
 const MAX_ATTEMPTS = 3;
 const NO_RESERVATION: ReservationHold = Object.freeze({ release() {}, extend() {} });
 
+/** Resolves each broadcast before retrying an unchanged payment intent. */
 export class RingTransactionSubmission {
   readonly #intent: Bytes32;
   readonly #build: BuildAttempt;
@@ -144,6 +147,7 @@ export class RingTransactionSubmission {
       for (;;) {
         let status: RingSubmissionStatus | undefined;
         if (this.#pending === undefined) {
+          // 1. Bind the signed message to the retained intent before broadcast.
           if (!equalBytes(this.#intent, this.#attempt.intentHash))
             throw new RingError("RING_INTENT_MISMATCH");
           this.#reservation.extend();
@@ -161,6 +165,7 @@ export class RingTransactionSubmission {
             if (isClientError(cause) && cause.code === "CLIENT_ABORTED") throw cause;
           }
         }
+        // 2. Resolve the signature before another attempt spends its notes.
         const signature = this.#pending;
         if (status === undefined) {
           try {
@@ -182,7 +187,7 @@ export class RingTransactionSubmission {
           this.#reservation.release();
           return { kind: "confirmed", signature, slot: status.slot, attempts: this.#attempts };
         }
-        // Only a confirmed stale-root or changed-window failure permits a rebuild.
+        // 3. Rebuild only a settled refusal attributable to the ring statement.
         const ringFailure = status.instructionIndex === this.#attempt.ringInstructionIndex;
         let retry =
           ringFailure &&
@@ -267,24 +272,40 @@ export function createKitRingSubmissionTransport(
       });
     },
     status: async (pending, context) => {
-      const response = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
-        client.solanaRpc
-          .getSignatureStatuses([pending.signature], { searchTransactionHistory: true })
-          .send({ abortSignal }),
+      const status = await readSignatureStatus(client, pending.signature, context);
+      if (status !== null) return status;
+      const height = await runKitRpc("getBlockHeight", context, (abortSignal) =>
+        client.solanaRpc.getBlockHeight({ commitment: client.commitment }).send({ abortSignal }),
       );
-      const status = response.value[0];
-      if (status === undefined || status === null) {
-        const height = await runKitRpc("getBlockHeight", context, (abortSignal) =>
-          client.solanaRpc.getBlockHeight({ commitment: client.commitment }).send({ abortSignal }),
-        );
-        return height > pending.lastValidBlockHeight ? { kind: "failed" } : { kind: "unknown" };
-      }
-      if (status.confirmationStatus !== "confirmed" && status.confirmationStatus !== "finalized")
-        return { kind: "unknown" };
-      if (status.err === null) return { kind: "confirmed", slot: status.slot };
-      return failedStatus(status.err);
+      if (height <= pending.lastValidBlockHeight) return { kind: "unknown" };
+      // Expiry cannot settle an absence observed before the last valid block.
+      return (
+        (await readSignatureStatus(client, pending.signature, context)) ?? {
+          kind: "failed",
+        }
+      );
     },
   };
+}
+
+async function readSignatureStatus(
+  client: KitRpcAccess,
+  signature: Signature,
+  context?: RequestContext,
+): Promise<RingSubmissionStatus | null> {
+  const response = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
+    client.solanaRpc
+      .getSignatureStatuses([signature], { searchTransactionHistory: true })
+      .send({ abortSignal }),
+  );
+  if (response.value.length !== 1) return { kind: "unknown" };
+  const status = response.value[0];
+  if (status === undefined) return { kind: "unknown" };
+  if (status === null) return null;
+  if (status.confirmationStatus !== "confirmed" && status.confirmationStatus !== "finalized")
+    return { kind: "unknown" };
+  if (status.err === null) return { kind: "confirmed", slot: status.slot };
+  return failedStatus(status.err);
 }
 
 /** The node's simulation refused the transaction, nothing was broadcast. */

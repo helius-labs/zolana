@@ -35,6 +35,8 @@ pub fn process_register_spend_ix(
         .split_last_mut()
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     check_mut(head_account)?;
+    // 1. Require windowed velocity and the current head root before claiming a
+    // member record.
     let parsed = MutationAccounts::validate_and_parse(program_id, mutation)?;
     let window = FixedWindow {
         slots: NonZeroU64::new(parsed.window_slots).ok_or(CustomRingError::VelocityDisabled)?,
@@ -46,6 +48,8 @@ pub fn process_register_spend_ix(
     if head.next_index() != ix.head_next_index || ix.head_next_index >= HEAD_MAP_CAPACITY {
         return Err(CustomRingError::InvalidHeadMapCursor.into());
     }
+    // 2. Derive the signer's genesis record with zero counters in the current
+    // window.
     let member = Member::owner_tag(parsed.payer.address().as_array())
         .map_err(|_| CustomRingError::HashingFailed)?;
     let address = parsed
@@ -66,6 +70,8 @@ pub fn process_register_spend_ix(
         .map_err(|_| CustomRingError::HashingFailed)?;
     let genesis =
         entry_nullifier(&output_hash, &ix.blinding).map_err(|_| CustomRingError::HashingFailed)?;
+    // 3. Prove unique member insertion bound to the exact record SPP will
+    // create.
     let public_input = CompressedRegisterPublicInput {
         head_old_root: &ix.head_old_root,
         head_new_root: &ix.head_new_root,
@@ -88,6 +94,8 @@ pub fn process_register_spend_ix(
     .apply(&mut *head)?;
     drop(head);
 
+    // 4. Create the record through SPP, a failed claim also rolls back the head
+    // insertion.
     let content = record.to_output_data();
     let transact = NamespaceWrite {
         output_hash,

@@ -8,6 +8,8 @@ use zolana_hasher::{
 pub const HEAD_MAP_HEIGHT: usize = 40;
 pub const HEAD_MAP_CAPACITY: u64 = 1 << HEAD_MAP_HEIGHT;
 
+/// Binds a new member's head-map insertion to its genesis spend-record
+/// nullifier.
 pub struct CompressedRegisterPublicInput<'a> {
     pub head_old_root: &'a [u8; 32],
     pub head_new_root: &'a [u8; 32],
@@ -29,6 +31,7 @@ impl CompressedRegisterPublicInput<'_> {
     }
 }
 
+/// Invalid indexed-tree witness or commitment during client verification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeadMapVerifyError {
     Hashing,
@@ -44,6 +47,8 @@ impl From<HasherError> for HeadMapVerifyError {
     }
 }
 
+/// Ordered member link and current spend-record nullifier committed by the head
+/// map.
 pub struct HeadMapLeaf<'a> {
     pub member: &'a [u8; 32],
     pub next: &'a [u8; 32],
@@ -56,6 +61,7 @@ impl HeadMapLeaf<'_> {
     }
 }
 
+/// Leaf position and sibling hashes reconstructing an indexed-tree root.
 pub struct MerklePath<'a> {
     pub index: u64,
     pub siblings: &'a [[u8; 32]],
@@ -88,6 +94,8 @@ impl MerklePath<'_> {
     }
 }
 
+/// Non-membership witness followed by predecessor splicing and a genesis leaf
+/// append.
 pub struct HeadMapInsert<'a> {
     pub root: &'a [u8; 32],
     pub append_index: u64,
@@ -104,6 +112,8 @@ pub struct HeadMapInsert<'a> {
 impl HeadMapInsert<'_> {
     /// `root` is not checked against chain state.
     pub fn verify(&self) -> Result<[u8; 32], HeadMapVerifyError> {
+        // 1. Validate positions and canonical field encodings before hashing
+        // the witness.
         let low_path = MerklePath {
             index: self.low_index,
             siblings: self.low_proof,
@@ -133,6 +143,8 @@ impl HeadMapInsert<'_> {
         {
             return Err(HeadMapVerifyError::OutOfRange);
         }
+        // 2. Prove the member absent inside an authenticated predecessor
+        // interval.
         if !(self.low_member < self.member && self.member < self.low_next) {
             return Err(HeadMapVerifyError::OutOfRange);
         }
@@ -145,6 +157,8 @@ impl HeadMapInsert<'_> {
         if &low_path.root_of(low_old)? != self.root {
             return Err(HeadMapVerifyError::RootMismatch);
         }
+        // 3. Splice the predecessor link and append only into a proven empty
+        // slot.
         let low_new = HeadMapLeaf {
             member: self.low_member,
             next: self.member,
@@ -166,6 +180,8 @@ impl HeadMapInsert<'_> {
     }
 }
 
+/// Replaces one member's current record nullifier without changing membership
+/// or ordering.
 pub struct HeadMapTransfer<'a> {
     pub root: &'a [u8; 32],
     pub member: &'a [u8; 32],
@@ -179,6 +195,7 @@ pub struct HeadMapTransfer<'a> {
 impl HeadMapTransfer<'_> {
     /// `root` is not checked against chain state.
     pub fn verify(&self) -> Result<[u8; 32], HeadMapVerifyError> {
+        // 1. Reject sentinel updates and malformed member paths.
         let path = MerklePath {
             index: self.index,
             siblings: self.proof,
@@ -200,6 +217,8 @@ impl HeadMapTransfer<'_> {
         {
             return Err(HeadMapVerifyError::OutOfRange);
         }
+        // 2. Authenticate the predecessor nullifier against the supplied head
+        // root.
         let spent = HeadMapLeaf {
             member: self.member,
             next: self.next,
@@ -209,6 +228,8 @@ impl HeadMapTransfer<'_> {
         if &path.root_of(spent)? != self.root {
             return Err(HeadMapVerifyError::RootMismatch);
         }
+        // 3. Replace only the nullifier, keeping the member and successor link
+        // unchanged.
         let successor = HeadMapLeaf {
             member: self.member,
             next: self.next,

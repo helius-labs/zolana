@@ -137,6 +137,10 @@ impl Projection for KeyRegistry {
     type Leaf = MemberKey;
     type Transition = Registration;
 
+    fn undos(block: &mut super::storage::BlockUndo) -> &mut Vec<Undo<MemberKey>> {
+        &mut block.key_registry
+    }
+
     fn root_address(program: &Pubkey) -> (Pubkey, u8) {
         pda::key_registry_root(program)
     }

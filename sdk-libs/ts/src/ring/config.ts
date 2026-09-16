@@ -16,6 +16,8 @@ import {
   ringConfigPda,
   ringDelegateAddress,
   ringDelegatePda,
+  ringDepositAuditAddress,
+  ringDepositAuditPda,
   ringHeadMapRootPda,
   ringKeyRegistryRootPda,
   ringPolicyConfigPda,
@@ -27,8 +29,7 @@ import type { RequestContext } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 
 import {
-  RING_COSIGN_SCOPE_MASK,
-  RING_COSIGN_THRESHOLD_SLOTS,
+  checkRingCoSignerConfig,
   type RingCoSigner,
   type RingDelegate,
   type RingPolicyConfig,
@@ -36,6 +37,7 @@ import {
   type RingSpendWindow,
   decodeRingCoSigner,
   decodeRingDelegate,
+  decodeRingDepositAudit,
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
   decodeRingSpendWindow,
@@ -57,7 +59,50 @@ const CLEAR_SPEND_WINDOW_TAG = 23;
 const SET_DELEGATE_TAG = 24;
 const CREATE_HEAD_MAP_ROOT_TAG = 27;
 const CREATE_KEY_REGISTRY_ROOT_TAG = 29;
+const SET_DEPOSIT_AUDIT_TAG = 31;
 
+export async function fetchRingDepositAudit(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<boolean> {
+  const [address, bump] = await ringDepositAuditPda(ringProgramId);
+  const account = await client.getAccount(address, context);
+  if (account === undefined || (account.owner === SYSTEM_PROGRAM && account.data.length === 0))
+    return false;
+  if (account.owner !== ringProgramId) throw new RingError("RING_DEPOSIT_AUDIT_INVALID");
+  const setting = decodeRingDepositAudit(account.data);
+  if (setting.bump !== bump) throw new RingError("RING_DEPOSIT_AUDIT_INVALID");
+  return setting.required;
+}
+
+export async function setRingDepositAuditInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+    required: boolean;
+  }>,
+): Promise<Instruction> {
+  if (typeof input.required !== "boolean") throw new RingError("RING_DEPOSIT_AUDIT_INVALID");
+  const [config, setting] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringDepositAuditAddress(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(setting, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+    ],
+    data: Uint8Array.of(SET_DEPOSIT_AUDIT_TAG, Number(input.required)),
+  };
+}
+
+/** Shares account validation across the head map and key registry roots. */
 interface IndexedRootKind {
   readonly pda: (ringProgramId: Address) => Promise<ProgramDerivedAddress>;
   readonly decode: (data: Uint8Array) => RingHeadMapRoot;
@@ -271,16 +316,7 @@ export async function setRingCoSignerInstruction(
   }>,
 ): Promise<Instruction> {
   const thresholds = input.thresholds ?? [];
-  if (
-    input.scope === 0 ||
-    (input.scope & ~RING_COSIGN_SCOPE_MASK) !== 0 ||
-    thresholds.length > RING_COSIGN_THRESHOLD_SLOTS ||
-    new Set(thresholds.map((row) => row.mint)).size !== thresholds.length
-  ) {
-    throw new RingError("RING_CO_SIGNER_INVALID", {
-      details: { scope: input.scope, thresholds: thresholds.length },
-    });
-  }
+  checkRingCoSignerConfig({ signer: input.signer, scope: input.scope, thresholds });
   const [config, cosigner] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),

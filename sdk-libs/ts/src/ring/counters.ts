@@ -1,3 +1,4 @@
+import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../interface/constants.js";
 import type { Bytes16, Bytes32, MessageData } from "../interface/types.js";
 import type { SealedMessageInput, SpendSession } from "../transaction/wallet/authority.js";
 import { equalBytes } from "../wallet/internal.js";
@@ -9,8 +10,7 @@ import {
   spendCountersCommitment,
 } from "./policy.js";
 
-/** Mirrors Rust `SPEND_COUNTERS_SLOT_INDEX`, off every real output index. */
-export const RING_SPEND_COUNTERS_SLOT_INDEX = 0xffff_ffff;
+export { RING_SPEND_COUNTERS_SLOT_INDEX } from "../interface/constants.js";
 
 /** Mirrors Rust `counters_message`. */
 export function spendCountersMessage(namespace: Bytes32, body: Uint8Array): MessageData {
@@ -28,11 +28,10 @@ export function findSpendCountersMessage(
 export function sealedSpendCounters(
   counters: SpendCounters,
   namespace: Bytes32,
-): SealedMessageInput {
+): Omit<SealedMessageInput, "slotIndex"> {
   return {
     viewTag: namespace,
     plaintext: encodeSpendCounters(counters),
-    slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX,
   };
 }
 

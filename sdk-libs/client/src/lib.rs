@@ -58,8 +58,9 @@ pub use rpc::{
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-    OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
-    MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    OutputSlot, ProveResult, RingHistoryOptions, Rpc, ShieldedTransaction,
+    ShieldedTransactionStream, MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 pub use settlement::SettlementAccountValidation;
 #[cfg(feature = "solana-rpc")]

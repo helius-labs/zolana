@@ -19,10 +19,13 @@ use zolana_indexer_api::{
     RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
 };
 
-pub(super) fn validate_tags(tags: &[Hash]) -> Result<(), PhotonApiError> {
-    if tags.is_empty() {
+pub(super) fn validate_tags(
+    tags: &[Hash],
+    ring_program_id: Option<&SerializablePubkey>,
+) -> Result<(), PhotonApiError> {
+    if tags.is_empty() && ring_program_id.is_none() {
         return Err(PhotonApiError::ValidationError(
-            "At least one tag must be provided".to_string(),
+            "At least one tag or an explicit ring program must be provided".to_string(),
         ));
     }
     if len_exceeds_page_limit(tags.len()) {
@@ -486,6 +489,16 @@ mod tests {
 
     fn cursor_of(row: &u64) -> Result<Vec<u8>, PhotonApiError> {
         Ok(row.to_be_bytes().to_vec())
+    }
+
+    #[test]
+    fn empty_tags_require_an_explicit_ring_without_relaxing_tag_limits() {
+        let ring = SerializablePubkey::from(solana_pubkey::Pubkey::new_unique());
+        assert!(validate_tags(&[], None).is_err());
+        assert!(validate_tags(&[], Some(&ring)).is_ok());
+        assert!(validate_tags(&[Hash::from([1; 32])], None).is_ok());
+        let excess = vec![Hash::from([1; 32]); PAGE_LIMIT as usize + 1];
+        assert!(validate_tags(&excess, Some(&ring)).is_err());
     }
 
     /// The cursor doubles as the client's sync watermark, so a short page has to

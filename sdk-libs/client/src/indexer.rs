@@ -28,7 +28,8 @@ use crate::{
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext,
-        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc, ShieldedTransaction,
+        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, RingHistoryOptions, Rpc,
+        ShieldedTransaction,
     },
 };
 
@@ -45,6 +46,27 @@ const MERKLE_PROOF_POLL_MAX: Duration = Duration::from_millis(500);
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
+
+fn ring_history_request(
+    options: RingHistoryOptions,
+) -> Result<zolana_api::GetRingsByTagsRequest, ClientError> {
+    let limit = options
+        .limit
+        .map(|value| zolana_api::Limit::new(u64::from(value)))
+        .transpose()
+        .map_err(|message| {
+            indexer_error(zolana_api::ApiError::InvalidRequest {
+                field: "limit",
+                message,
+            })
+        })?;
+    Ok(zolana_api::GetRingsByTagsRequest {
+        tags: Vec::new(),
+        ring_program_id: Some(SerializablePubkey(options.ring_program_id)),
+        cursor: encode_cursor(options.cursor),
+        limit,
+    })
+}
 
 fn wait_for_indexer<T>(
     config: Option<IndexerRpcConfig>,
@@ -292,6 +314,25 @@ impl Rpc for ZolanaIndexer {
                     .map_err(indexer_error)?;
 
                 convert_shielded_transactions_by_signature_response(response)
+            },
+        )
+    }
+
+    fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let request = ring_history_request(options)?;
+        wait_for_indexer(
+            config,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context,
+            || {
+                let response = self
+                    .api
+                    .get_shielded_transactions(request.clone())
+                    .map_err(indexer_error)?;
+                convert_shielded_transactions_response(response)
             },
         )
     }
@@ -544,6 +585,27 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .map_err(indexer_error)?;
 
                 convert_shielded_transactions_by_signature_response(response)
+            },
+        )
+        .await
+    }
+
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let request = ring_history_request(options)?;
+        wait_for_indexer_async(
+            config,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context,
+            || async {
+                let response = self
+                    .api
+                    .get_shielded_transactions(request.clone())
+                    .await
+                    .map_err(indexer_error)?;
+                convert_shielded_transactions_response(response)
             },
         )
         .await
@@ -952,6 +1014,27 @@ fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ring_history_request_pins_the_ring_without_a_view_tag() {
+        let ring = solana_address::Address::new_from_array([19; 32]);
+        let request = super::ring_history_request(crate::RingHistoryOptions {
+            ring_program_id: ring,
+            cursor: Some(vec![7]),
+            limit: Some(17),
+        })
+        .unwrap();
+        assert!(request.tags.is_empty());
+        assert_eq!(request.ring_program_id.unwrap().0, ring);
+        assert_eq!(request.cursor.unwrap().0, vec![7]);
+        assert_eq!(request.limit.unwrap().value(), 17);
+        assert!(super::ring_history_request(crate::RingHistoryOptions {
+            ring_program_id: ring,
+            cursor: None,
+            limit: Some(0)
+        })
+        .is_err());
+    }
+
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},

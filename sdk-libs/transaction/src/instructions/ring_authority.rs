@@ -32,7 +32,8 @@ const MAX_AUTHORITY_SLOTS: usize = 4;
 
 pub struct RingAuthorityMove {
     pub ring_program_id: Address,
-    /// The delegate holds every nullifier key.
+    /// Proof inputs include each spent note's nullifier key, not its owner's
+    /// signing key.
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub payer: Address,

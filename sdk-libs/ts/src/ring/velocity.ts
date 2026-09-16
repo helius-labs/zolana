@@ -51,7 +51,7 @@ import { readCurrentSpendRecord } from "./head-reader.js";
 
 const ZERO_NULLIFIER_SECRET = new Uint8Array(31) as Bytes31;
 
-/** The record slot is excluded. */
+/** Excludes the record slot from money openings for outflow accounting. */
 export interface RingMovement {
   readonly sender: Member;
   readonly ringProgramId: Address;
@@ -59,6 +59,7 @@ export interface RingMovement {
   readonly outputs: readonly ProofOutputUtxo[];
 }
 
+/** Opens authenticated counters only within their record's window. */
 export interface VelocityFacts {
   readonly namespace: Address;
   readonly owner: RingListNamespace;
@@ -72,6 +73,7 @@ export interface VelocityFacts {
   readonly head: RingHeadTransferProof;
 }
 
+/** Locates the sender's compressed record under the configured entries tree. */
 export interface ReadVelocityFactsInput {
   readonly client: Pick<RingHeadReader, "getRingHeadTransferProof"> &
     SlotReader &
@@ -86,17 +88,19 @@ export interface ReadVelocityFactsInput {
   readonly sender: Member;
 }
 
+/** Couples the successor counters to the record spend and head transition. */
 export interface VelocityPlan {
   readonly nextNullifier: Bytes32;
   readonly shape: Shape;
   readonly recordInput: ProofInputUtxo;
   readonly recordOutput: ProofOutputUtxo;
   readonly recordMessage: MessageData;
-  readonly countersSeal: SealedMessageInput;
+  readonly countersSeal: Omit<SealedMessageInput, "slotIndex">;
   readonly proofInput: CustomRingVelocityProofInput;
   readonly approvalRequired: boolean;
 }
 
+/** Binds record accounting to the money transfer and its output blindings. */
 export interface PlanVelocityInput {
   readonly facts: VelocityFacts;
   readonly movement: RingMovement;
@@ -194,6 +198,7 @@ async function recoverCounters(
 }
 
 export function planVelocity(input: PlanVelocityInput): VelocityPlan {
+  // 1. Charge outflow against counters from the current window only.
   const { facts, movement } = input;
   const shape = recordShape(input.moneyShape);
   const sameWindow = facts.live.record.window === facts.windowIndex;
@@ -219,6 +224,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     spent.push(charged);
   }
 
+  // 2. Bind successor counters to fresh salt and the SPP output blinding.
   const nextSalt = randomBlinding();
   const nextCounters: SpendCounters = Object.freeze({
     salt: nextSalt,
@@ -240,6 +246,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     ),
   });
 
+  // 3. Keep the namespace-owned record outside money subjects.
   const namespace = decodeAddress(facts.namespace);
   const spentHashes = facts.owner.spendRecordHashes(spentRecord);
   const nextHashes = facts.owner.spendRecordHashes(successor);

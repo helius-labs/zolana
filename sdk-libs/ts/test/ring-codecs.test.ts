@@ -53,10 +53,14 @@ import {
 import { ownedAccount } from "./helpers/ring-accounts.js";
 import {
   ringCoSignerAddress,
+  ringCoSignerPda,
   ringConfigAddress,
   ringDelegateAddress,
+  ringDelegatePda,
+  ringDepositAuditAddress,
   ringPolicyConfigAddress,
   ringSpendWindowAddress,
+  ringSpendWindowPda,
 } from "../src/interface/pda/index.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
 import {
@@ -237,6 +241,7 @@ describe("ring deposit", () => {
       [await ringConfigAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringDepositAuditAddress(RING), AccountRole.READONLY],
       [await ringSpendWindowAddress(RING, SOL_MINT), AccountRole.WRITABLE],
       [TREE, AccountRole.WRITABLE],
       [PAYER, AccountRole.WRITABLE_SIGNER],
@@ -276,6 +281,7 @@ describe("ring deposit", () => {
       [await ringConfigAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringDepositAuditAddress(RING), AccountRole.READONLY],
       [await ringPolicyConfigAddress(RING), AccountRole.READONLY],
       [await ringSpendWindowAddress(RING, SOL_MINT), AccountRole.WRITABLE],
       [TREE, AccountRole.WRITABLE],
@@ -824,20 +830,177 @@ describe("ring config", () => {
     expect(() => decodeRingCoSigner(zeroScope)).toThrow("RING_CO_SIGNER_INVALID");
   });
 
-  it("reads an optional control as unconfigured for an empty PDA", async () => {
+  it("rejects co-signer bytes the program cannot store", () => {
+    const data = Uint8Array.from([
+      4,
+      ...addressBytes(AUTHORITY),
+      RING_COSIGN_WITHDRAWALS,
+      2,
+      ...addressBytes(SOL_MINT),
+      10,
+      ...new Uint8Array(7),
+      ...addressBytes(addressOf(55)),
+      20,
+      ...new Uint8Array(7),
+      ...new Uint8Array(6 * 40),
+      253,
+    ]);
+    expect(decodeRingCoSigner(data).thresholds).toEqual([
+      { mint: SOL_MINT, above: 10n },
+      { mint: addressOf(55), above: 20n },
+    ]);
+    const malformed: readonly [string, (bytes: Uint8Array) => void][] = [
+      [
+        "zero signer",
+        (bytes) => {
+          bytes.fill(0, 1, 33);
+        },
+      ],
+      [
+        "zero scope",
+        (bytes) => {
+          bytes[33] = 0;
+        },
+      ],
+      [
+        "unsupported scope",
+        (bytes) => {
+          bytes[33] = 8;
+        },
+      ],
+      [
+        "nine rows",
+        (bytes) => {
+          bytes[34] = 9;
+        },
+      ],
+      [
+        "overflow count",
+        (bytes) => {
+          bytes[34] = 255;
+        },
+      ],
+      [
+        "duplicate mint",
+        (bytes) => {
+          bytes.copyWithin(75, 35, 67);
+        },
+      ],
+      [
+        "unused mint",
+        (bytes) => {
+          bytes[115] = 1;
+        },
+      ],
+      [
+        "unused amount",
+        (bytes) => {
+          bytes[147] = 1;
+        },
+      ],
+      [
+        "last unused amount",
+        (bytes) => {
+          bytes[354] = 1;
+        },
+      ],
+    ];
+    for (const [name, mutate] of malformed) {
+      const invalid = new Uint8Array(data);
+      mutate(invalid);
+      const before = new Uint8Array(invalid);
+      expect(() => decodeRingCoSigner(invalid), name).toThrow(
+        expect.objectContaining({ code: "RING_CO_SIGNER_INVALID" }),
+      );
+      expect(invalid).toEqual(before);
+    }
+    const full = new Uint8Array(data);
+    full[34] = 8;
+    for (let slot = 2; slot < 8; slot += 1) {
+      full.set(addressBytes(addressOf(55 + slot)), 35 + slot * 40);
+    }
+    expect(decodeRingCoSigner(full).thresholds).toHaveLength(8);
+  });
+
+  it("rejects an invalid co-signer before building the set instruction", async () => {
+    for (const change of [
+      { signer: SYSTEM },
+      { scope: 0x1_0000_0001 },
+      { scope: Number.NaN },
+      { scope: 1.5 },
+    ]) {
+      await expect(
+        setRingCoSignerInstruction({
+          ringProgramId: RING,
+          payer: PAYER,
+          authority: AUTHORITY,
+          signer: AUTHORITY,
+          scope: RING_COSIGN_WITHDRAWALS,
+          ...change,
+        }),
+      ).rejects.toMatchObject({ code: "RING_CO_SIGNER_INVALID" });
+    }
+  });
+
+  it("keeps optional control absence separate from malformed state", async () => {
     const reader = (owner: Address, data: Uint8Array) => ({
-      getAccount: () => Promise.resolve(ownedAccount(owner, data)),
+      getAccount: vi.fn(async () => ownedAccount(owner, data)),
     });
-    const ringEmpty = reader(RING, new Uint8Array(0));
-    expect(await fetchRingCoSigner(ringEmpty, RING)).toBeUndefined();
-    expect(await fetchRingDelegate(ringEmpty, RING)).toBeUndefined();
-    expect(await fetchRingSpendWindow(ringEmpty, RING, SOL_MINT)).toBeUndefined();
-    // A prefunded, system-owned empty PDA also reads as unconfigured.
-    expect(await fetchRingCoSigner(reader(SYSTEM, new Uint8Array(0)), RING)).toBeUndefined();
-    // A nonempty foreign-owned account stays strict.
-    await expect(fetchRingCoSigner(reader(addressOf(9), new Uint8Array(50)), RING)).rejects.toThrow(
-      "RING_CO_SIGNER_INVALID",
-    );
+    const controls = [
+      {
+        pda: () => ringCoSignerPda(RING),
+        read: (client: ReturnType<typeof reader>) => fetchRingCoSigner(client, RING),
+        code: "RING_CO_SIGNER_INVALID",
+        data: (bump: number) =>
+          Uint8Array.of(
+            4,
+            ...addressBytes(AUTHORITY),
+            RING_COSIGN_TRANSFERS,
+            0,
+            ...new Uint8Array(8 * 40),
+            bump,
+          ),
+      },
+      {
+        pda: () => ringDelegatePda(RING),
+        read: (client: ReturnType<typeof reader>) => fetchRingDelegate(client, RING),
+        code: "RING_DELEGATE_INVALID",
+        data: (bump: number) => Uint8Array.of(6, ...addressBytes(AUTHORITY), bump),
+      },
+      {
+        pda: () => ringSpendWindowPda(RING, SOL_MINT),
+        read: (client: ReturnType<typeof reader>) => fetchRingSpendWindow(client, RING, SOL_MINT),
+        code: "RING_SPEND_WINDOW_INVALID",
+        data: (bump: number) =>
+          Uint8Array.of(5, ...addressBytes(SOL_MINT), 100, ...new Uint8Array(47), bump),
+      },
+    ];
+    for (const control of controls) {
+      const [pda, bump] = await control.pda();
+      const data = control.data(bump);
+      const valid = reader(RING, data);
+      await expect(control.read(valid)).resolves.toMatchObject({ bump });
+      expect(valid.getAccount).toHaveBeenCalledWith(pda, undefined);
+      for (const owner of [RING, SYSTEM]) {
+        await expect(control.read(reader(owner, new Uint8Array()))).resolves.toBeUndefined();
+      }
+      const wrongDiscriminator = new Uint8Array(data);
+      wrongDiscriminator[0] = 0;
+      const wrongBump = new Uint8Array(data);
+      wrongBump[data.length - 1] = bump ^ 1;
+      for (const account of [
+        reader(addressOf(9), data),
+        reader(RING, data.subarray(0, data.length - 1)),
+        reader(RING, wrongDiscriminator),
+        reader(RING, wrongBump),
+      ]) {
+        await expect(control.read(account)).rejects.toMatchObject({ code: control.code });
+      }
+    }
+    const missing = { getAccount: async () => undefined };
+    await expect(fetchRingCoSigner(missing, RING)).resolves.toBeUndefined();
+    await expect(fetchRingDelegate(missing, RING)).resolves.toBeUndefined();
+    await expect(fetchRingSpendWindow(missing, RING, SOL_MINT)).resolves.toBeUndefined();
   });
 
   it("builds the pause switch like Rust `SetPaused` for both states", async () => {
@@ -1699,8 +1862,8 @@ describe("ring read request", () => {
                     {
                       slotIndex: 2,
                       member: addressOf(12),
-                      version: 3,
-                      window: 5,
+                      version: "18446744073709551615",
+                      window: "18446744073709551615",
                       countersCommitment: addressOf(13),
                       counters: [
                         { slot: 0, asset: addressOf(16), spent: "__U64_MAX__" },
@@ -1757,7 +1920,11 @@ describe("ring read request", () => {
     expect(item?.withdrawals).toEqual([]);
     expect(item?.spendRecords).toHaveLength(2);
     const spend = item?.spendRecords[0];
-    expect(spend).toMatchObject({ slotIndex: 2, version: 3n, window: 5n });
+    expect(spend).toMatchObject({
+      slotIndex: 2,
+      version: 18446744073709551615n,
+      window: 18446744073709551615n,
+    });
     expect(spend?.member).toEqual(filled(12, 32));
     expect(spend?.countersCommitment).toEqual(filled(13, 32));
     // The velocity counter is a full-range u64, decoded past `Number` precision.
@@ -1938,6 +2105,11 @@ describe("ring read request", () => {
       { ...base, counters: [counter(1), counter(1)] },
       { ...base, counters: [counter(2), counter(1)] },
       { ...base, counters: [{ ...counter(0), spent: -1 }] },
+      ...["18446744073709551616", "-1", "1.5"].flatMap((value) => [
+        { ...base, version: value },
+        { ...base, window: value },
+        { ...base, counters: [{ ...counter(0), spent: value }] },
+      ]),
       { ...base, counters: [{ ...counter(0), asset: signatureOf(16) }] },
       { ...base, slotIndex: 0x1_0000_0000, counters: [counter(0)] },
     ];

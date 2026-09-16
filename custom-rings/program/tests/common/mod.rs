@@ -304,7 +304,7 @@ fn owned_account(state: &impl Pod, lamports: u64) -> Account {
 pub const SOL: Pubkey = Pubkey::new_from_array([0; 32]);
 pub const USDC: Pubkey = Pubkey::new_from_array([60; 32]);
 
-fn system_program_slot() -> Slot {
+pub fn system_program_slot() -> Slot {
     let (key, account) = mollusk_svm::program::keyed_account_for_system_program();
     Slot {
         label: "system_program",
@@ -1808,6 +1808,17 @@ fn forward_prefix(config: Account, policy_config: Option<Account>) -> Vec<Slot> 
 
 fn deposit_fixture_with(config: Account, policy_config: Option<Account>) -> Fixture {
     let mut slots = forward_prefix(config, policy_config);
+    slots.insert(
+        3,
+        Slot {
+            label: "deposit_audit",
+            meta: AccountMeta::new_readonly(
+                custom_ring_interface::pda::deposit_audit(&program_id()).0,
+                false,
+            ),
+            account: account(0),
+        },
+    );
     slots.push(window_slot(Pubkey::new_from_array([0; 32]), None));
     slots.extend(sol_deposit_slots());
     Fixture::new(

@@ -10,6 +10,9 @@ pub mod compressed_policy_verifying_key;
 pub mod compressed_register_verifying_key;
 #[cfg(feature = "verifying-keys")]
 pub mod delegate_policy_verifying_key;
+pub mod deposit;
+#[cfg(feature = "verifying-keys")]
+pub mod deposit_verifying_key;
 pub mod head_map;
 pub mod instruction;
 pub mod key_registry;
@@ -23,6 +26,7 @@ pub mod register_key_verifying_key;
 pub mod state;
 
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
+pub use deposit::{DepositContext, DepositPublicInput};
 pub use head_map::{
     CompressedRegisterPublicInput, HeadMapInsert, HeadMapLeaf, HeadMapTransfer, HeadMapVerifyError,
     MerklePath, HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT,
@@ -41,6 +45,9 @@ pub use instruction::{
     SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
     SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT, SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
 };
+pub use instruction::{
+    SetDepositAuditIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT, SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT,
+};
 pub use key_registry::{RegisterKeyPublicInput, RegisteredKey};
 pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
 pub use state::{
@@ -52,6 +59,7 @@ pub use state::{
     POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
     SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
+pub use state::{DepositAudit, DEPOSIT_AUDIT};
 
 /// SEC1-compressed public key length.
 pub const COMPRESSED_P256_KEY_LEN: usize = 33;

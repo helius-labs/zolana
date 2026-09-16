@@ -610,6 +610,16 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: crate::RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.async_indexer
+            .get_shielded_transactions_by_ring(options, Some(config.unwrap_or(self.indexer_config)))
+            .await
+    }
+
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
@@ -878,6 +888,15 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
                 signature,
                 Some(config.unwrap_or(self.indexer_config)),
             )
+    }
+
+    fn get_shielded_transactions_by_ring(
+        &self,
+        options: crate::RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.blocking_indexer()
+            .get_shielded_transactions_by_ring(options, Some(config.unwrap_or(self.indexer_config)))
     }
 
     fn get_shielded_transactions_by_nullifiers(

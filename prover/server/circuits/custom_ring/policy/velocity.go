@@ -7,12 +7,14 @@ import (
 	"zolana/prover/circuits/spp_transaction/shared"
 )
 
+// Caps one asset's outflow and selects amount-based co-signing.
 type VelocityRowWires struct {
 	Asset       frontend.Variable
 	Cap         frontend.Variable
 	CosignAbove frontend.Variable
 }
 
+// Opens predecessor counters for the successor's spend record.
 type RecordWires struct {
 	Version frontend.Variable
 	Window  frontend.Variable
@@ -21,7 +23,7 @@ type RecordWires struct {
 	Salt       frontend.Variable
 	Assets     [NVelocityAssets]frontend.Variable
 	Spent      [NVelocityAssets]frontend.Variable
-	// The successor commits under a fresh salt.
+	// Must be fresh for each successor.
 	NextSalt frontend.Variable
 }
 
@@ -78,13 +80,22 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	policy velocityPolicy,
 	txContext transactionContext,
 ) {
+	// 1. Require all money inputs to share one owner.
 	api.AssertIsEqual(txContext.inputs[0].record, 0)
 	shared.AssertWhen(api, policy.rowsEnabled, txContext.inputs[0].live)
 	sender := txContext.inputs[0].ownerPkHash
 	for _, input := range txContext.inputs[1:] {
 		shared.AssertWhen(api, api.Mul(policy.rowsEnabled, input.live), api.IsZero(api.Sub(input.ownerPkHash, sender)))
 	}
+	// Windowed spends must not use the namespace to claim addresses.
+	var noAddresses [NInputs]frontend.Variable
+	for i := range noAddresses {
+		noAddresses[i] = 0
+	}
+	emptyAddressChain := hashPrefix4(api, noAddresses[:], c.InputCountSelected[:])
+	api.AssertIsEqual(api.Mul(policy.windowEnabled, api.Sub(c.AddressChain, emptyAddressChain)), 0)
 
+	// 2. Authenticate the record and open counters for its current window.
 	rangeChecker.Check(c.Record.Version, amountBits)
 	rangeChecker.Check(c.Record.Window, amountBits)
 	rangeChecker.Check(c.WindowIndex, amountBits)
@@ -113,6 +124,7 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	opened := countersCommitment(api, c.Record.Salt, c.Record.Assets[:], c.Record.Spent[:])
 	api.AssertIsEqual(api.Mul(policy.windowEnabled, sameWindow, api.Sub(opened, c.Record.Commitment)), 0)
 
+	// 3. Bound cumulative spending before applying per-mint caps.
 	approval := frontend.Variable(0)
 	var nextAssets, nextSpent [NVelocityAssets]frontend.Variable
 	for r, row := range c.Velocity {
@@ -142,9 +154,13 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 		nextAssets[r] = row.Asset
 		nextSpent[r] = spent
 	}
+	// 4. Require approval when an enabled co-sign threshold is exceeded.
 	api.AssertIsBoolean(c.ApprovalRequired)
 	api.AssertIsEqual(c.ApprovalRequired, approval)
 
+	// 5. Bind the successor's u64 version and counters to its output.
+	nextVersion := api.Add(c.Record.Version, 1)
+	rangeChecker.Check(api.Mul(policy.windowEnabled, nextVersion), amountBits)
 	nextCommitment := countersCommitment(api, c.Record.NextSalt, nextAssets[:], nextSpent[:])
 	successor := recordExpectation{
 		owner:  c.NamespaceOwnerHash,
@@ -152,7 +168,7 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 		dataHash: spendRecordFields{
 			address:    address,
 			sender:     sender,
-			version:    api.Add(c.Record.Version, 1),
+			version:    nextVersion,
 			window:     c.WindowIndex,
 			commitment: nextCommitment,
 		}.dataHash(api),

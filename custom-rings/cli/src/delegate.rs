@@ -9,6 +9,7 @@ use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SppProofInputUtxo};
+use zolana_interface::{instruction::CircuitId, N_PUBLIC_SLOTS};
 use zolana_keypair::{ShieldedAddress, ViewingKey};
 use zolana_ring_client::{
     RecoveryEnvironment, RecoveryError, RingEnvironment, RingRecovery, SourceMember,
@@ -36,16 +37,18 @@ pub enum DelegateError {
     #[error("the delegate keypair {given} is not the ring's delegate {stored}")]
     WrongDelegate { given: Address, stored: Address },
     #[error("the source holds {held} base units in the selected tree, the move needs {needed}")]
-    InsufficientNotes { needed: u64, held: u64 },
-    #[error("no tree holds {needed} base units of the mint for the source")]
+    InsufficientNotes { needed: u64, held: u128 },
+    #[error("no tree can fund {needed} base units within the delegate input limit")]
     NoFundedTree { needed: u64 },
-    #[error("selected note amounts overflow u64")]
-    AmountOverflow,
+    #[error("the move amount must be greater than zero")]
+    ZeroAmount,
+    #[error("the selected change exceeds u64")]
+    ChangeOverflow,
     #[error("the ring has no key registry, its authority must run `zolana-ring init` first")]
     NoKeyRegistry,
     #[error(transparent)]
     Auditor(KeyFileError),
-    #[error("{} is not the ring auditor {ring_auditor}, the delegate operator holds the auditor key", path.display())]
+    #[error("{} does not hold the ring auditor read key {ring_auditor}", path.display())]
     AuditorKeyRequired {
         path: std::path::PathBuf,
         ring_auditor: String,
@@ -75,7 +78,7 @@ struct NoteSelection<'a> {
 
 struct SelectedNotes {
     notes: Vec<WalletUtxo>,
-    total: u64,
+    total: u128,
 }
 
 pub fn run(ctx: &mut Context, command: DelegateCommand) -> Result<(), DelegateError> {
@@ -111,7 +114,7 @@ pub fn run(ctx: &mut Context, command: DelegateCommand) -> Result<(), DelegateEr
     Ok(())
 }
 
-/// The delegate never holds the notes.
+/// The source keeps note ownership until the delegate's signed move executes.
 fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateError> {
     let DelegateMoveArgs {
         to,
@@ -122,7 +125,11 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         auditor_key,
         cosigner_keypair,
     } = args;
+    if amount == 0 {
+        return Err(DelegateError::ZeroAmount);
+    }
     let mint = mint.map_or(SOL_MINT, |mint| mint.0);
+    // 1. The configured Solana delegate key authorizes the move.
     let delegate = file::read_keypair(&ctx.project_path(&delegate_keypair))?;
     let stored = ctx
         .ring
@@ -140,6 +147,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         payment: None,
     }
     .load(ctx)?;
+    // 2. The auditor key decrypts recovery material, it does not sign.
     let auditor = ring_auditor_key(ctx, &auditor_key)?;
     let registry = ctx
         .ring
@@ -172,6 +180,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         }
         Err(error) => return Err(DelegateError::Registry(Box::new(error))),
     };
+    // 3. Accept verified openings and report incomplete recovery.
     let recovered = RingRecovery::new(ctx.ring.program_id(), &auditor)
         .for_member(SourceMember {
             address: &source,
@@ -193,6 +202,15 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         .map_err(|error| DelegateError::Recovery(Box::new(error)))?;
     if !recovered.unopened.is_empty() {
         line("unopened notes", recovered.unopened.len());
+    }
+    if !recovered.unsupported_deposits.is_empty() {
+        line(
+            "deposit recovery",
+            format_args!(
+                "{} recipient-tagged deposits lack auditor openings; their ownership and spent status are unknown",
+                recovered.unsupported_deposits.len(),
+            ),
+        );
     }
     let mut wallet = Wallet::new(source, assets.clone())?;
     wallet.utxos = recovered.utxos;
@@ -231,11 +249,12 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         amount,
     }];
     let change = total
-        .checked_sub(amount)
+        .checked_sub(u128::from(amount))
         .ok_or(DelegateError::InsufficientNotes {
             needed: amount,
             held: total,
         })?;
+    let change = u64::try_from(change).map_err(|_| DelegateError::ChangeOverflow)?;
     if change > 0 {
         outputs.push(DelegateOutput {
             recipient: source,
@@ -260,6 +279,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         rpc: &ctx.rpc,
         prover: &ctx.prover(),
     })?;
+    // 4. The permanent delegate signs beside any required co-signer.
     let signers = signers(
         &delegate,
         cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
@@ -277,7 +297,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     Ok(())
 }
 
-/// With a delegate set, the auditor key is spend authority over every registered member's ring notes.
+/// The auditor read key cannot authorize ownership transfers or withdrawals.
 fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<ViewingKey, DelegateError> {
     let ring_auditor = ctx
         .ring
@@ -305,19 +325,22 @@ impl NoteSelection<'_> {
     }
 
     fn tree(&self) -> Option<Address> {
-        let mut balances = BTreeMap::<Address, u128>::new();
-        for held in self.held() {
-            *balances.entry(held.output_context.tree).or_default() += u128::from(held.utxo.amount);
-        }
-        balances
+        let trees: BTreeMap<_, _> = self
+            .held()
+            .map(|held| (held.output_context.tree, held.tree_id))
+            .collect();
+        trees
             .into_iter()
-            .filter(|(_, held)| *held >= u128::from(self.amount))
-            .max_by_key(|(tree, held)| (*held, *tree))
+            .filter_map(|(tree, id)| self.notes(id).ok().map(|notes| (tree, notes)))
+            .min_by_key(|(tree, notes)| (notes.notes.len(), notes.total, *tree))
             .map(|(tree, _)| tree)
     }
 
     /// Largest first, up to the amount.
     fn notes(&self, tree_id: u16) -> Result<SelectedNotes, DelegateError> {
+        if self.amount == 0 {
+            return Err(DelegateError::ZeroAmount);
+        }
         let mut notes: Vec<WalletUtxo> = self
             .held()
             .filter(|held| held.tree_id == tree_id)
@@ -325,17 +348,21 @@ impl NoteSelection<'_> {
             .collect();
         notes.sort_by_key(|held| std::cmp::Reverse(held.utxo.amount));
         let mut selected = Vec::new();
-        let mut total = 0u64;
+        let mut total = 0u128;
         for note in notes {
-            if total >= self.amount {
+            if total >= u128::from(self.amount) {
                 break;
             }
-            total = total
-                .checked_add(note.utxo.amount)
-                .ok_or(DelegateError::AmountOverflow)?;
+            let Ok(width) = u8::try_from(selected.len() + 1) else {
+                break;
+            };
+            if !CircuitId::RingAuthority(width, width, N_PUBLIC_SLOTS as u8).is_supported() {
+                break;
+            }
+            total += u128::from(note.utxo.amount);
             selected.push(note);
         }
-        if total < self.amount {
+        if total < u128::from(self.amount) {
             return Err(DelegateError::InsufficientNotes {
                 needed: self.amount,
                 held: total,
@@ -478,6 +505,85 @@ mod tests {
         assert_eq!(selection(&wallet, mint, 5).tree(), Some(pda::tree(2)));
         assert_eq!(selection(&wallet, mint, 9).tree(), None);
         assert_eq!(amounts(&selection(&wallet, mint, 5).notes(2).unwrap()), [8]);
+    }
+
+    #[test]
+    fn selects_a_feasible_tree_instead_of_a_larger_fragmented_balance() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let mut notes: Vec<_> = (0..6)
+            .map(|index| {
+                let mut held = note(
+                    &owner,
+                    NoteFixture {
+                        ring_id: Some(ring().program_id()),
+                        asset: SOL_MINT,
+                        tree_id: 1,
+                        amount: 1,
+                        spent: false,
+                    },
+                );
+                held.output_context.leaf_index = index;
+                held
+            })
+            .collect();
+        notes.push(note(
+            &owner,
+            NoteFixture {
+                ring_id: Some(ring().program_id()),
+                asset: SOL_MINT,
+                tree_id: 2,
+                amount: 5,
+                spent: false,
+            },
+        ));
+        let wallet = wallet_with(&owner, notes);
+        let selection = selection(&wallet, SOL_MINT, 5);
+        assert_eq!(selection.tree(), Some(pda::tree(2)));
+        assert_eq!(amounts(&selection.notes(2).unwrap()), [5]);
+        assert!(matches!(
+            selection.notes(1),
+            Err(DelegateError::InsufficientNotes { needed: 5, held: 4 })
+        ));
+    }
+
+    #[test]
+    fn a_fragmented_tree_is_selected_only_within_the_authority_shape() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let wallet = wallet_with(&owner, (0..6).map(|_| sol_note(&owner, 1)).collect());
+        let supported = selection(&wallet, SOL_MINT, 4);
+        assert_eq!(supported.tree(), Some(pda::tree(0)));
+        assert_eq!(supported.notes(0).unwrap().notes.len(), 4);
+        assert_eq!(selection(&wallet, SOL_MINT, 5).tree(), None);
+    }
+
+    #[test]
+    fn selected_totals_can_exceed_u64_when_payment_and_change_fit() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let wallet = wallet_with(
+            &owner,
+            vec![
+                sol_note(&owner, u64::MAX - 1),
+                sol_note(&owner, u64::MAX - 1),
+            ],
+        );
+        let selection = selection(&wallet, SOL_MINT, u64::MAX);
+        assert_eq!(selection.tree(), Some(pda::tree(0)));
+        let selected = selection.notes(0).unwrap();
+        assert_eq!(selected.notes.len(), 2);
+        assert_eq!(selected.total, 2 * u128::from(u64::MAX - 1));
+        assert_eq!(
+            u64::try_from(selected.total - u128::from(u64::MAX)).unwrap(),
+            u64::MAX - 2
+        );
+    }
+
+    #[test]
+    fn a_zero_amount_cannot_select_an_empty_delegate_move() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let wallet = wallet_with(&owner, vec![sol_note(&owner, 1)]);
+        let selection = selection(&wallet, SOL_MINT, 0);
+        assert_eq!(selection.tree(), None);
+        assert!(matches!(selection.notes(0), Err(DelegateError::ZeroAmount)));
     }
 
     #[test]
@@ -625,6 +731,13 @@ mod tests {
     }
 
     impl Rpc for StubIndexer {
+        fn get_shielded_transactions_by_ring(
+            &self,
+            _options: zolana_client::RingHistoryOptions,
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+            self.get_shielded_transactions_by_tags(Vec::new(), None, None, config)
+        }
         fn get_shielded_transactions_by_tags(
             &self,
             _tags: Vec<[u8; 32]>,

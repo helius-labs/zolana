@@ -38,18 +38,20 @@ import { RingTransactionSubmission, type RingSubmissionAttempt } from "./submiss
 /** Rust `NF_KEY_ENC_INFO`, separates the key stream from the audit stream. */
 export const NF_KEY_ENC_INFO = new TextEncoder().encode("CRING/nfk1");
 
+/** Carries a nullifier key encrypted to the ring auditor. */
 export interface SealedNullifierKey {
   readonly ephemeralPublicKey: P256PublicKey;
   readonly ciphertext: Bytes32;
 }
 
+/** Holds the sealed key and temporary encryption proof material. */
 export interface NullifierKeyEnvelope {
   readonly ephemeralSecret: Bytes32;
   readonly sealed: SealedNullifierKey;
   readonly nullifierPublicKey: Bytes32;
 }
 
-/** Chain order pinned by Rust `RegisterKeyPublicInput::hash`. */
+/** Binds key disclosure to a member and a registry root transition. */
 export interface RegisterKeyStatement {
   readonly registryOldRoot: Bytes32;
   readonly registryNewRoot: Bytes32;
@@ -66,6 +68,7 @@ export type RingKeyRegistrationClient = Pick<ChainReader, "getAccount"> &
   BlockhashProvider &
   Pick<Prover, "proveCustomRingRegisterKey">;
 
+/** Registers a member's key under that member's Solana signature. */
 export interface RingKeyRegistrationParams {
   readonly client: RingKeyRegistrationClient;
   readonly ringProgramId: Address;
@@ -81,7 +84,7 @@ export type RingKeyRegistrationPreparation =
 export type RingSealedKeyClient = Pick<ChainReader, "getAccount"> &
   Pick<RingKeyRegistryReader, "getRingKeyRegistryEntry">;
 
-/** Bound to `root` only once it opens, the leaf commits to the plaintext key. */
+/** Requires an opened key or known nullifier public key to verify inclusion. */
 export interface RingSealedKeyEntry {
   readonly sealed: SealedNullifierKey;
   readonly member: Member;
@@ -132,7 +135,7 @@ export function sealNullifierKeyWith(
   }
 }
 
-/** A nonzero pad byte rejects a key sealed to another auditor. */
+/** Authenticate decoded keys through registry inclusion. */
 export function openNullifierKey(sealed: SealedNullifierKey, auditor: ViewingKey): NullifierKey {
   let dh: Bytes32 | undefined;
   let shared: Bytes32 | undefined;
@@ -254,8 +257,10 @@ export async function fetchRingSealedKey(
 
 /** The opened key must reproduce the leaf under the root read from Solana. */
 export function openRingSealedKey(entry: RingSealedKeyEntry, auditor: ViewingKey): NullifierKey {
+  // 1. Recover nullifier material without granting a Solana signing capability.
   const nullifierKey = openNullifierKey(entry.sealed, auditor);
   try {
+    // 2. Authenticate the opened key against the supplied registry root.
     checkRegisteredKey(entry, nullifierKey.publicKey());
   } catch (cause) {
     nullifierKey.destroy();
@@ -264,6 +269,7 @@ export function openRingSealedKey(entry: RingSealedKeyEntry, auditor: ViewingKey
   return nullifierKey;
 }
 
+/** Connects the registration signer to its shielded nullifier public key. */
 interface MemberIdentity {
   readonly payer: Address;
   readonly member: Member;
@@ -329,6 +335,7 @@ async function buildRegistrationAttempt(
 ): Promise<Pick<RingSubmissionAttempt, "transaction" | "lastValidBlockHeight">> {
   const { client, ringProgramId } = input;
   return input.authority.withSyncSession(async (session) => {
+    // 1. Bind registration to the member's identity and configured auditor.
     const material = await session.syncMaterial();
     const { payer, member } = checkedIdentity(material);
     const auditor = (await fetchRingProgramConfig(client, ringProgramId, context)).auditorPublicKey;
@@ -345,6 +352,7 @@ async function buildRegistrationAttempt(
       insertion.nextIndex !== root.nextIndex
     )
       throw new RingError("RING_KEY_REGISTRY_STALE");
+    // 2. Seal the member's key and authenticate the insertion path.
     const envelope = sealNullifierKey(material.nullifierKey, auditor);
     const secret = material.nullifierKey.secretBytes();
     const nullifierSecret = rightAlign(secret);
@@ -376,6 +384,7 @@ async function buildRegistrationAttempt(
         ciphertext: envelope.sealed.ciphertext,
         newIndex: root.nextIndex,
       });
+      // 3. Prove key disclosure and registry insertion in one statement.
       const proof = await client.proveCustomRingRegisterKey(
         {
           publicInputHash,

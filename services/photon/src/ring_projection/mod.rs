@@ -132,6 +132,7 @@ impl Projector {
     async fn synchronize(&self) -> Result<Progress> {
         let db = self.db.as_ref();
         let mut cursor = self.cursor().await?;
+        // 1. Rewind orphaned commits before resuming any per-ring replay.
         while let Some(tip) = &cursor.tip {
             if self.canonical(tip).await? {
                 break;
@@ -139,7 +140,7 @@ impl Projector {
             self.rewind_tip(&mut cursor).await?;
         }
         self.replay_pending(&mut cursor).await?;
-        // A confirmed fork can fill skipped slots.
+        // 2. Scan from the canonical tip to include slots filled by a fork.
         cursor.scanned_slot = cursor
             .tip
             .as_ref()
@@ -166,9 +167,14 @@ impl Projector {
             let pruned_below = cursor.scanned_slot.saturating_sub(JOURNAL_RETENTION_SLOTS);
             storage::prune_journal(db, pruned_below).await?;
         }
-        if cursor.scanned_slot < target || !self.roots_match_chain(target).await? {
+        if cursor.scanned_slot < target {
             return Ok(Progress::Behind);
         }
+        // 3. Invalid ring accounts must not serve proofs.
+        self.check_roots::<head_map::HeadMap>(&cursor, target)
+            .await?;
+        self.check_roots::<key_registry::KeyRegistry>(&cursor, target)
+            .await?;
         cursor.resume(db).await?;
         Ok(Progress::CaughtUp)
     }
@@ -230,19 +236,28 @@ impl Projector {
         let Some(tip) = cursor.tip.clone() else {
             return Ok(());
         };
-        storage::expire_pending(db, tip.slot.saturating_sub(PENDING_TTL_SLOTS)).await?;
         let pending = storage::pending(db).await?;
         let programs = pending
             .iter()
             .map(|candidate| Pubkey::new_from_array(candidate.program))
             .collect::<Vec<_>>();
         let registered = registered_rings(&self.rpc, &programs).await?;
-        if let Some(candidate) = pending
-            .into_iter()
-            .zip(registered)
-            .find_map(|(candidate, registered)| registered.then_some(candidate))
-        {
-            self.replay_ring(cursor, &candidate, &tip).await?;
+        for (candidate, registered) in pending.into_iter().zip(registered) {
+            if !registered {
+                if candidate.replayed_tip.is_none()
+                    && candidate.slot < tip.slot.saturating_sub(PENDING_TTL_SLOTS)
+                {
+                    storage::delete_pending(db, &candidate.program).await?;
+                }
+                continue;
+            }
+            if let Err(error) = self.replay_ring(cursor, &candidate, &tip).await {
+                // The checkpoint confines replay retries to the affected ring.
+                log::warn!(
+                    "ring {} replay paused ({error:#})",
+                    Pubkey::new_from_array(candidate.program)
+                );
+            }
         }
         Ok(())
     }
@@ -255,30 +270,47 @@ impl Projector {
         tip: &BlockMetadata,
     ) -> Result<()> {
         let db = self.db.as_ref();
-        let mut start = candidate.slot;
+        let mut candidate = candidate.clone();
+        // 1. Resume only after the last durable replay block remains canonical.
+        if let Some(checkpoint) = &candidate.replayed_tip {
+            if !self.canonical(checkpoint).await? {
+                bail!("ring replay checkpoint is no longer canonical; waiting for rollback");
+            }
+        }
+        let mut start = candidate
+            .replayed_tip
+            .as_ref()
+            .map_or(Ok(candidate.slot), |tip| {
+                tip.slot.checked_add(1).context("slot overflow")
+            })?;
         while start <= tip.slot {
             let end = tip.slot.min(start.saturating_add(GET_BLOCKS_PAGE - 1));
             let page = confirmed_page(&self.rpc, start..=end).await?;
+            if candidate.replayed_tip.is_none() && page.first() != Some(&candidate.slot) {
+                bail!("ring initialization is missing from archive history");
+            }
             for chunk in page.chunks(BLOCK_BATCH) {
                 for block in self.fetch_blocks(chunk.to_vec()).await {
-                    let block = match block {
-                        Ok(block) => block,
-                        Err(error)
-                            if error
-                                .downcast_ref::<RpcError>()
-                                .is_some_and(RpcError::is_slot_skipped) =>
-                        {
-                            storage::delete_pending(db, &candidate.program).await?;
-                            return Ok(());
-                        }
-                        Err(error) => return Err(error),
-                    };
+                    let block = block?;
+                    if candidate.replayed_tip.is_none()
+                        && block.metadata.blockhash != candidate.blockhash
+                    {
+                        bail!("ring initialization is no longer canonical");
+                    }
+                    if candidate
+                        .replayed_tip
+                        .as_ref()
+                        .is_some_and(|checkpoint| !checkpoint.is_parent_of(&block.metadata))
+                    {
+                        bail!("ring replay parent mismatch");
+                    }
                     let journal = storage::journal(db, block.metadata.slot).await?;
                     if journal.as_ref().is_some_and(|journal| {
                         journal.metadata.blockhash != block.metadata.blockhash
                     }) {
-                        return Ok(());
+                        bail!("ring replay crossed a confirmed fork");
                     }
+                    // 2. Replay progress and undo data must commit together.
                     let tx = db.begin().await?;
                     let undo = self
                         .project_block(&tx, &block, cursor, Scope::Ring(candidate.program))
@@ -288,10 +320,18 @@ impl Projector {
                         storage::save_journal(&tx, &journal).await?;
                     }
                     storage::save_cursor(&tx, cursor).await?;
+                    candidate.replayed_tip = Some(block.metadata.clone());
+                    storage::checkpoint_pending(&tx, &candidate).await?;
                     tx.commit().await?;
                 }
             }
             start = end.checked_add(1).context("slot overflow")?;
+        }
+        // 3. Serve the ring only after replay reaches the global tip.
+        if !candidate.replayed_tip.as_ref().is_some_and(|checkpoint| {
+            checkpoint.slot == tip.slot && checkpoint.blockhash == tip.blockhash
+        }) {
+            bail!("ring replay has not reached the confirmed projection tip");
         }
         storage::delete_pending(db, &candidate.program).await
     }
@@ -349,25 +389,39 @@ impl Projector {
         .await
     }
 
-    async fn roots_match_chain(&self, target: u64) -> Result<bool> {
-        let checked = async {
-            self.check_roots::<head_map::HeadMap>().await?;
-            self.check_roots::<key_registry::KeyRegistry>().await
-        };
-        if let Err(error) = checked.await {
-            // A transition confirmed after `target` is applied in the next round.
-            if self.rpc.get_slot().await? > target {
-                return Ok(false);
+    async fn check_roots<P: Projection>(
+        &self,
+        cursor: &ProjectionCursor,
+        target: u64,
+    ) -> Result<()> {
+        let db = self.db.as_ref();
+        for root in storage::roots::<P, _>(db).await? {
+            if root.fault.is_some() || storage::pending_ring(db, &root.program).await?.is_some() {
+                continue;
             }
-            return Err(error);
-        }
-        Ok(true)
-    }
-
-    async fn check_roots<P: Projection>(&self) -> Result<()> {
-        for root in storage::roots::<P, _>(self.db.as_ref()).await? {
-            if root.fault.is_none() {
-                api::check_chain::<P>(&self.rpc, &root).await?;
+            match load_root::<P>(&self.rpc, &Pubkey::new_from_array(root.program)).await {
+                // Each proof request checks the exact current root.
+                Ok(_) => {}
+                Err(ProjectError::Retry(error)) => return Err(error),
+                Err(ProjectError::Fault(reason)) => {
+                    if self.rpc.get_slot().await? > target {
+                        continue;
+                    }
+                    let tip = cursor
+                        .tip
+                        .as_ref()
+                        .context("root exists without a projection tip")?;
+                    let tx = db.begin().await?;
+                    let mut journal = storage::journal(&tx, tip.slot)
+                        .await?
+                        .context("ring projection journal gap")?;
+                    let undo = RingStore::<_, P>::new(&tx, root.program)
+                        .quarantine(root, reason)
+                        .await?;
+                    P::undos(&mut journal.undo).push(undo);
+                    storage::save_journal(&tx, &journal).await?;
+                    tx.commit().await?;
+                }
             }
         }
         Ok(())
@@ -398,6 +452,8 @@ pub(crate) trait Projection: Sized + Send + Sync + 'static {
     type Root: OnChainRoot;
     type Leaf: Leaf;
     type Transition: Send;
+
+    fn undos(block: &mut BlockUndo) -> &mut Vec<Undo<Self::Leaf>>;
 
     fn root_address(program: &Pubkey) -> (Pubkey, u8);
 
@@ -649,6 +705,15 @@ impl BlockWork<'_> {
                 continue;
             }
             let tag = instruction.data.first().copied();
+            if tag != Some(P::INIT_TAG) && !tag.is_some_and(|tag| P::TRANSITION_TAGS.contains(&tag))
+            {
+                continue;
+            }
+            if matches!(self.scope, Scope::Every)
+                && storage::pending_ring(tx, &program).await?.is_some()
+            {
+                continue;
+            }
             let store = RingStore::<_, P>::new(tx, program);
             if tag == Some(P::INIT_TAG) {
                 if let Some(address) = initialization::<P>(instruction) {
@@ -689,12 +754,16 @@ impl BlockWork<'_> {
     ) -> Result<Option<Undo<P::Leaf>>> {
         let program = Pubkey::new_from_array(store.program());
         if !registered_ring(self.env.rpc, &program).await? {
+            if matches!(self.scope, Scope::Ring(_)) {
+                bail!("ring became inactive during replay");
+            }
             storage::save_pending(
                 self.tx,
                 &PendingRing {
                     program: store.program(),
                     slot: self.block.metadata.slot,
                     blockhash: self.block.metadata.blockhash.clone(),
+                    replayed_tip: None,
                 },
             )
             .await?;
@@ -723,7 +792,6 @@ impl BlockWork<'_> {
             }
             Err(ProjectError::Retry(error)) => return Err(error),
         }
-        storage::delete_pending(self.tx, &root.program).await?;
         let sentinel = P::Leaf::sentinel();
         let computed = store
             .write_leaves(
@@ -800,6 +868,7 @@ pub(crate) async fn append<P: Projection>(
         next_index,
         leaf,
     } = transition;
+    // 1. Require the current root, append cursor and an absent member.
     if next_index != root.next_index || next_index >= HEAD_MAP_CAPACITY {
         return Err(fault("append cursor mismatch"));
     }
@@ -814,6 +883,7 @@ pub(crate) async fn append<P: Projection>(
     if proof::path::<P>(store.conn(), root, next_index).await?.leaf != [0; 32] {
         return Err(fault("append slot occupied"));
     }
+    // 2. Rollback needs both leaves before the ordered chain changes.
     let undo = Undo {
         program: root.program,
         before: Some(root.clone()),
@@ -858,6 +928,7 @@ pub(crate) async fn append<P: Projection>(
             revision,
         )
         .await?;
+    // 3. Reconstructed leaves must match the proven root before publication.
     if computed != new_root {
         return Err(fault("new root mismatch"));
     }
@@ -945,5 +1016,7 @@ async fn confirmed_page(rpc: &RpcClient, range: RangeInclusive<u64>) -> Result<V
     Ok(page)
 }
 
+#[cfg(test)]
+mod replay_tests;
 #[cfg(test)]
 mod tests;

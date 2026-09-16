@@ -643,6 +643,7 @@ async function proveRingTransferStatement(
     });
   }
   const configs = await fetchRingConfigs(flow.client, input.ringProgramId, context);
+  // 1. Pin the ring tier and policy before extending the transaction statement.
   const config = configs.config;
   const policy = configs.hasPolicy ? policyContext(configs.policy) : undefined;
   // A padded change slot pushes the custom-ring instruction past the packet limit
@@ -680,6 +681,7 @@ async function proveRingTransferStatement(
     };
   }
   if (policy !== undefined && policy.table.velocity.length !== 0 && flow.kind === "member") {
+    // 2. Bind member outflow to the current counters and successor head.
     const sender = memberOfIdentity(prepared.owner.signingPublicKey.ownerProofInputHash());
     const movement = {
       sender,
@@ -744,6 +746,7 @@ async function proveRingTransferStatement(
   }
   const approvalRequired = velocity?.approvalRequired ?? false;
 
+  // 3. Bind audit and record messages to the SPP transaction hash.
   const encrypted = await input.session.encryptCustomRingTransfer({
     firstNullifier: prepared.firstNullifier,
     outputs: prepared.outputs,
@@ -796,6 +799,7 @@ async function proveRingTransferStatement(
               context,
             )),
           };
+    // 4. Prove the SPP spend and bind the ring proof to that same transaction.
     const { data } =
       flow.kind === "delegate"
         ? await flow.client.proveRingAuthorityTransact(proofInputs, input.ringProgramId, context)

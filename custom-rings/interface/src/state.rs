@@ -14,6 +14,25 @@ pub const READ_ACCESS_RECORD_PDA_SEED: &[u8] = b"reader";
 pub const RING_PROGRAM_CONFIG: u8 = 1;
 pub const READ_ACCESS_RECORD: u8 = 2;
 
+pub const DEPOSIT_AUDIT: u8 = 10;
+
+/// Optional ring setting requiring proven auditor disclosure on direct
+/// deposits.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct DepositAudit {
+    pub discriminator: u8,
+    pub required: u8,
+    pub bump: u8,
+}
+
+impl DepositAudit {
+    pub const SEED: &'static [u8] = b"deposit_audit";
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+}
+
+const _: () = assert!(DepositAudit::SIZE == 3);
+
 /// The ring's singleton config: who may register the ring with SPP, and the
 /// auditor key every `transact` must verifiably encrypt the transaction viewing
 /// secret key to.
@@ -111,6 +130,8 @@ pub struct WithdrawalThresholdRow {
     pub amount: [u8; 8],
 }
 
+/// Configured second signer and the public operation classes requiring
+/// approval.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct CoSigner {
@@ -155,7 +176,8 @@ pub const DELEGATE_PDA_SEED: &[u8] = b"delegate";
 /// First byte of an initialized delegate account.
 pub const DELEGATE: u8 = 6;
 
-/// Permanent once set.
+/// Solana signer authorized to move ring notes, separate from the auditor
+/// viewing key.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct Delegate {
@@ -176,6 +198,7 @@ pub const HEAD_MAP_ROOT_PDA_SEED: &[u8] = b"headmap";
 /// First byte of an initialized head map root account.
 pub const HEAD_MAP_ROOT: u8 = 8;
 
+/// Shared commitment to every member's current spend-record nullifier.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct HeadMapRoot {
@@ -208,6 +231,7 @@ pub const KEY_REGISTRY_ROOT_PDA_SEED: &[u8] = b"keyreg";
 /// First byte of an initialized key registry root account.
 pub const KEY_REGISTRY_ROOT: u8 = 9;
 
+/// Shared commitment to member nullifier keys encrypted to the ring auditor.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct KeyRegistryRoot {
@@ -234,6 +258,8 @@ pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
 /// First byte of an initialized spend window.
 pub const SPEND_WINDOW: u8 = 5;
 
+/// Ring-wide public deposit and withdrawal counters for one mint and fixed
+/// window.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct SpendWindow {

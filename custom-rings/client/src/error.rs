@@ -51,6 +51,8 @@ pub enum AuditError {
 
 #[derive(Debug, Error)]
 pub enum RecoveryError {
+    #[error("ring deposit opening does not match its commitment")]
+    DepositOpeningMismatch,
     #[error(transparent)]
     Audit(#[from] AuditError),
     #[error(transparent)]

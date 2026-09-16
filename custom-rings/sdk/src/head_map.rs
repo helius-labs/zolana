@@ -133,6 +133,7 @@ impl ReadSpendRecord {
         query: &RingMemberProofRequest,
         response: GetRingHeadTransferProofResponse,
     ) -> Result<CurrentHead, EntryProofError> {
+        // 1. The response must match the member and root requested from Solana.
         if response.root != query.expected_root
             || response.member != query.member
             || response.next_index != query.expected_next_index
@@ -148,6 +149,7 @@ impl ReadSpendRecord {
             index: response.index,
             proof: response.proof.into_iter().map(|hash| hash.0).collect(),
         };
+        // 2. The Merkle path authenticates the current record nullifier.
         witness.verify_current(self.member.as_bytes(), &response.nullifier.0)?;
         let transaction = decode_shielded_transaction(response.record.transaction)?;
         let output = transaction
@@ -158,6 +160,7 @@ impl ReadSpendRecord {
             return Err(EntryProofError::InvalidHeadProof);
         }
         let lookup = self.lookup()?;
+        // 3. The published record must reproduce the authenticated nullifier.
         let record = lookup
             .decode(
                 &lookup.address()?,

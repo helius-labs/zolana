@@ -1,6 +1,7 @@
 import { bn254 } from "@noble/curves/bn254.js";
 
 import { wireDecoder } from "../../interface/decode.js";
+import { CUSTOM_RING_PROOF_LENGTH } from "../../interface/custom-ring-proof.js";
 import type { Bytes32, Bytes64, Bytes128, TransactProof } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
@@ -10,7 +11,7 @@ import type { CompressedProof, Proof } from "./types.js";
 const BN254_BASE_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_696_311_157_297_823_662_689_037_894_645_226_208_583n;
 
-export const CUSTOM_RING_PROOF_LENGTH = 192;
+export { CUSTOM_RING_PROOF_LENGTH };
 
 export function compressProof(proof: Proof): CompressedProof {
   const a = compressG1(checkedBytes(proof.a, 64, "proof.a"), "proof.a");

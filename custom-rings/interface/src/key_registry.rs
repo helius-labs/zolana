@@ -6,7 +6,8 @@ use zolana_interface::merge_utils::ciphertext_hash;
 
 use crate::{base_public_input::pack33_to_2fe, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 
-/// Chain order pinned by `custom_ring/policy/register_key.go`.
+/// Binds encrypted nullifier-key enrollment to the member, auditor and registry
+/// transition.
 pub struct RegisterKeyPublicInput<'a> {
     pub registry_old_root: &'a [u8; 32],
     pub registry_new_root: &'a [u8; 32],
@@ -38,7 +39,7 @@ impl RegisterKeyPublicInput<'_> {
     }
 }
 
-/// Occupies the nullifier slot of the member's registry leaf.
+/// Commits the enrolled nullifier public key and its auditor-encrypted secret.
 pub struct RegisteredKey<'a> {
     pub nullifier_pk: &'a [u8; 32],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],

@@ -6,6 +6,11 @@ import (
 	"math/big"
 	"os"
 	"testing"
+
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/rangecheck"
+	"github.com/consensys/gnark/test"
 )
 
 // Written by custom-rings/policy/tests/policy_hash_corpus.rs.
@@ -46,6 +51,17 @@ type corpusVelocity struct {
 	CosignAbove uint64 `json:"cosignAbove"`
 }
 
+type policyHashCorpusCircuit struct {
+	Policy CustomRingPolicyCircuit
+	Hash   frontend.Variable `gnark:",public"`
+}
+
+func (c *policyHashCorpusCircuit) Define(api frontend.API) error {
+	checked := c.Policy.checkPolicy(api, rangecheck.New(api))
+	api.AssertIsEqual(c.Hash, checked.hash)
+	return nil
+}
+
 func TestPolicyHashCorpus(t *testing.T) {
 	raw, err := os.ReadFile(corpusPath)
 	if err != nil {
@@ -61,6 +77,7 @@ func TestPolicyHashCorpus(t *testing.T) {
 	if len(c.Cases) == 0 {
 		t.Fatal("empty corpus")
 	}
+	statement := newStatement(t, defaultFixture())
 	for i, tc := range c.Cases {
 		if len(tc.Sources) != NSources {
 			t.Fatalf("case %d has %d source slots", i, len(tc.Sources))
@@ -91,6 +108,16 @@ func TestPolicyHashCorpus(t *testing.T) {
 		}.hash(t))
 		if got != tc.PolicyHash {
 			t.Fatalf("case %d hashes to %s, the Rust side pins %s", i, got, tc.PolicyHash)
+		}
+		statement.sources, statement.rules = sources, rules
+		statement.inlineAssets, statement.inlineLimits = assets, tc.InlineLimits
+		statement.windowSlots, statement.velocity = tc.WindowSlots, velocity
+		assignment := &policyHashCorpusCircuit{
+			Policy: *statement.assignment(t, nil),
+			Hash:   hexField(t, tc.PolicyHash),
+		}
+		if err := test.IsSolved(&policyHashCorpusCircuit{}, assignment, ecc.BN254.ScalarField()); err != nil {
+			t.Fatalf("case %d differs from the policy constraints: %v", i, err)
 		}
 	}
 }

@@ -12,6 +12,10 @@ use sha2::{Digest, Sha256};
 use solana_account::Account;
 use solana_address::Address;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
+use solana_sbpf::elf_parser::{
+    consts::{ELFOSABI_NONE, EM_BPF, EM_SBPF, ET_DYN, PF_X, PT_LOAD},
+    Elf64, ElfParserError,
+};
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, Rpc, SolanaRpc};
@@ -68,11 +72,15 @@ pub enum DeployPlan {
 #[derive(Debug, Error)]
 pub enum DeployError {
     #[error(transparent)]
+    Ask(#[from] crate::ui::AskError),
+    #[error(transparent)]
     Context(#[from] ContextError),
     #[error("{label} not found at {path}")]
     MissingFile { label: &'static str, path: PathBuf },
     #[error(transparent)]
     File(#[from] FileError),
+    #[error("invalid SBF binary")]
+    InvalidBinary(#[from] ElfParserError),
     #[error("program {program} is upgradeable by {authority}, ring.toml names {expected}")]
     ForeignAuthority {
         program: Address,
@@ -129,6 +137,13 @@ const USABLE_TIMEOUT: Duration = Duration::from_secs(60);
 const SLOT_POLL: Duration = Duration::from_millis(400);
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
+    let deposit_audit = match args.deposit_audit {
+        Some(required) => required,
+        None => ctx.ask.confirm(
+            "require an auditor disclosure proof on direct deposits?",
+            ctx.config.deposit_audit,
+        )?,
+    };
     let workspace = Workspace::from_env()?;
     if workspace.is_some() && ctx.config.target != Target::Localnet {
         return Err(WorkspaceError::WrongTarget.into());
@@ -161,6 +176,20 @@ pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
         ctx.fund_authority(&authority, *required_balance)?;
     }
     let outcome = deploy.apply(&ctx.rpc, planned)?;
+    crate::config::RingConfig::set_deposit_audit(&ctx.config_path, deposit_audit)
+        .map_err(ContextError::from)?;
+    ctx.config.deposit_audit = deposit_audit;
+    line(
+        "deposit audit",
+        format_args!(
+            "{} on first init",
+            if deposit_audit {
+                "required"
+            } else {
+                "optional"
+            }
+        ),
+    );
     println!(
         "{} {} under {}",
         match outcome {
@@ -308,18 +337,33 @@ impl Deploy<'_> {
 }
 
 impl ProgramBinary {
-    pub fn read(path: &Path) -> Result<Self, FileError> {
+    pub fn read(path: &Path) -> Result<Self, DeployError> {
         let bytes = std::fs::read(path).map_err(|source| FileError::Read {
             path: path.to_path_buf(),
             source,
         })?;
+        Self::parse(&bytes)
+    }
+
+    fn parse(bytes: &[u8]) -> Result<Self, DeployError> {
+        let elf = Elf64::parse(bytes)?;
+        let header = elf.file_header();
+        if header.e_ident.ei_osabi != ELFOSABI_NONE
+            || header.e_type != ET_DYN
+            || !matches!(header.e_machine, EM_BPF | EM_SBPF)
+            || !elf.program_header_table().iter().any(|segment| {
+                segment.p_type == PT_LOAD && segment.p_flags & PF_X != 0 && segment.p_filesz != 0
+            })
+        {
+            return Err(ElfParserError::InvalidFileHeader.into());
+        }
         Ok(Self {
             len: bytes.len(),
-            sha256: Sha256::digest(&bytes).into(),
+            sha256: Sha256::digest(bytes).into(),
         })
     }
 
-    /// `None` when the program data holds fewer bytes than the binary.
+    /// Unused loader capacity must contain only zero bytes.
     pub fn deployed_sha256<R: Rpc>(
         &self,
         rpc: &R,
@@ -462,7 +506,11 @@ fn wait_until_usable<R: Rpc>(
 /// The loader writes the binary as given, padded to the account's capacity.
 fn deployed_bytes(program_data: &[u8], so_len: usize) -> Option<&[u8]> {
     let start = UpgradeableLoaderState::size_of_programdata_metadata();
-    program_data.get(start..start.checked_add(so_len)?)
+    let end = start.checked_add(so_len)?;
+    if so_len == 0 || program_data.get(end..)?.iter().any(|byte| *byte != 0) {
+        return None;
+    }
+    program_data.get(start..end)
 }
 
 fn released_program_so() -> Result<PathBuf, ReleaseError> {
@@ -497,6 +545,58 @@ mod tests {
             .expect("priced")
     }
 
+    fn elf() -> Vec<u8> {
+        let mut bytes = vec![0; 264];
+        bytes[..7].copy_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1]);
+        for (offset, value) in [
+            (16, ET_DYN),
+            (18, EM_SBPF),
+            (52, 64),
+            (54, 56),
+            (56, 1),
+            (58, 64),
+            (60, 2),
+            (62, 1),
+        ] {
+            bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+        }
+        for (offset, value) in [(20, 1u32), (64, PT_LOAD), (68, PF_X), (204, 3)] {
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        for (offset, value) in [
+            (32, 64u64),
+            (40, 136),
+            (72, 120),
+            (96, 8),
+            (104, 8),
+            (224, 128),
+            (232, 1),
+        ] {
+            bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn binary_validation_requires_complete_sbf_tables_and_sections() {
+        let bytes = elf();
+        let binary = ProgramBinary::parse(&bytes).unwrap();
+        assert_eq!(binary.len, bytes.len());
+        let expected: [u8; 32] = Sha256::digest(&bytes).into();
+        assert_eq!(binary.sha256, expected);
+        for length in 0..bytes.len() {
+            assert!(ProgramBinary::parse(&bytes[..length]).is_err());
+        }
+        for (offset, value) in [(18, 62u64), (40, u64::MAX), (96, u64::MAX)] {
+            let mut invalid = bytes.clone();
+            invalid[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+            assert!(ProgramBinary::parse(&invalid).is_err());
+        }
+        let mut invalid = bytes;
+        invalid[68..72].fill(0);
+        assert!(ProgramBinary::parse(&invalid).is_err());
+    }
+
     #[test]
     fn deployed_bytes_skip_the_metadata_and_stop_at_the_binary_length() {
         let meta = UpgradeableLoaderState::size_of_programdata_metadata();
@@ -507,6 +607,9 @@ mod tests {
         assert_eq!(deployed_bytes(&data, 3 + 8), Some(&data[meta..]));
         assert_eq!(deployed_bytes(&data, 3 + 9), None);
         assert_eq!(deployed_bytes(&data[..meta - 1], 0), None);
+        assert_eq!(deployed_bytes(&data, 0), None);
+        data[meta + 3] = 1;
+        assert_eq!(deployed_bytes(&data, 3), None);
     }
 
     #[test]

@@ -389,9 +389,10 @@ replaces its rows. The config authority pauses the ring, grants and revokes
 readers, re-points sources and writes the authority-written lists. A member
 writes its own entries on the member-written lists. The namespace PDA owns
 every entry and signs for it only inside a CPI the program builds. The
-auditor holds the P256 key fixed at `create_config` and decrypts every
-transfer. SPP governance activates the ring and enables the authority rail
-through `set_ring_activation`, nothing in the ring program can. Two more
+auditor holds the P256 key fixed at `create_config` and decrypts transfers.
+The auditor key cannot authorize an ownership transfer or withdrawal. SPP
+governance activates the ring and enables the authority rail through
+`set_ring_activation`, nothing in the ring program can. Two more
 actors follow. A co-signer adds nothing on its own, its
 signature is a precondition the program checks on the operations its scope
 names. A delegate moves notes between members on the authority rail and
@@ -416,8 +417,9 @@ list rules and ordinary amount guards through
 senders. The key exempts delegation from velocity caps, counters and
 velocity-derived approval. The ordinary transfer-scoped co-signer still
 applies. The delegate spends a member's notes with the member's nullifier
-key escrowed to the ring auditor in the key registry, so its operator holds
-the auditor secret, see the custom-rings
+key escrowed to the ring auditor in the key registry. Recovery needs the
+auditor secret, authorization needs the configured delegate's Solana
+signature. The CLI expects one operator to hold both keys, see the custom-rings
 [README](../custom-rings/README.md#controls). A delegate does not register a
 spend record or advance the head map. Its outputs stay in the entries tree
 on a windowed ring. The rail requires

@@ -31,6 +31,13 @@ use crate::{
 pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
 
+#[derive(Clone, Debug)]
+pub struct RingHistoryOptions {
+    pub ring_program_id: Address,
+    pub cursor: Option<Vec<u8>>,
+    pub limit: Option<u32>,
+}
+
 /// The runtime's ceiling on the account data one transaction may load, and what
 /// a transaction carrying no `set_loaded_accounts_data_size_limit` instruction
 /// received by default
@@ -439,6 +446,14 @@ pub trait Rpc {
         Err(unsupported("get_shielded_transactions_by_signature"))
     }
 
+    fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_ring"))
+    }
+
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
@@ -659,6 +674,14 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_signature"))
+    }
+
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_ring"))
     }
 
     async fn get_shielded_transactions_by_nullifiers(

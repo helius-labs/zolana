@@ -2,10 +2,10 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    pda as ring_pda, CoSignScope, CoSigner, Delegate, HeadMapRoot, KeyRegistryRoot, PolicyConfig,
-    ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE, HEAD_MAP_CAPACITY,
-    HEAD_MAP_ROOT, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
-    SPEND_WINDOW,
+    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, HeadMapRoot, KeyRegistryRoot,
+    PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE,
+    DEPOSIT_AUDIT, HEAD_MAP_CAPACITY, HEAD_MAP_ROOT, KEY_REGISTRY_ROOT, POLICY_CONFIG,
+    READ_ACCESS_RECORD, RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -147,6 +147,41 @@ impl CustomRing {
 
     pub fn cosigner_pda(self) -> Address {
         self.cosigner_pda_with_bump().address
+    }
+
+    pub fn deposit_audit_pda(self) -> Address {
+        Address::find_program_address(&[DepositAudit::SEED], &self.program_id).0
+    }
+
+    pub fn read_deposit_audit<R: Rpc>(self, rpc: &R) -> Result<bool, AccountReadError> {
+        self.decode_deposit_audit(rpc.get_account(self.deposit_audit_pda())?)
+    }
+
+    pub async fn read_deposit_audit_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<bool, AccountReadError> {
+        self.decode_deposit_audit(rpc.get_account(self.deposit_audit_pda()).await?)
+    }
+
+    fn decode_deposit_audit(self, account: Option<Account>) -> Result<bool, AccountReadError> {
+        let (address, bump) =
+            Address::find_program_address(&[DepositAudit::SEED], &self.program_id);
+        if account
+            .as_ref()
+            .is_some_and(|value| value.data.is_empty() && value.owner != Address::default())
+        {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        let Some(state) =
+            AccountRead::decode_optional::<DepositAudit>(self.program_id, address, account)?
+        else {
+            return Ok(false);
+        };
+        if state.bump != bump || state.required > 1 {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        Ok(state.required == 1)
     }
 
     fn cosigner_pda_with_bump(self) -> Pda {
@@ -306,16 +341,31 @@ impl CustomRing {
         else {
             return Ok(None);
         };
-        if cosigner.bump != pda.bump {
-            return Err(AccountReadError::InvalidAccount {
-                address: pda.address,
-            });
+        let invalid = || AccountReadError::InvalidAccount {
+            address: pda.address,
+        };
+        let scope = CoSignScope::new(cosigner.scope).ok_or_else(invalid)?;
+        let (thresholds, padding) = cosigner
+            .thresholds
+            .split_at_checked(usize::from(cosigner.threshold_count))
+            .ok_or_else(invalid)?;
+        if cosigner.bump != pda.bump
+            || cosigner.signer == Address::default()
+            || padding
+                .iter()
+                .any(|row| row.mint != Address::default() || row.amount() != 0)
+            || thresholds.iter().enumerate().any(|(index, row)| {
+                thresholds[..index]
+                    .iter()
+                    .any(|earlier| earlier.mint == row.mint)
+            })
+        {
+            return Err(invalid());
         }
         Ok(Some(CustomRingCoSigner {
             signer: cosigner.signer,
-            scope: cosigner.scope(),
-            thresholds: cosigner
-                .thresholds()
+            scope,
+            thresholds: thresholds
                 .iter()
                 .map(|row| CoSignThreshold {
                     mint: row.mint,
@@ -628,6 +678,14 @@ impl ReadableAccount for CoSigner {
     }
 }
 
+impl ReadableAccount for DepositAudit {
+    const DISCRIMINATOR: u8 = DEPOSIT_AUDIT;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
 impl ReadableAccount for Delegate {
     const DISCRIMINATOR: u8 = DELEGATE;
 
@@ -730,6 +788,7 @@ impl AccountRead {
 
 #[cfg(test)]
 mod tests {
+    use bytemuck::Zeroable;
     use custom_ring_interface::{
         ReadAccessRecord, RingProgramConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG,
     };
@@ -746,10 +805,19 @@ mod tests {
         account: Option<Account>,
     }
 
+    type Mutation<T> = (&'static str, fn(&mut T));
+
     impl Rpc for AccountRpc {
         fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
             assert_eq!(address, self.address);
             Ok(self.account.clone())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncRpc for AccountRpc {
+        async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+            Rpc::get_account(self, address)
         }
     }
 
@@ -781,6 +849,56 @@ mod tests {
         AccountRpc {
             address: ring().config_pda(),
             account: Some(account(&value)),
+        }
+    }
+
+    #[test]
+    fn deposit_audit_defaults_off_and_rejects_malformed_state() {
+        let address = ring().deposit_audit_pda();
+        let read = |account| ring().read_deposit_audit(&AccountRpc { address, account });
+        assert!(!read(None).unwrap());
+        assert!(!read(Some(Account::default())).unwrap());
+        let bump = Address::find_program_address(&[DepositAudit::SEED], &ring().program_id()).1;
+        let value = DepositAudit {
+            discriminator: DEPOSIT_AUDIT,
+            required: 1,
+            bump,
+        };
+        assert!(read(Some(account(&value))).unwrap());
+        assert!(!read(Some(account(&DepositAudit {
+            required: 0,
+            ..value
+        })))
+        .unwrap());
+        let foreign = Account {
+            owner: Address::new_from_array([99; 32]),
+            ..Account::default()
+        };
+        let mut wrong_owner = account(&value);
+        wrong_owner.owner = Address::default();
+        let mut truncated = account(&value);
+        truncated.data.pop();
+        for invalid in [
+            foreign,
+            wrong_owner,
+            truncated,
+            account(&DepositAudit {
+                required: 2,
+                ..value
+            }),
+            account(&DepositAudit {
+                discriminator: 0,
+                ..value
+            }),
+            account(&DepositAudit {
+                bump: bump ^ 1,
+                ..value
+            }),
+        ] {
+            assert!(matches!(
+                read(Some(invalid)),
+                Err(AccountReadError::InvalidAccount { .. })
+            ));
         }
     }
 
@@ -916,6 +1034,193 @@ mod tests {
             .hash(&source_map(&config).expect("map"))
             .expect("hash");
         config
+    }
+
+    #[test]
+    fn cosigner_read_rejects_invalid_threshold_count() {
+        let mut value = cosigner();
+        value.threshold_count = u8::MAX;
+        let address = ring().cosigner_pda();
+        let rpc = AccountRpc {
+            address,
+            account: Some(account(&value)),
+        };
+        assert!(matches!(
+            ring().read_cosigner(&rpc),
+            Err(AccountReadError::InvalidAccount { address: invalid }) if invalid == address
+        ));
+    }
+
+    fn cosigner() -> CoSigner {
+        CoSigner {
+            discriminator: CO_SIGNER,
+            signer: Address::new_from_array([45; 32]),
+            scope: CoSignScope::WITHDRAWALS.bits(),
+            bump: ring().cosigner_pda_with_bump().bump,
+            ..CoSigner::zeroed()
+        }
+    }
+
+    #[test]
+    fn cosigner_read_rejects_noncanonical_fields() {
+        let cases: [Mutation<CoSigner>; 7] = [
+            ("zero signer", |value| value.signer = Address::default()),
+            ("empty scope", |value| value.scope = 0),
+            ("unsupported scope", |value| value.scope = 8),
+            ("too many thresholds", |value| value.threshold_count = 9),
+            ("duplicate mint", |value| value.threshold_count = 2),
+            ("mint in padding", |value| {
+                value.thresholds[1].mint = Address::new_from_array([1; 32]);
+            }),
+            ("amount in padding", |value| {
+                value.thresholds[1].amount = 1_u64.to_le_bytes();
+            }),
+        ];
+        let address = ring().cosigner_pda();
+        for (name, change) in cases {
+            let mut value = cosigner();
+            value.threshold_count = 1;
+            change(&mut value);
+            let rpc = AccountRpc {
+                address,
+                account: Some(account(&value)),
+            };
+            for result in [
+                ring().read_cosigner(&rpc),
+                futures::executor::block_on(ring().read_cosigner_async(&rpc)),
+            ] {
+                assert!(
+                    matches!(result, Err(AccountReadError::InvalidAccount { address: invalid }) if invalid == address),
+                    "{name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cosigner_read_preserves_valid_thresholds_and_scope() {
+        let mut value = cosigner();
+        value.scope = CoSignScope::ALL.bits();
+        value.threshold_count = value.thresholds.len() as u8;
+        for (index, row) in value.thresholds.iter_mut().enumerate() {
+            row.mint = Address::new_from_array([index as u8; 32]);
+            row.amount = if index == 0 { 0 } else { u64::MAX }.to_le_bytes();
+        }
+        let expected = CustomRingCoSigner {
+            signer: value.signer,
+            scope: CoSignScope::ALL,
+            thresholds: value
+                .thresholds()
+                .iter()
+                .map(|row| CoSignThreshold {
+                    mint: row.mint,
+                    amount: row.amount(),
+                })
+                .collect(),
+        };
+        let rpc = AccountRpc {
+            address: ring().cosigner_pda(),
+            account: Some(account(&value)),
+        };
+        for result in [
+            ring().read_cosigner(&rpc),
+            futures::executor::block_on(ring().read_cosigner_async(&rpc)),
+        ] {
+            assert_eq!(result.expect("valid co-signer"), Some(expected.clone()));
+        }
+    }
+
+    #[test]
+    fn optional_control_readers_reject_malformed_accounts() {
+        let mint = Address::new_from_array([60; 32]);
+        let controls = [
+            (ring().cosigner_pda(), account(&cosigner())),
+            (
+                ring().delegate_pda(),
+                account(&Delegate {
+                    discriminator: DELEGATE,
+                    delegate: Address::new_from_array([47; 32]),
+                    bump: ring().delegate_pda_with_bump().bump,
+                }),
+            ),
+            (
+                ring().spend_window_pda(&mint),
+                account(&SpendWindow {
+                    discriminator: SPEND_WINDOW,
+                    mint,
+                    window_slots: 100_u64.to_le_bytes(),
+                    bump: ring().spend_window_pda_with_bump(&mint).bump,
+                    ..SpendWindow::zeroed()
+                }),
+            ),
+        ];
+        let changes: [Mutation<Account>; 5] = [
+            ("foreign owner", |account| {
+                account.owner = Address::new_from_array([99; 32]);
+            }),
+            ("truncated", |account| {
+                account.data.pop();
+            }),
+            ("oversized", |account| account.data.push(0)),
+            ("wrong discriminator", |account| account.data[0] ^= 1),
+            ("wrong bump", |account| {
+                *account.data.last_mut().expect("bump") ^= 1;
+            }),
+        ];
+        for (address, valid) in controls {
+            let read = |account| {
+                let rpc = AccountRpc { address, account };
+                let sync = match valid.data[0] {
+                    CO_SIGNER => ring().read_cosigner(&rpc).map(|value| value.is_some()),
+                    DELEGATE => ring().read_delegate(&rpc).map(|value| value.is_some()),
+                    SPEND_WINDOW => ring()
+                        .read_spend_window(&rpc, &mint)
+                        .map(|value| value.is_some()),
+                    _ => unreachable!(),
+                };
+                let asynchronous = futures::executor::block_on(async {
+                    match valid.data[0] {
+                        CO_SIGNER => ring()
+                            .read_cosigner_async(&rpc)
+                            .await
+                            .map(|value| value.is_some()),
+                        DELEGATE => ring()
+                            .read_delegate_async(&rpc)
+                            .await
+                            .map(|value| value.is_some()),
+                        SPEND_WINDOW => ring()
+                            .read_spend_window_async(&rpc, &mint)
+                            .await
+                            .map(|value| value.is_some()),
+                        _ => unreachable!(),
+                    }
+                });
+                [sync, asynchronous]
+            };
+            for result in read(Some(valid.clone())) {
+                assert!(result.expect("valid control"));
+            }
+            for account in [
+                None,
+                Some(empty([0; 32])),
+                Some(empty(ring().program_id().to_bytes())),
+            ] {
+                for result in read(account) {
+                    assert!(!result.expect("unconfigured control"));
+                }
+            }
+            for (name, change) in changes {
+                let mut value = valid.clone();
+                change(&mut value);
+                for result in read(Some(value)) {
+                    assert!(
+                        matches!(result, Err(AccountReadError::InvalidAccount { address: invalid }) if invalid == address),
+                        "{name} for {}",
+                        valid.data[0]
+                    );
+                }
+            }
+        }
     }
 
     #[test]

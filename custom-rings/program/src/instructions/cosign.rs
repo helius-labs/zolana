@@ -6,6 +6,8 @@ use crate::{
     instructions::{loader::load_cosigner, public_legs::PublicLegs},
 };
 
+/// Public operation classes and mint flows determining a second-signature
+/// requirement.
 pub(crate) struct CoSignerRequirement<'a> {
     pub classes: CoSignScope,
     pub legs: PublicLegs<'a>,
@@ -42,9 +44,13 @@ impl<'a> CoSignerRequirement<'a> {
         program_id: &Address,
         cosigner_account: &AccountView,
     ) -> Result<Option<Address>, ProgramError> {
+        // 1. The canonical optional account determines whether scoped approval
+        // is configured.
         let Some(cosigner) = load_cosigner(program_id, cosigner_account)? else {
             return Ok(None);
         };
+        // 2. Transfer and deposit scopes are unconditional, withdrawals
+        // aggregate per mint.
         let scope = cosigner.scope();
         let shared = |class| scope.contains(class) && self.classes.contains(class);
         let mut in_scope = shared(CoSignScope::TRANSFERS) || shared(CoSignScope::DEPOSITS);

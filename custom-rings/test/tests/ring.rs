@@ -56,7 +56,9 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zeroize::Zeroizing;
 use zolana_client::{
-    AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ComputeBudgetConfig, ProverClient, Rpc,
+    rpc::{GetRingHeadTransferProofResponse, RingMemberProofRequest},
+    AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError, ComputeBudgetConfig,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig, ProverClient, Rpc,
     ShieldedTransaction, SolanaRpc, ZolanaIndexer,
 };
 use zolana_interface::{
@@ -508,7 +510,10 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
             amount,
             cosigner: None,
         }
-        .send(rpc)?;
+        .send(custom_ring_sdk::DepositProofEnvironment {
+            rpc,
+            prover: &zolana_client::ProverClient::local(),
+        })?;
         transact::wait_for_indexed_transaction(indexer, receipt.signature)?;
     }
 
@@ -654,7 +659,10 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         spp_ring_config(rpc, ring)?.is_paused(),
         "paused by the ring authority"
     );
-    match deposit(RING_DEPOSIT_A).send(rpc) {
+    match deposit(RING_DEPOSIT_A).send(custom_ring_sdk::DepositProofEnvironment {
+        rpc,
+        prover: &zolana_client::ProverClient::local(),
+    }) {
         Err(DepositError::Client(error)) => {
             Rejection::pool(ShieldedPoolError::RingPaused).assert_client(&error)
         }
@@ -678,7 +686,10 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         }
         .instruction()?],
     )?;
-    match deposit(RING_DEPOSIT_A).send(rpc) {
+    match deposit(RING_DEPOSIT_A).send(custom_ring_sdk::DepositProofEnvironment {
+        rpc,
+        prover: &zolana_client::ProverClient::local(),
+    }) {
         Err(DepositError::Client(error)) => {
             Rejection::custom(CustomRingError::SpendWindowExceeded as u32).assert_client(&error)
         }
@@ -702,7 +713,11 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     //    is rebuilt without needing a wallet sync here.
     let mut spendable = Vec::with_capacity(2);
     for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
-        let RingDepositReceipt { utxo, .. } = deposit(amount).send(rpc)?;
+        let RingDepositReceipt { utxo, .. } =
+            deposit(amount).send(custom_ring_sdk::DepositProofEnvironment {
+                rpc,
+                prover: &zolana_client::ProverClient::local(),
+            })?;
         spendable.push(utxo);
     }
 
@@ -1057,7 +1072,10 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
             amount,
             cosigner: None,
         }
-        .send(rpc)?;
+        .send(custom_ring_sdk::DepositProofEnvironment {
+            rpc,
+            prover: &zolana_client::ProverClient::local(),
+        })?;
         spendable.push(utxo);
     }
 
@@ -1585,7 +1603,10 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         amount: USDC_RING_DEPOSIT,
         cosigner: None,
     }
-    .send(rpc)?;
+    .send(custom_ring_sdk::DepositProofEnvironment {
+        rpc,
+        prover: &zolana_client::ProverClient::local(),
+    })?;
     assert_eq!(
         token_amount(&fetch_account(rpc, &sender_usdc)?),
         USDC_FUNDING - USDC_DEFAULT_DEPOSIT - USDC_RING_DEPOSIT,
@@ -1926,7 +1947,10 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             amount,
             cosigner: None,
         }
-        .send(rpc)?;
+        .send(custom_ring_sdk::DepositProofEnvironment {
+            rpc,
+            prover: &zolana_client::ProverClient::local(),
+        })?;
         notes.push(utxo);
     }
     let prepare = |inputs: Vec<Utxo>, amount: u64| -> Result<PreparedTransfer> {
@@ -2231,7 +2255,10 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         amount: VELOCITY_CAP + 1,
         cosigner: Some(&cosigner),
     }
-    .send(rpc)?;
+    .send(custom_ring_sdk::DepositProofEnvironment {
+        rpc,
+        prover: &zolana_client::ProverClient::local(),
+    })?;
     let delegated_input = SppProofInputUtxo::new(delegated_note, sender).in_tree(0);
     wait_for_merkle_proof(indexer, env.tree, delegated_input.hash()?);
     let moved = DelegateTransfer::new(DelegateTransferInput {
@@ -2267,6 +2294,30 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         live.record
     );
 
+    // 1. A current record requires its private counters.
+    let public_record_indexer = WithoutSpendCounters {
+        indexer,
+        namespace: ring.namespace_pda(),
+    };
+    let recover = |prepared| {
+        CustomRingTransfer::new(CustomRingTransferInput {
+            ring,
+            sender,
+            prepared,
+        })
+        .with_tree(env.tree)
+        .with_assets(&env.assets)
+        .prove(TransferProofEnvironment {
+            indexer: &public_record_indexer,
+            rpc,
+            prover: &prover,
+        })
+    };
+    assert!(matches!(
+        recover(prepare(vec![third.clone()], 1)?),
+        Err(TransferError::SpendCountersUnknown)
+    ));
+
     // The next window rejects the old proof and resets counters on a newly proved spend.
     let stale = prove(prepare(vec![third.clone()], 1)?, None)?;
     advance_local_clock(rpc, (window + 1) * WINDOW_SLOTS)?;
@@ -2276,7 +2327,8 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         .assert_client(&rejection);
     assert_eq!(head_map()?, second_head);
     wait_for_spend_record(read_record, 2)?;
-    let reset = prove(prepare(vec![third], THIRD_SEND)?, None)?;
+    // 2. An expired record must spend with public fields alone.
+    let reset = recover(prepare(vec![third], THIRD_SEND)?)?;
     let signature = TransactSend {
         payer: sender,
         signers: &[],
@@ -2286,6 +2338,10 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     wait_for_indexed_transaction(indexer, auditor_tag, signature);
     let reset = wait_for_spend_record(read_record, 3)?;
     assert_eq!(reset.record.window, window + 1);
+    let reset_head = head_map()?;
+    assert_ne!(reset_head.root, second_head.root);
+    assert_eq!(reset_head.next_index, second_head.next_index);
+    assert_ne!(reset.nullifier, live.nullifier);
     let audited = AuditLookup {
         ring_program,
         auditor: &auditor,
@@ -2293,6 +2349,15 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     }
     .run(&env)?;
     assert_eq!(audited.spend_records.len(), 1);
+    assert_eq!(audited.spend_records[0].record, reset.record);
+    assert_eq!(
+        audited.spend_records[0]
+            .counters
+            .as_ref()
+            .ok_or_else(|| anyhow!("reset counters"))?
+            .commitment()?,
+        reset.record.counters_commitment
+    );
     assert_eq!(
         audited.spend_records[0]
             .counters
@@ -2302,6 +2367,44 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         THIRD_SEND
     );
     Ok(())
+}
+
+struct WithoutSpendCounters<'a> {
+    indexer: &'a ZolanaIndexer,
+    namespace: Address,
+}
+
+impl Rpc for WithoutSpendCounters<'_> {
+    fn get_ring_head_transfer_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        let mut response = self.indexer.get_ring_head_transfer_proof(request)?;
+        let messages = &mut response.record.transaction.messages;
+        let before = messages.len();
+        messages.retain(|message| message.view_tag.0 != self.namespace.to_bytes());
+        assert_eq!(messages.len() + 1, before);
+        Ok(response)
+    }
+
+    fn get_merkle_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetMerkleProofsResponse, ClientError> {
+        self.indexer.get_merkle_proofs(tree_account, leaves, config)
+    }
+
+    fn get_non_inclusion_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetNonInclusionProofsResponse, ClientError> {
+        self.indexer
+            .get_non_inclusion_proofs(tree_account, leaves, config)
+    }
 }
 
 fn advance_local_clock(rpc: &SolanaRpc, slot: u64) -> Result<()> {
@@ -2377,7 +2480,10 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
             amount,
             cosigner: None,
         }
-        .send(rpc)?;
+        .send(custom_ring_sdk::DepositProofEnvironment {
+            rpc,
+            prover: &zolana_client::ProverClient::local(),
+        })?;
         notes.push(utxo);
     }
     let prepare = |input: Utxo, amount: u64| -> Result<PreparedTransfer> {
@@ -2521,18 +2627,27 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
     send(
         rpc,
         &env.payer,
-        &[CreateKeyRegistryRoot {
-            ring,
-            payer: env.payer.pubkey(),
-            authority: env.payer.pubkey(),
-        }
-        .instruction()],
+        &[
+            CreateKeyRegistryRoot {
+                ring,
+                payer: env.payer.pubkey(),
+                authority: env.payer.pubkey(),
+            }
+            .instruction(),
+            custom_ring_sdk::SetDepositAudit {
+                ring,
+                payer: env.payer.pubkey(),
+                authority: env.payer.pubkey(),
+                required: true,
+            }
+            .instruction()?,
+        ],
     )?;
     let prover = ProverClient::local();
     let member = &env.sender.keypair;
     let member_address = member.shielded_address()?;
 
-    let RingDepositReceipt { utxo, .. } = RingDeposit {
+    let RingDepositReceipt { signature, utxo } = RingDeposit {
         ring,
         payer: member,
         recipient: member,
@@ -2541,9 +2656,41 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
     }
-    .send(rpc)?;
+    .send(custom_ring_sdk::DepositProofEnvironment {
+        rpc,
+        prover: &prover,
+    })?;
     let input = SppProofInputUtxo::new(utxo, member);
     wait_for_merkle_proof(indexer, env.tree, input.hash()?);
+    // 1. Recover the direct deposit before any transfer can disclose its
+    // opening.
+    assert_transaction_compute_units(
+        rpc,
+        &signature,
+        "audited ring deposit",
+        u64::from(custom_ring_sdk::AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT),
+    )?;
+    let deposited = RingRecovery::new(ring_program, &auditor)
+        .for_member(SourceMember {
+            address: &member_address,
+            nullifier_key: &member.nullifier_key,
+        })
+        .run(RecoveryEnvironment {
+            ring: RingEnvironment {
+                indexer,
+                origin: rpc,
+            },
+            assets: &env.assets,
+            tree_ids: |tree| {
+                custom_ring_sdk::tree_id(rpc, tree).map_err(|_| RecoveryError::UnknownTree(tree))
+            },
+        })?;
+    assert!(deposited.unopened.is_empty());
+    assert!(deposited.unsupported_deposits.is_empty());
+    assert_eq!(deposited.utxos.len(), 1);
+    assert_eq!(deposited.utxos[0].utxo, input.utxo);
+    assert_eq!(deposited.utxos[0].utxo.amount, DEFAULT_DEPOSIT);
+
     let mut transfer =
         ConfidentialTransfer::new(member.shielded_address()?, vec![input], member.pubkey())
             .with_compact_change()
@@ -2700,7 +2847,10 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
     }
-    .send(rpc)?;
+    .send(custom_ring_sdk::DepositProofEnvironment {
+        rpc,
+        prover: &zolana_client::ProverClient::local(),
+    })?;
     wait_for_merkle_proof(
         indexer,
         old_tree,
@@ -2837,7 +2987,10 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
     }
-    .send(rpc)?;
+    .send(custom_ring_sdk::DepositProofEnvironment {
+        rpc,
+        prover: &zolana_client::ProverClient::local(),
+    })?;
     wait_for_merkle_proof(
         indexer,
         input_tree,

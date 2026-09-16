@@ -4,6 +4,11 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/rangecheck"
+	"github.com/consensys/gnark/test"
+
 	"zolana/prover/prover-test/spp/spptest"
 )
 
@@ -54,89 +59,93 @@ func TestCircuitSolvesVelocityTransfers(t *testing.T) {
 }
 
 func TestCircuitRejectsVelocityTampering(t *testing.T) {
+	velocityWithoutRules := func() fixture {
+		f := velocityDefault()
+		f.rulesFree = true
+		return f
+	}
 	tests := []struct {
 		name  string
 		build func(*testing.T) *CustomRingPolicyCircuit
 	}{
-		{"spend over the cap inside the window", build(velocityDefault, func(v *velocityFixture) {
+		{"spend over the cap inside the window", build(velocityWithoutRules, func(v *velocityFixture) {
 			v.spent = velocityCap - transferAmount + 1
 		})},
-		{"change leaving the ring counts as outflow", build(velocityDefault, func(v *velocityFixture) {
+		{"change leaving the ring counts as outflow", build(velocityWithoutRules, func(v *velocityFixture) {
 			v.spent = velocityCap - transferAmount
 			v.change = 1
 			v.exit = true
 			v.rulesFree = true
 		})},
-		{"a record from a future window", build(velocityDefault, func(v *velocityFixture) { v.recordWindow = windowIndex + 1 })},
-		{"a live record without its counters", build(velocityDefault, func(v *velocityFixture) { v.forgetCounters = true })},
-		{"the approval bit dropped above the threshold", build(velocityDefault, func(v *velocityFixture) {
+		{"a record from a future window", build(velocityWithoutRules, func(v *velocityFixture) { v.recordWindow = windowIndex + 1 })},
+		{"a live record without its counters", build(velocityWithoutRules, func(v *velocityFixture) { v.forgetCounters = true })},
+		{"the approval bit dropped above the threshold", build(velocityWithoutRules, func(v *velocityFixture) {
 			v.cosignAbove = transferAmount - 1
 		})},
-		{"the approval bit raised below the threshold", build(velocityDefault, func(v *velocityFixture) {
+		{"the approval bit raised below the threshold", build(velocityWithoutRules, func(v *velocityFixture) {
 			v.cosignAbove = transferAmount
 			v.approval = true
 		})},
-		{"another member's record", build(velocityDefault, func(v *velocityFixture) { v.recordOwner = fill(0xb4) })},
-		{"the successor keeps the spent version", build(velocityDefault, func(v *velocityFixture) { v.staleSuccessor = true })},
-		{"a list entry offered as the record", build(velocityDefault, func(v *velocityFixture) { v.entryAsRecord = true })},
-		{"a second input owner", build(velocityDefault, func(v *velocityFixture) { v.secondSender = true })},
-		{"two rows for one mint", build(velocityDefault, func(v *velocityFixture) {
-			v.rows = []velocityRow{{asset: assetField(t, fill(0xd4)), cap: 1}}
+		{"another member's record", build(velocityWithoutRules, func(v *velocityFixture) { v.recordOwner = fill(0xb4) })},
+		{"the successor keeps the spent version", build(velocityWithoutRules, func(v *velocityFixture) { v.staleSuccessor = true })},
+		{"a list entry offered as the record", build(velocityWithoutRules, func(v *velocityFixture) { v.entryAsRecord = true })},
+		{"a second input owner", build(velocityWithoutRules, func(v *velocityFixture) { v.secondSender = true })},
+		{"two rows for one mint", build(velocityWithoutRules, func(v *velocityFixture) {
+			v.rows = []velocityRow{{asset: assetField(t, fill(0xd4)), cap: velocityCap}}
 		})},
-		{"a row without a bound", build(velocityDefault, func(v *velocityFixture) {
+		{"a row without a bound", build(velocityWithoutRules, func(v *velocityFixture) {
 			v.rows = []velocityRow{{asset: big.NewInt(0xe5)}}
 		})},
 		{
 			name: "change above the inputs",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := velocityDefault()
-				f.velocity.change = 10
+				f.velocity.change = 4000
 				f.velocity.rulesFree = true
-				c := buildAssignment(t, f)
-				c.Inputs[0].Amount = big.NewInt(transferAmount)
-				return c
+				return reboundStatement(t, f, func(s *statement) {
+					s.inputs[0].Amount = big.NewInt(transferAmount)
+				})
 			},
 		},
 		{
 			name: "the record alone",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := buildAssignment(t, velocityDefault())
-				c.InputCountSelected[1] = big.NewInt(0)
-				c.InputCountSelected[0] = big.NewInt(1)
-				return c
+				return reboundStatement(t, velocityDefault(), func(s *statement) {
+					s.inputs = s.inputs[len(s.inputs)-1:]
+				})
 			},
 		},
 		{
 			name: "a money input owned by the namespace",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := buildAssignment(t, velocityDefault())
-				c.Inputs[0].OwnerPkHash = c.Inputs[1].OwnerPkHash
-				c.Inputs[0].NullifierPk = c.Inputs[1].NullifierPk
-				return c
+				return reboundStatement(t, velocityDefault(), func(s *statement) {
+					s.inputs[0].OwnerPkHash = s.inputs[1].OwnerPkHash
+					s.inputs[0].NullifierPk = s.inputs[1].NullifierPk
+				})
 			},
 		},
 		{
 			name: "the record opened in the money tree",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := buildAssignment(t, velocityDefault())
-				c.Inputs[1].TreeID = big.NewInt(0)
-				return c
+				return reboundStatement(t, velocityDefault(), func(s *statement) {
+					s.inputs[1].TreeID = big.NewInt(0)
+				})
 			},
 		},
 		{
 			name: "the successor placed inside the ring",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := buildAssignment(t, velocityDefault())
-				c.Outputs[2].RingProgramID = c.RingID
-				return c
+				return reboundStatement(t, velocityDefault(), func(s *statement) {
+					s.outputs[len(s.outputs)-1].RingProgramID = s.ringID
+				})
 			},
 		},
 		{
 			name: "the successor under a stale window",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := buildAssignment(t, velocityDefault())
-				c.WindowIndex = big.NewInt(windowIndex + 1)
-				return c
+				return reboundStatement(t, velocityDefault(), func(s *statement) {
+					s.windowIndex++
+				})
 			},
 		},
 		{
@@ -150,10 +159,9 @@ func TestCircuitRejectsVelocityTampering(t *testing.T) {
 		{
 			name: "a window without rows",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := buildAssignment(t, velocityDefault())
-				c.VelocityCountSelected[1] = big.NewInt(0)
-				c.VelocityCountSelected[0] = big.NewInt(1)
-				return c
+				return reboundStatement(t, velocityDefault(), func(s *statement) {
+					s.velocity = nil
+				})
 			},
 		},
 		{
@@ -167,18 +175,18 @@ func TestCircuitRejectsVelocityTampering(t *testing.T) {
 		{
 			name: "a window index on a ring without velocity",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := validAssignment(t)
-				c.WindowIndex = big.NewInt(1)
-				return c
+				return reboundStatement(t, defaultFixture(), func(s *statement) {
+					s.windowIndex = 1
+				})
 			},
 		},
 		{
 			name: "a namespace owned output on a ring without velocity",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := validAssignment(t)
-				c.Outputs[0].OwnerPkHash = pkField(t, fill(0x11))
-				c.Outputs[0].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(0))
-				return c
+				return reboundStatement(t, defaultFixture(), func(s *statement) {
+					s.outputs[0].OwnerPkHash = pkField(t, fill(0x11))
+					s.outputs[0].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(0))
+				})
 			},
 		},
 	}
@@ -200,6 +208,39 @@ func build(base func() fixture, knob func(*velocityFixture)) func(*testing.T) *C
 		f := base()
 		knob(f.velocity)
 		return buildAssignment(t, f)
+	}
+}
+
+// Rebuilt hashes prevent rejection by the transaction commitment alone.
+func reboundStatement(t *testing.T, f fixture, mutate func(*statement)) *CustomRingPolicyCircuit {
+	t.Helper()
+	f.rulesFree = true
+	s := newStatement(t, f)
+	solve(t, testConstraintSystem(t), s.assignment(t, nil))
+	mutate(s)
+	assignment := s.assignment(t, nil)
+	if err := test.IsSolved(&velocityOpeningBindingCircuit{}, &velocityOpeningBindingCircuit{Policy: *assignment}, ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("mutated transaction must retain valid opening bindings: %v", err)
+	}
+	return assignment
+}
+
+// Checks openings independently from the velocity predicates under test.
+type velocityOpeningBindingCircuit struct {
+	Policy CustomRingPolicyCircuit
+}
+
+func (c *velocityOpeningBindingCircuit) Define(api frontend.API) error {
+	windowEnabled := api.Sub(1, api.IsZero(c.Policy.WindowSlots))
+	c.Policy.constrainTransactionContext(api, rangecheck.New(api), windowEnabled)
+	return nil
+}
+
+func TestVelocityOpeningBindingRejectsAnUncommittedMutation(t *testing.T) {
+	assignment := buildAssignment(t, velocityDefault())
+	assignment.Inputs[0].Amount = big.NewInt(transferAmount + 1)
+	if err := test.IsSolved(&velocityOpeningBindingCircuit{}, &velocityOpeningBindingCircuit{Policy: *assignment}, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("opening-binding control admitted an amount outside the transaction commitment")
 	}
 }
 
@@ -247,47 +288,52 @@ func TestCircuitSolvesTransferCaps(t *testing.T) {
 }
 
 func TestCircuitRejectsTransferCapTampering(t *testing.T) {
+	capWithoutRules := func() fixture {
+		f := transferCapDefault()
+		f.rulesFree = true
+		return f
+	}
 	tests := []struct {
 		name  string
 		build func(*testing.T) *CustomRingPolicyCircuit
 	}{
-		{"spend over the cap", build(transferCapDefault, func(v *velocityFixture) { v.cap = transferAmount - 1 })},
-		{"the approval bit dropped above the threshold", build(transferCapDefault, func(v *velocityFixture) {
+		{"spend over the cap", build(capWithoutRules, func(v *velocityFixture) { v.cap = transferAmount - 1 })},
+		{"the approval bit dropped above the threshold", build(capWithoutRules, func(v *velocityFixture) {
 			v.cosignAbove = transferAmount - 1
 		})},
-		{"the approval bit raised below the threshold", build(transferCapDefault, func(v *velocityFixture) {
+		{"the approval bit raised below the threshold", build(capWithoutRules, func(v *velocityFixture) {
 			v.cosignAbove = transferAmount
 			v.approval = true
 		})},
-		{"a second input owner", build(transferCapDefault, func(v *velocityFixture) { v.secondSender = true })},
+		{"a second input owner", build(capWithoutRules, func(v *velocityFixture) { v.secondSender = true })},
 		{
 			name: "change above the inputs",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := transferCapDefault()
 				f.velocity.change = 4000
 				f.velocity.rulesFree = true
-				c := buildAssignment(t, f)
-				c.Inputs[0].Amount = big.NewInt(transferAmount)
-				return c
+				return reboundStatement(t, f, func(s *statement) {
+					s.inputs[0].Amount = big.NewInt(transferAmount)
+				})
 			},
 		},
 		{
 			name: "a window index without a window",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := buildAssignment(t, transferCapDefault())
-				c.WindowIndex = big.NewInt(1)
-				return c
+				return reboundStatement(t, transferCapDefault(), func(s *statement) {
+					s.windowIndex = 1
+				})
 			},
 		},
 		{
 			name: "a namespace owned note offered as a record",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := buildAssignment(t, transferCapDefault())
-				c.Inputs[1] = c.Inputs[0]
-				c.Inputs[1].OwnerPkHash = pkField(t, fill(0x11))
-				c.Inputs[1].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(0))
-				c.Inputs[1].Blinding = big.NewInt(0x99)
-				return c
+				return reboundStatement(t, transferCapDefault(), func(s *statement) {
+					s.inputs[1] = s.inputs[0]
+					s.inputs[1].OwnerPkHash = pkField(t, fill(0x11))
+					s.inputs[1].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(0))
+					s.inputs[1].Blinding = big.NewInt(0x99)
+				})
 			},
 		},
 	}

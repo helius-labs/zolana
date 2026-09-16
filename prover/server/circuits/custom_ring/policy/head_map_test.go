@@ -185,3 +185,25 @@ func TestHeadMapRejectsTransitionOffTheSpentNullifier(t *testing.T) {
 	assignment.Spent = big.NewInt(0x5f)
 	test.NewAssert(t).SolvingFailed(transitionCircuit(), assignment, test.WithCurves(ecc.BN254))
 }
+
+func TestHeadMapRejectsIndexAliases(t *testing.T) {
+	for _, name := range []string{"predecessor", "insertion", "transfer"} {
+		t.Run(name, func(t *testing.T) {
+			assignment := roundTripAssignment(t, big.NewInt(0x1234), big.NewInt(0x5e), big.NewInt(0x77))
+			if err := test.IsSolved(roundTripCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
+				t.Fatalf("valid index control failed: %v", err)
+			}
+			index := &assignment.LowIndex
+			switch name {
+			case "insertion":
+				index = &assignment.NewIndex
+			case "transfer":
+				index = &assignment.TransferIndex
+			}
+			*index = new(big.Int).Add(new(big.Int).SetUint64((*index).(uint64)), new(big.Int).Lsh(big.NewInt(1), HeadMapHeight))
+			if err := test.IsSolved(roundTripCircuit(), assignment, ecc.BN254.ScalarField()); err == nil {
+				t.Fatal("index alias above the tree capacity was accepted")
+			}
+		})
+	}
+}

@@ -543,6 +543,7 @@ pub struct Context {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetRingsByTagsRequest {
+    /// Empty tags require a ring and select its full history.
     pub tags: Vec<Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<Base64String>,
@@ -582,7 +583,7 @@ pub struct EncryptedUtxoMatch {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetEncryptedUtxosByTagsResponse {
     pub context: Context,
-    /// Output-level matches; every returned output slot has a view tag from the request.
+    /// All outputs in the selected ring when tags are empty.
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Base64String>,
     /// Where the scan reached on a terminal page, including an empty page.
@@ -649,8 +650,8 @@ pub struct ShieldedTransaction {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
-    /// Transaction-level matches; each returned transaction has at least one requested
-    /// output view tag and includes all of its output slots.
+    /// All slots of each matched transaction, including full ring history when
+    /// tags are empty.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
     /// Where the scan reached on a terminal page, including an empty page.

@@ -70,6 +70,7 @@ export interface EncryptedCustomRingTransfer extends EncryptedTransfer {
   readonly audit: AuditWitness;
 }
 
+/** Seals auxiliary plaintext under a distinct transaction slot. */
 export interface SealedMessageInput {
   readonly viewTag: Bytes32;
   readonly plaintext: Uint8Array;
@@ -113,7 +114,7 @@ export interface SpendSession {
       recordOutputIndex?: number;
       sealedMessages?: readonly SealedMessageInput[];
       /** Protocol counter seal, never a caller message channel. */
-      counterMessage?: SealedMessageInput;
+      counterMessage?: Omit<SealedMessageInput, "slotIndex">;
     }>,
   ): Promise<EncryptedCustomRingTransfer>;
   openSealedMessage(

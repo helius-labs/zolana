@@ -1,4 +1,8 @@
 import { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "../../interface/head-map.js";
+import { RING_DEPOSIT_AUDIT_SLOTS } from "../../interface/ring-deposit-audit.js";
+import { isCanonicalField } from "../../interface/canonical-field.js";
+import { P256PublicKey } from "../../keypair/public-key.js";
+import { ViewingKey } from "../../keypair/viewing-key.js";
 import { treeIdField } from "../../interface/tree-slot.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
@@ -28,6 +32,7 @@ import {
 } from "./types.js";
 import type {
   CustomRingBaseProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingOpening,
   CustomRingSourceOwner,
   CustomRingRuleAnswer,
@@ -161,6 +166,13 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<Proof> {
     return this.#send(JSON.stringify(customRingRegisterKeyProofRequest(inputs)), "queued", context);
+  }
+
+  async proveCustomRingDeposit(
+    inputs: CustomRingDepositProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingDepositProofRequest(inputs)), "queued", context);
   }
 
   async proveCustomRingDelegatePolicy(
@@ -558,6 +570,56 @@ export function customRingRegisterKeyProofRequest(
     publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
     ...headInsertionJson(input),
     nullifierSecret: bytesHex(nullifierSecret),
+    ephSk: hex32(input.ephemeralSecret, "ephSk"),
+    auditorPk: auditorPkHex(input.auditorPublicKey),
+  });
+}
+
+export function customRingDepositProofRequest(
+  input: CustomRingDepositProofRequest,
+): Readonly<Record<string, unknown>> {
+  if (
+    !Number.isInteger(input.count) ||
+    input.count < 1 ||
+    input.count > RING_DEPOSIT_AUDIT_SLOTS ||
+    !Array.isArray(input.ownerHashes) ||
+    !Array.isArray(input.blindings) ||
+    input.ownerHashes.length !== RING_DEPOSIT_AUDIT_SLOTS ||
+    input.blindings.length !== RING_DEPOSIT_AUDIT_SLOTS
+  )
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  try {
+    P256PublicKey.fromUncompressed(input.auditorPublicKey);
+    ViewingKey.fromBytes(input.ephemeralSecret).destroy();
+  } catch {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  const ownerFields: readonly Bytes32[] = input.ownerHashes;
+  const blindingFields: readonly Bytes32[] = input.blindings;
+  for (const field of [
+    input.publicInputHash,
+    input.contextHash,
+    ...ownerFields,
+    ...blindingFields,
+  ]) {
+    if (!isCanonicalField(field)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  const ownerHashes = ownerFields.map((field) => hex32(field, "owner hash"));
+  const blindings = blindingFields.map((field) => hex32(field, "blinding"));
+  for (let index = input.count; index < RING_DEPOSIT_AUDIT_SLOTS; index++) {
+    if (
+      ownerFields[index]?.some((byte) => byte !== 0) ||
+      blindingFields[index]?.some((byte) => byte !== 0)
+    )
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  return Object.freeze({
+    circuitType: "custom-ring-deposit",
+    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
+    contextHash: hex32(input.contextHash, "contextHash"),
+    count: input.count,
+    ownerHashes,
+    blindings,
     ephSk: hex32(input.ephemeralSecret, "ephSk"),
     auditorPk: auditorPkHex(input.auditorPublicKey),
   });

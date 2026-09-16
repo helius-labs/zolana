@@ -76,6 +76,7 @@ export class ZolanaIndexer {
         const response = await this.#api.getEncryptedUtxosByTags(
           {
             tags: owned.tags.map((tag) => hash(tag)),
+            ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
             ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
           },
@@ -100,6 +101,7 @@ export class ZolanaIndexer {
         const response = await this.#api.getShieldedTransactionsByTags(
           {
             tags: owned.tags.map((tag) => hash(tag)),
+            ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
             ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
           },
@@ -357,6 +359,7 @@ function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
   }
   return Object.freeze({
     tags: copyFixedBytes(request.tags, 32, "tags") as readonly Bytes32[],
+    ...(request.ringProgramId === undefined ? {} : { ringProgramId: request.ringProgramId }),
     ...(request.cursor === undefined ? {} : { cursor: new Uint8Array(request.cursor) }),
     ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
   });

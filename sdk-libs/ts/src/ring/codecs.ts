@@ -7,7 +7,7 @@ import {
   type CustomRingVelocityRow,
 } from "../client/prover/types.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
-import { Reader, encodeBase58 } from "../interface/internal.js";
+import { Reader, addressBytes, encodeBase58 } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 import { ZERO_32, bytesToBigInt } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
@@ -20,6 +20,20 @@ export interface RingProgramConfig {
   readonly auditorPublicKey: P256PublicKey;
   readonly bump: number;
   readonly hasPolicy: boolean;
+}
+
+/** Pins whether deposits must disclose their openings to the auditor. */
+export interface RingDepositAudit {
+  readonly required: boolean;
+  readonly bump: number;
+}
+
+export function decodeRingDepositAudit(data: Uint8Array): RingDepositAudit {
+  if (data.length !== 3 || data[0] !== 10 || (data[1] !== 0 && data[1] !== 1))
+    throw new RingError("RING_DEPOSIT_AUDIT_INVALID");
+  const bump = data[2];
+  if (bump === undefined) throw new RingError("RING_DEPOSIT_AUDIT_INVALID");
+  return Object.freeze({ required: data[1] === 1, bump });
 }
 
 /** Mirrors Rust `SourceSlot`, slot `i` is empty (`listId === 0`) or serves list `i + 1`. */
@@ -51,6 +65,7 @@ export interface RingPolicyConfig {
   readonly generationSlot: bigint;
 }
 
+/** Pins the Solana signature required by scope or amount. */
 export interface RingCoSigner {
   readonly signer: Address;
   readonly scope: number;
@@ -99,24 +114,41 @@ export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {
   const signer = encodeBase58(reader.bytes(32, "signer"));
   const scope = reader.u8("scope");
   const count = reader.u8("thresholdCount");
-  if (
-    scope === 0 ||
-    (scope & ~RING_COSIGN_SCOPE_MASK) !== 0 ||
-    count > RING_COSIGN_THRESHOLD_SLOTS
-  ) {
-    throw new RingError("RING_CO_SIGNER_INVALID", { details: { scope, count } });
+  if (count > RING_COSIGN_THRESHOLD_SLOTS) {
+    throw new RingError("RING_CO_SIGNER_INVALID", { details: { count } });
   }
   const thresholds = [];
   for (let slot = 0; slot < RING_COSIGN_THRESHOLD_SLOTS; slot += 1) {
-    const mint = encodeBase58(reader.bytes(32, "mint"));
+    const mintBytes = reader.bytes(32, "mint");
     const above = reader.u64("above");
-    if (slot < count) thresholds.push(Object.freeze({ mint, above }));
+    if (slot < count) {
+      thresholds.push(Object.freeze({ mint: encodeBase58(mintBytes), above }));
+    } else if (!equalBytes(mintBytes, ZERO_32) || above !== 0n) {
+      throw new RingError("RING_CO_SIGNER_INVALID", { details: { slot } });
+    }
   }
   const bump = reader.u8("bump");
   reader.done();
+  checkRingCoSignerConfig({ signer, scope, thresholds });
   return Object.freeze({ signer, scope, bump, thresholds: Object.freeze(thresholds) });
 }
 
+export function checkRingCoSignerConfig(
+  config: Pick<RingCoSigner, "signer" | "scope" | "thresholds">,
+): void {
+  if (
+    equalBytes(addressBytes(config.signer, "signer"), ZERO_32) ||
+    !Number.isInteger(config.scope) ||
+    config.scope < 1 ||
+    config.scope > RING_COSIGN_SCOPE_MASK ||
+    config.thresholds.length > RING_COSIGN_THRESHOLD_SLOTS ||
+    new Set(config.thresholds.map((row) => row.mint)).size !== config.thresholds.length
+  ) {
+    throw new RingError("RING_CO_SIGNER_INVALID");
+  }
+}
+
+/** Pins the signer for moves without member signatures. */
 export interface RingDelegate {
   readonly delegate: Address;
   readonly bump: number;
@@ -143,6 +175,7 @@ export function decodeRingDelegate(data: Uint8Array): RingDelegate {
   return Object.freeze({ delegate: encodeBase58(key), bump });
 }
 
+/** Tracks each mint's public deposits and withdrawals per window. */
 export interface RingSpendWindow {
   readonly mint: Address;
   readonly windowSlots: bigint;
@@ -190,6 +223,7 @@ export function decodeRingSpendWindow(data: Uint8Array): RingSpendWindow {
   });
 }
 
+/** Anchors the compressed member heads in one on-chain account. */
 export interface RingHeadMapRoot {
   readonly root: Bytes32;
   readonly nextIndex: bigint;

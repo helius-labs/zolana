@@ -158,6 +158,7 @@ solana-rent = "4.2"
 solana-reward-info = "=6.2.0"
 solana-rpc-client = "4.1"
 solana-rpc-client-api = "4.1"
+solana-sbpf = { version = "=0.21.1", default-features = false }
 solana-security-txt = "1.1.2"
 solana-secp256r1-program = "3.0"
 solana-sdk = "4.0"

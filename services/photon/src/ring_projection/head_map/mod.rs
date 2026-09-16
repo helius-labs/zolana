@@ -122,6 +122,10 @@ impl Projection for HeadMap {
     type Leaf = HeadLeaf;
     type Transition = Transition;
 
+    fn undos(block: &mut super::storage::BlockUndo) -> &mut Vec<Undo<HeadLeaf>> {
+        &mut block.head_map
+    }
+
     fn root_address(program: &Pubkey) -> (Pubkey, u8) {
         pda::head_map_root(program)
     }

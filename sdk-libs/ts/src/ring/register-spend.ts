@@ -38,6 +38,7 @@ export type RingSpendRegistrationClient = RingEntryProofClient &
   SlotReader &
   Pick<Prover, "proveCustomRingRegister">;
 
+/** Registers the member's initial record and compressed head atomically. */
 export interface RingSpendRegistrationParams {
   readonly client: RingSpendRegistrationClient;
   readonly ringProgramId: Address;
@@ -124,6 +125,7 @@ export async function buildRingSpendRegistrationTransaction(
   return (await buildRegistrationAttempt({ params: input, registration }, context)).transaction;
 }
 
+/** Pins the member identity and policy used for record creation. */
 interface Registration {
   readonly policy: RingPolicyConfig;
   readonly payer: Address;
@@ -176,6 +178,7 @@ async function buildRegistrationAttempt(
 ): Promise<Pick<RingSubmissionAttempt, "transaction" | "lastValidBlockHeight" | "window">> {
   const { params, registration } = input;
   const { policy, payer, member } = registration;
+  // 1. Pin the window and authenticate the member's empty head.
   const windowIndex = (await params.client.getSlot(context)) / policy.windowSlots;
   const root = await fetchRingHeadMapRoot(params.client, params.ringProgramId, context);
   if (root.nextIndex >= HEAD_MAP_CAPACITY)
@@ -195,6 +198,7 @@ async function buildRegistrationAttempt(
     head.nextIndex !== root.nextIndex
   )
     throw new RingError("RING_HEAD_MAP_STALE");
+  // 2. Prove creation of the initial compressed record.
   const entry = await proveRingSpendRegistration(
     {
       client: params.client,
@@ -207,6 +211,7 @@ async function buildRegistrationAttempt(
     },
     context,
   );
+  // 3. Bind head insertion to the nullifier of that exact record.
   const headNewRoot = verifyHeadMapInsert({
     root: root.root,
     appendIndex: root.nextIndex,

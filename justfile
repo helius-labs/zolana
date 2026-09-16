@@ -1558,7 +1558,12 @@ build-spp-keys:
             "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done
-    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
+    source prover/server/scripts/ring_keys.sh
+    release_flags=()
+    for key in "${ring_keys[@]}"; do
+        release_flags+=(--release "$key")
+    done
+    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" "${release_flags[@]}"
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
 # (proving-keys/<version-hash>) comes from the committed lockfile. The two
@@ -1571,8 +1576,12 @@ publish-spp-keys:
     set -euo pipefail
     bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
     prefix="$(python3 -c "import json; print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
-    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key' \
-        --exclude 'custom_ring_policy.key' --exclude 'custom_ring_base.key'
+    source prover/server/scripts/ring_keys.sh
+    sync_excludes=()
+    for key in "${ring_keys[@]}"; do
+        sync_excludes+=(--exclude "$key")
+    done
+    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key' "${sync_excludes[@]}"
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target

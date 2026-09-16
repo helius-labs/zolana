@@ -30,6 +30,7 @@ pub enum PipelineError {
 /// Steps already on chain are skipped, a rerun resumes where it stopped.
 pub fn run(ctx: &mut Context, deploy: DeployArgs) -> Result<(), CliError> {
     localnet::ensure(ctx)?;
+    let deposit_audit = deploy.deposit_audit;
     deploy::run(ctx, deploy)?;
     let hosted = !ctx.config.urls().ring_rpc_is_local();
     if hosted {
@@ -37,7 +38,13 @@ pub fn run(ctx: &mut Context, deploy: DeployArgs) -> Result<(), CliError> {
         // pins the auditor for good.
         ring_rpc::run_check(ctx)?;
     }
-    init::run(ctx, InitArgs::default())?;
+    init::run(
+        ctx,
+        InitArgs {
+            deposit_audit,
+            ..InitArgs::default()
+        },
+    )?;
     if !hosted {
         check_local_ring_rpc(ctx)?;
     }

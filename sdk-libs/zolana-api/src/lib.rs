@@ -210,6 +210,13 @@ impl ZolanaApi {
         .await
     }
 
+    pub async fn get_shielded_transactions(
+        &self,
+        request: GetRingsByTagsRequest,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
+        self.call::<GetShieldedTransactionsByTags>(request).await
+    }
+
     pub async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
@@ -397,6 +404,13 @@ impl BlockingZolanaApi {
         self.call::<GetShieldedTransactionsBySignature>(GetShieldedTransactionsBySignatureRequest {
             tx_signature,
         })
+    }
+
+    pub fn get_shielded_transactions(
+        &self,
+        request: GetRingsByTagsRequest,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
+        self.call::<GetShieldedTransactionsByTags>(request)
     }
 
     pub fn get_shielded_transactions_by_nullifiers(

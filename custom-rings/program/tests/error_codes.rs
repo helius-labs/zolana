@@ -69,6 +69,9 @@ fn error_codes_are_stable() {
         (InvalidKeyRegistryCursor as u32, 8170),
         (HeadMapRootAlreadyExists as u32, 8171),
         (KeyRegistryRootAlreadyExists as u32, 8172),
+        (InvalidDepositAudit as u32, 8173),
+        (DepositAuditRequired as u32, 8174),
+        (InvalidDepositDisclosure as u32, 8175),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -144,6 +147,9 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | StaleKeyRegistryRoot
         | InvalidKeyRegistryCursor
         | HeadMapRootAlreadyExists
-        | KeyRegistryRootAlreadyExists => {}
+        | KeyRegistryRootAlreadyExists
+        | InvalidDepositAudit
+        | DepositAuditRequired
+        | InvalidDepositDisclosure => {}
     }
 }

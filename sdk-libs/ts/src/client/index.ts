@@ -60,6 +60,7 @@ export type {
   CircuitUtxo,
   CompressedProof,
   CustomRingBaseProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingOpening,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,

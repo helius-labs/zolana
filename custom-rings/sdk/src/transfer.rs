@@ -2,6 +2,7 @@ use core::future::Future;
 
 use custom_ring_interface::PolicyConfig;
 use futures::future::try_join;
+use p256::elliptic_curve::sec1::ToEncodedPoint;
 use rand::{rngs::OsRng, RngCore};
 use serde::Serialize;
 use solana_account::Account;
@@ -19,6 +20,7 @@ use zolana_client::{
     SettlementAccountValidation, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
     TransferInputs, TransferSpendInput,
 };
+use zolana_event::{RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
@@ -32,6 +34,7 @@ use zolana_keypair::{
     random_blinding, random_salt, KeypairError, P256Pubkey, ShieldedAddress, ShieldedKeypair,
     ViewingKey, ViewingKeyTrait,
 };
+use zolana_ring_client::{DepositOpening, DepositSeal};
 use zolana_ring_policy::{ListNamespace, Member, VelocityMode, VelocityRow};
 use zolana_transaction::{
     instructions::transact::{
@@ -151,6 +154,12 @@ pub struct RingDepositReceipt {
     pub utxo: Utxo,
 }
 
+/// RPC and prover handles for deposits that require auditor disclosure.
+pub struct DepositProofEnvironment<'a, R: Rpc> {
+    pub rpc: &'a R,
+    pub prover: &'a ProverClient,
+}
+
 #[derive(Debug, Error)]
 pub enum TransferError {
     #[error(transparent)]
@@ -257,6 +266,12 @@ impl From<PolicyMatchError> for TransferError {
 
 #[derive(Debug, Error)]
 pub enum DepositError {
+    #[error(transparent)]
+    Encryption(#[from] zolana_ring_client::AuditEncryptionError),
+    #[error(transparent)]
+    Proof(#[from] CustomRingProofError),
+    #[error("deposit proof input hashing failed")]
+    Hashing,
     #[error(transparent)]
     Keypair(#[from] KeypairError),
     #[error(transparent)]
@@ -1363,12 +1378,21 @@ impl ProvenTransfer {
 }
 
 impl RingDeposit<'_> {
-    pub fn send<R: Rpc>(self, rpc: &R) -> Result<RingDepositReceipt, DepositError> {
+    pub fn send<R: Rpc>(
+        self,
+        env: DepositProofEnvironment<'_, R>,
+    ) -> Result<RingDepositReceipt, DepositError> {
+        let rpc = env.rpc;
+        let config = self
+            .ring
+            .read_config(rpc)?
+            .ok_or(DepositError::MissingRingConfig)?;
         let blinding = random_blinding();
-        let deposit = RingAssetDeposit {
+        let owner_hash = self.recipient.owner_hash()?;
+        let mut deposit = RingAssetDeposit {
             asset: self.asset,
             view_tag: self.recipient.recipient_bootstrap_view_tag(),
-            owner_utxo_hash: owner_utxo_hash(&self.recipient.owner_hash()?, &blinding)?,
+            owner_utxo_hash: owner_utxo_hash(&owner_hash, &blinding)?,
             amount: self.amount,
             data_hash: None,
             ring_data_hash: NO_RING_DATA_HASH,
@@ -1380,18 +1404,78 @@ impl RingDeposit<'_> {
             }
             .encrypt(&self.recipient.viewing_pubkey())?,
         };
-        let has_policy = self
-            .ring
-            .read_config(rpc)?
-            .ok_or(DepositError::MissingRingConfig)?
-            .has_policy;
+        // 1. The on-chain setting selects disclosure proving before any deposit
+        // is sent.
+        let proof = if self.ring.read_deposit_audit(rpc)? {
+            let encryption = DepositSeal {
+                openings: &[DepositOpening {
+                    owner_hash,
+                    blinding: Zeroizing::new(blinding),
+                }],
+                auditor_pk: &config.auditor_pubkey,
+            }
+            .seal()?;
+            deposit.encrypted.ciphertext = RingDepositAuditCapsule {
+                slot_index: 0,
+                eph_pk: encryption.ephemeral_pk.as_bytes(),
+                ciphertext: &encryption.ciphertexts[0],
+                recipient_ciphertext: &deposit.encrypted.ciphertext,
+            }
+            .encode();
+            let spp_instruction = zolana_interface::instruction::RingDeposit {
+                tree: self.tree,
+                depositor: self.payer.pubkey(),
+                ring_program_id: self.ring.program_id(),
+                deposits: vec![deposit.clone()],
+            }
+            .instruction()?;
+            // 2. The proof binds the ring, destination tree and exact forwarded
+            // SPP bytes.
+            let context_hash = custom_ring_interface::DepositContext {
+                program_id: self.ring.program_id().as_array(),
+                tree: self.tree.as_array(),
+                spp_data: &spp_instruction.data,
+            }
+            .hash()
+            .map_err(|_| DepositError::Hashing)?;
+            let public_input_hash = custom_ring_interface::DepositPublicInput {
+                context_hash: &context_hash,
+                owner_utxo_hashes: &[deposit.owner_utxo_hash],
+                ciphertexts: &encryption.ciphertexts,
+                auditor_pk: config.auditor_pubkey.as_bytes(),
+                eph_pk: encryption.ephemeral_pk.as_bytes(),
+            }
+            .hash()
+            .map_err(|_| DepositError::Hashing)?;
+            let mut owner_hashes = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+            owner_hashes[0] = owner_hash;
+            let mut blindings = Zeroizing::new([[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]);
+            blindings[0] = blinding;
+            let uncompressed = config.auditor_pubkey.to_p256()?.to_encoded_point(false);
+            let mut auditor_pk = [0; 65];
+            auditor_pk.copy_from_slice(uncompressed.as_bytes());
+            Some(to_instruction_proof(env.prover.prove(
+                &zolana_client::prover::ring_deposit::RingDepositProofRequest {
+                    public_input_hash: &public_input_hash,
+                    context_hash: &context_hash,
+                    count: 1,
+                    owner_hashes: &owner_hashes,
+                    blindings: &blindings,
+                    ephemeral_sk: &encryption.ephemeral_sk,
+                    auditor_pk: &auditor_pk,
+                },
+            )?)?)
+        } else {
+            None
+        };
         let ix = Deposit {
             ring: self.ring,
             tree: self.tree,
             depositor: self.payer.pubkey(),
             deposits: vec![deposit],
+            proof,
             cosigner: self.cosigner.map(Signer::pubkey),
-            has_policy,
+            has_policy: config.has_policy,
         }
         .instruction()?;
         let mut signers = vec![self.payer];
@@ -1400,7 +1484,11 @@ impl RingDeposit<'_> {
             core::slice::from_ref(&ix),
             self.payer.pubkey(),
             &signers,
-            ComputeBudgetConfig::for_instruction_count(1),
+            if proof.is_some() {
+                ComputeBudgetConfig::new(crate::AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT)
+            } else {
+                ComputeBudgetConfig::for_instruction_count(1)
+            },
         )?;
         Ok(RingDepositReceipt {
             signature,

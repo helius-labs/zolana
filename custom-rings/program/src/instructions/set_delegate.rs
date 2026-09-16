@@ -32,6 +32,8 @@ pub fn process_set_delegate_ix(
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
 
+    // 1. Only the upgrade authority may install a delegate, separate from
+    // auditor key ownership.
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
@@ -42,10 +44,13 @@ pub fn process_set_delegate_ix(
         program_data,
     }
     .verify()?;
+    // 2. Refuse replacement, permanence holds for the instructions in the
+    // deployed binary.
     if load_delegate(program_id, delegate_account)?.is_some() {
         return Err(CustomRingError::DelegateAlreadySet.into());
     }
 
+    // 3. Store the Solana signer at the canonical delegate PDA.
     let bump = PdaCreate {
         program_id,
         payer,

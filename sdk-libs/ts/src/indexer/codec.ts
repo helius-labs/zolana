@@ -492,8 +492,11 @@ function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
       ? undefined
       : checkedPageLimit(record["limit"], "$.limit");
   const ringProgramId = optional(record["ringProgramId"], "$.ringProgramId", checkedAddress);
+  const tags = array(record["tags"], "$.tags", checkedHash);
+  if (tags.length === 0 && ringProgramId === undefined)
+    schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "$.tags", "nonempty tags or ringProgramId");
   return {
-    tags: array(record["tags"], "$.tags", checkedHash),
+    tags,
     ...(cursor === undefined ? {} : { cursor }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
     ...(ringProgramId === undefined ? {} : { ringProgramId }),

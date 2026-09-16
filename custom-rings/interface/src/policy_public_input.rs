@@ -5,6 +5,8 @@ use zolana_interface::tree_slot::tree_id_field;
 
 use crate::base_public_input::CustomRingBasePublicInput;
 
+/// Binds audited transaction openings to the pinned rules, list roots and
+/// amount controls.
 pub struct CustomRingPolicyPublicInput<'a> {
     pub audit: CustomRingBasePublicInput<'a>,
     pub policy_hash: &'a [u8; 32],
@@ -50,6 +52,8 @@ impl CustomRingPolicyPublicInput<'_> {
     }
 }
 
+/// Extends policy verification with the current and successor spend-history
+/// roots.
 pub struct CompressedPolicyPublicInput<'a> {
     pub policy: CustomRingPolicyPublicInput<'a>,
     /// The head-map root the transition reads, checked equal to the on-chain root.

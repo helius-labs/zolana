@@ -422,6 +422,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
     );
 
     let deposit = Deposit {
+        proof: None,
         ring: ring(),
         cosigner: None,
         tree: Address::new_from_array([13; 32]),
@@ -431,9 +432,9 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
     }
     .instruction()
     .expect("single SOL deposit");
-    // `[config, cosigner_pda, cosigner, window]` precede the forwarded list.
+    // Deposit controls precede the forwarded SPP accounts.
     assert_eq!(
-        deposit.accounts.get(6).expect("ring_config meta").pubkey,
+        deposit.accounts.get(7).expect("ring_config meta").pubkey,
         ring_auth
     );
 }
@@ -457,6 +458,7 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
     assert!(init_ring_auth.is_writable);
 
     let deposit = Deposit {
+        proof: None,
         ring: ring(),
         cosigner: None,
         tree: Address::new_from_array([13; 32]),
@@ -466,7 +468,7 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
     }
     .instruction()
     .expect("single SOL deposit");
-    let deposit_ring_config = deposit.accounts.get(2).expect("ring_config meta");
+    let deposit_ring_config = deposit.accounts.get(7).expect("ring_config meta");
     assert!(!deposit_ring_config.is_signer);
 }
 
@@ -477,6 +479,7 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
     let entry = sol_deposit_entry();
 
     let instruction = Deposit {
+        proof: None,
         ring: ring(),
         cosigner: None,
         tree,
@@ -500,6 +503,7 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
             AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
+            AccountMeta::new_readonly(ring().deposit_audit_pda(), false),
             AccountMeta::new(ring().spend_window_pda(&Address::default()), false),
             AccountMeta::new(tree, false),
             AccountMeta::new(depositor, true),
@@ -528,6 +532,65 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
     );
 }
 
+#[test]
+fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
+    let build = |proof, count| {
+        Deposit {
+            ring: ring(),
+            tree: input_tree(),
+            depositor: payer(),
+            deposits: vec![sol_deposit_entry(); count],
+            proof,
+            cosigner: None,
+            has_policy: true,
+        }
+        .instruction()
+    };
+    let legacy = build(None, 1).unwrap();
+    let audited = build(Some(sample_proof()), 1).unwrap();
+    assert_eq!(audited.data[0], tag::AUDITED_DEPOSIT);
+    assert_eq!(
+        &audited.data[1..1 + CustomRingProof::SIZE],
+        wincode::serialize(&sample_proof()).unwrap()
+    );
+    assert_eq!(&audited.data[1 + CustomRingProof::SIZE..], legacy.data);
+    assert_eq!(audited.accounts, legacy.accounts);
+    assert_eq!(
+        audited.accounts[3],
+        AccountMeta::new_readonly(ring().deposit_audit_pda(), false)
+    );
+    assert_eq!(
+        audited.accounts[4],
+        AccountMeta::new_readonly(ring().policy_config_pda(), false)
+    );
+    assert!(build(Some(sample_proof()), 8).is_ok());
+    assert!(build(Some(sample_proof()), 9).is_err());
+    assert!(build(None, 9).is_ok());
+}
+
+#[test]
+fn deposit_audit_setting_names_its_authority_and_canonical_pda() {
+    let instruction = custom_ring_sdk::SetDepositAudit {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        required: true,
+    }
+    .instruction()
+    .unwrap();
+    assert_eq!(instruction.data, vec![tag::SET_DEPOSIT_AUDIT, 1]);
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
+            AccountMeta::new(ring().deposit_audit_pda(), false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
+        ]
+    );
+}
+
 /// A mixed batch is where an `asset_index` could silently point at the wrong
 /// settlement account group, so the index-to-accounts pairing is pinned here too.
 #[test]
@@ -544,6 +607,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     spl_entry.amount = 42;
 
     let instruction = Deposit {
+        proof: None,
         ring: ring(),
         cosigner: None,
         tree: Address::new_from_array([13; 32]),
@@ -577,7 +641,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(3..5)
+            .get(4..6)
             .expect("window metas")
             .to_vec(),
         vec![
@@ -588,7 +652,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(9..)
+            .get(10..)
             .expect("settlement metas")
             .to_vec(),
         vec![
@@ -1352,6 +1416,7 @@ fn the_cosigner_slot_signs_only_when_set() {
         AccountMeta::new_readonly(cosigner, true)
     );
     let deposit = Deposit {
+        proof: None,
         ring: ring(),
         cosigner: Some(cosigner),
         tree: input_tree(),

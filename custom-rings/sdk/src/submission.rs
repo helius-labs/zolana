@@ -79,6 +79,13 @@ enum Outcome {
     Failed(TransactionError),
 }
 
+/// Distinguishes a successful absent lookup from an unresolved transaction
+/// outcome.
+enum StatusObservation {
+    Absent,
+    Outcome(Outcome),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum WindowState {
     Same,
@@ -195,29 +202,46 @@ impl<'a> RingTransferSubmission<'a> {
     }
 }
 
-/// An unknown status past the blockhash's last valid height is a dropped broadcast.
+/// An expiry failure requires a fresh absent lookup after the blockhash
+/// expires.
 fn outcome(rpc: &SolanaRpc, broadcast: Broadcast) -> Result<Outcome, SubmissionError> {
-    let status = rpc
+    if let StatusObservation::Outcome(outcome) = observe_status(rpc, broadcast.signature) {
+        return Ok(outcome);
+    }
+    if rpc.get_block_height()? <= broadcast.last_valid_block_height {
+        return Ok(Outcome::Unknown);
+    }
+    // 1. The transaction can land between the first lookup and the expiry
+    // observation.
+    Ok(match observe_status(rpc, broadcast.signature) {
+        StatusObservation::Absent => Outcome::Failed(TransactionError::BlockhashNotFound),
+        StatusObservation::Outcome(outcome) => outcome,
+    })
+}
+
+fn observe_status(rpc: &SolanaRpc, signature: Signature) -> StatusObservation {
+    // 1. A failed status lookup cannot release the pending transaction or its
+    // inputs.
+    let Ok(response) = rpc
         .client()
-        .get_signature_statuses_with_history(&[broadcast.signature])
-        .ok()
-        .and_then(|response| response.value.into_iter().next().flatten());
+        .get_signature_statuses_with_history(&[signature])
+    else {
+        return StatusObservation::Outcome(Outcome::Unknown);
+    };
+    let [status]: [_; 1] = match response.value.try_into() {
+        Ok(status) => status,
+        Err(_) => return StatusObservation::Outcome(Outcome::Unknown),
+    };
     let Some(status) = status else {
-        return Ok(
-            if rpc.get_block_height()? > broadcast.last_valid_block_height {
-                Outcome::Failed(TransactionError::BlockhashNotFound)
-            } else {
-                Outcome::Unknown
-            },
-        );
+        return StatusObservation::Absent;
     };
     if !matches!(
         status.confirmation_status,
         Some(TransactionConfirmationStatus::Confirmed | TransactionConfirmationStatus::Finalized)
     ) {
-        return Ok(Outcome::Unknown);
+        return StatusObservation::Outcome(Outcome::Unknown);
     }
-    Ok(match status.err {
+    StatusObservation::Outcome(match status.err {
         None => Outcome::Confirmed { slot: status.slot },
         Some(error) => Outcome::Failed(error),
     })
@@ -243,8 +267,15 @@ mod tests {
     use crate::{CustomRing, CustomRingTransferInput};
     use serde_json::{json, Value};
     use solana_address::Address;
-    use solana_rpc_client::rpc_client::RpcClient;
+    use solana_rpc_client::{
+        rpc_client::RpcClient,
+        rpc_sender::{RpcSender, RpcTransportStats},
+    };
     use solana_rpc_client_api::request::RpcRequest;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use zolana_keypair::{random_blinding, ShieldedKeypair};
     use zolana_transaction::{
         instructions::{transact::ConfidentialTransfer, types::SppProofInputUtxo},
@@ -331,6 +362,52 @@ mod tests {
             .unwrap()
     }
 
+    /// Enforces the lookup, expiry, then fresh lookup order for one pending
+    /// signature.
+    struct ExpiryObservation {
+        requests: Arc<AtomicUsize>,
+        statuses_after_expiry: Option<Value>,
+    }
+
+    impl ExpiryObservation {
+        fn into_rpc(self) -> SolanaRpc {
+            SolanaRpc::with_client(RpcClient::new_sender(self, Default::default()))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl RpcSender for ExpiryObservation {
+        async fn send(
+            &self,
+            request: RpcRequest,
+            _params: Value,
+        ) -> solana_rpc_client_api::client_error::Result<Value> {
+            match (self.requests.fetch_add(1, Ordering::Relaxed), request) {
+                (0, RpcRequest::GetSignatureStatuses) => {
+                    Ok(json!({"context": {"slot": 20}, "value": [null]}))
+                }
+                (1, RpcRequest::GetBlockHeight) => Ok(json!(21)),
+                (2, RpcRequest::GetSignatureStatuses) => match &self.statuses_after_expiry {
+                    Some(statuses) => Ok(json!({"context": {"slot": 21}, "value": statuses})),
+                    None => Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionReset,
+                        "post-expiry status connection reset",
+                    )
+                    .into()),
+                },
+                other => panic!("unexpected RPC sequence: {other:?}"),
+            }
+        }
+
+        fn get_transport_stats(&self) -> RpcTransportStats {
+            RpcTransportStats::default()
+        }
+
+        fn url(&self) -> String {
+            "mock-expiry-observation".to_owned()
+        }
+    }
+
     #[test]
     fn unknown_outcome_only_polls_the_original_signature() {
         let sender = ShieldedKeypair::new_ed25519().unwrap();
@@ -350,11 +427,137 @@ mod tests {
     }
 
     #[test]
+    fn a_status_transport_failure_preserves_the_pending_attempt_past_expiry() {
+        /// Rejects status lookups and records whether an unsafe expiry check
+        /// follows.
+        struct StatusFailure {
+            status_calls: Arc<AtomicUsize>,
+            height_calls: Arc<AtomicUsize>,
+            block_height: u64,
+        }
+
+        #[async_trait::async_trait]
+        impl RpcSender for StatusFailure {
+            async fn send(
+                &self,
+                request: RpcRequest,
+                _params: Value,
+            ) -> solana_rpc_client_api::client_error::Result<Value> {
+                match request {
+                    RpcRequest::GetSignatureStatuses => {
+                        self.status_calls.fetch_add(1, Ordering::Relaxed);
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::ConnectionReset,
+                            "status connection reset",
+                        )
+                        .into())
+                    }
+                    RpcRequest::GetBlockHeight => {
+                        self.height_calls.fetch_add(1, Ordering::Relaxed);
+                        Ok(json!(self.block_height))
+                    }
+                    other => panic!("unexpected RPC request: {other:?}"),
+                }
+            }
+
+            fn get_transport_stats(&self) -> RpcTransportStats {
+                RpcTransportStats::default()
+            }
+
+            fn url(&self) -> String {
+                "mock-status-failure".to_owned()
+            }
+        }
+
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        for attempts in [1, MAX_ATTEMPTS] {
+            for block_height in [10, 21] {
+                let mut submission = pending(&sender, attempts);
+                let transaction = submission.pending_transaction().unwrap().clone();
+                let status_calls = Arc::new(AtomicUsize::new(0));
+                let height_calls = Arc::new(AtomicUsize::new(0));
+                let failing = SolanaRpc::with_client(RpcClient::new_sender(
+                    StatusFailure {
+                        status_calls: status_calls.clone(),
+                        height_calls: height_calls.clone(),
+                        block_height,
+                    },
+                    Default::default(),
+                ));
+                for _ in 0..2 {
+                    assert_eq!(
+                        send(&mut submission, &failing, &sender),
+                        SubmissionStatus::Pending {
+                            signature: transaction.signatures[0]
+                        }
+                    );
+                    assert_eq!(submission.attempts(), attempts);
+                    assert_eq!(submission.pending_transaction(), Some(&transaction));
+                }
+                assert_eq!(status_calls.load(Ordering::Relaxed), 2);
+                assert_eq!(height_calls.load(Ordering::Relaxed), 0);
+                let confirmed = rpc(
+                    json!({"slot": 9, "confirmations": 1, "confirmationStatus": "confirmed", "err": null, "status": {"Ok": null}}),
+                    block_height,
+                );
+                assert_eq!(
+                    send(&mut submission, &confirmed, &sender),
+                    SubmissionStatus::Confirmed {
+                        signature: transaction.signatures[0],
+                        slot: 9,
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_status_counts_preserve_the_pending_attempt_past_expiry() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        for statuses in [
+            json!([]),
+            json!([null, null]),
+            json!([
+                {"slot": 9, "confirmations": 1, "confirmationStatus": "confirmed", "err": null, "status": {"Ok": null}},
+                null
+            ]),
+        ] {
+            let mut submission = pending(&sender, MAX_ATTEMPTS);
+            let transaction = submission.pending_transaction().unwrap().clone();
+            let rpc = SolanaRpc::with_client(RpcClient::new_mock_with_mocks(
+                "succeeds",
+                [
+                    (
+                        RpcRequest::GetSignatureStatuses,
+                        json!({"context": {"slot": 9}, "value": statuses}),
+                    ),
+                    (RpcRequest::GetBlockHeight, json!(21)),
+                ]
+                .into_iter()
+                .collect(),
+            ));
+            assert_eq!(
+                send(&mut submission, &rpc, &sender),
+                SubmissionStatus::Pending {
+                    signature: transaction.signatures[0],
+                }
+            );
+            assert_eq!(submission.attempts(), MAX_ATTEMPTS);
+            assert_eq!(submission.pending_transaction(), Some(&transaction));
+        }
+    }
+
+    #[test]
     fn an_expired_blockhash_fails_the_last_attempt() {
         let sender = ShieldedKeypair::new_ed25519().unwrap();
         let mut submission = pending(&sender, MAX_ATTEMPTS);
         let signature = submission.pending_transaction().unwrap().signatures[0];
-        let rpc = rpc(Value::Null, 21);
+        let requests = Arc::new(AtomicUsize::new(0));
+        let rpc = ExpiryObservation {
+            requests: requests.clone(),
+            statuses_after_expiry: Some(json!([null])),
+        }
+        .into_rpc();
         assert_eq!(
             send(&mut submission, &rpc, &sender),
             SubmissionStatus::Failed {
@@ -362,7 +565,107 @@ mod tests {
                 error: TransactionError::BlockhashNotFound
             }
         );
+        assert_eq!(requests.load(Ordering::Relaxed), 3);
         assert!(submission.pending_transaction().is_none());
+    }
+
+    #[test]
+    fn a_transaction_landing_during_the_expiry_check_confirms_the_original_signature() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let mut submission = pending(&sender, 1);
+        let signature = submission.pending_transaction().unwrap().signatures[0];
+        let requests = Arc::new(AtomicUsize::new(0));
+        let rpc = ExpiryObservation {
+            requests: requests.clone(),
+            statuses_after_expiry: Some(json!([
+                {"slot": 20, "confirmations": 1, "confirmationStatus": "confirmed", "err": null, "status": {"Ok": null}}
+            ])),
+        }
+        .into_rpc();
+        for _ in 0..2 {
+            assert_eq!(
+                send(&mut submission, &rpc, &sender),
+                SubmissionStatus::Confirmed {
+                    signature,
+                    slot: 20
+                }
+            );
+        }
+        assert_eq!(requests.load(Ordering::Relaxed), 3);
+        assert_eq!(submission.attempts(), 1);
+        assert!(submission.pending_transaction().is_none());
+    }
+
+    #[test]
+    fn a_failed_transaction_landing_during_the_expiry_check_keeps_its_actual_error() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let mut submission = pending(&sender, 1);
+        let signature = submission.pending_transaction().unwrap().signatures[0];
+        let requests = Arc::new(AtomicUsize::new(0));
+        let rpc = ExpiryObservation {
+            requests: requests.clone(),
+            statuses_after_expiry: Some(json!([failed(1, 8145)])),
+        }
+        .into_rpc();
+        assert_eq!(
+            send(&mut submission, &rpc, &sender),
+            SubmissionStatus::Failed {
+                signature,
+                error: TransactionError::InstructionError(1, InstructionError::Custom(8145)),
+            }
+        );
+        assert_eq!(requests.load(Ordering::Relaxed), 3);
+        assert_eq!(submission.attempts(), 1);
+        assert!(submission.pending_transaction().is_none());
+    }
+
+    #[test]
+    fn an_unresolved_post_expiry_lookup_preserves_the_original_attempt_until_confirmation() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        for statuses_after_expiry in [
+            None,
+            Some(json!([])),
+            Some(json!([null, null])),
+            Some(json!([
+                {"slot": 20, "confirmations": 1, "confirmationStatus": "confirmed", "err": null, "status": {"Ok": null}},
+                null
+            ])),
+            Some(json!([
+                {"slot": 20, "confirmations": 0, "confirmationStatus": "processed", "err": null, "status": {"Ok": null}}
+            ])),
+        ] {
+            for attempts in [1, MAX_ATTEMPTS] {
+                let mut submission = pending(&sender, attempts);
+                let transaction = submission.pending_transaction().unwrap().clone();
+                let signature = transaction.signatures[0];
+                let requests = Arc::new(AtomicUsize::new(0));
+                let uncertain = ExpiryObservation {
+                    requests: requests.clone(),
+                    statuses_after_expiry: statuses_after_expiry.clone(),
+                }
+                .into_rpc();
+                assert_eq!(
+                    send(&mut submission, &uncertain, &sender),
+                    SubmissionStatus::Pending { signature }
+                );
+                assert_eq!(requests.load(Ordering::Relaxed), 3);
+                assert_eq!(submission.attempts(), attempts);
+                assert_eq!(submission.pending_transaction(), Some(&transaction));
+                let confirmed = rpc(
+                    json!({"slot": 20, "confirmations": 1, "confirmationStatus": "confirmed", "err": null, "status": {"Ok": null}}),
+                    21,
+                );
+                assert_eq!(
+                    send(&mut submission, &confirmed, &sender),
+                    SubmissionStatus::Confirmed {
+                        signature,
+                        slot: 20
+                    }
+                );
+                assert_eq!(submission.attempts(), attempts);
+                assert!(submission.pending_transaction().is_none());
+            }
+        }
     }
 
     #[test]

@@ -99,7 +99,7 @@ export type ProverInputs = Readonly<{
   payload: TransferInputs;
 }>;
 
-/** A ring rail keeps every real UTXO in `ring`. */
+/** Selects member authorization or the ring authority statement. */
 export type TransferCircuit =
   | Readonly<{ kind: "confidential" }>
   | Readonly<{ kind: "ring"; ring: Address }>
@@ -208,12 +208,14 @@ export interface CustomRingSourceOwner {
   readonly ownerHash: Bytes32;
 }
 
+/** Sets outflow and approval bounds for one asset. */
 export interface CustomRingVelocityRow {
   readonly asset: Bytes32;
   readonly cap: bigint;
   readonly cosignAbove: bigint;
 }
 
+/** Opens the previous counters and salts their successor commitment. */
 export interface CustomRingSpendRecordProofInput {
   readonly version: bigint;
   readonly window: bigint;
@@ -224,6 +226,7 @@ export interface CustomRingSpendRecordProofInput {
   readonly nextSalt: Bytes32;
 }
 
+/** Binds outflow accounting to a ring and its current window. */
 export interface CustomRingVelocityProofInput {
   readonly windowSlots: bigint;
   readonly rows: readonly CustomRingVelocityRow[];
@@ -293,6 +296,18 @@ export interface CustomRingBaseProofRequest {
   readonly auditorPublicKey: Uint8Array;
 }
 
+/** Proves one batch of deposit openings encrypted to the ring auditor. */
+export interface CustomRingDepositProofRequest {
+  readonly publicInputHash: Bytes32;
+  readonly contextHash: Bytes32;
+  readonly count: number;
+  readonly ownerHashes: readonly Bytes32[];
+  readonly blindings: readonly Bytes32[];
+  readonly ephemeralSecret: Bytes32;
+  readonly auditorPublicKey: Uint8Array;
+}
+
+/** Proves policy satisfaction with the member's compressed head update. */
 export interface CustomRingCompressedPolicyProofRequest {
   readonly policy: CustomRingPolicyProofRequest;
   readonly headOldRoot: Bytes32;
@@ -316,11 +331,13 @@ export interface CustomRingHeadInsertion {
   readonly newProof: readonly Bytes32[];
 }
 
+/** Adds the initial spend record to the member head map. */
 export interface CustomRingRegisterProofRequest extends CustomRingHeadInsertion {
   readonly publicInputHash: Bytes32;
   readonly genesis: Bytes32;
 }
 
+/** Proves disclosure of a member nullifier key to the auditor. */
 export interface CustomRingRegisterKeyProofRequest extends CustomRingHeadInsertion {
   readonly publicInputHash: Bytes32;
   readonly nullifierSecret: Bytes32;

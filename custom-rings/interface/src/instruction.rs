@@ -8,10 +8,7 @@ pub mod tag {
     pub const CREATE_CONFIG: u8 = 1;
     pub const INIT_SPP_RING_CONFIG: u8 = 2;
     pub const TRANSACT: u8 = 3;
-    /// Ring deposits carry no proof and are forwarded to SPP byte for byte, so
-    /// the dispatcher matches SPP's own deposit tag instead of a program-local
-    /// one: the client builds the SPP-shaped instruction and only re-targets the
-    /// program id.
+    /// Rejected when verified deposit disclosure is required.
     pub const DEPOSIT: u8 = zolana_interface::instruction::tag::RING_DEPOSIT;
     /// SPP ring merge wire tag.
     pub const MERGE: u8 = zolana_interface::instruction::tag::RING_MERGE_TRANSACT;
@@ -36,6 +33,8 @@ pub mod tag {
     pub const CREATE_HEAD_MAP_ROOT: u8 = 27;
     pub const CREATE_KEY_REGISTRY_ROOT: u8 = 29;
     pub const REGISTER_KEY: u8 = 30;
+    pub const SET_DEPOSIT_AUDIT: u8 = 31;
+    pub const AUDITED_DEPOSIT: u8 = 32;
 }
 
 /// Account slot indices the processors and the indexer agree on.
@@ -61,6 +60,14 @@ pub const SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_DELEGATE_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+
+/// Config-authority change to the direct-deposit disclosure requirement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct SetDepositAuditIxData {
+    pub required: u8,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
@@ -81,12 +88,14 @@ pub struct SetPausedIxData {
     pub paused: u8,
 }
 
+/// Public withdrawal total per mint that requires approval when exceeded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct WithdrawalThreshold {
     pub mint: [u8; 32],
     pub amount: u64,
 }
 
+/// Requires co-signing for the selected public operations.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetCoSignerIxData {
     pub signer: [u8; 32],
@@ -96,6 +105,7 @@ pub struct SetCoSignerIxData {
     pub thresholds: Vec<WithdrawalThreshold>,
 }
 
+/// Public deposit and withdrawal caps for one mint over fixed slot windows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetSpendWindowIxData {
     pub mint: [u8; 32],
@@ -114,6 +124,11 @@ pub struct CustomRingProof {
     pub commitment_pok: [u8; 32],
 }
 
+impl CustomRingProof {
+    pub const SIZE: usize = 192;
+}
+
+/// Compressed Groth16 points without the audited circuits' BSB22 commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct PlainGroth16Proof {
     pub proof_a: [u8; 32],
@@ -121,6 +136,7 @@ pub struct PlainGroth16Proof {
     pub proof_c: [u8; 32],
 }
 
+/// Exact current root and proven successor for a windowed spend-record update.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct HeadMapTransition {
     pub old_root: [u8; 32],
@@ -158,6 +174,7 @@ pub struct SourceSpec {
     pub source: u8,
 }
 
+/// Private outflow cap and per-transfer approval threshold for one asset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct VelocityRowIxData {
     pub asset: [u8; 32],
@@ -185,6 +202,7 @@ impl From<&VelocityRow> for VelocityRowIxData {
     }
 }
 
+/// Policy parameters must reproduce the configured policy hash.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct PolicyTableIxData {
     #[wincode(with = "containers::Vec<SourceSpec, FixIntLen<u8>>")]
@@ -202,6 +220,7 @@ pub struct PolicyTableIxData {
 
 pub const REGISTER_SPEND_COMPUTE_UNIT_LIMIT: u32 = ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
+/// Atomic SPP genesis record creation and compressed head-map insertion proofs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RegisterSpendIxData {
     /// The SPP output blinding, the proof fails unless it is the derived one.
@@ -219,6 +238,8 @@ pub struct RegisterSpendIxData {
 /// One BSB22 verify over the audited encryption of a member's nullifier key.
 pub const REGISTER_KEY_COMPUTE_UNIT_LIMIT: u32 = ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
+/// Proven enrollment of a member's auditor-encrypted nullifier key in the
+/// registry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RegisterKeyIxData {
     pub proof: CustomRingProof,

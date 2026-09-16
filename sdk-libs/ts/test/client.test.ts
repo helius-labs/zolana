@@ -601,6 +601,32 @@ describe("ZolanaClient", () => {
     });
   });
 
+  it("preserves a ring filter for empty-tag scans and refuses an unscoped scan", async () => {
+    const requests: unknown[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        id: "test-account",
+        jsonrpc: "2.0",
+        result: { context: { blockTime: 1, slot: 1 }, transactions: [], scannedThrough: "BA==" },
+      });
+    });
+    const instance = client(fetch);
+    await instance.getShieldedTransactionsByTags({
+      tags: [],
+      ringProgramId: TREE,
+      limit: 3,
+      cursor: Uint8Array.of(1),
+    });
+    expect(requests).toEqual([
+      expect.objectContaining({
+        params: { tags: [], ringProgramId: TREE, limit: 3, cursor: "AQ==" },
+      }),
+    ]);
+    await expect(instance.getShieldedTransactionsByTags({ tags: [] })).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("proves caller-assembled transfer inputs on the transfer circuit", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
       async () =>

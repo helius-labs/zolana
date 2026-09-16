@@ -3,6 +3,9 @@ export {
   MAX_INPUT_TREES,
   ShieldedPoolError,
   decodeShieldedPoolError,
+  RING_DEPOSIT_AUDIT_SLOTS,
+  encodeRingDepositCapsule,
+  readRingDepositCapsule,
 } from "@heliuslabs/zolana/interface";
 export type {
   AuthorizedPrivateTransaction,
@@ -27,6 +30,7 @@ export type {
   CustomRingHeadInsertion,
   CustomRingRegisterProofRequest,
   CustomRingRegisterKeyProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingVelocityProofInput,
   CustomRingSpendRecordProofInput,
 } from "@heliuslabs/zolana/client";
@@ -75,9 +79,22 @@ export {
   createRingDelegateRecoveredSubmission,
   registerRingKeyInstruction,
   spendRecordMessageTag,
+  buildRingDepositTransaction,
+  initializeRingConfigInstructions,
+  setRingDepositAuditInstruction,
+  fetchRingDepositAudit,
+  decodeRingDepositAudit,
+  ringDepositAuditAddress,
+  sealRingDepositOpenings,
+  openRingDepositOpening,
+  ringDepositContextHash,
+  ringDepositPublicInputHash,
 } from "@heliuslabs/zolana/ring";
 export type {
   RingDelegateTransferClient,
+  RingDepositClient,
+  RingDepositAudit,
+  RingDepositOpening,
   RingDelegateTransferParams,
   RingSpendRegistrationClient,
   RingSpendRegistrationParams,

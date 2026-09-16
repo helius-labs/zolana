@@ -43,6 +43,8 @@ pub struct RingConfig {
     /// Applied by `cosigner set` without flags.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cosigner: Option<CoSignerSpec>,
+    #[serde(default)]
+    pub deposit_audit: bool,
     pub localnet: Urls,
     pub devnet: Urls,
 }
@@ -330,6 +332,12 @@ impl RingConfig {
         )?)?)
     }
 
+    pub fn set_deposit_audit(path: &Path, required: bool) -> Result<(), ConfigError> {
+        let mut document: DocumentMut = file::read(path)?.parse()?;
+        document.insert("deposit_audit", toml_edit::value(required));
+        Ok(file::write(path, document.to_string())?)
+    }
+
     pub fn upgrade_authority(&self) -> Result<Keypair, ConfigError> {
         Ok(file::read_keypair(&expand_tilde(
             self.upgrade_authority_keypair(),
@@ -508,6 +516,16 @@ ring_rpc = "http://127.0.0.1:8785"
             toml::from_str::<RingConfig>(&written).expect("reparse"),
             config
         );
+    }
+
+    #[test]
+    fn deposit_audit_defaults_off_and_is_visible_in_the_initial_configuration() {
+        let config: RingConfig = toml::from_str(EXAMPLE).unwrap();
+        assert!(!config.deposit_audit);
+        assert!(config.render().unwrap().contains("deposit_audit = false"));
+        let enabled = format!("deposit_audit = true\n{EXAMPLE}");
+        let config: RingConfig = toml::from_str(&enabled).unwrap();
+        assert!(config.deposit_audit);
     }
 
     #[test]

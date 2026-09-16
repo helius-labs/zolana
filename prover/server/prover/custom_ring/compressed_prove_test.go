@@ -155,6 +155,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 	ownerPk, nullifierPk := big.NewInt(0xf1), spptest.MustNullifierPk(t, zero)
 	p.NamespaceOwnerHash = spptest.MustOwnerHash(t, ownerPk, nullifierPk)
 	p.NIn, p.NOut, p.WindowSlots, p.WindowIndex, p.VelocityCount = 2, 2, 100, 7, 1
+	p.AddressChain = spptest.MustHashChain4(t, spptest.RepeatBigInt(zero, int(p.NIn)))
 	p.Velocity[0] = VelocityRow{Asset: p.Inputs[0].Asset, Cap: big.NewInt(5000), CosignAbove: big.NewInt(2000)}
 	p.Record.Window = p.WindowIndex
 	p.Record.NextSalt = big.NewInt(99)

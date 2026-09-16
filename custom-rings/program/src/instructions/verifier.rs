@@ -54,6 +54,7 @@ pub(crate) fn verify_plain_groth16(
     Ok(())
 }
 
+/// Curve points must decompress before pairing verification.
 struct Groth16Points {
     a: [u8; 64],
     b: [u8; 128],

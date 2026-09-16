@@ -40,11 +40,14 @@ pub fn process_set_spend_window_ix(
     let window_account = iter.next_mut("window")?;
     let system_program = iter.next_account("system_program")?;
 
+    // 1. Authorize the config signer before changing public settlement limits.
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
     load_authorized_config(program_id, config_account, authority)?;
 
+    // 2. Create or replace the mint's canonical window with counters reset to
+    // the current period.
     let mint = Address::new_from_array(mint);
     let window_start_slot = window.start(Clock::get()?.slot);
     let params = |bump| SpendWindowInitParams {

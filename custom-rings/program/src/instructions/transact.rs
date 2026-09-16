@@ -47,7 +47,7 @@ pub fn process_transact_ix(
     let config_account = iter.next_account("config")?;
     let cosigner_account = iter.next_account("cosigner_pda")?;
     let cosigner = iter.next_account("cosigner")?;
-    Rail::Member.verify_and_forward(
+    TransactRail::Member.verify_and_forward(
         TransactControls {
             program_id,
             config_account,
@@ -59,13 +59,16 @@ pub fn process_transact_ix(
     )
 }
 
+/// Selects member ownership authorization or the configured delegate's
+/// signature.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Rail {
+pub(crate) enum TransactRail {
     Member,
     /// Owner signatures are replaced by the delegate's, value never leaves.
     Delegate,
 }
 
+/// Ring-owned control accounts shared by member and delegate settlement.
 pub(crate) struct TransactControls<'a> {
     pub program_id: &'a Address,
     pub config_account: &'a AccountView,
@@ -73,7 +76,7 @@ pub(crate) struct TransactControls<'a> {
     pub cosigner: &'a AccountView,
 }
 
-impl Rail {
+impl TransactRail {
     fn accepts(self, circuit: CircuitId) -> bool {
         match self {
             Self::Member => matches!(circuit, CircuitId::RingEddsa(..)),
@@ -101,6 +104,8 @@ impl Rail {
             cosigner_account,
             cosigner,
         } = controls;
+        // 1. Decode the statement and reject public settlement on the delegate
+        // rail.
         let decoded = decode_transact(data)?;
         let CustomRingTransactIxData {
             proof,
@@ -115,10 +120,12 @@ impl Rail {
             1 => true,
             _ => return Err(CustomRingError::InvalidInstructionData.into()),
         };
-        if self == Rail::Delegate && !transact.interface_transfers.is_empty() {
+        if self == TransactRail::Delegate && !transact.interface_transfers.is_empty() {
             return Err(CustomRingError::DelegatePublicLeg.into());
         }
 
+        // 2. Select the verifier from ring state and pin windowed history to
+        // the current head.
         let (auditor_pubkey, has_policy) = {
             let config = load_config(program_id, config_account)?;
             (config.auditor_pubkey, config.has_policy)
@@ -131,7 +138,7 @@ impl Rail {
         } else {
             None
         };
-        let amount_controls_active = self == Rail::Member
+        let amount_controls_active = self == TransactRail::Member
             && policy
                 .as_ref()
                 .is_some_and(|(binding, _)| !matches!(binding.velocity, VelocityMode::Off));
@@ -142,9 +149,9 @@ impl Rail {
             return Err(CustomRingError::InvalidInstructionData.into());
         }
         let statement = match (self, head_transition) {
-            (Rail::Delegate, None) => PolicyStatement::Delegate,
-            (Rail::Member, None) if !windowed_policy => PolicyStatement::Member,
-            (Rail::Member, Some(transition)) if windowed_policy => {
+            (TransactRail::Delegate, None) => PolicyStatement::Delegate,
+            (TransactRail::Member, None) if !windowed_policy => PolicyStatement::Member,
+            (TransactRail::Member, Some(transition)) if windowed_policy => {
                 let account = rest.next_mut("head_map_root")?;
                 let root = load_append_root_mut::<HeadMapRoot>(program_id, account)?;
                 if root.root != transition.old_root {
@@ -158,6 +165,8 @@ impl Rail {
             _ => return Err(CustomRingError::InvalidInstructionData.into()),
         };
 
+        // 3. Enforce approval and public mint caps against the actual
+        // settlement legs.
         let rest = rest.remaining_mut()?;
         let leg_count = transact.interface_transfers.len();
         if rest.len() < leg_count {
@@ -197,6 +206,8 @@ impl Rail {
         }
         demand.legs.apply_windows(program_id, windows)?;
 
+        // 4. Bind auditor disclosure to the selected SPP statement and its
+        // unique audit message.
         if !self.accepts(transact.circuit) {
             return Err(CustomRingError::UnsupportedCircuit.into());
         }
@@ -222,6 +233,8 @@ impl Rail {
             ciphertext: message.ciphertext,
         };
 
+        // 5. Verify policy and record commitments before granting namespace
+        // spend authorization.
         let signers = match policy {
             Some((binding, entries_tree_account)) => {
                 let signers = match &statement {
@@ -258,11 +271,13 @@ impl Rail {
                     }
                 };
                 let window_index = match (self, binding.velocity) {
-                    (Rail::Member, VelocityMode::PerWindow { window_slots }) => FixedWindow {
-                        slots: NonZeroU64::new(window_slots)
-                            .ok_or(CustomRingError::InvalidPolicyRules)?,
+                    (TransactRail::Member, VelocityMode::PerWindow { window_slots }) => {
+                        FixedWindow {
+                            slots: NonZeroU64::new(window_slots)
+                                .ok_or(CustomRingError::InvalidPolicyRules)?,
+                        }
+                        .index(Clock::get()?.slot)
                     }
-                    .index(Clock::get()?.slot),
                     _ => 0,
                 };
                 let ring_id = ring_id_field(program_id.as_array())
@@ -298,7 +313,8 @@ impl Rail {
             }
         };
 
-        // Reserialize the decoded statement to keep verification and settlement on identical bytes.
+        // 6. Settle the verified bytes through SPP, any failure rolls back
+        // counters and head updates.
         let transact_bytes = transact
             .serialize()
             .map_err(|_| CustomRingError::InvalidInstructionData)?;
@@ -309,6 +325,8 @@ impl Rail {
     }
 }
 
+/// Proof variants separating member limits, compressed history and delegate
+/// exemptions.
 enum PolicyStatement<'a> {
     Member,
     Windowed {

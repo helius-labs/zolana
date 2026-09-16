@@ -23,11 +23,14 @@ pub fn process_create_indexed_root_ix<T: AppendRoot>(
     let root_account = iter.next_mut("indexed_root")?;
     let system_program = iter.next_account("system_program")?;
 
+    // 1. Require the config authority before initializing shared compressed
+    // state.
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
     load_authorized_config(program_id, config_account, authority)?;
 
+    // 2. Initialize the canonical root once, never reset an existing registry.
     let bump = PdaCreate {
         program_id,
         payer,

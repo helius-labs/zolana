@@ -122,6 +122,14 @@ export function ringConfigAddress(ringProgramId: Address): Promise<Address> {
   return ringAddress(ringConfigPda(ringProgramId));
 }
 
+export function ringDepositAuditPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return ringPda(ringProgramId, encoder.encode("deposit_audit"));
+}
+
+export function ringDepositAuditAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringDepositAuditPda(ringProgramId));
+}
+
 /** Mirrors Rust `CustomRing::policy_config_pda`. */
 export function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
   return ringPda(ringProgramId, encoder.encode("policy"));

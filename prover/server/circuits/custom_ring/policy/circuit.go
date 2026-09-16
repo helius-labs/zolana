@@ -122,6 +122,7 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 	// 5. Require every applicable rule to pass.
 	c.constrainRules(api, txContext, listFacts, checked.ruleEnabled, checked.inlineEnabled)
 
+	// 6. Delegate moves retain list rules but bypass member outflow limits.
 	if rail == delegateRail {
 		api.AssertIsEqual(c.WindowIndex, 0)
 		api.AssertIsEqual(c.ApprovalRequired, 0)
@@ -129,6 +130,7 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 		c.constrainVelocity(api, rangeChecker, checked.velocity, txContext)
 	}
 
+	// 7. Bind the program context and approval decision to the same proof.
 	chain := append(elements[:],
 		checked.hash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,

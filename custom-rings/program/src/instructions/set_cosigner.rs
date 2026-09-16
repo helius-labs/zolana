@@ -20,6 +20,7 @@ pub fn process_set_cosigner_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
+    // 1. Validate the signer, supported scope and unique per-mint thresholds.
     let SetCoSignerIxData {
         signer,
         scope,
@@ -53,11 +54,15 @@ pub fn process_set_cosigner_ix(
     let cosigner_account = iter.next_mut("cosigner")?;
     let system_program = iter.next_account("system_program")?;
 
+    // 2. Only the current config authority may create or replace the
+    // requirement.
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
     load_authorized_config(program_id, config_account, authority)?;
 
+    // 3. Replace in place or initialize the canonical PDA without changing the
+    // ring config.
     let params = |bump| CoSignerInitParams {
         signer: Address::new_from_array(signer),
         scope: scope.bits(),

@@ -81,6 +81,9 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	registerKey, err := customring.R1CSKeyRegister()
 	add("custom_ring_register_key", registerKey, err)
 
+	deposit, err := customring.R1CSDeposit()
+	add("custom_ring_deposit", deposit, err)
+
 	merged, err := mergeprover.R1CSMerge(8)
 	add("merge_8_1", merged, err)
 
@@ -101,10 +104,11 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_ring_2_3":               {constraints: 55017, public: 2},
 	"transfer_ring_authority_2_2":     {constraints: 52036, public: 2},
 	"transfer_p256_ring_2_3":          {constraints: 199973, public: 2},
-	"custom_ring_policy":              {constraints: 504305, public: 2},
-	"custom_ring_compressed_policy":   {constraints: 527294, public: 2},
+	"custom_ring_policy":              {constraints: 504315, public: 2},
+	"custom_ring_compressed_policy":   {constraints: 527304, public: 2},
 	"custom_ring_compressed_register": {constraints: 43106, public: 2},
 	"custom_ring_register_key":        {constraints: 240449, public: 2},
+	"custom_ring_deposit":             {constraints: 896319, public: 2},
 	"custom_ring_delegate_policy":     {constraints: 491960, public: 2},
 	"custom_ring_base":                {constraints: 213042, public: 2},
 	"merge_8_1":                       {constraints: 177739, public: 2},

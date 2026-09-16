@@ -44,6 +44,9 @@ const (
 
 	// Key registration inserts a member's auditor-encrypted nullifier key at the cursor.
 	CustomRingKeyRegisterCircuitType CircuitType = "custom-ring-register-key"
+
+	// Deposit openings must be encrypted for the configured auditor.
+	CustomRingDepositCircuitType CircuitType = "custom-ring-deposit"
 )
 
 const CustomRingPolicyKeyFile = "custom_ring_policy.key"
@@ -56,6 +59,7 @@ const CustomRingCompressedPolicyKeyFile = "custom_ring_compressed_policy.key"
 const CustomRingCompressedRegisterKeyFile = "custom_ring_compressed_register.key"
 
 const CustomRingKeyRegisterKeyFile = "custom_ring_register_key.key"
+const CustomRingDepositKeyFile = "custom_ring_deposit.key"
 
 var RingKeyFiles = map[CircuitType]string{
 	CustomRingPolicyCircuitType:             CustomRingPolicyKeyFile,
@@ -64,6 +68,7 @@ var RingKeyFiles = map[CircuitType]string{
 	CustomRingCompressedPolicyCircuitType:   CustomRingCompressedPolicyKeyFile,
 	CustomRingCompressedRegisterCircuitType: CustomRingCompressedRegisterKeyFile,
 	CustomRingKeyRegisterCircuitType:        CustomRingKeyRegisterKeyFile,
+	CustomRingDepositCircuitType:            CustomRingDepositKeyFile,
 }
 
 func (c CircuitType) IsRing() bool {

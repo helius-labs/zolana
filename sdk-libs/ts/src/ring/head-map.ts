@@ -18,18 +18,21 @@ export const HEAD_MAP_EMPTY_ROOT = Uint8Array.from([
 
 const EMPTY_LEAF = new Uint8Array(32) as Bytes32;
 
+/** Commits one member's current record nullifier and ordered successor. */
 export interface HeadMapLeaf {
   readonly member: Bytes32;
   readonly next: Bytes32;
   readonly nullifier: Bytes32;
 }
 
+/** Authenticates a leaf at its indexed tree position. */
 export interface HeadMapPath {
   readonly leaf: Bytes32;
   readonly index: bigint;
   readonly proof: readonly Bytes32[];
 }
 
+/** Proves member absence and insertion after its ordered predecessor. */
 export interface HeadMapInsertProofInput {
   readonly root: Bytes32;
   readonly appendIndex: bigint;
@@ -43,6 +46,7 @@ export interface HeadMapInsertProofInput {
   readonly newProof: readonly Bytes32[];
 }
 
+/** Replaces one authenticated member head without changing the member order. */
 export interface HeadMapTransferProofInput {
   readonly root: Bytes32;
   readonly member: Bytes32;
