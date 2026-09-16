@@ -5,6 +5,7 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+use std::time::Instant;
 use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
 use zolana_interface::{error::ShieldedPoolError, instruction::MergeTransact};
 use zolana_keypair::random_blinding;
@@ -34,6 +35,12 @@ use crate::{
 pub(crate) struct MergeRecord {
     pub(crate) actor: String,
     pub(crate) output_hash: [u8; 32],
+}
+
+#[derive(Default)]
+pub(crate) struct MergeTiming {
+    pub(crate) membership_fetch_ms: u128,
+    pub(crate) nullifier_fetch_ms: u128,
 }
 
 impl LifecycleHarness {
@@ -106,6 +113,20 @@ impl LifecycleHarness {
         inputs: &[Utxo],
         cache: Option<([u8; 32], u8)>,
     ) -> Result<(zolana_client::MergeProofResult, SppProofOutputUtxo)> {
+        self.prepare_merge_timed(name, asset, inputs, cache)
+            .map(|(result, _)| result)
+    }
+
+    pub(crate) fn prepare_merge_timed(
+        &self,
+        name: &str,
+        asset: Address,
+        inputs: &[Utxo],
+        cache: Option<([u8; 32], u8)>,
+    ) -> Result<(
+        (zolana_client::MergeProofResult, SppProofOutputUtxo),
+        MergeTiming,
+    )> {
         let keypair = self.actor(name).keypair.clone();
         let tree_id = self.tree_id;
         let count = inputs.len();
@@ -145,9 +166,13 @@ impl LifecycleHarness {
             )?);
         }
 
+        let fetch_start = Instant::now();
         let state_proofs = wait_for_merkle_proofs(&self.indexer, self.tree_address, &utxo_hashes);
+        let membership_fetch_ms = fetch_start.elapsed().as_millis();
+        let fetch_start = Instant::now();
         let nullifier_proofs =
             wait_for_non_inclusion_proofs(&self.indexer, self.tree_address, &nullifiers);
+        let nullifier_fetch_ms = fetch_start.elapsed().as_millis();
 
         let owner = keypair.signing_pubkey();
         let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(input_count);
@@ -215,7 +240,13 @@ impl LifecycleHarness {
             Some((address, slot)) => prover.build_cached(&address, slot)?,
             None => prover.build()?,
         };
-        Ok((result, output))
+        Ok((
+            (result, output),
+            MergeTiming {
+                membership_fetch_ms,
+                nullifier_fetch_ms,
+            },
+        ))
     }
 
     fn merge_inner(

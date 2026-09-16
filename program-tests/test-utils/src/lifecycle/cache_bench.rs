@@ -1,10 +1,15 @@
 use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant},
 };
 
 use anyhow::{anyhow, ensure, Result};
 use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_client::{
     prover::transact::witness::assemble_cached_with_dummy_proofs, ComputeBudgetConfig,
@@ -14,7 +19,7 @@ use zolana_client::{
 use zolana_interface::{
     instruction::{tag, CreateCacheData, MergeTransact, Transact},
     shape::Shape,
-    state::cache::CACHE_SEED,
+    state::cache::{CacheAccount, CACHE_OWNER_REGISTRY, CACHE_SEED},
     PROGRAM_ID_PUBKEY,
 };
 use zolana_keypair::random_blinding;
@@ -26,6 +31,7 @@ use super::{transfer::decode_output_blinding, LifecycleHarness};
 use crate::{
     benchmark::{deposit_notes, BenchmarkConfig, NOTE_AMOUNT},
     localnet::{pack_merge_proof, ZERO},
+    nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::{
         assert_transaction_compute_units, wait_for_indexed_transaction, wait_for_merkle_proofs,
         wait_for_non_inclusion_proofs,
@@ -70,6 +76,7 @@ impl LifecycleHarness {
             .collect::<Vec<_>>();
         self.actor_mut("cached-sender").spendable = source.clone();
         let setup_ms = setup.elapsed().as_millis();
+        let witness_start = Instant::now();
         let merge_key = self.merge_key.insecure_clone();
         let budget = ComputeBudgetConfig::new(1_400_000).with_heap_size(256 * 1024);
         let operation_id = random_blinding();
@@ -77,8 +84,6 @@ impl LifecycleHarness {
             &[CACHE_SEED, owner.pubkey().as_ref(), &operation_id],
             &PROGRAM_ID_PUBKEY,
         );
-        let witness_start = Instant::now();
-        let mut signatures = Vec::new();
         let mut data = vec![tag::CREATE_CACHE];
         data.extend(wincode::serialize(&CreateCacheData {
             owner_kind: 0,
@@ -96,17 +101,20 @@ impl LifecycleHarness {
             ],
             data,
         };
-        let mut instructions = vec![create];
 
         let mut batches = Vec::new();
         let mut merged_notes = Vec::new();
+        let mut membership_fetch_ms = 0;
+        let mut nullifier_fetch_ms = 0;
         for (slot, chunk) in source.chunks(36).enumerate() {
-            let (proof, output) = self.prepare_merge(
+            let ((proof, output), timing) = self.prepare_merge_timed(
                 "cached-sender",
                 SOL_MINT,
                 chunk,
                 Some((cache.to_bytes(), slot as u8)),
             )?;
+            membership_fetch_ms += timing.membership_fetch_ms;
+            nullifier_fetch_ms += timing.nullifier_fetch_ms;
             merged_notes.push(Utxo {
                 owner: sender.signing_pubkey(),
                 asset: SOL_MINT,
@@ -139,14 +147,20 @@ impl LifecycleHarness {
         let dummy_nullifiers = prepared.dummy_nullifiers()?;
         let mut nullifiers: Vec<_> = commitments.iter().map(|input| input.nullifier).collect();
         nullifiers.extend_from_slice(&dummy_nullifiers);
+        let fetch_start = Instant::now();
         let mut nips = wait_for_non_inclusion_proofs(&self.indexer, self.tree_address, &nullifiers);
+        nullifier_fetch_ms += fetch_start.elapsed().as_millis();
         let dummy_nips = nips.split_off(commitments.len());
         let state_root = if dummy_nips.is_empty() {
             None
         } else {
             let first =
                 source[0].hash(&sender.nullifier_key.pubkey()?, &ZERO, &ZERO, self.tree_id)?;
-            Some(wait_for_merkle_proofs(&self.indexer, self.tree_address, &[first]).remove(0))
+            let fetch_start = Instant::now();
+            let proof =
+                wait_for_merkle_proofs(&self.indexer, self.tree_address, &[first]).remove(0);
+            membership_fetch_ms += fetch_start.elapsed().as_millis();
+            Some(proof)
         };
         let spends: Vec<_> = commitments
             .iter()
@@ -166,143 +180,126 @@ impl LifecycleHarness {
             .collect();
         let assembled = assemble_cached_with_dummy_proofs(prepared, &spends, &dummy_nips)?;
         let witness_ms = witness_start.elapsed().as_millis();
-        let start = Instant::now();
         let proving = Instant::now();
-        let jobs = (0..=batches.len()).collect::<Vec<_>>();
-        let mut proofs = Vec::with_capacity(jobs.len());
-        for group in jobs.chunks(config.concurrency) {
-            let results = thread::scope(|scope| -> Result<Vec<_>> {
-                let handles = group
-                    .iter()
-                    .map(|&index| {
-                        let batches = &batches;
-                        let assembled = &assembled;
-                        scope.spawn(move || {
-                            let prover = ProverClient::local();
-                            if let Some(batch) = batches.get(index) {
-                                prover.prove_merge(&batch.inputs)
-                            } else {
-                                let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
-                                prover.prove_cached_transfer(
-                                    inputs,
-                                    assembled.cached_inputs.as_ref().unwrap(),
-                                )
-                            }
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                handles
-                    .into_iter()
-                    .map(|job| {
-                        Ok(job
-                            .join()
-                            .map_err(|_| anyhow!("cached proof worker panicked"))??)
-                    })
-                    .collect()
-            })?;
-            proofs.extend(results);
-        }
-        let transfer_proof = proofs.pop().unwrap();
-        let merge_proofs = proofs;
-        let prove_ms = proving.elapsed().as_millis();
-        let sending = Instant::now();
-        for (batch, proof) in batches.iter().zip(merge_proofs) {
-            let mut merge = MergeTransact {
-                input_tree: self.tree,
-                output_tree: self.tree,
-                payer: self.merge_vault,
-                user_record: user_record_pda(&owner.pubkey()).0,
-                data: batch.instruction_data(pack_merge_proof(&proof)?),
+        let overlap = std::env::var("E2E_BENCH_OVERLAP").as_deref() != Ok("0");
+        let packed = std::env::var("E2E_BENCH_PACKED").as_deref() != Ok("0");
+        let poll_ms = std::env::var("E2E_BENCH_POLL_MS")
+            .ok()
+            .map(|value| value.parse::<u64>())
+            .transpose()?;
+        ensure!(
+            poll_ms != Some(0),
+            "confirmation poll interval must be positive"
+        );
+        let mut submitter = CacheSubmitter {
+            rpc: &self.rpc,
+            owner: &owner,
+            merge_key: &merge_key,
+            budget,
+            poll_ms,
+            packed,
+            pending: vec![create],
+            signatures: Vec::new(),
+            send_ms: 0,
+        };
+        let mut deferred = Vec::new();
+        let mut prove_ms = 0;
+        let mut transfer_proof = None;
+        let next = AtomicUsize::new(0);
+        thread::scope(|scope| -> Result<()> {
+            let (sender, receiver) = mpsc::channel();
+            let mut workers = Vec::new();
+            for _ in 0..config.concurrency.min(batches.len() + 1) {
+                let sender = sender.clone();
+                let batches = &batches;
+                let assembled = &assembled;
+                let next = &next;
+                workers.push(scope.spawn(move || loop {
+                    let job = next.fetch_add(1, Ordering::Relaxed);
+                    if job > batches.len() {
+                        break;
+                    }
+                    let index = if job == 0 { batches.len() } else { job - 1 };
+                    let prover = ProverClient::local();
+                    let result = if let Some(batch) = batches.get(index) {
+                        prover.prove_merge(&batch.inputs)
+                    } else {
+                        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+                        prover.prove_cached_transfer(
+                            inputs,
+                            assembled.cached_inputs.as_ref().unwrap(),
+                        )
+                    };
+                    if sender
+                        .send((index, result, proving.elapsed().as_millis()))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }));
             }
-            .instruction();
-            merge.accounts.push(AccountMeta::new(cache, false));
-            let wrapped = execute_sync_ix(&self.merge_settings, 0, &[merge_key.pubkey()], &[merge]);
-            instructions.push(wrapped);
-        }
+            drop(sender);
+            for _ in 0..=batches.len() {
+                let (index, proof, elapsed) = receiver
+                    .recv()
+                    .map_err(|_| anyhow!("cached proof worker stopped"))?;
+                let proof = proof?;
+                prove_ms = prove_ms.max(elapsed);
+                let Some(batch) = batches.get(index) else {
+                    transfer_proof = Some(proof);
+                    continue;
+                };
+                let mut merge = MergeTransact {
+                    input_tree: self.tree,
+                    output_tree: self.tree,
+                    payer: self.merge_vault,
+                    user_record: user_record_pda(&owner.pubkey()).0,
+                    data: batch.instruction_data(pack_merge_proof(&proof)?),
+                }
+                .instruction();
+                merge.accounts.push(AccountMeta::new(cache, false));
+                let wrapped =
+                    execute_sync_ix(&self.merge_settings, 0, &[merge_key.pubkey()], &[merge]);
+                if overlap {
+                    submitter.append(wrapped)?;
+                } else {
+                    deferred.push(wrapped);
+                }
+            }
+            for worker in workers {
+                worker
+                    .join()
+                    .map_err(|_| anyhow!("cached proof worker panicked"))?;
+            }
+            Ok(())
+        })?;
+        let sending = Instant::now();
         let mut transfer = Transact {
             payer: owner.pubkey(),
             input_trees: vec![self.tree],
             output_tree: self.tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
-            data: assembled.with_proof(pack_transact_proof(&transfer_proof)?),
+            data: assembled.with_proof(pack_transact_proof(&transfer_proof.unwrap())?),
         }
         .instruction();
         transfer.accounts.push(AccountMeta::new(cache, false));
-        instructions.push(transfer);
-        let packed = std::env::var("E2E_BENCH_PACKED").as_deref() != Ok("0");
-        let mut groups: Vec<Vec<Instruction>> = Vec::new();
-        for instruction in instructions {
-            let mut candidate = groups.last().cloned().unwrap_or_default();
-            candidate.push(instruction.clone());
-            if packed
-                && !groups.is_empty()
-                && zolana_client::transaction_size(&owner.pubkey(), &candidate, budget)?.fits()
-            {
-                *groups.last_mut().unwrap() = candidate;
-            } else {
-                ensure!(
-                    zolana_client::transaction_size(
-                        &owner.pubkey(),
-                        std::slice::from_ref(&instruction),
-                        budget
-                    )?
-                    .fits(),
-                    "instruction exceeds transaction limits"
-                );
-                groups.push(vec![instruction]);
-            }
+        deferred.push(transfer);
+        for instruction in deferred {
+            submitter.append(instruction)?;
         }
-        let poll_ms = std::env::var("E2E_BENCH_POLL_MS")
-            .ok()
-            .map(|value| value.parse::<u64>())
-            .transpose()?;
-        for group in groups {
-            let mut signers: Vec<&dyn Signer> = vec![&owner];
-            if group
-                .iter()
-                .flat_map(|ix| &ix.accounts)
-                .any(|account| account.is_signer && account.pubkey == merge_key.pubkey())
-            {
-                signers.push(&merge_key);
-            }
-            let size = zolana_client::transaction_size(&owner.pubkey(), &group, budget)?;
-            println!(
-                "cached transaction: {} bytes, {} addresses",
-                size.bytes, size.addresses
-            );
-            let signature = if let Some(interval) = poll_ms {
-                let (blockhash, _) = self.rpc.get_latest_blockhash()?;
-                let transaction = zolana_client::sign_transaction(
-                    zolana_client::compile_message(&owner.pubkey(), &group, blockhash, budget)?,
-                    &signers,
-                )?;
-                let signature = self.rpc.send_transaction_with_config(
-                    &transaction,
-                    zolana_client::RpcSendTransactionConfig {
-                        preflight_commitment: Some(self.rpc.client().commitment().commitment),
-                        ..Default::default()
-                    },
-                )?;
-                self.rpc.wait_for_signature_with_interval(
-                    &signature,
-                    Duration::from_millis(interval),
-                )?;
-                signature
-            } else {
-                self.rpc
-                    .create_and_send_transaction(&group, owner.pubkey(), &signers, budget)?
-            };
-            signatures.push(signature);
-        }
+        let (signatures, chain_send_ms) = submitter.finish()?;
         let signature = *signatures.last().unwrap();
         let send_ms = sending.elapsed().as_millis();
-        let confirmed_ms = witness_ms + start.elapsed().as_millis();
+        let confirmed_ms = witness_start.elapsed().as_millis();
+        let indexer_start = Instant::now();
         let indexed = wait_for_indexed_transaction(
             &self.indexer,
             recipient.signing_pubkey().confidential_view_tag()?,
             signature,
         );
+        let recipient_indexer_ms = indexer_start.elapsed().as_millis();
+        let decrypt_start = Instant::now();
         let balances = zolana_transaction::decrypt_transactions(
             &recipient,
             std::slice::from_ref(&indexed),
@@ -312,7 +309,33 @@ impl LifecycleHarness {
             balances.get_balance(SOL_MINT).map(|balance| balance.amount),
             Some(inputs as u64 * NOTE_AMOUNT)
         );
-        let visible_ms = witness_ms + start.elapsed().as_millis();
+        let recipient_decrypt_ms = decrypt_start.elapsed().as_millis();
+        let visible_ms = witness_start.elapsed().as_millis();
+        let cache_account = self
+            .rpc
+            .get_account(cache)?
+            .ok_or_else(|| anyhow!("cache account missing"))?;
+        assert_eq!(cache_account.owner, PROGRAM_ID_PUBKEY);
+        assert_eq!(cache_account.data.len(), CacheAccount::SIZE);
+        let cache_state = bytemuck::from_bytes::<CacheAccount>(&cache_account.data);
+        assert!(cache_state.has_discriminator());
+        assert_eq!(cache_state.owner_kind, CACHE_OWNER_REGISTRY);
+        assert_eq!(cache_state.owner, owner.pubkey().to_bytes());
+        assert_eq!(cache_state.operation_id, operation_id);
+        assert_eq!(cache_state.tree_id, self.tree_id.to_le_bytes());
+        assert_eq!(cache_state.frozen, 1);
+        for (slot, batch) in batches.iter().enumerate() {
+            assert_eq!(cache_state.commitments[slot], batch.output_hash);
+        }
+        assert!(cache_state.commitments[batches.len()..]
+            .iter()
+            .all(|hash| *hash == ZERO));
+        let spent_nullifiers = batches
+            .iter()
+            .flat_map(|batch| batch.nullifiers.iter().copied())
+            .chain(nullifiers.iter().copied())
+            .collect::<Vec<_>>();
+        assert_nullifier_pdas(&self.rpc, &self.tree, &spent_nullifiers)?;
         let expected = self.build_expected(
             "cached-recipient",
             recipient.signing_pubkey(),
@@ -332,21 +355,123 @@ impl LifecycleHarness {
         }
         let proofs = batches.len() + 1;
         let transactions = signatures.len();
-        let concurrency = config.concurrency;
-        let layout = config.layout();
-        let warm_keys = config.warm_keys && phase == "measured";
-        let key_state = if warm_keys { "warm" } else { "cold" };
-        let poll_ms = poll_ms.map_or("null".into(), |value| value.to_string());
-        let output_slots = if compact { 2 } else { 3 };
-        let gomaxprocs = config
-            .gomaxprocs
-            .map_or("null".into(), |value| value.to_string());
-        let prover_concurrency = config
-            .prover_concurrency
-            .map_or("null".into(), |value| value.to_string());
         println!(
-            "E2E_PIPELINE {{\"variant\":\"cached\",\"run\":{run},\"phase\":\"{phase}\",\"inputs\":{inputs},\"concurrency\":{concurrency},\"gomaxprocs\":{gomaxprocs},\"prover_concurrency\":{prover_concurrency},\"layout\":\"{layout}\",\"key_state\":\"{key_state}\",\"warm_keys\":{warm_keys},\"warmup_ms\":{warmup_ms},\"proofs\":{proofs},\"transactions\":{transactions},\"packed\":{packed},\"poll_ms\":{poll_ms},\"total_cu\":{total_cu},\"setup_ms\":{setup_ms},\"witness_ms\":{witness_ms},\"prove_ms\":{prove_ms},\"submit_ms\":{send_ms},\"confirmed_ms\":{confirmed_ms},\"total_ms\":{visible_ms},\"output_slots\":{output_slots}}}"
+            "E2E_PIPELINE {}",
+            serde_json::json!({
+                "variant": "cached", "run": run, "phase": phase, "inputs": inputs,
+                "concurrency": config.concurrency, "gomaxprocs": config.gomaxprocs,
+                "prover_concurrency": config.prover_concurrency, "layout": config.layout(),
+                "key_state": if config.warm_keys && phase == "measured" { "warm" } else { "cold" },
+                "warm_keys": config.warm_keys && phase == "measured", "warmup_ms": warmup_ms,
+                "proofs": proofs, "transactions": transactions, "packed": packed, "poll_ms": poll_ms,
+                "indexer_poll_ms": std::env::var("E2E_BENCH_INDEXER_POLL_MS").ok(),
+                "overlap": overlap, "proof_schedule": "transfer-first-work-conserving",
+                "total_cu": total_cu, "setup_ms": setup_ms, "witness_ms": witness_ms,
+                "membership_fetch_ms": membership_fetch_ms, "nullifier_fetch_ms": nullifier_fetch_ms,
+                "witness_local_ms": witness_ms.saturating_sub(membership_fetch_ms + nullifier_fetch_ms),
+                "prove_ms": prove_ms, "submit_ms": send_ms, "chain_send_ms": chain_send_ms,
+                "confirmed_ms": confirmed_ms, "total_ms": visible_ms,
+                "recipient_indexer_ms": recipient_indexer_ms, "recipient_decrypt_ms": recipient_decrypt_ms,
+                "output_slots": if compact { 2 } else { 3 },
+            })
         );
         Ok(setup_ms + visible_ms)
+    }
+}
+
+struct CacheSubmitter<'a> {
+    rpc: &'a zolana_client::SolanaRpc,
+    owner: &'a Keypair,
+    merge_key: &'a Keypair,
+    budget: ComputeBudgetConfig,
+    poll_ms: Option<u64>,
+    packed: bool,
+    pending: Vec<Instruction>,
+    signatures: Vec<solana_signature::Signature>,
+    send_ms: u128,
+}
+
+impl CacheSubmitter<'_> {
+    fn append(&mut self, instruction: Instruction) -> Result<()> {
+        ensure!(
+            zolana_client::transaction_size(
+                &self.owner.pubkey(),
+                std::slice::from_ref(&instruction),
+                self.budget
+            )?
+            .fits(),
+            "instruction exceeds transaction limits"
+        );
+        let mut candidate = self.pending.clone();
+        candidate.push(instruction.clone());
+        if !self.pending.is_empty()
+            && (!self.packed
+                || !zolana_client::transaction_size(&self.owner.pubkey(), &candidate, self.budget)?
+                    .fits())
+        {
+            self.flush()?;
+        }
+        self.pending.push(instruction);
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<(Vec<solana_signature::Signature>, u128)> {
+        self.flush()?;
+        Ok((self.signatures, self.send_ms))
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        let start = Instant::now();
+        let mut signers: Vec<&dyn Signer> = vec![self.owner];
+        if self
+            .pending
+            .iter()
+            .flat_map(|ix| &ix.accounts)
+            .any(|account| account.is_signer && account.pubkey == self.merge_key.pubkey())
+        {
+            signers.push(self.merge_key);
+        }
+        let size =
+            zolana_client::transaction_size(&self.owner.pubkey(), &self.pending, self.budget)?;
+        println!(
+            "cached transaction: {} bytes, {} addresses",
+            size.bytes, size.addresses
+        );
+        let signature = if let Some(interval) = self.poll_ms {
+            let (blockhash, _) = self.rpc.get_latest_blockhash()?;
+            let transaction = zolana_client::sign_transaction(
+                zolana_client::compile_message(
+                    &self.owner.pubkey(),
+                    &self.pending,
+                    blockhash,
+                    self.budget,
+                )?,
+                &signers,
+            )?;
+            let signature = self.rpc.send_transaction_with_config(
+                &transaction,
+                zolana_client::RpcSendTransactionConfig {
+                    preflight_commitment: Some(self.rpc.client().commitment().commitment),
+                    ..Default::default()
+                },
+            )?;
+            self.rpc
+                .wait_for_signature_with_interval(&signature, Duration::from_millis(interval))?;
+            signature
+        } else {
+            self.rpc.create_and_send_transaction(
+                &self.pending,
+                self.owner.pubkey(),
+                &signers,
+                self.budget,
+            )?
+        };
+        self.signatures.push(signature);
+        self.send_ms += start.elapsed().as_millis();
+        self.pending.clear();
+        Ok(())
     }
 }

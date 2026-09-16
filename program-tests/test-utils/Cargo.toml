@@ -19,6 +19,7 @@ groth16-solana = { workspace = true }
 mollusk-svm = { workspace = true, optional = true }
 num-bigint = { workspace = true }
 rand = { workspace = true }
+serde_json = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
