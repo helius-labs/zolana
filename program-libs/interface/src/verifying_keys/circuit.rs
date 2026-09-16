@@ -30,7 +30,7 @@ pub struct RingP256ProofData {
 }
 
 /// Carried by the new circuit selector; input i selects cache slot i.
-/// The cache is the final account and must not alias another instruction account.
+/// The cache is the final account.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CachedInputs {
     pub input_bitmap: u64,

@@ -25,7 +25,7 @@ pub struct MergeTransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
-    pub cache: Option<&'a mut AccountView>,
+    pub cache: Option<(&'a mut AccountView, u8)>,
 }
 
 impl<'a> MergeTransactAccounts<'a> {
@@ -53,7 +53,9 @@ impl<'a> MergeTransactAccounts<'a> {
                 .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
         }
-        let cache = iter.next_option_mut("cache", cache_slot.is_some())?;
+        let cache = cache_slot
+            .map(|slot| iter.next_mut("cache").map(|account| (account, slot)))
+            .transpose()?;
         if !iter.remaining_unchecked_mut()?.is_empty() {
             return Err(ShieldedPoolError::InvalidMergeShape.into());
         }

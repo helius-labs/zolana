@@ -1,4 +1,4 @@
-use crate::instructions::{cache::loader::check_cache_alias, shared::caused_by};
+use crate::instructions::shared::caused_by;
 use arrayvec::ArrayVec;
 use pinocchio::{
     error::ProgramError,
@@ -69,7 +69,6 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    check_cache_alias(accounts, ix.cache_slot.is_some())?;
     let merge_accounts =
         MergeTransactAccounts::validate_and_parse(accounts, ix.nullifiers.len(), ix.cache_slot)?;
 
@@ -80,6 +79,9 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     if !pk_fields.merging_enabled {
         return Err(ShieldedPoolError::MergeDisabled.into());
     }
+    if ix.cache_slot.is_some() && !ix.eddsa_owner {
+        return Err(ShieldedPoolError::CacheUnsupportedOwner.into());
+    }
 
     let signing_pk_field = pk_fields.signing_pk_field;
     // Owner-indexing view tag for the merged output: the owner signing pubkey (the
@@ -88,19 +90,10 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     // alter it.
     let output_view_tag = pk_fields.signing_view_tag;
 
-    let cache = match (merge_accounts.cache, ix.cache_slot) {
-        (Some(account), Some(slot)) => {
-            if !ix.eddsa_owner {
-                return Err(ShieldedPoolError::CacheOwnerMismatch.into());
-            }
-            Some(CacheSlot::open(
-                account,
-                slot,
-                CacheAuthority::Registry(output_view_tag),
-            )?)
-        }
-        _ => None,
-    };
+    let cache = CacheSlot::load_and_validate_optional(
+        merge_accounts.cache,
+        CacheAuthority::Registry(output_view_tag),
+    )?;
     let external_data_hash = MergeExternalDataHash {
         spp_instruction_discriminator: MERGE_TRANSACT,
         expiry_unix_ts: ix.expiry_unix_ts,
@@ -122,9 +115,9 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         &ix,
         external_data_hash,
         MergeOwnerBinding::Registry { signing_pk_field },
+        cache,
         output_view_tag,
         clock.slot,
-        cache,
     )
 }
 
@@ -138,9 +131,9 @@ pub(crate) fn process_merge_core(
     ix: &MergeTransactIxDataRef<'_>,
     external_data_hash: [u8; 32],
     owner_binding: MergeOwnerBinding,
+    cache: Option<CacheSlot<'_>>,
     output_view_tag: [u8; 32],
     slot: u64,
-    cache: Option<CacheSlot<'_>>,
 ) -> ProgramResult {
     let (input_tree_result, mut derived) = {
         let input_tree = accounts.input_tree.address().to_bytes();

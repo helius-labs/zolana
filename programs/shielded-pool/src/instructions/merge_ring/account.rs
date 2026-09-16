@@ -20,7 +20,7 @@ pub struct MergeRingAccounts<'a> {
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
-    pub cache: Option<&'a mut AccountView>,
+    pub cache: Option<(&'a mut AccountView, u8)>,
     /// The calling ring's `program_id`, read from the signed `ring_config`. Bound
     /// into the proof as the UTXO `ring_program_id`.
     pub ring_program_id: Address,
@@ -52,7 +52,9 @@ impl<'a> MergeRingAccounts<'a> {
                 .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
         }
-        let cache = iter.next_option_mut("cache", cache_slot.is_some())?;
+        let cache = cache_slot
+            .map(|slot| iter.next_mut("cache").map(|account| (account, slot)))
+            .transpose()?;
         if !iter.remaining_unchecked_mut()?.is_empty() {
             return Err(ShieldedPoolError::InvalidMergeShape.into());
         }

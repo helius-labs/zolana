@@ -86,7 +86,7 @@ export const ShieldedPoolError = Object.freeze({
   CacheTreeMismatch: 7073,
   CacheOwnerMismatch: 7074,
   InvalidCacheRootIndex: 7075,
-  CacheAccountAlias: 7076,
+  CacheUnsupportedOwner: 7076,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

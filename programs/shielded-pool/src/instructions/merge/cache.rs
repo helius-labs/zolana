@@ -22,11 +22,13 @@ pub(crate) struct CacheSlot<'a> {
 }
 
 impl<'a> CacheSlot<'a> {
-    pub fn open(
-        account: &'a mut AccountView,
-        slot: u8,
+    pub fn load_and_validate_optional(
+        cache: Option<(&'a mut AccountView, u8)>,
         authority: CacheAuthority,
-    ) -> Result<Self, ProgramError> {
+    ) -> Result<Option<Self>, ProgramError> {
+        let Some((account, slot)) = cache else {
+            return Ok(None);
+        };
         let address = account.address().to_bytes();
         let state = load_cache_mut(account)?;
         let (kind, owner) = match authority {
@@ -46,11 +48,11 @@ impl<'a> CacheSlot<'a> {
         if *commitment != [0; 32] {
             return Err(ShieldedPoolError::CacheSlotOccupied.into());
         }
-        Ok(Self {
+        Ok(Some(Self {
             state,
             address,
             slot,
-        })
+        }))
     }
 
     pub fn destination(&self) -> (&[u8; 32], u8) {
@@ -60,9 +62,6 @@ impl<'a> CacheSlot<'a> {
     pub fn write(mut self, output: &[u8; 32], output_tree_id: [u8; 32]) -> ProgramResult {
         if output_tree_id != tree_id_field(u16::from_le_bytes(self.state.tree_id)) {
             return Err(ShieldedPoolError::CacheTreeMismatch.into());
-        }
-        if *output == [0; 32] {
-            return Err(ShieldedPoolError::CacheSlotEmpty.into());
         }
         let entry = self
             .state
