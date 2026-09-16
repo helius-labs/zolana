@@ -99,8 +99,8 @@ describe("ring flow", () => {
     const health = await ringRpc.health();
     expect(health.mode).toBe("local");
 
-    const sender = await freshActor();
-    const recipient = await freshActor();
+    const sender = await freshActor(client);
+    const recipient = await freshActor(client);
     await airdrop(client, sender.signer.address);
     // The harness ring pins the released rows, every party needs an allow entry.
     const authoritySigner = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
@@ -128,7 +128,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: sender.wallet,
-      authority: sender.authority,
+      keys: sender.keys,
       feePayer: sender.signer.address,
       recipient: recipient.keypair.shieldedAddress(),
       amount,
@@ -174,7 +174,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: recipient.wallet,
-      authority: recipient.authority,
+      keys: recipient.keys,
       feePayer: recipient.signer.address,
       recipient: sender.keypair.shieldedAddress(),
       amount: amount / 2n,
@@ -200,7 +200,7 @@ describe("ring flow", () => {
     expect(hopAmounts).toEqual([amount / 2n, amount / 2n]);
 
     // A delegated reader reads after the grant and not after the revoke.
-    const delegate = (await freshActor()).signer;
+    const delegate = (await freshActor(client)).signer;
     expect(await ringReadError(ringRpc, ringProgramId, delegate)).toBe(-32600);
     await sendInstruction(
       client,
@@ -282,8 +282,8 @@ describe("ring flow", () => {
     const authoritySigner = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
     const mintAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
 
-    const sender = await freshActor();
-    const recipient = await freshActor();
+    const sender = await freshActor(client);
+    const recipient = await freshActor(client);
     await airdrop(client, sender.signer.address);
     await airdrop(client, recipient.signer.address);
     await enrolInAllow(client, ringProgramId, authoritySigner, [sender, recipient]);
@@ -318,7 +318,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: sender.wallet,
-      authority: sender.authority,
+      keys: sender.keys,
       feePayer: sender.signer.address,
       recipient: recipient.keypair.shieldedAddress(),
       asset: mint,
@@ -355,7 +355,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: recipient.wallet,
-      authority: recipient.authority,
+      keys: recipient.keys,
       feePayer: relayer.address,
       recipient: sender.keypair.shieldedAddress(),
       asset: mint,
@@ -398,7 +398,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: recipient.wallet,
-      authority: recipient.authority,
+      keys: recipient.keys,
       feePayer: recipient.signer.address,
       recipient: mintAuthority.address,
       asset: mint,

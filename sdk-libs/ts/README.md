@@ -40,7 +40,7 @@ import {
   type Transaction,
 } from "@solana/kit";
 import {
-  KeypairWalletAuthority,
+  LocalKeys,
   ShieldedKeypair,
   SigningKey,
   SOL_MINT,
@@ -63,10 +63,9 @@ const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(ownerSee
 ownerSeed.fill(0);
 
 const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-const authority = new KeypairWalletAuthority({
-  solanaPublicKey: feePayer.address,
-  keypair,
-});
+// The wallet's privacy keys, held in this process. A remote key holder
+// implements the same `WalletKeys` interface and drops in here.
+const keys = LocalKeys.fromKeypair(keypair, client.proofService);
 
 const sendAndConfirm = sendAndConfirmTransactionFactory({
   rpc: client.solanaRpc,
@@ -82,7 +81,7 @@ async function submit(transaction: Transaction, signer: KeyPairSigner) {
 await syncWallet({
   client,
   wallet,
-  authority,
+  keys,
 });
 
 const deposit = await buildDepositTransaction({
@@ -97,7 +96,7 @@ const slot = await client.confirmTransaction(signature);
 await syncWallet({
   client,
   wallet,
-  authority,
+  keys,
   config: { requireSlot: slot },
 });
 
@@ -112,6 +111,15 @@ config.
 
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
+
+Every build and sync takes the wallet's privacy roles as `WalletKeys`: the
+wallet derivations (`ShieldedKeys`: `decrypt`, `derive`, `transactionKeys`) and
+proving (`ProofAuthority`: `prove`, `proveMerge`). Methods return derived values,
+not long-lived secrets, and accept batches so an enclave or hardware wallet can
+answer each phase in one round trip. `LocalKeys` provides both roles for keys
+held in-process; `LocalKeys.fromDerivationSeed` creates them from a browser
+wallet signature over the derivation message. The Solana signature over the
+finished transaction remains with the app signer.
 
 ### Transaction format
 
@@ -128,29 +136,27 @@ price per compute unit. The RPC and the validator must accept version 1.
 A client needs a
 [Helius API key](https://dashboard.helius.dev/).
 
-The RPC endpoint serves the Solana RPC. The Photon indexer to fetch encrypted
-state, and the prover that generates the zero-knowledge proofs currently use aws URLs.
-It's planned to make indexer and prover available through using the same Helius RPC URL.
+The Solana RPC, Photon indexer, and prover must target the same devnet release.
+Custom-ring authorities and auditors use the separate ring RPC. The public
+dashboard reports protocol and service health.
 
 **Devnet:**
 
-| Service    | Host the SDK uses                                                   | Notes                                                                                     |
-| ---------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>`                  | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
-| Indexer    | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com`      | Fetches encrypted state.                                                                  |
-| Prover     | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001` | Generates ZK proofs                                                                       |
+| Service    | URL                                                | Notes                                                                                     |
+| ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
+| Indexer    | `https://d2xah7tnhdhcom.cloudfront.net`            | Fetches encrypted state.                                                                  |
+| Prover     | `https://d21ni15goiip6l.cloudfront.net`            | Generates ZK proofs.                                                                      |
+| Ring RPC   | `https://d24brah9h1i4q9.cloudfront.net`            | Releases and uses custom-ring auditor keys.                                               |
+| Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
 
 ```ts
 const client = await createZolanaClient({
   solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
-  indexerUrl: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com",
-  proverUrl: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001",
-  allowInsecureHttp: true,
+  indexerUrl: "https://d2xah7tnhdhcom.cloudfront.net",
+  proverUrl: "https://d21ni15goiip6l.cloudfront.net",
 });
 ```
-
-`allowInsecureHttp: true` is required for these plaintext `http://` indexer and
-prover hosts. Use it only on this devnet path with test funds.
 
 On localnet, start the stack first with `zolana dev start`. The local test
 validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
@@ -228,13 +234,13 @@ declare const recipientSolanaAddress: Address;
 const transfer = await buildTransferTransaction({
   client,
   wallet,
-  authority,
+  keys,
   feePayer: feePayer.address,
   recipient: recipientSolanaAddress,
   amount: 25_000_000n,
 });
 const slot = await client.confirmTransaction(await submit(transfer, feePayer));
-await syncWallet({ client, wallet, authority, config: { requireSlot: slot } });
+await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 ```
 
 Pass `asset: mint` for an SPL or Token-2022 balance.
@@ -249,13 +255,13 @@ import { buildWithdrawalTransaction } from "@heliuslabs/zolana";
 const withdrawal = await buildWithdrawalTransaction({
   client,
   wallet,
-  authority,
+  keys,
   feePayer: feePayer.address,
   recipient: publicRecipient,
   amount: 10_000_000n,
 });
 const slot = await client.confirmTransaction(await submit(withdrawal, feePayer));
-await syncWallet({ client, wallet, authority, config: { requireSlot: slot } });
+await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 ```
 
 For an SPL withdrawal, pass `asset: mint`. Token-2022 withdrawals also take
@@ -306,7 +312,7 @@ const wallet =
   (await loadPersistedWallet({ store, cipher })) ??
   new Wallet({ identity: keypair.shieldedAddress() });
 
-const { report } = await syncPersistedWallet({ client, wallet, authority, store, cipher });
+const { report } = await syncPersistedWallet({ client, wallet, keys, store, cipher });
 ```
 
 A tampered stored snapshot, or one sealed for another wallet, is refused
@@ -369,8 +375,7 @@ SBPF v0 and do not load on Agave 4.1.2.
 
 Common exports from `@heliuslabs/zolana` include:
 
-- setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`,
-  `KeypairWalletAuthority`.
+- setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`, `LocalKeys`.
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
   `buildWithdrawalTransaction`, `buildSplitTransaction`,
   `buildMergeTransaction`.

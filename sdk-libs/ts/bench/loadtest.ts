@@ -40,7 +40,7 @@ import {
 } from "@solana/kit";
 
 import {
-  KeypairWalletAuthority,
+  LocalKeys,
   ShieldedKeypair,
   SigningKey,
   Wallet,
@@ -95,7 +95,7 @@ const timedFetch: typeof globalThis.fetch = async (input, init) => {
 interface Actor {
   readonly signer: KeyPairSigner;
   readonly wallet: Wallet;
-  readonly authority: KeypairWalletAuthority;
+  readonly keys: LocalKeys;
   readonly shieldedAddress: ReturnType<ShieldedKeypair["shieldedAddress"]>;
 }
 
@@ -139,7 +139,7 @@ function parseOptions(argv: readonly string[]): Options {
  * Solana CLI keypair files: a JSON array of 64 bytes, secret then public. The
  * first 32 are the seed both the signer and the shielded keypair derive from.
  */
-async function loadActors(dir: string): Promise<Actor[]> {
+async function loadActors(dir: string, proofs: ZolanaClient["proofService"]): Promise<Actor[]> {
   const files = (await readdir(dir)).filter((name) => name.endsWith(".json")).sort();
   if (files.length < 2) usage(`--keypairs ${dir} needs at least two keypair files`);
 
@@ -155,12 +155,18 @@ async function loadActors(dir: string): Promise<Actor[]> {
       Uint8Array.of(...seed, ...ed25519.getPublicKey(seed)),
     );
     const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));
-    actors.push({
-      signer,
-      wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-      authority: new KeypairWalletAuthority({ solanaPublicKey: signer.address, keypair }),
-      shieldedAddress: keypair.shieldedAddress(),
-    });
+    try {
+      actors.push({
+        signer,
+        wallet: new Wallet({ identity: keypair.shieldedAddress() }),
+        keys: LocalKeys.fromKeypair(keypair, proofs),
+        shieldedAddress: keypair.shieldedAddress(),
+      });
+    } finally {
+      keypair.destroy();
+      bytes.fill(0);
+      seed.fill(0);
+    }
   }
   return actors;
 }
@@ -211,7 +217,7 @@ async function transferOnce(
 ): Promise<Timing> {
   const started = Date.now();
 
-  await syncWallet({ client, wallet: from.wallet, authority: from.authority });
+  await syncWallet({ client, wallet: from.wallet, keys: from.keys });
   const synced = Date.now();
 
   // Proving happens inside the build: two indexer round-trips for the input
@@ -222,7 +228,7 @@ async function transferOnce(
     buildTransferTransaction({
       client,
       wallet: from.wallet,
-      authority: from.authority,
+      keys: from.keys,
       feePayer: from.signer.address,
       recipient: to.shieldedAddress,
       amount,
@@ -285,7 +291,7 @@ async function main(): Promise<void> {
     allowInsecureHttp: true,
     fetch: timedFetch,
   });
-  const actors = await loadActors(options.keypairs);
+  const actors = await loadActors(options.keypairs, client.proofService);
 
   console.log(
     `loadtest: ${actors.length} workers, ${options.durationSecs}s, ${options.amount} lamports/transfer`,
@@ -318,32 +324,35 @@ async function main(): Promise<void> {
 
   // One loop per wallet, each sending to the next in a ring, so every transfer
   // spends an input and produces a nullifier.
-  await Promise.all(
-    actors.map(async (from, index) => {
-      const to = actors[(index + 1) % actors.length];
-      if (to === undefined) return;
+  try {
+    await Promise.all(
+      actors.map(async (from, index) => {
+        const to = actors[(index + 1) % actors.length];
+        if (to === undefined) return;
 
-      let first = true;
-      while (Date.now() < deadline) {
-        try {
-          const timing = await transferOnce(client, from, to, options.amount);
-          if (first) {
-            warmupMs.push(timing.syncMs);
-            first = false;
+        let first = true;
+        while (Date.now() < deadline) {
+          try {
+            const timing = await transferOnce(client, from, to, options.amount);
+            if (first) {
+              warmupMs.push(timing.syncMs);
+              first = false;
+            }
+            timings.push(timing);
+            ok += 1;
+          } catch (error) {
+            if (first) first = false;
+            const key = errorKey(error);
+            errors.set(key, (errors.get(key) ?? 0) + 1);
+            failed += 1;
           }
-          timings.push(timing);
-          ok += 1;
-        } catch (error) {
-          if (first) first = false;
-          const key = errorKey(error);
-          errors.set(key, (errors.get(key) ?? 0) + 1);
-          failed += 1;
         }
-      }
-    }),
-  );
-
-  clearInterval(progress);
+      }),
+    );
+  } finally {
+    clearInterval(progress);
+    for (const actor of actors) actor.keys.destroy();
+  }
 
   const elapsed = (Date.now() - startedAt) / 1_000;
   console.log(`\n${"─".repeat(61)}`);

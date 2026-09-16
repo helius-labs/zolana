@@ -17,13 +17,35 @@ algorithm tag, every UTXO commits to the tree it lives in, and one private
 blinding seed per proof derives every output blinding and the private
 transaction hash blinding. Every builder now returns a version 1 transaction,
 which holds 4,096 bytes instead of 1,232, carries its compute budget and
-priority fee in the message itself, and uses no address lookup tables.
+priority fee in the message itself, and uses no address lookup tables. Wallet
+builders and sync now use a batched key interface that a remote holder can
+answer without releasing long-lived secrets.
 
 Breaking
 
 - The user-registry `register` instruction takes a `payer` writable signer
   after `owner` and no longer debits `owner` → a transaction built against the
   previous three-account layout fails with `NotEnoughAccountKeys`.
+- `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
+  `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
+  `WalletSyncMaterial` are removed → build
+  `LocalKeys.fromKeypair(keypair, client.proofService)`, or
+  `LocalKeys.fromDerivationSeed({ solanaPublicKey, derivationSeed }, client.proofService)`,
+  and pass it as `keys`.
+- Wallet transaction builders take `keys: WalletKeys` and an optional
+  `approve: ApprovalHandler` instead of `authority`; sync functions take
+  `keys: ShieldedKeys`. `proveTransact`, `proveRingTransact`, `proveMerge`, and
+  authorized transaction assembly require a `ProofAuthority`.
+- `ProofInputUtxo` carries `nullifierPublicKey`, the derived nullifier, and its
+  `treeId` instead of a `NullifierKey` → construct it with
+  `ProofInputUtxo.fromKeypair` or `ProofInputUtxo.fromNullifierKey`.
+- `proveCustomRingTransfer` takes `keys: WalletKeys` instead of `session`.
+- Prover input slots carry the nullifier secret only after `ProofAuthority`
+  fills it; an owned input still missing it fails with
+  `CLIENT_MISSING_NULLIFIER_SECRET` before the prover request.
+- `TRANSACTION_WALLET_AUTHORITY_MISMATCH` is renamed
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH`.
+
 - `SHIELDED_POOL_PROGRAM_ID` is `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`, and
   `SOL_INTERFACE`, `SHIELDED_POOL_CPI_AUTHORITY` and every tree address derive
   from it, while `InstructionTag` renumbers every tag → point at a deployment of
@@ -437,6 +459,19 @@ Changed
 
 Fixed
 
+- `decryptTransactions` rejects malformed key-holder batches with
+  `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and
+  leaves wallet state unchanged on failure.
+- `buildMergeTransaction` rejects malformed derivation batches with
+  `code: "WALLET_BUILD_MERGE"` and `causeCode: "WALLET_KEYS_BATCH_MISMATCH"`,
+  releasing the inputs it reserved.
+- `PreparedMerge.dummyNullifiers()` returns independent buffers so modifying
+  a returned value cannot change the prepared merge.
+- `LocalKeys.proveMerge` rejects incomplete inputs for another wallet with
+  `CLIENT_MERGE_NULLIFIER_KEY_MISMATCH` before contacting the prover.
+- Wallet transaction builders reject entries outside the default tree instead
+  of pairing their stored nullifiers with default-tree commitments, and
+  `ProofInputUtxo.withTreeId` reports `TRANSACTION_INPUT_TREE_MISMATCH` for real inputs.
 - `deployRingProgram` splits uploads into writes the loader accepts and packs
   them into v1 transactions; `writeBufferInstruction` rejects payloads above
   1,216 bytes with `RING_PROGRAM_WRITE_TOO_LARGE`.

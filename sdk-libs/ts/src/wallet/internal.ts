@@ -63,7 +63,19 @@ export function concat(...parts: readonly Uint8Array[]): Uint8Array {
   return output;
 }
 
-export function base64Bytes(value: string): Uint8Array {
+/** Bytes per `String.fromCharCode` call: a spread of a whole megabyte-sized array overflows the stack. */
+const BASE64_CHUNK = 0x8000;
+
+/** Standard base64 of `bytes`, sized for sealed snapshots that run to megabytes. */
+export function base64Text(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + BASE64_CHUNK));
+  }
+  return btoa(binary);
+}
+
+export function base64Bytes(value: string): Uint8Array<ArrayBuffer> {
   if (typeof value !== "string") throw new WalletError("WALLET_INVALID_BASE64");
   const clean = value.endsWith("==")
     ? value.slice(0, -2)

@@ -177,15 +177,15 @@ describe("answer planning", () => {
 
   it("a sender guard never exempts", () => {
     const keypair = ShieldedKeypair.generate();
-    const spend = new ProofInputUtxo({
-      utxo: new Utxo({
+    const spend = ProofInputUtxo.fromKeypair(
+      new Utxo({
         owner: keypair.signingPublicKey(),
         asset: ASSET,
         amount: 7n,
         blinding: filled(1),
       }),
-      nullifierKey: keypair.nullifierKey(),
-    });
+      keypair,
+    );
     const config = ringPolicyConfig({
       table: buildRuleTable({ rules: [require("sender", ListId.allow)] }),
       sources: ownSources(buildRuleTable({ rules: [require("sender", ListId.allow)] }), NAMESPACE),
