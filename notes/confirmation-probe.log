@@ -1,0 +1,13 @@
+   Compiling zolana-client v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.19s
+     Running tests/solana_rpc.rs (/Users/tsv/Developer/zolana/zolana-pr320-bench/target/debug/deps/solana_rpc-a13931c105d043c7)
+
+running 3 tests
+test confirmation_wait_rejects_zero_poll_interval ... ok
+test confirmation_wait_preserves_commitment_and_execution_errors ... ok
+controlled_pending_then_finalized interval_ms=500 elapsed_us=502571
+controlled_pending_then_finalized interval_ms=25 elapsed_us=28621
+test confirmation_polling_latency_probe ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.53s
+

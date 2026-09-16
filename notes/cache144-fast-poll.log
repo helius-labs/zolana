@@ -1,0 +1,48 @@
+   Compiling zolana-hasher v5.0.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-libs/hasher)
+   Compiling zolana-event v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-libs/event)
+   Compiling zolana-indexer-api v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/indexer-api)
+   Compiling zolana-tree v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-libs/tree)
+   Compiling zolana-interface v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-libs/interface)
+   Compiling zolana-program v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/program)
+   Compiling zolana-keypair v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/keypair)
+   Compiling zolana-api v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/zolana-api)
+   Compiling zolana-transaction v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/transaction)
+   Compiling zolana-event-parser v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/event)
+   Compiling zolana-indexed-array v0.3.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-libs/indexed-array)
+   Compiling zolana-merkle-tree v4.0.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/merkle-tree)
+   Compiling zolana-client v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/client)
+   Compiling zolana-user-registry-interface v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-libs/user-registry-interface)
+   Compiling zolana-smart-account-client v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/smart-account-client)
+   Compiling zolana-program-test v0.23.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/program-test)
+   Compiling zolana-test-utils v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-tests/test-utils)
+   Compiling spp-test-validator v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-tests/spp-test-validator)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.50s
+     Running tests/proof_cu.rs (/Users/tsv/Developer/zolana/zolana-pr320-bench/target/debug/deps/proof_cu-107b0294c98c640b)
+
+running 1 test
+Starting local validator
+Starting surfpool: /Users/tsv/Developer/zolana/zolana-10x-settlement/target/tools/surfpool start --offline --no-tui --no-deploy --no-studio --port 9399 --host 127.0.0.1 --bpf-program regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD /Users/tsv/Developer/zolana/zolana-10x-settlement/target/deploy/zolana_user_registry.so --bpf-program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG /Users/tsv/Developer/zolana/zolana-10x-settlement/target/deploy/squads_smart_account_program.so --upgradeable-program sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6 /Users/tsv/Developer/zolana/zolana-10x-settlement/target/deploy/shielded_pool_program.so EdMSvMoHfsemd2s7eHCrRnuM1dzPu2CpUrHJN98XYC9y --account-dir /var/folders/2j/bdwsm15103l0k1pp9xm1bmz80000gn/T/zolana-spp-smart-accounts-20904
+Writing surfpool logs to test-ledger/surfpool.log
+Starting Photon: /Users/tsv/Developer/zolana/zolana-10x-cache/target/debug/photon --rpc-url http://127.0.0.1:9399 --port 9284 --start-slot latest
+Writing photon logs to test-ledger/photon.log
+Photon indexer is ready at http://127.0.0.1:9284
+Local validator environment is ready
+Starting prover: /Users/tsv/Developer/zolana/zolana-10x-cache/target/prover-server start --keys-dir /Users/tsv/Developer/zolana/zolana-10x-settlement/prover/server/proving-keys/ --prover-address 0.0.0.0:3301 --metrics-address 0.0.0.0:10298 --auto-download=true
+Writing prover-server logs to test-ledger/prover-server.log
+Prover started successfully
+test cached_merge_spend_e2e_benchmark has been running for over 60 seconds
+cached transaction: 3267 bytes, 46 addresses
+cached transaction: 3191 bytes, 46 addresses
+cached transaction: 3191 bytes, 46 addresses
+cached transaction: 3191 bytes, 46 addresses
+cached transaction: 1329 bytes, 9 addresses
+cached spend: 298511 CU (limit 1400000)
+cached spend: 290981 CU (limit 1400000)
+cached spend: 298542 CU (limit 1400000)
+cached spend: 292819 CU (limit 1400000)
+cached spend: 152728 CU (limit 1400000)
+E2E_BENCH variant=cached inputs=144 proofs=5 transactions=5 packed=true poll_ms=Some(25) total_cu=1333581 setup_ms=76295 warm_keys=true warmup_ms=4590 witness_ms=944 prove_ms=3841 send_ms=1627 confirmed_ms=6413 visible_ms=6924
+test cached_merge_spend_e2e_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 104.01s
+

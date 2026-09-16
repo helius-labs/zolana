@@ -1,0 +1,26 @@
+   Compiling shielded-pool-tests v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/program-tests/shielded-pool)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.67s
+     Running tests/direct_spend/localnet.rs (/Users/tsv/Developer/zolana/zolana-pr320-bench/target/debug/deps/direct_spend_localnet-553a083954778eab)
+
+running 1 test
+Starting local validator
+Starting surfpool: /Users/tsv/Developer/zolana/zolana-10x-settlement-direct/target/tools/surfpool start --offline --no-tui --no-deploy --no-studio --port 9499 --host 127.0.0.1 --bpf-program regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD /Users/tsv/Developer/zolana/zolana-10x-settlement-direct/target/deploy/zolana_user_registry.so --bpf-program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG /Users/tsv/Developer/zolana/zolana-10x-settlement-direct/target/deploy/squads_smart_account_program.so --upgradeable-program sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6 /Users/tsv/Developer/zolana/zolana-10x-settlement-direct/target/deploy/shielded_pool_program.so EdMSvMoHfsemd2s7eHCrRnuM1dzPu2CpUrHJN98XYC9y --account-dir /var/folders/2j/bdwsm15103l0k1pp9xm1bmz80000gn/T/zolana-direct-spend-bench-smart-accounts-24081
+Writing surfpool logs to test-ledger/surfpool.log
+Starting Photon: /Users/tsv/Developer/zolana/zolana-direct-spend/target/debug/photon --rpc-url http://127.0.0.1:9499 --port 9384 --start-slot latest
+Writing photon logs to test-ledger/photon.log
+Photon indexer is ready at http://127.0.0.1:9384
+Local validator environment is ready
+Starting prover: /Users/tsv/Developer/zolana/zolana-direct-spend/target/prover-server start --keys-dir /Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/ --prover-address 0.0.0.0:3302 --metrics-address 0.0.0.0:10299 --auto-download=true
+Writing prover-server logs to test-ledger/prover-server.log
+Prover started successfully
+packed transaction: 3818 bytes, 6 addresses
+packed transaction: 3818 bytes, 6 addresses
+packed transaction: 1332 bytes, 10 addresses
+packed spend: 428788 CU (limit 1400000)
+packed spend: 428788 CU (limit 1400000)
+packed spend: 287771 CU (limit 1400000)
+E2E_PIPELINE {"certificate_prove_ms":0,"concurrency":4,"confirmed_ms":4301,"final_transaction_cu":287771,"indexed_ms":4833,"inputs":144,"poll_ms":"25","preparation_cu":0,"preparation_ms":0,"prepared":false,"prove_ms":3313,"send_transactions":3,"setup_ms":34923,"submit_ms":973,"total_cu":1145347,"total_ms":5380,"transactions":3,"warm_keys":true,"warmup_ms":3936,"witness_ms":546}
+test direct_spend_e2e_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 44.47s
+

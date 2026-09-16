@@ -1,0 +1,32 @@
+   Compiling zolana-interface v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/program-libs/interface)
+   Compiling zolana-program v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/program)
+   Compiling zolana-transaction v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/transaction)
+   Compiling zolana-event-parser v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/event)
+   Compiling zolana-client v0.1.0 (/Users/tsv/Developer/zolana/zolana-10x-settlement/sdk-libs/client)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.61s
+     Running `/Users/tsv/Developer/zolana/zolana-pr320-bench/target/debug/examples/settlement_wire`
+g2_compression_roundtrip=true raw_bytes=128 compressed_bytes=64
+inputs=36 nullifier_bits=256 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=1765 wire_bytes=2060 accounts=5 fits=true
+inputs=36 nullifier_bits=128 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=1189 wire_bytes=1484 accounts=5 fits=true
+inputs=36 nullifier_bits=256 proofs=5 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=2565 wire_bytes=2860 accounts=5 fits=true
+inputs=36 nullifier_bits=128 proofs=5 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=1989 wire_bytes=2284 accounts=5 fits=true
+inputs=36 nullifier_bits=256 proofs=9 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=3333 wire_bytes=3628 accounts=5 fits=true
+inputs=36 nullifier_bits=128 proofs=9 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=2757 wire_bytes=3052 accounts=5 fits=true
+inputs=144 nullifier_bits=256 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=5221 wire_bytes=5516 accounts=5 fits=false
+inputs=144 nullifier_bits=128 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=2917 wire_bytes=3212 accounts=5 fits=true
+inputs=144 nullifier_bits=256 proofs=5 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=6117 wire_bytes=6412 accounts=5 fits=false
+inputs=144 nullifier_bits=128 proofs=5 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=3813 wire_bytes=4108 accounts=5 fits=false
+inputs=144 nullifier_bits=256 proofs=9 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=6885 wire_bytes=7180 accounts=5 fits=false
+inputs=144 nullifier_bits=128 proofs=9 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=4581 wire_bytes=4876 accounts=5 fits=false
+inputs=512 nullifier_bits=256 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=16997 wire_bytes=17292 accounts=5 fits=false
+inputs=512 nullifier_bits=128 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=8805 wire_bytes=9100 accounts=5 fits=false
+inputs=512 nullifier_bits=256 proofs=5 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=18245 wire_bytes=18540 accounts=5 fits=false
+inputs=512 nullifier_bits=128 proofs=5 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=10053 wire_bytes=10348 accounts=5 fits=false
+inputs=512 nullifier_bits=256 proofs=9 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=19013 wire_bytes=19308 accounts=5 fits=false
+inputs=512 nullifier_bits=128 proofs=9 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=10821 wire_bytes=11116 accounts=5 fits=false
+inputs=144 nullifier_bits=160 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=3493 wire_bytes=3788 accounts=5 fits=true
+inputs=144 nullifier_bits=176 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=3781 wire_bytes=4076 accounts=5 fits=true
+inputs=144 nullifier_bits=184 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=3925 wire_bytes=4220 accounts=5 fits=false
+inputs=144 nullifier_bits=192 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=4069 wire_bytes=4364 accounts=5 fits=false
+inputs=144 nullifier_bits=128 proofs=1 proof_bytes=192 outputs=2 memo_bytes_per_output=256 ciphertext_bytes=696 payload_bytes=3435 wire_bytes=3730 accounts=5 fits=true
+inputs=144 nullifier_bits=128 proofs=5 proof_bytes=128 outputs=2 memo_bytes_per_output=0 ciphertext_bytes=178 payload_bytes=3493 wire_bytes=3788 accounts=5 fits=true

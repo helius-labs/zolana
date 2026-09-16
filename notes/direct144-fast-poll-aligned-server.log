@@ -1,0 +1,184 @@
+20:54:03 INF Initializing lazy key manager keys_dir=/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/ preload_circuits=[] preload_keys=none
+20:54:03 INF Starting ZK Prover service enable_queue=false enable_server=true redis_url=
+20:54:03 WRN No API key configured - server will accept all requests. Set PROVER_API_KEY environment variable to enable authentication.
+20:54:03 INF metrics server started addr=0.0.0.0:10299
+20:54:03 INF Sync proof admission control max_waiting=16 permits=4
+20:54:03 INF prover server started (no queue support) addr=0.0.0.0:3302 queue_enabled=false
+20:54:03 INF Started standard server without queue support metrics_address=0.0.0.0:10299 prover_address=0.0.0.0:3302
+20:54:03 INF Key preloading completed stats={"batch_systems_loaded":0,"groth16_systems_loaded":0,"keys_loading":0,"transfer_systems_loaded":0}
+20:54:03 INF received health check request
+20:54:04 INF received health check request
+20:54:05 INF received health check request
+20:54:06 INF received health check request
+20:54:07 INF received health check request
+20:54:08 INF received health check request
+20:54:28 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+20:54:28 INF Loading TransferProofSystem cache_key=input-certificate_36_0 key_path=/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/input-certificate_36_0.key
+20:54:28 INF Proving key verified against lockfile, skipping download file=input-certificate_36_0.key
+20:54:30 INF TransferProofSystem loaded and cached successfully cache_key=input-certificate_36_0 circuit_type=input-certificate n_inputs=36 n_outputs=0 requires_p256=false
+20:54:30 DBG constraint system solver done nbConstraints=319334 took=114.279166
+20:54:30 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=461.396833
+20:54:30 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=644 duration_sec=1.8859571659999999 end_heap_mb=647 start_heap_mb=2 sys_mb=690
+20:54:30 INF Synchronous proof completed successfully circuit_type=input-certificate
+20:54:30 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+20:54:30 INF Loading TransferProofSystem cache_key=nullifier-freshness_36_0 key_path=/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/nullifier-freshness_36_0.key
+20:54:30 INF Proving key verified against lockfile, skipping download file=nullifier-freshness_36_0.key
+20:54:32 INF TransferProofSystem loaded and cached successfully cache_key=nullifier-freshness_36_0 circuit_type=nullifier-freshness n_inputs=36 n_outputs=0 requires_p256=false
+20:54:32 DBG constraint system solver done nbConstraints=436848 took=127.155875
+20:54:32 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=481.284708
+20:54:32 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=495 duration_sec=2.150064709 end_heap_mb=1143 start_heap_mb=647 sys_mb=1183
+20:54:32 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+20:54:32 INF Processing prove request circuit_queued=false circuit_type=spend-balance force_async=false force_sync=true queue_available=false use_queue=false
+20:54:32 INF Loading TransferProofSystem cache_key=spend-balance_16_2 key_path=/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/spend-balance_16_2.key
+20:54:32 INF Proving key verified against lockfile, skipping download file=spend-balance_16_2.key
+20:54:33 INF TransferProofSystem loaded and cached successfully cache_key=spend-balance_16_2 circuit_type=spend-balance n_inputs=16 n_outputs=2 requires_p256=false
+20:54:33 DBG constraint system solver done nbConstraints=12462 took=4.772625
+20:54:33 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=12462 took=21.277416
+20:54:33 INF Proof generation completed with memory stats circuit_type=spend-balance delta_mb=17 duration_sec=0.092440458 end_heap_mb=1161 start_heap_mb=1143 sys_mb=1195
+20:54:33 INF Synchronous proof completed successfully circuit_type=spend-balance
+20:54:33 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+20:54:33 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+20:54:33 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+20:54:33 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+20:54:33 DBG Found cached TransferProofSystem key=input-certificate_36_0
+20:54:33 DBG Found cached TransferProofSystem key=input-certificate_36_0
+20:54:33 DBG Found cached TransferProofSystem key=nullifier-freshness_36_0
+20:54:33 DBG Found cached TransferProofSystem key=nullifier-freshness_36_0
+20:54:33 DBG constraint system solver done nbConstraints=319334 took=126.579792
+20:54:33 DBG constraint system solver done nbConstraints=319334 took=126.786125
+20:54:33 DBG constraint system solver done nbConstraints=436848 took=142.672791
+20:54:33 DBG constraint system solver done nbConstraints=436848 took=143.65375
+20:54:34 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=1301.294208
+20:54:34 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=775 duration_sec=1.4303525000000001 end_heap_mb=1938 start_heap_mb=1162 sys_mb=1996
+20:54:34 INF Synchronous proof completed successfully circuit_type=input-certificate
+20:54:34 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=1471.643292
+20:54:34 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=1002 duration_sec=1.6177962080000001 end_heap_mb=2165 start_heap_mb=1163 sys_mb=2220
+20:54:34 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+20:54:34 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=1511.595542
+20:54:34 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=1039 duration_sec=1.646063375 end_heap_mb=2201 start_heap_mb=1162 sys_mb=2260
+20:54:34 INF Synchronous proof completed successfully circuit_type=input-certificate
+20:54:34 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=1657.467542
+20:54:34 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=0 duration_sec=1.8038984999999998 end_heap_mb=867 start_heap_mb=1162 sys_mb=2260
+20:54:34 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+20:54:34 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+20:54:34 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+20:54:34 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+20:54:34 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+20:54:34 DBG Found cached TransferProofSystem key=input-certificate_36_0
+20:54:34 DBG Found cached TransferProofSystem key=input-certificate_36_0
+20:54:34 DBG Found cached TransferProofSystem key=nullifier-freshness_36_0
+20:54:34 DBG Found cached TransferProofSystem key=nullifier-freshness_36_0
+20:54:34 DBG constraint system solver done nbConstraints=319334 took=119.023875
+20:54:34 DBG constraint system solver done nbConstraints=319334 took=119.231208
+20:54:35 DBG constraint system solver done nbConstraints=436848 took=139.723375
+20:54:35 DBG constraint system solver done nbConstraints=436848 took=140.363791
+20:54:36 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=1036.021417
+20:54:36 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=1050 duration_sec=1.157354416 end_heap_mb=1918 start_heap_mb=868 sys_mb=2261
+20:54:36 INF Synchronous proof completed successfully circuit_type=input-certificate
+20:54:36 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=1197.758083
+20:54:36 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=1140 duration_sec=1.319096375 end_heap_mb=2008 start_heap_mb=868 sys_mb=2261
+20:54:36 INF Synchronous proof completed successfully circuit_type=input-certificate
+20:54:36 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=1558.159041
+20:54:36 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=183 duration_sec=1.700971375 end_heap_mb=1052 start_heap_mb=869 sys_mb=2261
+20:54:36 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+20:54:36 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=1695.225667
+20:54:36 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=186 duration_sec=1.837399333 end_heap_mb=1055 start_heap_mb=869 sys_mb=2261
+20:54:36 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+20:54:36 INF Processing prove request circuit_queued=false circuit_type=spend-balance force_async=false force_sync=true queue_available=false use_queue=false
+20:54:36 DBG Found cached TransferProofSystem key=spend-balance_16_2
+20:54:36 DBG constraint system solver done nbConstraints=12462 took=4.714209
+20:54:36 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=12462 took=22.127417
+20:54:36 INF Proof generation completed with memory stats circuit_type=spend-balance delta_mb=5 duration_sec=0.029452292 end_heap_mb=1061 start_heap_mb=1055 sys_mb=2261
+20:54:36 INF Synchronous proof completed successfully circuit_type=spend-balance
+21:05:57 INF Initializing lazy key manager keys_dir=/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/ preload_circuits=[] preload_keys=none
+21:05:57 INF Starting ZK Prover service enable_queue=false enable_server=true redis_url=
+21:05:57 WRN No API key configured - server will accept all requests. Set PROVER_API_KEY environment variable to enable authentication.
+21:05:57 INF metrics server started addr=0.0.0.0:10299
+21:05:57 INF Sync proof admission control max_waiting=16 permits=4
+21:05:57 INF prover server started (no queue support) addr=0.0.0.0:3302 queue_enabled=false
+21:05:57 INF Started standard server without queue support metrics_address=0.0.0.0:10299 prover_address=0.0.0.0:3302
+21:05:57 INF Key preloading completed stats={"batch_systems_loaded":0,"groth16_systems_loaded":0,"keys_loading":0,"transfer_systems_loaded":0}
+21:05:58 INF received health check request
+21:05:58 INF received health check request
+21:05:59 INF received health check request
+21:06:00 INF received health check request
+21:06:01 INF received health check request
+21:06:02 INF received health check request
+21:06:23 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+21:06:23 INF Loading TransferProofSystem cache_key=input-certificate_36_0 key_path=/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/input-certificate_36_0.key
+21:06:23 INF Proving key verified against lockfile, skipping download file=input-certificate_36_0.key
+21:06:24 INF TransferProofSystem loaded and cached successfully cache_key=input-certificate_36_0 circuit_type=input-certificate n_inputs=36 n_outputs=0 requires_p256=false
+21:06:24 DBG constraint system solver done nbConstraints=319334 took=109.131541
+21:06:25 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=539.98525
+21:06:25 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=739 duration_sec=1.8728964160000001 end_heap_mb=741 start_heap_mb=2 sys_mb=773
+21:06:25 INF Synchronous proof completed successfully circuit_type=input-certificate
+21:06:25 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+21:06:25 INF Loading TransferProofSystem cache_key=nullifier-freshness_36_0 key_path=/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/nullifier-freshness_36_0.key
+21:06:25 INF Proving key verified against lockfile, skipping download file=nullifier-freshness_36_0.key
+21:06:26 INF TransferProofSystem loaded and cached successfully cache_key=nullifier-freshness_36_0 circuit_type=nullifier-freshness n_inputs=36 n_outputs=0 requires_p256=false
+21:06:26 DBG constraint system solver done nbConstraints=436848 took=121.906667
+21:06:27 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=419.441792
+21:06:27 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=345 duration_sec=1.981353791 end_heap_mb=1088 start_heap_mb=742 sys_mb=1125
+21:06:27 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+21:06:27 INF Processing prove request circuit_queued=false circuit_type=spend-balance force_async=false force_sync=true queue_available=false use_queue=false
+21:06:27 INF Loading TransferProofSystem cache_key=spend-balance_16_2 key_path=/Users/tsv/Developer/zolana/zolana-10x-settlement-direct/prover/server/proving-keys/spend-balance_16_2.key
+21:06:27 INF Proving key verified against lockfile, skipping download file=spend-balance_16_2.key
+21:06:27 INF TransferProofSystem loaded and cached successfully cache_key=spend-balance_16_2 circuit_type=spend-balance n_inputs=16 n_outputs=2 requires_p256=false
+21:06:27 DBG constraint system solver done nbConstraints=12462 took=4.610208
+21:06:27 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=12462 took=20.420875
+21:06:27 INF Proof generation completed with memory stats circuit_type=spend-balance delta_mb=17 duration_sec=0.071718333 end_heap_mb=1105 start_heap_mb=1088 sys_mb=1137
+21:06:27 INF Synchronous proof completed successfully circuit_type=spend-balance
+21:06:27 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+21:06:27 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+21:06:27 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+21:06:27 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+21:06:27 DBG Found cached TransferProofSystem key=input-certificate_36_0
+21:06:27 DBG Found cached TransferProofSystem key=input-certificate_36_0
+21:06:27 DBG Found cached TransferProofSystem key=nullifier-freshness_36_0
+21:06:27 DBG Found cached TransferProofSystem key=nullifier-freshness_36_0
+21:06:27 DBG constraint system solver done nbConstraints=319334 took=115.631125
+21:06:27 DBG constraint system solver done nbConstraints=319334 took=115.684625
+21:06:27 DBG constraint system solver done nbConstraints=436848 took=132.0955
+21:06:27 DBG constraint system solver done nbConstraints=436848 took=132.548542
+21:06:28 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=1078.591042
+21:06:28 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=838 duration_sec=1.196458041 end_heap_mb=1945 start_heap_mb=1106 sys_mb=1995
+21:06:28 INF Synchronous proof completed successfully circuit_type=input-certificate
+21:06:28 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=1217.358292
+21:06:28 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=943 duration_sec=1.335107125 end_heap_mb=2049 start_heap_mb=1106 sys_mb=2095
+21:06:28 INF Synchronous proof completed successfully circuit_type=input-certificate
+21:06:28 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=1408.93575
+21:06:28 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=1202 duration_sec=1.544372708 end_heap_mb=2311 start_heap_mb=1108 sys_mb=2355
+21:06:28 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+21:06:29 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=1481.765958
+21:06:29 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=1214 duration_sec=1.616739417 end_heap_mb=2323 start_heap_mb=1108 sys_mb=2367
+21:06:29 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+21:06:29 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+21:06:29 INF Processing prove request circuit_queued=false circuit_type=input-certificate force_async=false force_sync=true queue_available=false use_queue=false
+21:06:29 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+21:06:29 INF Processing prove request circuit_queued=false circuit_type=nullifier-freshness force_async=false force_sync=true queue_available=false use_queue=false
+21:06:29 DBG Found cached TransferProofSystem key=input-certificate_36_0
+21:06:29 DBG Found cached TransferProofSystem key=input-certificate_36_0
+21:06:29 DBG Found cached TransferProofSystem key=nullifier-freshness_36_0
+21:06:29 DBG Found cached TransferProofSystem key=nullifier-freshness_36_0
+21:06:29 DBG constraint system solver done nbConstraints=319334 took=115.630166
+21:06:29 DBG constraint system solver done nbConstraints=319334 took=115.642833
+21:06:29 DBG constraint system solver done nbConstraints=436848 took=128.628292
+21:06:29 DBG constraint system solver done nbConstraints=436848 took=128.624875
+21:06:30 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=1436.360917
+21:06:30 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=0 duration_sec=1.554095792 end_heap_mb=1042 start_heap_mb=2324 sys_mb=2456
+21:06:30 INF Synchronous proof completed successfully circuit_type=input-certificate
+21:06:30 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=319334 took=1507.56375
+21:06:30 INF Proof generation completed with memory stats circuit_type=input-certificate delta_mb=0 duration_sec=1.625485416 end_heap_mb=1079 start_heap_mb=2323 sys_mb=2456
+21:06:30 INF Synchronous proof completed successfully circuit_type=input-certificate
+21:06:30 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=1502.65225
+21:06:30 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=0 duration_sec=1.63390025 end_heap_mb=1079 start_heap_mb=2325 sys_mb=2456
+21:06:30 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+21:06:30 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=436848 took=1524.599625
+21:06:30 INF Proof generation completed with memory stats circuit_type=nullifier-freshness delta_mb=0 duration_sec=1.656044 end_heap_mb=1079 start_heap_mb=2324 sys_mb=2456
+21:06:30 INF Synchronous proof completed successfully circuit_type=nullifier-freshness
+21:06:30 INF Processing prove request circuit_queued=false circuit_type=spend-balance force_async=false force_sync=true queue_available=false use_queue=false
+21:06:30 DBG Found cached TransferProofSystem key=spend-balance_16_2
+21:06:30 DBG constraint system solver done nbConstraints=12462 took=5.149209
+21:06:30 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=12462 took=25.056584
+21:06:30 INF Proof generation completed with memory stats circuit_type=spend-balance delta_mb=5 duration_sec=0.030465541 end_heap_mb=1085 start_heap_mb=1079 sys_mb=2456
+21:06:30 INF Synchronous proof completed successfully circuit_type=spend-balance

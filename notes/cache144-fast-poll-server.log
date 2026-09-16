@@ -1,0 +1,59 @@
+20:51:50 INF Initializing lazy key manager keys_dir=/Users/tsv/Developer/zolana/zolana-10x-settlement/prover/server/proving-keys/ preload_circuits=[] preload_keys=none
+20:51:50 INF Starting ZK Prover service enable_queue=false enable_server=true redis_url=
+20:51:50 WRN No API key configured - server will accept all requests. Set PROVER_API_KEY environment variable to enable authentication.
+20:51:50 INF metrics server started addr=0.0.0.0:10298
+20:51:50 INF Sync proof admission control gomaxprocs=18 max_waiting=16 permits=4
+20:51:50 INF prover server started (no queue support) addr=0.0.0.0:3301 queue_enabled=false
+20:51:50 INF Started standard server without queue support metrics_address=0.0.0.0:10298 prover_address=0.0.0.0:3301
+20:51:50 INF Key preloading completed stats={"batch_systems_loaded":0,"groth16_systems_loaded":0,"keys_loading":0,"transfer_systems_loaded":0}
+20:51:50 INF received health check request
+20:51:51 INF received health check request
+20:51:52 INF received health check request
+20:51:53 INF received health check request
+20:51:54 INF received health check request
+20:51:55 INF received health check request
+20:53:14 INF Processing prove request circuit_queued=false circuit_type=merge force_async=false force_sync=true queue_available=false use_queue=false
+20:53:14 INF Loading TransferProofSystem cache_key=merge_36_1 key_path=/Users/tsv/Developer/zolana/zolana-10x-settlement/prover/server/proving-keys/merge_36_1.key
+20:53:14 INF Proving key verified against lockfile, skipping download file=merge_36_1.key
+20:53:17 INF TransferProofSystem loaded and cached successfully cache_key=merge_36_1 circuit_type=merge n_inputs=36 n_outputs=1 requires_p256=true
+20:53:17 DBG constraint system solver done nbConstraints=780681 took=205.238708
+20:53:18 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=780681 took=878.789
+20:53:18 INF Proof generation completed with memory stats circuit_type=merge delta_mb=1243 duration_sec=3.995167125 end_heap_mb=1246 start_heap_mb=2 sys_mb=1453
+20:53:18 INF Synchronous proof completed successfully circuit_type=merge
+20:53:18 INF Processing prove request circuit_queued=false circuit_type=transfer-confidential-cached force_async=false force_sync=true queue_available=false use_queue=false
+20:53:18 INF Loading TransferProofSystem cache_key=transfer-confidential-cached_4_3 key_path=/Users/tsv/Developer/zolana/zolana-10x-settlement/prover/server/proving-keys/transfer_confidential_cached_4_3.key
+20:53:18 INF TransferProofSystem loaded and cached successfully cache_key=transfer-confidential-cached_4_3 circuit_type=transfer-confidential-cached n_inputs=4 n_outputs=3 requires_p256=false
+20:53:18 DBG constraint system solver done nbConstraints=99339 took=39.555959
+20:53:18 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=99339 took=151.679916
+20:53:18 INF Proof generation completed with memory stats circuit_type=transfer-confidential-cached delta_mb=290 duration_sec=0.586467 end_heap_mb=1536 start_heap_mb=1246 sys_mb=1602
+20:53:18 INF Synchronous proof completed successfully circuit_type=transfer-confidential-cached
+20:53:18 INF Processing prove request circuit_queued=false circuit_type=transfer-confidential-cached force_async=false force_sync=true queue_available=false use_queue=false
+20:53:18 DBG Found cached TransferProofSystem key=transfer-confidential-cached_4_3
+20:53:18 INF Processing prove request circuit_queued=false circuit_type=merge force_async=false force_sync=true queue_available=false use_queue=false
+20:53:18 INF Processing prove request circuit_queued=false circuit_type=merge force_async=false force_sync=true queue_available=false use_queue=false
+20:53:18 INF Processing prove request circuit_queued=false circuit_type=merge force_async=false force_sync=true queue_available=false use_queue=false
+20:53:18 INF Processing prove request circuit_queued=false circuit_type=merge force_async=false force_sync=true queue_available=false use_queue=false
+20:53:18 DBG Found cached TransferProofSystem key=merge_36_1
+20:53:18 DBG Found cached TransferProofSystem key=merge_36_1
+20:53:18 DBG Found cached TransferProofSystem key=merge_36_1
+20:53:18 DBG constraint system solver done nbConstraints=99339 took=51.701708
+20:53:18 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=99339 took=178.148667
+20:53:18 INF Proof generation completed with memory stats circuit_type=transfer-confidential-cached delta_mb=568 duration_sec=0.230492459 end_heap_mb=2105 start_heap_mb=1536 sys_mb=2195
+20:53:18 INF Synchronous proof completed successfully circuit_type=transfer-confidential-cached
+20:53:18 DBG Found cached TransferProofSystem key=merge_36_1
+20:53:19 DBG constraint system solver done nbConstraints=780681 took=315.920708
+20:53:19 DBG constraint system solver done nbConstraints=780681 took=316.075917
+20:53:19 DBG constraint system solver done nbConstraints=780681 took=330.251583
+20:53:19 DBG constraint system solver done nbConstraints=780681 took=355.18425
+20:53:21 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=780681 took=2567.841667
+20:53:21 INF Proof generation completed with memory stats circuit_type=merge delta_mb=1532 duration_sec=2.886527459 end_heap_mb=3088 start_heap_mb=1555 sys_mb=3192
+20:53:21 INF Synchronous proof completed successfully circuit_type=merge
+20:53:21 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=780681 took=2585.415125
+20:53:21 INF Proof generation completed with memory stats circuit_type=merge delta_mb=1556 duration_sec=2.904053375 end_heap_mb=3112 start_heap_mb=1555 sys_mb=3216
+20:53:21 INF Synchronous proof completed successfully circuit_type=merge
+20:53:21 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=780681 took=2685.795833
+20:53:21 INF Proof generation completed with memory stats circuit_type=merge delta_mb=1676 duration_sec=3.01873 end_heap_mb=3232 start_heap_mb=1555 sys_mb=3336
+20:53:21 INF Synchronous proof completed successfully circuit_type=merge
+20:53:22 DBG prover done acceleration=none backend=groth16 curve=bn254 nbConstraints=780681 took=3251.080541
+20:53:22 INF Proof generation completed with memory stats circuit_type=merge delta_mb=0 duration_sec=3.608860167 end_heap_mb=1182 start_heap_mb=2105 sys_mb=3541
+20:53:22 INF Synchronous proof completed successfully circuit_type=merge
