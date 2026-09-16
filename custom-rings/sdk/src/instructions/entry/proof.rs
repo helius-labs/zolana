@@ -28,7 +28,7 @@ use zolana_transaction::{
     },
     ProofInputUtxo,
 };
-use zolana_tree::TreeAccount;
+use zolana_tree::{NullifierFilterMode, TreeAccount};
 
 /// The mutation witness failed to assemble or prove.
 #[derive(Debug, Error)]
@@ -68,6 +68,8 @@ pub struct EntryProof {
     pub nullifier: [u8; 32],
     /// The program folds it into `private_tx_hash`, it never reaches the record.
     pub private_tx_blinding: [u8; 32],
+    pub compact_nullifiers: bool,
+    pub nullifier_filter_mode: NullifierFilterMode,
 }
 
 /// An entry before its blinding exists, the proof derives that from the spend.
@@ -97,6 +99,7 @@ impl EntryWitness<'_> {
         rpc: &R,
         prover: &ProverClient,
     ) -> Result<(ListEntry, EntryProof), EntryProofError> {
+        let tree = read_tree_state(rpc, self.entries_tree)?;
         let tree_id = self.entries_tree_id;
         let address = self
             .owner
@@ -183,15 +186,12 @@ impl EntryWitness<'_> {
                 state.path.iter().map(be).collect(),
                 BigUint::from(state.leaf_index),
             ),
-            None => {
-                let live = read_state_root(rpc, self.entries_tree)?;
-                (
-                    live.value,
-                    live.index,
-                    vec![BigUint::ZERO; STATE_TREE_HEIGHT],
-                    BigUint::ZERO,
-                )
-            }
+            None => (
+                tree.value,
+                tree.index,
+                vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+                BigUint::ZERO,
+            ),
         };
         let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
         tree_slots[0] = TreeSlot::new(tree_id, utxo_root, non_inclusion.root);
@@ -275,6 +275,8 @@ impl EntryWitness<'_> {
                 utxo_tree_root_index: utxo_root_index,
                 nullifier: slot.nullifier,
                 private_tx_blinding,
+                compact_nullifiers: tree.compact_nullifiers,
+                nullifier_filter_mode: tree.nullifier_filter_mode,
             },
         ))
     }
@@ -352,10 +354,11 @@ impl InputSlot {
     }
 }
 
-/// A root and the history index the program resolves it by.
-struct StateRoot {
+struct TreeState {
     value: [u8; 32],
     index: u16,
+    compact_nullifiers: bool,
+    nullifier_filter_mode: NullifierFilterMode,
 }
 
 fn zero_nullifier_pubkey() -> Result<[u8; 32], EntryProofError> {
@@ -390,7 +393,7 @@ fn non_inclusion_proof<I: Rpc>(
         .ok_or(EntryProofError::MissingProof)
 }
 
-fn read_state_root<R: Rpc>(rpc: &R, tree: Address) -> Result<StateRoot, EntryProofError> {
+fn read_tree_state<R: Rpc>(rpc: &R, tree: Address) -> Result<TreeState, EntryProofError> {
     let mut account = rpc
         .get_account(tree)?
         .ok_or(EntryProofError::MissingTree { address: tree })?;
@@ -405,5 +408,10 @@ fn read_state_root<R: Rpc>(rpc: &R, tree: Address) -> Result<StateRoot, EntryPro
     let value = tree_account
         .get_utxo_tree_root(index)
         .map_err(|_| EntryProofError::InvalidTree { address: tree })?;
-    Ok(StateRoot { value, index })
+    Ok(TreeState {
+        value,
+        index,
+        compact_nullifiers: tree_account.uses_compact_nullifiers(),
+        nullifier_filter_mode: tree_account.nullifier_filter_mode(),
+    })
 }

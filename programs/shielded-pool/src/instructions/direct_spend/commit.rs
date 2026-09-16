@@ -6,15 +6,15 @@ use pinocchio::{
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     direct_spend::{
-        certificate_id, field, Payload, PaymentInputs, CERTIFICATE_INPUTS, MAX_CERTIFICATES,
-        MAX_INPUTS, PAYMENT_DOMAIN,
+        certificate_id, field, Payload, PaymentInputs, ADMITTED_PAYMENT_DOMAIN, CERTIFICATE_INPUTS,
+        MAX_CERTIFICATES, MAX_INPUTS, PAYMENT_DOMAIN,
     },
     error::ShieldedPoolError,
     event::{EventKind, GeneralEvent, Input, InputTreeSequence},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     verifying_keys::{
-        direct_payment_512_2, direct_payment_gkr_144_2, direct_payment_gkr_512_2,
-        spend_balance_16_2,
+        direct_payment_512_2, direct_payment_admitted_144_2, direct_payment_admitted_512_2,
+        direct_payment_gkr_144_2, direct_payment_gkr_512_2, spend_balance_16_2,
     },
 };
 use zolana_tree::TreeAccount;
@@ -22,10 +22,13 @@ use zolana_tree::TreeAccount;
 use super::{buffer, check_freshness, load_payload, tree_layout, verify, verify_with_commitment};
 use crate::instructions::{
     event::emit_event,
-    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
+    nullifier_pda::{
+        create_nullifier_pdas, uses_nullifier_filter, InputTreeResult, NullifierAdmission,
+    },
     shared::tree_error,
 };
 
+#[light_program_profiler::profile]
 pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     if !data.is_empty() {
         return Err(ProgramError::InvalidInstructionData);
@@ -36,15 +39,20 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
     let input_tree = iter.next_mut("input_tree")?;
     let output_tree = iter.next_mut("output_tree")?;
     let pending = iter.next_mut("pending_nullifiers")?;
+    let filter = if uses_nullifier_filter(input_tree)? {
+        Some(iter.next_mut("nullifier_filter")?)
+    } else {
+        None
+    };
     let system = iter.next_account("system_program")?;
     let program = iter.next_account("shielded_pool_program")?;
     if !pinocchio_system::check_id(system.address()) || program.address() != &crate::ID {
         return Err(ProgramError::IncorrectProgramId);
     }
     let receipts = iter.remaining_unchecked_mut()?;
-    let (statement, proof, commitment, capacity) =
+    let (statement, proof, commitment, capacity, admitted) =
         match load_payload(payment, owner.address().as_array())? {
-            Payload::Payment { statement, proof } => (statement, proof, None, MAX_INPUTS),
+            Payload::Payment { statement, proof } => (statement, proof, None, MAX_INPUTS, false),
             Payload::GkrPayment {
                 statement,
                 proof,
@@ -53,10 +61,35 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
             } if zolana_interface::direct_spend::GKR_PAYMENT_INPUTS
                 .contains(&usize::from(inputs)) =>
             {
-                (statement, proof, Some(commitment), usize::from(inputs))
+                (
+                    statement,
+                    proof,
+                    Some(commitment),
+                    usize::from(inputs),
+                    false,
+                )
+            }
+            Payload::AdmittedPayment {
+                statement,
+                proof,
+                commitment,
+                inputs,
+            } if zolana_interface::direct_spend::GKR_PAYMENT_INPUTS
+                .contains(&usize::from(inputs)) =>
+            {
+                (
+                    statement,
+                    proof,
+                    Some(commitment),
+                    usize::from(inputs),
+                    true,
+                )
             }
             _ => return Err(ProgramError::InvalidAccountData),
         };
+    if admitted && filter.is_none() {
+        return Err(ShieldedPoolError::InvalidNullifierFilter.into());
+    }
     let clock = Clock::get()?;
     if !statement.validate()
         || clock.slot > statement.expiry_slot
@@ -149,22 +182,40 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
                 {
                     return Err(ProgramError::InvalidArgument);
                 }
-                check_freshness(tree, *freshness)?;
+                if admitted {
+                    if freshness.index != 0 || freshness.value != [0; 32] {
+                        return Err(ProgramError::InvalidArgument);
+                    }
+                } else {
+                    check_freshness(tree, *freshness)?;
+                }
                 let id = certificate_id(payment.address().as_array())?;
                 values.push([id, certificate.value_commitment]);
-                let mut fields = vec![field(PAYMENT_DOMAIN)];
+                let mut fields = vec![field(if admitted {
+                    ADMITTED_PAYMENT_DOMAIN
+                } else {
+                    PAYMENT_DOMAIN
+                })];
                 fields.extend(certificate.fields(
                     id,
                     owner.address().as_array(),
                     tree.tree_id,
                     capacity,
                 )?);
-                fields.extend(certificate.freshness_fields(*freshness, tree.tree_id, capacity)?);
+                if !admitted {
+                    fields.extend(certificate.freshness_fields(
+                        *freshness,
+                        tree.tree_id,
+                        capacity,
+                    )?);
+                }
                 fields.extend(statement.balance_fields(intent, output_tree_id, &values, 1)?);
-                let key = match (commitment.is_some(), capacity) {
-                    (false, MAX_INPUTS) => &direct_payment_512_2::VERIFYINGKEY,
-                    (true, 144) => &direct_payment_gkr_144_2::VERIFYINGKEY,
-                    (true, MAX_INPUTS) => &direct_payment_gkr_512_2::VERIFYINGKEY,
+                let key = match (admitted, commitment.is_some(), capacity) {
+                    (true, true, 144) => &direct_payment_admitted_144_2::VERIFYINGKEY,
+                    (true, true, MAX_INPUTS) => &direct_payment_admitted_512_2::VERIFYINGKEY,
+                    (false, false, MAX_INPUTS) => &direct_payment_512_2::VERIFYINGKEY,
+                    (false, true, 144) => &direct_payment_gkr_144_2::VERIFYINGKEY,
+                    (false, true, MAX_INPUTS) => &direct_payment_gkr_512_2::VERIFYINGKEY,
                     _ => return Err(ProgramError::InvalidArgument),
                 };
                 verify_with_commitment(&proof, commitment.as_ref(), &fields, key)?;
@@ -202,12 +253,21 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
             tree_id: tree.tree_id(),
         }
     };
+    let mut nullifier_accounts = vec![pending];
+    if let Some(filter) = filter {
+        nullifier_accounts.push(filter);
+    }
     create_nullifier_pdas(
         owner,
         input_tree,
-        &mut [pending],
+        &mut nullifier_accounts,
         nullifiers.iter(),
         &result,
+        if admitted {
+            NullifierAdmission::FilterNegative
+        } else {
+            NullifierAdmission::ExactProof
+        },
     )?;
     let first_output_leaf_index = {
         let mut tree =

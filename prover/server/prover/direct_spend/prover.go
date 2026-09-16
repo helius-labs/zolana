@@ -42,6 +42,8 @@ func Circuit(kind common.CircuitType, inputs, outputs uint32) (frontend.Circuit,
 		payment := direct.NewPayment(int(inputs), int(outputs))
 		payment.GKR = true
 		return payment, nil
+	case common.DirectPaymentAdmittedCircuitType:
+		return direct.NewAdmittedPayment(int(inputs), int(outputs)), nil
 	}
 	return nil, fmt.Errorf("direct spend: unknown circuit %s", kind)
 }

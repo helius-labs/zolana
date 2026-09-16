@@ -522,11 +522,12 @@ pub fn entries_tree() -> Pubkey {
 /// The id `initialized_entries_tree_account` inits the tree with.
 pub const ENTRIES_TREE_ID: u16 = 0;
 
-/// The header alone, the discriminator and the tree id `create_policy` reads.
+/// The header alone, including tree id and nullifier account modes.
 pub fn entries_tree_account() -> Account {
-    let mut data = vec![0u8; TreeAccount::tree_id_offset() + 2];
+    let mut data = vec![0u8; core::mem::offset_of!(zolana_tree::SppTreeLayout, utxo)];
     data[0] = zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;
-    data[TreeAccount::tree_id_offset()..].copy_from_slice(&ENTRIES_TREE_ID.to_le_bytes());
+    data[TreeAccount::tree_id_offset()..TreeAccount::tree_id_offset() + 2]
+        .copy_from_slice(&ENTRIES_TREE_ID.to_le_bytes());
     Account {
         lamports: 1_000_000_000,
         data,

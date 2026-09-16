@@ -6,6 +6,7 @@ mod create_spl_interface;
 mod create_tree;
 mod deposit;
 pub mod direct_spend;
+pub mod historical_nullifiers;
 mod merge_ring;
 mod merge_transact;
 mod protocol_config;

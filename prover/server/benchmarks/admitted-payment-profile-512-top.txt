@@ -1,0 +1,26 @@
+File: zolana-admitted-circuits.test
+Type: cpu
+Time: 2026-09-16 23:25:08 WEST
+Duration: 2.98s, Total samples = 23.53s (788.45%)
+Showing nodes accounting for 21.54s, 91.54% of 23.53s total
+Dropped 106 nodes (cum <= 0.12s)
+Showing top 18 nodes out of 112
+      flat  flat%   sum%        cum   cum%
+     8.16s 34.68% 34.68%      8.16s 34.68%  github.com/consensys/gnark-crypto/ecc/bn254/fp.mul
+     5.24s 22.27% 56.95%      5.39s 22.91%  github.com/consensys/gnark-crypto/ecc/bn254/fp.(*Element).Sub
+     1.70s  7.22% 64.17%      1.70s  7.22%  github.com/consensys/gnark-crypto/ecc/bn254/fr.mul
+     1.48s  6.29% 70.46%      1.48s  6.29%  runtime.pthread_cond_wait
+     0.60s  2.55% 73.01%      0.60s  2.55%  runtime.madvise
+     0.56s  2.38% 75.39%      0.82s  3.48%  github.com/consensys/gnark-crypto/ecc/bn254/fp.(*Element).Add
+     0.52s  2.21% 77.60%      0.53s  2.25%  github.com/consensys/gnark-crypto/ecc/bn254/fp.(*Element).IsZero (inline)
+     0.49s  2.08% 79.69%      0.51s  2.17%  github.com/consensys/gnark-crypto/ecc/bn254.partitionScalars.func1
+     0.45s  1.91% 81.60%      0.45s  1.91%  runtime.pthread_cond_signal
+     0.40s  1.70% 83.30%      9.26s 39.35%  github.com/consensys/gnark-crypto/ecc/bn254.processChunkG1BatchAffine[go.shape.[32768]github.com/consensys/gnark-crypto/ecc/bn254.g1JacExtended,go.shape.[32768]github.com/consensys/gnark-crypto/ecc/bn254.G1Affine,go.shape.[32768]bool,go.shape.[640]github.com/consensys/gnark-crypto/ecc/bn254.G1Affine,go.shape.[640]*github.com/consensys/gnark-crypto/ecc/bn254.G1Affine,go.shape.[640]github.com/consensys/gnark-crypto/ecc/bn254.batchOpG1Affine,go.shape.[640]github.com/consensys/gnark-crypto/ecc/bn254/fp.Element]
+     0.28s  1.19% 84.49%      0.28s  1.19%  github.com/consensys/gnark-crypto/ecc/bn254/fp.(*Element).smallerThanModulus (inline)
+     0.27s  1.15% 85.64%      0.27s  1.15%  runtime.usleep
+     0.26s  1.10% 86.74%      0.26s  1.10%  github.com/consensys/gnark-crypto/ecc/bn254.partitionScalars.func2
+     0.24s  1.02% 87.76%      7.75s 32.94%  github.com/consensys/gnark-crypto/ecc/bn254.batchAddG1Affine[go.shape.[640]github.com/consensys/gnark-crypto/ecc/bn254.G1Affine,go.shape.[640]*github.com/consensys/gnark-crypto/ecc/bn254.G1Affine,go.shape.[640]github.com/consensys/gnark-crypto/ecc/bn254/fp.Element]
+     0.24s  1.02% 88.78%      7.16s 30.43%  github.com/consensys/gnark-crypto/ecc/bn254.processChunkG2BatchAffine[go.shape.[32768]github.com/consensys/gnark-crypto/ecc/bn254.g2JacExtended,go.shape.[32768]github.com/consensys/gnark-crypto/ecc/bn254.G2Affine,go.shape.[32768]bool,go.shape.[640]github.com/consensys/gnark-crypto/ecc/bn254.G2Affine,go.shape.[640]*github.com/consensys/gnark-crypto/ecc/bn254.G2Affine,go.shape.[640]github.com/consensys/gnark-crypto/ecc/bn254.batchOpG2Affine,go.shape.[640]github.com/consensys/gnark-crypto/ecc/bn254/internal/fptower.E2]
+     0.22s  0.93% 89.72%      0.28s  1.19%  github.com/consensys/gnark-crypto/ecc/bn254/fp.(*Element).Inverse
+     0.22s  0.93% 90.65%      0.25s  1.06%  github.com/consensys/gnark-crypto/ecc/bn254/fp.(*Element).Neg
+     0.21s  0.89% 91.54%      0.22s  0.93%  runtime.asyncPreempt

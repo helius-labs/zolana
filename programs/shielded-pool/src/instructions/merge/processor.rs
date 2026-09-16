@@ -26,7 +26,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_event,
-    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
+    nullifier_pda::{create_nullifier_pdas, InputTreeResult, NullifierAdmission},
     shared::{
         bool_field, check_field_element, check_field_elements, check_not_expired, tree_error,
     },
@@ -162,6 +162,7 @@ pub(crate) fn process_merge_core(
         &mut accounts.nullifier_pdas,
         ix.nullifiers.iter(),
         &input_tree_result,
+        NullifierAdmission::ExactProof,
     )?;
     let tree_write = {
         let output_tree = accounts.output_tree.address().to_bytes();

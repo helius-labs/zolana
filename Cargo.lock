@@ -6535,6 +6535,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-system-interface 3.2.0",
+ "solana-transaction-error",
  "spl-token",
  "spl-token-2022-interface 2.1.0",
  "tokio",

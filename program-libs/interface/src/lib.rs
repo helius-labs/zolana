@@ -1,3 +1,4 @@
+pub const NULLIFIER_FILTER_SEED: &[u8] = b"nullifier_filter";
 pub const PENDING_NULLIFIERS_SEED: &[u8] = b"pending_nullifiers";
 
 #[cfg(feature = "borsh")]

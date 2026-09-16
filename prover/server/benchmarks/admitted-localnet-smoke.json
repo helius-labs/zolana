@@ -1,0 +1,339 @@
+{
+  "scope": "Final matched144 localnet correctness smoke after setup-pipeline, mixed-tree account capacity and comparator assertion changes. One resident-key payment per route; not a repeated performance matrix.",
+  "manifest": {
+    "started_at": "2026-09-16T22:52:16.627040+00:00",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "logical_cpus": 18,
+    "settings": {
+      "GOMAXPROCS": "18",
+      "GOMEMLIMIT": "24GiB",
+      "PROVER_SYNC_CONCURRENCY": "4",
+      "E2E_BENCH_CONCURRENCY": "4",
+      "E2E_BENCH_POLL_MS": "25",
+      "E2E_BENCH_INDEXER_POLL_MS": "500",
+      "E2E_BENCH_OVERLAP": "1",
+      "E2E_BENCH_SETUP_CONCURRENCY": "8",
+      "E2E_BENCH_PREPARED": "0",
+      "E2E_BENCH_PACKED": "1"
+    },
+    "native_profile": "dev",
+    "runs": 1,
+    "paired_cold_warm": false,
+    "artifacts": {
+      "cli": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/debug/zolana",
+        "sha256": "88dec4ab4ccd6569616855f41c0776aaded3cfd40aa3eebdfde157f13a2ad5ba"
+      },
+      "photon": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/debug/photon",
+        "sha256": "98a66c9fa6fc481c82afc79ba24795c1df24f16c07b200c8c5d0499f3f4141b9"
+      },
+      "gkr_prover": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/prover/server/light-prover",
+        "sha256": "e67428463e7703bdca78a34bb8fa3a47fd1dbec0c93e6d43d0494b5f7e532705"
+      },
+      "cache_prover": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/prover-server",
+        "sha256": "46d2dfa440c2cddb89bdcf0a9a74a8e8a033c8c01e2f8051f2a131ea623d0a42"
+      },
+      "gkr_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/deploy/shielded_pool_program.so",
+        "sha256": "d956663fc1d503d479a9063f9b56b4298c0bd2859e5fc6ff2fc5afbbbf164eda"
+      },
+      "cache_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling/target/deploy/shielded_pool_program.so",
+        "sha256": "5094fa5dd8aac210e8d8de6def069eadd9d8c3e478b1bc569726afe42621baff"
+      },
+      "surfpool": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/tools/surfpool",
+        "sha256": "41182ea7d4c7f0b293e3336730817ff04d388f4054ce59b2f4b153844d1e05b7"
+      },
+      "gkr_squads_smart_account_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/deploy/squads_smart_account_program.so",
+        "sha256": "49cf27024d211ab827eadc11219a935abf9a5138ece1c0b0631c26790fd4f3c0"
+      },
+      "gkr_zolana_user_registry": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/deploy/zolana_user_registry.so",
+        "sha256": "60a98a92ac87c5f771431c4c934a0e365ef1f7020b19213e540c704c80d5aac2"
+      },
+      "cache_squads_smart_account_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling/target/deploy/squads_smart_account_program.so",
+        "sha256": "49cf27024d211ab827eadc11219a935abf9a5138ece1c0b0631c26790fd4f3c0"
+      },
+      "cache_zolana_user_registry": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling/target/deploy/zolana_user_registry.so",
+        "sha256": "60a98a92ac87c5f771431c4c934a0e365ef1f7020b19213e540c704c80d5aac2"
+      }
+    },
+    "cases": [
+      {
+        "label": "admitted-144-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-10x-admission",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "--profile",
+          "dev",
+          "-p",
+          "shielded-pool-tests",
+          "--features",
+          "localnet,proofs",
+          "--test",
+          "direct_spend_localnet",
+          "direct_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 1,
+        "cold_samples": 1
+      },
+      {
+        "label": "cached-144-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "--profile",
+          "dev",
+          "-p",
+          "spp-test-validator",
+          "--test",
+          "proof_cu",
+          "cached_merge_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 1,
+        "cold_samples": 1
+      }
+    ]
+  },
+  "samples": [
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 7408,
+      "final_transaction_cu": 550563,
+      "gomaxprocs": 18,
+      "indexed_ms": 7939,
+      "indexer_poll_ms": "500",
+      "inputs": 144,
+      "key_state": "cold",
+      "layout": "interleaved",
+      "membership_fetch_ms": 75,
+      "nullifier_fetch_ms": 0,
+      "overlap": true,
+      "phase": "warmup",
+      "poll_ms": "25",
+      "prefix_upload_ms": 1250,
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 6472,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 10,
+      "recipient_indexer_ms": 520,
+      "run": 1,
+      "send_transactions": 3,
+      "setup_ms": 66923,
+      "submit_ms": 443,
+      "total_cu": 556587,
+      "total_ms": 7939,
+      "transactions": 3,
+      "variant": "admitted",
+      "warm_keys": false,
+      "warmup_ms": 0,
+      "witness_local_ms": 417,
+      "witness_ms": 492,
+      "case": "admitted-144-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 3225,
+      "final_transaction_cu": 550453,
+      "gomaxprocs": 18,
+      "indexed_ms": 3757,
+      "indexer_poll_ms": "500",
+      "inputs": 144,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "membership_fetch_ms": 74,
+      "nullifier_fetch_ms": 0,
+      "overlap": true,
+      "phase": "measured",
+      "poll_ms": "25",
+      "prefix_upload_ms": 1217,
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 2232,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 15,
+      "recipient_indexer_ms": 516,
+      "run": 1,
+      "send_transactions": 3,
+      "setup_ms": 126125,
+      "submit_ms": 508,
+      "total_cu": 556118,
+      "total_ms": 3757,
+      "transactions": 3,
+      "variant": "admitted",
+      "warm_keys": true,
+      "warmup_ms": 8152,
+      "witness_local_ms": 409,
+      "witness_ms": 483,
+      "case": "admitted-144-warm-interleaved"
+    },
+    {
+      "chain_send_ms": 1884,
+      "concurrency": 4,
+      "confirmed_ms": 8720,
+      "gomaxprocs": 18,
+      "indexer_poll_ms": "500",
+      "inputs": 144,
+      "key_state": "cold",
+      "layout": "interleaved",
+      "membership_fetch_ms": 53,
+      "nullifier_fetch_ms": 124,
+      "output_slots": 3,
+      "overlap": true,
+      "packed": true,
+      "phase": "warmup",
+      "poll_ms": 25,
+      "proof_schedule": "transfer-first-work-conserving",
+      "proofs": 5,
+      "prove_ms": 5955,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 11,
+      "recipient_indexer_ms": 515,
+      "run": 1,
+      "setup_ms": 7601,
+      "submit_ms": 793,
+      "total_cu": 1329577,
+      "total_ms": 9247,
+      "transactions": 5,
+      "variant": "cached",
+      "warm_keys": false,
+      "warmup_ms": 0,
+      "witness_local_ms": 705,
+      "witness_ms": 882,
+      "case": "cached-144-warm-interleaved"
+    },
+    {
+      "chain_send_ms": 1406,
+      "concurrency": 4,
+      "confirmed_ms": 5503,
+      "gomaxprocs": 18,
+      "indexer_poll_ms": "500",
+      "inputs": 144,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "membership_fetch_ms": 56,
+      "nullifier_fetch_ms": 134,
+      "output_slots": 3,
+      "overlap": true,
+      "packed": true,
+      "phase": "measured",
+      "poll_ms": 25,
+      "proof_schedule": "transfer-first-work-conserving",
+      "proofs": 5,
+      "prove_ms": 3407,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 11,
+      "recipient_indexer_ms": 516,
+      "run": 1,
+      "setup_ms": 7949,
+      "submit_ms": 794,
+      "total_cu": 1321972,
+      "total_ms": 6031,
+      "transactions": 5,
+      "variant": "cached",
+      "warm_keys": true,
+      "warmup_ms": 16848,
+      "witness_local_ms": 755,
+      "witness_ms": 945,
+      "case": "cached-144-warm-interleaved"
+    }
+  ],
+  "summary": [
+    {
+      "case": "admitted-144-warm-interleaved",
+      "samples": 1,
+      "witness_ms": {
+        "median": 483,
+        "min": 483,
+        "max": 483
+      },
+      "prove_ms": {
+        "median": 2232,
+        "min": 2232,
+        "max": 2232
+      },
+      "submit_ms": {
+        "median": 508,
+        "min": 508,
+        "max": 508
+      },
+      "total_ms": {
+        "median": 3757,
+        "min": 3757,
+        "max": 3757
+      },
+      "total_cu": {
+        "median": 556118,
+        "min": 556118,
+        "max": 556118
+      },
+      "transactions": {
+        "median": 3,
+        "min": 3,
+        "max": 3
+      }
+    },
+    {
+      "case": "cached-144-warm-interleaved",
+      "samples": 1,
+      "witness_ms": {
+        "median": 945,
+        "min": 945,
+        "max": 945
+      },
+      "prove_ms": {
+        "median": 3407,
+        "min": 3407,
+        "max": 3407
+      },
+      "submit_ms": {
+        "median": 794,
+        "min": 794,
+        "max": 794
+      },
+      "total_ms": {
+        "median": 6031,
+        "min": 6031,
+        "max": 6031
+      },
+      "total_cu": {
+        "median": 1321972,
+        "min": 1321972,
+        "max": 1321972
+      },
+      "transactions": {
+        "median": 5,
+        "min": 5,
+        "max": 5
+      }
+    }
+  ]
+}

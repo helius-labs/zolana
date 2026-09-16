@@ -1,0 +1,58 @@
+{
+  "scope": "resident-key backend requests; not whole-payment latency",
+  "timed": "decode, witness conversion, solver, GKR, Groth16, proof JSON serialization",
+  "excluded": "fixture generation, proving-key load, digest compatibility check, proof verification, HTTP and ledger work",
+  "fixture": "fully active notes at unique random32-bit private positions; two outputs",
+  "gomemlimit": "24GiB",
+  "go": "1.27.1",
+  "results": [
+    {
+      "inputs": 144,
+      "outputs": 2,
+      "kind": "direct-payment-admitted",
+      "gomaxprocs": 18,
+      "concurrency": 1,
+      "verified_proofs": 3,
+      "latency_seconds": {
+        "samples": [
+          2.184033,
+          2.202502,
+          2.211825
+        ],
+        "median": 2.202502,
+        "minimum": 2.184033,
+        "maximum": 2.211825
+      },
+      "constraints": 1232023,
+      "circuit_digest": "1df01cde9597da0bbd4e52455a5e52702f862f30b91ab1080f8e8fc5f12b09c6",
+      "key_bytes": 428121658,
+      "raw_vk_bytes": 1040,
+      "setup_write_seconds": 36.25,
+      "log": "admitted-payment-proving-144.log"
+    },
+    {
+      "inputs": 512,
+      "outputs": 2,
+      "kind": "direct-payment-admitted",
+      "gomaxprocs": 18,
+      "concurrency": 1,
+      "verified_proofs": 3,
+      "latency_seconds": {
+        "samples": [
+          2.891182,
+          2.942909,
+          2.915759
+        ],
+        "median": 2.915759,
+        "minimum": 2.891182,
+        "maximum": 2.942909
+      },
+      "constraints": 1754522,
+      "circuit_digest": "94059c08903709dd9c22fb5a7d0cff5e3207e2d8b4fa48d17df034eafbf59b43",
+      "key_bytes": 574137510,
+      "raw_vk_bytes": 1040,
+      "setup_write_seconds": 43.229,
+      "log": "admitted-payment-proving-512.log"
+    }
+  ]
+}

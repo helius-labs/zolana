@@ -1,13 +1,18 @@
 package common
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestGKRRequestMeta(t *testing.T) {
-	meta, err := ParseProofRequestMeta([]byte(`{"circuitType":"direct-payment-gkr","nInputs":144,"nOutputs":2,"witness":{}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if meta.CircuitType != DirectPaymentGKRCircuitType || meta.NumInputs != 144 || meta.NumOutputs != 2 {
-		t.Fatalf("incorrect metadata: %+v", meta)
+	for _, kind := range []CircuitType{DirectPaymentGKRCircuitType, DirectPaymentAdmittedCircuitType} {
+		meta, err := ParseProofRequestMeta([]byte(fmt.Sprintf(`{"circuitType":%q,"nInputs":144,"nOutputs":2,"witness":{}}`, kind)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if meta.CircuitType != kind || meta.NumInputs != 144 || meta.NumOutputs != 2 {
+			t.Fatalf("incorrect metadata: %+v", meta)
+		}
 	}
 }

@@ -1,0 +1,15 @@
+=== RUN   TestAdmittedSegmentConstraints
+=== RUN   TestAdmittedSegmentConstraints/16
+    admitted_segment_test.go:39: ADMITTED_SEGMENT inputs=512 rounds=16 constraints=9260498 fft_domain=16777216
+=== RUN   TestAdmittedSegmentConstraints/24
+    admitted_segment_test.go:39: ADMITTED_SEGMENT inputs=512 rounds=24 constraints=8849126 fft_domain=16777216
+=== RUN   TestAdmittedSegmentConstraints/32
+    admitted_segment_test.go:39: ADMITTED_SEGMENT inputs=512 rounds=32 constraints=8706342 fft_domain=16777216
+--- PASS: TestAdmittedSegmentConstraints (31.90s)
+    --- PASS: TestAdmittedSegmentConstraints/16 (12.12s)
+    --- PASS: TestAdmittedSegmentConstraints/24 (9.11s)
+    --- PASS: TestAdmittedSegmentConstraints/32 (10.68s)
+=== RUN   TestAdmittedSegmentPayment
+--- PASS: TestAdmittedSegmentPayment (2.53s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	35.169s

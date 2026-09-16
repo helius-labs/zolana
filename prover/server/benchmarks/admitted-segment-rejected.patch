@@ -1,0 +1,372 @@
+--- a/prover/server/circuits/direct_spend/payment.go
++++ b/prover/server/circuits/direct_spend/payment.go
+@@ -26,7 +26,7 @@
+ }
+ 
+ func (c *PaymentCircuit) Define(api frontend.API) error {
+-	var compressor *gadget.GKRCompressor
++	var compressor merkleCompressor
+ 	if c.GKR {
+ 		var err error
+ 		name := c.Transcript
+@@ -41,7 +41,7 @@
+ 	return c.constrain(api, compressor, compressor)
+ }
+ 
+-func (c *PaymentCircuit) constrain(api frontend.API, certificate, freshness *gadget.GKRCompressor) error {
++func (c *PaymentCircuit) constrain(api frontend.API, certificate, freshness merkleCompressor) error {
+ 	if len(c.Balance.Values) != 1 || len(c.Certificate.Nullifiers) != len(c.Freshness.Nullifiers) {
+ 		return fmt.Errorf("direct spend: inconsistent payment shape")
+ 	}
+--- a/prover/server/circuits/direct_spend/merkle.go
++++ b/prover/server/circuits/direct_spend/merkle.go
+@@ -7,7 +7,11 @@
+ 	"zolana/prover/circuits/gadget"
+ )
+ 
+-func merkleRoot(api frontend.API, leaf, index frontend.Variable, path []frontend.Variable, compressor *gadget.GKRCompressor) frontend.Variable {
++type merkleCompressor interface {
++	Compress(left, right frontend.Variable) frontend.Variable
++}
++
++func merkleRoot(api frontend.API, leaf, index frontend.Variable, path []frontend.Variable, compressor merkleCompressor) frontend.Variable {
+ 	bits := api.ToBinary(index, len(path))
+ 	if compressor == nil {
+ 		return abstractor.Call(api, gadget.MerkleRootGadget{Hash: leaf, Index: bits, Path: path, Height: len(path)})
+--- a/prover/server/circuits/direct_spend/admitted_payment.go
++++ b/prover/server/circuits/direct_spend/admitted_payment.go
+@@ -31,7 +31,7 @@
+ 	return c.constrain(api, compressor, c.Certificate.StateRoot, transaction.StateTreeHeight)
+ }
+ 
+-func (c *AdmittedPaymentCircuit) constrain(api frontend.API, compressor *gadget.GKRCompressor, membershipRoot frontend.Variable, height int) error {
++func (c *AdmittedPaymentCircuit) constrain(api frontend.API, compressor merkleCompressor, membershipRoot frontend.Variable, height int) error {
+ 	return c.constrainCertificate(api, func(certificate *Certificate) error {
+ 		certificate.StateRoot = membershipRoot
+ 		return certificate.constrainPaths(api, compressor, height)
+--- a/prover/server/circuits/direct_spend/freshness.go
++++ b/prover/server/circuits/direct_spend/freshness.go
+@@ -52,7 +52,7 @@
+ 	return f.constrainWithCompressor(api, nil)
+ }
+ 
+-func (f *Freshness) constrainWithCompressor(api frontend.API, compressor *gadget.GKRCompressor) error {
++func (f *Freshness) constrainWithCompressor(api frontend.API, compressor merkleCompressor) error {
+ 	if len(f.Nullifiers) == 0 || len(f.Nullifiers) > MaxInputs || len(f.Witnesses) != len(f.Nullifiers) {
+ 		return fmt.Errorf("direct spend: invalid freshness shape")
+ 	}
+--- a/prover/server/circuits/direct_spend/certificate.go
++++ b/prover/server/circuits/direct_spend/certificate.go
+@@ -72,11 +72,11 @@
+ 	return c.constrainWithCompressor(api, nil)
+ }
+ 
+-func (c *Certificate) constrainWithCompressor(api frontend.API, compressor *gadget.GKRCompressor) error {
++func (c *Certificate) constrainWithCompressor(api frontend.API, compressor merkleCompressor) error {
+ 	return c.constrainPaths(api, compressor, transaction.StateTreeHeight)
+ }
+ 
+-func (c *Certificate) constrainPaths(api frontend.API, compressor *gadget.GKRCompressor, height int) error {
++func (c *Certificate) constrainPaths(api frontend.API, compressor merkleCompressor, height int) error {
+ 	if height < 1 || height > transaction.StateTreeHeight {
+ 		return fmt.Errorf("direct spend: invalid state path height")
+ 	}
+--- a/prover/server/circuits/gadget/poseidon_gkr_test.go
++++ b/prover/server/circuits/gadget/poseidon_gkr_test.go
+@@ -1,6 +1,7 @@
+ package gadget_test
+ 
+ import (
++	"fmt"
+ 	"math/big"
+ 	"math/rand/v2"
+ 	"testing"
+@@ -16,10 +17,19 @@
+ type legacyGKRHashes struct {
+ 	Inputs  [][2]frontend.Variable
+ 	Outputs []frontend.Variable
++	Rounds  int `gnark:"-"`
+ }
+ 
+ func (c *legacyGKRHashes) Define(api frontend.API) error {
+-	hash, err := gadget.NewGKRCompressor(api)
++	var hash interface {
++		Compress(frontend.Variable, frontend.Variable) frontend.Variable
++	}
++	var err error
++	if c.Rounds == 0 {
++		hash, err = gadget.NewGKRCompressor(api)
++	} else {
++		hash, err = gadget.NewSegmentedGKRCompressor(api, c.Rounds)
++	}
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -53,11 +63,18 @@
+ 		}
+ 		w.Outputs[i] = result
+ 	}
+-	if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err != nil {
+-		t.Fatal(err)
+-	}
+-	w.Outputs[3] = 1
+-	if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err == nil {
+-		t.Fatal("accepted wrong Poseidon output")
++	for _, rounds := range []int{0, 4, 8, 16, 24, 32, 64} {
++		t.Run(fmt.Sprint(rounds), func(t *testing.T) {
++			c.Rounds = rounds
++			if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err != nil {
++				t.Fatal(err)
++			}
++			original := w.Outputs[3]
++			w.Outputs[3] = 1
++			if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err == nil {
++				t.Fatal("accepted wrong Poseidon output")
++			}
++			w.Outputs[3] = original
++		})
+ 	}
+ }
+--- a/prover/server/circuits/direct_spend/admitted_payment_test.go
++++ b/prover/server/circuits/direct_spend/admitted_payment_test.go
+@@ -292,3 +292,17 @@
+ 		})
+ 	}
+ }
++
++func TestAdmittedSegmentPayment(t *testing.T) {
++	for _, rounds := range []int{16, 24, 32} {
++		c := &direct.SegmentedAdmittedPayment{AdmittedPaymentCircuit: *direct.NewAdmittedPayment(4, 2), Rounds: rounds}
++		w := &direct.SegmentedAdmittedPayment{AdmittedPaymentCircuit: *admittedPayment(t, scatteredPayment(t, 4)), Rounds: rounds}
++		if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err != nil {
++			t.Fatal(err)
++		}
++		w.Certificate.Notes[1].Path[12] = 1
++		if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err == nil {
++			t.Fatal("accepted invalid segmented membership")
++		}
++	}
++}
+--- /dev/null
++++ b/prover/server/circuits/gadget/poseidon_gkr_segmented.go
+@@ -0,0 +1,175 @@
++package gadget
++
++import (
++	"fmt"
++	"math/big"
++
++	"github.com/consensys/gnark-crypto/ecc"
++	"github.com/consensys/gnark/constraint/solver"
++	"github.com/consensys/gnark/frontend"
++	"github.com/consensys/gnark/std/gkrapi"
++	"github.com/consensys/gnark/std/gkrapi/gkr"
++	"github.com/iden3/go-iden3-crypto/poseidon"
++)
++
++type SegmentedGKRCompressor struct {
++	api      frontend.API
++	rounds   int
++	requests [][3]frontend.Variable
++}
++
++func NewSegmentedGKRCompressor(api frontend.API, rounds int) (*SegmentedGKRCompressor, error) {
++	if api.Compiler().Field().Cmp(ecc.BN254.ScalarField()) != 0 || rounds < 1 || rounds > 65 {
++		return nil, fmt.Errorf("invalid segmented Poseidon configuration")
++	}
++	c := &SegmentedGKRCompressor{api: api, rounds: rounds}
++	api.Compiler().Defer(c.constrain)
++	return c, nil
++}
++
++func (c *SegmentedGKRCompressor) Compress(left, right frontend.Variable) frontend.Variable {
++	result, err := c.api.Compiler().NewHint(segmentedPoseidonHint, 1, left, right)
++	if err != nil {
++		panic(err)
++	}
++	c.requests = append(c.requests, [3]frontend.Variable{left, right, result[0]})
++	return result[0]
++}
++
++func init() {
++	solver.RegisterHint(segmentedPoseidonHint)
++}
++
++func segmentedPoseidonHint(_ *big.Int, in, out []*big.Int) error {
++	result, err := poseidon.Hash(in)
++	if err != nil {
++		return err
++	}
++	out[0].Set(result)
++	return nil
++}
++
++type poseidonRound struct {
++	power  [3]int
++	ark    [3]*big.Int
++	matrix [3][3]*big.Int
++}
++
++func legacyPoseidonRounds() []poseidonRound {
++	constants := elemsToBigInt(iden3C.c[1])
++	sparse := elemsToBigInt(iden3C.s[1])
++	matrix := elems2DToBigInt(iden3C.m[1])
++	transition := elems2DToBigInt(iden3C.p[1])
++	rounds := make([]poseidonRound, 0, 65)
++	full := func(ark []*big.Int, m [][]*big.Int) {
++		round := poseidonRound{power: [3]int{1, 1, 1}}
++		for i := range 3 {
++			round.ark[i] = new(big.Int)
++			if ark != nil {
++				round.ark[i] = ark[i]
++			}
++			copy(round.matrix[i][:], m[i])
++		}
++		rounds = append(rounds, round)
++	}
++	for i := range 3 {
++		full(constants[(i+1)*3:(i+2)*3], matrix)
++	}
++	full(constants[12:15], transition)
++	for i := range 57 {
++		s := sparse[i*5 : (i+1)*5]
++		rounds = append(rounds, poseidonRound{
++			power: [3]int{1, 0, 0},
++			ark:   [3]*big.Int{constants[15+i], new(big.Int), new(big.Int)},
++			matrix: [3][3]*big.Int{
++				{s[0], s[3], s[4]},
++				{s[1], big.NewInt(1), new(big.Int)},
++				{s[2], new(big.Int), big.NewInt(1)},
++			},
++		})
++	}
++	for i := range 3 {
++		full(constants[72+i*3:75+i*3], matrix)
++	}
++	full(nil, matrix)
++	return rounds
++}
++
++func (c *SegmentedGKRCompressor) constrain(api frontend.API) error {
++	if len(c.requests) == 0 {
++		return nil
++	}
++	g, err := gkrapi.New(api)
++	if err != nil {
++		return err
++	}
++	inputs := [3]gkr.Variable{g.NewInput(), g.NewInput(), g.NewInput()}
++	state := inputs
++	parameters := make([][15]gkr.Variable, c.rounds)
++	for r := range parameters {
++		for i := range parameters[r] {
++			parameters[r][i] = g.NewInput()
++		}
++		previous := state
++		for output := range 3 {
++			state[output] = g.Gate(func(api gkr.GateAPI, in ...frontend.Variable) frontend.Variable {
++				result := frontend.Variable(0)
++				for lane := range 3 {
++					value := api.Add(in[lane], api.Mul(in[3+lane], api.Sub(powerFive(api, in[lane]), in[lane])))
++					value = api.Add(value, in[6+lane])
++					result = api.Add(result, api.Mul(in[9+lane*3+output], value))
++				}
++				return result
++			}, append(previous[:], parameters[r][:]...)...)
++		}
++	}
++	circuit, err := g.Compile("POSEIDON2")
++	if err != nil {
++		return err
++	}
++	rounds := legacyPoseidonRounds()
++	constants := elemsToBigInt(iden3C.c[1])
++	states := make([][3]frontend.Variable, len(c.requests))
++	for i, request := range c.requests {
++		states[i] = [3]frontend.Variable{constants[0], api.Add(request[0], constants[1]), api.Add(request[1], constants[2])}
++	}
++	for first := 0; first < len(rounds); first += c.rounds {
++		fixed := make(map[gkr.Variable]frontend.Variable, len(parameters)*15+3)
++		for r := range c.rounds {
++			round := poseidonRound{}
++			if first+r < len(rounds) {
++				round = rounds[first+r]
++			} else {
++				for i := range 3 {
++					round.ark[i] = new(big.Int)
++					for j := range 3 {
++						round.matrix[i][j] = new(big.Int)
++					}
++					round.matrix[i][i] = big.NewInt(1)
++				}
++			}
++			for i := range 3 {
++				fixed[parameters[r][i]], fixed[parameters[r][3+i]] = round.power[i], round.ark[i]
++				for j := range 3 {
++					fixed[parameters[r][6+i*3+j]] = round.matrix[i][j]
++				}
++			}
++		}
++		for i := range states {
++			for lane := range 3 {
++				fixed[inputs[lane]] = states[i][lane]
++			}
++			outputs, err := circuit.AddInstance(fixed)
++			if err != nil {
++				return err
++			}
++			for lane := range 3 {
++				states[i][lane] = outputs[state[lane]]
++			}
++		}
++	}
++	for i, request := range c.requests {
++		api.AssertIsEqual(states[i][0], request[2])
++	}
++	return nil
++}
+--- /dev/null
++++ b/prover/server/circuits/direct_spend/admitted_segment_test.go
+@@ -0,0 +1,42 @@
++package directspend
++
++import (
++	"fmt"
++	"os"
++	"testing"
++
++	"github.com/consensys/gnark-crypto/ecc"
++	"github.com/consensys/gnark/frontend"
++	"github.com/consensys/gnark/frontend/cs/r1cs"
++
++	"zolana/prover/circuits/gadget"
++)
++
++type SegmentedAdmittedPayment struct {
++	AdmittedPaymentCircuit
++	Rounds int `gnark:"-"`
++}
++
++func (c *SegmentedAdmittedPayment) Define(api frontend.API) error {
++	compressor, err := gadget.NewSegmentedGKRCompressor(api, c.Rounds)
++	if err != nil {
++		return err
++	}
++	return c.AdmittedPaymentCircuit.constrain(api, compressor, c.Certificate.StateRoot, 32)
++}
++
++func TestAdmittedSegmentConstraints(t *testing.T) {
++	if os.Getenv("ADMITTED_SEGMENT_COUNTS") == "" {
++		t.Skip("set ADMITTED_SEGMENT_COUNTS=1")
++	}
++	for _, rounds := range []int{16, 24, 32} {
++		t.Run(fmt.Sprint(rounds), func(t *testing.T) {
++			c := &SegmentedAdmittedPayment{AdmittedPaymentCircuit: *NewAdmittedPayment(512, 2), Rounds: rounds}
++			cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, c, frontend.WithCompressThreshold(300))
++			if err != nil {
++				t.Fatal(err)
++			}
++			t.Logf("ADMITTED_SEGMENT inputs=512 rounds=%d constraints=%d fft_domain=%d", rounds, cs.GetNbConstraints(), ecc.NextPowerOfTwo(uint64(cs.GetNbConstraints())))
++		})
++	}
++}

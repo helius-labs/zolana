@@ -1,0 +1,4 @@
+23:14:28 INF compiling circuit
+23:14:28 INF parsed circuit inputs nbPublic=1 nbSecret=18458
+23:14:31 INF building constraint builder nbConstraints=1754522
+ADMITTED_SETUP inputs=512 exit=0 seconds=43.229 key_bytes=574137510 vk_bytes=1040

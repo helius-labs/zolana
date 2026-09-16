@@ -17,6 +17,7 @@ pub const CERTIFICATE_DOMAIN: u64 = 0x44534331;
 pub const BALANCE_DOMAIN: u64 = 0x44534231;
 pub const FRESHNESS_DOMAIN: u64 = 0x44534631;
 pub const PAYMENT_DOMAIN: u64 = 0x44535031;
+pub const ADMITTED_PAYMENT_DOMAIN: u64 = 0x44535032;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Proof {
@@ -181,6 +182,12 @@ pub enum Payload {
         proof: Proof,
     },
     GkrPayment {
+        statement: Payment,
+        proof: Proof,
+        commitment: crate::verifying_keys::Bsb22Commitment,
+        inputs: u16,
+    },
+    AdmittedPayment {
         statement: Payment,
         proof: Proof,
         commitment: crate::verifying_keys::Bsb22Commitment,

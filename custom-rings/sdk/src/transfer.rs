@@ -19,7 +19,11 @@ use zolana_client::{
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
-        tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, RingAssetDeposit,
+        builders::{
+            direct_spend::use_pending_nullifiers, historical_nullifiers::use_nullifier_filter,
+        },
+        tag::RING_TRANSACT,
+        CircuitId, DepositAsset, DepositBuildError, RingAssetDeposit,
         TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
@@ -37,7 +41,7 @@ use zolana_transaction::{
     owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError,
     Utxo,
 };
-use zolana_tree::{TreeAccount, TreeError};
+use zolana_tree::{NullifierFilterMode, TreeAccount, TreeError};
 
 use crate::{
     policy_config_table, to_instruction_proof,
@@ -103,6 +107,7 @@ pub struct ProvenTransfer {
     payer: Address,
     input_tree: Address,
     output_tree: Address,
+    input_tree_state: TreeState,
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring.
     entries_tree: Option<Address>,
     ring: CustomRing,
@@ -152,6 +157,8 @@ pub enum TransferError {
     InvalidTreeOwner,
     #[error("input tree discriminator is invalid")]
     InvalidTreeDiscriminator,
+    #[error("invalid nullifier account layout: {0}")]
+    NullifierAccounts(&'static str),
     #[error("input tree address is required")]
     TreeRequired,
     #[error("tree {tree} has id {expected}, the transfer was prepared for {found}")]
@@ -289,7 +296,7 @@ impl<'a> CustomRingTransfer<'a> {
             ProofCompressed::try_from(environment.prover.prove_transfer_ring(witnessed.spp())?)?
                 .to_transact_proof();
         let ring_proof = environment.prover.prove(&request)?;
-        witnessed.finish(spp_proof, request.proven(ring_proof)?)
+        witnessed.finish(spp_proof, request.proven(ring_proof)?, input_tree)
     }
 
     /// The async twin of [`Self::prove`], over [`AsyncRpc`] and
@@ -349,6 +356,7 @@ impl<'a> CustomRingTransfer<'a> {
         witnessed.finish(
             ProofCompressed::try_from(spp)?.to_transact_proof(),
             request.proven(ring)?,
+            input_tree,
         )
     }
 
@@ -684,6 +692,7 @@ impl WitnessedTransfer {
         self,
         spp_proof: TransactProof,
         ring: TierProof,
+        input_tree_state: TreeState,
     ) -> Result<ProvenTransfer, TransferError> {
         let (proof, entries_tree, state_root_index, nullifier_root_index) = match ring {
             TierProof::Base(proof) => (proof, None, 0, 0),
@@ -714,6 +723,7 @@ impl WitnessedTransfer {
             payer: self.payer,
             input_tree: self.input_tree,
             output_tree: self.output_tree,
+            input_tree_state,
             entries_tree,
             ring: self.ring,
         })
@@ -722,7 +732,7 @@ impl WitnessedTransfer {
 
 impl ProvenTransfer {
     pub fn instruction(&self) -> Result<Instruction, TransferError> {
-        CustomRingTransact {
+        let mut instruction = CustomRingTransact {
             ring: self.ring,
             payer: self.payer,
             input_tree: self.input_tree,
@@ -735,8 +745,19 @@ impl ProvenTransfer {
             state_root_index: self.state_root_index,
             nullifier_root_index: self.nullifier_root_index,
         }
-        .instruction()
-        .map_err(Into::into)
+        .instruction()?;
+        let nullifiers: Vec<_> = self
+            .data
+            .inputs
+            .iter()
+            .map(|input| input.nullifier_hash)
+            .collect();
+        self.input_tree_state.use_nullifier_accounts(
+            &mut instruction,
+            &self.input_tree,
+            &nullifiers,
+        )?;
+        Ok(instruction)
     }
 }
 
@@ -797,6 +818,27 @@ pub async fn tree_id_async<R: AsyncRpc>(rpc: &R, tree: Address) -> Result<u16, T
 struct TreeState {
     allow_dummy_inputs: bool,
     tree_id: u16,
+    compact_nullifiers: bool,
+    nullifier_filter_mode: NullifierFilterMode,
+}
+
+impl TreeState {
+    fn use_nullifier_accounts(
+        &self,
+        instruction: &mut Instruction,
+        tree: &Address,
+        nullifiers: &[[u8; 32]],
+    ) -> Result<(), TransferError> {
+        if self.compact_nullifiers && !nullifiers.is_empty() {
+            use_pending_nullifiers(instruction, tree, nullifiers)
+                .map_err(TransferError::NullifierAccounts)?;
+            if self.nullifier_filter_mode == NullifierFilterMode::Active {
+                use_nullifier_filter(instruction, tree)
+                    .map_err(TransferError::NullifierAccounts)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn read_tree_state<R: Rpc>(rpc: &R, tree: Address) -> Result<TreeState, TransferError> {
@@ -823,6 +865,8 @@ fn tree_state(account: Option<Account>, tree: Address) -> Result<TreeState, Tran
     Ok(TreeState {
         allow_dummy_inputs: tree_account.allow_dummy_inputs()?,
         tree_id: tree_account.tree_id(),
+        compact_nullifiers: tree_account.uses_compact_nullifiers(),
+        nullifier_filter_mode: tree_account.nullifier_filter_mode(),
     })
 }
 
@@ -1088,6 +1132,7 @@ impl RingEddsaInstructionData<'_> {
 
 #[cfg(test)]
 mod tests {
+    use solana_instruction::AccountMeta;
     use zolana_client::MerkleContext;
     use zolana_interface::instruction::{
         instruction_data::transact::{
@@ -1099,6 +1144,80 @@ mod tests {
     use zolana_transaction::SOL_MINT;
 
     use super::*;
+
+    #[test]
+    fn tree_metadata_routes_nullifiers_without_moving_signers() {
+        use zolana_interface::{
+            pda,
+            state::{default_tree_fees, nullifier_tree_params},
+        };
+
+        let address = Address::new_from_array([2; 32]);
+        let owner = Address::new_from_array([3; 32]);
+        let nullifiers = [[4; 32], [5; 32]];
+        for (compact, mode) in [
+            (false, NullifierFilterMode::Off),
+            (true, NullifierFilterMode::Off),
+            (true, NullifierFilterMode::Active),
+            (true, NullifierFilterMode::Retired),
+        ] {
+            let params = nullifier_tree_params();
+            let mut account = Account {
+                data: vec![0; TreeAccount::account_size()],
+                owner: Address::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+                ..Account::default()
+            };
+            let mut tree = TreeAccount::init(
+                &mut account.data,
+                TREE_ACCOUNT_DISCRIMINATOR,
+                zolana_tree::UTXO_TREE_HEIGHT as u8,
+                address.to_bytes(),
+                0,
+                params,
+                default_tree_fees(params.input_queue_zkp_batch_size).unwrap(),
+            )
+            .unwrap();
+            if compact {
+                tree.enable_compact_nullifiers().unwrap();
+            }
+            if mode != NullifierFilterMode::Off {
+                tree.enable_nullifier_filter().unwrap();
+            }
+            if mode == NullifierFilterMode::Retired {
+                tree.retire_nullifier_filter().unwrap();
+            }
+            drop(tree);
+            let state = tree_state(Some(account), address).unwrap();
+            let mut instruction = Instruction {
+                program_id: ring().program_id(),
+                accounts: vec![
+                    AccountMeta::new(address, false),
+                    AccountMeta::new(pda::nullifier_pda(&address, &nullifiers[0]).0, false),
+                    AccountMeta::new(pda::nullifier_pda(&address, &nullifiers[1]).0, false),
+                    AccountMeta::new_readonly(owner, true),
+                ],
+                data: vec![],
+            };
+            state
+                .use_nullifier_accounts(&mut instruction, &address, &nullifiers)
+                .unwrap();
+            let mut expected = vec![AccountMeta::new(address, false)];
+            if compact {
+                expected.push(AccountMeta::new(pda::pending_nullifiers(&address).0, false));
+            } else {
+                expected.extend(
+                    nullifiers.map(|value| {
+                        AccountMeta::new(pda::nullifier_pda(&address, &value).0, false)
+                    }),
+                );
+            }
+            if mode == NullifierFilterMode::Active {
+                expected.push(AccountMeta::new(pda::nullifier_filter(&address).0, false));
+            }
+            expected.push(AccountMeta::new_readonly(owner, true));
+            assert_eq!(instruction.accounts, expected);
+        }
+    }
 
     fn ring() -> CustomRing {
         CustomRing::new(Address::new_from_array([42u8; 32]))

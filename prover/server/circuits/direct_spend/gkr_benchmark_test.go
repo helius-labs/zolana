@@ -25,6 +25,10 @@ import (
 )
 
 func scatteredPayment(t *testing.T, n int) *direct.PaymentCircuit {
+	return scatteredPaymentAtHeight(t, n, 32)
+}
+
+func scatteredPaymentAtHeight(t *testing.T, n, height int) *direct.PaymentCircuit {
 	t.Helper()
 	w := payment(t, n, n)
 	addSecondOutput(t, w)
@@ -32,9 +36,9 @@ func scatteredPayment(t *testing.T, n int) *direct.PaymentCircuit {
 	leaves := make(map[uint64]*big.Int, n)
 	owner := hash(t, w.Certificate.Owner, hash(t, w.Certificate.NullifierSecret))
 	for i, note := range w.Certificate.Notes {
-		index := uint64(rng.Uint32())
+		index := uint64(rng.Uint32()) & ((uint64(1) << height) - 1)
 		for leaves[index] != nil {
-			index = uint64(rng.Uint32())
+			index = uint64(rng.Uint32()) & ((uint64(1) << height) - 1)
 		}
 		values := integers(t, []frontend.Variable{note.Amount, note.Blinding, w.Certificate.TreeID, w.Certificate.Asset})
 		leaf, err := protocol.UtxoHash(protocol.Utxo{

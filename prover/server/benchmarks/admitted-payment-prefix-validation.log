@@ -1,0 +1,103 @@
+=== RUN   TestAdmittedPrefixConstraints
+=== RUN   TestAdmittedPrefixConstraints/10/POSEIDON2
+    admitted_prefix_test.go:68: ADMITTED_PREFIX inputs=512 height=10 transcript=POSEIDON2 constraints=1619322 fft_domain=2097152
+=== RUN   TestAdmittedPrefixConstraints/10/ZOLANA-GKR-P2-W12-R10-C2-V1
+    admitted_prefix_test.go:68: ADMITTED_PREFIX inputs=512 height=10 transcript=ZOLANA-GKR-P2-W12-R10-C2-V1 constraints=1347879 fft_domain=2097152
+=== RUN   TestAdmittedPrefixConstraints/16/POSEIDON2
+    admitted_prefix_test.go:68: ADMITTED_PREFIX inputs=512 height=16 transcript=POSEIDON2 constraints=1729947 fft_domain=2097152
+=== RUN   TestAdmittedPrefixConstraints/16/ZOLANA-GKR-P2-W12-R10-C2-V1
+    admitted_prefix_test.go:68: ADMITTED_PREFIX inputs=512 height=16 transcript=ZOLANA-GKR-P2-W12-R10-C2-V1 constraints=1439928 fft_domain=2097152
+=== RUN   TestAdmittedPrefixConstraints/20/POSEIDON2
+    admitted_prefix_test.go:68: ADMITTED_PREFIX inputs=512 height=20 transcript=POSEIDON2 constraints=1736091 fft_domain=2097152
+=== RUN   TestAdmittedPrefixConstraints/20/ZOLANA-GKR-P2-W12-R10-C2-V1
+    admitted_prefix_test.go:68: ADMITTED_PREFIX inputs=512 height=20 transcript=ZOLANA-GKR-P2-W12-R10-C2-V1 constraints=1446072 fft_domain=2097152
+=== RUN   TestAdmittedPrefixConstraints/32/POSEIDON2
+    admitted_prefix_test.go:68: ADMITTED_PREFIX inputs=512 height=32 transcript=POSEIDON2 constraints=1754523 fft_domain=2097152
+=== RUN   TestAdmittedPrefixConstraints/32/ZOLANA-GKR-P2-W12-R10-C2-V1
+    admitted_prefix_test.go:68: ADMITTED_PREFIX inputs=512 height=32 transcript=ZOLANA-GKR-P2-W12-R10-C2-V1 constraints=1464504 fft_domain=2097152
+--- PASS: TestAdmittedPrefixConstraints (36.60s)
+    --- PASS: TestAdmittedPrefixConstraints/10/POSEIDON2 (2.69s)
+    --- PASS: TestAdmittedPrefixConstraints/10/ZOLANA-GKR-P2-W12-R10-C2-V1 (5.99s)
+    --- PASS: TestAdmittedPrefixConstraints/16/POSEIDON2 (2.77s)
+    --- PASS: TestAdmittedPrefixConstraints/16/ZOLANA-GKR-P2-W12-R10-C2-V1 (6.56s)
+    --- PASS: TestAdmittedPrefixConstraints/20/POSEIDON2 (2.89s)
+    --- PASS: TestAdmittedPrefixConstraints/20/ZOLANA-GKR-P2-W12-R10-C2-V1 (6.49s)
+    --- PASS: TestAdmittedPrefixConstraints/32/POSEIDON2 (2.85s)
+    --- PASS: TestAdmittedPrefixConstraints/32/ZOLANA-GKR-P2-W12-R10-C2-V1 (6.35s)
+=== RUN   TestAdmittedPayment
+--- PASS: TestAdmittedPayment (0.58s)
+=== RUN   TestAdmittedPaymentRejects
+=== RUN   TestAdmittedPaymentRejects/tree
+=== RUN   TestAdmittedPaymentRejects/path
+=== RUN   TestAdmittedPaymentRejects/count
+=== RUN   TestAdmittedPaymentRejects/blinding
+=== RUN   TestAdmittedPaymentRejects/owner
+=== RUN   TestAdmittedPaymentRejects/index
+=== RUN   TestAdmittedPaymentRejects/nullifier
+=== RUN   TestAdmittedPaymentRejects/subtotal
+=== RUN   TestAdmittedPaymentRejects/output
+=== RUN   TestAdmittedPaymentRejects/output_overflow
+=== RUN   TestAdmittedPaymentRejects/padding_gap
+=== RUN   TestAdmittedPaymentRejects/inflation
+=== RUN   TestAdmittedPaymentRejects/asset
+=== RUN   TestAdmittedPaymentRejects/root
+=== RUN   TestAdmittedPaymentRejects/empty
+=== RUN   TestAdmittedPaymentRejects/hidden_amount
+=== RUN   TestAdmittedPaymentRejects/amount_overflow
+=== RUN   TestAdmittedPaymentRejects/conservation
+=== RUN   TestAdmittedPaymentRejects/secret
+=== RUN   TestAdmittedPaymentRejects/index_overflow
+=== RUN   TestAdmittedPaymentRejects/credit_ID
+=== RUN   TestAdmittedPaymentRejects/recipient
+=== RUN   TestAdmittedPaymentRejects/domain
+=== RUN   TestAdmittedPaymentRejects/intent
+=== RUN   TestAdmittedPaymentRejects/hash
+--- PASS: TestAdmittedPaymentRejects (0.81s)
+    --- PASS: TestAdmittedPaymentRejects/tree (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/path (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/count (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/blinding (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/owner (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/index (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/nullifier (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/subtotal (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/output (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/output_overflow (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/padding_gap (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/inflation (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/asset (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/root (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/empty (0.01s)
+    --- PASS: TestAdmittedPaymentRejects/hidden_amount (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/amount_overflow (0.01s)
+    --- PASS: TestAdmittedPaymentRejects/conservation (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/secret (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/index_overflow (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/credit_ID (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/recipient (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/domain (0.13s)
+    --- PASS: TestAdmittedPaymentRejects/intent (0.13s)
+    --- PASS: TestAdmittedPaymentRejects/hash (0.13s)
+=== RUN   TestAdmittedPrefixPayment
+=== RUN   TestAdmittedPrefixPayment/root
+=== RUN   TestAdmittedPrefixPayment/prefix
+=== RUN   TestAdmittedPrefixPayment/path
+=== RUN   TestAdmittedPrefixPayment/upper_path
+=== RUN   TestAdmittedPrefixPayment/index
+--- PASS: TestAdmittedPrefixPayment (4.05s)
+    --- PASS: TestAdmittedPrefixPayment/root (0.13s)
+    --- PASS: TestAdmittedPrefixPayment/prefix (0.12s)
+    --- PASS: TestAdmittedPrefixPayment/path (0.12s)
+    --- PASS: TestAdmittedPrefixPayment/upper_path (0.13s)
+    --- PASS: TestAdmittedPrefixPayment/index (0.12s)
+=== RUN   TestAdmittedPaymentConstraints
+=== RUN   TestAdmittedPaymentConstraints/144
+    admitted_payment_test.go:191: ADMITTED_PAYMENT inputs=144 outputs=2 constraints=1232023 public_variables=2 private_committed=19585 digest=1df01cde9597da0bbd4e52455a5e52702f862f30b91ab1080f8e8fc5f12b09c6
+    admitted_payment_test.go:195: ADMITTED_GKR_TRANSCRIPT inputs=144 proof_elements=5343 proof_bytes=170976
+=== RUN   TestAdmittedPaymentConstraints/512
+    admitted_payment_test.go:191: ADMITTED_PAYMENT inputs=512 outputs=2 constraints=1754522 public_variables=2 private_committed=69633 digest=94059c08903709dd9c22fb5a7d0cff5e3207e2d8b4fa48d17df034eafbf59b43
+    admitted_payment_test.go:195: ADMITTED_GKR_TRANSCRIPT inputs=512 proof_elements=5738 proof_bytes=183616
+--- PASS: TestAdmittedPaymentConstraints (4.80s)
+    --- PASS: TestAdmittedPaymentConstraints/144 (1.65s)
+    --- PASS: TestAdmittedPaymentConstraints/512 (3.15s)
+PASS

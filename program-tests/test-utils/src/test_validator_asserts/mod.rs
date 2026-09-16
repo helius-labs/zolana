@@ -214,6 +214,14 @@ pub fn token_amount(account: &Account) -> u64 {
 
 #[track_caller]
 fn wait_for<T>(label: &str, mut poll: impl FnMut() -> Result<Option<T>, ClientError>) -> T {
+    let interval = std::env::var("E2E_BENCH_INDEXER_POLL_MS")
+        .ok()
+        .map(|value| {
+            let millis = value.parse::<u64>().expect("invalid indexer poll interval");
+            assert!(millis > 0, "indexer poll interval must be positive");
+            Duration::from_millis(millis)
+        })
+        .unwrap_or(POLL_INTERVAL);
     let started = Instant::now();
     let mut last_error = None;
     while started.elapsed() < INDEXER_TIMEOUT {
@@ -222,7 +230,7 @@ fn wait_for<T>(label: &str, mut poll: impl FnMut() -> Result<Option<T>, ClientEr
             Ok(None) => {}
             Err(error) => last_error = Some(error.to_string()),
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(interval);
     }
     panic!(
         "timed out waiting for {label}; last indexer error: {}",

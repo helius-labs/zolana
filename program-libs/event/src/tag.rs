@@ -44,11 +44,15 @@ pub const ENABLE_PENDING_NULLIFIERS: u8 = 22;
 pub const DIRECT_SPEND_BUFFER: u8 = 23;
 pub const PREPARE_CERTIFICATE: u8 = 24;
 pub const DIRECT_SPEND: u8 = 25;
+pub const ENABLE_NULLIFIER_FILTER: u8 = 26;
+pub const RETIRE_NULLIFIER_FILTER: u8 = 27;
 
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InstructionTag {
+    EnableNullifierFilter = ENABLE_NULLIFIER_FILTER,
+    RetireNullifierFilter = RETIRE_NULLIFIER_FILTER,
     DirectSpendBuffer = DIRECT_SPEND_BUFFER,
     PrepareCertificate = PREPARE_CERTIFICATE,
     DirectSpend = DIRECT_SPEND,
@@ -82,6 +86,8 @@ impl TryFrom<u8> for InstructionTag {
 
     fn try_from(tag: u8) -> Result<Self, Self::Error> {
         match tag {
+            ENABLE_NULLIFIER_FILTER => Ok(Self::EnableNullifierFilter),
+            RETIRE_NULLIFIER_FILTER => Ok(Self::RetireNullifierFilter),
             DIRECT_SPEND_BUFFER => Ok(Self::DirectSpendBuffer),
             PREPARE_CERTIFICATE => Ok(Self::PrepareCertificate),
             DIRECT_SPEND => Ok(Self::DirectSpend),

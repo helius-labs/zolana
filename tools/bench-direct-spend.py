@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the cached, direct and GKR localnet benchmarks sequentially."""
+"""Run cached, direct, GKR and admitted localnet benchmarks sequentially."""
 
 import argparse
 import datetime
@@ -30,7 +30,8 @@ def main():
     parser.add_argument("--gkr-prover", type=Path, required=True)
     parser.add_argument("--cache-prover", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--routes", nargs="+", choices=["cached", "direct", "gkr"], default=["cached", "direct", "gkr"])
+    parser.add_argument("--routes", nargs="+", choices=["cached", "direct", "gkr", "admitted"], default=["cached", "direct", "gkr", "admitted"])
+    parser.add_argument("--profile", choices=["dev", "release"], default="dev")
     parser.add_argument("--inputs", nargs="+", type=int, default=[144, 512])
     parser.add_argument("--states", nargs="+", choices=["cold", "warm"], default=["warm"])
     parser.add_argument("--layouts", nargs="+", choices=["clustered", "interleaved"], default=["interleaved"])
@@ -67,6 +68,9 @@ def main():
         "PROVER_SYNC_CONCURRENCY": os.environ.get("PROVER_SYNC_CONCURRENCY", "4"),
         "E2E_BENCH_CONCURRENCY": os.environ.get("E2E_BENCH_CONCURRENCY", "4"),
         "E2E_BENCH_POLL_MS": os.environ.get("E2E_BENCH_POLL_MS", "25"),
+        "E2E_BENCH_INDEXER_POLL_MS": os.environ.get("E2E_BENCH_INDEXER_POLL_MS", "500"),
+        "E2E_BENCH_OVERLAP": os.environ.get("E2E_BENCH_OVERLAP", "1"),
+        "E2E_BENCH_SETUP_CONCURRENCY": os.environ.get("E2E_BENCH_SETUP_CONCURRENCY", "8"),
         "E2E_BENCH_PREPARED": "0",
         "E2E_BENCH_PACKED": "1",
     }
@@ -75,6 +79,7 @@ def main():
         "platform": platform.platform(),
         "logical_cpus": os.cpu_count(),
         "settings": settings,
+        "native_profile": args.profile,
         "runs": args.runs,
         "paired_cold_warm": args.paired,
         "artifacts": {name: {"path": str(path), "sha256": digest(path)} for name, path in binaries.items()},
@@ -109,7 +114,7 @@ def main():
                         }
                         env.pop("PROVER_BIN", None)
                         env.pop("ZOLANA_PROVER_KEYS_DIR", None)
-                        command = ["cargo", "test", "--offline", "-j2"]
+                        command = ["cargo", "test", "--offline", "-j2", "--profile", args.profile]
                         if route == "cached":
                             command += ["-p", "spp-test-validator", "--test", "proof_cu", "cached_merge_spend_e2e_benchmark"]
                         else:

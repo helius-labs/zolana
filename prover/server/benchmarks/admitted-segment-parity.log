@@ -1,0 +1,18 @@
+=== RUN   TestLegacyGKRHashes
+=== RUN   TestLegacyGKRHashes/0
+=== RUN   TestLegacyGKRHashes/4
+=== RUN   TestLegacyGKRHashes/8
+=== RUN   TestLegacyGKRHashes/16
+=== RUN   TestLegacyGKRHashes/24
+=== RUN   TestLegacyGKRHashes/32
+=== RUN   TestLegacyGKRHashes/64
+--- PASS: TestLegacyGKRHashes (1.66s)
+    --- PASS: TestLegacyGKRHashes/0 (0.19s)
+    --- PASS: TestLegacyGKRHashes/4 (0.12s)
+    --- PASS: TestLegacyGKRHashes/8 (0.14s)
+    --- PASS: TestLegacyGKRHashes/16 (0.19s)
+    --- PASS: TestLegacyGKRHashes/24 (0.24s)
+    --- PASS: TestLegacyGKRHashes/32 (0.31s)
+    --- PASS: TestLegacyGKRHashes/64 (0.48s)
+PASS
+ok  	zolana/prover/circuits/gadget	2.248s

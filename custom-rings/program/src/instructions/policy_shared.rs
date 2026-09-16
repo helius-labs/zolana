@@ -29,6 +29,7 @@ use zolana_ring_policy::{
     entry_nullifier, mutation_private_tx_hash, EncodedRuleTable, ListEntry, ListId, ListNamespace,
     ListSet, Member, PolicyHashError, SourceMap, Writer, NAMESPACE_PDA_SEED,
 };
+use zolana_tree::{NullifierFilterMode, TreeAccount};
 
 use crate::{
     error::CustomRingError,
@@ -232,6 +233,11 @@ impl<'a> MutationAccounts<'a> {
         let system_program = iter.next_account("system_program")?;
         let input_tree = iter.next_mut("input_tree")?;
         let _nullifier_pda = iter.next_mut("nullifier_pda")?;
+        let filter_mode = TreeAccount::read_nullifier_filter_mode(&input_tree.try_borrow()?)
+            .map_err(|_| CustomRingError::InvalidPolicyTree)?;
+        if filter_mode == NullifierFilterMode::Active {
+            iter.next_mut("nullifier_filter")?;
+        }
         let entries = iter.next_account("entries")?;
         if !iter.iterator_is_empty() {
             return Err(ProgramError::InvalidArgument);

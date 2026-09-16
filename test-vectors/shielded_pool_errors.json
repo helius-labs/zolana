@@ -67,5 +67,7 @@
   "DuplicateInputTree": 7065,
   "InvalidPendingNullifiers": 7066,
   "NullifierAlreadySpent": 7067,
-  "PendingNullifiersFull": 7068
+  "PendingNullifiersFull": 7068,
+  "InvalidNullifierFilter": 7069,
+  "NullifierProofRequired": 7070
 }

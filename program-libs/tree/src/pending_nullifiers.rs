@@ -20,6 +20,21 @@ pub enum PendingNullifierError {
 
 pub struct PendingNullifiers<'a> {
     entries: &'a mut [[u8; ENTRY]],
+    tree: [u8; 32],
+}
+
+#[derive(Debug)]
+#[must_use]
+pub struct PendingNullifierBatch<'a> {
+    nullifiers: &'a [[u8; 32]],
+    first_sequence: u64,
+    tree: [u8; 32],
+}
+
+impl<'a> PendingNullifierBatch<'a> {
+    pub(crate) fn into_parts(self) -> (&'a [[u8; 32]], u64, [u8; 32]) {
+        (self.nullifiers, self.first_sequence, self.tree)
+    }
 }
 
 impl<'a> PendingNullifiers<'a> {
@@ -69,7 +84,35 @@ impl<'a> PendingNullifiers<'a> {
         if !remainder.is_empty() || !entries.len().is_power_of_two() {
             return Err(PendingNullifierError::InvalidTable);
         }
-        Ok(Self { entries })
+        Ok(Self {
+            entries,
+            tree: *tree,
+        })
+    }
+
+    /// On error, the enclosing transaction must roll back earlier inserts in this batch.
+    pub fn insert_batch<'n>(
+        &'n mut self,
+        nullifiers: &'n [[u8; 32]],
+        first_sequence: u64,
+        close_before: u64,
+    ) -> Result<PendingNullifierBatch<'n>, PendingNullifierError> {
+        if first_sequence == 0
+            || first_sequence < close_before
+            || first_sequence
+                .checked_add(nullifiers.len() as u64)
+                .is_none()
+        {
+            return Err(PendingNullifierError::InvalidEntry);
+        }
+        for (index, nullifier) in nullifiers.iter().enumerate() {
+            self.insert(nullifier, first_sequence + index as u64, close_before)?;
+        }
+        Ok(PendingNullifierBatch {
+            nullifiers,
+            first_sequence,
+            tree: self.tree,
+        })
     }
 
     pub fn insert(
@@ -212,5 +255,67 @@ mod tests {
     #[test]
     fn rejects_zero_batch_size() {
         assert_eq!(PendingNullifiers::account_size(0), None);
+    }
+
+    #[test]
+    fn batch_receipt_binds_the_values_sequence_and_tree() {
+        let mut bytes = vec![0; PendingNullifiers::account_size(10).unwrap()];
+        let mut table = PendingNullifiers::init(&mut bytes, &[7; 32]).unwrap();
+        let values = [nullifier(1), nullifier(2)];
+        let receipt = table.insert_batch(&values, 4, 3).unwrap();
+        assert_eq!(receipt.into_parts(), (values.as_slice(), 4, [7; 32]));
+        assert_eq!(
+            table.insert_batch(&values, 6, 3).unwrap_err(),
+            PendingNullifierError::AlreadySpent
+        );
+    }
+
+    #[test]
+    fn invalid_or_duplicate_batches_cannot_issue_a_receipt() {
+        for (values, first, watermark, error) in [
+            (
+                vec![nullifier(1), [0; 32]],
+                1,
+                0,
+                PendingNullifierError::InvalidEntry,
+            ),
+            (
+                vec![nullifier(1), [255; 32]],
+                1,
+                0,
+                PendingNullifierError::InvalidEntry,
+            ),
+            (
+                vec![nullifier(1), nullifier(1)],
+                1,
+                0,
+                PendingNullifierError::AlreadySpent,
+            ),
+            (
+                vec![nullifier(1)],
+                0,
+                0,
+                PendingNullifierError::InvalidEntry,
+            ),
+            (
+                vec![nullifier(1)],
+                1,
+                2,
+                PendingNullifierError::InvalidEntry,
+            ),
+            (
+                vec![nullifier(1), nullifier(2)],
+                u64::MAX - 1,
+                0,
+                PendingNullifierError::InvalidEntry,
+            ),
+        ] {
+            let mut bytes = vec![0; PendingNullifiers::account_size(10).unwrap()];
+            let mut table = PendingNullifiers::init(&mut bytes, &[1; 32]).unwrap();
+            assert_eq!(
+                table.insert_batch(&values, first, watermark).unwrap_err(),
+                error
+            );
+        }
     }
 }

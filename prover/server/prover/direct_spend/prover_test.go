@@ -48,59 +48,72 @@ func TestDecodeRejectsMalformedWitness(t *testing.T) {
 }
 
 func TestPaymentCircuitSelection(t *testing.T) {
-	for _, inputs := range []uint32{144, 512} {
-		circuit, err := Circuit(common.DirectPaymentGKRCircuitType, inputs, 2)
-		if err != nil {
-			t.Fatal(err)
+	for _, kind := range []common.CircuitType{common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType} {
+		for _, inputs := range []uint32{144, 512} {
+			circuit, err := Circuit(kind, inputs, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch payment := circuit.(type) {
+			case *direct.PaymentCircuit:
+				if !payment.GKR || payment.Transcript != "" || len(payment.Certificate.Nullifiers) != int(inputs) {
+					t.Fatalf("incorrect GKR configuration: %d inputs", inputs)
+				}
+			case *direct.AdmittedPaymentCircuit:
+				if len(payment.Certificate.Nullifiers) != int(inputs) || len(payment.Balance.Values) != 1 || len(payment.Balance.Outputs) != 2 {
+					t.Fatalf("incorrect admitted configuration: %d inputs", inputs)
+				}
+			default:
+				t.Fatalf("unexpected circuit %T", circuit)
+			}
 		}
-		payment := circuit.(*direct.PaymentCircuit)
-		if !payment.GKR || payment.Transcript != "" || len(payment.Certificate.Nullifiers) != int(inputs) {
-			t.Fatalf("incorrect GKR configuration: %d inputs", inputs)
+		for _, shape := range [][2]uint32{{36, 2}, {128, 2}, {144, 1}, {512, 3}} {
+			if _, err := Circuit(kind, shape[0], shape[1]); err == nil {
+				t.Fatalf("accepted unsupported %s shape %v", kind, shape)
+			}
 		}
 	}
 	plain, err := Circuit(common.DirectPaymentCircuitType, 512, 2)
 	if err != nil || plain.(*direct.PaymentCircuit).GKR {
 		t.Fatal("ordinary payment unexpectedly enables GKR", err)
 	}
-	for _, shape := range [][2]uint32{{36, 2}, {128, 2}, {144, 1}, {512, 3}} {
-		if _, err := Circuit(common.DirectPaymentGKRCircuitType, shape[0], shape[1]); err == nil {
-			t.Fatalf("accepted unsupported GKR shape %v", shape)
-		}
-	}
 }
 
 func TestDecodePaymentConfiguration(t *testing.T) {
-	for _, inputs := range []uint32{144, 512} {
-		circuit, err := Circuit(common.DirectPaymentGKRCircuitType, inputs, 2)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fillFields(reflect.ValueOf(circuit).Elem())
-		encoded, err := json.Marshal(circuit)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _ := json.Marshal(Request{CircuitType: common.DirectPaymentGKRCircuitType, NInputs: inputs, NOutputs: 2, Witness: encoded})
-		_, assignment, err := Decode(body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		payment := assignment.(*direct.PaymentCircuit)
-		if !payment.GKR || payment.Transcript != "" {
-			t.Fatal("decoding changed circuit configuration")
-		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(encoded, &fields); err != nil {
-			t.Fatal(err)
-		}
-		for field, value := range map[string]string{"GKR": "false", "gkr": "true", "Transcript": `"other"`, "transcript": "null"} {
-			fields[field] = json.RawMessage(value)
-			witness, _ := json.Marshal(fields)
-			body, _ := json.Marshal(Request{CircuitType: common.DirectPaymentGKRCircuitType, NInputs: inputs, NOutputs: 2, Witness: witness})
-			if _, _, err := Decode(body); err == nil {
-				t.Fatalf("accepted client-controlled %s", field)
+	for _, kind := range []common.CircuitType{common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType} {
+		for _, inputs := range []uint32{144, 512} {
+			circuit, err := Circuit(kind, inputs, 2)
+			if err != nil {
+				t.Fatal(err)
 			}
-			delete(fields, field)
+			fillFields(reflect.ValueOf(circuit).Elem())
+			encoded, err := json.Marshal(circuit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := json.Marshal(Request{CircuitType: kind, NInputs: inputs, NOutputs: 2, Witness: encoded})
+			_, assignment, err := Decode(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if payment, ok := assignment.(*direct.PaymentCircuit); ok {
+				if !payment.GKR || payment.Transcript != "" {
+					t.Fatal("decoding changed circuit configuration")
+				}
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			for field, value := range map[string]string{"GKR": "false", "gkr": "true", "Transcript": `"other"`, "transcript": "null", "options": `{}`} {
+				fields[field] = json.RawMessage(value)
+				witness, _ := json.Marshal(fields)
+				body, _ := json.Marshal(Request{CircuitType: kind, NInputs: inputs, NOutputs: 2, Witness: witness})
+				if _, _, err := Decode(body); err == nil {
+					t.Fatalf("accepted client-controlled %s", field)
+				}
+				delete(fields, field)
+			}
 		}
 	}
 }

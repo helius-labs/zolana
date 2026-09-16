@@ -1,0 +1,30 @@
+=== RUN   TestGKRRequestMeta
+--- PASS: TestGKRRequestMeta (0.00s)
+=== RUN   TestLazyKeyManagerBuildsDirectSpendKeyPaths
+--- PASS: TestLazyKeyManagerBuildsDirectSpendKeyPaths (0.00s)
+PASS
+ok  	zolana/prover/prover/common	0.657s
+=== RUN   TestDecodeRejectsMalformedWitness
+=== RUN   TestDecodeRejectsMalformedWitness/missing_field
+=== RUN   TestDecodeRejectsMalformedWitness/float_field
+=== RUN   TestDecodeRejectsMalformedWitness/oversized_field
+=== RUN   TestDecodeRejectsMalformedWitness/extra_field
+=== RUN   TestDecodeRejectsMalformedWitness/wrong_shape
+=== RUN   TestDecodeRejectsMalformedWitness/null_slice
+--- PASS: TestDecodeRejectsMalformedWitness (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/missing_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/float_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/oversized_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/extra_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/wrong_shape (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/null_slice (0.00s)
+=== RUN   TestPaymentCircuitSelection
+--- PASS: TestPaymentCircuitSelection (0.00s)
+=== RUN   TestDecodePaymentConfiguration
+--- PASS: TestDecodePaymentConfiguration (0.21s)
+PASS
+ok  	zolana/prover/prover/direct_spend	0.645s
+=== RUN   TestGetQueueNameForCircuit
+--- PASS: TestGetQueueNameForCircuit (0.00s)
+PASS
+ok  	zolana/prover/server	0.624s

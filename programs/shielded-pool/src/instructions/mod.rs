@@ -8,6 +8,7 @@ pub mod deposit;
 pub mod direct_spend;
 pub(crate) mod event;
 pub(crate) mod hash;
+pub mod historical_nullifiers;
 pub mod merge;
 pub mod merge_ring;
 pub(crate) mod nullifier_pda;

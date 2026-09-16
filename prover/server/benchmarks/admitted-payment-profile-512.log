@@ -1,0 +1,14 @@
+=== RUN   TestGKRServiceProving
+23:25:02 INF Loading TransferProofSystem cache_key=direct-payment-admitted_512_2 key_path=/Users/tsv/Developer/zolana/zolana-10x-admission/prover/server/proving-keys/direct-payment-admitted_512_2.key
+23:25:08 INF TransferProofSystem loaded and cached successfully cache_key=direct-payment-admitted_512_2 circuit_type=direct-payment-admitted n_inputs=512 n_outputs=2 requires_p256=false
+    service_benchmark_test.go:87: GKR_SERVICE_LOAD kind=direct-payment-admitted inputs=512 load_ms=5564 constraints=1754522 request_bytes=1294099 go=go1.27.1
+    service_benchmark_test.go:91: GKR_SERVICE_KEY inputs=512 digest=94059c08903709dd9c22fb5a7d0cff5e3207e2d8b4fa48d17df034eafbf59b43
+23:25:08 DBG Found cached TransferProofSystem key=direct-payment-admitted_512_2
+{"level":"debug","nbConstraints":1754522,"took":961.508917,"time":"2026-09-16T23:25:09+01:00","message":"constraint system solver done"}
+{"level":"debug","curve":"bn254","acceleration":"none","nbConstraints":1754522,"backend":"groth16","took":1819.864542,"time":"2026-09-16T23:25:11+01:00","message":"prover done"}
+{"level":"debug","curve":"bn254","backend":"groth16","took":1.220333,"time":"2026-09-16T23:25:11+01:00","message":"verifier done"}
+    service_benchmark_test.go:147: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=1 sample=0 request=0 seconds=2.804180
+    service_benchmark_test.go:151: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=1 sample=0 seconds=2.804206 heap_bytes=2364822200 sys_bytes=2641916824
+    service_benchmark_test.go:155: GKR_SERVICE_MEDIAN inputs=512 threads=18 concurrency=1 latency_seconds=2.804180 wave_seconds=2.804206 proofs_per_second=0.356607
+--- PASS: TestGKRServiceProving (13.53s)
+PASS

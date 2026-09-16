@@ -71,6 +71,12 @@ pub fn process_instruction(
         InstructionTag::try_from(*ix_tag).map_err(|_| ProgramError::InvalidInstructionData)?;
 
     match ix_tag {
+        InstructionTag::EnableNullifierFilter => {
+            instructions::historical_nullifiers::enable(accounts, payload)
+        }
+        InstructionTag::RetireNullifierFilter => {
+            instructions::historical_nullifiers::retire(accounts, payload)
+        }
         InstructionTag::DirectSpendBuffer => {
             instructions::direct_spend::process_buffer(accounts, payload)
         }

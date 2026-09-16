@@ -56,9 +56,7 @@ func (c *PaymentCircuit) constrain(api frontend.API, certificate, freshness *gad
 	}
 	api.AssertIsEqual(c.Certificate.TreeID, c.Freshness.TreeID)
 	api.AssertIsEqual(c.Certificate.Count, c.Freshness.Count)
-	api.AssertIsEqual(c.Certificate.Asset, c.Balance.Asset)
-	api.AssertIsEqual(c.Certificate.ID, c.Balance.Values[0].ID)
-	api.AssertIsEqual(c.Certificate.ValueCommitment, c.Balance.Values[0].Commitment)
+	bindCertificateBalance(api, &c.Certificate, &c.Balance)
 	for i, nullifier := range c.Certificate.Nullifiers {
 		api.AssertIsEqual(nullifier, c.Freshness.Nullifiers[i])
 	}
@@ -68,4 +66,10 @@ func (c *PaymentCircuit) constrain(api frontend.API, certificate, freshness *gad
 	fields = append(fields, c.Balance.fields(api)...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
+}
+
+func bindCertificateBalance(api frontend.API, certificate *Certificate, balance *Balance) {
+	api.AssertIsEqual(certificate.Asset, balance.Asset)
+	api.AssertIsEqual(certificate.ID, balance.Values[0].ID)
+	api.AssertIsEqual(certificate.ValueCommitment, balance.Values[0].Commitment)
 }

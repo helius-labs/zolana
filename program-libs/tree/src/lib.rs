@@ -76,6 +76,7 @@
 //! additionally needs a prover at `ZOLANA_PROVER_URL`.
 pub mod error;
 pub mod fees;
+pub mod nullifier_filter;
 pub mod nullifier_tree;
 pub mod pending_nullifiers;
 pub mod smt;
@@ -84,6 +85,7 @@ use core::mem::{size_of, MaybeUninit};
 
 pub use error::TreeError;
 pub use fees::TreeFeeSchedule;
+pub use nullifier_filter::NullifierFilterMode;
 pub use nullifier_tree::init::NullifierTreeInitParams;
 use nullifier_tree::{
     constants::{DEFAULT_NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES},
@@ -367,6 +369,43 @@ impl<'a> TreeAccount<'a> {
         Ok(())
     }
 
+    pub fn nullifier_filter_mode(&self) -> NullifierFilterMode {
+        self.layout()._reserved[1]
+            .try_into()
+            .expect("validated filter mode")
+    }
+
+    pub fn read_nullifier_filter_mode(bytes: &[u8]) -> Result<NullifierFilterMode, TreeError> {
+        let offset = core::mem::offset_of!(SppTreeLayout, _reserved);
+        let mode =
+            NullifierFilterMode::try_from(*bytes.get(offset + 1).ok_or(TreeError::Deserialize)?)?;
+        if mode != NullifierFilterMode::Off && bytes[offset] != 1 {
+            return Err(TreeError::Deserialize);
+        }
+        Ok(mode)
+    }
+
+    pub fn enable_nullifier_filter(&mut self) -> Result<(), TreeError> {
+        let tree = &self.layout().nullifier;
+        if self.nullifier_filter_mode() != NullifierFilterMode::Off
+            || !self.uses_compact_nullifiers()
+            || tree.next_index != 1
+            || tree.queue_next_index != 1
+        {
+            return Err(TreeError::InvalidCapacity);
+        }
+        self.layout_mut()._reserved[1] = NullifierFilterMode::Active as u8;
+        Ok(())
+    }
+
+    pub fn retire_nullifier_filter(&mut self) -> Result<(), TreeError> {
+        if self.nullifier_filter_mode() != NullifierFilterMode::Active {
+            return Err(TreeError::InvalidCapacity);
+        }
+        self.layout_mut()._reserved[1] = NullifierFilterMode::Retired as u8;
+        Ok(())
+    }
+
     /// Whether a proof may contain dummy input slots at the current tree state.
     ///
     /// Nullifier capacity counts queue reservations, not only leaves already
@@ -429,6 +468,10 @@ impl<'a> TreeAccount<'a> {
 }
 
 fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
+    let mode = NullifierFilterMode::try_from(layout._reserved[1])?;
+    if mode != NullifierFilterMode::Off && layout._reserved[0] != 1 {
+        return Err(TreeError::Deserialize);
+    }
     let root_history_capacity = usize::from(layout.utxo.root_history_capacity);
     let root_history_cursor = usize::from(layout.utxo.root_history_cursor);
     let root_history_len = usize::from(layout.utxo.root_history_len);

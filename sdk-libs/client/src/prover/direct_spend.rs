@@ -261,8 +261,55 @@ pub fn balance(
 }
 
 pub fn payment(
+    certificate: Request,
+    freshness: Request,
+    balance: Request,
+    statement: &Payment,
+    owner: Field,
+    buffer: Field,
+    tree_id: u16,
+    output_tree_id: u16,
+    opening: &Opening,
+) -> Result<Request, ClientError> {
+    payment_request(
+        certificate,
+        Some(freshness),
+        balance,
+        statement,
+        owner,
+        buffer,
+        tree_id,
+        output_tree_id,
+        opening,
+    )
+}
+
+pub fn admitted_payment(
+    certificate: Request,
+    balance: Request,
+    statement: &Payment,
+    owner: Field,
+    buffer: Field,
+    tree_id: u16,
+    output_tree_id: u16,
+    opening: &Opening,
+) -> Result<Request, ClientError> {
+    payment_request(
+        certificate,
+        None,
+        balance,
+        statement,
+        owner,
+        buffer,
+        tree_id,
+        output_tree_id,
+        opening,
+    )
+}
+
+fn payment_request(
     mut certificate: Request,
-    mut freshness: Request,
+    mut freshness: Option<Request>,
     mut balance: Request,
     statement: &Payment,
     owner: Field,
@@ -279,33 +326,56 @@ pub fn payment(
         return Err(invalid("fused payment requires original notes"));
     };
     let capacity = certificate.inputs;
-    if !wire::GKR_PAYMENT_INPUTS.contains(&capacity)
-        || freshness.inputs != capacity
+    if certificate.kind != "input-certificate"
+        || balance.kind != "spend-balance"
+        || !wire::GKR_PAYMENT_INPUTS.contains(&capacity)
         || balance.inputs != 1
     {
         return Err(invalid("invalid fused payment shape"));
     }
-    let mut public = vec![field(wire::PAYMENT_DOMAIN)];
+    let (kind, domain) = if let Some(request) = &freshness {
+        if request.kind != "nullifier-freshness" || request.inputs != capacity {
+            return Err(invalid("invalid fused freshness shape"));
+        }
+        ("direct-payment", wire::PAYMENT_DOMAIN)
+    } else {
+        if root.index != 0 || root.value != [0; 32] {
+            return Err(invalid(
+                "admitted payment requires canonical zero freshness",
+            ));
+        }
+        ("direct-payment-admitted", wire::ADMITTED_PAYMENT_DOMAIN)
+    };
+    let mut public = vec![field(domain)];
     public.extend(inputs.fields(certificate_id(&buffer)?, &owner, tree_id, capacity)?);
-    public.extend(inputs.freshness_fields(*root, tree_id, capacity)?);
+    if freshness.is_some() {
+        public.extend(inputs.freshness_fields(*root, tree_id, capacity)?);
+    }
     public.extend(statement.balance_fields(
         statement.intent(&owner, &buffer)?,
         output_tree_id,
         &[[opening.id, opening.commitment]],
         1,
     )?);
-    for request in [&mut certificate, &mut freshness, &mut balance] {
+    for request in [&mut certificate, &mut balance]
+        .into_iter()
+        .chain(freshness.iter_mut())
+    {
         request
             .witness
             .as_object_mut()
             .unwrap()
             .remove("PublicInputHash");
     }
+    let mut witness = json!({ "Certificate": certificate.witness, "Balance": balance.witness, "PublicInputHash": hex(&chain(&public)?) });
+    if let Some(freshness) = freshness {
+        witness["Freshness"] = freshness.witness;
+    }
     Ok(Request {
-        kind: "direct-payment",
+        kind,
         inputs: capacity,
         outputs: 2,
-        witness: json!({ "Certificate": certificate.witness, "Freshness": freshness.witness, "Balance": balance.witness, "PublicInputHash": hex(&chain(&public)?) }),
+        witness,
     })
 }
 
@@ -336,4 +406,91 @@ fn amount_field(value: u128) -> Field {
 }
 fn invalid(message: &str) -> ClientError {
     ClientError::Prover(message.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(freshness: Root) -> Result<Request, ClientError> {
+        let opening = Opening {
+            id: field(1),
+            commitment: field(2),
+            asset: field(3),
+            amount: 4,
+            randomness: field(5),
+        };
+        let statement = Payment {
+            inputs: PaymentInputs::Notes {
+                certificate: Certificate {
+                    tree: field(1),
+                    state_root: Root {
+                        index: 0,
+                        value: field(2),
+                    },
+                    nullifiers: vec![field(3)],
+                    value_commitment: opening.commitment,
+                },
+                freshness,
+            },
+            output_tree: field(4),
+            expiry_slot: u64::MAX,
+            max_forester_fee: 0,
+            outputs: Vec::new(),
+            tx_viewing_pk: [0; 33],
+            salt: [0; 16],
+        };
+        let certificate = Request {
+            kind: "input-certificate",
+            inputs: 144,
+            outputs: 0,
+            witness: json!({ "PublicInputHash": "old", "Notes": [] }),
+        };
+        let balance = Request {
+            kind: "spend-balance",
+            inputs: 1,
+            outputs: 2,
+            witness: json!({ "PublicInputHash": "old", "Values": [] }),
+        };
+        admitted_payment(
+            certificate,
+            balance,
+            &statement,
+            field(6),
+            field(7),
+            0,
+            0,
+            &opening,
+        )
+    }
+
+    #[test]
+    fn admitted_request_has_no_freshness_witness() {
+        let request = request(Root {
+            index: 0,
+            value: [0; 32],
+        })
+        .unwrap();
+        let body: Value = serde_json::from_str(&request.body().unwrap()).unwrap();
+        assert_eq!(body["circuitType"], "direct-payment-admitted");
+        assert!(body["witness"].get("Freshness").is_none());
+        assert!(body["witness"]["Certificate"]
+            .get("PublicInputHash")
+            .is_none());
+        assert!(body["witness"]["Balance"].get("PublicInputHash").is_none());
+    }
+
+    #[test]
+    fn admitted_request_rejects_nonzero_freshness() {
+        assert!(request(Root {
+            index: 1,
+            value: [0; 32]
+        })
+        .is_err());
+        assert!(request(Root {
+            index: 0,
+            value: field(1)
+        })
+        .is_err());
+    }
 }

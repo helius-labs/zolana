@@ -11,13 +11,14 @@ import (
 )
 
 const (
-	MaxInputs         = 512
-	MaxCertificates   = 16
-	CertificateDomain = 0x44534331
-	ValueDomain       = 0x44535631
-	BalanceDomain     = 0x44534231
-	FreshnessDomain   = 0x44534631
-	PaymentDomain     = 0x44535031
+	MaxInputs             = 512
+	MaxCertificates       = 16
+	CertificateDomain     = 0x44534331
+	ValueDomain           = 0x44535631
+	BalanceDomain         = 0x44534231
+	FreshnessDomain       = 0x44534631
+	PaymentDomain         = 0x44535031
+	AdmittedPaymentDomain = 0x44535032
 )
 
 type Note struct {
@@ -72,6 +73,24 @@ func (c *Certificate) constrain(api frontend.API) error {
 }
 
 func (c *Certificate) constrainWithCompressor(api frontend.API, compressor *gadget.GKRCompressor) error {
+	return c.constrainPaths(api, compressor, transaction.StateTreeHeight)
+}
+
+func (c *Certificate) constrainPaths(api frontend.API, compressor *gadget.GKRCompressor, height int) error {
+	if height < 1 || height > transaction.StateTreeHeight {
+		return fmt.Errorf("direct spend: invalid state path height")
+	}
+	return c.constrainMembership(api, func(i int, note Note, hash, active frontend.Variable) error {
+		if len(note.Path) != height {
+			return fmt.Errorf("direct spend: invalid note path %d", i)
+		}
+		root := merkleRoot(api, hash, note.Index, note.Path, compressor)
+		api.AssertIsEqual(api.Mul(active, api.Sub(root, c.StateRoot)), 0)
+		return nil
+	})
+}
+
+func (c *Certificate) constrainMembership(api frontend.API, membership func(int, Note, frontend.Variable, frontend.Variable) error) error {
 	if len(c.Notes) == 0 || len(c.Notes) > MaxInputs || len(c.Nullifiers) != len(c.Notes) {
 		return fmt.Errorf("direct spend: invalid input shape")
 	}
@@ -83,9 +102,6 @@ func (c *Certificate) constrainWithCompressor(api frontend.API, compressor *gadg
 	})
 	count, total, previous := frontend.Variable(0), frontend.Variable(0), frontend.Variable(1)
 	for i, note := range c.Notes {
-		if len(note.Path) != transaction.StateTreeHeight {
-			return fmt.Errorf("direct spend: invalid note path %d", i)
-		}
 		active := api.Sub(1, api.IsZero(c.Nullifiers[i]))
 		api.AssertIsEqual(api.Mul(active, api.Sub(1, previous)), 0)
 		previous = active
@@ -94,8 +110,9 @@ func (c *Certificate) constrainWithCompressor(api frontend.API, compressor *gadg
 		api.AssertIsEqual(api.Mul(api.Sub(1, active), note.Amount), 0)
 		total = api.Add(total, note.Amount)
 		hash := transaction.UtxoHashCircuit(api, plainNote(owner, c.Asset, note.Amount, note.Blinding), c.TreeID)
-		root := merkleRoot(api, hash, note.Index, note.Path, compressor)
-		api.AssertIsEqual(api.Mul(active, api.Sub(root, c.StateRoot)), 0)
+		if err := membership(i, note, hash, active); err != nil {
+			return err
+		}
 		nullifier := abstractor.Call(api, transaction.NullifierGadget{
 			UtxoHash: hash, Blinding: note.Blinding, NullifierSecret: c.NullifierSecret,
 		})

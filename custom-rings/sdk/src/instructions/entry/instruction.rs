@@ -3,8 +3,14 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, ProverClient, Rpc};
-use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{
+    instruction::builders::{
+        direct_spend::use_pending_nullifiers, historical_nullifiers::use_nullifier_filter,
+    },
+    pda, SHIELDED_POOL_PROGRAM_ID,
+};
 use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member, RuleTable};
+use zolana_tree::NullifierFilterMode;
 
 use crate::{
     instructions::{
@@ -33,6 +39,8 @@ pub enum EntryError {
     /// cannot be measured.
     #[error("the transaction message does not compile")]
     TransactionCompile(#[source] Box<ClientError>),
+    #[error("invalid nullifier account layout: {0}")]
+    NullifierAccounts(&'static str),
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
 }
@@ -263,7 +271,7 @@ impl ProvenEntry {
                 data
             }
         };
-        Ok(Instruction {
+        let mut instruction = Instruction {
             program_id: ring.program_id(),
             // Everything after the two config accounts is forwarded to SPP
             // position for position.
@@ -279,7 +287,16 @@ impl ProvenEntry {
                 AccountMeta::new_readonly(ring.namespace_pda(), false),
             ],
             data,
-        })
+        };
+        if proof.compact_nullifiers {
+            use_pending_nullifiers(&mut instruction, &entries_tree, &[proof.nullifier])
+                .map_err(EntryError::NullifierAccounts)?;
+        }
+        if proof.nullifier_filter_mode == NullifierFilterMode::Active {
+            use_nullifier_filter(&mut instruction, &entries_tree)
+                .map_err(EntryError::NullifierAccounts)?;
+        }
+        Ok(instruction)
     }
 }
 
@@ -315,11 +332,47 @@ mod tests {
     }
 
     #[test]
-    fn a_mutation_places_its_writable_nullifier_pda_before_the_namespace_signer() {
+    fn mutations_route_nullifiers_before_the_namespace_signer() {
+        for (compact, mode) in [
+            (false, NullifierFilterMode::Off),
+            (true, NullifierFilterMode::Off),
+            (true, NullifierFilterMode::Active),
+            (true, NullifierFilterMode::Retired),
+        ] {
+            for update in [false, true] {
+                let mut proven = proven_entry();
+                proven.proof.compact_nullifiers = compact;
+                proven.proof.nullifier_filter_mode = mode;
+                if update {
+                    proven.spent = Some(proven.entry);
+                    proven.entry.version = 1;
+                }
+                let ring = proven.ring;
+                let tree = proven.entries_tree;
+                let nullifier = proven.proof.nullifier;
+                let instruction = proven.instruction().expect("entry instruction");
+                let mut expected = vec![AccountMeta::new(
+                    if compact {
+                        pda::pending_nullifiers(&tree).0
+                    } else {
+                        pda::nullifier_pda(&tree, &nullifier).0
+                    },
+                    false,
+                )];
+                if mode == NullifierFilterMode::Active {
+                    expected.push(AccountMeta::new(pda::nullifier_filter(&tree).0, false));
+                }
+                expected.push(AccountMeta::new_readonly(ring.namespace_pda(), false));
+                assert_eq!(instruction.accounts[7..], expected);
+            }
+        }
+    }
+
+    fn proven_entry() -> ProvenEntry {
         let ring = CustomRing::new(Address::new_from_array([42u8; 32]));
         let entries_tree = Address::new_from_array([2u8; 32]);
         let nullifier = [9u8; 32];
-        let instruction = ProvenEntry {
+        ProvenEntry {
             ring,
             payer: Address::new_from_array([1u8; 32]),
             entries_tree,
@@ -338,20 +391,9 @@ mod tests {
                 utxo_tree_root_index: 0,
                 nullifier,
                 private_tx_blinding: [0u8; 32],
+                compact_nullifiers: false,
+                nullifier_filter_mode: NullifierFilterMode::Off,
             },
         }
-        .instruction()
-        .expect("entry instruction");
-
-        let nullifier_meta = instruction.accounts.get(7).expect("nullifier PDA");
-        assert_eq!(
-            nullifier_meta.pubkey,
-            pda::nullifier_pda(&entries_tree, &nullifier).0
-        );
-        assert!(nullifier_meta.is_writable);
-        assert_eq!(
-            instruction.accounts.get(8).expect("namespace").pubkey,
-            ring.namespace_pda()
-        );
     }
 }

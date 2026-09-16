@@ -412,7 +412,48 @@ fn prepared_spend_consumes_original_inputs_and_rejects_replay() {
 #[test]
 #[ignore]
 fn gkr_payment_checks_commitment_statement_and_replay() {
-    let mut fixture = Fixture::new(4);
+    payment_checks_commitment_statement_and_replay(false);
+}
+
+#[test]
+#[ignore]
+fn admitted_payment_checks_history_commitment_statement_and_replay() {
+    payment_checks_commitment_statement_and_replay(true);
+}
+
+fn payment_checks_commitment_statement_and_replay(admitted: bool) {
+    let count = std::env::var("DIRECT_SPEND_TEST_INPUTS")
+        .ok()
+        .map(|value| value.parse::<usize>().unwrap())
+        .unwrap_or(4);
+    let capacity = if count <= 144 { 144 } else { 512 };
+    let mut fixture = Fixture::new(count);
+    let filter_key = pda::nullifier_filter(&fixture.tree).0;
+    {
+        use zolana_tree::nullifier_filter::{NullifierFilter, DEFAULT_BIT_BYTES, DEFAULT_HASHES};
+        let mut tree = fixture.rpc.svm.get_account(&fixture.tree).unwrap();
+        TreeAccount::from_bytes(&mut tree.data, fixture.tree.to_bytes())
+            .unwrap()
+            .enable_nullifier_filter()
+            .unwrap();
+        fixture.rpc.svm.set_account(fixture.tree, tree).unwrap();
+        let mut data = vec![0; NullifierFilter::account_size(DEFAULT_BIT_BYTES).unwrap()];
+        NullifierFilter::init_zeroed(&mut data, &fixture.tree.to_bytes(), DEFAULT_HASHES).unwrap();
+        fixture
+            .rpc
+            .svm
+            .set_account(
+                filter_key,
+                Account {
+                    lamports: 100_000_000_000,
+                    data,
+                    owner: PROGRAM_ID_PUBKEY,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
+    }
     let owner = fixture.owner.pubkey();
     let nonce = field(8888);
     let buffer = instructions::spend_buffer(&owner, &nonce);
@@ -424,10 +465,21 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
         &fixture.key,
         &fixture.inputs,
         field(23),
-        144,
+        capacity,
     )
     .unwrap();
-    let (root, freshness) = fixture.freshness(&plan.statement, 144);
+    let (root, freshness) = if admitted {
+        (
+            Root {
+                index: 0,
+                value: [0; 32],
+            },
+            None,
+        )
+    } else {
+        let (root, request) = fixture.freshness(&plan.statement, capacity);
+        (root, Some(request))
+    };
     let (payment, outputs) = fixture.payment(PaymentInputs::Notes {
         certificate: plan.statement,
         freshness: root,
@@ -442,24 +494,38 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
         1,
     )
     .unwrap();
-    let request = direct::payment(
-        plan.request,
-        freshness,
-        balance,
-        &payment,
-        owner.to_bytes(),
-        buffer.to_bytes(),
-        7,
-        8,
-        &plan.opening,
-    )
-    .unwrap()
-    .with_gkr()
-    .unwrap();
+    let request = if let Some(freshness) = freshness {
+        direct::payment(
+            plan.request,
+            freshness,
+            balance,
+            &payment,
+            owner.to_bytes(),
+            buffer.to_bytes(),
+            7,
+            8,
+            &plan.opening,
+        )
+        .unwrap()
+        .with_gkr()
+        .unwrap()
+    } else {
+        direct::admitted_payment(
+            plan.request,
+            balance,
+            &payment,
+            owner.to_bytes(),
+            buffer.to_bytes(),
+            7,
+            8,
+            &plan.opening,
+        )
+        .unwrap()
+    };
     let url = std::env::var("ZOLANA_PROVER_URL").expect("set ZOLANA_PROVER_URL");
     let proof = ProofCompressed::try_from(ProverClient::new(url).prove(&request).unwrap()).unwrap();
     let commitment = proof.commitment.expect("GKR must carry a commitment");
-    let payload = Payload::GkrPayment {
+    let mut payload = Payload::GkrPayment {
         statement: payment,
         proof: wire::Proof {
             a: proof.a,
@@ -470,19 +536,112 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
             commitment: commitment.commitment,
             commitment_pok: commitment.commitment_pok,
         },
-        inputs: 144,
+        inputs: capacity as u16,
     };
+    if admitted {
+        let Payload::GkrPayment {
+            statement,
+            proof,
+            commitment,
+            inputs,
+        } = payload
+        else {
+            unreachable!()
+        };
+        payload = Payload::AdmittedPayment {
+            statement,
+            proof,
+            commitment,
+            inputs,
+        };
+    }
     fixture.upload(nonce, payload.clone());
     let original = fixture.rpc.svm.get_account(&buffer).unwrap();
     let tree_before = fixture.rpc.svm.get_account(&fixture.tree).unwrap().data;
     let pending_key = pda::pending_nullifiers(&fixture.tree).0;
     let pending_before = fixture.rpc.svm.get_account(&pending_key).unwrap().data;
-    let instruction =
+    let mut instruction =
         instructions::commit_spend(owner, buffer, fixture.tree, fixture.output_tree, &[]);
+    {
+        zolana_interface::instruction::builders::historical_nullifiers::use_nullifier_filter(
+            &mut instruction,
+            &fixture.tree,
+        )
+        .unwrap();
+    }
     let original_tree = fixture.rpc.svm.get_account(&fixture.tree).unwrap();
+    if admitted {
+        let history = fixture.rpc.svm.get_account(&filter_key).unwrap();
+        let mut changed = history.clone();
+        zolana_tree::nullifier_filter::NullifierFilter::from_bytes(
+            &mut changed.data,
+            &fixture.tree.to_bytes(),
+        )
+        .unwrap()
+        .record_batch(&[field(999)], 1, true)
+        .unwrap();
+        fixture.rpc.svm.set_account(filter_key, changed).unwrap();
+        let error = fixture
+            .rpc
+            .create_and_send_transaction_with_budget(
+                &[instruction.clone()],
+                &owner,
+                &[&fixture.owner],
+                direct::COMPUTE_BUDGET,
+            )
+            .unwrap_err();
+        zolana_program_test::Rejection::pool(
+            zolana_interface::error::ShieldedPoolError::InvalidNullifierFilter,
+        )
+        .assert_litesvm(error);
+        fixture
+            .rpc
+            .last_transaction_trace()
+            .unwrap()
+            .assert_rolled_back_except(&[owner]);
+        fixture.rpc.svm.set_account(filter_key, history).unwrap();
+
+        let mut retired = original_tree.clone();
+        TreeAccount::from_bytes(&mut retired.data, fixture.tree.to_bytes())
+            .unwrap()
+            .retire_nullifier_filter()
+            .unwrap();
+        fixture.rpc.svm.set_account(fixture.tree, retired).unwrap();
+        let without_filter =
+            instructions::commit_spend(owner, buffer, fixture.tree, fixture.output_tree, &[]);
+        let error = fixture
+            .rpc
+            .create_and_send_transaction_with_budget(
+                &[without_filter],
+                &owner,
+                &[&fixture.owner],
+                direct::COMPUTE_BUDGET,
+            )
+            .unwrap_err();
+        zolana_program_test::Rejection::pool(
+            zolana_interface::error::ShieldedPoolError::InvalidNullifierFilter,
+        )
+        .assert_litesvm(error);
+        fixture
+            .rpc
+            .last_transaction_trace()
+            .unwrap()
+            .assert_rolled_back_except(&[owner]);
+        fixture
+            .rpc
+            .svm
+            .set_account(fixture.tree, original_tree.clone())
+            .unwrap();
+    }
+
     for evict_nullifier_root in [false, true] {
+        if admitted && evict_nullifier_root {
+            continue;
+        }
         let mut account = original_tree.clone();
-        let Payload::GkrPayment { statement, .. } = &payload else {
+        let (Payload::GkrPayment { statement, .. } | Payload::AdmittedPayment { statement, .. }) =
+            &payload
+        else {
             unreachable!()
         };
         let PaymentInputs::Notes {
@@ -532,19 +691,25 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
         .unwrap();
     for mutation in ["commitment", "knowledge", "shape", "output", "nullifier"] {
         let mut changed = payload.clone();
-        let Payload::GkrPayment {
+        let (Payload::GkrPayment {
             statement,
             commitment,
             inputs,
             ..
-        } = &mut changed
+        }
+        | Payload::AdmittedPayment {
+            statement,
+            commitment,
+            inputs,
+            ..
+        }) = &mut changed
         else {
             unreachable!()
         };
         match mutation {
             "commitment" => commitment.commitment = commitment.commitment_pok,
             "knowledge" => commitment.commitment_pok = commitment.commitment,
-            "shape" => *inputs = 512,
+            "shape" => *inputs = if capacity == 144 { 512 } else { 144 },
             "output" => statement.outputs[0].utxo.utxo_hash = field(12),
             "nullifier" => {
                 let PaymentInputs::Notes { certificate, .. } = &mut statement.inputs else {
@@ -590,6 +755,32 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
         .svm
         .set_account(buffer, original.clone())
         .unwrap();
+    let history = fixture.rpc.svm.get_account(&filter_key).unwrap();
+    let mut saturated = history.clone();
+    let header_len = saturated.data.len() - zolana_tree::nullifier_filter::DEFAULT_BIT_BYTES;
+    saturated.data[header_len..].fill(255);
+    fixture.rpc.svm.set_account(filter_key, saturated).unwrap();
+    if admitted {
+        let error = fixture
+            .rpc
+            .create_and_send_transaction_with_budget(
+                &[instruction.clone()],
+                &owner,
+                &[&fixture.owner],
+                direct::COMPUTE_BUDGET,
+            )
+            .unwrap_err();
+        zolana_program_test::Rejection::pool(
+            zolana_interface::error::ShieldedPoolError::NullifierProofRequired,
+        )
+        .assert_litesvm(error);
+        fixture
+            .rpc
+            .last_transaction_trace()
+            .unwrap()
+            .assert_rolled_back_except(&[owner]);
+        fixture.rpc.svm.set_account(filter_key, history).unwrap();
+    }
     let result = fixture
         .rpc
         .create_and_send_transaction_with_budget(
@@ -605,7 +796,7 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
             .iter()
             .map(|event| event.decoded.as_ref().unwrap().inputs.len())
             .sum::<usize>(),
-        4
+        count
     );
     assert_eq!(
         result
@@ -615,6 +806,21 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
             .sum::<usize>(),
         2
     );
+    println!(
+        "DIRECT_PAYMENT_CU admitted={admitted} count={count} cu={}",
+        fixture
+            .rpc
+            .last_transaction_trace()
+            .unwrap()
+            .compute_units_consumed
+    );
+    let mut history = fixture.rpc.svm.get_account(&filter_key).unwrap();
+    let filter = zolana_tree::nullifier_filter::NullifierFilter::from_bytes(
+        &mut history.data,
+        &fixture.tree.to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(filter.next_sequence(), count as u64 + 1);
     assert!(fixture
         .rpc
         .create_and_send_transaction_with_budget(
@@ -624,11 +830,15 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
             direct::COMPUTE_BUDGET,
         )
         .is_err());
-    fixture.rpc.svm.set_account(buffer, original).unwrap();
+    fixture
+        .rpc
+        .svm
+        .set_account(buffer, original.clone())
+        .unwrap();
     let error = fixture
         .rpc
         .create_and_send_transaction_with_budget(
-            &[instruction],
+            &[instruction.clone()],
             &owner,
             &[&fixture.owner],
             direct::COMPUTE_BUDGET,
@@ -643,4 +853,33 @@ fn gkr_payment_checks_commitment_statement_and_replay() {
         .last_transaction_trace()
         .unwrap()
         .assert_rolled_back_except(&[owner]);
+    if admitted {
+        let mut pending = fixture.rpc.svm.get_account(&pending_key).unwrap();
+        pending.data.fill(0);
+        PendingNullifiers::init_zeroed(&mut pending.data, &fixture.tree.to_bytes()).unwrap();
+        fixture.rpc.svm.set_account(pending_key, pending).unwrap();
+        let history = fixture.rpc.svm.get_account(&filter_key).unwrap();
+        let error = fixture
+            .rpc
+            .create_and_send_transaction_with_budget(
+                &[instruction],
+                &owner,
+                &[&fixture.owner],
+                direct::COMPUTE_BUDGET,
+            )
+            .unwrap_err();
+        zolana_program_test::Rejection::pool(
+            zolana_interface::error::ShieldedPoolError::NullifierProofRequired,
+        )
+        .assert_litesvm(error);
+        fixture
+            .rpc
+            .last_transaction_trace()
+            .unwrap()
+            .assert_rolled_back_except(&[owner]);
+        assert_eq!(
+            fixture.rpc.svm.get_account(&filter_key).unwrap().data,
+            history.data
+        );
+    }
 }

@@ -14,7 +14,7 @@ use zolana_tree::TreeAccount;
 
 use super::{account::TransactAccounts, event::TreeWrite, verify::TransactProofInputs};
 use crate::instructions::{
-    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
+    nullifier_pda::{create_nullifier_pdas, InputTreeResult, NullifierAdmission},
     shared::tree_error,
 };
 
@@ -109,6 +109,7 @@ pub(crate) fn apply_input_trees(
             tree_pdas,
             tree_inputs.iter().map(|input| &input.nullifier_hash),
             &result,
+            NullifierAdmission::ExactProof,
         )?;
         remaining_pdas = rest;
         // 5. Retain its first queue sequence for the event.

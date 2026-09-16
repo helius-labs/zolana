@@ -6,6 +6,8 @@ mod common;
 mod create_policy;
 #[path = "policy/entry.rs"]
 mod entry;
+#[path = "policy/filter_accounts.rs"]
+mod filter_accounts;
 #[path = "policy/mutator.rs"]
 mod mutator;
 #[path = "policy/set_policy_rules.rs"]

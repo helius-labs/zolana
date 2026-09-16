@@ -1,0 +1,16 @@
+=== RUN   TestGKRServiceProving
+23:48:01 INF Loading TransferProofSystem cache_key=direct-payment-admitted_144_2 key_path=/Users/tsv/Developer/zolana/zolana-10x-admission/prover/server/proving-keys/direct-payment-admitted_144_2.key
+23:48:12 INF TransferProofSystem loaded and cached successfully cache_key=direct-payment-admitted_144_2 circuit_type=direct-payment-admitted n_inputs=144 n_outputs=2 requires_p256=false
+    service_benchmark_test.go:91: GKR_SERVICE_LOAD kind=direct-payment-admitted inputs=144 load_ms=10704 constraints=1232023 request_bytes=365635 go=go1.27.1
+    service_benchmark_test.go:95: GKR_SERVICE_KEY inputs=144 digest=1df01cde9597da0bbd4e52455a5e52702f862f30b91ab1080f8e8fc5f12b09c6
+--- PASS: TestGKRServiceProving (13.17s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	13.808s
+=== RUN   TestGKRServiceProving
+23:48:18 INF Loading TransferProofSystem cache_key=direct-payment-admitted_512_2 key_path=/Users/tsv/Developer/zolana/zolana-10x-admission/prover/server/proving-keys/direct-payment-admitted_512_2.key
+23:48:32 INF TransferProofSystem loaded and cached successfully cache_key=direct-payment-admitted_512_2 circuit_type=direct-payment-admitted n_inputs=512 n_outputs=2 requires_p256=false
+    service_benchmark_test.go:91: GKR_SERVICE_LOAD kind=direct-payment-admitted inputs=512 load_ms=13984 constraints=1754522 request_bytes=1294099 go=go1.27.1
+    service_benchmark_test.go:95: GKR_SERVICE_KEY inputs=512 digest=94059c08903709dd9c22fb5a7d0cff5e3207e2d8b4fa48d17df034eafbf59b43
+--- PASS: TestGKRServiceProving (19.00s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	19.337s

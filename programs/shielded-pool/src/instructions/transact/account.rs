@@ -8,7 +8,7 @@ use zolana_interface::{
         validate_interface_transfers,
     },
     shape::owner_signer_slots,
-    INPUT_TREES, MAX_INTERFACE_TRANSFERS,
+    INPUT_TREES, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS,
 };
 
 use super::verify::MAX_INPUTS;
@@ -24,7 +24,7 @@ pub struct TransactAccounts<'a> {
     /// `tree_index` selects its tree from this run.
     pub input_trees: ArrayVec<&'a mut AccountView, INPUT_TREES>,
     pub output_tree: &'a mut AccountView,
-    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, { MAX_INPUTS + MAX_INPUT_TREES }>,
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
 }
@@ -278,4 +278,109 @@ fn validate_program_prefix(iter: &mut AccountIterator<'_>) -> Result<(), Program
         return Err(ShieldedPoolError::InvalidSystemProgram.into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+    use zolana_interface::instruction::instruction_data::transact::{
+        CircuitId, InputUtxo, TransactProof, TreeContext,
+    };
+    use zolana_tree::{NullifierFilterMode, SppTreeLayout};
+
+    #[test]
+    fn mixed_tree_nullifier_accounts_leave_owner_signers_intact() {
+        for compact in [false, true] {
+            for mode in [
+                NullifierFilterMode::Off,
+                NullifierFilterMode::Active,
+                NullifierFilterMode::Retired,
+            ] {
+                if !compact && mode != NullifierFilterMode::Off {
+                    continue;
+                }
+                for compact_first in [false, true] {
+                    let compact_index = usize::from(!compact_first);
+                    let tree_data = |index| {
+                        let offset = core::mem::offset_of!(SppTreeLayout, _reserved);
+                        let mut bytes = vec![0; offset + 2];
+                        if index == compact_index {
+                            bytes[offset] = u8::from(compact);
+                            bytes[offset + 1] = mode as u8;
+                        }
+                        bytes
+                    };
+                    let account = |address, signer, writable, data| {
+                        get_account_view(
+                            address,
+                            crate::ID.to_bytes(),
+                            signer,
+                            writable,
+                            false,
+                            data,
+                        )
+                    };
+                    let mut accounts = vec![
+                        account([1; 32], true, true, vec![]),
+                        account([2; 32], false, true, vec![]),
+                        account(crate::ID.to_bytes(), false, false, vec![]),
+                        account([0; 32], false, false, vec![]),
+                        account([3; 32], false, true, tree_data(0)),
+                        account([4; 32], false, true, tree_data(1)),
+                    ];
+                    let count = MAX_INPUTS + usize::from(mode == NullifierFilterMode::Active);
+                    accounts.extend(
+                        (0..count)
+                            .map(|index| account([index as u8 + 20; 32], false, true, vec![])),
+                    );
+                    accounts.push(account([100; 32], true, false, vec![]));
+                    let ix = TransactIxDataRef {
+                        expiry_unix_ts: 0,
+                        tx_viewing_pk: &[0; 33],
+                        salt: &[0; 16],
+                        interface_transfers: vec![],
+                        data_hash: None,
+                        ring_data_hash: None,
+                        outputs: vec![],
+                        messages: vec![],
+                        private_tx_hash: &[0; 32],
+                        circuit: CircuitId::ConfidentialEddsa(
+                            MAX_INPUTS as u8,
+                            2,
+                            zolana_interface::N_PUBLIC_SLOTS as u8,
+                        ),
+                        proof: TransactProof::zeroed(),
+                        inputs: (0..2)
+                            .flat_map(|index| {
+                                let count = if index == compact_index {
+                                    1
+                                } else {
+                                    MAX_INPUTS - 1
+                                };
+                                std::iter::repeat_n(
+                                    InputUtxo {
+                                        nullifier_hash: [0; 32],
+                                        tree_index: index as u8,
+                                    },
+                                    count,
+                                )
+                            })
+                            .collect(),
+                        tree_contexts: vec![
+                            TreeContext {
+                                utxo_tree_root_index: 0,
+                                nullifier_tree_root_index: 0,
+                            };
+                            2
+                        ],
+                    };
+                    let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix).unwrap();
+                    assert_eq!(parsed.nullifier_pdas.len(), count);
+                    assert_eq!(parsed.owner_signers.len(), 1);
+                    assert_eq!(parsed.owner_signers[0].address().to_bytes(), [100; 32]);
+                }
+            }
+        }
+    }
 }

@@ -1,0 +1,58 @@
+=== RUN   TestPayment
+=== RUN   TestPayment/1
+=== RUN   TestPayment/2
+=== RUN   TestPayment/4
+--- PASS: TestPayment (0.20s)
+    --- PASS: TestPayment/1 (0.07s)
+    --- PASS: TestPayment/2 (0.06s)
+    --- PASS: TestPayment/4 (0.06s)
+=== RUN   TestPaymentRejects
+=== RUN   TestPaymentRejects/wrong_asset
+=== RUN   TestPaymentRejects/wrong_root
+=== RUN   TestPaymentRejects/hidden_amount
+=== RUN   TestPaymentRejects/wrong_credit
+=== RUN   TestPaymentRejects/wrong_blinding
+=== RUN   TestPaymentRejects/wrong_recipient
+=== RUN   TestPaymentRejects/wrong_nf_root
+=== RUN   TestPaymentRejects/wrong_tree
+=== RUN   TestPaymentRejects/wrong_count
+=== RUN   TestPaymentRejects/spent_nullifier
+=== RUN   TestPaymentRejects/padding_gap
+=== RUN   TestPaymentRejects/inflation
+=== RUN   TestPaymentRejects/wrong_owner
+=== RUN   TestPaymentRejects/wrong_nullifier
+=== RUN   TestPaymentRejects/wrong_output
+=== RUN   TestPaymentRejects/amount_overflow
+=== RUN   TestPaymentRejects/wrong_subtotal
+=== RUN   TestPaymentRejects/nf_substitution
+--- PASS: TestPaymentRejects (0.64s)
+    --- PASS: TestPaymentRejects/wrong_asset (0.06s)
+    --- PASS: TestPaymentRejects/wrong_root (0.01s)
+    --- PASS: TestPaymentRejects/hidden_amount (0.02s)
+    --- PASS: TestPaymentRejects/wrong_credit (0.06s)
+    --- PASS: TestPaymentRejects/wrong_blinding (0.06s)
+    --- PASS: TestPaymentRejects/wrong_recipient (0.06s)
+    --- PASS: TestPaymentRejects/wrong_nf_root (0.04s)
+    --- PASS: TestPaymentRejects/wrong_tree (0.01s)
+    --- PASS: TestPaymentRejects/wrong_count (0.03s)
+    --- PASS: TestPaymentRejects/spent_nullifier (0.04s)
+    --- PASS: TestPaymentRejects/padding_gap (0.01s)
+    --- PASS: TestPaymentRejects/inflation (0.06s)
+    --- PASS: TestPaymentRejects/wrong_owner (0.01s)
+    --- PASS: TestPaymentRejects/wrong_nullifier (0.01s)
+    --- PASS: TestPaymentRejects/wrong_output (0.06s)
+    --- PASS: TestPaymentRejects/amount_overflow (0.00s)
+    --- PASS: TestPaymentRejects/wrong_subtotal (0.06s)
+    --- PASS: TestPaymentRejects/nf_substitution (0.06s)
+=== RUN   TestPaddedBalance
+--- PASS: TestPaddedBalance (0.02s)
+=== RUN   TestScatteredGKRPayment
+=== RUN   TestScatteredGKRPayment/inflation
+=== RUN   TestScatteredGKRPayment/path
+=== RUN   TestScatteredGKRPayment/nullifier
+--- PASS: TestScatteredGKRPayment (1.10s)
+    --- PASS: TestScatteredGKRPayment/inflation (0.14s)
+    --- PASS: TestScatteredGKRPayment/path (0.13s)
+    --- PASS: TestScatteredGKRPayment/nullifier (0.13s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	2.267s

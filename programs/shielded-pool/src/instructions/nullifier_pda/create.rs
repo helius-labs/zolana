@@ -14,6 +14,12 @@ use zolana_interface::{
 
 use super::loader::load_unused_nullifier_pda;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NullifierAdmission {
+    ExactProof,
+    FilterNegative,
+}
+
 struct NullifierPdaRent {
     nullifier_pda_minimum: u64,
     tree_minimum: u64,
@@ -51,18 +57,6 @@ pub(crate) struct InputTreeResult {
     pub tree_id: u16,
 }
 
-/// Create one nullifier PDA per queued nullifier and collect the tree's
-/// forester fee from the payer in the same pass. The tree funds each PDA's
-/// rent; the payer pays the fee.
-///
-/// Callers must supply one PDA per nullifier, in matching order: transact
-/// splits an exact-length group and both merge parsers collect one PDA per
-/// input. The zip below relies on those equal counts.
-///
-/// Collect the fee before any rent top-up: its Transfer CPI includes the tree,
-/// and a CPI boundary syncs only its own accounts into the transaction context.
-/// A pending tree debit without the matching nullifier PDA credits would trip
-/// the runtime's UnbalancedInstruction check.
 #[inline(never)]
 #[profile]
 pub(crate) fn create_nullifier_pdas<'n>(
@@ -71,9 +65,20 @@ pub(crate) fn create_nullifier_pdas<'n>(
     nullifier_pdas: &mut [&mut AccountView],
     nullifiers: impl Iterator<Item = &'n [u8; 32]>,
     input_tree: &InputTreeResult,
+    admission: NullifierAdmission,
 ) -> ProgramResult {
     if uses_pending_nullifiers(tree)? {
-        return consume_pending_nullifiers(payer, tree, nullifier_pdas, nullifiers, input_tree);
+        return consume_pending_nullifiers(
+            payer,
+            tree,
+            nullifier_pdas,
+            nullifiers,
+            input_tree,
+            admission,
+        );
+    }
+    if admission == NullifierAdmission::FilterNegative {
+        return Err(ShieldedPoolError::InvalidNullifierFilter.into());
     }
     let rent_sysvar = Rent::get()?;
     let rent = NullifierPdaRent {
@@ -160,26 +165,35 @@ pub(crate) fn nullifier_account_count(
     inputs: usize,
 ) -> Result<usize, ProgramError> {
     Ok(if uses_pending_nullifiers(tree)? {
-        1
+        1 + usize::from(uses_nullifier_filter(tree)?)
     } else {
         inputs
     })
 }
 
+#[light_program_profiler::profile]
 fn consume_pending_nullifiers<'n>(
     payer: &AccountView,
     tree: &mut AccountView,
     accounts: &mut [&mut AccountView],
     nullifiers: impl Iterator<Item = &'n [u8; 32]>,
     input: &InputTreeResult,
+    admission: NullifierAdmission,
 ) -> ProgramResult {
     use zolana_tree::{
         pending_nullifiers::{PendingNullifierError, PendingNullifiers},
         TreeAccount,
     };
-    let [table] = accounts else {
-        return Err(ShieldedPoolError::InvalidPendingNullifiers.into());
-    };
+    let active = uses_nullifier_filter(tree)?;
+    if accounts.len() != 1 + usize::from(active)
+        || (admission == NullifierAdmission::FilterNegative && !active)
+    {
+        return Err(ShieldedPoolError::InvalidNullifierFilter.into());
+    }
+    let nullifiers: Vec<_> = nullifiers.copied().collect();
+    let (table, history) = accounts
+        .split_first_mut()
+        .ok_or(ShieldedPoolError::InvalidPendingNullifiers)?;
     let tree_address = tree.address().to_bytes();
     crate::instructions::shared::verify_pda(
         table.address(),
@@ -200,18 +214,35 @@ fn consume_pending_nullifiers<'n>(
     let mut bytes = table.try_borrow_mut()?;
     let mut table = PendingNullifiers::from_bytes(&mut bytes, &tree_address)
         .map_err(|_| ShieldedPoolError::InvalidPendingNullifiers)?;
-    for (index, nullifier) in nullifiers.enumerate() {
-        let sequence = input
-            .input_tree
-            .first_input_queue_seq
-            .checked_add(index as u64)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        table
-            .insert(nullifier, sequence, watermark)
+    let batch = table
+        .insert_batch(
+            &nullifiers,
+            input.input_tree.first_input_queue_seq,
+            watermark,
+        )
+        .map_err(|error| match error {
+            PendingNullifierError::AlreadySpent => ShieldedPoolError::NullifierAlreadySpent,
+            PendingNullifierError::Full => ShieldedPoolError::PendingNullifiersFull,
+            _ => ShieldedPoolError::InvalidPendingNullifiers,
+        })?;
+    if active {
+        use zolana_tree::nullifier_filter::{FilterError, NullifierFilter};
+        let filter = &mut history[0];
+        crate::instructions::shared::verify_pda(
+            filter.address(),
+            &[zolana_interface::NULLIFIER_FILTER_SEED, &tree_address],
+            &crate::ID,
+        )?;
+        if !filter.owned_by(&crate::ID) || !filter.is_writable() {
+            return Err(ShieldedPoolError::InvalidNullifierFilter.into());
+        }
+        NullifierFilter::from_bytes(&mut filter.try_borrow_mut()?, &tree_address)
+            .map_err(|_| ShieldedPoolError::InvalidNullifierFilter)?
+            .record_pending_batch(batch, admission == NullifierAdmission::ExactProof)
             .map_err(|error| match error {
-                PendingNullifierError::AlreadySpent => ShieldedPoolError::NullifierAlreadySpent,
-                PendingNullifierError::Full => ShieldedPoolError::PendingNullifiersFull,
-                _ => ShieldedPoolError::InvalidPendingNullifiers,
+                FilterError::NeedsProof => ShieldedPoolError::NullifierProofRequired,
+                FilterError::Duplicate => ShieldedPoolError::NullifierAlreadySpent,
+                _ => ShieldedPoolError::InvalidNullifierFilter,
             })?;
     }
     Ok(())
@@ -220,4 +251,12 @@ fn consume_pending_nullifiers<'n>(
 fn uses_pending_nullifiers(tree: &AccountView) -> Result<bool, ProgramError> {
     zolana_tree::TreeAccount::read_compact_nullifiers(&tree.try_borrow()?)
         .map_err(crate::instructions::shared::tree_error)
+}
+
+pub(crate) fn uses_nullifier_filter(tree: &AccountView) -> Result<bool, ProgramError> {
+    Ok(
+        zolana_tree::TreeAccount::read_nullifier_filter_mode(&tree.try_borrow()?)
+            .map_err(crate::instructions::shared::tree_error)?
+            == zolana_tree::NullifierFilterMode::Active,
+    )
 }

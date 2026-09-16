@@ -60,6 +60,7 @@ fn verify(
     verify_with_commitment(proof, None, fields, key)
 }
 
+#[light_program_profiler::profile]
 fn verify_with_commitment(
     proof: &Proof,
     commitment: Option<&zolana_interface::verifying_keys::Bsb22Commitment>,
