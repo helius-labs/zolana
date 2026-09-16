@@ -216,7 +216,13 @@ impl TransactProofInputs {
             .ok_or(ShieldedPoolError::InvalidCache)?;
         let tree_id = tree_id_field(u16::from_le_bytes(cache_account.tree_id));
         let mut commitments = [[0u8; 32]; CACHE_CAPACITY];
-        for (i, (input, commitment)) in ix.inputs.iter().zip(commitments.iter_mut()).enumerate() {
+        for (i, ((input, commitment), cached_commitment)) in ix
+            .inputs
+            .iter()
+            .zip(commitments.iter_mut())
+            .zip(cache_account.commitments.iter())
+            .enumerate()
+        {
             if selection.selects(i) {
                 let tree = self
                     .tree_slots
@@ -225,22 +231,16 @@ impl TransactProofInputs {
                 if tree.id != tree_id {
                     return Err(ShieldedPoolError::CacheTreeMismatch.into());
                 }
-                *commitment = *cache_account
-                    .commitments
-                    .get(i)
-                    .ok_or(ShieldedPoolError::InvalidCacheSlot)?;
+                *commitment = *cached_commitment;
                 if *commitment == [0; 32] {
                     return Err(ShieldedPoolError::CacheSlotEmpty.into());
                 }
             }
         }
-        let selected = commitments
-            .get(..ix.inputs.len())
-            .ok_or(ShieldedPoolError::InvalidCacheBitmap)?;
         self.cached_inputs = Some([
             right_align(&selection.input_bitmap.to_be_bytes()),
             tree_id,
-            create_hash_chain_4_from_slice(selected)?,
+            create_hash_chain_4(commitments.iter().take(ix.inputs.len()))?,
         ]);
         self.assignments |= ASSIGNED_CACHED_INPUTS;
         Ok(())
@@ -518,10 +518,8 @@ impl<'a> TransactProof<'a> {
         if self.ix.circuit.output_owner_mode() != OutputOwnerMode::None {
             fields.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
         }
-        match (self.ix.circuit.cached_inputs(), &self.derived.cached_inputs) {
-            (Some(_), Some(cached_inputs)) => fields.extend_from_slice(cached_inputs),
-            (None, None) => {}
-            _ => return Err(ShieldedPoolError::InvalidCache.into()),
+        if let Some(cached_inputs) = &self.derived.cached_inputs {
+            fields.extend_from_slice(cached_inputs);
         }
         create_hash_chain_4_from_slice(fields.as_slice()).map_err(Into::into)
     }

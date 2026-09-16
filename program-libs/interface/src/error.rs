@@ -179,8 +179,8 @@ pub enum ShieldedPoolError {
     CacheOwnerMismatch = 7074,
     #[error("unused cached-input state root index must be zero")]
     InvalidCacheRootIndex = 7075,
-    #[error("cache aliases another instruction account")]
-    CacheAccountAlias = 7076,
+    #[error("registry cache merges require an EdDSA owner")]
+    CacheUnsupportedOwner = 7076,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -303,7 +303,7 @@ mod tests {
                 CacheTreeMismatch => 7073,
                 CacheOwnerMismatch => 7074,
                 InvalidCacheRootIndex => 7075,
-                CacheAccountAlias => 7076,
+                CacheUnsupportedOwner => 7076,
             }
         }
 
@@ -386,7 +386,7 @@ mod tests {
             CacheTreeMismatch,
             CacheOwnerMismatch,
             InvalidCacheRootIndex,
-            CacheAccountAlias,
+            CacheUnsupportedOwner,
         ];
         for (variant, code) in variants.into_iter().zip(7000_u32..) {
             assert_eq!(

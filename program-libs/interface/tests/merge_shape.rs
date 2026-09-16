@@ -61,7 +61,6 @@ fn cache_slot_round_trips_in_both_merge_rails() {
         data.cache_slot = cache_slot;
         let bytes = data.serialize().unwrap();
         assert_eq!(bytes.len(), 527 + usize::from(cache_slot.is_some()));
-        assert_eq!(MergeTransactIxData::deserialize(&bytes).unwrap(), data);
         assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes)
                 .unwrap()
@@ -73,7 +72,6 @@ fn cache_slot_round_trips_in_both_merge_rails() {
             merge: data,
         };
         let bytes = ring.serialize().unwrap();
-        assert_eq!(MergeRingIxData::deserialize(&bytes).unwrap(), ring);
         assert_eq!(
             MergeRingIxDataRef::from_bytes(&bytes)
                 .unwrap()

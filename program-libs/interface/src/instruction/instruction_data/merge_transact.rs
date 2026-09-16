@@ -55,6 +55,8 @@ pub struct MergeTransactIxData {
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
+    /// When set, requires one trailing writable cache account. Both merge
+    /// instructions now reject extra accounts, including when this is `None`.
     pub cache_slot: Option<u8>,
 }
 

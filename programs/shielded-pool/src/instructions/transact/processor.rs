@@ -1,4 +1,4 @@
-use crate::instructions::{cache::loader::check_cache_alias, shared::caused_by};
+use crate::instructions::shared::caused_by;
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -59,7 +59,6 @@ pub fn process_transact_ix(
     let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
     let mut owner_hashes = Box::new(OwnerHashCache::new());
     // 5. Check accounts.
-    check_cache_alias(accounts, ix.circuit.cached_inputs().is_some())?;
     let mut transact_accounts = match ix.circuit {
         CircuitId::ConfidentialEddsa(..) | CircuitId::ConfidentialEddsaCached(..) => {
             TransactAccounts::validate_and_parse(accounts, &ix)?

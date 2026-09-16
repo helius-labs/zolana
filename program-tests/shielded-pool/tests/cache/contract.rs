@@ -424,7 +424,15 @@ fn spend_rejects_missing_wrong_slots_tree_and_proof_atomically() {
 
 #[test]
 fn merge_rejects_overwrites_frozen_caches_and_foreign_owners() {
-    for case in ["occupied", "frozen", "owner", "slot", "zero proof"] {
+    for case in [
+        "occupied",
+        "frozen",
+        "owner",
+        "slot",
+        "p256",
+        "p256 plain",
+        "zero proof",
+    ] {
         let Pool {
             mut rpc,
             tree,
@@ -432,7 +440,8 @@ fn merge_rejects_overwrites_frozen_caches_and_foreign_owners() {
             ..
         } = Pool::initialized();
         let owner = rpc.payer.pubkey();
-        let record = write_user_record(&mut rpc, owner, None, true);
+        let p256 = matches!(case, "p256" | "p256 plain");
+        let record = write_user_record(&mut rpc, owner, p256.then_some([2; 33]), true);
         let (cache, create) = create(&rpc, owner, 4, tree_id);
         rpc.create_and_send_default_payer_transaction(&[create], &[])
             .unwrap();
@@ -451,15 +460,16 @@ fn merge_rejects_overwrites_frozen_caches_and_foreign_owners() {
                 ShieldedPoolError::CacheOwnerMismatch
             }
             "slot" => ShieldedPoolError::InvalidCacheSlot,
+            "p256" => ShieldedPoolError::CacheUnsupportedOwner,
             _ => ShieldedPoolError::TransactProofVerificationFailed,
         };
         store(&mut rpc, cache, cache_state);
         let data = MergeTransactIxData {
-            cache_slot: Some(if case == "slot" { 36 } else { 0 }),
+            cache_slot: (case != "p256 plain").then_some(if case == "slot" { 36 } else { 0 }),
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: zolana_test_utils::transact::fe(9),
-            eddsa_owner: true,
+            eddsa_owner: !p256,
             private_tx_hash: [0; 32],
             nullifiers: (1..=8).map(zolana_test_utils::transact::fe).collect(),
             utxo_tree_root_index: 0,
@@ -473,7 +483,9 @@ fn merge_rejects_overwrites_frozen_caches_and_foreign_owners() {
             data,
         }
         .instruction();
-        ix.accounts.push(AccountMeta::new(cache, false));
+        if case != "p256 plain" {
+            ix.accounts.push(AccountMeta::new(cache, false));
+        }
         let before = rpc.account_data(&tree).unwrap();
         reject(&mut rpc, ix, error);
         assert_eq!(state(&rpc, &cache), cache_state);
@@ -646,7 +658,7 @@ fn real_merge_writes_one_slot_and_binds_destination_and_slot() {
                         "readonly" => pinocchio::error::ProgramError::from(
                             zolana_account_checks::AccountError::AccountNotMutable,
                         ),
-                        "alias" => ShieldedPoolError::CacheAccountAlias.into(),
+                        "alias" => ShieldedPoolError::InvalidCache.into(),
                         "missing" => pinocchio::error::ProgramError::from(
                             zolana_account_checks::AccountError::NotEnoughAccountKeys,
                         ),
@@ -681,7 +693,12 @@ fn mixed_spend_does_not_require_unselected_cache_slots() {
 
 #[test]
 fn cache_cannot_alias_other_instruction_accounts() {
-    for account_index in [0, 1, 4, 5] {
+    for (account_index, error) in [
+        (0, ShieldedPoolError::InvalidSettlementAccounts),
+        (1, ShieldedPoolError::InvalidCache),
+        (4, ShieldedPoolError::InvalidCache),
+        (5, ShieldedPoolError::InvalidCache),
+    ] {
         let SpendFixture {
             mut rpc,
             cache,
@@ -697,14 +714,14 @@ fn cache_cannot_alias_other_instruction_accounts() {
             .expect("fixture account")
             .pubkey;
         instruction.accounts.last_mut().unwrap().pubkey = alias;
-        reject(&mut rpc, instruction, ShieldedPoolError::CacheAccountAlias);
+        reject(&mut rpc, instruction, error);
         assert_eq!(state(&rpc, &cache), before);
         assert_eq!(rpc.account_data(&tree).unwrap(), before_tree);
     }
 }
 
 #[test]
-fn cache_cannot_alias_a_sol_withdrawal_recipient() {
+fn sol_withdrawal_to_cache_still_requires_a_valid_proof() {
     use zolana_interface::instruction::{
         InterfaceTransfer, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     };
@@ -729,8 +746,14 @@ fn cache_cannot_alias_a_sol_withdrawal_recipient() {
     .instruction();
     instruction.accounts.push(AccountMeta::new(cache, false));
     let before = state(&rpc, &cache);
-    reject(&mut rpc, instruction, ShieldedPoolError::CacheAccountAlias);
+    let before_tree = rpc.account_data(&tree).unwrap();
+    reject(
+        &mut rpc,
+        instruction,
+        ShieldedPoolError::TransactProofVerificationFailed,
+    );
     assert_eq!(state(&rpc, &cache), before);
+    assert_eq!(rpc.account_data(&tree).unwrap(), before_tree);
 }
 
 #[test]
