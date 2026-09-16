@@ -372,7 +372,7 @@ impl<'a> CustomRingTransfer<'a> {
                 spends: &staged.proof_inputs.input_utxos,
             }
             .load()?,
-            allow_dummy_inputs: input_tree.allow_dummy_inputs,
+            allow_dummy_inputs: input_tree.allows_dummy_inputs(&staged.proof_inputs.input_utxos),
         };
         let tier = match &policy {
             Some(policy) => staged
@@ -438,7 +438,7 @@ impl<'a> CustomRingTransfer<'a> {
             }
             .load_async()
             .await?,
-            allow_dummy_inputs: input_tree.allow_dummy_inputs,
+            allow_dummy_inputs: input_tree.allows_dummy_inputs(&staged.proof_inputs.input_utxos),
         };
         let tier = match &policy {
             Some(policy) => {
@@ -1520,8 +1520,16 @@ pub(crate) struct BoundTree {
 }
 
 pub(crate) struct TreeState {
-    pub allow_dummy_inputs: bool,
+    /// Nullifier slots left above the state tree's full capacity, queued ones counted.
+    pub dummy_input_headroom: u64,
     pub tree: BoundTree,
+}
+
+impl TreeState {
+    /// SPP derives the same flag from this tree and the transaction's input count.
+    pub fn allows_dummy_inputs(&self, inputs: &[SppProofInputUtxo]) -> bool {
+        self.dummy_input_headroom >= inputs.len() as u64
+    }
 }
 
 pub(crate) fn read_tree_state<R: Rpc>(rpc: &R, tree: Address) -> Result<TreeState, TransferError> {
@@ -1544,9 +1552,9 @@ fn tree_state(account: Option<Account>, tree: Address) -> Result<TreeState, Tran
     if account.data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
         return Err(TransferError::InvalidTreeDiscriminator);
     }
-    let mut tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
+    let tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
     Ok(TreeState {
-        allow_dummy_inputs: tree_account.allow_dummy_inputs()?,
+        dummy_input_headroom: tree_account.dummy_input_headroom()?,
         tree: BoundTree {
             address: tree,
             id: tree_account.tree_id(),

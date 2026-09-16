@@ -1187,10 +1187,10 @@ value while reusing the proof.
 SPP inserts every nullifier; an address slot's nullifier is the address.
 Random padding blindings hide the real input count.
 
-SPP derives the dummy-input policy from the pre-transaction state of each input
-tree as `nullifier_leaves_remaining >= state_leaves_remaining`, counting queued
-nullifiers, and publishes the conjunction over every input tree in
-[`input_flags`](#input-flags). Padding and addresses consume nullifier capacity
+SPP derives the dummy-input policy for each input tree as
+`nullifier_leaves_remaining >= state_tree_total_capacity`, counting queued
+nullifiers and this transaction's inputs for that tree, and publishes the
+conjunction in [`input_flags`](#input-flags). Padding and addresses consume nullifier capacity
 without spending an existing UTXO, so `false` requires every input to be a real
 spend. Outputs are unaffected. Clients assume `true` for the height-40 nullifier
 tree; SPP's value is authoritative at verification.
@@ -1330,7 +1330,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `output_tree_id` | raw `u16` id of `output_tree`, hashed into the output `utxo_hash` |
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
-| `allow_dummy_inputs` | one boolean for the whole proof, derived by SPP from the tree (`nullifier_leaves_remaining >= state_leaves_remaining`); when false every slot must be real |
+| `allow_dummy_inputs` | derived by SPP from `input_tree` as in [Input slots](#input-slots); when false every slot must be real |
 | variant tail — default merge: `owner_proof_input_hash(user_signing_pk)` | registry signing identity: `owner` when `eddsa_owner` is true, otherwise `owner_p256`; must equal the witnessed `owner_pk_hash` |
 | variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id` | `ring_program_id` comes from the signing `ring_config` account; `output_ring_data_hash` is the ring data the calling ring program selected. The circuit asserts it against the output UTXO's `ring_data_hash`. |
 

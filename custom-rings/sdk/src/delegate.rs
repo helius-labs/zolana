@@ -144,7 +144,7 @@ impl<'a> DelegateTransfer<'a> {
                 spends: &staged.prepared.inputs,
             }
             .load()?,
-            allow_dummy_inputs: input_state.allow_dummy_inputs,
+            allow_dummy_inputs: input_state.allows_dummy_inputs(&staged.prepared.inputs),
         };
         let tier = if config.has_policy {
             staged.policy_tier().read(ReadEnvironment {
@@ -199,7 +199,7 @@ impl<'a> DelegateTransfer<'a> {
             }
             .load_async()
             .await?,
-            allow_dummy_inputs: input_state.allow_dummy_inputs,
+            allow_dummy_inputs: input_state.allows_dummy_inputs(&staged.prepared.inputs),
         };
         let tier = if config.has_policy {
             staged
