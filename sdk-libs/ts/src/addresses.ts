@@ -6,4 +6,5 @@ export {
   splAssetCounterAddress as getSplAssetCounterAddress,
   splAssetRegistryAddress as getSplAssetRegistryAddress,
   splAssetVaultAddress as getSplAssetVaultAddress,
+  userRecordAddress as getUserRecordAddress,
 } from "./interface/pda/index.js";

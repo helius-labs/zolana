@@ -7,9 +7,12 @@ export {
   depositInstruction as getDepositInstructionAsync,
   mergeTransactInstruction as getMergeTransactInstruction,
   pauseTreeInstruction as getPauseTreeInstructionAsync,
+  registerInstruction as getRegisterInstruction,
+  setMergingEnabledInstruction as getSetMergingEnabledInstruction,
   transactInstruction as getTransactInstruction,
   updateProtocolConfigInstruction as getUpdateProtocolConfigInstructionAsync,
   type ProtocolConfigUpdate,
+  type RegisterInstructionData,
   type SignerAccount,
 } from "./interface/instructions/index.js";
 export {

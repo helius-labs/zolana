@@ -1,14 +1,14 @@
-import {
-  AccountRole,
-  address,
-  getAddressDecoder,
-  getAddressEncoder,
-  getProgramDerivedAddress,
-} from "@solana/kit";
+import { address, getAddressDecoder, getAddressEncoder } from "@solana/kit";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
+import {
+  registerInstruction,
+  setMergingEnabledInstruction,
+  updateRegistryKeysInstruction,
+} from "../interface/instructions/index.js";
+import { userRecordPda } from "../interface/pda/index.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
 import {
   type Address,
@@ -23,14 +23,11 @@ import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 
 import { hex } from "../transaction/wallet/state.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { concat, equalBytes } from "./internal.js";
+import { equalBytes } from "./internal.js";
 
 type AccountReader = Pick<ChainReader, "getAccount">;
 type ProgramAccountReader = Pick<ChainReader, "getProgramAccounts">;
 
-const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
-const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
-const SET_MERGING_ENABLED = 1;
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
 
@@ -51,7 +48,7 @@ export interface UserRecord {
 
 type DecodedUserRecord = UserRecord;
 
-async function userRecordAddress(owner: Address): Promise<
+export async function internalUserRecordPda(owner: Address): Promise<
   Readonly<{
     address: Address;
     bump: number;
@@ -67,24 +64,11 @@ async function userRecordAddress(owner: Address): Promise<
     });
   }
   try {
-    const [recordAddress, bump] = await getProgramDerivedAddress({
-      programAddress: USER_REGISTRY_PROGRAM_ID,
-      seeds: [RECORD_SEED, addressEncoder.encode(checkedOwner)],
-    });
+    const [recordAddress, bump] = await userRecordPda(checkedOwner);
     return { address: recordAddress, bump };
   } catch (cause) {
     throw new WalletError("WALLET_PDA_DERIVATION", { cause });
   }
-}
-
-export async function internalUserRecordAddress(owner: Address): Promise<Address> {
-  return (await userRecordAddress(owner)).address;
-}
-
-export async function internalUserRecordPda(
-  owner: Address,
-): Promise<Readonly<{ address: Address; bump: number }>> {
-  return userRecordAddress(owner);
 }
 
 /** @internal */
@@ -105,7 +89,7 @@ export async function internalMergeRecord(
   input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<MergeRecord> {
-  const pda = await userRecordAddress(input.owner);
+  const pda = await internalUserRecordPda(input.owner);
   const record = await fetchDecodedUserRecordAt({ ...input, pda }, context);
   if (record === undefined) {
     throw new WalletError("WALLET_USER_REGISTRY_RECORD_NOT_FOUND", {
@@ -187,7 +171,7 @@ async function fetchDecodedUserRecord(
   input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<DecodedUserRecord | undefined> {
-  const pda = await userRecordAddress(input.owner);
+  const pda = await internalUserRecordPda(input.owner);
   return fetchDecodedUserRecordAt({ ...input, pda }, context);
 }
 
@@ -370,16 +354,8 @@ export async function recipientConfidentialViewTag(
  * change, which only the rotating path may write.
  */
 function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boolean {
-  const ownerP256 =
-    address.signingPublicKey.signatureType() === "p256"
-      ? address.signingPublicKey.p256().toBytes()
-      : undefined;
-  const ownerMatches =
-    ownerP256 === undefined
-      ? record.ownerP256 === undefined
-      : record.ownerP256 !== undefined && equalBytes(record.ownerP256, ownerP256);
   return (
-    ownerMatches &&
+    record.ownerP256 === undefined &&
     equalBytes(record.nullifierPublicKey, address.nullifierPublicKey) &&
     equalBytes(record.viewingPublicKey, address.viewingPublicKey.toBytes())
   );
@@ -397,7 +373,7 @@ export async function buildRegistrationTransaction(
     if (input.address.signingPublicKey.signatureType() === "p256") {
       throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
     }
-    const pda = await userRecordAddress(input.owner);
+    const pda = await internalUserRecordPda(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },
       context,
@@ -424,22 +400,19 @@ export async function buildSetMergingEnabledTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
-    const [recordAddress, lifetime] = await Promise.all([
-      internalUserRecordAddress(input.owner),
+    const [pda, lifetime] = await Promise.all([
+      internalUserRecordPda(input.owner),
       input.client.getLatestBlockhash(context),
     ]);
     return compileUnsignedTransaction({
       feePayer: input.owner,
       lifetime,
       instructions: [
-        {
-          programAddress: USER_REGISTRY_PROGRAM_ID,
-          accounts: [
-            { address: recordAddress, role: AccountRole.WRITABLE },
-            { address: input.owner, role: AccountRole.READONLY_SIGNER },
-          ],
-          data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
-        },
+        setMergingEnabledInstruction({
+          userRecord: pda.address,
+          owner: input.owner,
+          enabled: input.enabled,
+        }),
       ],
     });
   } catch (cause) {
@@ -454,27 +427,14 @@ function registrationInstruction(
   existing: UserRecord | undefined,
 ): Instruction | undefined {
   if (existing !== undefined && publishedKeysMatch(existing, shieldedAddress)) return undefined;
-  const ownerP256 =
-    shieldedAddress.signingPublicKey.signatureType() === "p256"
-      ? shieldedAddress.signingPublicKey.p256().toBytes()
-      : undefined;
-  return {
-    programAddress: USER_REGISTRY_PROGRAM_ID,
-    accounts: [
-      { address: pda.address, role: AccountRole.WRITABLE },
-      {
-        address: owner,
-        role: existing === undefined ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER,
-      },
-      ...(existing === undefined
-        ? [{ address: SYSTEM_PROGRAM, role: AccountRole.READONLY as const }]
-        : []),
-    ],
-    data: concat(
-      Uint8Array.of(existing === undefined ? 0 : 2, ownerP256 === undefined ? 0 : 1),
-      ...(ownerP256 === undefined ? [] : [ownerP256]),
-      shieldedAddress.nullifierPublicKey,
-      shieldedAddress.viewingPublicKey.toBytes(),
-    ),
-  };
+  const buildInstruction =
+    existing === undefined ? registerInstruction : updateRegistryKeysInstruction;
+  return buildInstruction({
+    userRecord: pda.address,
+    owner,
+    data: {
+      nullifierPublicKey: shieldedAddress.nullifierPublicKey,
+      viewingPublicKey: shieldedAddress.viewingPublicKey.toBytes(),
+    },
+  });
 }

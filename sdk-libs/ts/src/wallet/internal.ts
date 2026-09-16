@@ -53,16 +53,6 @@ export function bytesKey(value: Uint8Array): string {
   return [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function concat(...parts: readonly Uint8Array[]): Uint8Array {
-  const output = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    output.set(part, offset);
-    offset += part.length;
-  }
-  return output;
-}
-
 /** Bytes per `String.fromCharCode` call: a spread of a whole megabyte-sized array overflows the stack. */
 const BASE64_CHUNK = 0x8000;
 
