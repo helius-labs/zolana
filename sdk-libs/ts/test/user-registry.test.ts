@@ -27,6 +27,7 @@ import {
   type RegisterInstructionData,
 } from "../src/instructions.js";
 import { type Bytes32, type Bytes33, USER_REGISTRY_PROGRAM_ID } from "../src/interface/index.js";
+import { updateRegistryKeysInstruction } from "../src/interface/instructions/index.js";
 import { userRecordPda } from "../src/interface/pda/index.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import { checkedBytes } from "../src/keypair/bytes.js";
@@ -88,6 +89,16 @@ describe("user-registry instructions", () => {
     expect(getRegisterInstruction({ userRecord: RECORD, owner: OWNER, data: DATA })).toEqual(
       rustInstruction("register"),
     );
+  });
+
+  it("matches Rust update-key bytes, account order, and roles", () => {
+    expect(
+      updateRegistryKeysInstruction({
+        userRecord: RECORD,
+        owner: OWNER,
+        data: DATA,
+      }),
+    ).toEqual(rustInstruction("updateKeys"));
   });
 
   it.each([true, false])("matches Rust merge opt-in with enabled=%s", (enabled) => {
