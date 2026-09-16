@@ -161,7 +161,8 @@ fn is_general_event_source(source_instruction_tag: u8) -> bool {
     // row).
     matches!(
         source_instruction_tag,
-        tag::TRANSACT
+        tag::DIRECT_SPEND
+            | tag::TRANSACT
             | tag::RING_TRANSACT
             | tag::RING_AUTHORITY_TRANSACT
             | tag::MERGE_TRANSACT

@@ -256,15 +256,34 @@ impl SolanaRpc {
     }
 
     fn wait_for_signature(&self, signature: &Signature) -> Result<(), ClientError> {
+        self.wait_for_signature_with_interval(signature, Duration::from_millis(250))
+    }
+
+    /// Wait at the client's configured commitment, including execution errors.
+    /// Useful after sending several transactions without a confirmation barrier.
+    pub fn wait_for_signature_with_interval(
+        &self,
+        signature: &Signature,
+        interval: Duration,
+    ) -> Result<(), ClientError> {
+        if interval.is_zero() {
+            return Err(ClientError::Rpc(
+                "confirmation interval must be positive".into(),
+            ));
+        }
         let started = Instant::now();
         while started.elapsed() < self.confirmation_timeout {
-            let confirmed = self.client.confirm_transaction(signature).map_err(|err| {
-                ClientError::Rpc(format!("confirm_transaction {signature}: {err}"))
-            })?;
-            if confirmed {
-                return Ok(());
+            match self
+                .client
+                .get_signature_status_with_commitment(signature, self.client.commitment())
+                .map_err(|err| {
+                    ClientError::Rpc(format!("confirm_transaction {signature}: {err}"))
+                })? {
+                Some(Ok(())) => return Ok(()),
+                Some(Err(error)) => return Err(ClientError::TransactionFailed(error.to_string())),
+                None => {}
             }
-            sleep(Duration::from_millis(250));
+            sleep(interval.min(self.confirmation_timeout.saturating_sub(started.elapsed())));
         }
         Err(ClientError::Rpc(format!(
             "signature not confirmed: {signature}"

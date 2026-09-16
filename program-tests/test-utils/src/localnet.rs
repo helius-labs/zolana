@@ -33,10 +33,11 @@ pub fn pack_merge_proof(proof: &Proof) -> Result<MergeProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_merge_proof()?)
 }
 
-/// Borsh discriminants of the two `ComputeBudgetInstruction` variants that have
+/// Borsh discriminants of the `ComputeBudgetInstruction` variants that have
 /// a v1 message-header equivalent.
 const COMPUTE_BUDGET_SET_UNIT_LIMIT: u8 = 2;
 const COMPUTE_BUDGET_SET_UNIT_PRICE: u8 = 3;
+const COMPUTE_BUDGET_REQUEST_HEAP_FRAME: u8 = 1;
 
 /// Lift a caller's compute-budget instructions into the budget a v1 message
 /// header carries.
@@ -49,6 +50,7 @@ const COMPUTE_BUDGET_SET_UNIT_PRICE: u8 = 3;
 pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, ComputeBudgetConfig) {
     let mut compute_unit_limit = None;
     let mut compute_unit_price = None;
+    let mut heap_size = None;
     let mut kept: Vec<Instruction> = Vec::with_capacity(ixs.len());
     for instruction in ixs {
         if instruction.program_id != solana_compute_budget_interface::ID {
@@ -60,6 +62,15 @@ pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, ComputeBu
             .split_first()
             .expect("a compute-budget instruction carries a discriminant");
         match *discriminant {
+            COMPUTE_BUDGET_REQUEST_HEAP_FRAME => {
+                heap_size = Some(
+                    value
+                        .get(..4)
+                        .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+                        .map(u32::from_le_bytes)
+                        .expect("request_heap_frame carries a u32"),
+                )
+            }
             COMPUTE_BUDGET_SET_UNIT_LIMIT => {
                 compute_unit_limit = Some(
                     value
@@ -87,6 +98,10 @@ pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, ComputeBu
     };
     let budget = match compute_unit_price {
         Some(price) => budget.with_compute_unit_price(price),
+        None => budget,
+    };
+    let budget = match heap_size {
+        Some(size) => budget.with_heap_size(size),
         None => budget,
     };
     (kept, budget)

@@ -324,7 +324,7 @@ pub fn index_events(
                     true,
                 );
             }
-            Some(EventKind::Transact) | Some(EventKind::Merge) => {
+            Some(EventKind::Transact) | Some(EventKind::Merge) | Some(EventKind::DirectSpend) => {
                 let general_event = general_event_from_indexed(event).map_err(|err| {
                     ProgramTestError::Event(format!("state-change event decode failed: {err:?}"))
                 })?;

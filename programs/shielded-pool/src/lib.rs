@@ -71,6 +71,18 @@ pub fn process_instruction(
         InstructionTag::try_from(*ix_tag).map_err(|_| ProgramError::InvalidInstructionData)?;
 
     match ix_tag {
+        InstructionTag::DirectSpendBuffer => {
+            instructions::direct_spend::process_buffer(accounts, payload)
+        }
+        InstructionTag::PrepareCertificate => {
+            instructions::direct_spend::process_prepare(accounts, payload)
+        }
+        InstructionTag::DirectSpend => {
+            instructions::direct_spend::process_commit(accounts, payload)
+        }
+        InstructionTag::EnablePendingNullifiers => {
+            instructions::pending_nullifiers::process_pending_nullifiers(accounts, payload)
+        }
         // Deliberate no-op: the event self-CPI exists only to record inner-
         // instruction data. Anyone can invoke this tag (directly or via CPI)
         // with forged bytes; indexers MUST filter events by parent instruction
