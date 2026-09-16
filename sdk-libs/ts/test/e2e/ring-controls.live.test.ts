@@ -597,47 +597,50 @@ describe("fresh ring controls", () => {
         }),
       );
       const recoveredKey = openRingSealedKey(sealed, auditor);
-      expect(recoveredKey.publicKey()).toEqual(sender.keypair.nullifierPublicKey());
-      const recovered = await recoverRingMemberNotes({
-        client,
-        ringProgramId,
-        auditor,
-        source: sender.keypair.shieldedAddress(),
-        nullifierKey: recoveredKey,
-        assets: sender.wallet.registry,
-        resolveTreeId: (tree) => {
-          if (tree !== client.tree) throw new Error(`unknown tree ${tree}`);
-          return client.treeId;
-        },
-      });
-      expect(recovered.unopened).toEqual([]);
-      expect(recovered.unsupportedDeposits).toEqual([]);
-      const heldSol = recovered.notes
-        .filter((note) => note.utxo.asset === SOL_MINT)
-        .reduce((total, note) => total + note.utxo.amount, 0n);
-      expect(heldSol).toBe(800_000_000n);
-      await settle(
-        await createRingDelegateRecoveredSubmission({
+      try {
+        expect(recoveredKey.publicKey()).toEqual(sender.keypair.nullifierPublicKey());
+        const recovered = await recoverRingMemberNotes({
           client,
           ringProgramId,
+          auditor,
           source: sender.keypair.shieldedAddress(),
           nullifierKey: recoveredKey,
-          notes: recovered.notes,
-          delegate,
-          cosigner,
-          feePayer: delegate.address,
-          outputs: [
-            {
-              recipient: recipient.keypair.shieldedAddress(),
-              asset: SOL_MINT,
-              amount: 100_000_000n,
-            },
-          ],
-        }),
-        client,
-        [delegate, cosigner],
-      );
-      recoveredKey.destroy();
+          assets: sender.wallet.registry,
+          resolveTreeId: (tree) => {
+            if (tree !== client.tree) throw new Error(`unknown tree ${tree}`);
+            return client.treeId;
+          },
+        });
+        expect(recovered.unopened).toEqual([]);
+        expect(recovered.unsupportedDeposits).toEqual([]);
+        const heldSol = recovered.notes
+          .filter((note) => note.utxo.asset === SOL_MINT)
+          .reduce((total, note) => total + note.utxo.amount, 0n);
+        expect(heldSol).toBe(800_000_000n);
+        await settle(
+          await createRingDelegateRecoveredSubmission({
+            client,
+            ringProgramId,
+            source: sender.keypair.shieldedAddress(),
+            nullifierKey: recoveredKey,
+            notes: recovered.notes,
+            delegate,
+            cosigner,
+            feePayer: delegate.address,
+            outputs: [
+              {
+                recipient: recipient.keypair.shieldedAddress(),
+                asset: SOL_MINT,
+                amount: 100_000_000n,
+              },
+            ],
+          }),
+          client,
+          [delegate, cosigner],
+        );
+      } finally {
+        recoveredKey.destroy();
+      }
       await sync(client, sender);
       await sync(client, recipient);
       expect(
