@@ -66,7 +66,9 @@ function registryKeysData(tag: number, data: RegisterInstructionData): Uint8Arra
   }
   return new Writer()
     .u8(tag, "discriminator")
-    .u8(0, "ownerP256")
+    .option<Bytes33>(undefined, (writer, ownerP256) => {
+      writer.bytes(ownerP256, 33, "ownerP256");
+    })
     .bytes(data.nullifierPublicKey, 32, "nullifierPublicKey")
     .bytes(data.viewingPublicKey, 33, "viewingPublicKey")
     .finish();
