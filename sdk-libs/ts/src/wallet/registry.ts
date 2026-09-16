@@ -48,7 +48,7 @@ export interface UserRecord {
 
 type DecodedUserRecord = UserRecord;
 
-async function userRecordAddress(owner: Address): Promise<
+export async function internalUserRecordPda(owner: Address): Promise<
   Readonly<{
     address: Address;
     bump: number;
@@ -71,16 +71,6 @@ async function userRecordAddress(owner: Address): Promise<
   }
 }
 
-export async function internalUserRecordAddress(owner: Address): Promise<Address> {
-  return (await userRecordAddress(owner)).address;
-}
-
-export async function internalUserRecordPda(
-  owner: Address,
-): Promise<Readonly<{ address: Address; bump: number }>> {
-  return userRecordAddress(owner);
-}
-
 /** @internal */
 export interface MergeRecord {
   readonly recordAddress: Address;
@@ -99,7 +89,7 @@ export async function internalMergeRecord(
   input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<MergeRecord> {
-  const pda = await userRecordAddress(input.owner);
+  const pda = await internalUserRecordPda(input.owner);
   const record = await fetchDecodedUserRecordAt({ ...input, pda }, context);
   if (record === undefined) {
     throw new WalletError("WALLET_USER_REGISTRY_RECORD_NOT_FOUND", {
@@ -181,7 +171,7 @@ async function fetchDecodedUserRecord(
   input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<DecodedUserRecord | undefined> {
-  const pda = await userRecordAddress(input.owner);
+  const pda = await internalUserRecordPda(input.owner);
   return fetchDecodedUserRecordAt({ ...input, pda }, context);
 }
 
@@ -383,7 +373,7 @@ export async function buildRegistrationTransaction(
     if (input.address.signingPublicKey.signatureType() === "p256") {
       throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
     }
-    const pda = await userRecordAddress(input.owner);
+    const pda = await internalUserRecordPda(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },
       context,
@@ -410,8 +400,8 @@ export async function buildSetMergingEnabledTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
-    const [recordAddress, lifetime] = await Promise.all([
-      internalUserRecordAddress(input.owner),
+    const [pda, lifetime] = await Promise.all([
+      internalUserRecordPda(input.owner),
       input.client.getLatestBlockhash(context),
     ]);
     return compileUnsignedTransaction({
@@ -419,7 +409,7 @@ export async function buildSetMergingEnabledTransaction(
       lifetime,
       instructions: [
         setMergingEnabledInstruction({
-          userRecord: recordAddress,
+          userRecord: pda.address,
           owner: input.owner,
           enabled: input.enabled,
         }),
