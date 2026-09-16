@@ -14,8 +14,14 @@ Compilation passed for `cargo test -p spp-test-validator --test proof_cu cached_
 
 After the recipient timer stops, validation also checks the cache's owner, tree, operation, frozen state, expected merge commitments and unused slots. The existing nullifier-PDA assertion validates every merge and final-transfer nullifier. These checks complement wallet decryption and all-transaction compute accounting; they do not redefine the measured endpoint.
 
-## Final validation
+## Earlier validation (before shared witness optimizations)
 
 The latest native target compiled successfully. The final matched 144-input interleaved smoke passed, with one measured warm-key sample per route: cached 6,031 ms, five proofs, five transactions and 1,321,972 CU; admitted 3,757 ms, one proof, three transactions and 556,118 CU. These are correctness-validation samples, not a new statistical headline.
 
-Both used the dev native profile, GOMAXPROCS=18, four prover permits, client concurrency 4, overlap enabled, 25 ms confirmed polling and 500 ms indexer polling. All recipient balances decrypted correctly. Cache ownership, tree, operation, frozen state, every merge commitment, empty unused slots and all spent-nullifier PDAs passed verification after the timer stopped. Logs and manifests are in the admission worktree's `target/admission-bench/final-smoke`. Source is frozen after these checks.
+Both used the dev native profile, GOMAXPROCS=18, four prover permits, client concurrency 4, overlap enabled, 25 ms confirmed polling and 500 ms indexer polling. All recipient balances decrypted correctly. Cache ownership, tree, operation, frozen state, every merge commitment, empty unused slots and all spent-nullifier PDAs passed verification after the timer stopped. Logs and manifests are in the admission worktree's `target/admission-bench/final-smoke`. These samples predate the shared native witness optimizations below.
+
+## Shared native witness optimizations
+
+The admission and comparator clients now use the same bounded thread-local Poseidon parameter cache, direct byte-to-hex field codec, and exact precomputed Poseidon(0,0) for plain-note ring fields. Solana hashing and PR320 program/circuit artifacts are unchanged. Error-recovery/hash parity, codec parity and plain/ring commitment checks pass; the comparator benchmark target compiles. New performance claims require fresh matched measurements.
+
+The final matched 512-input smoke disables Surfpool instruction profiling on both branches. This comparator completed one resident-key payment in 17.059 s, including recipient decryption; all postconditions passed. This is one sample, not a latency distribution. The [current assessment and raw artifacts](https://github.com/helius-labs/zolana/blob/experiment/merge/10x-admission/MERGE_EXPERIMENTS.md) contain both routes and the separately labeled profiling-enabled comparison.

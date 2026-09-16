@@ -186,7 +186,11 @@ impl ProofInputUtxo {
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        let ring_hash = Poseidon::hashv(&[&self.ring_data_hash, &self.ring_program_id])?;
+        let ring_hash = if self.ring_data_hash == [0; 32] && self.ring_program_id == [0; 32] {
+            Poseidon::zero_bytes()[1]
+        } else {
+            Poseidon::hashv(&[&self.ring_data_hash, &self.ring_program_id])?
+        };
         let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, &self.blinding])?;
         Ok(Poseidon::hashv(&[
             &self.domain,
@@ -250,5 +254,45 @@ impl Utxo {
             ring_program_id: self.ring_program_id,
             data: self.data.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod hash_tests {
+    use super::*;
+
+    #[test]
+    fn plain_and_ring_notes_keep_the_same_commitment() {
+        for (ring_data_hash, ring_program_id) in [
+            ([0; 32], [0; 32]),
+            ([1; 32], [0; 32]),
+            ([0; 32], [2; 32]),
+            ([1; 32], [2; 32]),
+        ] {
+            let note = ProofInputUtxo {
+                domain: [1; 32],
+                tree_id: [2; 32],
+                owner_hash: [3; 32],
+                asset: [4; 32],
+                amount: [5; 32],
+                blinding: [6; 32],
+                data_hash: [7; 32],
+                ring_data_hash,
+                ring_program_id,
+            };
+            let ring = Poseidon::hashv(&[&ring_data_hash, &ring_program_id]).unwrap();
+            let owner = Poseidon::hashv(&[&note.owner_hash, &note.blinding]).unwrap();
+            let expected = Poseidon::hashv(&[
+                &note.domain,
+                &note.tree_id,
+                &note.asset,
+                &note.amount,
+                &note.data_hash,
+                &ring,
+                &owner,
+            ])
+            .unwrap();
+            assert_eq!(note.hash().unwrap(), expected);
+        }
     }
 }

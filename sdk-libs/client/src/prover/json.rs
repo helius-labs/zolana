@@ -12,7 +12,7 @@ fn big_uint_to_string(value: &BigUint) -> String {
 }
 
 fn fe_to_string(bytes: &[u8; 32]) -> String {
-    big_uint_to_string(&BigUint::from_bytes_be(bytes))
+    super::field::hex(bytes)
 }
 
 #[derive(Debug, Clone, Serialize)]
