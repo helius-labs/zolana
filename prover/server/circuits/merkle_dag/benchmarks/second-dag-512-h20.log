@@ -1,0 +1,7 @@
+=== RUN   TestProving
+    dag_test.go:289: DAG_COMPILE name=paths inputs=512 height=20 constraints=4033121
+    dag_test.go:289: DAG_COMPILE name=shared_prefix inputs=512 height=20 constraints=2543046
+    dag_test.go:289: DAG_COMPILE name=private_dag inputs=512 height=20 constraints=1583263
+--- PASS: TestProving (16.40s)
+PASS
+ok  	zolana/prover/circuits/merkle_dag	16.869s

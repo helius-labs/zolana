@@ -1,0 +1,16 @@
+=== RUN   TestProving
+    dag_test.go:286: DAG_COMPILE name=paths inputs=144 height=20 constraints=1134289
+    dag_test.go:309: DAG_PROVE name=paths inputs=144 height=20 trial=0 milliseconds=4937.197
+    dag_test.go:309: DAG_PROVE name=paths inputs=144 height=20 trial=1 milliseconds=4948.854
+    dag_test.go:309: DAG_PROVE name=paths inputs=144 height=20 trial=2 milliseconds=4937.931
+    dag_test.go:286: DAG_COMPILE name=shared_prefix inputs=144 height=20 constraints=717302
+    dag_test.go:309: DAG_PROVE name=shared_prefix inputs=144 height=20 trial=0 milliseconds=3085.372
+    dag_test.go:309: DAG_PROVE name=shared_prefix inputs=144 height=20 trial=1 milliseconds=3053.517
+    dag_test.go:309: DAG_PROVE name=shared_prefix inputs=144 height=20 trial=2 milliseconds=3045.145
+    dag_test.go:286: DAG_COMPILE name=private_dag inputs=144 height=20 constraints=518076
+    dag_test.go:309: DAG_PROVE name=private_dag inputs=144 height=20 trial=0 milliseconds=2068.825
+    dag_test.go:309: DAG_PROVE name=private_dag inputs=144 height=20 trial=1 milliseconds=2069.675
+    dag_test.go:309: DAG_PROVE name=private_dag inputs=144 height=20 trial=2 milliseconds=2079.920
+--- PASS: TestProving (183.78s)
+PASS
+ok  	zolana/prover/circuits/merkle_dag	184.065s
