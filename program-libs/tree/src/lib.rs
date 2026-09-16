@@ -76,6 +76,7 @@
 //! additionally needs a prover at `ZOLANA_PROVER_URL`.
 pub mod error;
 pub mod fees;
+pub mod nullifier_filter;
 pub mod nullifier_tree;
 pub mod smt;
 
