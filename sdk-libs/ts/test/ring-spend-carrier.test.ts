@@ -7,7 +7,7 @@ import { ShieldedAddress } from "../src/keypair/shielded.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { createProofOutput, ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
-import { encryptCustomRingTransferWith } from "../src/transaction/wallet/encrypt-rails.js";
+import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
 import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
 import {
   createExternalData,
@@ -68,14 +68,15 @@ function fixture() {
     blinding: record.blinding,
     ownerTag: NAMESPACE,
   });
-  const encrypted = encryptCustomRingTransferWith(viewing, {
-    firstNullifier: field(16),
+  const tx = viewing.transactionViewingKey(field(16));
+  const encrypted = encryptCustomRingTransfer(tx, {
     outputs: [output],
     assets: new AssetRegistry(),
     auditorPublicKey: auditor.publicKey(),
     recordOutputIndex: 0,
     counterMessage: sealedSpendCounters(counters, NAMESPACE),
   });
+  tx.destroy();
   const carrier = encrypted.payload[0];
   if (carrier === undefined) throw new Error("carrier");
   const transaction: IndexedShieldedTransaction = {
@@ -123,16 +124,17 @@ describe("compressed spend record carrier", () => {
       salt === undefined
     )
       throw new Error("fixture");
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
+    const input = ProofInputUtxo.fromNullifierKey(
+      new Utxo({
         owner: owner.signingPublicKey,
         asset: SOL_MINT,
         amount: 0n,
         blinding: field(21),
       }),
-      nullifierKey: nullifier,
-      treeId: 4,
-    });
+      nullifier,
+      {},
+      4,
+    );
     try {
       const dummy = createProofOutput({
         asset: SOL_MINT,
@@ -172,7 +174,6 @@ describe("compressed spend record carrier", () => {
       );
       expect(framed.externalData.messages).toEqual(proofInputs.externalData.messages);
     } finally {
-      input.destroy();
       nullifier.destroy();
       f.auditor.destroy();
     }

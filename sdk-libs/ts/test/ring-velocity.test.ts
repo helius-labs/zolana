@@ -42,10 +42,10 @@ function moneyInput(amount: bigint): InputUtxo {
   const owner = ShieldedPublicKey.fromEd25519(filled(0xb2));
   const nullifier = NullifierKey.fromSecret(new Uint8Array(31).fill(2) as Bytes31);
   try {
-    return new ProofInputUtxo({
-      utxo: new Utxo({ owner, asset: ASSET, amount, blinding: filled(0x51), ringProgramId: RING }),
-      nullifierKey: nullifier,
-    });
+    return ProofInputUtxo.fromNullifierKey(
+      new Utxo({ owner, asset: ASSET, amount, blinding: filled(0x11), ringProgramId: RING }),
+      nullifier,
+    );
   } finally {
     nullifier.destroy();
   }

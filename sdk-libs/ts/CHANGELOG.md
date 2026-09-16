@@ -17,7 +17,9 @@ algorithm tag, every UTXO commits to the tree it lives in, and one private
 blinding seed per proof derives every output blinding and the private
 transaction hash blinding. Every builder now returns a version 1 transaction,
 which holds 4,096 bytes instead of 1,232, carries its compute budget and
-priority fee in the message itself, and uses no address lookup tables.
+priority fee in the message itself, and uses no address lookup tables. Wallet
+builders and sync now use a batched key interface that a remote holder can
+answer without releasing long-lived secrets.
 A ring gains a scoped co-signer, a permanent delegate, public spend windows
 and private per-window velocity caps kept in compressed member spend records,
 and transfer submissions settle their broadcast before releasing the notes
@@ -25,6 +27,35 @@ they spend.
 
 Breaking
 
+- `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
+  `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
+  `WalletSyncMaterial` are removed → build
+  `LocalKeys.fromKeypair(keypair, client.proofService)`, or
+  `LocalKeys.fromDerivationSeed({ solanaPublicKey, derivationSeed }, client.proofService)`,
+  and pass it as `keys`.
+- Wallet transaction builders take `keys: WalletKeys` and an optional
+  `approve: ApprovalHandler` instead of `authority`; sync functions take
+  `keys: ShieldedKeys`. `proveTransact`, `proveRingTransact`,
+  `proveRingAuthorityTransact`, `proveMerge`, and authorized transaction
+  assembly require a `ProofAuthority`.
+- `ProofInputUtxo` carries `nullifierPublicKey`, the derived nullifier, and its
+  `treeId` instead of a `NullifierKey` → construct it with
+  `ProofInputUtxo.fromKeypair` or `ProofInputUtxo.fromNullifierKey`.
+- `proveCustomRingTransfer`, the ring transfer, exit and withdrawal builders
+  and their submissions, `readRingVelocityState` and `openSpendCounters` take
+  `keys` instead of `session` or `authority`, and `proveCustomRingDelegateTransfer`
+  takes `spender: RingDelegateSpender` → pass the member's `WalletKeys`, and
+  for a delegate move `source: WalletKeys` or the recovered
+  `nullifierKey` with a client that exposes `proofService`.
+- `prepareRingKeyRegistration` and `createRingKeyRegistrationSubmission` take
+  `member: { address, nullifierKey }` instead of `authority` → pass the
+  member's `ShieldedAddress` and `NullifierKey`, the one place a nullifier
+  secret leaves its holder.
+- Prover input slots carry the nullifier secret only after `ProofAuthority`
+  fills it; an owned input still missing it fails with
+  `CLIENT_MISSING_NULLIFIER_SECRET` before the prover request.
+- `TRANSACTION_WALLET_AUTHORITY_MISMATCH` is renamed
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH`.
 - `ringDepositInstruction` adds the canonical deposit-audit account, and
   `buildRingDepositTransaction` takes `RingDepositClient` with a deposit prover
   → upgrade ring deposit callers with the program even when auditing is disabled.
@@ -160,8 +191,9 @@ Breaking
 - `proveCustomRingTransfer` charges the sender's outflow on a velocity ring,
   spends a windowed ring's record into its successor and returns
   `approvalRequired` and `headTransition` on `ProvenRingTransfer`, and
-  `CustomRingTransferParams.session` needs `openSealedMessage` while the
-  client needs `getSlot` and `getRingHeadTransferProof` → create the ring's
+  `CustomRingTransferParams.keys` mints the transaction keys that open the
+  sender's counters while the client needs `getSlot` and
+  `getRingHeadTransferProof` → create the ring's
   head map root with `createRingHeadMapRootInstruction`, register each sender
   before its first windowed transfer, and run the Photon and prover of this
   release.
@@ -447,8 +479,8 @@ Added
   carries each record over `RingRpc.getDecryptedTransactions` as a
   `DecryptedRingSpendRecord` whose `counters` list the populated slots as
   `DecryptedRingSpendCounter`.
-- `SpendSession.openSealedMessage` opens a message sealed under a past
-  transaction key, `SpendSession.encryptCustomRingTransfer` takes a
+- `openSealedMessage(tx, { salt, slotIndex, data })` opens a message sealed
+  under a transaction viewing key, `encryptCustomRingTransfer` takes a
   `counterMessage` without a caller slot index and a `recordOutputIndex`
   sealed to the transaction viewing key and refuses caller messages on the
   reserved counter slot or a slot shared by an output or another message with
@@ -625,6 +657,19 @@ Fixed
   recovers disclosed deposits, accepts `resolveOutputHashes` for committed data
   hashes and reports deposits lacking disclosure in `unsupportedDeposits`
   without claiming their spend status.
+- `decryptTransactions` rejects malformed key-holder batches with
+  `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and
+  leaves wallet state unchanged on failure.
+- `buildMergeTransaction` rejects malformed derivation batches with
+  `code: "WALLET_BUILD_MERGE"` and `causeCode: "WALLET_KEYS_BATCH_MISMATCH"`,
+  releasing the inputs it reserved.
+- `PreparedMerge.dummyNullifiers()` returns independent buffers so modifying
+  a returned value cannot change the prepared merge.
+- `LocalKeys.proveMerge` rejects incomplete inputs for another wallet with
+  `CLIENT_MERGE_NULLIFIER_KEY_MISMATCH` before contacting the prover.
+- Wallet transaction builders reject entries outside the default tree instead
+  of pairing their stored nullifiers with default-tree commitments, and
+  `ProofInputUtxo.withTreeId` reports `TRANSACTION_INPUT_TREE_MISMATCH` for real inputs.
 - `deployRingProgram` splits uploads into writes the loader accepts and packs
   them into v1 transactions; `writeBufferInstruction` rejects payloads above
   1,216 bytes with `RING_PROGRAM_WRITE_TOO_LARGE`.

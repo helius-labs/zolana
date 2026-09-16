@@ -46,7 +46,11 @@ export interface TransferInput {
   readonly treeSlot: Field;
   readonly nullifier: Field;
   readonly ownerPublicKeyHash: Field;
-  readonly nullifierSecret: Field;
+  /**
+   * The owner's nullifier secret, present once the `ProofAuthority` holding it
+   * has completed the input. Absent until then; a dummy slot carries zero.
+   */
+  readonly nullifierSecret?: Field;
 }
 
 export interface TransferOutput {
@@ -85,7 +89,8 @@ export interface MergeInputs {
   readonly outputTreeId: Field;
   readonly ownerPublicKeyHash: Field;
   readonly userNullifierPublicKey: Field;
-  readonly userNullifierSecret: Field;
+  /** Present once the `ProofAuthority` has completed the inputs. */
+  readonly userNullifierSecret?: Field;
   readonly externalDataHash: Field;
   readonly privateTxHash: Field;
   readonly allowDummyInputs: Field;

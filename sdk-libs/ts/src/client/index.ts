@@ -1,10 +1,6 @@
 export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, ZolanaClient } from "./client.js";
-export type {
-  AuthorizedPrivateTransaction,
-  MergeMaterialInput,
-  ProvedMerge,
-  ZolanaClientConfig,
-} from "./client.js";
+export type { AuthorizedPrivateTransaction, ProvedMerge, ZolanaClientConfig } from "./client.js";
+export { LocalKeys, NullifierKeyProofAuthority } from "./keys.js";
 export type {
   BlockhashProvider,
   SlotReader,
@@ -12,7 +8,9 @@ export type {
   IndexerReader,
   KitRpcAccess,
   MergeAssembler,
+  ProofAuthority,
   ProofReader,
+  ProofService,
   ProvenRingTransact,
   Prover,
   TransactionAssembler,
@@ -29,6 +27,7 @@ export type {
   RingSubmissionPending,
   RingSubmissionStatus,
   RingSubmissionTransport,
+  WalletKeys,
 } from "./ports.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {
@@ -40,7 +39,13 @@ export type {
   HasherErrorCode,
   RetryErrorCause,
 } from "./error.js";
-export type { AsyncPollConfig, ProverHealth } from "./prover/client.js";
+export {
+  mergeProverRequestBody,
+  proverRequestBody,
+  type AsyncPollConfig,
+  type ProverHealth,
+  type ProverRequestBody,
+} from "./prover/client.js";
 export { ringOpenings } from "./prover/assembly.js";
 export type { RingOpenings } from "./prover/assembly.js";
 export { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "./prover/proof.js";
@@ -73,7 +78,9 @@ export type {
   CustomRingVelocityRow,
   CustomRingVelocityProofInput,
   Field,
+  MergeInputs,
   Proof,
+  ProverInputs,
   RingTransactRoots,
   TransferInput,
   TransferInputs,

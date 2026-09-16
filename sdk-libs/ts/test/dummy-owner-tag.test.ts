@@ -23,15 +23,15 @@ import { hashChain4 } from "../src/transaction/internal.js";
 const FOREIGN_PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 
 function solInput(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
-  return new ProofInputUtxo({
-    utxo: new Utxo({
+  return ProofInputUtxo.fromKeypair(
+    new Utxo({
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
       amount,
       blinding: randomBlinding(),
     }),
-    nullifierKey: keypair.nullifierKey(),
-  });
+    keypair,
+  );
 }
 
 function inlineTag(value: Bytes32): OwnerTag {

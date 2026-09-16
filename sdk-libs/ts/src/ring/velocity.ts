@@ -14,13 +14,17 @@ import type { ProofOutputUtxo, TreeId } from "../transaction/utxo.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import { U64_MAX, decodeAddress } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
-import type { SealedMessageInput, SpendSession } from "../transaction/wallet/authority.js";
+import type { SealedMessageInput } from "../transaction/wallet/encrypt-rails.js";
+import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type {
   SlotReader,
   ChainReader,
+  ProofAuthority,
   RingHeadReader,
   RingHeadTransferProof,
 } from "../client/ports.js";
+import { bytesField } from "../client/internal.js";
+import { asField } from "../client/prover/assembly.js";
 import {
   RING_INPUT_SLOTS,
   RING_OUTPUT_SLOTS,
@@ -79,7 +83,7 @@ export interface ReadVelocityFactsInput {
     SlotReader &
     Pick<ChainReader, "getAccount">;
   readonly ringProgramId: Address;
-  readonly session: Pick<SpendSession, "openSealedMessage">;
+  readonly keys: ShieldedKeys;
   readonly namespace: Address;
   readonly entriesTree: Address;
   readonly entriesTreeId: TreeId;
@@ -161,7 +165,7 @@ export async function readVelocityFacts(
   const { head, live } = await readCurrentSpendRecord(input, context);
   const slot = await input.client.getSlot(context);
   const windowIndex = slot / input.windowSlots;
-  const counters = await recoverCounters(input, live, windowIndex);
+  const counters = await recoverCounters(input, live, windowIndex, context);
   return Object.freeze({
     namespace: input.namespace,
     owner,
@@ -179,6 +183,7 @@ async function recoverCounters(
   input: ReadVelocityFactsInput,
   live: LiveSpendRecord,
   windowIndex: bigint,
+  context?: RequestContext,
 ): Promise<SpendCounters | undefined> {
   if (live.record.window > windowIndex) throw new RingError("RING_SPEND_RECORD_INVALID");
   if (live.record.window < windowIndex) return undefined;
@@ -189,12 +194,44 @@ async function recoverCounters(
       details: { reason: message === undefined ? "missingMessage" : "missingSalt" },
     });
   }
-  return openSpendCounters(input.session, {
-    firstNullifier: live.origin.firstNullifier,
-    salt: live.origin.salt,
-    data: message.data,
-    commitment: live.record.countersCommitment,
-  });
+  return openSpendCounters(
+    input.keys,
+    {
+      firstNullifier: live.origin.firstNullifier,
+      salt: live.origin.salt,
+      data: message.data,
+      commitment: live.record.countersCommitment,
+    },
+    context,
+  );
+}
+
+/** The record slot is owned by the namespace PDA under the zero nullifier key, its secret is public. */
+export function withRecordSlotSecret(
+  keys: ProofAuthority,
+  recordNullifier: Bytes32,
+): ProofAuthority {
+  const nullifier = bytesField(recordNullifier, "record nullifier");
+  return {
+    prove: (inputs, context) =>
+      keys.prove(
+        Object.freeze({
+          circuit: inputs.circuit,
+          payload: Object.freeze({
+            ...inputs.payload,
+            inputs: Object.freeze(
+              inputs.payload.inputs.map((input) =>
+                input.nullifier === nullifier && input.nullifierSecret === undefined
+                  ? Object.freeze({ ...input, nullifierSecret: asField(0n) })
+                  : input,
+              ),
+            ),
+          }),
+        }),
+        context,
+      ),
+    proveMerge: (inputs, context) => keys.proveMerge(inputs, context),
+  };
 }
 
 export function planVelocity(input: PlanVelocityInput): VelocityPlan {
@@ -255,17 +292,17 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
   let recordInput: ProofInputUtxo;
   let recordOutput: ProofOutputUtxo;
   try {
-    recordInput = new ProofInputUtxo({
-      utxo: new Utxo({
+    recordInput = ProofInputUtxo.fromNullifierKey(
+      new Utxo({
         owner: ShieldedPublicKey.fromPda(namespace),
         asset: SOL_MINT,
         amount: 0n,
         blinding: spentRecord.blinding,
       }),
-      nullifierKey: zeroNullifier,
-      treeId: facts.entriesTreeId,
-      dataHash: spentHashes.dataHash,
-    });
+      zeroNullifier,
+      { dataHash: spentHashes.dataHash },
+      facts.entriesTreeId,
+    );
     recordOutput = createProofOutput({
       asset: SOL_MINT,
       amount: 0n,

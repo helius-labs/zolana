@@ -58,7 +58,7 @@ import {
   proveCustomRingTransfer,
   proveCustomRingDelegateTransfer,
   ringAddressChain,
-  type CustomRingTransferParams,
+  type CustomRingDelegateTransferParams,
 } from "../src/ring/transfer.js";
 import {
   ListId,
@@ -90,10 +90,10 @@ import {
 import { Data } from "../src/transaction/data.js";
 import { ProofInputUtxo, Utxo, createProofOutput } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
-import {
-  KeypairWalletAuthority,
-  type WalletAuthority,
-} from "../src/transaction/wallet/authority.js";
+import { LocalKeys } from "../src/client/keys.js";
+import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
+import { LocalShieldedKeys } from "../src/transaction/wallet/keys.js";
+import { withTransactionKey } from "../src/wallet/private-transaction.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 /** Every input proves from tree 0, the id the builders default to; the ring is not a tree. */
@@ -108,14 +108,19 @@ function scalar(value: number): Bytes32 {
 
 function actor(seed: number) {
   const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(scalar(seed)));
-  const solanaPublicKey = getAddressDecoder().decode(
-    keypair.signingPublicKey().toBytes().subarray(1),
-  );
   return {
     keypair,
-    authority: new KeypairWalletAuthority({ solanaPublicKey, keypair }),
+    keys: LocalShieldedKeys.fromKeypair(keypair),
     address: keypair.shieldedAddress(),
   };
+}
+
+function ownedInput(
+  owner: ReturnType<typeof actor>,
+  utxo: ConstructorParameters<typeof Utxo>[0],
+  hashes?: Parameters<typeof ProofInputUtxo.fromNullifierKey>[2],
+): ProofInputUtxo {
+  return ProofInputUtxo.fromKeypair(new Utxo(utxo), owner.keypair, hashes);
 }
 
 /** A 10 SOL ring UTXO of `sender` sending `amount` to `recipient` and `others`. */
@@ -133,15 +138,12 @@ function preparedTransfer(
 }> {
   const sender = actor(3);
   const recipient = actor(4);
-  const input = new ProofInputUtxo({
-    utxo: new Utxo({
-      owner: sender.keypair.signingPublicKey(),
-      asset,
-      amount: 10n,
-      blinding: scalar(6),
-      ...(inputRing === null ? {} : { ringProgramId: inputRing }),
-    }),
-    nullifierKey: sender.keypair.nullifierKey(),
+  const input = ownedInput(sender, {
+    owner: sender.keypair.signingPublicKey(),
+    asset,
+    amount: 10n,
+    blinding: scalar(6),
+    ...(inputRing === null ? {} : { ringProgramId: inputRing }),
   });
   const transfer = new ConfidentialTransfer(
     sender.address,
@@ -171,9 +173,8 @@ async function auditedProofInputs(
     sender,
     recipient,
   } = preparedTransfer(amount, others, exits, inputRing, asset, payer);
-  const encrypted = await sender.authority.withSpendSession((session) =>
-    session.encryptCustomRingTransfer({
-      firstNullifier: ring.firstNullifier,
+  const encrypted = await withTransactionKey(sender.keys, ring.firstNullifier, (tx) =>
+    encryptCustomRingTransfer(tx, {
       outputs: ring.outputs,
       assets,
       auditorPublicKey: auditor.publicKey(),
@@ -209,13 +210,21 @@ function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
   };
 }
 
-function spendSession(authority: WalletAuthority): CustomRingTransferParams["session"] {
+const unusedProofService = {
+  prove: () => Promise.reject(new Error("prove must not be called directly")),
+  proveMerge: () => Promise.reject(new Error("proveMerge must not be called directly")),
+};
+
+function delegateSpender(keys: LocalKeys): CustomRingDelegateTransferParams["spender"] {
   return {
-    encryptCustomRingTransfer: (request) =>
-      authority.withSpendSession((session) => session.encryptCustomRingTransfer(request)),
-    openSealedMessage: (request) =>
-      authority.withSpendSession((session) => session.openSealedMessage(request)),
+    proofs: keys,
+    withTransactionKey: (firstNullifier, use, context) =>
+      withTransactionKey(keys, firstNullifier, use, context),
   };
+}
+
+function walletKeys(owner: ReturnType<typeof actor>): LocalKeys {
+  return LocalKeys.fromKeypair(owner.keypair, unusedProofService);
 }
 
 /** The ring's config and, for a policy ring, a policy config over `ACTIVE_TREE` pinning `rules` sourced from the ring's own namespace. */
@@ -284,18 +293,17 @@ describe("delegate policy rail", () => {
     const sender = actor(3),
       recipient = actor(4);
     const amount = (1n << 63n) + 1n;
-    const inputs = [0, 1].map(
-      (offset) =>
-        new ProofInputUtxo({
-          utxo: new Utxo({
-            owner: sender.keypair.signingPublicKey(),
-            asset: SOL_MINT,
-            amount,
-            blinding: scalar(70 + offset),
-            ringProgramId: RING,
-          }),
-          nullifierKey: sender.keypair.nullifierKey(),
+    const inputs = [0, 1].map((offset) =>
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
+          owner: sender.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount,
+          blinding: scalar(70 + offset),
+          ringProgramId: RING,
         }),
+        sender.keypair,
+      ),
     );
     const prepared = prepareRingAuthorityTransfer({
       owner: sender.address,
@@ -306,22 +314,21 @@ describe("delegate policy rail", () => {
       outputTreeId: 0,
     });
     expect(prepared.outputs.map((output) => output.amount)).toEqual([3n, (1n << 64n) - 1n]);
-    for (const input of inputs) input.destroy();
   });
   it("names the input outside the ring and the foreign owner separately", () => {
     const sender = actor(3),
       other = actor(5);
     const spend = (owner: ReturnType<typeof actor>, ring: boolean) =>
-      new ProofInputUtxo({
-        utxo: new Utxo({
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
           owner: owner.keypair.signingPublicKey(),
           asset: SOL_MINT,
           amount: 10n,
           blinding: scalar(90),
           ...(ring ? { ringProgramId: RING } : {}),
         }),
-        nullifierKey: owner.keypair.nullifierKey(),
-      });
+        owner.keypair,
+      );
     const prepare = (input: ProofInputUtxo) =>
       prepareRingAuthorityTransfer({
         owner: sender.address,
@@ -331,19 +338,12 @@ describe("delegate policy rail", () => {
         ringProgramId: RING,
         outputTreeId: 0,
       });
-    const outside = spend(sender, false);
-    const foreign = spend(other, true);
-    try {
-      expect(() => prepare(outside)).toThrow(
-        expect.objectContaining({ code: "TRANSACTION_INPUT_OUTSIDE_RING" }),
-      );
-      expect(() => prepare(foreign)).toThrow(
-        expect.objectContaining({ code: "TRANSACTION_INPUT_OWNER_MISMATCH" }),
-      );
-    } finally {
-      outside.destroy();
-      foreign.destroy();
-    }
+    expect(() => prepare(spend(sender, false))).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_INPUT_OUTSIDE_RING" }),
+    );
+    expect(() => prepare(spend(other, true))).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_INPUT_OWNER_MISMATCH" }),
+    );
   });
   it("keeps the table and audit but never discovers or charges a velocity record", async () => {
     const auditor = ViewingKey.fromBytes(scalar(9));
@@ -389,7 +389,7 @@ describe("delegate policy rail", () => {
       },
       ringProgramId: RING,
       prepared,
-      session: spendSession(sender.authority),
+      spender: delegateSpender(walletKeys(sender)),
       assets: new AssetRegistry(),
       tree: TREE,
     });
@@ -413,19 +413,19 @@ describe("delegate policy rail", () => {
       recipient = actor(4);
     const mintA = actor(30).address.solanaAddress(),
       mintB = actor(31).address.solanaAddress();
-    const inputs = [mintA, mintB].map(
-      (asset, index) =>
-        new ProofInputUtxo({
-          utxo: new Utxo({
-            owner: sender.keypair.signingPublicKey(),
-            asset,
-            amount: 10n,
-            blinding: scalar(40 + index),
-            ringProgramId: RING,
-          }),
-          nullifierKey: sender.keypair.nullifierKey(),
-          treeId: 7,
+    const inputs = [mintA, mintB].map((asset, index) =>
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
+          owner: sender.keypair.signingPublicKey(),
+          asset,
+          amount: 10n,
+          blinding: scalar(40 + index),
+          ringProgramId: RING,
         }),
+        sender.keypair,
+        {},
+        7,
+      ),
     );
     const prepared = prepareRingAuthorityTransfer({
       owner: sender.address,
@@ -448,7 +448,6 @@ describe("delegate policy rail", () => {
     ]);
     expect(prepared.interfaceTransfers).toEqual([]);
     expect(prepared.ownerMode).toBe("opaque");
-    for (const input of inputs) input.destroy();
   });
 });
 
@@ -498,15 +497,12 @@ describe("withCompactChange", () => {
   it("keeps both slots under the padded default like Rust `padded_change_keeps_both_slots`", () => {
     const sender = actor(3);
     const recipient = actor(4);
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: sender.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 10n,
-        blinding: scalar(6),
-        ringProgramId: RING,
-      }),
-      nullifierKey: sender.keypair.nullifierKey(),
+    const input = ownedInput(sender, {
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: scalar(6),
+      ringProgramId: RING,
     });
     const transfer = new ConfidentialTransfer(
       sender.address,
@@ -527,14 +523,11 @@ describe("withCompactChange", () => {
 
   it("moves an exact amount into a ring and keeps default change", () => {
     const sender = actor(3);
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: sender.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 10n,
-        blinding: scalar(6),
-      }),
-      nullifierKey: sender.keypair.nullifierKey(),
+    const input = ownedInput(sender, {
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: scalar(6),
     });
     const transfer = new ConfidentialTransfer(
       sender.address,
@@ -554,15 +547,12 @@ describe("withCompactChange", () => {
 
   it("keeps a default-ring recipient out of the ring and refuses a foreign one", () => {
     const sender = actor(3);
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: sender.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 10n,
-        blinding: scalar(6),
-        ringProgramId: RING,
-      }),
-      nullifierKey: sender.keypair.nullifierKey(),
+    const input = ownedInput(sender, {
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: scalar(6),
+      ringProgramId: RING,
     });
     const transfer = new ConfidentialTransfer(
       sender.address,
@@ -583,6 +573,7 @@ describe("withCompactChange", () => {
 
   it("refuses ring data on a default UTXO like Rust `RingMembership`", () => {
     const sender = actor(3);
+    // No nullifier derives from a commitment the hash refuses, so it is carried in.
     const tainted = new ProofInputUtxo({
       utxo: new Utxo({
         owner: sender.keypair.signingPublicKey(),
@@ -590,19 +581,13 @@ describe("withCompactChange", () => {
         amount: 10n,
         blinding: scalar(6),
       }),
-      nullifierKey: sender.keypair.nullifierKey(),
+      nullifierPublicKey: sender.keypair.nullifierPublicKey(),
+      nullifier: scalar(7),
       ringDataHash: scalar(9),
     });
-    const transfer = new ConfidentialTransfer(
-      sender.address,
-      [tainted],
-      sender.address.solanaAddress(),
-    )
-      .withCompactChange()
-      .withRingProgramId(RING);
-    transfer.send(actor(4).address, SOL_MINT, 4n);
-    // The builder refuses before membership runs.
-    expect(() => transfer.prepare()).toThrow("TRANSACTION_MISSING_RING_PROGRAM_ID");
+    // The commitment refuses it wherever the input is hashed, and the ring
+    // membership rule refuses it before the proof is assembled.
+    expect(() => tainted.hash()).toThrow("TRANSACTION_MISSING_RING_PROGRAM_ID");
 
     const { prepared } = preparedTransfer(4n);
     expect(() => checkRingMembership({ ...prepared, inputs: [tainted] }, RING)).toThrow(
@@ -800,7 +785,7 @@ describe("ring openings", () => {
       domain: scalar(3),
       treeId: scalar(0),
       ownerPkHash: spend.utxo.owner.ownerProofInputHash(),
-      nullifierPk: spend.nullifierKey.publicKey(),
+      nullifierPk: spend.nullifierPublicKey,
       asset: hashBytes(new Uint8Array(getAddressEncoder().encode(SOL_MINT))),
       amount: scalar(10),
       blinding: scalar(6),
@@ -898,42 +883,44 @@ describe("ring openings", () => {
         client,
         ringProgramId: RING,
         prepared: {} as PreparedTransfer,
-        session: spendSession(actor(3).authority),
+        keys: LocalKeys.fromKeypair(actor(3).keypair, {
+          prove: () => Promise.reject(new Error("prove must not be called")),
+          proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
+        }),
         assets: new AssetRegistry(),
         tree: actor(8).address.solanaAddress(),
       }),
     ).rejects.toThrow("RING_TREE_MISMATCH");
   });
 
-  it("destroys only its own clone of the nullifier key", () => {
+  it("derives from a caller-held nullifier key without taking it", () => {
     const owner = actor(3);
     const nullifierKey = owner.keypair.nullifierKey();
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: owner.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 5n,
-        blinding: scalar(1),
-      }),
-      nullifierKey,
+    const utxo = new Utxo({
+      owner: owner.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 5n,
+      blinding: scalar(1),
     });
-    input.destroy();
-    expect(() => input.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
-    expect(nullifierKey.publicKey()).toEqual(owner.keypair.nullifierKey().publicKey());
+    const input = ProofInputUtxo.fromNullifierKey(utxo, nullifierKey);
+    expect(input.nullifierPublicKey).toEqual(nullifierKey.publicKey());
+    expect(input.nullifier()).toEqual(
+      nullifierKey.nullifier(utxo.hash(nullifierKey.publicKey(), 0), utxo.blinding),
+    );
+    expect(Object.keys(input)).not.toContain("nullifierKey");
+    // The key stays the caller's and keeps working.
+    expect(nullifierKey.publicKey()).toEqual(owner.keypair.nullifierPublicKey());
   });
 
   it("derives non-payer owner signers like Rust `owner_signer_pubkeys`", () => {
     const owner = actor(3);
     const payer = actor(8).address.solanaAddress();
     const input = (blinding: number) =>
-      new ProofInputUtxo({
-        utxo: new Utxo({
-          owner: owner.keypair.signingPublicKey(),
-          asset: SOL_MINT,
-          amount: 5n,
-          blinding: scalar(blinding),
-        }),
-        nullifierKey: owner.keypair.nullifierKey(),
+      ownedInput(owner, {
+        owner: owner.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: scalar(blinding),
       });
     const ownerAddress = owner.address.solanaAddress();
     expect(ownerSignerAddresses([input(1), input(2)], payer)).toEqual([ownerAddress]);
@@ -1204,7 +1191,7 @@ describe("ring proof folded fields", () => {
       }),
       ringProgramId: RING,
       prepared,
-      session: spendSession(sender.authority),
+      keys: walletKeys(sender),
       assets: new AssetRegistry(),
       tree: RING,
       outputTree: ACTIVE_TREE,
@@ -1287,7 +1274,7 @@ describe("ring proof folded fields", () => {
       }),
       ringProgramId: RING,
       prepared,
-      session: spendSession(sender.authority),
+      keys: walletKeys(sender),
       assets: new AssetRegistry(),
       tree: RING,
       outputTree: ACTIVE_TREE,
@@ -1341,7 +1328,7 @@ describe("ring proof folded fields", () => {
         }),
         ringProgramId: RING,
         prepared,
-        session: spendSession(sender.authority),
+        keys: walletKeys(sender),
         assets: new AssetRegistry(),
         tree: RING,
         outputTree: ACTIVE_TREE,
@@ -1376,7 +1363,7 @@ describe("ring proof folded fields", () => {
       }),
       ringProgramId: RING,
       prepared,
-      session: spendSession(sender.authority),
+      keys: walletKeys(sender),
       assets: new AssetRegistry(),
       tree: RING,
       outputTree: ACTIVE_TREE,

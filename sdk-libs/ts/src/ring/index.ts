@@ -42,6 +42,7 @@ export type {
   NullifierKeyEnvelope,
   RegisterKeyStatement,
   RingKeyRegistrationClient,
+  RingKeyRegistrationMember,
   RingKeyRegistrationParams,
   RingKeyRegistrationPreparation,
   RingSealedKeyClient,
@@ -91,12 +92,17 @@ export { RingTransactionSubmission, createKitRingSubmissionTransport } from "./s
 export type { RingSubmissionAttempt, RingSubmissionResult } from "./submission.js";
 export { RingProgramError } from "./error.js";
 export type {
+  RingDelegateRecoveredClient,
   RingDelegateRecoveredParams,
   RingDelegateTransferClient,
   RingDelegateTransferParams,
 } from "./delegate.js";
 export { proveCustomRingDelegateTransfer } from "./transfer.js";
-export type { CustomRingDelegateTransferParams, RingDelegateProofClient } from "./transfer.js";
+export type {
+  CustomRingDelegateTransferParams,
+  RingDelegateProofClient,
+  RingDelegateSpender,
+} from "./transfer.js";
 export { currentRingSpendRecord } from "./policy.js";
 export { ringDepositInstruction, ringTransactAccounts } from "../interface/instructions/index.js";
 export {

@@ -6,67 +6,55 @@ import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { ed25519DerivationPayload, isDerivationInput } from "../src/keypair/derivation.js";
-import { KeypairWalletAuthority } from "../src/transaction/wallet/authority.js";
+import {
+  encryptConfidentialTransfer,
+  encryptCustomRingTransfer,
+} from "../src/transaction/wallet/encrypt-rails.js";
+import { LocalShieldedKeys } from "../src/transaction/wallet/keys.js";
 import { createProofOutput } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { decryptTransactionViewingSecret, parseAuditorMessage } from "../src/keypair/audit.js";
+import { withTransactionKey } from "../src/wallet/private-transaction.js";
 
 function seed(byte: number): Bytes32 {
   return new Uint8Array(32).fill(byte) as Bytes32;
 }
 
-describe("KeypairWalletAuthority", () => {
-  it("derives the same keys from a wallet's derivation signature as from the secret", async () => {
+describe("LocalShieldedKeys on the ring rail", () => {
+  it("derives the same keys from a wallet's derivation signature as from the secret", () => {
     const signing = SigningKey.fromEd25519Bytes(seed(7));
     const keypair = ShieldedKeypair.fromKeypair(signing);
     const solanaPublicKey = getAddressDecoder().decode(signing.publicKey().toBytes().subarray(1));
-    const local = new KeypairWalletAuthority({ solanaPublicKey, keypair });
+    const local = LocalShieldedKeys.fromKeypair(keypair);
     // The browser wallet output of signMessage(ed25519DerivationMessage(pk)).
-    const derived = KeypairWalletAuthority.fromDerivationSeed({
+    const derived = LocalShieldedKeys.fromDerivationSeed({
       solanaPublicKey,
       derivationSeed: signing.derivationSeed(),
     });
-    const [localAddress, derivedAddress] = await Promise.all([
-      local.shieldedAddress(),
-      derived.shieldedAddress(),
-    ]);
-    expect(derivedAddress.ownerHash()).toEqual(localAddress.ownerHash());
-    expect(derivedAddress.viewingPublicKey.toBytes()).toEqual(
-      localAddress.viewingPublicKey.toBytes(),
+    expect(derived.address().ownerHash()).toEqual(local.address().ownerHash());
+    expect(derived.address().viewingPublicKey.toBytes()).toEqual(
+      local.address().viewingPublicKey.toBytes(),
     );
-    const [localViewing, derivedViewing] = await Promise.all([
-      local.withSyncSession(async (keys) =>
-        (await keys.syncMaterial()).viewingKeys[0]?.publicKey().toBytes(),
-      ),
-      derived.withSyncSession(async (keys) =>
-        (await keys.syncMaterial()).viewingKeys[0]?.publicKey().toBytes(),
-      ),
-    ]);
-    expect(derivedViewing).toEqual(localViewing);
+    const localViewing = local.viewingPublicKeys()[0]?.toBytes();
+    expect(derived.viewingPublicKeys()[0]?.toBytes()).toEqual(localViewing);
     // The bare payload is a derivation input too, what browser wallets sign.
     expect(isDerivationInput(ed25519DerivationPayload())).toBe(true);
     // The hash-free path a page without Poseidon takes.
     expect(ViewingKey.fromDerivationSeed(signing.derivationSeed()).publicKey().toBytes()).toEqual(
       localViewing,
     );
-    const [localNullifier, derivedNullifier] = await Promise.all([
-      local.withSpendSession((session) => Promise.resolve(session.nullifierKey().publicKey())),
-      derived.withSpendSession((session) => Promise.resolve(session.nullifierKey().publicKey())),
-    ]);
-    expect(derivedNullifier).toEqual(localNullifier);
+    expect(derived.withNullifierKey((key) => key.publicKey())).toEqual(
+      local.withNullifierKey((key) => key.publicKey()),
+    );
   });
 
   it("seals the transaction viewing secret to the auditor in a custom-ring transfer", async () => {
     const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed(8)));
-    const solanaPublicKey = getAddressDecoder().decode(
-      keypair.signingPublicKey().toBytes().subarray(1),
-    );
-    const authority = new KeypairWalletAuthority({ solanaPublicKey, keypair });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     const auditor = ViewingKey.generate();
     const firstNullifier = seed(9);
-    const encrypted = await authority.withSpendSession((session) =>
-      session.encryptCustomRingTransfer({
-        firstNullifier,
+    const encrypted = await withTransactionKey(keys, firstNullifier, (tx) =>
+      encryptCustomRingTransfer(tx, {
         outputs: [
           createProofOutput({
             ownerAddress: keypair.shieldedAddress(),
@@ -79,12 +67,8 @@ describe("KeypairWalletAuthority", () => {
         auditorPublicKey: auditor.publicKey(),
       }),
     );
-    const plain = await authority.withSpendSession((session) =>
-      session.encryptConfidentialTransfer({
-        firstNullifier,
-        outputs: [],
-        assets: new AssetRegistry(),
-      }),
+    const plain = await withTransactionKey(keys, firstNullifier, (tx) =>
+      encryptConfidentialTransfer(tx, { outputs: [], assets: new AssetRegistry() }),
     );
     // Same transaction viewing key as an unaudited transfer of the same inputs.
     expect(encrypted.txViewingPublicKey.toBytes()).toEqual(plain.txViewingPublicKey.toBytes());

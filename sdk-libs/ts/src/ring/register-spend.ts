@@ -30,7 +30,7 @@ import {
 } from "./submission.js";
 import { readVelocityFacts, type VelocityFacts } from "./velocity.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
-import type { SpendSession } from "../transaction/wallet/authority.js";
+import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 
 export type RingSpendRegistrationClient = RingEntryProofClient &
   RingHeadReader &
@@ -94,7 +94,7 @@ export async function readRingVelocityState(
       SlotReader;
     ringProgramId: Address;
     member: ShieldedAddress;
-    session: Pick<SpendSession, "openSealedMessage">;
+    keys: ShieldedKeys;
   }>,
   context?: RequestContext,
 ): Promise<VelocityFacts> {
@@ -105,7 +105,7 @@ export async function readRingVelocityState(
     {
       client: input.client,
       ringProgramId: input.ringProgramId,
-      session: input.session,
+      keys: input.keys,
       namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
       entriesTree: policy.entriesTree,
       entriesTreeId: policy.entriesTreeId,

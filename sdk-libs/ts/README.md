@@ -40,7 +40,7 @@ import {
   type Transaction,
 } from "@solana/kit";
 import {
-  KeypairWalletAuthority,
+  LocalKeys,
   ShieldedKeypair,
   SigningKey,
   SOL_MINT,
@@ -63,10 +63,9 @@ const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(ownerSee
 ownerSeed.fill(0);
 
 const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-const authority = new KeypairWalletAuthority({
-  solanaPublicKey: feePayer.address,
-  keypair,
-});
+// The wallet's privacy keys, held in this process. A remote key holder
+// implements the same `WalletKeys` interface and drops in here.
+const keys = LocalKeys.fromKeypair(keypair, client.proofService);
 
 const sendAndConfirm = sendAndConfirmTransactionFactory({
   rpc: client.solanaRpc,
@@ -82,7 +81,7 @@ async function submit(transaction: Transaction, signer: KeyPairSigner) {
 await syncWallet({
   client,
   wallet,
-  authority,
+  keys,
 });
 
 const deposit = await buildDepositTransaction({
@@ -97,7 +96,7 @@ const slot = await client.confirmTransaction(signature);
 await syncWallet({
   client,
   wallet,
-  authority,
+  keys,
   config: { requireSlot: slot },
 });
 
@@ -112,6 +111,15 @@ config.
 
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
+
+Every build and sync takes the wallet's privacy roles as `WalletKeys`: the
+wallet derivations (`ShieldedKeys`: `decrypt`, `derive`, `transactionKeys`) and
+proving (`ProofAuthority`: `prove`, `proveMerge`). Methods return derived values,
+not long-lived secrets, and accept batches so an enclave or hardware wallet can
+answer each phase in one round trip. `LocalKeys` provides both roles for keys
+held in-process; `LocalKeys.fromDerivationSeed` creates them from a browser
+wallet signature over the derivation message. The Solana signature over the
+finished transaction remains with the app signer.
 
 ### Transaction format
 
@@ -222,13 +230,13 @@ declare const recipientSolanaAddress: Address;
 const transfer = await buildTransferTransaction({
   client,
   wallet,
-  authority,
+  keys,
   feePayer: feePayer.address,
   recipient: recipientSolanaAddress,
   amount: 25_000_000n,
 });
 const slot = await client.confirmTransaction(await submit(transfer, feePayer));
-await syncWallet({ client, wallet, authority, config: { requireSlot: slot } });
+await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 ```
 
 Pass `asset: mint` for an SPL or Token-2022 balance.
@@ -243,13 +251,13 @@ import { buildWithdrawalTransaction } from "@heliuslabs/zolana";
 const withdrawal = await buildWithdrawalTransaction({
   client,
   wallet,
-  authority,
+  keys,
   feePayer: feePayer.address,
   recipient: publicRecipient,
   amount: 10_000_000n,
 });
 const slot = await client.confirmTransaction(await submit(withdrawal, feePayer));
-await syncWallet({ client, wallet, authority, config: { requireSlot: slot } });
+await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 ```
 
 For an SPL withdrawal, pass `asset: mint`. Token-2022 withdrawals also take
@@ -300,7 +308,7 @@ const wallet =
   (await loadPersistedWallet({ store, cipher })) ??
   new Wallet({ identity: keypair.shieldedAddress() });
 
-const { report } = await syncPersistedWallet({ client, wallet, authority, store, cipher });
+const { report } = await syncPersistedWallet({ client, wallet, keys, store, cipher });
 ```
 
 A tampered stored snapshot, or one sealed for another wallet, is refused
@@ -366,8 +374,7 @@ The live ring controls test is described in
 
 Common exports from `@heliuslabs/zolana` include:
 
-- setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`,
-  `KeypairWalletAuthority`.
+- setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`, `LocalKeys`.
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
   `buildWithdrawalTransaction`, `buildSplitTransaction`,
   `buildMergeTransaction`.

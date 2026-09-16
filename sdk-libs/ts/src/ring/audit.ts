@@ -34,7 +34,7 @@ import {
   readOutputData,
 } from "../transaction/serialization/codecs.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
-import { openSealedBody } from "../transaction/wallet/encrypt-rails.js";
+import { openSealedMessage } from "../transaction/wallet/encrypt-rails.js";
 
 import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 
@@ -331,7 +331,7 @@ function openRecordCounters(
   if (message === undefined) return undefined;
   try {
     return checkedSpendCounters(
-      openSealedBody(txKey, {
+      openSealedMessage(txKey, {
         salt: input.salt,
         slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX,
         data: message.data,

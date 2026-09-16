@@ -174,14 +174,17 @@ export interface ClientErrorDetailsMap {
   /** The proof inputs were built for another output tree than the client's. */
   readonly CLIENT_TREE_ID_MISMATCH: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
-  readonly CLIENT_INVALID_MERGE_MATERIAL: NoDetails;
   readonly CLIENT_INVALID_MERGE_SHAPE: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_PROVER_INPUT: NoDetails;
+  readonly CLIENT_MISSING_NULLIFIER_SECRET: NoDetails;
+  readonly CLIENT_INVALID_PROOF_AUTHORITY: NoDetails;
   readonly CLIENT_PROVER_REQUEST: Readonly<{ method: string; attempts: number }>;
   readonly CLIENT_PROVER_HTTP: Readonly<{
     method: string;
     status?: number;
     attempts?: number;
+    /** The prover's own error code and message, when it sent them. */
+    reason?: string;
   }>;
   readonly CLIENT_PROVER_JOB: MethodDetails;
   readonly CLIENT_PROVER_TIMEOUT: Readonly<{
@@ -244,9 +247,10 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_OUTPUT_BLINDING_MISMATCH",
   "CLIENT_TREE_ID_MISMATCH",
   "CLIENT_INVALID_MERGE_OUTPUT",
-  "CLIENT_INVALID_MERGE_MATERIAL",
   "CLIENT_INVALID_MERGE_SHAPE",
   "CLIENT_PROVER_INPUT",
+  "CLIENT_MISSING_NULLIFIER_SECRET",
+  "CLIENT_INVALID_PROOF_AUTHORITY",
   "CLIENT_PROVER_REQUEST",
   "CLIENT_PROVER_HTTP",
   "CLIENT_PROVER_JOB",
@@ -312,8 +316,9 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_TRANSACTION_ASSEMBLY",
   "CLIENT_INVALID_P256_KEY",
   "CLIENT_INVALID_MERGE_OUTPUT",
-  "CLIENT_INVALID_MERGE_MATERIAL",
   "CLIENT_PROVER_INPUT",
+  "CLIENT_MISSING_NULLIFIER_SECRET",
+  "CLIENT_INVALID_PROOF_AUTHORITY",
   "CLIENT_PROVER_RESPONSE_TOO_LARGE",
   "CLIENT_PROVER_TEXT",
   "CLIENT_PROVER_JSON",
@@ -386,7 +391,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_TREE_ID_MISMATCH: { expected: "number", actual: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
   CLIENT_PROVER_REQUEST: { method: "string", attempts: "number" },
-  CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number" },
+  CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number", reason: "string" },
   CLIENT_PROVER_JOB: { method: "string" },
   CLIENT_PROVER_TIMEOUT: { method: "string", jobId: "string", timeoutMs: "number" },
   CLIENT_INVALID_RPC_RESPONSE: {

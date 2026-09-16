@@ -106,16 +106,17 @@ function twoTreeFixture(): Readonly<{
 }> {
   const keypair = ShieldedKeypair.generate();
   const spend = (amount: bigint, seedByte: number, treeId: number): ProofInputUtxo =>
-    new ProofInputUtxo({
-      utxo: new Utxo({
+    ProofInputUtxo.fromKeypair(
+      new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
         amount,
         blinding: blinding(seedByte),
       }),
-      nullifierKey: keypair.nullifierKey(),
+      keypair,
+      {},
       treeId,
-    });
+    );
   const first = spend(7n, 1, TREE_0.treeId);
   const second = spend(5n, 2, TREE_1.treeId);
   const dummy = ProofInputUtxo.dummy(blinding(10), TREE_1.treeId);

@@ -1,7 +1,9 @@
 import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../interface/constants.js";
-import type { Bytes16, Bytes32, MessageData } from "../interface/types.js";
-import type { SealedMessageInput, SpendSession } from "../transaction/wallet/authority.js";
+import type { Bytes16, Bytes32, MessageData, RequestContext } from "../interface/types.js";
+import { openSealedMessage, type SealedMessageInput } from "../transaction/wallet/encrypt-rails.js";
+import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import { equalBytes } from "../wallet/internal.js";
+import { withTransactionKey } from "../wallet/private-transaction.js";
 import { RingError } from "./error.js";
 import {
   type SpendCounters,
@@ -37,22 +39,28 @@ export function sealedSpendCounters(
 
 /** Kept only when the counters reproduce the record's commitment. */
 export async function openSpendCounters(
-  session: Pick<SpendSession, "openSealedMessage">,
+  keys: ShieldedKeys,
   input: Readonly<{
     firstNullifier: Bytes32;
     salt: Bytes16;
     data: Uint8Array;
     commitment: Bytes32;
   }>,
+  context?: RequestContext,
 ): Promise<SpendCounters> {
   let plaintext: Uint8Array | undefined;
   try {
-    plaintext = await session.openSealedMessage({
-      firstNullifier: input.firstNullifier,
-      salt: input.salt,
-      slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX,
-      data: input.data,
-    });
+    plaintext = await withTransactionKey(
+      keys,
+      input.firstNullifier,
+      (tx) =>
+        openSealedMessage(tx, {
+          salt: input.salt,
+          slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX,
+          data: input.data,
+        }),
+      context,
+    );
     return checkedSpendCounters(plaintext, input.commitment);
   } catch (cause) {
     throw cause instanceof RingError

@@ -177,9 +177,9 @@ describe("fresh ring controls", () => {
     const { client } = harness;
     const windowSlots = 100_000n;
     await airdrop(client, harness.testAuthority.address);
-    const authority = (await freshActor()).signer;
-    const delegate = (await freshActor()).signer;
-    const cosigner = (await freshActor()).signer;
+    const authority = (await freshActor(client)).signer;
+    const delegate = (await freshActor(client)).signer;
+    const cosigner = (await freshActor(client)).signer;
     const program = await generateKeyPairSigner();
     const ringProgramId = program.address;
     const auditor = ViewingKey.generate();
@@ -313,8 +313,8 @@ describe("fresh ring controls", () => {
         }),
         authority,
       );
-      const sender = await freshActor(),
-        recipient = await freshActor();
+      const sender = await freshActor(client),
+        recipient = await freshActor(client);
       await airdrop(client, sender.signer.address);
       await enrolInAllow(client, ringProgramId, authority, [sender, recipient]);
       const registration = await indexedHead(() =>
@@ -406,7 +406,7 @@ describe("fresh ring controls", () => {
         client,
         ringProgramId,
         wallet: sender.wallet,
-        authority: sender.authority,
+        keys: sender.keys,
         feePayer: sender.signer.address,
         recipient: recipient.keypair.shieldedAddress(),
         amount: 350_000_000n,
@@ -427,14 +427,12 @@ describe("fresh ring controls", () => {
       );
       await sync(client, sender);
       const state = () =>
-        sender.authority.withSpendSession((session) =>
-          readRingVelocityState({
-            client,
-            ringProgramId,
-            member: sender.keypair.shieldedAddress(),
-            session,
-          }),
-        );
+        readRingVelocityState({
+          client,
+          ringProgramId,
+          member: sender.keypair.shieldedAddress(),
+          keys: sender.keys,
+        });
       const afterTransfer = await indexedHead(state);
       expect(afterTransfer.counters?.spent[0]).toBe(400_000_000n);
       if (afterTransfer.head === undefined) throw new Error("head witness missing");
@@ -450,7 +448,7 @@ describe("fresh ring controls", () => {
             client,
             ringProgramId,
             wallet: sender.wallet,
-            authority: sender.authority,
+            keys: sender.keys,
             feePayer: sender.signer.address,
             recipient: sender.signer.address,
             amount: 100_000_000n,
@@ -521,7 +519,7 @@ describe("fresh ring controls", () => {
         client,
         ringProgramId,
         wallet: sender.wallet,
-        source: sender.authority,
+        source: sender.keys,
         delegate,
         feePayer: delegate.address,
         outputs: [
@@ -576,11 +574,20 @@ describe("fresh ring controls", () => {
             ?.assets.find((balance) => balance.mint === asset)?.amount,
         ).toBe(recipientAmount);
       }
-      const enrolment = await indexedHead(() =>
-        prepareRingKeyRegistration({ client, ringProgramId, authority: sender.authority }),
-      );
-      if (enrolment.kind !== "pending") throw new Error("fresh sender already enrolled");
-      await settle(enrolment.submission, client, [sender.signer]);
+      const nullifierKey = sender.keypair.nullifierKey();
+      try {
+        const enrolment = await indexedHead(() =>
+          prepareRingKeyRegistration({
+            client,
+            ringProgramId,
+            member: { address: sender.keypair.shieldedAddress(), nullifierKey },
+          }),
+        );
+        if (enrolment.kind !== "pending") throw new Error("fresh sender already enrolled");
+        await settle(enrolment.submission, client, [sender.signer]);
+      } finally {
+        nullifierKey.destroy();
+      }
       expect((await fetchRingKeyRegistryRoot(client, ringProgramId)).nextIndex).toBe(2n);
       const sealed = await indexedHead(() =>
         fetchRingSealedKey({
@@ -651,7 +658,7 @@ describe("fresh ring controls", () => {
             client,
             ringProgramId,
             wallet: sender.wallet,
-            authority: sender.authority,
+            keys: sender.keys,
             feePayer: authority.address,
             recipient: authority.address,
             asset: harness.token2022Mint,

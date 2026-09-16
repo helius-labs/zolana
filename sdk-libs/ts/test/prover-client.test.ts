@@ -9,11 +9,15 @@ import {
   createOutput,
   treeSlotFields,
 } from "../src/client/prover/assembly.js";
+import { LocalKeys } from "../src/client/keys.js";
+import { bytesField } from "../src/client/internal.js";
+import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   ProverClient,
   customRingCompressedPolicyProofRequest,
   customRingRegisterKeyProofRequest,
   customRingRegisterProofRequest,
+  mergeProverRequestBody,
 } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
@@ -482,6 +486,48 @@ describe("queued prover polling", () => {
 });
 
 describe("prover request routing", () => {
+  it("rejects a merge for another wallet before submitting a proof", async () => {
+    const owner = ShieldedKeypair.generate();
+    const other = ShieldedKeypair.generate();
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("network reached");
+    });
+    const proofs = new ProverClient({ url: "https://prover.example", fetch });
+    const keys = LocalKeys.fromKeypair(other, proofs);
+    const { userNullifierSecret, ...incomplete } = mergeInputs();
+    expect(userNullifierSecret).toBe(0n);
+    try {
+      await expect(
+        keys.proveMerge({
+          ...incomplete,
+          userNullifierPublicKey: asField(bytesField(owner.nullifierPublicKey(), "public key")),
+        }),
+      ).rejects.toMatchObject({ code: "CLIENT_MERGE_NULLIFIER_KEY_MISMATCH" });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      keys.destroy();
+      owner.destroy();
+      other.destroy();
+    }
+  });
+
+  it("encodes an incomplete merge for its remote holder and requires completion before posting", async () => {
+    const { userNullifierSecret, ...incomplete } = mergeInputs();
+    expect(userNullifierSecret).toBe(0n);
+    expect(mergeProverRequestBody(incomplete)).toEqual({
+      ...mergeProverRequestBody(mergeInputs()),
+      userNullifierSecret: null,
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("network reached");
+    });
+    const proofs = new ProverClient({ url: "https://prover.example", fetch });
+    await expect(proofs.proveMerge(incomplete)).rejects.toMatchObject({
+      code: "CLIENT_MISSING_NULLIFIER_SECRET",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("routes merge through its canonical circuit type", async () => {
     const bodies: unknown[] = [];
     const deliveries: (string | null)[] = [];
@@ -766,6 +812,38 @@ describe("prover request routing", () => {
 
     expect(deliveries).toEqual(["true", null]);
     expect(refusal.bodyUsed).toBe(true);
+  });
+
+  it("reports the prover's own error code and message on a refused request", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ code: "malformed_body", message: "unknown circuit type: custom-ring" }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+
+    await expect(prover.prove(INPUTS)).rejects.toMatchObject({
+      code: "CLIENT_PROVER_HTTP",
+      details: {
+        method: "prove",
+        status: 400,
+        attempts: 1,
+        reason: "malformed_body: unknown circuit type: custom-ring",
+      },
+    });
+
+    // A body that is not the prover's error shape adds nothing.
+    const html = vi.fn(
+      async () => new Response("<html>502</html>", { status: 502 }),
+    ) as typeof globalThis.fetch;
+    await expect(
+      new ProverClient({ url: "https://prover.example", fetch: html }).prove(INPUTS),
+    ).rejects.toMatchObject({
+      code: "CLIENT_PROVER_HTTP",
+      details: { method: "prove", status: 502 },
+    });
   });
 
   it("reads the served circuits from the health endpoint", async () => {

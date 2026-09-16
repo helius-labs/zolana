@@ -650,7 +650,6 @@ export function createRealInput(
     treeSlot: asField(BigInt(treeSlot)),
     nullifier: asField(bytesField(input.nullifier(), "nullifier")),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
-    nullifierSecret: asField(bytesField(input.nullifierKey.secretBytes(), "nullifier secret")),
   });
 }
 
@@ -708,7 +707,7 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
     ? 0n
     : poseidon([
         bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
-        bytesField(input.nullifierKey.publicKey(), "nullifier public key"),
+        bytesField(input.nullifierPublicKey, "nullifier public key"),
       ]);
   return Object.freeze({
     domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),
@@ -800,7 +799,7 @@ function inputOpening(input: ProofInputUtxo, treeId: Bytes32): CustomRingOpening
     domain: openingField(BigInt(UTXO_DOMAIN)),
     treeId,
     ownerPkHash: input.utxo.owner.ownerProofInputHash(),
-    nullifierPk: input.nullifierKey.publicKey(),
+    nullifierPk: input.nullifierPublicKey,
     asset: openingField(utxo.asset),
     amount: openingField(utxo.amount),
     blinding: openingField(utxo.blinding),

@@ -16,7 +16,7 @@ import { NullifierKey } from "../keypair/nullifier-key.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import { bigIntBytes, hashChain, poseidon } from "../transaction/internal.js";
-import type { SyncAuthority, WalletSyncMaterial } from "../transaction/wallet/authority.js";
+import type { ShieldedAddress } from "../keypair/shielded.js";
 import { equalBytes } from "../wallet/internal.js";
 import { fetchRingKeyRegistryRoot, fetchRingProgramConfig } from "./config.js";
 import { RingError } from "./error.js";
@@ -72,9 +72,14 @@ export type RingKeyRegistrationClient = Pick<ChainReader, "getAccount"> &
 export interface RingKeyRegistrationParams {
   readonly client: RingKeyRegistrationClient;
   readonly ringProgramId: Address;
-  /** Lends the member's address and nullifier key, its Solana key signs and pays. */
-  readonly authority: SyncAuthority;
+  readonly member: RingKeyRegistrationMember;
   readonly priorityFeeLamports?: bigint;
+}
+
+/** The nullifier secret leaves its holder only here, `ShieldedKeys` never releases it. The Solana key of `address` signs and pays. */
+export interface RingKeyRegistrationMember {
+  readonly address: ShieldedAddress;
+  readonly nullifierKey: NullifierKey;
 }
 
 export type RingKeyRegistrationPreparation =
@@ -185,7 +190,7 @@ export async function prepareRingKeyRegistration(
   context?: RequestContext,
 ): Promise<RingKeyRegistrationPreparation> {
   await initializePoseidon();
-  const identity = await memberIdentity(input.authority);
+  const identity = checkedIdentity(input.member);
   try {
     const entry = await fetchRingSealedKey(
       { client: input.client, ringProgramId: input.ringProgramId, member: identity.member },
@@ -289,9 +294,9 @@ function checkRegisteredKey(entry: RingSealedKeyEntry, nullifierPublicKey: Bytes
 }
 
 /** The circuit binds a free nullifier key, the address check is the only tie to the member. */
-function checkedIdentity(material: WalletSyncMaterial): MemberIdentity {
-  const identity = material.identity;
-  if (!equalBytes(material.nullifierKey.publicKey(), identity.nullifierPublicKey))
+function checkedIdentity(member: RingKeyRegistrationMember): MemberIdentity {
+  const identity = member.address;
+  if (!equalBytes(member.nullifierKey.publicKey(), identity.nullifierPublicKey))
     throw new RingError("RING_NULLIFIER_KEY_MISMATCH");
   return Object.freeze({
     payer: identity.solanaAddress(),
@@ -300,18 +305,12 @@ function checkedIdentity(material: WalletSyncMaterial): MemberIdentity {
   });
 }
 
-function memberIdentity(authority: SyncAuthority): Promise<MemberIdentity> {
-  return authority.withSyncSession(async (session) =>
-    checkedIdentity(await session.syncMaterial()),
-  );
-}
-
 async function registrationSubmission(
   input: RingKeyRegistrationParams,
   context?: RequestContext,
 ): Promise<RingTransactionSubmission> {
   const held: RingKeyRegistrationParams = Object.freeze({ ...input });
-  const identity = await memberIdentity(held.authority);
+  const identity = checkedIdentity(held.member);
   const intent = hashChain([
     checkedHeadMapField(hashBytes(addressBytes(held.ringProgramId))),
     identity.member,
@@ -334,101 +333,97 @@ async function buildRegistrationAttempt(
   context?: RequestContext,
 ): Promise<Pick<RingSubmissionAttempt, "transaction" | "lastValidBlockHeight">> {
   const { client, ringProgramId } = input;
-  return input.authority.withSyncSession(async (session) => {
-    // 1. Bind registration to the member's identity and configured auditor.
-    const material = await session.syncMaterial();
-    const { payer, member } = checkedIdentity(material);
-    const auditor = (await fetchRingProgramConfig(client, ringProgramId, context)).auditorPublicKey;
-    const root = await fetchRingKeyRegistryRoot(client, ringProgramId, context);
-    if (root.nextIndex >= HEAD_MAP_CAPACITY)
-      throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "capacity" } });
-    const insertion = await client.getRingKeyRegistryRegisterProof(
-      { ringProgramId, member, expectedRoot: root.root, expectedNextIndex: root.nextIndex },
-      context,
-    );
-    if (
-      !equalBytes(insertion.root, root.root) ||
-      !equalBytes(insertion.member, member) ||
-      insertion.nextIndex !== root.nextIndex
-    )
-      throw new RingError("RING_KEY_REGISTRY_STALE");
-    // 2. Seal the member's key and authenticate the insertion path.
-    const envelope = sealNullifierKey(material.nullifierKey, auditor);
-    const secret = material.nullifierKey.secretBytes();
-    const nullifierSecret = rightAlign(secret);
-    secret.fill(0);
-    try {
-      const genesis = registeredKeyCommitment({
-        nullifierPublicKey: envelope.nullifierPublicKey,
-        ciphertext: envelope.sealed.ciphertext,
-      });
-      const registryNewRoot = verifyHeadMapInsert({
-        root: root.root,
-        appendIndex: root.nextIndex,
+  const { payer, member } = checkedIdentity(input.member);
+  const auditor = (await fetchRingProgramConfig(client, ringProgramId, context)).auditorPublicKey;
+  const root = await fetchRingKeyRegistryRoot(client, ringProgramId, context);
+  if (root.nextIndex >= HEAD_MAP_CAPACITY)
+    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "capacity" } });
+  const insertion = await client.getRingKeyRegistryRegisterProof(
+    { ringProgramId, member, expectedRoot: root.root, expectedNextIndex: root.nextIndex },
+    context,
+  );
+  if (
+    !equalBytes(insertion.root, root.root) ||
+    !equalBytes(insertion.member, member) ||
+    insertion.nextIndex !== root.nextIndex
+  )
+    throw new RingError("RING_KEY_REGISTRY_STALE");
+  // 2. Seal the member's key and authenticate the insertion path.
+  const envelope = sealNullifierKey(input.member.nullifierKey, auditor);
+  const secret = input.member.nullifierKey.secretBytes();
+  const nullifierSecret = rightAlign(secret);
+  secret.fill(0);
+  try {
+    const genesis = registeredKeyCommitment({
+      nullifierPublicKey: envelope.nullifierPublicKey,
+      ciphertext: envelope.sealed.ciphertext,
+    });
+    const registryNewRoot = verifyHeadMapInsert({
+      root: root.root,
+      appendIndex: root.nextIndex,
+      member,
+      genesis,
+      lowMember: insertion.lowMember,
+      lowNext: insertion.lowNext,
+      lowNullifier: insertion.lowCtCommitment,
+      lowIndex: insertion.lowIndex,
+      lowProof: insertion.lowProof,
+      newProof: insertion.newProof,
+    });
+    const publicInputHash = registerKeyPublicInputHash({
+      registryOldRoot: root.root,
+      registryNewRoot,
+      member,
+      nullifierPublicKey: envelope.nullifierPublicKey,
+      auditorPublicKey: auditor,
+      ephemeralPublicKey: envelope.sealed.ephemeralPublicKey,
+      ciphertext: envelope.sealed.ciphertext,
+      newIndex: root.nextIndex,
+    });
+    // 3. Prove key disclosure and registry insertion in one statement.
+    const proof = await client.proveCustomRingRegisterKey(
+      {
+        publicInputHash,
+        headOldRoot: root.root,
+        headNewRoot: registryNewRoot,
         member,
-        genesis,
+        newIndex: root.nextIndex,
+        nullifierSecret,
+        ephemeralSecret: envelope.ephemeralSecret,
+        auditorPublicKey: auditor.toUncompressed(),
         lowMember: insertion.lowMember,
         lowNext: insertion.lowNext,
         lowNullifier: insertion.lowCtCommitment,
         lowIndex: insertion.lowIndex,
         lowProof: insertion.lowProof,
         newProof: insertion.newProof,
-      });
-      const publicInputHash = registerKeyPublicInputHash({
-        registryOldRoot: root.root,
-        registryNewRoot,
-        member,
-        nullifierPublicKey: envelope.nullifierPublicKey,
-        auditorPublicKey: auditor,
-        ephemeralPublicKey: envelope.sealed.ephemeralPublicKey,
-        ciphertext: envelope.sealed.ciphertext,
-        newIndex: root.nextIndex,
-      });
-      // 3. Prove key disclosure and registry insertion in one statement.
-      const proof = await client.proveCustomRingRegisterKey(
-        {
-          publicInputHash,
-          headOldRoot: root.root,
-          headNewRoot: registryNewRoot,
-          member,
-          newIndex: root.nextIndex,
-          nullifierSecret,
-          ephemeralSecret: envelope.ephemeralSecret,
-          auditorPublicKey: auditor.toUncompressed(),
-          lowMember: insertion.lowMember,
-          lowNext: insertion.lowNext,
-          lowNullifier: insertion.lowCtCommitment,
-          lowIndex: insertion.lowIndex,
-          lowProof: insertion.lowProof,
-          newProof: insertion.newProof,
-        },
-        context,
-      );
-      const instruction = await registerRingKeyInstruction({
-        ringProgramId,
-        member: payer,
-        proof,
-        registryOldRoot: root.root,
-        registryNewRoot,
-        registryNextIndex: root.nextIndex,
-        nullifierPublicKey: envelope.nullifierPublicKey,
-        ephemeralPublicKey: envelope.sealed.ephemeralPublicKey.toBytes(),
-        ciphertext: envelope.sealed.ciphertext,
-      });
-      const lifetime = await client.getLatestBlockhash(context);
-      const transaction = compileUnsignedTransaction({
-        feePayer: payer,
-        lifetime,
-        instructions: [instruction],
-        computeUnitLimit: RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT,
-        ...(input.priorityFeeLamports === undefined
-          ? {}
-          : { priorityFeeLamports: input.priorityFeeLamports }),
-      });
-      return { transaction, lastValidBlockHeight: lifetime.lastValidBlockHeight };
-    } finally {
-      nullifierSecret.fill(0);
-      envelope.ephemeralSecret.fill(0);
-    }
-  });
+      },
+      context,
+    );
+    const instruction = await registerRingKeyInstruction({
+      ringProgramId,
+      member: payer,
+      proof,
+      registryOldRoot: root.root,
+      registryNewRoot,
+      registryNextIndex: root.nextIndex,
+      nullifierPublicKey: envelope.nullifierPublicKey,
+      ephemeralPublicKey: envelope.sealed.ephemeralPublicKey.toBytes(),
+      ciphertext: envelope.sealed.ciphertext,
+    });
+    const lifetime = await client.getLatestBlockhash(context);
+    const transaction = compileUnsignedTransaction({
+      feePayer: payer,
+      lifetime,
+      instructions: [instruction],
+      computeUnitLimit: RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+      ...(input.priorityFeeLamports === undefined
+        ? {}
+        : { priorityFeeLamports: input.priorityFeeLamports }),
+    });
+    return { transaction, lastValidBlockHeight: lifetime.lastValidBlockHeight };
+  } finally {
+    nullifierSecret.fill(0);
+    envelope.ephemeralSecret.fill(0);
+  }
 }

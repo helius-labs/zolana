@@ -1,10 +1,12 @@
 import type {
   BlockhashProvider,
+  ProofAuthority,
   Prover,
   SlotReader,
   TreeContext,
   RingHeadReader,
   RingHeadTransferProof,
+  WalletKeys,
 } from "../client/ports.js";
 import { bigintToBytes, hashChain4 } from "../client/internal.js";
 import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js";
@@ -52,15 +54,22 @@ import {
 } from "../transaction/serialization/codecs.js";
 import { Data } from "../transaction/data.js";
 import { ProofInputUtxo } from "../transaction/utxo.js";
-import type { SpendSession, WalletAuthority } from "../transaction/wallet/authority.js";
 import {
+  encryptCustomRingTransfer,
+  type EncryptedCustomRingTransfer,
+} from "../transaction/wallet/encrypt-rails.js";
+import {
+  approveUnattended,
   checkIntentApproval,
   checkPreparedTransfer,
   checkTransactData,
+  ownerSolanaAccount,
   withdrawalIntentRecipient,
   intentHash,
+  type ApprovalHandler,
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
+import { withTransactionKey } from "../wallet/private-transaction.js";
 import { SOL_ASSET_ID, SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
 import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { resolveWithdrawalSettlement, withdrawalSetupInstructions } from "../flows/settlement.js";
@@ -87,7 +96,13 @@ import { RingError, wrapRingError } from "./error.js";
 import type { SignerAccount } from "../interface/instructions/index.js";
 
 import { ringTransactInstruction, type RingTransactTrees } from "./instructions.js";
-import { chargeRows, planVelocity, readVelocityFacts, type VelocityPlan } from "./velocity.js";
+import {
+  chargeRows,
+  planVelocity,
+  readVelocityFacts,
+  withRecordSlotSecret,
+  type VelocityPlan,
+} from "./velocity.js";
 import { verifyHeadMapTransfer } from "./head-map.js";
 import {
   checkRetainedEntries,
@@ -120,8 +135,9 @@ export interface RingTransferTransactionParams {
   readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  readonly keys: WalletKeys;
   readonly feePayer: Address;
+  readonly approve?: ApprovalHandler;
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
@@ -144,8 +160,9 @@ export interface RingWithdrawalTransactionParams {
   readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  readonly keys: WalletKeys;
   readonly feePayer: Address;
+  readonly approve?: ApprovalHandler;
   /** Any Solana account. It needs no registry record and need not exist yet. */
   readonly recipient: Address;
   readonly asset?: Address;
@@ -165,7 +182,7 @@ export interface CustomRingTransferParams {
   readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly prepared: PreparedTransfer;
-  readonly session: Pick<SpendSession, "encryptCustomRingTransfer" | "openSealedMessage">;
+  readonly keys: WalletKeys;
   readonly assets: AssetRegistry;
   /** Must equal `client.tree`. */
   readonly tree: Address;
@@ -179,8 +196,19 @@ export type RingDelegateProofClient = TreeContext &
     Prover,
     "proveRingAuthorityTransact" | "proveCustomRingDelegatePolicy" | "proveCustomRingBase"
   >;
-export type CustomRingDelegateTransferParams = Omit<CustomRingTransferParams, "client"> &
-  Readonly<{ client: RingDelegateProofClient }>;
+
+/** Proofs over the source's nullifier key and a sealing key per transaction, the source's viewing key stays with its holder. */
+export interface RingDelegateSpender {
+  readonly proofs: ProofAuthority;
+  withTransactionKey<T>(
+    firstNullifier: Bytes32,
+    use: (tx: ViewingKey) => T extends Promise<unknown> ? never : T,
+    context?: RequestContext,
+  ): Promise<T>;
+}
+
+export type CustomRingDelegateTransferParams = Omit<CustomRingTransferParams, "client" | "keys"> &
+  Readonly<{ client: RingDelegateProofClient; spender: RingDelegateSpender }>;
 
 /** Mirrors Rust `ProvenTransfer`. */
 export type ProvenRingTransfer = RingTransactTrees &
@@ -368,8 +396,9 @@ type RingSpendParams = Pick<
   | "client"
   | "ringProgramId"
   | "wallet"
-  | "authority"
+  | "keys"
   | "feePayer"
+  | "approve"
   | "asset"
   | "amount"
   | "outputTree"
@@ -411,138 +440,117 @@ async function buildRingSpend<R>(
   context?: RequestContext,
 ): Promise<RingSubmissionAttempt> {
   const { params, strategy, retry } = input;
-  return params.authority.withSpendSession(async (session) => {
-    let inputs: readonly ProofInputUtxo[] = [];
-    let reservation: UtxoReservation | undefined;
-    try {
-      await initializePoseidon();
-      const asset = params.asset ?? SOL_MINT;
-      const nullifierKey = session.nullifierKey();
-      const [resolved, address] = await Promise.all([
-        strategy.resolve(),
-        params.authority.shieldedAddress(),
-      ]);
-      const [ringConfigs, coSigner] = await Promise.all([
-        fetchRingConfigs(params.client, params.ringProgramId, context),
-        fetchRingCoSigner(params.client, params.ringProgramId, context),
-      ]);
-      // A windowed ring appends the spend record as the last input slot.
-      const maxInputs =
-        windowedPolicy(ringConfigs) === undefined ? RING_INPUT_SLOTS : RING_INPUT_SLOTS - 1;
-      if (retry.entries !== undefined) checkRetainedEntries(params.wallet, retry.entries);
-      const selected =
-        retry.entries ??
-        selectRingInputs({
-          wallet: params.wallet,
-          ringProgramId: params.ringProgramId,
-          asset,
-          amount: params.amount,
-          inputs: strategy.selection,
-          tree: params.client.tree,
-          maxInputs,
-        });
-      reservation = retry.reservation ?? reserveEntries(params.wallet, selected);
-      retry.entries = selected;
-      retry.reservation = reservation;
-      inputs = selected.map(
-        (entry) =>
-          new ProofInputUtxo({
-            utxo: entry.utxo,
-            treeId: params.client.treeId,
-            nullifierKey,
-            ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-            ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
-          }),
-      );
-      const transfer = new ConfidentialTransfer(
-        address,
-        inputs,
-        params.feePayer,
-      ).withCompactChange();
-      if (strategy.changeRing === "ring") {
-        transfer.withRingProgramId(params.ringProgramId);
-      }
-      const plan = strategy.configure({ transfer, resolved, selected, asset, owner: address });
-      const plannedIntent = intentHash(plan.intent);
-      if (retry.intent !== undefined && !equalBytes(retry.intent, plannedIntent))
-        throw ringIntentMismatch("retryIntent");
-      retry.intent = plannedIntent;
-      const coSigning = {
+  let reservation: UtxoReservation | undefined;
+  try {
+    await initializePoseidon();
+    const asset = params.asset ?? SOL_MINT;
+    const address = params.keys.address();
+    const [resolved, ringConfigs, coSigner] = await Promise.all([
+      strategy.resolve(),
+      fetchRingConfigs(params.client, params.ringProgramId, context),
+      fetchRingCoSigner(params.client, params.ringProgramId, context),
+    ]);
+    // A windowed ring appends the spend record as the last input slot.
+    const maxInputs =
+      windowedPolicy(ringConfigs) === undefined ? RING_INPUT_SLOTS : RING_INPUT_SLOTS - 1;
+    if (retry.entries !== undefined) checkRetainedEntries(params.wallet, retry.entries);
+    const selected =
+      retry.entries ??
+      selectRingInputs({
+        wallet: params.wallet,
         ringProgramId: params.ringProgramId,
-        configured: coSigner,
-        supplied: params.cosigner,
-        demand: plan.demand,
-      };
-      checkRingCoSigner({ ...coSigning, approvalRequired: false });
-      const approval = await params.authority.requestUserApproval({
-        solanaPublicKey: params.authority.solanaPublicKey(),
-        intent: plan.intent,
-        summary: plan.summary,
+        asset,
+        amount: params.amount,
+        inputs: strategy.selection,
+        tree: params.client.tree,
+        maxInputs,
       });
-      checkIntentApproval(approval, plan.intent, ringIntentMismatch);
-      const prepared = transfer.prepare();
-      checkPreparedTransfer(prepared, plan.intent, ringIntentMismatch);
-      const proven = await proveCustomRingTransfer(
-        {
-          client: params.client,
-          ringProgramId: params.ringProgramId,
-          prepared,
-          session,
-          assets: params.wallet.registry,
-          tree: params.client.tree,
-          ...(params.outputTree === undefined ? {} : { outputTree: params.outputTree }),
-        },
-        context,
-      );
-      checkTransactData(proven.data, plan.intent, ringIntentMismatch);
-      if (proven.approvalRequired) checkRingCoSigner({ ...coSigning, approvalRequired: true });
-      const [instruction, lifetime] = await Promise.all([
-        ringTransactInstruction({
-          ringProgramId: params.ringProgramId,
-          payer: proven.payer,
-          inputTree: proven.tree,
-          outputTree: proven.outputTree,
-          hasPolicy: proven.hasPolicy,
-          ...(proven.hasPolicy ? { entriesTree: proven.entriesTree } : {}),
-          proof: proven.proof,
-          stateRootIndex: proven.stateRootIndex,
-          nullifierRootIndex: proven.nullifierRootIndex,
-          data: proven.data,
-          approvalRequired: proven.approvalRequired,
-          ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
-          ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
-          ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
-          ...(proven.headTransition === undefined ? {} : { headTransition: proven.headTransition }),
-        }),
-        params.client.getLatestBlockhash(context),
-      ]);
-      const transaction = compileUnsignedTransaction({
-        feePayer: params.feePayer,
-        lifetime,
-        computeUnitLimit: params.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
-        ...(params.priorityFeeLamports === undefined
-          ? {}
-          : { priorityFeeLamports: params.priorityFeeLamports }),
-        instructions: [...(plan.setupInstructions ?? []), instruction],
-        sizeShape: {
-          inputs: proven.data.inputs.length,
-          outputs: proven.data.outputs.length,
-        },
-      });
-      return Object.freeze({
-        transaction,
-        lastValidBlockHeight: lifetime.lastValidBlockHeight,
-        intentHash: plannedIntent,
-        ringInstructionIndex: plan.setupInstructions?.length ?? 0,
-        ...(proven.window === undefined ? {} : { window: proven.window }),
-      });
-    } catch (cause) {
-      if (reservation !== undefined) params.wallet._releaseReservation(reservation.id);
-      throw wrapRingError(strategy.errorCode, cause);
-    } finally {
-      for (const proofInput of inputs) proofInput.destroy();
+    reservation = retry.reservation ?? reserveEntries(params.wallet, selected);
+    retry.entries = selected;
+    retry.reservation = reservation;
+    const inputs = selected.map((entry) => ringProofInput(entry, address, params.client));
+    const transfer = new ConfidentialTransfer(address, inputs, params.feePayer).withCompactChange();
+    if (strategy.changeRing === "ring") {
+      transfer.withRingProgramId(params.ringProgramId);
     }
-  });
+    const plan = strategy.configure({ transfer, resolved, selected, asset, owner: address });
+    const plannedIntent = intentHash(plan.intent);
+    if (retry.intent !== undefined && !equalBytes(retry.intent, plannedIntent))
+      throw ringIntentMismatch("retryIntent");
+    retry.intent = plannedIntent;
+    const coSigning = {
+      ringProgramId: params.ringProgramId,
+      configured: coSigner,
+      supplied: params.cosigner,
+      demand: plan.demand,
+    };
+    checkRingCoSigner({ ...coSigning, approvalRequired: false });
+    const approval = await (params.approve ?? approveUnattended)({
+      solanaPublicKey: ownerSolanaAccount(address, params.feePayer),
+      intent: plan.intent,
+      summary: plan.summary,
+    });
+    checkIntentApproval(approval, plan.intent, ringIntentMismatch);
+    const prepared = transfer.prepare();
+    checkPreparedTransfer(prepared, plan.intent, ringIntentMismatch);
+    const proven = await proveCustomRingTransfer(
+      {
+        client: params.client,
+        ringProgramId: params.ringProgramId,
+        prepared,
+        keys: params.keys,
+        assets: params.wallet.registry,
+        tree: params.client.tree,
+        ...(params.outputTree === undefined ? {} : { outputTree: params.outputTree }),
+      },
+      context,
+    );
+    checkTransactData(proven.data, plan.intent, ringIntentMismatch);
+    if (proven.approvalRequired) checkRingCoSigner({ ...coSigning, approvalRequired: true });
+    const [instruction, lifetime] = await Promise.all([
+      ringTransactInstruction({
+        ringProgramId: params.ringProgramId,
+        payer: proven.payer,
+        inputTree: proven.tree,
+        outputTree: proven.outputTree,
+        hasPolicy: proven.hasPolicy,
+        ...(proven.hasPolicy ? { entriesTree: proven.entriesTree } : {}),
+        proof: proven.proof,
+        stateRootIndex: proven.stateRootIndex,
+        nullifierRootIndex: proven.nullifierRootIndex,
+        data: proven.data,
+        approvalRequired: proven.approvalRequired,
+        ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
+        ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
+        ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
+        ...(proven.headTransition === undefined ? {} : { headTransition: proven.headTransition }),
+      }),
+      params.client.getLatestBlockhash(context),
+    ]);
+    const transaction = compileUnsignedTransaction({
+      feePayer: params.feePayer,
+      lifetime,
+      computeUnitLimit: params.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
+      ...(params.priorityFeeLamports === undefined
+        ? {}
+        : { priorityFeeLamports: params.priorityFeeLamports }),
+      instructions: [...(plan.setupInstructions ?? []), instruction],
+      sizeShape: {
+        inputs: proven.data.inputs.length,
+        outputs: proven.data.outputs.length,
+      },
+    });
+    return Object.freeze({
+      transaction,
+      lastValidBlockHeight: lifetime.lastValidBlockHeight,
+      intentHash: plannedIntent,
+      ringInstructionIndex: plan.setupInstructions?.length ?? 0,
+      ...(proven.window === undefined ? {} : { window: proven.window }),
+    });
+  } catch (cause) {
+    if (reservation !== undefined) params.wallet._releaseReservation(reservation.id);
+    throw wrapRingError(strategy.errorCode, cause);
+  }
 }
 
 /**
@@ -617,7 +625,11 @@ export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
-  return proveRingTransferStatement(input, { kind: "member", client: input.client }, context);
+  return proveRingTransferStatement(
+    input,
+    { kind: "member", client: input.client, keys: input.keys },
+    context,
+  );
 }
 
 /** Delegate proofs exclude velocity charges. */
@@ -625,14 +637,18 @@ export async function proveCustomRingDelegateTransfer(
   input: CustomRingDelegateTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
-  return proveRingTransferStatement(input, { kind: "delegate", client: input.client }, context);
+  return proveRingTransferStatement(
+    input,
+    { kind: "delegate", client: input.client, spender: input.spender },
+    context,
+  );
 }
 
 async function proveRingTransferStatement(
-  input: Omit<CustomRingTransferParams, "client">,
+  input: Omit<CustomRingTransferParams, "client" | "keys">,
   flow:
-    | Readonly<{ kind: "member"; client: RingTransferClient }>
-    | Readonly<{ kind: "delegate"; client: RingDelegateProofClient }>,
+    | Readonly<{ kind: "member"; client: RingTransferClient; keys: WalletKeys }>
+    | Readonly<{ kind: "delegate"; client: RingDelegateProofClient; spender: RingDelegateSpender }>,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
   await initializePoseidon();
@@ -706,7 +722,7 @@ async function proveRingTransferStatement(
         {
           client: flow.client,
           ringProgramId: input.ringProgramId,
-          session: input.session,
+          keys: flow.keys,
           namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
           entriesTree,
           entriesTreeId: policy.config.entriesTreeId,
@@ -747,18 +763,23 @@ async function proveRingTransferStatement(
   const approvalRequired = velocity?.approvalRequired ?? false;
 
   // 3. Bind audit and record messages to the SPP transaction hash.
-  const encrypted = await input.session.encryptCustomRingTransfer({
-    firstNullifier: prepared.firstNullifier,
-    outputs: prepared.outputs,
-    assets: input.assets,
-    auditorPublicKey: config.auditorPublicKey,
-    ...(plan === undefined
-      ? {}
-      : {
-          counterMessage: plan.countersSeal,
-          recordOutputIndex: prepared.outputs.length - 1,
-        }),
-  });
+  const outputs = prepared.outputs;
+  const seal = (tx: ViewingKey): EncryptedCustomRingTransfer =>
+    encryptCustomRingTransfer(tx, {
+      outputs,
+      assets: input.assets,
+      auditorPublicKey: config.auditorPublicKey,
+      ...(plan === undefined
+        ? {}
+        : {
+            counterMessage: plan.countersSeal,
+            recordOutputIndex: outputs.length - 1,
+          }),
+    });
+  const encrypted =
+    flow.kind === "member"
+      ? await withTransactionKey(flow.keys, prepared.firstNullifier, seal, context)
+      : await flow.spender.withTransactionKey(prepared.firstNullifier, seal, context);
   try {
     const messages = [
       ...(plan === undefined ? [] : [plan.recordMessage]),
@@ -802,8 +823,21 @@ async function proveRingTransferStatement(
     // 4. Prove the SPP spend and bind the ring proof to that same transaction.
     const { data } =
       flow.kind === "delegate"
-        ? await flow.client.proveRingAuthorityTransact(proofInputs, input.ringProgramId, context)
-        : await flow.client.proveRingTransact(proofInputs, input.ringProgramId, undefined, context);
+        ? await flow.client.proveRingAuthorityTransact(
+            proofInputs,
+            input.ringProgramId,
+            flow.spender.proofs,
+            context,
+          )
+        : await flow.client.proveRingTransact(
+            proofInputs,
+            input.ringProgramId,
+            plan === undefined
+              ? flow.keys
+              : withRecordSlotSecret(flow.keys, plan.recordInput.nullifier()),
+            undefined,
+            context,
+          );
     // The audit statement rehashes the auditor message SPP already folded into privateTxHash.
     const message = parseAuditorMessage(encrypted.auditorMessage.data);
     const common = {
@@ -1042,8 +1076,9 @@ function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
     client: input.client,
     ringProgramId: input.ringProgramId,
     wallet: input.wallet,
-    authority: input.authority,
+    keys: input.keys,
     feePayer: input.feePayer,
+    ...(input.approve === undefined ? {} : { approve: input.approve }),
     amount: input.amount,
     ...(asset === undefined ? {} : { asset }),
     ...(outputTree === undefined ? {} : { outputTree }),
@@ -1142,6 +1177,27 @@ export function selectRingInputs(
       errors: ringSelectionErrors,
     },
   }).entries;
+}
+
+/** Ring notes are spent from the client's tree, the stored nullifier was derived for that tree. @internal */
+export function ringProofInput(
+  entry: WalletUtxo,
+  owner: ShieldedAddress,
+  client: TreeContext,
+): ProofInputUtxo {
+  if (entry.outputContext.tree !== client.tree) {
+    throw new RingError("RING_TREE_MISMATCH", {
+      details: { tree: entry.outputContext.tree, clientTree: client.tree },
+    });
+  }
+  return new ProofInputUtxo({
+    utxo: entry.utxo,
+    nullifierPublicKey: owner.nullifierPublicKey,
+    nullifier: entry.nullifier,
+    treeId: client.treeId,
+    ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+    ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
+  });
 }
 
 /** @internal */

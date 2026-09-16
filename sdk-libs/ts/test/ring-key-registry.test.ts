@@ -46,7 +46,6 @@ import {
   encryptConfidential,
 } from "../src/transaction/serialization/codecs.js";
 import { Utxo } from "../src/transaction/utxo.js";
-import { KeypairWalletAuthority } from "../src/transaction/wallet/authority.js";
 import type { WalletUtxo } from "../src/transaction/wallet/state.js";
 import { decodeRingKeyRegistryRoot } from "../src/ring/codecs.js";
 import { fetchRingKeyRegistryRoot } from "../src/ring/config.js";
@@ -148,7 +147,7 @@ function actor(seed: number) {
   return {
     keypair,
     address,
-    authority: new KeypairWalletAuthority({ solanaPublicKey: address.solanaAddress(), keypair }),
+    enrolment: { address, nullifierKey: keypair.nullifierKey() },
   };
 }
 
@@ -382,7 +381,7 @@ describe("key registration flow", () => {
     const preparation = await prepareRingKeyRegistration({
       client: test.client,
       ringProgramId: RING,
-      authority: test.member.authority,
+      member: test.member.enrolment,
     });
     expect(preparation.kind).toBe("pending");
     expect(test.prove).toHaveBeenCalledTimes(1);
@@ -433,7 +432,7 @@ describe("key registration flow", () => {
     const transaction = await buildRingKeyRegistrationTransaction({
       client: test.client,
       ringProgramId: RING,
-      authority: test.member.authority,
+      member: test.member.enrolment,
     });
     expect(Object.keys(transaction.signatures)).toEqual([test.member.address.solanaAddress()]);
   });
@@ -443,7 +442,7 @@ describe("key registration flow", () => {
     const submission = await createRingKeyRegistrationSubmission({
       client: test.client,
       ringProgramId: RING,
-      authority: test.member.authority,
+      member: test.member.enrolment,
     });
     const signer = test.member.keypair.toSolanaSigner();
     const sign = vi.fn(async (transaction: Parameters<typeof signTransactionWithSigners>[1]) =>
@@ -487,7 +486,7 @@ describe("key registration flow", () => {
           }),
         },
         ringProgramId: RING,
-        authority: test.member.authority,
+        member: test.member.enrolment,
       }),
     ).rejects.toMatchObject({ code: "RING_KEY_REGISTRY_STALE" });
     expect(test.prove).not.toHaveBeenCalled();
@@ -502,7 +501,7 @@ describe("key registration flow", () => {
           },
         },
         ringProgramId: RING,
-        authority: test.member.authority,
+        member: test.member.enrolment,
       }),
     ).rejects.toMatchObject({ code: "CLIENT_KEY_REGISTRY_OUT_OF_SYNC" });
   });
@@ -514,16 +513,7 @@ describe("key registration flow", () => {
       prepareRingKeyRegistration({
         client: test.client,
         ringProgramId: RING,
-        authority: {
-          withSyncSession: (run) =>
-            run({
-              syncMaterial: async () => ({
-                identity: test.member.address,
-                viewingKeys: [],
-                nullifierKey: other.keypair.nullifierKey(),
-              }),
-            }),
-        },
+        member: { address: test.member.address, nullifierKey: other.keypair.nullifierKey() },
       }),
     ).rejects.toMatchObject({ code: "RING_NULLIFIER_KEY_MISMATCH" });
     expect(test.prove).not.toHaveBeenCalled();
@@ -534,7 +524,7 @@ describe("key registration flow", () => {
     const preparation = await prepareRingKeyRegistration({
       client: test.client,
       ringProgramId: RING,
-      authority: test.member.authority,
+      member: test.member.enrolment,
     });
     expect(preparation.kind).toBe("registered");
     if (preparation.kind !== "registered") throw new Error("unreachable");
@@ -1115,6 +1105,10 @@ describe("recovered delegate move", () => {
         tree: TREE,
         treeId: 0,
         commitment: "confirmed",
+        proofService: {
+          prove: () => Promise.reject(new Error("the fake authority rail proves inline")),
+          proveMerge: () => Promise.reject(new Error("no merge in a delegate move")),
+        },
         solanaRpc: { getProgramAccounts: () => ({ send: async () => [] }) } as never,
         getLatestBlockhash: async () => BLOCKHASH,
         getAccount: async (key: Address) => {

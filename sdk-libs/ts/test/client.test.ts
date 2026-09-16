@@ -9,13 +9,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ClientError,
+  LocalKeys,
   ZolanaClient,
+  proverRequestBody,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
   type SpendProof,
   type ZolanaClientConfig,
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
+import { bytesField } from "../src/client/internal.js";
 import { asField, assemble } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
@@ -65,6 +68,7 @@ type ProofFixture = Readonly<{
   spendProof: SpendProof;
   /** One non-inclusion proof per padding input, at the spend proof's nullifier root. */
   dummyProofs: readonly NonInclusionProof[];
+  keypair: ShieldedKeypair;
 }>;
 
 /**
@@ -77,15 +81,15 @@ function proofFixture(
 ): ProofFixture {
   const outputTreeId = options.outputTreeId ?? TREE_ID;
   const keypair = ShieldedKeypair.generate();
-  const input = new ProofInputUtxo({
-    utxo: new Utxo({
+  const input = ProofInputUtxo.fromKeypair(
+    new Utxo({
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
       amount: 7n,
       blinding: bytes(1),
     }),
-    nullifierKey: keypair.nullifierKey(),
-  });
+    keypair,
+  );
   const dummyInputs = Array.from({ length: options.dummyInputs ?? 0 }, (_, index) =>
     ProofInputUtxo.dummy(bytes(10 + index)),
   );
@@ -165,7 +169,7 @@ function proofFixture(
     rootSeq: 1n,
     rootIndex: 7,
   }));
-  return { proofInputs, spendProof, dummyProofs };
+  return { proofInputs, spendProof, dummyProofs, keypair };
 }
 
 type ServiceOverrides = Pick<ZolanaClientConfig, "indexerUrl" | "proverUrl">;
@@ -208,17 +212,20 @@ async function serviceRequestUrls(
 
   await instance.getShieldedTransactionsByNullifiers({ nullifiers: [bytes(7)] });
   const fixture = proofFixture();
-  // Proving reads the two proof endpoints directly, so those are what stay
-  // off the wire here; only the prover request is under test.
+  // Proving reads the two proof endpoints directly, so those stay off the
+  // wire here; only the prover request is under test.
   vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
     context: { blockTime: 1n, slot: 1n },
     proofs: [fixture.spendProof.state],
   });
   vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
     context: { blockTime: 1n, slot: 1n },
-    proofs: [fixture.spendProof.nullifier],
+    proofs: [fixture.spendProof.nullifier, ...fixture.dummyProofs],
   });
-  await instance.proveTransact(fixture.proofInputs);
+  await instance.proveTransact(
+    fixture.proofInputs,
+    LocalKeys.fromKeypair(fixture.keypair, instance.proofService),
+  );
   return urls;
 }
 
@@ -638,7 +645,8 @@ describe("ZolanaClient", () => {
     const fixture = proofFixture();
     const { proverInputs } = assemble(fixture.proofInputs, [fixture.spendProof]);
 
-    const proof = await instance.proveTransferInputs(proverInputs.payload);
+    const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
+    const proof = await keys.prove(proverInputs);
 
     expect(Object.keys(proof).sort()).toEqual(["a", "b", "c"]);
     expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:3001/prove");
@@ -647,17 +655,36 @@ describe("ZolanaClient", () => {
       publicInputHash: `0x${proverInputs.payload.publicInputHash.toString(16)}`,
     });
 
-    await instance.proveTransferInputs({ ...proverInputs.payload, ringProgramId: asField(7n) });
+    await keys.prove({
+      circuit: "transferRing",
+      payload: { ...proverInputs.payload, ringProgramId: asField(7n) },
+    });
     expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject({
       circuitType: "transfer-ring",
     });
     const [input] = proverInputs.payload.inputs;
-    await expect(
-      instance.proveTransferInputs({
-        ...proverInputs.payload,
-        inputs: input === undefined ? [] : [{ ...input, statePathElements: [] }],
-      }),
-    ).rejects.toMatchObject({ code: "CLIENT_PROVER_INPUT" });
+    const nullifierKey = fixture.keypair.nullifierKey();
+    const secret = nullifierKey.secretBytes();
+    try {
+      await expect(
+        instance.proveTransferInputs({
+          ...proverInputs.payload,
+          inputs:
+            input === undefined
+              ? []
+              : [
+                  {
+                    ...input,
+                    nullifierSecret: asField(bytesField(secret, "nullifier secret")),
+                    statePathElements: [],
+                  },
+                ],
+        }),
+      ).rejects.toMatchObject({ code: "CLIENT_PROVER_INPUT" });
+    } finally {
+      secret.fill(0);
+      nullifierKey.destroy();
+    }
   });
 
   it("fetches state and nullifier proofs once and in parallel", async () => {
@@ -680,7 +707,10 @@ describe("ZolanaClient", () => {
         () => new Promise<GetNonInclusionProofsResponse>((resolve) => (resolveNullifier = resolve)),
       );
 
-    const pending = instance.proveTransact(fixture.proofInputs);
+    const pending = instance.proveTransact(
+      fixture.proofInputs,
+      LocalKeys.fromKeypair(fixture.keypair, instance.proofService),
+    );
     expect(getMerkleProofs).toHaveBeenCalledOnce();
     expect(getNonInclusionProofs).toHaveBeenCalledOnce();
     expect(getMerkleProofs.mock.calls[0]?.slice(0, 2)).toEqual([
@@ -716,9 +746,71 @@ describe("ZolanaClient", () => {
     const instance = client(fetch);
     const { proofInputs } = proofFixture({ outputTreeId: 1 });
 
-    await expect(instance.proveTransact(proofInputs)).rejects.toMatchObject({
+    await expect(
+      instance.proveTransact(
+        proofInputs,
+        LocalKeys.fromKeypair(proofFixture().keypair, instance.proofService),
+      ),
+    ).rejects.toMatchObject({
       code: "CLIENT_TREE_ID_MISMATCH",
       details: { expected: 0, actual: 1 },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("writes an open nullifier secret slot as null for a remote key holder", async () => {
+    const fixture = proofFixture();
+    const assembled = assemble(fixture.proofInputs, [fixture.spendProof]);
+    const body = proverRequestBody(assembled.proverInputs);
+    const inputs = body["inputs"];
+    if (!Array.isArray(inputs)) throw new Error("inputs must be an array");
+    const slots = inputs.map((input: unknown) =>
+      typeof input === "object" && input !== null && "nullifierSecret" in input
+        ? input.nullifierSecret
+        : "missing",
+    );
+    // The wallet's own real input waits for its holder; padding carries zero.
+    expect(slots[0]).toBeNull();
+    expect(slots.slice(1).every((slot) => slot === "0x0")).toBe(true);
+    // The same body, complete, is what the prover client posts.
+    const posted = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      const sent = JSON.parse(String(init?.body)) as { inputs: { nullifierSecret: unknown }[] };
+      expect(sent.inputs[0]?.nullifierSecret).toMatch(/^0x[0-9a-f]+$/u);
+      expect(sent.inputs[0]?.nullifierSecret).not.toBe("0x0");
+      return new Response(JSON.stringify(STANDARD_PROOF), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const instance = client(posted);
+    await LocalKeys.fromKeypair(fixture.keypair, instance.proofService).prove(
+      assembled.proverInputs,
+    );
+    expect(posted).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to prove an own input whose keys left the nullifier secret out", async () => {
+    // A `ProofAuthority` that forwards the inputs untouched is a holder that
+    // did not run; the prover request fails before any network call.
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("network reached");
+    });
+    const instance = client(fetch);
+    const fixture = proofFixture();
+    vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
+      context: { blockTime: 1n, slot: 1n },
+      proofs: [fixture.spendProof.state],
+    });
+    vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
+      context: { blockTime: 1n, slot: 1n },
+      proofs: [fixture.spendProof.nullifier],
+    });
+    const forwarding = {
+      prove: instance.proofService.prove.bind(instance.proofService),
+      proveMerge: instance.proofService.proveMerge.bind(instance.proofService),
+    };
+
+    await expect(instance.proveTransact(fixture.proofInputs, forwarding)).rejects.toMatchObject({
+      code: "CLIENT_MISSING_NULLIFIER_SECRET",
     });
     expect(fetch).not.toHaveBeenCalled();
   });
