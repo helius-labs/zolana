@@ -30,7 +30,7 @@ fn instruction_line(name: &str, instruction: Instruction) -> String {
 }
 
 #[test]
-fn typescript_registry_wire_matches_rust() {
+fn registry_fixture_matches_rust() {
     let mut expected = String::new();
     for byte in [0, 7, 255] {
         let owner = Pubkey::new_from_array([byte; 32]);
