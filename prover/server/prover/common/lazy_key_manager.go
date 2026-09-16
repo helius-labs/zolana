@@ -299,6 +299,8 @@ func (m *LazyKeyManager) mergeKeyPath(prefix string, nInputs uint32, nOutputs ui
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
 	var prefix string
 	switch circuitType {
+	case TransferConfidentialCachedCircuitType:
+		prefix = "transfer_confidential_cached"
 	case TransferConfidentialCircuitType:
 		prefix = "transfer_confidential"
 	case TransferRingCircuitType:

@@ -626,7 +626,7 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		proof, proofError = w.processBatchAddressAppendProof(job.Payload)
-	case common.TransferConfidentialCircuitType,
+	case common.TransferConfidentialCircuitType, common.TransferConfidentialCachedCircuitType,
 		common.TransferRingCircuitType,
 		common.TransferRingAuthorityCircuitType:
 		proof, proofError = w.processTransferEddsaProof(job.Payload)

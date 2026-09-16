@@ -84,28 +84,31 @@ impl LifecycleHarness {
         asset: Address,
         count: usize,
     ) -> Result<solana_signature::Signature> {
-        self.ensure_fresh_actor(name)?;
+        self.merge_inner(name, owner_solana, asset, count, false)
+    }
+
+    /// Run the same merge instruction with the merge key as the fee payer.
+    /// Isolates SPP compute from the smart-account wrapper overhead.
+    pub fn merge_benchmark_direct_payer(
+        &mut self,
+        name: &str,
+        owner_solana: &Keypair,
+        asset: Address,
+        count: usize,
+    ) -> Result<solana_signature::Signature> {
+        self.merge_inner(name, owner_solana, asset, count, true)
+    }
+
+    pub(crate) fn prepare_merge(
+        &self,
+        name: &str,
+        asset: Address,
+        inputs: &[Utxo],
+        cache: Option<([u8; 32], u8)>,
+    ) -> Result<(zolana_client::MergeProofResult, SppProofOutputUtxo)> {
         let keypair = self.actor(name).keypair.clone();
-        // The harness runs one tree, so every input, the merged output, and the
-        // wallet notes are hashed under it.
         let tree_id = self.tree_id;
-
-        let (inputs, input_positions): (Vec<Utxo>, Vec<usize>) = {
-            let actor = self.actor(name);
-            let selected = actor
-                .spendable
-                .iter()
-                .enumerate()
-                .filter(|(_, utxo)| utxo.asset == asset)
-                .take(count)
-                .map(|(index, utxo)| (utxo.clone(), index))
-                .collect::<Vec<_>>();
-            if selected.len() != count {
-                return Err(anyhow!("{name} needs {count} spendable UTXOs of {asset}"));
-            }
-            selected.into_iter().unzip()
-        };
-
+        let count = inputs.len();
         // Per-input SpendProof. Every input of one merge must be proven against
         // the same UTXO root and the same nullifier root, so both proof sets come
         // from ONE indexer call each: fetching them a leaf at a time lets the tree
@@ -117,7 +120,7 @@ impl LifecycleHarness {
         let mut total: u64 = 0;
         let mut utxo_hashes = Vec::with_capacity(inputs.len());
         let mut nullifiers = Vec::with_capacity(input_count);
-        for utxo in &inputs {
+        for utxo in inputs {
             total += utxo.amount;
             let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
             nullifiers.push(
@@ -200,16 +203,51 @@ impl LifecycleHarness {
 
         let expiry_unix_ts = u64::MAX;
 
-        let result = MergeProver {
+        let prover = MergeProver {
             inputs: spend_inputs,
             output: output.clone(),
             expiry_unix_ts,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
             output_tree_id: tree_id,
-        }
-        .build()?;
+        };
+        let result = match cache {
+            Some((address, slot)) => prover.build_cached(&address, slot)?,
+            None => prover.build()?,
+        };
+        Ok((result, output))
+    }
 
+    fn merge_inner(
+        &mut self,
+        name: &str,
+        owner_solana: &Keypair,
+        asset: Address,
+        count: usize,
+        direct_payer: bool,
+    ) -> Result<solana_signature::Signature> {
+        self.ensure_fresh_actor(name)?;
+        let keypair = self.actor(name).keypair.clone();
+        let tree_id = self.tree_id;
+        let (inputs, input_positions): (Vec<Utxo>, Vec<usize>) = {
+            let actor = self.actor(name);
+            let selected = actor
+                .spendable
+                .iter()
+                .enumerate()
+                .filter(|(_, utxo)| utxo.asset == asset)
+                .take(count)
+                .map(|(index, utxo)| (utxo.clone(), index))
+                .collect::<Vec<_>>();
+            if selected.len() != count {
+                return Err(anyhow!("{name} needs {count} spendable UTXOs of {asset}"));
+            }
+            selected.into_iter().unzip()
+        };
+
+        let (result, output) = self.prepare_merge(name, asset, &inputs, None)?;
+        let input_count = result.nullifiers.len();
+        let nullifier_pk = keypair.nullifier_key.pubkey()?;
         let proof = ProverClient::local().prove_merge(&result.inputs)?;
 
         // The client assembles the instruction data (incl. the encrypted_utxo blob)
@@ -217,41 +255,59 @@ impl LifecycleHarness {
         let data = result.instruction_data(pack_merge_proof(&proof)?);
 
         let user_record = user_record_pda(&owner_solana.pubkey()).0;
-        let payer_before = fetch_account(&self.rpc, &self.merge_vault)?;
+        let payer = if direct_payer {
+            self.merge_key.pubkey()
+        } else {
+            self.merge_vault
+        };
+        let payer_before = fetch_account(&self.rpc, &payer)?;
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let user_record_before = fetch_account(&self.rpc, &user_record)?;
         let merge_ix = MergeTransact {
             input_tree: self.tree,
             output_tree: self.tree,
-            payer: self.merge_vault,
+            payer,
             user_record,
             data,
         }
         .instruction();
-        let sync_ix = execute_sync_ix(
-            &self.merge_settings,
-            0,
-            &[self.merge_key.pubkey()],
-            &[merge_ix],
-        );
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let merge_key = self.merge_key.insecure_clone();
-        let sig = send_transaction(
-            &mut self.rpc,
-            &[compute_budget, sync_ix],
-            &merge_key.pubkey(),
-            &[&merge_key],
-        )?;
+        let sig = if direct_payer {
+            send_transaction(
+                &mut self.rpc,
+                &[compute_budget, merge_ix],
+                &merge_key.pubkey(),
+                &[&merge_key],
+            )?
+        } else {
+            let sync_ix = execute_sync_ix(
+                &self.merge_settings,
+                0,
+                &[self.merge_key.pubkey()],
+                &[merge_ix],
+            );
+            send_transaction(
+                &mut self.rpc,
+                &[compute_budget, sync_ix],
+                &merge_key.pubkey(),
+                &[&merge_key],
+            )?
+        };
         // A successful merge collects the tree's insertion fee from the inner payer:
         // fee_per_nullifier per inserted nullifier, transferred into the tree. The
         // tree then funds one nullifier PDA per inserted nullifier.
         let forester_fee = forester_fee_for_inputs(&tree_before, &self.tree, input_count as u64)?;
-        let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
-        assert_eq!(
-            payer_before.lamports - payer_after.lamports,
-            forester_fee,
-            "merge must charge the payer one forester share per nullifier"
-        );
+        let payer_after = fetch_account(&self.rpc, &payer)?;
+        if direct_payer {
+            assert!(payer_before.lamports >= payer_after.lamports);
+        } else {
+            assert_eq!(
+                payer_before.lamports - payer_after.lamports,
+                forester_fee,
+                "merge must charge the payer one forester share per nullifier"
+            );
+        }
         let nullifier_pda_rent = nullifier_pda_rent(&self.rpc)?;
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
         assert_eq!(
@@ -322,8 +378,8 @@ impl LifecycleHarness {
             name,
             keypair.signing_pubkey(),
             asset,
-            total,
-            output_blinding,
+            output.amount,
+            output.blinding,
             &indexed,
         )?;
         self.actor_mut(name).expected.push(merged_utxo);

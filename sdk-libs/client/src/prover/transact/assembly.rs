@@ -527,6 +527,14 @@ impl PublicInputs<'_> {
         &self,
         after_private_tx: &[[u8; 32]],
     ) -> Result<[u8; 32], ClientError> {
+        self.hash_with_extensions(after_private_tx, &[])
+    }
+
+    pub(crate) fn hash_with_extensions(
+        &self,
+        after_private_tx: &[[u8; 32]],
+        suffix: &[[u8; 32]],
+    ) -> Result<[u8; 32], ClientError> {
         let slots = self.public_transfers.interleaved();
         let mut elements = Vec::with_capacity(12 + after_private_tx.len() + slots.len());
         elements.extend([
@@ -547,6 +555,7 @@ impl PublicInputs<'_> {
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             elements.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
         }
+        elements.extend_from_slice(suffix);
         Ok(create_hash_chain_4_from_slice(&elements)?)
     }
 }

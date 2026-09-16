@@ -12,6 +12,8 @@ import (
 // circuit. Returns a TransferProofSystem for proof generation and verification.
 func SetupTransferCircuit(circuit common.CircuitType, nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
 	switch circuit {
+	case common.TransferConfidentialCachedCircuitType:
+		return SetupTransfer(nInputs, nOutputs, CachedVariant)
 	case common.TransferConfidentialCircuitType:
 		return SetupTransfer(nInputs, nOutputs, ConfidentialVariant)
 	case common.TransferRingCircuitType:

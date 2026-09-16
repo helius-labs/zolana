@@ -86,6 +86,7 @@ pub enum ProverInputs {
 /// are identical by construction. Call [`AssembledTransfer::with_proof`] once the
 /// proof is produced from [`AssembledTransfer::prover_inputs`].
 pub struct AssembledTransfer {
+    pub cached_inputs: Option<[[u8; 32]; 3]>,
     pub prover_inputs: ProverInputs,
     pub public_input_hash: [u8; 32],
     ix: TransactIxData,
@@ -218,11 +219,34 @@ pub fn assemble(
     assemble_with_dummy_policy(proof_inputs, input_proofs, dummy_nullifier_proofs, true)
 }
 
+pub fn assemble_cached(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+) -> Result<AssembledTransfer, ClientError> {
+    assemble_inner(proof_inputs, input_proofs, &[], true, true)
+}
+
 pub fn assemble_with_dummy_policy(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
     allow_dummy_inputs: bool,
+) -> Result<AssembledTransfer, ClientError> {
+    assemble_inner(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
+        allow_dummy_inputs,
+        false,
+    )
+}
+
+fn assemble_inner(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    allow_dummy_inputs: bool,
+    cached: bool,
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
     if inputs_require_p256(&proof_inputs.input_utxos)? {
@@ -246,7 +270,7 @@ pub fn assemble_with_dummy_policy(
         .map(zolana_transaction::instructions::transact::SettlementTransfer::interface_transfer)
         .collect();
 
-    let circuit_id = CircuitId::ConfidentialEddsa(
+    let mut circuit_id = CircuitId::ConfidentialEddsa(
         shape.n_inputs() as u8,
         shape.n_outputs() as u8,
         N_PUBLIC_SLOTS as u8,
@@ -260,7 +284,21 @@ pub fn assemble_with_dummy_policy(
     )?;
 
     let ProverVariant::Eddsa(prover) = circuit;
-    let result = prover.build()?;
+    let result = if cached {
+        prover.build_cached()?
+    } else {
+        prover.build()?
+    };
+    if cached {
+        circuit_id = CircuitId::ConfidentialEddsaCached(
+            shape.n_inputs() as u8,
+            shape.n_outputs() as u8,
+            N_PUBLIC_SLOTS as u8,
+            zolana_interface::verifying_keys::CachedInputs {
+                input_bitmap: (1u64 << shape.n_inputs()) - 1,
+            },
+        );
+    }
     let prover_inputs = ProverInputs::Eddsa(result.inputs);
     let public_input_hash = result.public_input_hash;
     let nullifiers = result.nullifiers;
@@ -292,6 +330,7 @@ pub fn assemble_with_dummy_policy(
     };
 
     Ok(AssembledTransfer {
+        cached_inputs: result.cached_inputs,
         prover_inputs,
         public_input_hash,
         ix,

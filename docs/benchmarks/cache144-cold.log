@@ -1,0 +1,10 @@
+cached spend: 9869 CU (limit 1400000)
+cached spend: 291483 CU (limit 1400000)
+cached spend: 293137 CU (limit 1400000)
+cached spend: 290602 CU (limit 1400000)
+cached spend: 294583 CU (limit 1400000)
+cached spend: 153087 CU (limit 1400000)
+E2E_BENCH variant=cached inputs=144 proofs=5 transactions=6 total_cu=1332761 setup_ms=76954 witness_ms=1490 prove_ms=8613 send_ms=2697 confirmed_ms=12801 visible_ms=12812
+test cached_merge_spend_e2e_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 107.50s

@@ -33,7 +33,14 @@ func (p *TransferParameters) ValidateShape() error {
 	// SelectTreeSlot, and a slot the packed InputFlags does not publish inside
 	// the flag decode, both as opaque proving errors; reject them as request
 	// errors.
-	if err := common.ValidateTreeSlots(p.TreeSlots, inputSlots, txcircuit.InputTrees); err != nil {
+	var cachedBitmap *big.Int
+	if p.Variant == CachedVariant {
+		if p.CacheInputBitmap == nil || p.CacheInputBitmap.Sign() <= 0 || p.CacheInputBitmap.BitLen() > int(p.NInputs) {
+			return fmt.Errorf("spp: invalid cached input bitmap")
+		}
+		cachedBitmap = p.CacheInputBitmap
+	}
+	if err := common.ValidateTreeSlotsWithCache(p.TreeSlots, inputSlots, txcircuit.InputTrees, cachedBitmap); err != nil {
 		return err
 	}
 	if err := common.ValidateInputFlags(p.InputFlags, inputSlots); err != nil {

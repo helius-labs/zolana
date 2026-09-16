@@ -65,6 +65,7 @@ pub struct MergeProver {
 /// differ only in their public-input tail and the ring binding inside `inputs`.
 #[derive(Debug, Clone)]
 pub struct MergeProofResult {
+    pub cache_slot: Option<u8>,
     pub inputs: MergeInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
@@ -91,7 +92,7 @@ impl MergeProofResult {
     /// user_record accounts.
     pub fn instruction_data(&self, proof: MergeProof) -> MergeTransactIxData {
         MergeTransactIxData {
-            cache_slot: None,
+            cache_slot: self.cache_slot,
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
@@ -121,7 +122,19 @@ impl MergeProofResult {
 
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
-        let merge = self.common(zolana_interface::instruction::tag::MERGE_TRANSACT)?;
+        self.build_with_cache(None)
+    }
+
+    pub fn build_cached(self, cache: &[u8; 32], slot: u8) -> Result<MergeProofResult, ClientError> {
+        self.build_with_cache(Some((cache, slot)))
+    }
+
+    fn build_with_cache(
+        self,
+        cache: Option<(&[u8; 32], u8)>,
+    ) -> Result<MergeProofResult, ClientError> {
+        let merge =
+            self.common_with_cache(zolana_interface::instruction::tag::MERGE_TRANSACT, cache)?;
 
         // Owner identity public input: SPP checks the signing pk_field against
         // the owner's registry record; the owner recombines it with their
@@ -141,6 +154,7 @@ impl MergeProver {
 /// public-input prefix. Each rail appends its own public-input tail to
 /// [`Self::head`] and calls [`Self::finish`].
 pub(crate) struct CommonMerge {
+    cache_slot: Option<u8>,
     inputs: Vec<TransferInput>,
     output: TransferOutput,
     nullifiers: Vec<[u8; 32]>,
@@ -171,6 +185,14 @@ impl MergeProver {
     pub(crate) fn common(
         &self,
         spp_instruction_discriminator: u8,
+    ) -> Result<CommonMerge, ClientError> {
+        self.common_with_cache(spp_instruction_discriminator, None)
+    }
+
+    fn common_with_cache(
+        &self,
+        spp_instruction_discriminator: u8,
+        cache: Option<(&[u8; 32], u8)>,
     ) -> Result<CommonMerge, ClientError> {
         // Slot zero must be real: its single-use nullifier seeds the
         // deterministic output blinding and dummy nullifiers.
@@ -224,7 +246,7 @@ impl MergeProver {
         // external_data_hash binds the instruction's discriminator, expiry, and
         // output commitment to the proof; the program recomputes it identically.
         let external_data_hash = MergeExternalDataHash {
-            cache: None,
+            cache,
             spp_instruction_discriminator,
             expiry_unix_ts: self.expiry_unix_ts,
             output_utxo_hash: &output_hash,
@@ -270,6 +292,7 @@ impl MergeProver {
             .ok_or(ClientError::NoInputs)?;
 
         Ok(CommonMerge {
+            cache_slot: cache.map(|(_, slot)| slot),
             inputs: assembled_inputs.inputs,
             output,
             nullifiers: assembled_inputs.nullifiers,
@@ -317,6 +340,7 @@ impl CommonMerge {
             ring_program_id,
         };
         MergeProofResult {
+            cache_slot: self.cache_slot,
             inputs,
             public_input_hash: public_input,
             nullifiers: self.nullifiers,

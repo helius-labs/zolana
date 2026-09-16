@@ -11418,6 +11418,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-transaction-error",
+ "wincode",
  "zolana-client",
  "zolana-event",
  "zolana-event-parser",

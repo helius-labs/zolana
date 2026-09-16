@@ -1,0 +1,30 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running tests/proof_cu.rs (/Users/tsv/Developer/zolana/zolana-pr320-bench/target/debug/deps/proof_cu-107b0294c98c640b)
+
+running 1 test
+Starting local validator
+Starting surfpool: /Users/tsv/Developer/zolana/zolana-10x-cache/target/tools/surfpool start --offline --no-tui --no-deploy --no-studio --port 9099 --host 127.0.0.1 --bpf-program regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD /Users/tsv/Developer/zolana/zolana-10x-cache/target/deploy/zolana_user_registry.so --bpf-program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG /Users/tsv/Developer/zolana/zolana-10x-cache/target/deploy/squads_smart_account_program.so --upgradeable-program sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6 /Users/tsv/Developer/zolana/zolana-10x-cache/target/deploy/shielded_pool_program.so EdMSvMoHfsemd2s7eHCrRnuM1dzPu2CpUrHJN98XYC9y --account-dir /var/folders/2j/bdwsm15103l0k1pp9xm1bmz80000gn/T/zolana-spp-smart-accounts-15055
+Writing surfpool logs to test-ledger/surfpool.log
+Starting Photon: /Users/tsv/Developer/zolana/zolana-10x-cache/target/debug/photon --rpc-url http://127.0.0.1:9099 --port 8984 --start-slot latest
+Writing photon logs to test-ledger/photon.log
+Photon indexer is ready at http://127.0.0.1:8984
+Local validator environment is ready
+Starting prover: /Users/tsv/Developer/zolana/zolana-10x-cache/target/prover-server start --keys-dir /Users/tsv/Developer/zolana/zolana-10x-cache/prover/server/proving-keys/ --prover-address 0.0.0.0:3202 --metrics-address 0.0.0.0:10199 --auto-download=true
+Writing prover-server logs to test-ledger/prover-server.log
+Prover started successfully
+test cached_merge_spend_e2e_benchmark has been running for over 60 seconds
+cached transaction: 3267 bytes, 46 addresses
+cached transaction: 3191 bytes, 46 addresses
+cached transaction: 3191 bytes, 46 addresses
+cached transaction: 3191 bytes, 46 addresses
+cached transaction: 1329 bytes, 9 addresses
+cached spend: 300328 CU (limit 1400000)
+cached spend: 292080 CU (limit 1400000)
+cached spend: 292820 CU (limit 1400000)
+cached spend: 290621 CU (limit 1400000)
+cached spend: 152739 CU (limit 1400000)
+E2E_BENCH variant=cached inputs=144 proofs=5 transactions=5 packed=true total_cu=1328588 setup_ms=77028 warm_keys=true warmup_ms=4667 witness_ms=968 prove_ms=3974 send_ms=2704 confirmed_ms=7647 visible_ms=7659
+test cached_merge_spend_e2e_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 107.18s
+

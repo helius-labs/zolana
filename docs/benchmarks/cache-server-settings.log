@@ -1,0 +1,8 @@
+19:55:56 INF Sync proof admission control max_waiting=4 permits=1
+19:55:56 INF Started standard server without queue support metrics_address=0.0.0.0:10198 prover_address=0.0.0.0:3201
+19:58:53 INF Sync proof admission control max_waiting=4 permits=1
+19:58:53 INF Started standard server without queue support metrics_address=0.0.0.0:10198 prover_address=0.0.0.0:3201
+20:05:45 INF Sync proof admission control max_waiting=4 permits=1
+20:05:45 INF Started standard server without queue support metrics_address=0.0.0.0:10198 prover_address=0.0.0.0:3201
+20:18:32 INF Sync proof admission control gomaxprocs=18 max_waiting=16 permits=4
+20:18:32 INF Started standard server without queue support metrics_address=0.0.0.0:10199 prover_address=0.0.0.0:3202
