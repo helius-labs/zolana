@@ -84,6 +84,30 @@ impl LifecycleHarness {
         asset: Address,
         count: usize,
     ) -> Result<solana_signature::Signature> {
+        self.merge_inner(name, owner_solana, asset, count, false)
+    }
+
+    /// Run the same merge instruction with the merge key as the fee payer.
+    /// This keeps the 36-input benchmark on the SPP path; the smart-account
+    /// wrapper cannot carry that many account metas in the local SBF heap.
+    pub fn merge_benchmark_direct_payer(
+        &mut self,
+        name: &str,
+        owner_solana: &Keypair,
+        asset: Address,
+        count: usize,
+    ) -> Result<solana_signature::Signature> {
+        self.merge_inner(name, owner_solana, asset, count, true)
+    }
+
+    fn merge_inner(
+        &mut self,
+        name: &str,
+        owner_solana: &Keypair,
+        asset: Address,
+        count: usize,
+        direct_payer: bool,
+    ) -> Result<solana_signature::Signature> {
         self.ensure_fresh_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
         // The harness runs one tree, so every input, the merged output, and the
@@ -217,41 +241,59 @@ impl LifecycleHarness {
         let data = result.instruction_data(pack_merge_proof(&proof)?);
 
         let user_record = user_record_pda(&owner_solana.pubkey()).0;
-        let payer_before = fetch_account(&self.rpc, &self.merge_vault)?;
+        let payer = if direct_payer {
+            self.merge_key.pubkey()
+        } else {
+            self.merge_vault
+        };
+        let payer_before = fetch_account(&self.rpc, &payer)?;
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let user_record_before = fetch_account(&self.rpc, &user_record)?;
         let merge_ix = MergeTransact {
             input_tree: self.tree,
             output_tree: self.tree,
-            payer: self.merge_vault,
+            payer,
             user_record,
             data,
         }
         .instruction();
-        let sync_ix = execute_sync_ix(
-            &self.merge_settings,
-            0,
-            &[self.merge_key.pubkey()],
-            &[merge_ix],
-        );
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let merge_key = self.merge_key.insecure_clone();
-        let sig = send_transaction(
-            &mut self.rpc,
-            &[compute_budget, sync_ix],
-            &merge_key.pubkey(),
-            &[&merge_key],
-        )?;
+        let sig = if direct_payer {
+            send_transaction(
+                &mut self.rpc,
+                &[compute_budget, merge_ix],
+                &merge_key.pubkey(),
+                &[&merge_key],
+            )?
+        } else {
+            let sync_ix = execute_sync_ix(
+                &self.merge_settings,
+                0,
+                &[self.merge_key.pubkey()],
+                &[merge_ix],
+            );
+            send_transaction(
+                &mut self.rpc,
+                &[compute_budget, sync_ix],
+                &merge_key.pubkey(),
+                &[&merge_key],
+            )?
+        };
         // A successful merge collects the tree's insertion fee from the inner payer:
         // fee_per_nullifier per inserted nullifier, transferred into the tree. The
         // tree then funds one nullifier PDA per inserted nullifier.
         let forester_fee = forester_fee_for_inputs(&tree_before, &self.tree, input_count as u64)?;
-        let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
-        assert_eq!(
-            payer_before.lamports - payer_after.lamports,
-            forester_fee,
-            "merge must charge the payer one forester share per nullifier"
-        );
+        let payer_after = fetch_account(&self.rpc, &payer)?;
+        if direct_payer {
+            assert!(payer_before.lamports >= payer_after.lamports);
+        } else {
+            assert_eq!(
+                payer_before.lamports - payer_after.lamports,
+                forester_fee,
+                "merge must charge the payer one forester share per nullifier"
+            );
+        }
         let nullifier_pda_rent = nullifier_pda_rent(&self.rpc)?;
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
         assert_eq!(
