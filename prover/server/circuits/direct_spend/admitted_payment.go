@@ -39,6 +39,10 @@ func (c *AdmittedPaymentCircuit) constrain(api frontend.API, compressor *gadget.
 }
 
 func (c *AdmittedPaymentCircuit) constrainCertificate(api frontend.API, constrain func(*Certificate) error) error {
+	return c.constrainCertificateDomain(api, AdmittedPaymentDomain, constrain)
+}
+
+func (c *AdmittedPaymentCircuit) constrainCertificateDomain(api frontend.API, domain frontend.Variable, constrain func(*Certificate) error) error {
 	if len(c.Balance.Values) != 1 {
 		return fmt.Errorf("direct spend: inconsistent payment shape")
 	}
@@ -50,7 +54,7 @@ func (c *AdmittedPaymentCircuit) constrainCertificate(api frontend.API, constrai
 		return err
 	}
 	bindCertificateBalance(api, &c.Certificate, &c.Balance)
-	fields := []frontend.Variable{AdmittedPaymentDomain}
+	fields := []frontend.Variable{domain}
 	fields = append(fields, c.Certificate.fields(api)...)
 	fields = append(fields, c.Balance.fields(api)...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))

@@ -6,15 +6,16 @@ use pinocchio::{
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     direct_spend::{
-        certificate_id, field, Payload, PaymentInputs, ADMITTED_PAYMENT_DOMAIN, CERTIFICATE_INPUTS,
-        MAX_CERTIFICATES, MAX_INPUTS, PAYMENT_DOMAIN,
+        certificate_id, field, Payload, PaymentInputs, ADMITTED_DAG_PAYMENT_DOMAIN,
+        ADMITTED_PAYMENT_DOMAIN, CERTIFICATE_INPUTS, MAX_CERTIFICATES, MAX_INPUTS, PAYMENT_DOMAIN,
     },
     error::ShieldedPoolError,
     event::{EventKind, GeneralEvent, Input, InputTreeSequence},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     verifying_keys::{
         direct_payment_512_2, direct_payment_admitted_144_2, direct_payment_admitted_512_2,
-        direct_payment_gkr_144_2, direct_payment_gkr_512_2, spend_balance_16_2,
+        direct_payment_admitted_dag10_512_2, direct_payment_gkr_144_2, direct_payment_gkr_512_2,
+        spend_balance_16_2,
     },
 };
 use zolana_tree::TreeAccount;
@@ -50,9 +51,11 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
         return Err(ProgramError::IncorrectProgramId);
     }
     let receipts = iter.remaining_unchecked_mut()?;
-    let (statement, proof, commitment, capacity, admitted) =
+    let (statement, proof, commitment, capacity, domain) =
         match load_payload(payment, owner.address().as_array())? {
-            Payload::Payment { statement, proof } => (statement, proof, None, MAX_INPUTS, false),
+            Payload::Payment { statement, proof } => {
+                (statement, proof, None, MAX_INPUTS, PAYMENT_DOMAIN)
+            }
             Payload::GkrPayment {
                 statement,
                 proof,
@@ -66,7 +69,7 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
                     proof,
                     Some(commitment),
                     usize::from(inputs),
-                    false,
+                    PAYMENT_DOMAIN,
                 )
             }
             Payload::AdmittedPayment {
@@ -82,11 +85,24 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
                     proof,
                     Some(commitment),
                     usize::from(inputs),
-                    true,
+                    ADMITTED_PAYMENT_DOMAIN,
                 )
             }
+            Payload::DagPayment {
+                statement,
+                proof,
+                commitment,
+                inputs,
+            } if usize::from(inputs) == MAX_INPUTS => (
+                statement,
+                proof,
+                Some(commitment),
+                MAX_INPUTS,
+                ADMITTED_DAG_PAYMENT_DOMAIN,
+            ),
             _ => return Err(ProgramError::InvalidAccountData),
         };
+    let admitted = domain != PAYMENT_DOMAIN;
     if admitted && filter.is_none() {
         return Err(ShieldedPoolError::InvalidNullifierFilter.into());
     }
@@ -191,11 +207,7 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
                 }
                 let id = certificate_id(payment.address().as_array())?;
                 values.push([id, certificate.value_commitment]);
-                let mut fields = vec![field(if admitted {
-                    ADMITTED_PAYMENT_DOMAIN
-                } else {
-                    PAYMENT_DOMAIN
-                })];
+                let mut fields = vec![field(domain)];
                 fields.extend(certificate.fields(
                     id,
                     owner.address().as_array(),
@@ -210,12 +222,19 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
                     )?);
                 }
                 fields.extend(statement.balance_fields(intent, output_tree_id, &values, 1)?);
-                let key = match (admitted, commitment.is_some(), capacity) {
-                    (true, true, 144) => &direct_payment_admitted_144_2::VERIFYINGKEY,
-                    (true, true, MAX_INPUTS) => &direct_payment_admitted_512_2::VERIFYINGKEY,
-                    (false, false, MAX_INPUTS) => &direct_payment_512_2::VERIFYINGKEY,
-                    (false, true, 144) => &direct_payment_gkr_144_2::VERIFYINGKEY,
-                    (false, true, MAX_INPUTS) => &direct_payment_gkr_512_2::VERIFYINGKEY,
+                let key = match (domain, commitment.is_some(), capacity) {
+                    (ADMITTED_PAYMENT_DOMAIN, true, 144) => {
+                        &direct_payment_admitted_144_2::VERIFYINGKEY
+                    }
+                    (ADMITTED_PAYMENT_DOMAIN, true, MAX_INPUTS) => {
+                        &direct_payment_admitted_512_2::VERIFYINGKEY
+                    }
+                    (ADMITTED_DAG_PAYMENT_DOMAIN, true, MAX_INPUTS) => {
+                        &direct_payment_admitted_dag10_512_2::VERIFYINGKEY
+                    }
+                    (PAYMENT_DOMAIN, false, MAX_INPUTS) => &direct_payment_512_2::VERIFYINGKEY,
+                    (PAYMENT_DOMAIN, true, 144) => &direct_payment_gkr_144_2::VERIFYINGKEY,
+                    (PAYMENT_DOMAIN, true, MAX_INPUTS) => &direct_payment_gkr_512_2::VERIFYINGKEY,
                     _ => return Err(ProgramError::InvalidArgument),
                 };
                 verify_with_commitment(&proof, commitment.as_ref(), &fields, key)?;

@@ -1,0 +1,13 @@
+=== RUN   TestAdmittedDAGProving
+    admitted_dag_benchmark_test.go:111: ADMITTED_DAG_SETUP height=10 inputs=512 constraints=835655 key_bytes=267031229 compile_setup_write_seconds=20.124001
+    admitted_dag_benchmark_test.go:138: ADMITTED_DAG_REQUEST height=10 inputs=512 request_bytes=443042 fixture_seconds=2.047957 digest=9e54ad91981939251ca59eb0e9640aedbcef2444cabb14c83436c4387e7d43a5 go=go1.27.1
+    admitted_dag_benchmark_test.go:139: GKR_SERVICE_PROVE inputs=512 threads=18 msm_tasks=0 concurrency=1 sample=0 request=0 seconds=0.994635
+    admitted_dag_benchmark_test.go:139: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=1 sample=0 seconds=0.994663 heap_bytes=1403082600 sys_bytes=2299289400
+    admitted_dag_benchmark_test.go:139: GKR_SERVICE_PROVE inputs=512 threads=18 msm_tasks=0 concurrency=1 sample=1 request=0 seconds=1.091051
+    admitted_dag_benchmark_test.go:139: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=1 sample=1 seconds=1.091056 heap_bytes=2337191872 sys_bytes=2710679432
+    admitted_dag_benchmark_test.go:139: GKR_SERVICE_PROVE inputs=512 threads=18 msm_tasks=0 concurrency=1 sample=2 request=0 seconds=1.153629
+    admitted_dag_benchmark_test.go:139: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=1 sample=2 seconds=1.153636 heap_bytes=1343369424 sys_bytes=2740039560
+    admitted_dag_benchmark_test.go:139: GKR_SERVICE_MEDIAN inputs=512 threads=18 msm_tasks=0 concurrency=1 latency_seconds=1.091051 wave_seconds=1.091056 proofs_per_second=0.916543
+--- PASS: TestAdmittedDAGProving (25.54s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	25.951s

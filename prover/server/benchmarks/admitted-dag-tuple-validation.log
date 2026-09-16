@@ -1,0 +1,22 @@
+=== RUN   TestAdmittedDAGPayment
+=== RUN   TestAdmittedDAGPayment/in-range_parent
+=== RUN   TestAdmittedDAGPayment/leaf_reference
+=== RUN   TestAdmittedDAGPayment/in-range_leaf_reference
+=== RUN   TestAdmittedDAGPayment/index
+=== RUN   TestAdmittedDAGPayment/index_overflow
+=== RUN   TestAdmittedDAGPayment/root
+=== RUN   TestAdmittedDAGPayment/node
+=== RUN   TestAdmittedDAGPayment/parent
+--- PASS: TestAdmittedDAGPayment (1.57s)
+    --- PASS: TestAdmittedDAGPayment/in-range_parent (0.13s)
+    --- PASS: TestAdmittedDAGPayment/leaf_reference (0.13s)
+    --- PASS: TestAdmittedDAGPayment/in-range_leaf_reference (0.13s)
+    --- PASS: TestAdmittedDAGPayment/index (0.13s)
+    --- PASS: TestAdmittedDAGPayment/index_overflow (0.13s)
+    --- PASS: TestAdmittedDAGPayment/root (0.12s)
+    --- PASS: TestAdmittedDAGPayment/node (0.13s)
+    --- PASS: TestAdmittedDAGPayment/parent (0.13s)
+=== RUN   TestAdmittedDAGBindsDuplicateLeafPosition
+--- PASS: TestAdmittedDAGBindsDuplicateLeafPosition (0.08s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	2.362s

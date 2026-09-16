@@ -2,14 +2,12 @@ package directspend
 
 import (
 	"fmt"
-	"math/big"
 	"os"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/iden3/go-iden3-crypto/poseidon"
 
 	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/transcript"
@@ -55,19 +53,6 @@ func (c *PrefixAdmittedPayment) Define(api frontend.API) error {
 	}
 	api.AssertIsEqual(root, c.Certificate.StateRoot)
 	return nil
-}
-
-func emptyStateRoots() ([]*big.Int, error) {
-	result := make([]*big.Int, 32)
-	result[0] = new(big.Int)
-	for i := 1; i < len(result); i++ {
-		var err error
-		result[i], err = poseidon.Hash([]*big.Int{result[i-1], result[i-1]})
-		if err != nil {
-			return nil, err
-		}
-	}
-	return result, nil
 }
 
 func TestAdmittedPrefixConstraints(t *testing.T) {

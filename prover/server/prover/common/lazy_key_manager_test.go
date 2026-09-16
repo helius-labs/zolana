@@ -45,6 +45,7 @@ func TestLazyKeyManagerBuildsDirectSpendKeyPaths(t *testing.T) {
 		{DirectPaymentGKRCircuitType, 512, 2, "direct-payment-gkr_512_2.key"},
 		{DirectPaymentAdmittedCircuitType, 144, 2, "direct-payment-admitted_144_2.key"},
 		{DirectPaymentAdmittedCircuitType, 512, 2, "direct-payment-admitted_512_2.key"},
+		{DirectPaymentAdmittedDAG10CircuitType, 512, 2, "direct-payment-admitted-dag10_512_2.key"},
 	} {
 		got := manager.determineTransferKeyPath(test.kind, test.inputs, test.outputs)
 		want := filepath.Join(keysDir, test.filename)

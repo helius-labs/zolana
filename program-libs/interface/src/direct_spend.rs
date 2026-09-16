@@ -13,11 +13,14 @@ pub const MAX_INPUTS: usize = 512;
 pub const GKR_PAYMENT_INPUTS: [usize; 2] = [144, MAX_INPUTS];
 pub const MAX_CERTIFICATES: usize = 16;
 pub const MAX_PAYLOAD: usize = 24_000;
+pub const BUFFER_HEADER_SIZE: usize = 80;
+pub const BUFFER_CHUNK_SIZE: usize = 800;
 pub const CERTIFICATE_DOMAIN: u64 = 0x44534331;
 pub const BALANCE_DOMAIN: u64 = 0x44534231;
 pub const FRESHNESS_DOMAIN: u64 = 0x44534631;
 pub const PAYMENT_DOMAIN: u64 = 0x44535031;
 pub const ADMITTED_PAYMENT_DOMAIN: u64 = 0x44535032;
+pub const ADMITTED_DAG_PAYMENT_DOMAIN: u64 = 0x44535033;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Proof {
@@ -193,6 +196,12 @@ pub enum Payload {
         commitment: crate::verifying_keys::Bsb22Commitment,
         inputs: u16,
     },
+    DagPayment {
+        statement: Payment,
+        proof: Proof,
+        commitment: crate::verifying_keys::Bsb22Commitment,
+        inputs: u16,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -200,6 +209,9 @@ pub enum BufferInstruction {
     Create { nonce: [u8; 32], size: u16 },
     Write { offset: u16, bytes: Vec<u8> },
     Close,
+    CreateChunked { nonce: [u8; 32], size: u16 },
+    Grow,
+    WriteChunk { index: u8, bytes: Vec<u8> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

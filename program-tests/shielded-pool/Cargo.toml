@@ -59,6 +59,7 @@ zolana-tree = { workspace = true }
 mollusk-svm = { workspace = true }
 
 [dev-dependencies]
+solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 wincode = { workspace = true }
 serde = { workspace = true }
@@ -290,6 +291,10 @@ path = "tests/spl_interface/validation.rs"
 [[test]]
 name = "dispatch_validation"
 path = "tests/dispatch/validation.rs"
+
+[[test]]
+name = "direct_spend_buffer"
+path = "tests/direct_spend/buffer.rs"
 
 [[test]]
 name = "direct_spend_proofs"

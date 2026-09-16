@@ -24,6 +24,7 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.DirectPaymentGKRCircuitType, "zk_transfer_queue"},
 		{common.DirectPaymentAdmittedCircuitType, "zk_transfer_queue"},
+		{common.DirectPaymentAdmittedDAG10CircuitType, "zk_transfer_queue"},
 		{common.MergeRingCircuitType, "zk_transfer_queue"},
 		{common.CustomRingBaseCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingPolicyCircuitType, "zk_custom_ring_queue"},

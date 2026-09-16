@@ -1,0 +1,40 @@
+=== RUN   TestDecodeRejectsMalformedWitness
+=== RUN   TestDecodeRejectsMalformedWitness/missing_field
+=== RUN   TestDecodeRejectsMalformedWitness/float_field
+=== RUN   TestDecodeRejectsMalformedWitness/oversized_field
+=== RUN   TestDecodeRejectsMalformedWitness/extra_field
+=== RUN   TestDecodeRejectsMalformedWitness/wrong_shape
+=== RUN   TestDecodeRejectsMalformedWitness/null_slice
+--- PASS: TestDecodeRejectsMalformedWitness (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/missing_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/float_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/oversized_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/extra_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/wrong_shape (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/null_slice (0.00s)
+=== RUN   TestPaymentCircuitSelection
+--- PASS: TestPaymentCircuitSelection (0.00s)
+=== RUN   TestDecodePaymentConfiguration
+--- PASS: TestDecodePaymentConfiguration (0.21s)
+PASS
+ok  	zolana/prover/prover/direct_spend	0.763s
+=== RUN   TestAdmittedDAGDecode
+--- PASS: TestAdmittedDAGDecode (0.13s)
+=== RUN   TestAdmittedDAGPayment
+=== RUN   TestAdmittedDAGPayment/root
+=== RUN   TestAdmittedDAGPayment/node
+=== RUN   TestAdmittedDAGPayment/parent
+=== RUN   TestAdmittedDAGPayment/leaf_reference
+=== RUN   TestAdmittedDAGPayment/index
+=== RUN   TestAdmittedDAGPayment/index_overflow
+--- PASS: TestAdmittedDAGPayment (1.09s)
+    --- PASS: TestAdmittedDAGPayment/root (0.11s)
+    --- PASS: TestAdmittedDAGPayment/node (0.12s)
+    --- PASS: TestAdmittedDAGPayment/parent (0.12s)
+    --- PASS: TestAdmittedDAGPayment/leaf_reference (0.12s)
+    --- PASS: TestAdmittedDAGPayment/index (0.12s)
+    --- PASS: TestAdmittedDAGPayment/index_overflow (0.12s)
+=== RUN   TestAdmittedOccupiedPrefix
+--- PASS: TestAdmittedOccupiedPrefix (0.26s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	2.085s

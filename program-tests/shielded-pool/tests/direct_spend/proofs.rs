@@ -149,8 +149,8 @@ impl Fixture {
         let inputs = notes
             .into_iter()
             .enumerate()
-            .map(|(index, note)| direct::Input {
-                proof: MerkleProof {
+            .map(|(index, note)| {
+                let proof = MerkleProof {
                     leaf: note.hash().unwrap(),
                     merkle_context: context.clone(),
                     path: state.get_proof_of_leaf(index, true).unwrap(),
@@ -158,8 +158,8 @@ impl Fixture {
                     root,
                     root_index,
                     root_seq: 0,
-                },
-                note,
+                };
+                direct::Input::new(note, proof).unwrap()
             })
             .collect();
         Self {
@@ -412,21 +412,35 @@ fn prepared_spend_consumes_original_inputs_and_rejects_replay() {
 #[test]
 #[ignore]
 fn gkr_payment_checks_commitment_statement_and_replay() {
-    payment_checks_commitment_statement_and_replay(false);
+    payment_checks_commitment_statement_and_replay(PaymentMode::Gkr);
 }
 
 #[test]
 #[ignore]
 fn admitted_payment_checks_history_commitment_statement_and_replay() {
-    payment_checks_commitment_statement_and_replay(true);
+    payment_checks_commitment_statement_and_replay(PaymentMode::Admitted);
 }
 
-fn payment_checks_commitment_statement_and_replay(admitted: bool) {
+#[test]
+#[ignore]
+fn dag_payment_checks_history_commitment_statement_and_replay() {
+    payment_checks_commitment_statement_and_replay(PaymentMode::Dag);
+}
+
+enum PaymentMode {
+    Gkr,
+    Admitted,
+    Dag,
+}
+
+fn payment_checks_commitment_statement_and_replay(mode: PaymentMode) {
+    let admitted = !matches!(mode, PaymentMode::Gkr);
+    let dag = matches!(mode, PaymentMode::Dag);
     let count = std::env::var("DIRECT_SPEND_TEST_INPUTS")
         .ok()
         .map(|value| value.parse::<usize>().unwrap())
         .unwrap_or(4);
-    let capacity = if count <= 144 { 144 } else { 512 };
+    let capacity = if !dag && count <= 144 { 144 } else { 512 };
     let mut fixture = Fixture::new(count);
     let filter_key = pda::nullifier_filter(&fixture.tree).0;
     {
@@ -509,6 +523,19 @@ fn payment_checks_commitment_statement_and_replay(admitted: bool) {
         .unwrap()
         .with_gkr()
         .unwrap()
+    } else if dag {
+        direct::admitted_dag_payment(
+            plan.request,
+            balance,
+            &payment,
+            owner.to_bytes(),
+            buffer.to_bytes(),
+            7,
+            8,
+            &plan.opening,
+            &fixture.inputs,
+        )
+        .unwrap()
     } else {
         direct::admitted_payment(
             plan.request,
@@ -548,11 +575,20 @@ fn payment_checks_commitment_statement_and_replay(admitted: bool) {
         else {
             unreachable!()
         };
-        payload = Payload::AdmittedPayment {
-            statement,
-            proof,
-            commitment,
-            inputs,
+        payload = if dag {
+            Payload::DagPayment {
+                statement,
+                proof,
+                commitment,
+                inputs,
+            }
+        } else {
+            Payload::AdmittedPayment {
+                statement,
+                proof,
+                commitment,
+                inputs,
+            }
         };
     }
     fixture.upload(nonce, payload.clone());
@@ -639,8 +675,9 @@ fn payment_checks_commitment_statement_and_replay(admitted: bool) {
             continue;
         }
         let mut account = original_tree.clone();
-        let (Payload::GkrPayment { statement, .. } | Payload::AdmittedPayment { statement, .. }) =
-            &payload
+        let (Payload::GkrPayment { statement, .. }
+        | Payload::AdmittedPayment { statement, .. }
+        | Payload::DagPayment { statement, .. }) = &payload
         else {
             unreachable!()
         };
@@ -689,7 +726,17 @@ fn payment_checks_commitment_statement_and_replay(admitted: bool) {
         .svm
         .set_account(fixture.tree, original_tree)
         .unwrap();
-    for mutation in ["commitment", "knowledge", "shape", "output", "nullifier"] {
+    for mutation in [
+        "commitment",
+        "knowledge",
+        "shape",
+        "output",
+        "nullifier",
+        "selector",
+    ] {
+        if mutation == "selector" && !dag {
+            continue;
+        }
         let mut changed = payload.clone();
         let (Payload::GkrPayment {
             statement,
@@ -698,6 +745,12 @@ fn payment_checks_commitment_statement_and_replay(admitted: bool) {
             ..
         }
         | Payload::AdmittedPayment {
+            statement,
+            commitment,
+            inputs,
+            ..
+        }
+        | Payload::DagPayment {
             statement,
             commitment,
             inputs,
@@ -717,7 +770,25 @@ fn payment_checks_commitment_statement_and_replay(admitted: bool) {
                 };
                 certificate.nullifiers[1] = certificate.nullifiers[0];
             }
+            "selector" => {}
             _ => unreachable!(),
+        }
+        if mutation == "selector" {
+            let Payload::DagPayment {
+                statement,
+                proof,
+                commitment,
+                inputs,
+            } = changed
+            else {
+                unreachable!()
+            };
+            changed = Payload::AdmittedPayment {
+                statement,
+                proof,
+                commitment,
+                inputs,
+            };
         }
         let encoded = borsh::to_vec(&changed).unwrap();
         let mut account = original.clone();
@@ -807,7 +878,7 @@ fn payment_checks_commitment_statement_and_replay(admitted: bool) {
         2
     );
     println!(
-        "DIRECT_PAYMENT_CU admitted={admitted} count={count} cu={}",
+        "DIRECT_PAYMENT_CU admitted={admitted} dag={dag} count={count} cu={}",
         fixture
             .rpc
             .last_transaction_trace()

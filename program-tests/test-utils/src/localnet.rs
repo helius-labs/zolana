@@ -280,6 +280,10 @@ impl LocalnetValidator {
         args.push("--account-dir".into());
         args.push(self.account_dir.clone());
 
+        if std::env::var("E2E_BENCH_INSTRUCTION_PROFILING").as_deref() == Ok("0") {
+            args.push("--validator-args=--disable-instruction-profiling".into());
+        }
+
         let status = Command::new(&self.cli_bin)
             .current_dir(&self.working_dir)
             .args(&args)

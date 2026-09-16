@@ -48,8 +48,14 @@ func TestDecodeRejectsMalformedWitness(t *testing.T) {
 }
 
 func TestPaymentCircuitSelection(t *testing.T) {
-	for _, kind := range []common.CircuitType{common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType} {
+	for _, kind := range []common.CircuitType{common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType} {
 		for _, inputs := range []uint32{144, 512} {
+			if kind == common.DirectPaymentAdmittedDAG10CircuitType && inputs == 144 {
+				if _, err := Circuit(kind, inputs, 2); err == nil {
+					t.Fatal("accepted an unsupported DAG capacity")
+				}
+				continue
+			}
 			circuit, err := Circuit(kind, inputs, 2)
 			if err != nil {
 				t.Fatal(err)
@@ -58,6 +64,10 @@ func TestPaymentCircuitSelection(t *testing.T) {
 			case *direct.PaymentCircuit:
 				if !payment.GKR || payment.Transcript != "" || len(payment.Certificate.Nullifiers) != int(inputs) {
 					t.Fatalf("incorrect GKR configuration: %d inputs", inputs)
+				}
+			case *direct.DAGPaymentCircuit:
+				if payment.Height != 10 || len(payment.Certificate.Notes) != 512 || len(payment.Levels) != 32 || len(payment.Levels[0]) != 512 || len(payment.Levels[9]) != 1 || len(payment.Certificate.Notes[0].Path) != 0 {
+					t.Fatal("incorrect DAG configuration")
 				}
 			case *direct.AdmittedPaymentCircuit:
 				if len(payment.Certificate.Nullifiers) != int(inputs) || len(payment.Balance.Values) != 1 || len(payment.Balance.Outputs) != 2 {
@@ -80,8 +90,11 @@ func TestPaymentCircuitSelection(t *testing.T) {
 }
 
 func TestDecodePaymentConfiguration(t *testing.T) {
-	for _, kind := range []common.CircuitType{common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType} {
+	for _, kind := range []common.CircuitType{common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType} {
 		for _, inputs := range []uint32{144, 512} {
+			if kind == common.DirectPaymentAdmittedDAG10CircuitType && inputs == 144 {
+				continue
+			}
 			circuit, err := Circuit(kind, inputs, 2)
 			if err != nil {
 				t.Fatal(err)
@@ -105,7 +118,7 @@ func TestDecodePaymentConfiguration(t *testing.T) {
 			if err := json.Unmarshal(encoded, &fields); err != nil {
 				t.Fatal(err)
 			}
-			for field, value := range map[string]string{"GKR": "false", "gkr": "true", "Transcript": `"other"`, "transcript": "null", "options": `{}`} {
+			for field, value := range map[string]string{"GKR": "false", "gkr": "true", "Transcript": `"other"`, "transcript": "null", "options": `{}`, "Height": "32", "height": "16"} {
 				fields[field] = json.RawMessage(value)
 				witness, _ := json.Marshal(fields)
 				body, _ := json.Marshal(Request{CircuitType: kind, NInputs: inputs, NOutputs: 2, Witness: witness})

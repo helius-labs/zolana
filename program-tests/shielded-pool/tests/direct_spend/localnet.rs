@@ -157,12 +157,19 @@ impl Fixture {
         })
     }
 
-    fn resolve_inputs(&mut self) -> Result<u128> {
-        let hashes = self
+    fn resolve_inputs(&mut self) -> Result<(u128, u128)> {
+        let hash_start = Instant::now();
+        let notes = self
             .notes
             .iter()
-            .map(ProofInputUtxo::hash)
+            .cloned()
+            .map(direct::InputNote::new)
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        let hashes = notes
+            .iter()
+            .map(direct::InputNote::commitment)
+            .collect::<Vec<_>>();
+        let hash_ms = hash_start.elapsed().as_millis();
         let fetch_start = Instant::now();
         let state_proofs = wait_for_merkle_proofs(&self.indexer, self.tree_address, &hashes);
         let fetch_ms = fetch_start.elapsed().as_millis();
@@ -170,20 +177,17 @@ impl Fixture {
             tree_type: 0,
             tree: Address::new_from_array(self.tree.to_bytes()),
         };
-        self.inputs = self
-            .notes
-            .iter()
-            .cloned()
+        self.inputs = notes
+            .into_iter()
             .zip(state_proofs)
-            .map(|(note, proof)| direct::Input {
-                proof: MerkleProof {
+            .map(|(note, proof)| {
+                note.with_proof(MerkleProof {
                     merkle_context: context.clone(),
                     ..proof
-                },
-                note,
+                })
             })
-            .collect();
-        Ok(fetch_ms)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok((hash_ms, fetch_ms))
     }
 
     fn payment(&self, inputs: PaymentInputs) -> Result<(Payment, Vec<direct::Output>)> {
@@ -301,28 +305,7 @@ fn allocate_filter(rpc: &SolanaRpc, setup: &ProtocolSetup, tree: Pubkey) -> Resu
                 )?,
                 &signers,
             )?;
-            let mut attempts = 0;
-            let signature = loop {
-                let result = rpc.send_transaction_with_config(
-                    &transaction,
-                    zolana_client::RpcSendTransactionConfig {
-                        preflight_commitment: Some(rpc.client().commitment().commitment),
-                        ..Default::default()
-                    },
-                );
-                match result {
-                    Ok(signature) => break signature,
-                    Err(ClientError::SolanaRpcTransaction { ref source, .. })
-                        if attempts < 4
-                            && source.get_transaction_error()
-                                == Some(TransactionError::AccountInUse) =>
-                    {
-                        attempts += 1;
-                        std::thread::sleep(Duration::from_millis(100));
-                    }
-                    Err(error) => return Err(error.into()),
-                }
-            };
+            let signature = send_signed(rpc, &transaction)?;
             signatures.push(signature);
         }
         for signature in signatures {
@@ -470,19 +453,38 @@ fn send_instructions(
             zolana_client::compile_message(&payer, instructions, blockhash, budget)?,
             signers,
         )?;
-        let signature = rpc.send_transaction_with_config(
-            &transaction,
-            zolana_client::RpcSendTransactionConfig {
-                preflight_commitment: Some(rpc.client().commitment().commitment),
-                ..Default::default()
-            },
-        )?;
+        let signature = send_signed(rpc, &transaction)?;
         rpc.wait_for_signature_with_interval(&signature, interval)?;
         signature
     } else {
         rpc.create_and_send_transaction(instructions, payer, signers, budget)?
     };
     Ok(signature)
+}
+
+fn send_signed(
+    rpc: &SolanaRpc,
+    transaction: &solana_transaction::versioned::VersionedTransaction,
+) -> Result<solana_signature::Signature> {
+    for attempt in 0..=4 {
+        match rpc.send_transaction_with_config(
+            transaction,
+            zolana_client::RpcSendTransactionConfig {
+                preflight_commitment: Some(rpc.client().commitment().commitment),
+                ..Default::default()
+            },
+        ) {
+            Ok(signature) => return Ok(signature),
+            Err(ClientError::SolanaRpcTransaction { ref source, .. })
+                if attempt < 4
+                    && source.get_transaction_error() == Some(TransactionError::AccountInUse) =>
+            {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    unreachable!()
 }
 
 fn certificate_batches(
@@ -521,6 +523,16 @@ fn submit_batches(
     fixture: &mut Fixture,
     batches: Vec<Vec<solana_instruction::Instruction>>,
 ) -> Result<Vec<solana_signature::Signature>> {
+    pack_batches(fixture, batches)?
+        .into_iter()
+        .map(|batch| send_batch(fixture, &batch))
+        .collect()
+}
+
+fn pack_batches(
+    fixture: &Fixture,
+    batches: Vec<Vec<solana_instruction::Instruction>>,
+) -> Result<Vec<Vec<solana_instruction::Instruction>>> {
     let mut packed: Vec<Vec<solana_instruction::Instruction>> = Vec::new();
     for batch in batches {
         let mut combined = packed.last().cloned().unwrap_or_default();
@@ -546,8 +558,7 @@ fn submit_batches(
             packed.push(batch);
         }
     }
-    let mut signatures = Vec::with_capacity(packed.len());
-    for batch in packed {
+    for batch in &packed {
         let size = zolana_client::transaction_size(
             &fixture.owner.pubkey(),
             &batch,
@@ -557,14 +568,66 @@ fn submit_batches(
             "packed transaction: {} bytes, {} addresses",
             size.bytes, size.addresses
         );
-        signatures.push(send_batch(fixture, &batch)?);
     }
-    Ok(signatures)
+    Ok(packed)
+}
+
+fn start_chunked_upload(
+    fixture: &mut Fixture,
+    upload: &instructions::SpendUpload,
+    concurrency: usize,
+) -> Result<(Vec<solana_signature::Signature>, u128)> {
+    let mut batches = vec![upload.allocate_chunked()];
+    batches.extend(upload.start_chunks().into_iter().map(|chunk| vec![chunk]));
+    let mut packed = pack_batches(fixture, batches)?;
+    let started = Instant::now();
+    let mut signatures = vec![send_batch(fixture, &packed.remove(0))?];
+    let allocation_ms = started.elapsed().as_millis();
+    signatures.extend(submit_parallel_batches(fixture, packed, concurrency)?);
+    Ok((signatures, allocation_ms))
+}
+
+fn submit_parallel_batches(
+    fixture: &Fixture,
+    packed: Vec<Vec<solana_instruction::Instruction>>,
+    concurrency: usize,
+) -> Result<Vec<solana_signature::Signature>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let next = AtomicUsize::new(0);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        for _ in 0..concurrency.min(packed.len()) {
+            let sender = sender.clone();
+            let (next, packed, rpc, owner) = (&next, &packed, &fixture.rpc, &fixture.owner);
+            scope.spawn(move || loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some(batch) = packed.get(index) else {
+                    break;
+                };
+                let result =
+                    send_instructions(rpc, owner.pubkey(), &[owner], batch, direct::COMPUTE_BUDGET);
+                if sender.send((index, result)).is_err() {
+                    break;
+                }
+            });
+        }
+        drop(sender);
+        let mut results = receiver.into_iter().collect::<Vec<_>>();
+        results.sort_by_key(|(index, _)| *index);
+        ensure!(
+            results.len() == packed.len(),
+            "upload worker did not finish"
+        );
+        results.into_iter().map(|(_, result)| result).collect()
+    })
 }
 
 struct Timing {
     started: Instant,
     witness_ms: u128,
+    input_hash_ms: u128,
+    witness_stages: WitnessStages,
     membership_fetch_ms: u128,
     nullifier_fetch_ms: u128,
     preparation_ms: u128,
@@ -572,9 +635,19 @@ struct Timing {
     prove_ms: u128,
     submit_ms: u128,
     prefix_upload_ms: u128,
+    allocation_ms: u128,
+    chunked: bool,
     overlap: bool,
     confirmed_ms: u128,
     proofs: usize,
+}
+
+#[derive(Default, serde::Serialize)]
+struct WitnessStages {
+    certificate_ms: u128,
+    output_ms: u128,
+    balance_ms: u128,
+    fusion_ms: u128,
 }
 
 struct Spend {
@@ -586,21 +659,23 @@ struct Spend {
 
 fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) -> Result<Spend> {
     let started = Instant::now();
-    let membership_fetch_ms = fixture.resolve_inputs()?;
+    let (input_hash_ms, membership_fetch_ms) = fixture.resolve_inputs()?;
     let owner = fixture.owner.pubkey();
     let nonce = zolana_keypair::random_blinding();
     let buffer = instructions::spend_buffer(&owner, &nonce);
-    if mode == "gkr" || mode == "admitted" {
-        let admitted = mode == "admitted";
+    if mode == "gkr" || mode.starts_with("admitted") {
+        let admitted = mode != "gkr";
+        let dag = mode == "admitted-dag10";
         ensure!(
             !prepared,
             "GKR is a fused payment and cannot use prepared certificates"
         );
-        let capacity = if fixture.inputs.len() <= 144 {
+        let capacity = if !dag && fixture.inputs.len() <= 144 {
             144
         } else {
             512
         };
+        let stage = Instant::now();
         let plan = direct::certificate(
             owner.to_bytes(),
             buffer.to_bytes(),
@@ -611,6 +686,10 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
             zolana_keypair::random_blinding(),
             capacity,
         )?;
+        let mut witness_stages = WitnessStages {
+            certificate_ms: stage.elapsed().as_millis(),
+            ..Default::default()
+        };
         let (root, freshness, nullifier_fetch_ms) = if admitted {
             (
                 wire::Root {
@@ -632,10 +711,13 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
                 direct::freshness(&plan.statement, fixture.tree_id, &nips, capacity)?;
             (root, Some(request), fetch_ms)
         };
+        let stage = Instant::now();
         let (payment, outputs) = fixture.payment(PaymentInputs::Notes {
             certificate: plan.statement,
             freshness: root,
         })?;
+        witness_stages.output_ms = stage.elapsed().as_millis();
+        let stage = Instant::now();
         let balance = direct::balance(
             &payment,
             owner.to_bytes(),
@@ -645,6 +727,8 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
             &outputs,
             1,
         )?;
+        witness_stages.balance_ms = stage.elapsed().as_millis();
+        let stage = Instant::now();
         let request = if let Some(freshness) = freshness {
             direct::payment(
                 plan.request,
@@ -658,6 +742,18 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
                 &plan.opening,
             )?
             .with_gkr()?
+        } else if dag {
+            direct::admitted_dag_payment(
+                plan.request,
+                balance,
+                &payment,
+                owner.to_bytes(),
+                buffer.to_bytes(),
+                fixture.tree_id,
+                fixture.output_tree_id,
+                &plan.opening,
+                &fixture.inputs,
+            )?
         } else {
             direct::admitted_payment(
                 plan.request,
@@ -670,10 +766,19 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
                 &plan.opening,
             )?
         };
+        witness_stages.fusion_ms = stage.elapsed().as_millis();
         let witness_ms = started.elapsed().as_millis();
         let overlap = std::env::var("E2E_BENCH_OVERLAP").as_deref() != Ok("0");
+        let chunked = std::env::var("E2E_BENCH_CHUNKED").as_deref() != Ok("0");
         let payload = |statement, proof, commitment| {
-            if admitted {
+            if dag {
+                Payload::DagPayment {
+                    statement,
+                    proof,
+                    commitment,
+                    inputs: capacity as u16,
+                }
+            } else if admitted {
                 Payload::AdmittedPayment {
                     statement,
                     proof,
@@ -703,27 +808,37 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
         );
         let upload = instructions::SpendUpload::new(owner, nonce, &staged_payload)
             .map_err(|error| anyhow!(error))?;
-        let (proof, prove_ms, prefix_upload_ms, mut signatures) = std::thread::scope(|scope| {
-            let worker = scope.spawn(|| {
+        let (proof, prove_ms, prefix_upload_ms, allocation_ms, mut signatures) =
+            std::thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    let start = Instant::now();
+                    let proof = prove_compressed(&request)?;
+                    Ok::<_, anyhow::Error>((proof, start.elapsed().as_millis()))
+                });
                 let start = Instant::now();
-                let proof = prove_compressed(&request)?;
-                Ok::<_, anyhow::Error>((proof, start.elapsed().as_millis()))
-            });
-            let start = Instant::now();
-            let signatures = if overlap {
-                submit_batches(
-                    fixture,
-                    upload.start().into_iter().map(|ix| vec![ix]).collect(),
-                )?
-            } else {
-                Vec::new()
-            };
-            let prefix_upload_ms = start.elapsed().as_millis();
-            let (proof, prove_ms) = worker
-                .join()
-                .map_err(|_| anyhow!("prover worker panicked"))??;
-            Ok::<_, anyhow::Error>((proof, prove_ms, prefix_upload_ms, signatures))
-        })?;
+                let mut signatures = Vec::new();
+                let mut allocation_ms = 0;
+                if overlap && chunked {
+                    (signatures, allocation_ms) =
+                        start_chunked_upload(fixture, &upload, concurrency)?;
+                } else if overlap {
+                    signatures = submit_batches(
+                        fixture,
+                        upload.start().into_iter().map(|ix| vec![ix]).collect(),
+                    )?;
+                }
+                let prefix_upload_ms = start.elapsed().as_millis();
+                let (proof, prove_ms) = worker
+                    .join()
+                    .map_err(|_| anyhow!("prover worker panicked"))??;
+                Ok::<_, anyhow::Error>((
+                    proof,
+                    prove_ms,
+                    prefix_upload_ms,
+                    allocation_ms,
+                    signatures,
+                ))
+            })?;
         let commitment = proof
             .commitment
             .ok_or_else(|| anyhow!("GKR proof has no commitment"))?;
@@ -740,7 +855,15 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
                 commitment_pok: commitment.commitment_pok,
             },
         );
-        let mut batch = if overlap {
+        let mut allocation_ms = allocation_ms;
+        if chunked && !overlap {
+            let (uploaded, elapsed) = start_chunked_upload(fixture, &upload, concurrency)?;
+            signatures.extend(uploaded);
+            allocation_ms = elapsed;
+        }
+        let mut batch = if chunked {
+            upload.finish_chunks(&payload)
+        } else if overlap {
             upload.finish(&payload)
         } else {
             instructions::upload_spend(owner, nonce, &payload)
@@ -761,11 +884,15 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
             timing: Timing {
                 started,
                 witness_ms,
+                input_hash_ms,
+                witness_stages,
                 membership_fetch_ms,
                 nullifier_fetch_ms,
                 prove_ms,
                 submit_ms: submit_start.elapsed().as_millis(),
                 prefix_upload_ms,
+                allocation_ms,
+                chunked,
                 overlap,
                 confirmed_ms: started.elapsed().as_millis(),
                 preparation_ms: 0,
@@ -852,6 +979,8 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
         timing: Timing {
             started,
             witness_ms,
+            input_hash_ms,
+            witness_stages: WitnessStages::default(),
             membership_fetch_ms,
             nullifier_fetch_ms,
             preparation_ms,
@@ -859,6 +988,8 @@ fn spend(fixture: &mut Fixture, mode: &str, concurrency: usize, prepared: bool) 
             prove_ms,
             submit_ms: submit_start.elapsed().as_millis(),
             prefix_upload_ms: 0,
+            allocation_ms: 0,
+            chunked: false,
             overlap: false,
             confirmed_ms: started.elapsed().as_millis(),
             proofs: chunks.len() * 2 + 1,
@@ -972,10 +1103,12 @@ fn report(
             "indexer_poll_ms": std::env::var("E2E_BENCH_INDEXER_POLL_MS").ok(),
             "setup_ms": setup_ms, "witness_ms": timing.witness_ms, "preparation_ms": timing.preparation_ms,
             "membership_fetch_ms": timing.membership_fetch_ms,
+            "input_hash_ms": timing.input_hash_ms, "witness_stages": timing.witness_stages,
             "nullifier_fetch_ms": timing.nullifier_fetch_ms,
             "witness_local_ms": timing.witness_ms.saturating_sub(timing.membership_fetch_ms + timing.nullifier_fetch_ms),
             "certificate_prove_ms": timing.certificate_prove_ms, "prove_ms": timing.prove_ms,
             "submit_ms": timing.submit_ms, "prefix_upload_ms": timing.prefix_upload_ms,
+            "allocation_ms": timing.allocation_ms, "chunked": timing.chunked,
             "overlap": timing.overlap, "confirmed_ms": timing.confirmed_ms,
             "recipient_indexer_ms": observation.indexer_ms, "recipient_decrypt_ms": observation.decrypt_ms,
             "indexed_ms": observation.visible_ms, "total_ms": observation.visible_ms, "proofs": timing.proofs,
@@ -993,12 +1126,16 @@ fn direct_spend_e2e_benchmark() -> Result<()> {
     let mode = std::env::var("E2E_BENCH_MODE").unwrap_or_else(|_| "direct".into());
     let prepared = std::env::var("E2E_BENCH_PREPARED").as_deref() == Ok("1");
     ensure!(
-        ["direct", "gkr", "admitted"].contains(&mode.as_str()),
+        ["direct", "gkr", "admitted", "admitted-dag10"].contains(&mode.as_str()),
         "unknown benchmark mode"
     );
     for run in 1..=config.runs {
         let setup = Instant::now();
-        let mut fixture = Fixture::new(config.inputs, config.interleaved, mode == "admitted")?;
+        let mut fixture = Fixture::new(
+            config.inputs,
+            config.interleaved,
+            mode.starts_with("admitted"),
+        )?;
         restart_prover()?;
         let mut setup_ms = setup.elapsed().as_millis();
         let mut warmup_ms = 0;
@@ -1018,7 +1155,11 @@ fn direct_spend_e2e_benchmark() -> Result<()> {
                 &observation,
             );
             let setup = Instant::now();
-            fixture = Fixture::new(config.inputs, config.interleaved, mode == "admitted")?;
+            fixture = Fixture::new(
+                config.inputs,
+                config.interleaved,
+                mode.starts_with("admitted"),
+            )?;
             setup_ms += setup.elapsed().as_millis();
         }
         let result = spend(&mut fixture, &mode, config.concurrency, prepared)?;

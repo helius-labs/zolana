@@ -1,0 +1,122 @@
+=== RUN   TestAdmittedDAGConstraints
+=== RUN   TestAdmittedDAGConstraints/10
+    admitted_dag_test.go:35: ADMITTED_DAG inputs=512 height=10 constraints=835655 fft_domain=1048576 private_committed=10939
+=== RUN   TestAdmittedDAGConstraints/16
+    admitted_dag_test.go:35: ADMITTED_DAG inputs=512 height=16 constraints=1614449 fft_domain=2097152 private_committed=38533
+--- PASS: TestAdmittedDAGConstraints (5.23s)
+    --- PASS: TestAdmittedDAGConstraints/10 (2.00s)
+    --- PASS: TestAdmittedDAGConstraints/16 (3.23s)
+=== RUN   TestAdmittedPayment
+--- PASS: TestAdmittedPayment (0.57s)
+=== RUN   TestAdmittedPaymentRejects
+=== RUN   TestAdmittedPaymentRejects/asset
+=== RUN   TestAdmittedPaymentRejects/nullifier
+=== RUN   TestAdmittedPaymentRejects/amount_overflow
+=== RUN   TestAdmittedPaymentRejects/output_overflow
+=== RUN   TestAdmittedPaymentRejects/conservation
+=== RUN   TestAdmittedPaymentRejects/padding_gap
+=== RUN   TestAdmittedPaymentRejects/owner
+=== RUN   TestAdmittedPaymentRejects/tree
+=== RUN   TestAdmittedPaymentRejects/root
+=== RUN   TestAdmittedPaymentRejects/index_overflow
+=== RUN   TestAdmittedPaymentRejects/hidden_amount
+=== RUN   TestAdmittedPaymentRejects/recipient
+=== RUN   TestAdmittedPaymentRejects/inflation
+=== RUN   TestAdmittedPaymentRejects/secret
+=== RUN   TestAdmittedPaymentRejects/path
+=== RUN   TestAdmittedPaymentRejects/index
+=== RUN   TestAdmittedPaymentRejects/subtotal
+=== RUN   TestAdmittedPaymentRejects/output
+=== RUN   TestAdmittedPaymentRejects/count
+=== RUN   TestAdmittedPaymentRejects/empty
+=== RUN   TestAdmittedPaymentRejects/credit_ID
+=== RUN   TestAdmittedPaymentRejects/blinding
+=== RUN   TestAdmittedPaymentRejects/domain
+=== RUN   TestAdmittedPaymentRejects/intent
+=== RUN   TestAdmittedPaymentRejects/hash
+--- PASS: TestAdmittedPaymentRejects (0.80s)
+    --- PASS: TestAdmittedPaymentRejects/asset (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/nullifier (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/amount_overflow (0.01s)
+    --- PASS: TestAdmittedPaymentRejects/output_overflow (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/conservation (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/padding_gap (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/owner (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/tree (0.01s)
+    --- PASS: TestAdmittedPaymentRejects/root (0.01s)
+    --- PASS: TestAdmittedPaymentRejects/index_overflow (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/hidden_amount (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/recipient (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/inflation (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/secret (0.01s)
+    --- PASS: TestAdmittedPaymentRejects/path (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/index (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/subtotal (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/output (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/count (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/empty (0.01s)
+    --- PASS: TestAdmittedPaymentRejects/credit_ID (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/blinding (0.02s)
+    --- PASS: TestAdmittedPaymentRejects/domain (0.13s)
+    --- PASS: TestAdmittedPaymentRejects/intent (0.13s)
+    --- PASS: TestAdmittedPaymentRejects/hash (0.13s)
+=== RUN   TestAdmittedDAGPayment
+=== RUN   TestAdmittedDAGPayment/root
+=== RUN   TestAdmittedDAGPayment/node
+=== RUN   TestAdmittedDAGPayment/parent
+=== RUN   TestAdmittedDAGPayment/leaf_reference
+=== RUN   TestAdmittedDAGPayment/index
+=== RUN   TestAdmittedDAGPayment/index_overflow
+--- PASS: TestAdmittedDAGPayment (1.24s)
+    --- PASS: TestAdmittedDAGPayment/root (0.11s)
+    --- PASS: TestAdmittedDAGPayment/node (0.12s)
+    --- PASS: TestAdmittedDAGPayment/parent (0.12s)
+    --- PASS: TestAdmittedDAGPayment/leaf_reference (0.12s)
+    --- PASS: TestAdmittedDAGPayment/index (0.12s)
+    --- PASS: TestAdmittedDAGPayment/index_overflow (0.12s)
+=== RUN   TestAdmittedOccupiedPrefix
+--- PASS: TestAdmittedOccupiedPrefix (0.25s)
+=== RUN   TestAdmittedPaymentConstraints
+=== RUN   TestAdmittedPaymentConstraints/144
+    admitted_payment_test.go:324: ADMITTED_PAYMENT inputs=144 outputs=2 constraints=1232023 public_variables=2 private_committed=19585 digest=1df01cde9597da0bbd4e52455a5e52702f862f30b91ab1080f8e8fc5f12b09c6
+    admitted_payment_test.go:328: ADMITTED_GKR_TRANSCRIPT inputs=144 proof_elements=5343 proof_bytes=170976
+=== RUN   TestAdmittedPaymentConstraints/512
+    admitted_payment_test.go:324: ADMITTED_PAYMENT inputs=512 outputs=2 constraints=1754522 public_variables=2 private_committed=69633 digest=94059c08903709dd9c22fb5a7d0cff5e3207e2d8b4fa48d17df034eafbf59b43
+    admitted_payment_test.go:328: ADMITTED_GKR_TRANSCRIPT inputs=512 proof_elements=5738 proof_bytes=183616
+--- PASS: TestAdmittedPaymentConstraints (4.54s)
+    --- PASS: TestAdmittedPaymentConstraints/144 (1.62s)
+    --- PASS: TestAdmittedPaymentConstraints/512 (2.92s)
+=== RUN   TestAdmittedDAGDecode
+--- PASS: TestAdmittedDAGDecode (0.11s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	13.424s
+=== RUN   TestDecodeRejectsMalformedWitness
+=== RUN   TestDecodeRejectsMalformedWitness/missing_field
+=== RUN   TestDecodeRejectsMalformedWitness/float_field
+=== RUN   TestDecodeRejectsMalformedWitness/oversized_field
+=== RUN   TestDecodeRejectsMalformedWitness/extra_field
+=== RUN   TestDecodeRejectsMalformedWitness/wrong_shape
+=== RUN   TestDecodeRejectsMalformedWitness/null_slice
+--- PASS: TestDecodeRejectsMalformedWitness (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/missing_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/float_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/oversized_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/extra_field (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/wrong_shape (0.00s)
+    --- PASS: TestDecodeRejectsMalformedWitness/null_slice (0.00s)
+=== RUN   TestPaymentCircuitSelection
+--- PASS: TestPaymentCircuitSelection (0.00s)
+=== RUN   TestDecodePaymentConfiguration
+--- PASS: TestDecodePaymentConfiguration (0.29s)
+PASS
+ok  	zolana/prover/prover/direct_spend	0.776s
+=== RUN   TestGKRRequestMeta
+--- PASS: TestGKRRequestMeta (0.00s)
+=== RUN   TestLazyKeyManagerBuildsDirectSpendKeyPaths
+--- PASS: TestLazyKeyManagerBuildsDirectSpendKeyPaths (0.00s)
+PASS
+ok  	zolana/prover/prover/common	0.611s
+=== RUN   TestGetQueueNameForCircuit
+--- PASS: TestGetQueueNameForCircuit (0.00s)
+PASS
+ok  	zolana/prover/server	0.738s

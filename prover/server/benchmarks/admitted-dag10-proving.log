@@ -1,0 +1,18 @@
+=== RUN   TestGKRServiceProving
+00:08:38 INF Loading TransferProofSystem cache_key=direct-payment-admitted-dag10_512_2 key_path=/Users/tsv/Developer/zolana/zolana-10x-admission/prover/server/proving-keys/direct-payment-admitted-dag10_512_2.key
+00:08:41 INF TransferProofSystem loaded and cached successfully cache_key=direct-payment-admitted-dag10_512_2 circuit_type=direct-payment-admitted-dag10 n_inputs=512 n_outputs=2 requires_p256=false
+    service_benchmark_test.go:94: GKR_SERVICE_LOAD kind=direct-payment-admitted-dag10 inputs=512 load_ms=2701 constraints=835655 request_bytes=443048 go=go1.27.1
+    service_benchmark_test.go:98: GKR_SERVICE_KEY inputs=512 digest=e87264ba9e3e44054142a6152b3a295de74bebc8c22dc26581bc110cafc9bb55
+00:08:41 DBG Found cached TransferProofSystem key=direct-payment-admitted-dag10_512_2
+    service_benchmark_test.go:116: GKR_SERVICE_PROVE inputs=512 threads=18 msm_tasks=0 concurrency=1 sample=0 request=0 seconds=1.028126
+    service_benchmark_test.go:116: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=1 sample=0 seconds=1.028132 heap_bytes=1334228344 sys_bytes=1467939432
+00:08:42 DBG Found cached TransferProofSystem key=direct-payment-admitted-dag10_512_2
+    service_benchmark_test.go:116: GKR_SERVICE_PROVE inputs=512 threads=18 msm_tasks=0 concurrency=1 sample=1 request=0 seconds=1.009863
+    service_benchmark_test.go:116: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=1 sample=1 seconds=1.009867 heap_bytes=1419240848 sys_bytes=2253040408
+00:08:43 DBG Found cached TransferProofSystem key=direct-payment-admitted-dag10_512_2
+    service_benchmark_test.go:116: GKR_SERVICE_PROVE inputs=512 threads=18 msm_tasks=0 concurrency=1 sample=2 request=0 seconds=1.023698
+    service_benchmark_test.go:116: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=1 sample=2 seconds=1.023706 heap_bytes=2353349480 sys_bytes=2471422808
+    service_benchmark_test.go:116: GKR_SERVICE_MEDIAN inputs=512 threads=18 msm_tasks=0 concurrency=1 latency_seconds=1.023698 wave_seconds=1.023706 proofs_per_second=0.976843
+--- PASS: TestGKRServiceProving (9.98s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	10.569s

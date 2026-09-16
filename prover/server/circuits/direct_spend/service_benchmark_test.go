@@ -16,11 +16,13 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
+	"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/logger"
 	"github.com/rs/zerolog"
 
+	direct "zolana/prover/circuits/direct_spend"
 	"zolana/prover/prover/common"
 	directprover "zolana/prover/prover/direct_spend"
 )
@@ -38,16 +40,10 @@ func TestGKRServiceProving(t *testing.T) {
 	if name := os.Getenv("GKR_SERVICE_CIRCUIT"); name != "" {
 		kind = common.CircuitType(name)
 	}
-	if kind != common.DirectPaymentGKRCircuitType && kind != common.DirectPaymentAdmittedCircuitType {
-		t.Fatal("GKR_SERVICE_CIRCUIT must be direct-payment-gkr or direct-payment-admitted")
+	if kind != common.DirectPaymentGKRCircuitType && kind != common.DirectPaymentAdmittedCircuitType && kind != common.DirectPaymentAdmittedDAG10CircuitType {
+		t.Fatal("GKR_SERVICE_CIRCUIT must be direct-payment-gkr, direct-payment-admitted, or direct-payment-admitted-dag10")
 	}
-	samples := benchmarkValues(t, "GKR_SERVICE_SAMPLES", "3")[0]
 	threads := benchmarkValues(t, "GKR_SERVICE_THREADS", "4,8,18")
-	concurrency := benchmarkValues(t, "GKR_SERVICE_CONCURRENCY", "1")
-	msmTasks := []int{0}
-	if os.Getenv("GKR_SERVICE_MSM_TASKS") != "" {
-		msmTasks = benchmarkValues(t, "GKR_SERVICE_MSM_TASKS", "18")
-	}
 	originalThreads := runtime.GOMAXPROCS(threads[0])
 	defer runtime.GOMAXPROCS(originalThreads)
 	circuit, err := directprover.Circuit(kind, uint32(inputs), 2)
@@ -61,10 +57,17 @@ func TestGKRServiceProving(t *testing.T) {
 	expected := constraintDigest(t, compiled)
 	compiled = nil
 	debug.FreeOSMemory()
-	payment := scatteredPayment(t, inputs)
+	var payment *direct.PaymentCircuit
+	if kind == common.DirectPaymentAdmittedDAG10CircuitType {
+		payment = scatteredPaymentAtHeight(t, inputs, direct.DAGTreeHeight)
+	} else {
+		payment = scatteredPayment(t, inputs)
+	}
 	var w frontend.Circuit = payment
 	if kind == common.DirectPaymentAdmittedCircuitType {
 		w = admittedPayment(t, payment)
+	} else if kind == common.DirectPaymentAdmittedDAG10CircuitType {
+		w = dagAdmittedPayment(t, payment, direct.DAGTreeHeight)
 	}
 	encoded, err := json.Marshal(witnessJSON(t, reflect.ValueOf(w).Elem()))
 	if err != nil {
@@ -110,6 +113,22 @@ func TestGKRServiceProving(t *testing.T) {
 		logger.Set(zerolog.New(os.Stdout).With().Timestamp().Logger())
 		defer logger.Set(previous)
 	}
+	benchmarkProofRequests(t, inputs, ps.VerifyingKey, public, func() (*common.Proof, error) {
+		return directprover.ProveRequest(manager, body)
+	})
+}
+
+func benchmarkProofRequests(t *testing.T, inputs int, vk groth16.VerifyingKey, public witness.Witness, prove func() (*common.Proof, error)) {
+	t.Helper()
+	samples := benchmarkValues(t, "GKR_SERVICE_SAMPLES", "3")[0]
+	threads := benchmarkValues(t, "GKR_SERVICE_THREADS", "4,8,18")
+	concurrency := benchmarkValues(t, "GKR_SERVICE_CONCURRENCY", "1")
+	msmTasks := []int{0}
+	if os.Getenv("GKR_SERVICE_MSM_TASKS") != "" {
+		msmTasks = benchmarkValues(t, "GKR_SERVICE_MSM_TASKS", "18")
+	}
+	originalThreads := runtime.GOMAXPROCS(threads[0])
+	defer runtime.GOMAXPROCS(originalThreads)
 	for _, tasks := range msmTasks {
 		t.Setenv("ZOLANA_MSM_TASKS", strconv.Itoa(tasks))
 		for _, count := range threads {
@@ -128,7 +147,7 @@ func TestGKRServiceProving(t *testing.T) {
 						go func(i int) {
 							defer wg.Done()
 							start := time.Now()
-							proof, err := directprover.ProveRequest(manager, body)
+							proof, err := prove()
 							if err == nil {
 								proofs[i], err = json.Marshal(proof)
 							}
@@ -146,7 +165,7 @@ func TestGKRServiceProving(t *testing.T) {
 						if err := json.Unmarshal(proofs[i], &proof); err != nil {
 							t.Fatal(err)
 						}
-						if err := groth16.Verify(proof.Proof, ps.VerifyingKey, public); err != nil {
+						if err := groth16.Verify(proof.Proof, vk, public); err != nil {
 							t.Fatal(err)
 						}
 						durations = append(durations, elapsed[i].Seconds())

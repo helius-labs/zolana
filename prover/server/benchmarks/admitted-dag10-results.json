@@ -1,0 +1,34 @@
+{
+  "kind": "direct-payment-admitted-dag10",
+  "public_domain": "0x44535033",
+  "scope": "resident-key service backend requests; not whole-payment latency",
+  "timed": "strict request and canonical-field decoding, cached key lookup, witness conversion, lookup solver, Groth16, proof JSON serialization",
+  "excluded": "fixture construction, key load, digest compatibility check, proof verification, HTTP and ledger work",
+  "fixture": "512 active notes at unique random private positions in the first 1024 leaves; two outputs; historical root certifies every higher subtree empty",
+  "inputs": 512,
+  "outputs": 2,
+  "height": 10,
+  "go": "1.27.1",
+  "gomaxprocs": 18,
+  "gomemlimit": "24GiB",
+  "concurrency": 1,
+  "verified_proofs": 3,
+  "constraints": 835655,
+  "fft_domain": 1048576,
+  "request_bytes": 443048,
+  "key_bytes": 267031229,
+  "raw_vk_bytes": 1040,
+  "setup_write_seconds": 20.455322,
+  "circuit_digest": "e87264ba9e3e44054142a6152b3a295de74bebc8c22dc26581bc110cafc9bb55",
+  "latency_seconds": {
+    "samples": [
+      1.028126,
+      1.009863,
+      1.023698
+    ],
+    "median": 1.023698,
+    "minimum": 1.009863,
+    "maximum": 1.028126
+  },
+  "log": "admitted-dag10-proving.log"
+}

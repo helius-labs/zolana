@@ -1,0 +1,526 @@
+{
+  "scope": "One measured resident-key CPU localnet payment per route; instruction profiling remained enabled. Diagnostic baseline, not production latency. Keys excluded via complete warmup.",
+  "manifest": {
+    "started_at": "2026-09-16T23:16:24.955524+00:00",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "logical_cpus": 18,
+    "settings": {
+      "GOMAXPROCS": "18",
+      "GOMEMLIMIT": "24GiB",
+      "PROVER_SYNC_CONCURRENCY": "4",
+      "E2E_BENCH_CONCURRENCY": "4",
+      "E2E_BENCH_POLL_MS": "25",
+      "E2E_BENCH_INDEXER_POLL_MS": "500",
+      "E2E_BENCH_OVERLAP": "1",
+      "E2E_BENCH_CHUNKED": "1",
+      "E2E_BENCH_SETUP_CONCURRENCY": "8",
+      "E2E_BENCH_PREPARED": "0",
+      "E2E_BENCH_PACKED": "1"
+    },
+    "native_profile": "dev",
+    "runs": 1,
+    "paired_cold_warm": false,
+    "artifacts": {
+      "cli": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/debug/zolana",
+        "sha256": "88dec4ab4ccd6569616855f41c0776aaded3cfd40aa3eebdfde157f13a2ad5ba"
+      },
+      "photon": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/debug/photon",
+        "sha256": "98a66c9fa6fc481c82afc79ba24795c1df24f16c07b200c8c5d0499f3f4141b9"
+      },
+      "gkr_prover": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/prover/server/light-prover",
+        "sha256": "63d973489e1d95a32363c95a0b9d06becd6d6c7545c3b98d6b6cf73dca6d5b62"
+      },
+      "cache_prover": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/prover-server",
+        "sha256": "46d2dfa440c2cddb89bdcf0a9a74a8e8a033c8c01e2f8051f2a131ea623d0a42"
+      },
+      "gkr_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/deploy/shielded_pool_program.so",
+        "sha256": "55e363638259c75fa22761520c9daf989bc713c29a9dd797674ef91b1e872df4"
+      },
+      "cache_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling/target/deploy/shielded_pool_program.so",
+        "sha256": "5094fa5dd8aac210e8d8de6def069eadd9d8c3e478b1bc569726afe42621baff"
+      },
+      "surfpool": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/tools/surfpool",
+        "sha256": "41182ea7d4c7f0b293e3336730817ff04d388f4054ce59b2f4b153844d1e05b7"
+      },
+      "gkr_squads_smart_account_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/deploy/squads_smart_account_program.so",
+        "sha256": "49cf27024d211ab827eadc11219a935abf9a5138ece1c0b0631c26790fd4f3c0"
+      },
+      "gkr_zolana_user_registry": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/deploy/zolana_user_registry.so",
+        "sha256": "60a98a92ac87c5f771431c4c934a0e365ef1f7020b19213e540c704c80d5aac2"
+      },
+      "cache_squads_smart_account_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling/target/deploy/squads_smart_account_program.so",
+        "sha256": "49cf27024d211ab827eadc11219a935abf9a5138ece1c0b0631c26790fd4f3c0"
+      },
+      "cache_zolana_user_registry": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling/target/deploy/zolana_user_registry.so",
+        "sha256": "60a98a92ac87c5f771431c4c934a0e365ef1f7020b19213e540c704c80d5aac2"
+      }
+    },
+    "cases": [
+      {
+        "label": "admitted-512-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-10x-admission",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "--profile",
+          "dev",
+          "-p",
+          "shielded-pool-tests",
+          "--features",
+          "localnet,proofs",
+          "--test",
+          "direct_spend_localnet",
+          "direct_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 1,
+        "cold_samples": 1
+      },
+      {
+        "label": "admitted-dag10-512-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-10x-admission",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "--profile",
+          "dev",
+          "-p",
+          "shielded-pool-tests",
+          "--features",
+          "localnet,proofs",
+          "--test",
+          "direct_spend_localnet",
+          "direct_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 1,
+        "cold_samples": 1
+      },
+      {
+        "label": "cached-512-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "--profile",
+          "dev",
+          "-p",
+          "spp-test-validator",
+          "--test",
+          "proof_cu",
+          "cached_merge_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 1,
+        "cold_samples": 1
+      }
+    ]
+  },
+  "native_test_artifacts": {
+    "admitted-512-warm-interleaved": {
+      "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/debug/deps/direct_spend_localnet-33745650d94fce71",
+      "sha256": "86507c8d93738f375f586a89ba5ce9e39665d1fc1a4f97ba4a446cd82039e858"
+    },
+    "cached-512-warm-interleaved": {
+      "path": "/Users/tsv/Developer/zolana/zolana-10x-cache-scheduling/target/debug/deps/proof_cu-756052b3d6ff5eb1",
+      "sha256": "b059f73168d2beba6938f5c190bbb37b791631805d84d25c2492f6791ae0bd4c"
+    },
+    "admitted-dag10-512-warm-interleaved": {
+      "path": "/Users/tsv/Developer/zolana/zolana-10x-admission/target/debug/deps/direct_spend_localnet-33745650d94fce71",
+      "sha256": "86507c8d93738f375f586a89ba5ce9e39665d1fc1a4f97ba4a446cd82039e858"
+    }
+  },
+  "samples": [
+    {
+      "allocation_ms": 923,
+      "certificate_prove_ms": 0,
+      "chunked": true,
+      "concurrency": 4,
+      "confirmed_ms": 10461,
+      "final_transaction_cu": 1275735,
+      "gomaxprocs": 18,
+      "indexed_ms": 10986,
+      "indexer_poll_ms": "500",
+      "input_hash_ms": 448,
+      "inputs": 512,
+      "key_state": "cold",
+      "layout": "interleaved",
+      "membership_fetch_ms": 447,
+      "nullifier_fetch_ms": 0,
+      "overlap": true,
+      "phase": "warmup",
+      "poll_ms": "25",
+      "prefix_upload_ms": 3485,
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 8704,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 9,
+      "recipient_indexer_ms": 515,
+      "run": 1,
+      "send_transactions": 7,
+      "setup_ms": 85449,
+      "submit_ms": 610,
+      "total_cu": 1294017,
+      "total_ms": 10986,
+      "transactions": 7,
+      "variant": "admitted",
+      "warm_keys": false,
+      "warmup_ms": 0,
+      "witness_local_ms": 699,
+      "witness_ms": 1146,
+      "witness_stages": {
+        "balance_ms": 5,
+        "certificate_ms": 180,
+        "fusion_ms": 60,
+        "output_ms": 4
+      },
+      "case": "admitted-512-warm-interleaved"
+    },
+    {
+      "allocation_ms": 922,
+      "certificate_prove_ms": 0,
+      "chunked": true,
+      "concurrency": 4,
+      "confirmed_ms": 5713,
+      "final_transaction_cu": 1275958,
+      "gomaxprocs": 18,
+      "indexed_ms": 6239,
+      "indexer_poll_ms": "500",
+      "input_hash_ms": 441,
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "membership_fetch_ms": 445,
+      "nullifier_fetch_ms": 0,
+      "overlap": true,
+      "phase": "measured",
+      "poll_ms": "25",
+      "prefix_upload_ms": 3865,
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 3033,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 10,
+      "recipient_indexer_ms": 515,
+      "run": 1,
+      "send_transactions": 7,
+      "setup_ms": 162340,
+      "submit_ms": 714,
+      "total_cu": 1293152,
+      "total_ms": 6239,
+      "transactions": 7,
+      "variant": "admitted",
+      "warm_keys": true,
+      "warmup_ms": 11751,
+      "witness_local_ms": 688,
+      "witness_ms": 1133,
+      "witness_stages": {
+        "balance_ms": 4,
+        "certificate_ms": 177,
+        "fusion_ms": 59,
+        "output_ms": 4
+      },
+      "case": "admitted-512-warm-interleaved"
+    },
+    {
+      "allocation_ms": 985,
+      "certificate_prove_ms": 0,
+      "chunked": true,
+      "concurrency": 4,
+      "confirmed_ms": 5876,
+      "final_transaction_cu": 1273850,
+      "gomaxprocs": 18,
+      "indexed_ms": 6395,
+      "indexer_poll_ms": "500",
+      "input_hash_ms": 438,
+      "inputs": 512,
+      "key_state": "cold",
+      "layout": "interleaved",
+      "membership_fetch_ms": 440,
+      "nullifier_fetch_ms": 0,
+      "overlap": true,
+      "phase": "warmup",
+      "poll_ms": "25",
+      "prefix_upload_ms": 3926,
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 4073,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 9,
+      "recipient_indexer_ms": 509,
+      "run": 1,
+      "send_transactions": 7,
+      "setup_ms": 82161,
+      "submit_ms": 513,
+      "total_cu": 1291044,
+      "total_ms": 6395,
+      "transactions": 7,
+      "variant": "admitted-dag10",
+      "warm_keys": false,
+      "warmup_ms": 0,
+      "witness_local_ms": 850,
+      "witness_ms": 1290,
+      "witness_stages": {
+        "balance_ms": 4,
+        "certificate_ms": 176,
+        "fusion_ms": 225,
+        "output_ms": 4
+      },
+      "case": "admitted-dag10-512-warm-interleaved"
+    },
+    {
+      "allocation_ms": 1043,
+      "certificate_prove_ms": 0,
+      "chunked": true,
+      "concurrency": 4,
+      "confirmed_ms": 5390,
+      "final_transaction_cu": 1275524,
+      "gomaxprocs": 18,
+      "indexed_ms": 5915,
+      "indexer_poll_ms": "500",
+      "input_hash_ms": 437,
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "membership_fetch_ms": 441,
+      "nullifier_fetch_ms": 0,
+      "overlap": true,
+      "phase": "measured",
+      "poll_ms": "25",
+      "prefix_upload_ms": 3404,
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 1094,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 10,
+      "recipient_indexer_ms": 514,
+      "run": 1,
+      "send_transactions": 7,
+      "setup_ms": 157685,
+      "submit_ms": 695,
+      "total_cu": 1292718,
+      "total_ms": 5915,
+      "transactions": 7,
+      "variant": "admitted-dag10",
+      "warm_keys": true,
+      "warmup_ms": 7140,
+      "witness_local_ms": 849,
+      "witness_ms": 1290,
+      "witness_stages": {
+        "balance_ms": 4,
+        "certificate_ms": 176,
+        "fusion_ms": 226,
+        "output_ms": 4
+      },
+      "case": "admitted-dag10-512-warm-interleaved"
+    },
+    {
+      "chain_send_ms": 4585,
+      "concurrency": 4,
+      "confirmed_ms": 19792,
+      "gomaxprocs": 18,
+      "indexer_poll_ms": "500",
+      "inputs": 512,
+      "key_state": "cold",
+      "layout": "interleaved",
+      "membership_fetch_ms": 186,
+      "nullifier_fetch_ms": 423,
+      "output_slots": 2,
+      "overlap": true,
+      "packed": true,
+      "phase": "warmup",
+      "poll_ms": 25,
+      "proof_schedule": "transfer-first-work-conserving",
+      "proofs": 16,
+      "prove_ms": 16197,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 4,
+      "recipient_indexer_ms": 1,
+      "run": 1,
+      "setup_ms": 22142,
+      "submit_ms": 841,
+      "total_cu": 4570646,
+      "total_ms": 19798,
+      "transactions": 15,
+      "variant": "cached",
+      "warm_keys": false,
+      "warmup_ms": 0,
+      "witness_local_ms": 2112,
+      "witness_ms": 2721,
+      "case": "cached-512-warm-interleaved"
+    },
+    {
+      "chain_send_ms": 5430,
+      "concurrency": 4,
+      "confirmed_ms": 16202,
+      "gomaxprocs": 18,
+      "indexer_poll_ms": "500",
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "membership_fetch_ms": 189,
+      "nullifier_fetch_ms": 434,
+      "output_slots": 2,
+      "overlap": true,
+      "packed": true,
+      "phase": "measured",
+      "poll_ms": 25,
+      "proof_schedule": "transfer-first-work-conserving",
+      "proofs": 16,
+      "prove_ms": 12196,
+      "prover_concurrency": 4,
+      "recipient_decrypt_ms": 10,
+      "recipient_indexer_ms": 518,
+      "run": 1,
+      "setup_ms": 20622,
+      "submit_ms": 779,
+      "total_cu": 4548402,
+      "total_ms": 16731,
+      "transactions": 15,
+      "variant": "cached",
+      "warm_keys": true,
+      "warmup_ms": 41940,
+      "witness_local_ms": 2182,
+      "witness_ms": 2805,
+      "case": "cached-512-warm-interleaved"
+    }
+  ],
+  "summary": [
+    {
+      "case": "admitted-512-warm-interleaved",
+      "samples": 1,
+      "witness_ms": {
+        "median": 1133,
+        "min": 1133,
+        "max": 1133
+      },
+      "prove_ms": {
+        "median": 3033,
+        "min": 3033,
+        "max": 3033
+      },
+      "submit_ms": {
+        "median": 714,
+        "min": 714,
+        "max": 714
+      },
+      "total_ms": {
+        "median": 6239,
+        "min": 6239,
+        "max": 6239
+      },
+      "total_cu": {
+        "median": 1293152,
+        "min": 1293152,
+        "max": 1293152
+      },
+      "transactions": {
+        "median": 7,
+        "min": 7,
+        "max": 7
+      }
+    },
+    {
+      "case": "admitted-dag10-512-warm-interleaved",
+      "samples": 1,
+      "witness_ms": {
+        "median": 1290,
+        "min": 1290,
+        "max": 1290
+      },
+      "prove_ms": {
+        "median": 1094,
+        "min": 1094,
+        "max": 1094
+      },
+      "submit_ms": {
+        "median": 695,
+        "min": 695,
+        "max": 695
+      },
+      "total_ms": {
+        "median": 5915,
+        "min": 5915,
+        "max": 5915
+      },
+      "total_cu": {
+        "median": 1292718,
+        "min": 1292718,
+        "max": 1292718
+      },
+      "transactions": {
+        "median": 7,
+        "min": 7,
+        "max": 7
+      }
+    },
+    {
+      "case": "cached-512-warm-interleaved",
+      "samples": 1,
+      "witness_ms": {
+        "median": 2805,
+        "min": 2805,
+        "max": 2805
+      },
+      "prove_ms": {
+        "median": 12196,
+        "min": 12196,
+        "max": 12196
+      },
+      "submit_ms": {
+        "median": 779,
+        "min": 779,
+        "max": 779
+      },
+      "total_ms": {
+        "median": 16731,
+        "min": 16731,
+        "max": 16731
+      },
+      "total_cu": {
+        "median": 4548402,
+        "min": 4548402,
+        "max": 4548402
+      },
+      "transactions": {
+        "median": 15,
+        "min": 15,
+        "max": 15
+      }
+    }
+  ]
+}

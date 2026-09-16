@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.44s
+     Running tests/direct_spend/proofs.rs (target/debug/deps/direct_spend_proofs-86fadcf88cf40429)
+
+running 1 test
+test dag_payment_checks_history_commitment_statement_and_replay ... DIRECT_PAYMENT_CU admitted=true dag=true count=512 cu=1300547
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 10.79s

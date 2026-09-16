@@ -29,7 +29,12 @@ func admittedPayment(t *testing.T, payment *direct.PaymentCircuit) *direct.Admit
 
 func bindAdmittedPayment(t *testing.T, w *direct.AdmittedPaymentCircuit) {
 	t.Helper()
-	fields := []frontend.Variable{direct.AdmittedPaymentDomain}
+	bindAdmittedPaymentDomain(t, w, direct.AdmittedPaymentDomain)
+}
+
+func bindAdmittedPaymentDomain(t *testing.T, w *direct.AdmittedPaymentCircuit, domain int) {
+	t.Helper()
+	fields := []frontend.Variable{domain}
 	fields = append(fields, certificateFields(t, w.Certificate)...)
 	fields = append(fields, balanceFields(t, w.Balance)...)
 	w.PublicInputHash = chain(t, fields)
@@ -209,6 +214,7 @@ func dagAdmittedPayment(t *testing.T, payment *direct.PaymentCircuit, height int
 		}
 		w.Certificate.Notes[i].Path = nil
 	}
+	bindAdmittedPaymentDomain(t, &w.AdmittedPaymentCircuit, direct.AdmittedDAGPaymentDomain)
 	return w
 }
 
@@ -222,22 +228,61 @@ func TestAdmittedDAGPayment(t *testing.T) {
 			}
 		}
 	}
+	w := dagAdmittedPayment(t, scatteredPaymentAtHeight(t, 4, 10), 10)
+	bindAdmittedPayment(t, &w.AdmittedPaymentCircuit)
+	if err := test.IsSolved(direct.NewDAGAdmittedPayment(4, 10), w, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("accepted the ordinary admitted payment domain")
+	}
 	for name, mutate := range map[string]func(*direct.DAGAdmittedPayment){
-		"root":           func(w *direct.DAGAdmittedPayment) { w.Certificate.StateRoot = 1 },
-		"node":           func(w *direct.DAGAdmittedPayment) { w.Levels[0][1].Left = 1 },
-		"parent":         func(w *direct.DAGAdmittedPayment) { w.Levels[0][1].Parent = 999 },
+		"root":   func(w *direct.DAGAdmittedPayment) { w.Certificate.StateRoot = 1 },
+		"node":   func(w *direct.DAGAdmittedPayment) { w.Levels[0][1].Left = 1 },
+		"parent": func(w *direct.DAGAdmittedPayment) { w.Levels[0][1].Parent = 999 },
+		"in-range parent": func(w *direct.DAGAdmittedPayment) {
+			parent := integers(t, []frontend.Variable{w.Levels[0][1].Parent})[0].Int64()
+			w.Levels[0][1].Parent = (parent + 1) % int64(2*len(w.Levels[1]))
+		},
 		"leaf reference": func(w *direct.DAGAdmittedPayment) { w.LeafRef[0] = 999 },
+		"in-range leaf reference": func(w *direct.DAGAdmittedPayment) {
+			reference := integers(t, []frontend.Variable{w.LeafRef[0]})[0].Int64()
+			w.LeafRef[0] = (reference + 1) % int64(2*len(w.Levels[0]))
+		},
 		"index":          func(w *direct.DAGAdmittedPayment) { w.Certificate.Notes[0].Index = 0 },
 		"index overflow": func(w *direct.DAGAdmittedPayment) { w.Certificate.Notes[0].Index = uint64(1) << 10 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := dagAdmittedPayment(t, scatteredPaymentAtHeight(t, 4, 10), 10)
 			mutate(w)
-			bindAdmittedPayment(t, &w.AdmittedPaymentCircuit)
+			bindAdmittedPaymentDomain(t, &w.AdmittedPaymentCircuit, direct.AdmittedDAGPaymentDomain)
 			if err := test.IsSolved(direct.NewDAGAdmittedPayment(4, 10), w, ecc.BN254.ScalarField()); err == nil {
 				t.Fatal("accepted invalid DAG payment")
 			}
 		})
+	}
+}
+
+func TestAdmittedDAGBindsDuplicateLeafPosition(t *testing.T) {
+	payment := payment(t, 4, 1)
+	addSecondOutput(t, payment)
+	leaf := certificateLeaf(t, payment.Certificate, payment.Certificate.Notes[0])
+	root, paths, err := protocol.BuildSparseStateTree(map[uint64]*big.Int{0: leaf, 1: leaf})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payment.Certificate.StateRoot = root
+	payment.Certificate.Notes[0].Index = uint64(0)
+	payment.Certificate.Notes[0].Path = variables(paths[0].PathElements)
+	w := dagAdmittedPayment(t, payment, 10)
+	c := direct.NewDAGAdmittedPayment(4, 10)
+	if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err != nil {
+		t.Fatal(err)
+	}
+	w.Certificate.Notes[0].Index = 1
+	if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("accepted the same leaf hash paired with the wrong private position")
+	}
+	w.LeafRef[0] = 1
+	if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err != nil {
+		t.Fatal("rejected the matching hash-position pair", err)
 	}
 }
 

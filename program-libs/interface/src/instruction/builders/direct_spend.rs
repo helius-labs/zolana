@@ -1,5 +1,8 @@
 use crate::{
-    direct_spend::{BufferInstruction, Payload, PrepareCertificate, BUFFER_SEED, MAX_PAYLOAD},
+    direct_spend::{
+        BufferInstruction, Payload, PrepareCertificate, BUFFER_CHUNK_SIZE, BUFFER_HEADER_SIZE,
+        BUFFER_SEED, MAX_PAYLOAD,
+    },
     instruction::{encode_instruction, tag},
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -48,6 +51,9 @@ impl SpendUpload {
             }
             | Payload::AdmittedPayment {
                 statement, inputs, ..
+            }
+            | Payload::DagPayment {
+                statement, inputs, ..
             } => (borsh::to_vec(statement), inputs.to_le_bytes().to_vec()),
         };
         let prefix_len = 1 + statement.map_err(|_| "invalid spend statement")?.len();
@@ -76,6 +82,48 @@ impl SpendUpload {
     }
 
     pub fn finish(&self, payload: &Payload) -> Result<Vec<Instruction>, &'static str> {
+        let bytes = self.validate(payload)?;
+        Ok(write_spend(
+            self.owner,
+            spend_buffer(&self.owner, &self.nonce),
+            self.prefix.len(),
+            &bytes[self.prefix.len()..],
+        ))
+    }
+
+    /// Execute these in order and confirm allocation before submitting chunks.
+    pub fn allocate_chunked(&self) -> Vec<Instruction> {
+        let buffer = spend_buffer(&self.owner, &self.nonce);
+        let mut instructions = vec![buffer_instruction(
+            self.owner,
+            buffer,
+            BufferInstruction::CreateChunked {
+                nonce: self.nonce,
+                size: self.size as u16,
+            },
+        )];
+        let allocations =
+            (BUFFER_HEADER_SIZE + self.size).div_ceil(crate::state::TREE_ALLOCATION_STEP);
+        instructions.extend(
+            (1..allocations)
+                .map(|_| buffer_instruction(self.owner, buffer, BufferInstruction::Grow)),
+        );
+        instructions
+    }
+
+    /// Full statement chunks may arrive in any order after allocation completes.
+    pub fn start_chunks(&self) -> Vec<Instruction> {
+        let length = self.prefix.len() / BUFFER_CHUNK_SIZE * BUFFER_CHUNK_SIZE;
+        self.chunks(0, &self.prefix[..length])
+    }
+
+    pub fn finish_chunks(&self, payload: &Payload) -> Result<Vec<Instruction>, &'static str> {
+        let bytes = self.validate(payload)?;
+        let offset = self.prefix.len() / BUFFER_CHUNK_SIZE * BUFFER_CHUNK_SIZE;
+        Ok(self.chunks(offset, &bytes[offset..]))
+    }
+
+    fn validate(&self, payload: &Payload) -> Result<Vec<u8>, &'static str> {
         let bytes = payload_bytes(payload)?;
         if bytes.len() != self.size
             || !bytes.starts_with(&self.prefix)
@@ -83,12 +131,25 @@ impl SpendUpload {
         {
             return Err("spend statement changed after upload started");
         }
-        Ok(write_spend(
-            self.owner,
-            spend_buffer(&self.owner, &self.nonce),
-            self.prefix.len(),
-            &bytes[self.prefix.len()..],
-        ))
+        Ok(bytes)
+    }
+
+    fn chunks(&self, offset: usize, bytes: &[u8]) -> Vec<Instruction> {
+        let buffer = spend_buffer(&self.owner, &self.nonce);
+        bytes
+            .chunks(BUFFER_CHUNK_SIZE)
+            .enumerate()
+            .map(|(index, bytes)| {
+                buffer_instruction(
+                    self.owner,
+                    buffer,
+                    BufferInstruction::WriteChunk {
+                        index: (offset / BUFFER_CHUNK_SIZE + index) as u8,
+                        bytes: bytes.to_vec(),
+                    },
+                )
+            })
+            .collect()
     }
 }
 
@@ -102,14 +163,14 @@ fn payload_bytes(payload: &Payload) -> Result<Vec<u8>, &'static str> {
 
 fn write_spend(owner: Pubkey, buffer: Pubkey, offset: usize, bytes: &[u8]) -> Vec<Instruction> {
     bytes
-        .chunks(800)
+        .chunks(BUFFER_CHUNK_SIZE)
         .enumerate()
         .map(|(index, chunk)| {
             buffer_instruction(
                 owner,
                 buffer,
                 BufferInstruction::Write {
-                    offset: (offset + index * 800) as u16,
+                    offset: (offset + index * BUFFER_CHUNK_SIZE) as u16,
                     bytes: chunk.to_vec(),
                 },
             )
@@ -268,7 +329,7 @@ mod tests {
                     assert_eq!(usize::from(offset), bytes.len());
                     bytes.extend(chunk);
                 }
-                BufferInstruction::Close => panic!("unexpected buffer close"),
+                _ => panic!("unexpected buffer instruction"),
             }
         }
         assert_eq!(Some(bytes.len()), size);
@@ -283,6 +344,79 @@ mod tests {
             statement.nullifiers[0] = [8; 32];
         }
         assert!(upload.finish(&payload).is_err());
+        assert!(upload.finish_chunks(&payload).is_err());
+    }
+
+    #[test]
+    fn chunked_upload_preserves_bytes_across_the_proof_boundary() {
+        for count in [1, 20, 36, 144, 512] {
+            let mut payload = certificate();
+            if let Payload::Certificate { statement, .. } = &mut payload {
+                statement.nullifiers.resize(count, [3; 32]);
+            }
+            let upload = SpendUpload::new(Pubkey::new_unique(), [9; 32], &payload).unwrap();
+            let allocation = upload.allocate_chunked();
+            assert!(matches!(
+                borsh::from_slice::<BufferInstruction>(&allocation[0].data[1..]).unwrap(),
+                BufferInstruction::CreateChunked { .. }
+            ));
+            assert_eq!(
+                allocation.len(),
+                (BUFFER_HEADER_SIZE + upload.size).div_ceil(crate::state::TREE_ALLOCATION_STEP)
+            );
+            for instruction in &allocation[1..] {
+                assert_eq!(
+                    borsh::from_slice::<BufferInstruction>(&instruction.data[1..]).unwrap(),
+                    BufferInstruction::Grow
+                );
+            }
+            let mut instructions = upload.start_chunks();
+            if let Payload::Certificate { proof, .. } = &mut payload {
+                proof.a.fill(7);
+                proof.b.fill(8);
+                proof.c.fill(9);
+            }
+            instructions.extend(upload.finish_chunks(&payload).unwrap());
+            let mut received = vec![false; upload.size.div_ceil(BUFFER_CHUNK_SIZE)];
+            let mut bytes = vec![0; upload.size];
+            for instruction in instructions.into_iter().rev() {
+                let BufferInstruction::WriteChunk {
+                    index,
+                    bytes: chunk,
+                } = borsh::from_slice(&instruction.data[1..]).unwrap()
+                else {
+                    panic!("not a chunk")
+                };
+                let index = usize::from(index);
+                assert!(!received[index]);
+                received[index] = true;
+                let offset = index * BUFFER_CHUNK_SIZE;
+                assert_eq!(chunk.len(), BUFFER_CHUNK_SIZE.min(upload.size - offset));
+                bytes[offset..offset + chunk.len()].copy_from_slice(&chunk);
+            }
+            assert!(received.into_iter().all(|present| present));
+            assert_eq!(bytes, borsh::to_vec(&payload).unwrap());
+        }
+    }
+
+    #[test]
+    fn append_buffer_instruction_tags_remain_unchanged() {
+        for (tag, instruction) in [
+            BufferInstruction::Create {
+                nonce: [0; 32],
+                size: 1,
+            },
+            BufferInstruction::Write {
+                offset: 0,
+                bytes: vec![1],
+            },
+            BufferInstruction::Close,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(borsh::to_vec(&instruction).unwrap()[0], tag as u8);
+        }
     }
 
     #[test]

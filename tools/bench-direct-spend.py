@@ -30,7 +30,7 @@ def main():
     parser.add_argument("--gkr-prover", type=Path, required=True)
     parser.add_argument("--cache-prover", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--routes", nargs="+", choices=["cached", "direct", "gkr", "admitted"], default=["cached", "direct", "gkr", "admitted"])
+    parser.add_argument("--routes", nargs="+", choices=["cached", "direct", "gkr", "admitted", "admitted-dag10"], default=["cached", "direct", "gkr", "admitted"])
     parser.add_argument("--profile", choices=["dev", "release"], default="dev")
     parser.add_argument("--inputs", nargs="+", type=int, default=[144, 512])
     parser.add_argument("--states", nargs="+", choices=["cold", "warm"], default=["warm"])
@@ -70,6 +70,8 @@ def main():
         "E2E_BENCH_POLL_MS": os.environ.get("E2E_BENCH_POLL_MS", "25"),
         "E2E_BENCH_INDEXER_POLL_MS": os.environ.get("E2E_BENCH_INDEXER_POLL_MS", "500"),
         "E2E_BENCH_OVERLAP": os.environ.get("E2E_BENCH_OVERLAP", "1"),
+        "E2E_BENCH_CHUNKED": os.environ.get("E2E_BENCH_CHUNKED", "1"),
+        "E2E_BENCH_INSTRUCTION_PROFILING": os.environ.get("E2E_BENCH_INSTRUCTION_PROFILING", "0"),
         "E2E_BENCH_SETUP_CONCURRENCY": os.environ.get("E2E_BENCH_SETUP_CONCURRENCY", "8"),
         "E2E_BENCH_PREPARED": "0",
         "E2E_BENCH_PACKED": "1",

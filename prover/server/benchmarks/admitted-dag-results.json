@@ -1,0 +1,32 @@
+{
+  "scope": "resident-key backend request; not whole-payment latency",
+  "timed": "strict request and canonical-field decoding, witness conversion, lookup solver, Groth16, proof JSON serialization",
+  "excluded": "fixture construction, key generation/loading, digest check, proof verification, HTTP and ledger work",
+  "fixture": "512 fully active notes at unique random private positions inside the first 1024 leaves; two outputs; root certifies all remaining subtrees empty",
+  "production_selector": false,
+  "go": "1.27.1",
+  "gomaxprocs": 18,
+  "gomemlimit": "24GiB",
+  "concurrency": 1,
+  "verified_proofs": 3,
+  "height": 10,
+  "inputs": 512,
+  "outputs": 2,
+  "constraints": 835655,
+  "fft_domain": 1048576,
+  "key_bytes": 267031229,
+  "request_bytes": 443042,
+  "compile_setup_write_seconds": 20.124001,
+  "circuit_digest": "9e54ad91981939251ca59eb0e9640aedbcef2444cabb14c83436c4387e7d43a5",
+  "latency_seconds": {
+    "samples": [
+      0.994635,
+      1.091051,
+      1.153629
+    ],
+    "median": 1.091051,
+    "minimum": 0.994635,
+    "maximum": 1.153629
+  },
+  "log": "admitted-dag-proving-10.log"
+}

@@ -11,14 +11,15 @@ import (
 )
 
 const (
-	MaxInputs             = 512
-	MaxCertificates       = 16
-	CertificateDomain     = 0x44534331
-	ValueDomain           = 0x44535631
-	BalanceDomain         = 0x44534231
-	FreshnessDomain       = 0x44534631
-	PaymentDomain         = 0x44535031
-	AdmittedPaymentDomain = 0x44535032
+	MaxInputs                = 512
+	MaxCertificates          = 16
+	CertificateDomain        = 0x44534331
+	ValueDomain              = 0x44535631
+	BalanceDomain            = 0x44534231
+	FreshnessDomain          = 0x44534631
+	PaymentDomain            = 0x44535031
+	AdmittedPaymentDomain    = 0x44535032
+	AdmittedDAGPaymentDomain = 0x44535033
 )
 
 type Note struct {

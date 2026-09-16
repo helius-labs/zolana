@@ -44,6 +44,8 @@ func Circuit(kind common.CircuitType, inputs, outputs uint32) (frontend.Circuit,
 		return payment, nil
 	case common.DirectPaymentAdmittedCircuitType:
 		return direct.NewAdmittedPayment(int(inputs), int(outputs)), nil
+	case common.DirectPaymentAdmittedDAG10CircuitType:
+		return direct.NewDAGPayment(int(inputs), int(outputs)), nil
 	}
 	return nil, fmt.Errorf("direct spend: unknown circuit %s", kind)
 }
@@ -66,18 +68,25 @@ func Setup(kind common.CircuitType, inputs, outputs uint32) (*common.TransferPro
 }
 
 func Decode(data []byte) (*Request, frontend.Circuit, error) {
+	return DecodeWithFactory(data, Circuit)
+}
+
+func DecodeWithFactory(data []byte, factory func(common.CircuitType, uint32, uint32) (frontend.Circuit, error)) (*Request, frontend.Circuit, error) {
 	var request Request
 	if err := decodeJSON(data, &request); err != nil {
 		return nil, nil, err
 	}
-	assignment, err := Circuit(request.CircuitType, request.NInputs, request.NOutputs)
+	assignment, err := factory(request.CircuitType, request.NInputs, request.NOutputs)
 	if err != nil {
 		return nil, nil, err
 	}
 	if err := decodeJSON(request.Witness, assignment); err != nil {
 		return nil, nil, err
 	}
-	shape, _ := Circuit(request.CircuitType, request.NInputs, request.NOutputs)
+	shape, err := factory(request.CircuitType, request.NInputs, request.NOutputs)
+	if err != nil {
+		return nil, nil, err
+	}
 	if err := validateWitness(reflect.ValueOf(assignment).Elem(), reflect.ValueOf(shape).Elem(), "witness"); err != nil {
 		return nil, nil, err
 	}

@@ -3,6 +3,7 @@ use crate::{
     error::ClientError,
     rpc::{MerkleProof, NonInclusionProof},
 };
+use serde::Serialize;
 use serde_json::{json, Value};
 use zeroize::Zeroizing;
 use zolana_hasher::{
@@ -40,7 +41,23 @@ impl Request {
 
 impl ProveRequest for Request {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
-        Ok(Zeroizing::new(json!({ "circuitType": self.kind, "nInputs": self.inputs, "nOutputs": self.outputs, "witness": self.witness }).to_string()))
+        let _phase = crate::timing::Phase::start("direct_request_serialization", 0);
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Body<'a> {
+            circuit_type: &'static str,
+            n_inputs: usize,
+            n_outputs: usize,
+            witness: &'a Value,
+        }
+        serde_json::to_string(&Body {
+            circuit_type: self.kind,
+            n_inputs: self.inputs,
+            n_outputs: self.outputs,
+            witness: &self.witness,
+        })
+        .map(Zeroizing::new)
+        .map_err(|error| invalid(&error.to_string()))
     }
     fn delivery(&self) -> Delivery {
         Delivery::InResponse
@@ -62,8 +79,40 @@ pub struct CertificatePlan {
 }
 
 pub struct Input {
-    pub note: ProofInputUtxo,
-    pub proof: MerkleProof,
+    note: ProofInputUtxo,
+    proof: MerkleProof,
+}
+
+pub struct InputNote {
+    note: ProofInputUtxo,
+    commitment: Field,
+}
+
+impl InputNote {
+    pub fn new(note: ProofInputUtxo) -> Result<Self, ClientError> {
+        let commitment = note.hash()?;
+        Ok(Self { note, commitment })
+    }
+
+    pub fn commitment(&self) -> Field {
+        self.commitment
+    }
+
+    pub fn with_proof(self, proof: MerkleProof) -> Result<Input, ClientError> {
+        if proof.leaf != self.commitment {
+            return Err(invalid("membership proof leaf does not match its note"));
+        }
+        Ok(Input {
+            note: self.note,
+            proof,
+        })
+    }
+}
+
+impl Input {
+    pub fn new(note: ProofInputUtxo, proof: MerkleProof) -> Result<Self, ClientError> {
+        InputNote::new(note)?.with_proof(proof)
+    }
 }
 
 pub struct Output {
@@ -81,6 +130,7 @@ pub fn certificate(
     randomness: Field,
     capacity: usize,
 ) -> Result<CertificatePlan, ClientError> {
+    let _phase = crate::timing::Phase::start("direct_certificate_witness", 0);
     if inputs.is_empty()
         || inputs.len() > capacity
         || ![CERTIFICATE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
@@ -112,7 +162,6 @@ pub fn certificate(
             || input.proof.root_index != root.index
             || input.proof.path.len() != 32
             || note.amount[..24] != [0; 24]
-            || note.hash()? != input.proof.leaf
         {
             return Err(invalid(
                 "certificate inputs must share one plain owner, asset, tree and root",
@@ -217,6 +266,7 @@ pub fn balance(
     outputs: &[Output],
     capacity: usize,
 ) -> Result<Request, ClientError> {
+    let _phase = crate::timing::Phase::start("direct_balance_witness", 0);
     if !payment.validate()
         || openings.is_empty()
         || openings.len() > capacity
@@ -281,6 +331,7 @@ pub fn payment(
         tree_id,
         output_tree_id,
         opening,
+        wire::PAYMENT_DOMAIN,
     )
 }
 
@@ -304,7 +355,139 @@ pub fn admitted_payment(
         tree_id,
         output_tree_id,
         opening,
+        wire::ADMITTED_PAYMENT_DOMAIN,
     )
+}
+
+pub fn admitted_dag_payment(
+    certificate: Request,
+    balance: Request,
+    statement: &Payment,
+    owner: Field,
+    buffer: Field,
+    tree_id: u16,
+    output_tree_id: u16,
+    opening: &Opening,
+    inputs: &[Input],
+) -> Result<Request, ClientError> {
+    let _phase = crate::timing::Phase::start("direct_dag_witness", 0);
+    if certificate.inputs != MAX_INPUTS
+        || certificate.witness["Count"] != hex(&field(inputs.len() as u64))
+        || inputs.iter().enumerate().any(|(index, input)| {
+            let note = &certificate.witness["Notes"][index];
+            note["Index"] != hex(&field(input.proof.leaf_index))
+                || note["Amount"] != hex(&input.note.amount)
+                || note["Blinding"] != hex(&input.note.blinding)
+        })
+    {
+        return Err(invalid("DAG inputs do not match the certificate witness"));
+    }
+    let (levels, references) = occupied_dag(inputs)?;
+    let mut request = payment_request(
+        certificate,
+        None,
+        balance,
+        statement,
+        owner,
+        buffer,
+        tree_id,
+        output_tree_id,
+        opening,
+        wire::ADMITTED_DAG_PAYMENT_DOMAIN,
+    )?;
+    for note in request.witness["Certificate"]["Notes"]
+        .as_array_mut()
+        .unwrap()
+    {
+        note["Path"] = json!([]);
+    }
+    request.kind = "direct-payment-admitted-dag10";
+    request.witness = json!({
+        "AdmittedPaymentCircuit": request.witness,
+        "Levels": levels,
+        "LeafRef": fields(&references),
+    });
+    Ok(request)
+}
+
+fn occupied_dag(inputs: &[Input]) -> Result<(Value, Vec<Field>), ClientError> {
+    use std::collections::{btree_map::Entry, BTreeMap};
+
+    if inputs.is_empty() || inputs.len() > MAX_INPUTS {
+        return Err(invalid("invalid DAG input count"));
+    }
+    let mut levels: [BTreeMap<u64, ([Field; 2], Field)>; 32] =
+        std::array::from_fn(|_| BTreeMap::new());
+    let root = inputs[0].proof.root;
+    for input in inputs {
+        let proof = &input.proof;
+        if proof.leaf_index >= 1 << 10 || proof.path.len() != 32 || proof.root != root {
+            return Err(invalid("DAG payment requires one occupied H10 state root"));
+        }
+        let mut current = proof.leaf;
+        for (level, sibling) in proof.path.iter().enumerate() {
+            let pair = if proof.leaf_index >> level & 1 == 0 {
+                [current, *sibling]
+            } else {
+                [*sibling, current]
+            };
+            current = match levels[level].entry(proof.leaf_index >> (level + 1)) {
+                Entry::Occupied(node) => {
+                    if node.get().0 != pair {
+                        return Err(invalid("DAG membership paths disagree"));
+                    }
+                    node.get().1
+                }
+                Entry::Vacant(node) => {
+                    let hash = Poseidon::hashv(&[&pair[0], &pair[1]])?;
+                    node.insert((pair, hash));
+                    hash
+                }
+            };
+            if level >= 10 && pair[1] != Poseidon::zero_bytes()[level] {
+                return Err(invalid("state root contains leaves outside H10"));
+            }
+        }
+        if current != root {
+            return Err(invalid("DAG membership path does not reach its state root"));
+        }
+    }
+    let rows = levels
+        .iter()
+        .map(|nodes| {
+            nodes
+                .keys()
+                .enumerate()
+                .map(|(row, index)| (*index, row))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .collect::<Vec<_>>();
+    let mut encoded = Vec::with_capacity(32);
+    for (level, nodes) in levels.iter().enumerate() {
+        let capacity = MAX_INPUTS.min(1 << 9usize.saturating_sub(level));
+        if nodes.len() > capacity {
+            return Err(invalid("membership paths exceed DAG capacity"));
+        }
+        let mut encoded_nodes = Vec::with_capacity(capacity);
+        for (index, (pair, _)) in nodes.iter().cycle().take(capacity) {
+            let parent = if level == 31 {
+                0
+            } else {
+                rows[level + 1][&(index >> 1)] * 2 + (index & 1) as usize
+            };
+            encoded_nodes.push(json!({ "Left": hex(&pair[0]), "Right": hex(&pair[1]), "Parent": hex(&field(parent as u64)) }));
+        }
+        encoded.push(encoded_nodes);
+    }
+    let mut references = inputs
+        .iter()
+        .map(|input| {
+            let index = input.proof.leaf_index;
+            field((rows[0][&(index >> 1)] * 2) as u64 + (index & 1))
+        })
+        .collect::<Vec<_>>();
+    references.resize(MAX_INPUTS, [0; 32]);
+    Ok((json!(encoded), references))
 }
 
 fn payment_request(
@@ -317,7 +500,9 @@ fn payment_request(
     tree_id: u16,
     output_tree_id: u16,
     opening: &Opening,
+    domain: u64,
 ) -> Result<Request, ClientError> {
+    let _phase = crate::timing::Phase::start("direct_fused_witness", 0);
     let PaymentInputs::Notes {
         certificate: inputs,
         freshness: root,
@@ -344,7 +529,7 @@ fn payment_request(
                 "admitted payment requires canonical zero freshness",
             ));
         }
-        ("direct-payment-admitted", wire::ADMITTED_PAYMENT_DOMAIN)
+        ("direct-payment-admitted", domain)
     };
     let mut public = vec![field(domain)];
     public.extend(inputs.fields(certificate_id(&buffer)?, &owner, tree_id, capacity)?);
@@ -394,7 +579,7 @@ impl TryFrom<ProofCompressed> for wire::Proof {
 }
 
 fn hex(field: &Field) -> String {
-    format!("0x{:064x}", num_bigint::BigUint::from_bytes_be(field))
+    super::field::hex_fixed(field)
 }
 fn fields(values: &[Field]) -> Vec<String> {
     values.iter().map(hex).collect()
@@ -411,6 +596,143 @@ fn invalid(message: &str) -> ClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn membership_inputs() -> Vec<Input> {
+        let mut tree = zolana_merkle_tree::MerkleTree::<Poseidon>::new(32, 0);
+        let key = NullifierKey::from_secret([19; 31]);
+        let owner_hash = Poseidon::hashv(&[
+            &solana_owner_identity(&field(1)).unwrap(),
+            &key.pubkey().unwrap(),
+        ])
+        .unwrap();
+        let notes = (0..8)
+            .map(|index| ProofInputUtxo {
+                domain: field(3),
+                tree_id: field(0),
+                owner_hash,
+                asset: field(2),
+                amount: field(10),
+                blinding: field(100 + index),
+                data_hash: [0; 32],
+                ring_data_hash: [0; 32],
+                ring_program_id: [0; 32],
+            })
+            .collect::<Vec<_>>();
+        for note in &notes {
+            tree.append(&note.hash().unwrap()).unwrap();
+        }
+        notes
+            .into_iter()
+            .enumerate()
+            .map(|(index, note)| {
+                let committed = InputNote::new(note).unwrap();
+                let proof = MerkleProof {
+                    leaf: committed.commitment(),
+                    root: tree.root(),
+                    root_index: 0,
+                    root_seq: 0,
+                    leaf_index: index as u64,
+                    merkle_context: crate::rpc::MerkleContext {
+                        tree_type: 0,
+                        tree: solana_address::Address::new_from_array([0; 32]),
+                    },
+                    path: tree.get_proof_of_leaf(index, true).unwrap(),
+                };
+                committed.with_proof(proof).unwrap()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn serialized_direct_witness_uses_fixed_32_byte_hex_fields() {
+        fn check(value: &Value) {
+            match value {
+                Value::String(field) => {
+                    assert_eq!(field.len(), 66, "{field}");
+                    assert!(field.starts_with("0x"));
+                    assert!(field[2..].bytes().all(|byte| byte.is_ascii_hexdigit()));
+                }
+                Value::Array(values) => values.iter().for_each(check),
+                Value::Object(values) => values.values().for_each(check),
+                _ => panic!("direct witness field must be a hex string: {value}"),
+            }
+        }
+        let inputs = membership_inputs();
+        let plan = certificate(
+            field(1),
+            field(2),
+            field(3),
+            0,
+            &NullifierKey::from_secret([19; 31]),
+            &inputs,
+            field(4),
+            MAX_INPUTS,
+        )
+        .unwrap();
+        let body: Value = serde_json::from_str(&plan.request.body().unwrap()).unwrap();
+        check(&body["witness"]);
+        let (levels, references) = occupied_dag(&inputs).unwrap();
+        check(&levels);
+        check(&json!(fields(&references)));
+    }
+
+    #[test]
+    fn committed_note_rejects_a_different_leaf() {
+        let mut inputs = membership_inputs();
+        let input = inputs.remove(0);
+        let mut proof = input.proof;
+        proof.leaf = field(9);
+        assert!(Input::new(input.note, proof).is_err());
+    }
+
+    #[test]
+    fn occupied_dag_preserves_private_paths() {
+        let inputs = membership_inputs();
+        let (levels, references) = occupied_dag(&inputs).unwrap();
+        let decode = |value: &Value| {
+            let integer =
+                num_bigint::BigUint::parse_bytes(value.as_str().unwrap()[2..].as_bytes(), 16)
+                    .unwrap();
+            super::super::field::right_align_slice(&integer.to_bytes_be()).unwrap()
+        };
+        assert_eq!(levels.as_array().unwrap().len(), 32);
+        assert_eq!(references.len(), MAX_INPUTS);
+        for (input, reference) in inputs.iter().zip(&references) {
+            let mut reference = u64::from_be_bytes(reference[24..].try_into().unwrap()) as usize;
+            let mut current = input.proof.leaf;
+            for level in 0..32 {
+                let node = &levels[level][reference / 2];
+                let pair = [decode(&node["Left"]), decode(&node["Right"])];
+                assert_eq!(current, pair[reference & 1]);
+                assert_eq!(
+                    reference & 1,
+                    (input.proof.leaf_index >> level & 1) as usize
+                );
+                current = Poseidon::hashv(&[&pair[0], &pair[1]]).unwrap();
+                let parent = decode(&node["Parent"]);
+                reference = u64::from_be_bytes(parent[24..].try_into().unwrap()) as usize;
+            }
+            assert_eq!(current, input.proof.root);
+        }
+    }
+
+    #[test]
+    fn occupied_dag_rejects_invalid_paths_and_occupied_upper_siblings() {
+        let mut inputs = membership_inputs();
+        inputs[0].proof.path[0] = field(9);
+        assert!(occupied_dag(&inputs).is_err());
+        let mut inputs = membership_inputs();
+        inputs[0].proof.leaf_index = 1024;
+        assert!(occupied_dag(&inputs).is_err());
+        let mut inputs = membership_inputs();
+        inputs.truncate(1);
+        let proof = &mut inputs[0].proof;
+        proof.path[10] = field(9);
+        proof.root = proof.path.iter().fold(proof.leaf, |node, sibling| {
+            Poseidon::hashv(&[&node, sibling]).unwrap()
+        });
+        assert!(occupied_dag(&inputs).is_err());
+    }
 
     fn request(freshness: Root) -> Result<Request, ClientError> {
         let opening = Opening {

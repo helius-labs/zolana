@@ -633,7 +633,7 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processTransferEddsaProof(job.Payload)
 	case common.TransferP256RingCircuitType:
 		proof, proofError = w.processTransferP256Proof(job.Payload)
-	case common.InputCertificateCircuitType, common.NullifierFreshnessCircuitType, common.SpendBalanceCircuitType, common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType:
+	case common.InputCertificateCircuitType, common.NullifierFreshnessCircuitType, common.SpendBalanceCircuitType, common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType:
 		proof, proofError = directprover.ProveRequest(w.keyManager, job.Payload)
 	case common.MergeCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
