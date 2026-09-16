@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 
@@ -47,6 +48,7 @@ func newSyncAdmission(permits int) *syncAdmission {
 	}
 	logging.Logger().Info().
 		Int("permits", permits).
+		Int("gomaxprocs", runtime.GOMAXPROCS(0)).
 		Int64("max_waiting", int64(permits*syncWaitMultiple)).
 		Msg("Sync proof admission control")
 	return &syncAdmission{

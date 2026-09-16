@@ -9,6 +9,7 @@
 //! that called the helper, not the helper body.
 
 pub mod backend;
+pub mod benchmark;
 pub mod harness;
 pub mod lifecycle;
 pub mod litesvm_asserts;

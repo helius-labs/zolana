@@ -6,6 +6,7 @@ use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::{
+    mock_sender::MocksMap,
     nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
     rpc_client::{Mocks, RpcClient},
 };
@@ -19,6 +20,102 @@ use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatu
 use zolana_client::{
     AsyncSolanaRpc, ClientError, ConfirmedInstructionGroups, ProgramAccountsFilter, Rpc, SolanaRpc,
 };
+
+fn signature_status(value: Value) -> Value {
+    json!({"context": {"slot": 1}, "value": [value]})
+}
+
+#[test]
+fn confirmation_wait_preserves_commitment_and_execution_errors() {
+    let mocks: MocksMap = [
+        signature_status(json!({
+            "slot": 1, "confirmations": 0, "err": null,
+            "status": {"Ok": null}, "confirmationStatus": "processed"
+        })),
+        signature_status(json!({
+            "slot": 1, "confirmations": 1, "err": null,
+            "status": {"Ok": null}, "confirmationStatus": "confirmed"
+        })),
+        signature_status(json!({
+            "slot": 1, "confirmations": null, "err": "AccountInUse",
+            "status": {"Err": "AccountInUse"}, "confirmationStatus": "finalized"
+        })),
+    ]
+    .into_iter()
+    .map(|value| (RpcRequest::GetSignatureStatuses, value))
+    .collect();
+    let client = RpcClient::new_mock_with_mocks_map("succeeds", mocks);
+    assert_eq!(client.commitment(), CommitmentConfig::finalized());
+    let rpc = SolanaRpc::with_client(client);
+    let result = rpc.wait_for_signature_with_interval(
+        &Signature::default(),
+        std::time::Duration::from_millis(1),
+    );
+    assert!(matches!(result, Err(ClientError::TransactionFailed(_))));
+}
+
+#[test]
+fn confirmation_wait_rejects_zero_poll_interval() {
+    let rpc = SolanaRpc::with_client(RpcClient::new_mock("succeeds"));
+    assert!(rpc
+        .wait_for_signature_with_interval(&Signature::default(), std::time::Duration::ZERO)
+        .is_err());
+}
+
+#[test]
+#[ignore = "controlled RPC transport timing; does not measure chain finality"]
+fn confirmation_polling_latency_probe() {
+    use solana_hash::Hash;
+    use solana_keypair::{Keypair, Signer};
+    use std::time::{Duration, Instant};
+    use zolana_client::{compile_message, sign_transaction, ComputeBudgetConfig};
+
+    let payer = Keypair::new();
+    let transaction = sign_transaction(
+        compile_message(
+            &payer.pubkey(),
+            &[],
+            Hash::default(),
+            ComputeBudgetConfig::new(200_000),
+        )
+        .unwrap(),
+        &[&payer],
+    )
+    .unwrap();
+    for interval_ms in [500, 25] {
+        let mocks: MocksMap = [
+            (
+                RpcRequest::GetSignatureStatuses,
+                signature_status(Value::Null),
+            ),
+            (
+                RpcRequest::SendTransaction,
+                json!(transaction.signatures[0].to_string()),
+            ),
+            (
+                RpcRequest::IsBlockhashValid,
+                json!({"context": {"slot": 1}, "value": true}),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let rpc = SolanaRpc::with_client(RpcClient::new_mock_with_mocks_map("succeeds", mocks));
+        let started = Instant::now();
+        if interval_ms == 500 {
+            rpc.process_transaction(transaction.clone()).unwrap();
+        } else {
+            let signature = rpc
+                .send_transaction_with_config(&transaction, Default::default())
+                .unwrap();
+            rpc.wait_for_signature_with_interval(&signature, Duration::from_millis(interval_ms))
+                .unwrap();
+        }
+        println!(
+            "controlled_pending_then_finalized interval_ms={interval_ms} elapsed_us={}",
+            started.elapsed().as_micros()
+        );
+    }
+}
 
 #[test]
 fn get_account_returns_none_for_missing_account() {

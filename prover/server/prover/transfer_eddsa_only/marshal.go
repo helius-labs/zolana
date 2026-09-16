@@ -43,6 +43,9 @@ type OutputParamsJSON struct {
 }
 
 type TransferParametersJSON struct {
+	CacheInputBitmap             string                      `json:"cacheInputBitmap,omitempty"`
+	CacheTreeID                  string                      `json:"cacheTreeId,omitempty"`
+	CacheInputHashChain          string                      `json:"cacheInputHashChain,omitempty"`
 	CircuitType                  common.CircuitType          `json:"circuitType"`
 	NInputs                      uint32                      `json:"nInputs"`
 	NOutputs                     uint32                      `json:"nOutputs"`
@@ -77,6 +80,9 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
 	circuitType := p.Variant.CircuitType()
 	paramsJson := TransferParametersJSON{
+		CacheInputBitmap:             common.FeHex(p.CacheInputBitmap),
+		CacheTreeID:                  common.FeHex(p.CacheTreeID),
+		CacheInputHashChain:          common.FeHex(p.CacheInputHashChain),
 		CircuitType:                  circuitType,
 		NInputs:                      p.NInputs,
 		NOutputs:                     p.NOutputs,
@@ -131,6 +137,17 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	p.NInputs = params.NInputs
 	p.NOutputs = params.NOutputs
 	p.Variant = variantFromCircuitType(params.CircuitType)
+	if p.Variant == CachedVariant {
+		if p.CacheInputBitmap, err = common.FeFromHex(params.CacheInputBitmap); err != nil {
+			return err
+		}
+		if p.CacheTreeID, err = common.FeFromHex(params.CacheTreeID); err != nil {
+			return err
+		}
+		if p.CacheInputHashChain, err = common.FeFromHex(params.CacheInputHashChain); err != nil {
+			return err
+		}
+	}
 	if p.TreeSlots, err = common.TreeSlotsFromJSON(params.TreeSlots); err != nil {
 		return err
 	}

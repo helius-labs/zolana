@@ -7,6 +7,7 @@
 //! Both `spp-test-validator` test binaries (`lifecycle` and `proof_cu`)
 //! consume this module, so each composes exactly the fixture surface it uses.
 
+mod cache_bench;
 mod decode;
 mod deposit;
 pub(crate) mod merge;

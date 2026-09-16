@@ -96,5 +96,8 @@ type TransferParameters struct {
 	// private, no signature).
 	Variant Variant
 
-	PublicInputHash *big.Int
+	PublicInputHash     *big.Int
+	CacheInputBitmap    *big.Int
+	CacheTreeID         *big.Int
+	CacheInputHashChain *big.Int
 }

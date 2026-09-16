@@ -5,7 +5,8 @@ type CircuitType string
 const (
 	BatchAddressAppendCircuitType CircuitType = "address-append"
 
-	TransferConfidentialCircuitType CircuitType = "transfer-confidential"
+	TransferConfidentialCircuitType       CircuitType = "transfer-confidential"
+	TransferConfidentialCachedCircuitType CircuitType = "transfer-confidential-cached"
 
 	// TransferRingCircuitType is the confidential policy-ring transfer.
 	TransferRingCircuitType CircuitType = "transfer-ring"

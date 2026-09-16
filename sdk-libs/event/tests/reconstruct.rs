@@ -22,6 +22,68 @@ const OWNER_ACCOUNT_INDEX: u8 = 6;
 /// The second declared input tree of a multi-tree spend.
 const SECOND_INPUT_TREE: [u8; 32] = [3u8; 32];
 
+#[test]
+fn captured_cached_36x2_transaction_is_reconstructed() {
+    let bytes = |fixture: &str| {
+        fixture
+            .split_whitespace()
+            .map(|byte| u8::from_str_radix(byte, 16).expect("fixture byte"))
+            .collect::<Vec<_>>()
+    };
+    let instruction = bytes(include_str!("fixtures/cached_36x2_instruction.hex"));
+    let emitted = bytes(include_str!("fixtures/cached_36x2_event.hex"));
+    let ix =
+        zolana_interface::instruction::instruction_data::transact::TransactIxDataRef::from_bytes(
+            &instruction[1..],
+        )
+        .expect("cached wire instruction");
+    assert!(matches!(
+        ix.circuit,
+        zolana_interface::instruction::CircuitId::ConfidentialEddsaCached(36, 2, _, cached)
+            if cached.input_bitmap == (1 << 15) - 1
+    ));
+    let spp = Pubkey::new_unique();
+    let events = indexed_events_from_instruction_groups(
+        spp,
+        &[InstructionGroup {
+            outer: ParsedInstruction::new(spp, Vec::new(), instruction, 1),
+            inner: vec![ParsedInstruction::new(spp, Vec::new(), emitted, 2)],
+        }],
+    );
+    assert_eq!(events.len(), 1);
+    let event = events[0].decoded.as_ref().expect("cached event");
+    assert_eq!(event.inputs.len(), 36);
+    assert_eq!(event.inputs[0].input_queue_seq, 513);
+    assert_eq!(event.inputs[35].input_queue_seq, 548);
+    assert_eq!(event.outputs.len(), 2);
+    assert!(event.outputs.iter().all(|output| output.data.len() == 89));
+    assert_eq!(event.first_output_leaf_index, 527);
+    assert!(event.messages.is_empty());
+    assert!(event.spl_transfers.is_empty());
+}
+
+#[test]
+fn direct_spend_event_requires_a_direct_spend_source() {
+    let spp = Pubkey::new_unique();
+    let event = expected_transfer(Pubkey::new_unique());
+    let emitted = emit_event_data(EventKind::DirectSpend, &event);
+    let mut src = ParsedInstruction::new(spp, Vec::new(), vec![tag::DIRECT_SPEND], 1);
+    let events = indexed_events_from_instruction_groups(
+        spp,
+        &[InstructionGroup {
+            outer: src.clone(),
+            inner: vec![ParsedInstruction::new(spp, Vec::new(), emitted.clone(), 2)],
+        }],
+    );
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].decoded.as_ref(), Ok(&event));
+    src.data[0] = tag::TRANSACT;
+    assert_eq!(
+        reconstruct_general_event(&src, &emitted),
+        Err(EventDecodeError::InvalidPayload)
+    );
+}
+
 fn input(nullifier_byte: u8) -> InputUtxo {
     input_in_tree(nullifier_byte, 0)
 }

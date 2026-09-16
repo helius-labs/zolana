@@ -102,7 +102,7 @@ func runCli() {
 
 					var ps *common.TransferProofSystem
 					switch circuit {
-					case common.TransferConfidentialCircuitType,
+					case common.TransferConfidentialCircuitType, common.TransferConfidentialCachedCircuitType,
 						common.TransferRingCircuitType,
 						common.TransferRingAuthorityCircuitType:
 						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)

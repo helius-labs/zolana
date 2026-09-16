@@ -842,7 +842,7 @@ type healthHandler struct {
 func servedCircuits() []common.CircuitType {
 	return []common.CircuitType{
 		common.BatchAddressAppendCircuitType,
-		common.TransferConfidentialCircuitType,
+		common.TransferConfidentialCircuitType, common.TransferConfidentialCachedCircuitType,
 		common.TransferRingCircuitType,
 		common.TransferP256RingCircuitType,
 		common.TransferRingAuthorityCircuitType,
@@ -1098,7 +1098,7 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "zk_address_append_queue"
-	case common.TransferConfidentialCircuitType,
+	case common.TransferConfidentialCircuitType, common.TransferConfidentialCachedCircuitType,
 		common.TransferRingCircuitType,
 		common.TransferP256RingCircuitType,
 		common.TransferRingAuthorityCircuitType,
@@ -1133,7 +1133,7 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 		return 180
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
 		return 10
-	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
+	case common.TransferConfidentialCircuitType, common.TransferConfidentialCachedCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
@@ -1165,7 +1165,7 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
-	case common.TransferConfidentialCircuitType,
+	case common.TransferConfidentialCircuitType, common.TransferConfidentialCachedCircuitType,
 		common.TransferRingCircuitType,
 		common.TransferRingAuthorityCircuitType:
 		return handler.transferEddsaProof(buf)

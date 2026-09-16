@@ -454,8 +454,8 @@ pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) ->
 /// Serialize a Solana-only transfer witness to the prover server's JSON request
 /// body under the given `circuit_type`. The eddsa transfer and ring-authority
 /// variants share the witness shape and differ only by the circuit type.
-fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
-    let json = TransferInputsJson {
+fn transfer_inputs_value(inputs: &TransferInputs, circuit_type: &str) -> TransferInputsJson {
+    TransferInputsJson {
         circuit_type: circuit_type.to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
@@ -489,8 +489,31 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
             .map(big_uint_to_string)
             .collect(),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
-    };
-    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+    }
+}
+
+fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
+    serde_json::to_string(&transfer_inputs_value(inputs, circuit_type))
+        .expect("JSON serialization failed for valid struct")
+}
+
+pub(crate) fn to_json_cached(inputs: &TransferInputs, fields: &[[u8; 32]; 3]) -> String {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CachedInputsJson {
+        #[serde(flatten)]
+        transfer: TransferInputsJson,
+        cache_input_bitmap: String,
+        cache_tree_id: String,
+        cache_input_hash_chain: String,
+    }
+    serde_json::to_string(&CachedInputsJson {
+        transfer: transfer_inputs_value(inputs, "transfer-confidential-cached"),
+        cache_input_bitmap: fe_to_string(&fields[0]),
+        cache_tree_id: fe_to_string(&fields[1]),
+        cache_input_hash_chain: fe_to_string(&fields[2]),
+    })
+    .expect("JSON serialization failed for valid struct")
 }
 
 /// Serialize the Solana-only confidential transfer witness to the prover server's

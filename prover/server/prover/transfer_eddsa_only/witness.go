@@ -163,12 +163,12 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	}
 
 	switch p.Variant {
-	case ConfidentialVariant:
+	case ConfidentialVariant, CachedVariant:
 		outputNullifierPks := make([]frontend.Variable, len(p.Outputs))
 		for i, out := range p.Outputs {
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
-		return &defaultring.DefaultRingEddsaOnlyCircuit{
+		base := defaultring.DefaultRingEddsaOnlyCircuit{
 			Shape: shape,
 			Public: defaultring.DefaultRingEddsaOnlyPublic{
 				Nullifiers:          core.nullifiers,
@@ -191,7 +191,14 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				OutputNullifierPks: outputNullifierPks,
 				BlindingSeed:       p.BlindingSeed,
 			},
-		}, nil
+		}
+		if p.Variant == CachedVariant {
+			return &defaultring.DefaultRingEddsaOnlyCachedCircuit{
+				DefaultRingEddsaOnlyCircuit: base,
+				CachedInputs:                defaultring.CachedInputs{InputBitmap: p.CacheInputBitmap, TreeID: p.CacheTreeID, InputHashChain: p.CacheInputHashChain},
+			}, nil
+		}
+		return &base, nil
 	case RingAuthorityVariant:
 		return &customring.CustomRingAuthorityCircuit{
 			Shape: shape,

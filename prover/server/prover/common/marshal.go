@@ -336,6 +336,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		// "transfer" (matched this branch) and "ring".
 		ringAuthority := strings.Contains(strings.ToLower(path), "ring_authority")
 		switch {
+		case strings.Contains(lowerPath, "transfer_confidential_cached"):
+			ps.CircuitType = TransferConfidentialCachedCircuitType
 		case ringAuthority:
 			ps.CircuitType = TransferRingAuthorityCircuitType
 		case p256Ring:

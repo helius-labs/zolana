@@ -86,6 +86,7 @@ pub enum ProverInputs {
 /// are identical by construction. Call [`AssembledTransfer::with_proof`] once the
 /// proof is produced from [`AssembledTransfer::prover_inputs`].
 pub struct AssembledTransfer {
+    pub cached_inputs: Option<[[u8; 32]; 3]>,
     pub prover_inputs: ProverInputs,
     pub public_input_hash: [u8; 32],
     ix: TransactIxData,
@@ -218,11 +219,59 @@ pub fn assemble(
     assemble_with_dummy_policy(proof_inputs, input_proofs, dummy_nullifier_proofs, true)
 }
 
+pub fn assemble_cached(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+) -> Result<AssembledTransfer, ClientError> {
+    assemble_cached_with_dummy_proofs(proof_inputs, input_proofs, &[])
+}
+
+pub fn assemble_cached_with_dummy_proofs(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+) -> Result<AssembledTransfer, ClientError> {
+    let expected = proof_inputs
+        .input_utxos
+        .iter()
+        .filter(|input| input.is_dummy())
+        .count();
+    if dummy_nullifier_proofs.len() != expected {
+        return Err(ClientError::WitnessInputCountMismatch {
+            got: dummy_nullifier_proofs.len(),
+            expected,
+        });
+    }
+    assemble_inner(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
+        true,
+        true,
+    )
+}
+
 pub fn assemble_with_dummy_policy(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
     allow_dummy_inputs: bool,
+) -> Result<AssembledTransfer, ClientError> {
+    assemble_inner(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
+        allow_dummy_inputs,
+        false,
+    )
+}
+
+fn assemble_inner(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    allow_dummy_inputs: bool,
+    cached: bool,
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
     if inputs_require_p256(&proof_inputs.input_utxos)? {
@@ -246,7 +295,7 @@ pub fn assemble_with_dummy_policy(
         .map(zolana_transaction::instructions::transact::SettlementTransfer::interface_transfer)
         .collect();
 
-    let circuit_id = CircuitId::ConfidentialEddsa(
+    let mut circuit_id = CircuitId::ConfidentialEddsa(
         shape.n_inputs() as u8,
         shape.n_outputs() as u8,
         N_PUBLIC_SLOTS as u8,
@@ -260,7 +309,25 @@ pub fn assemble_with_dummy_policy(
     )?;
 
     let ProverVariant::Eddsa(prover) = circuit;
-    let result = prover.build()?;
+    let result = if cached {
+        prover.build_cached()?
+    } else {
+        prover.build()?
+    };
+    if cached {
+        circuit_id = CircuitId::ConfidentialEddsaCached(
+            shape.n_inputs() as u8,
+            shape.n_outputs() as u8,
+            N_PUBLIC_SLOTS as u8,
+            zolana_interface::verifying_keys::CachedInputs {
+                input_bitmap: u64::from_be_bytes(
+                    result.cached_inputs.as_ref().unwrap()[0][24..]
+                        .try_into()
+                        .unwrap(),
+                ),
+            },
+        );
+    }
     let prover_inputs = ProverInputs::Eddsa(result.inputs);
     let public_input_hash = result.public_input_hash;
     let nullifiers = result.nullifiers;
@@ -292,6 +359,7 @@ pub fn assemble_with_dummy_policy(
     };
 
     Ok(AssembledTransfer {
+        cached_inputs: result.cached_inputs,
         prover_inputs,
         public_input_hash,
         ix,
@@ -447,6 +515,124 @@ mod tests {
             .collect();
         assert_eq!(requested.len(), 1);
         assert_eq!(witnessed, requested);
+    }
+
+    fn cached_fixture(
+        real: usize,
+        shape: Shape,
+    ) -> (SppProofInputs, Vec<SpendProof>, Vec<NonInclusionProof>) {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let inputs = (0..real)
+            .map(|i| {
+                SppProofInputUtxo::new(
+                    Utxo {
+                        owner: sender.signing_pubkey(),
+                        asset: SOL_MINT,
+                        amount: 10,
+                        blinding: [i as u8 + 1; 32],
+                        ring_program_id: None,
+                        data: Data::default(),
+                    },
+                    &sender,
+                )
+                .in_tree(3)
+            })
+            .collect();
+        let payer = Address::new_from_array(sender.signing_pubkey().as_ed25519().unwrap());
+        let mut transfer =
+            ConfidentialTransfer::new(sender.shielded_address().unwrap(), inputs, payer)
+                .with_compact_change()
+                .with_shape(shape);
+        transfer
+            .send(
+                &recipient.shielded_address().unwrap(),
+                SOL_MINT,
+                real as u64 * 10,
+            )
+            .unwrap();
+        let prepared = transfer.sign(&sender, &AssetRegistry::default()).unwrap();
+        let mut proof = fake_spend_proof();
+        proof.state.root = [7; 32];
+        proof.state.root_index = 9;
+        let dummies = prepared
+            .dummy_nullifiers()
+            .unwrap()
+            .into_iter()
+            .map(|nullifier| {
+                let mut nip = proof.nullifier.clone();
+                nip.leaf = nullifier;
+                nip
+            })
+            .collect();
+        (prepared, vec![proof; real], dummies)
+    }
+
+    #[test]
+    fn cached_padding_preserves_real_bitmap_zero_slots_and_root() {
+        let (prepared, proofs, dummies) = cached_fixture(15, Shape::IN36_OUT2);
+        let mut commitments = prepared
+            .input_utxo_hashes()
+            .unwrap()
+            .into_iter()
+            .map(|input| input.utxo_hash)
+            .collect::<Vec<_>>();
+        commitments.resize(36, [0; 32]);
+        let expected_chain =
+            zolana_hasher::hash_chain::create_hash_chain_4_from_slice(&commitments).unwrap();
+        let assembled =
+            super::assemble_cached_with_dummy_proofs(prepared, &proofs, &dummies).unwrap();
+        assert_eq!(
+            assembled.ix.circuit.cached_inputs().unwrap().input_bitmap,
+            (1 << 15) - 1
+        );
+        let fields = assembled.cached_inputs.unwrap();
+        assert_eq!(
+            u64::from_be_bytes(fields[0][24..].try_into().unwrap()),
+            (1 << 15) - 1
+        );
+        assert_eq!(fields[2], expected_chain);
+        assert_eq!(assembled.ix.tree_contexts[0].utxo_tree_root_index, 9);
+        let super::ProverInputs::Eddsa(witness) = assembled.prover_inputs;
+        assert_eq!(
+            witness.tree_slots[0].utxo_root,
+            num_bigint::BigUint::from_bytes_be(&[7; 32])
+        );
+        for (input, nip) in witness.inputs[15..].iter().zip(&dummies) {
+            assert_eq!(
+                input.nullifier,
+                num_bigint::BigUint::from_bytes_be(&nip.leaf)
+            );
+        }
+    }
+
+    #[test]
+    fn cached_all_real_inputs_keep_canonical_zero_state_root() {
+        let (prepared, proofs, dummies) = cached_fixture(1, Shape::IN1_OUT2);
+        let assembled =
+            super::assemble_cached_with_dummy_proofs(prepared, &proofs, &dummies).unwrap();
+        assert_eq!(
+            assembled.ix.circuit.cached_inputs().unwrap().input_bitmap,
+            1
+        );
+        assert_eq!(assembled.ix.tree_contexts[0].utxo_tree_root_index, 0);
+        let super::ProverInputs::Eddsa(witness) = assembled.prover_inputs;
+        assert_eq!(witness.tree_slots[0].utxo_root, num_bigint::BigUint::ZERO);
+    }
+
+    #[test]
+    fn cached_padding_rejects_missing_mismatched_and_noncanonical_witnesses() {
+        let (prepared, proofs, dummies) = cached_fixture(15, Shape::IN36_OUT2);
+        assert!(super::assemble_cached(prepared.clone(), &proofs).is_err());
+        let mut mismatched = dummies.clone();
+        mismatched[0].root = [1; 32];
+        assert!(
+            super::assemble_cached_with_dummy_proofs(prepared.clone(), &proofs, &mismatched)
+                .is_err()
+        );
+        let mut noncanonical = prepared;
+        noncanonical.input_utxos[15].utxo.amount = 1;
+        assert!(super::assemble_cached_with_dummy_proofs(noncanonical, &proofs, &dummies).is_err());
     }
 
     fn fake_spend_proof() -> SpendProof {

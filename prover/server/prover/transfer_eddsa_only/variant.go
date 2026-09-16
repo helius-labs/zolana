@@ -10,13 +10,15 @@ import (
 )
 
 // Variant selects which Solana-only spp_transaction instantiation to build. The
-// three forms are mutually exclusive.
+// forms are mutually exclusive.
 type Variant int
 
 const (
 	// ConfidentialVariant is the default transact: output owners bind to public
 	// pk_field tags; non-ring.
 	ConfidentialVariant Variant = iota
+	// CachedVariant replaces state inclusion with program-owned cached commitments.
+	CachedVariant
 	// RingVariant is the confidential policy-ring transfer (ring_transact):
 	// input and output owners remain private and each real UTXO binds its
 	// ring_program_id. Solana signer hashes still authorize private owner hashes.
@@ -31,6 +33,8 @@ const (
 // CircuitType maps the variant to its wire/key CircuitType string.
 func (v Variant) CircuitType() common.CircuitType {
 	switch v {
+	case CachedVariant:
+		return common.TransferConfidentialCachedCircuitType
 	case ConfidentialVariant:
 		return common.TransferConfidentialCircuitType
 	case RingAuthorityVariant:
@@ -44,6 +48,8 @@ func (v Variant) CircuitType() common.CircuitType {
 // to the confidential ring variant.
 func variantFromCircuitType(ct common.CircuitType) Variant {
 	switch ct {
+	case common.TransferConfidentialCachedCircuitType:
+		return CachedVariant
 	case common.TransferConfidentialCircuitType:
 		return ConfidentialVariant
 	case common.TransferRingAuthorityCircuitType:
@@ -56,6 +62,8 @@ func variantFromCircuitType(ct common.CircuitType) Variant {
 // newVariantCircuit builds the Solana-only rail circuit for the variant.
 func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, error) {
 	switch v {
+	case CachedVariant:
+		return defaultring.NewDefaultRingEddsaOnlyCachedCircuit(shape)
 	case ConfidentialVariant:
 		return defaultring.NewDefaultRingEddsaOnlyCircuit(shape)
 	case RingAuthorityVariant:

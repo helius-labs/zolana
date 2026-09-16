@@ -42,6 +42,7 @@ pub const RING_AUTHORITY_TRANSACT: u8 = 21;
 
 pub const CREATE_CACHE: u8 = 22;
 pub const CLOSE_CACHE: u8 = 23;
+pub const DIRECT_SPEND: u8 = 25;
 
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

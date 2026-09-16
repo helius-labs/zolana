@@ -1,4 +1,6 @@
 use num_bigint::BigUint;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
+use zolana_interface::tree_slot::tree_id_field;
 use zolana_interface::{
     instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
 };
@@ -39,6 +41,7 @@ pub struct TransferProver {
 
 #[derive(Debug, Clone)]
 pub struct TransferProofResult {
+    pub cached_inputs: Option<[[u8; 32]; 3]>,
     pub inputs: TransferInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
@@ -53,6 +56,15 @@ pub struct TransferProofResult {
 
 impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
+        self.build_inner(false)
+    }
+
+    /// Real inputs select the matching cache slots; canonical padding remains uncached.
+    pub fn build_cached(self) -> Result<TransferProofResult, ClientError> {
+        self.build_inner(true)
+    }
+
+    fn build_inner(self, cached: bool) -> Result<TransferProofResult, ClientError> {
         let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.signer_width() {
             return Err(ClientError::WitnessInputCountMismatch {
@@ -60,7 +72,45 @@ impl TransferProver {
                 expected: shape.signer_width(),
             });
         }
-        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
+        let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
+        let cached_inputs = if cached {
+            assembled_inputs.single_tree_context()?;
+            if self.inputs.len() > 36 {
+                return Err(ClientError::NoInputs);
+            }
+            let mut selected = 0u64;
+            for (index, input) in self.inputs.iter().enumerate() {
+                if input.proof.is_some() {
+                    selected |= 1u64 << index;
+                } else if !input.utxo.owner.is_zero()
+                    || input.utxo.amount != 0
+                    || input.utxo.asset != Default::default()
+                    || input.utxo.ring_program_id.is_some()
+                    || !input.utxo.data.is_empty()
+                    || input.data_hash.unwrap_or_default() != [0; 32]
+                    || input.ring_data_hash.unwrap_or_default() != [0; 32]
+                    || input.nullifier_key.secret().iter().any(|byte| *byte != 0)
+                    || input.nullifier_proof.is_none()
+                {
+                    return Err(ClientError::Prover(
+                        "cached padding requires a canonical dummy and a nullifier proof".into(),
+                    ));
+                }
+            }
+            if selected == (1u64 << self.inputs.len()) - 1 {
+                assembled_inputs.tree_slots[0].utxo_root = [0; 32];
+                assembled_inputs.tree_contexts[0].utxo_tree_root_index = 0;
+            }
+            let mut bitmap = [0; 32];
+            bitmap[24..].copy_from_slice(&selected.to_be_bytes());
+            Some([
+                bitmap,
+                tree_id_field(self.inputs[0].tree_id),
+                create_hash_chain_4_from_slice(&assembled_inputs.input_hashes)?,
+            ])
+        } else {
+            None
+        };
         let input_flags = pack_input_flags(
             self.allow_dummy_inputs,
             assembled_inputs.input_tree_indexes.iter().copied(),
@@ -95,7 +145,12 @@ impl TransferProver {
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&assembled_outputs.output_owner_pk_hashes),
         }
-        .hash()?;
+        .hash_with_extensions(
+            &[],
+            cached_inputs
+                .as_ref()
+                .map_or(&[], |fields| fields.as_slice()),
+        )?;
 
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
@@ -119,6 +174,7 @@ impl TransferProver {
         };
 
         Ok(TransferProofResult {
+            cached_inputs,
             inputs,
             public_input_hash: public_input,
             nullifiers: assembled_inputs.nullifiers,

@@ -17,8 +17,8 @@ use crate::{
     prover::{
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
-            to_json_p256_ring, to_json_ring, to_json_ring_authority,
+            to_json, to_json_batch_address_append, to_json_cached, to_json_merge,
+            to_json_merge_ring, to_json_p256_ring, to_json_ring, to_json_ring_authority,
         },
         proof::{proof_from_gnark_json, Proof},
     },
@@ -221,6 +221,14 @@ impl ProverClient {
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.send(to_json(inputs), self.delivery)
+    }
+
+    pub fn prove_cached_transfer(
+        &self,
+        inputs: &TransferInputs,
+        fields: &[[u8; 32]; 3],
+    ) -> Result<Proof, ClientError> {
+        self.send(to_json_cached(inputs, fields), self.delivery)
     }
 
     /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
