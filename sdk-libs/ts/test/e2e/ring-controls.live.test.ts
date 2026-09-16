@@ -175,7 +175,8 @@ describe("fresh ring controls", () => {
     if (!["127.0.0.1", "localhost", "[::1]"].includes(new URL(harness.rpcUrl).hostname))
       throw new Error("controls fixture runs on a local validator only");
     const { client } = harness;
-    const windowSlots = 100_000n;
+    // Photon replays every surfpool slot after a clock jump, so the window stays short.
+    const windowSlots = 1_000n;
     await airdrop(client, harness.testAuthority.address);
     const authority = (await freshActor(client)).signer;
     const delegate = (await freshActor(client)).signer;
@@ -317,6 +318,12 @@ describe("fresh ring controls", () => {
         recipient = await freshActor(client);
       await airdrop(client, sender.signer.address);
       await enrolInAllow(client, ringProgramId, authority, [sender, recipient]);
+      // A fresh window from here, so the counters below never straddle a natural rollover.
+      await advanceScopedClock({
+        client,
+        rpcUrl: harness.rpcUrl,
+        slot: ((await client.getSlot()) / windowSlots + 1n) * windowSlots,
+      });
       const registration = await indexedHead(() =>
         prepareRingSpendRegistration({ client, ringProgramId, payer: sender.signer }),
       );
