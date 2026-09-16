@@ -39,7 +39,6 @@ const fixtures = readFileSync(new URL("../fixtures/user-registry.txt", import.me
 const OWNER = address("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
 const RECORD = address("AfUWiF4smfE7Uxi1n5QY94eoU4wahDg9nHtzmE31z8Er");
 const DATA: RegisterInstructionData = {
-  ownerP256: undefined,
   nullifierPublicKey: checkedBytes<Bytes32>(
     Uint8Array.from({ length: 32 }, (_, index) => index),
     32,

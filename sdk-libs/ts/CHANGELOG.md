@@ -10,6 +10,7 @@ Added
 
 - `getUserRecordAddress` derives the owner's registry address without an RPC call.
 - `getRegisterInstruction` and `getSetMergingEnabledInstruction` return composable Solana Kit instructions and preserve supplied signers; P-256 registration remains unsupported.
+- `RegisterInstructionData` takes only `nullifierPublicKey` and `viewingPublicKey`.
 
 ## 0.1.6-alpha — 2026-09-03
 

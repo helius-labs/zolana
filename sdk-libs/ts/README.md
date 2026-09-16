@@ -190,7 +190,6 @@ const registerIx = getRegisterInstruction({
   userRecord,
   owner: feePayer,
   data: {
-    ownerP256: undefined,
     nullifierPublicKey: shieldedAddress.nullifierPublicKey,
     viewingPublicKey: shieldedAddress.viewingPublicKey.toBytes(),
   },
@@ -215,7 +214,7 @@ await sendAndConfirm(signed, { commitment: "confirmed" });
 The PDA helper performs no RPC calls. Both instruction builders return a Solana
 Kit `Instruction` synchronously, preserve supplied signers, and do not fetch,
 compile, sign, or send transactions. `owner` accepts an address or a Kit signer.
-P-256 owner registration is unsupported; `ownerP256` must be omitted or `undefined`.
+P-256 owner registration is unsupported.
 
 `getRegisterInstruction` creates a new record and fails on-chain if one already
 exists. `buildRegistrationTransaction` retains its registration check: matching

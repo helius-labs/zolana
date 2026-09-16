@@ -55,13 +55,12 @@ type Meta = NonNullable<Instruction["accounts"]>[number];
 export type SignerAccount = Address | TransactionSigner;
 
 export interface RegisterInstructionData {
-  readonly ownerP256?: undefined;
   readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: Bytes33;
 }
 
 function registryKeysData(tag: number, data: RegisterInstructionData): Uint8Array {
-  if (data.ownerP256 !== undefined) {
+  if ("ownerP256" in data && data.ownerP256 !== undefined) {
     fail("INTERFACE_CODEC", { reason: "P256 owner registration is unsupported" });
   }
   return new Writer()
