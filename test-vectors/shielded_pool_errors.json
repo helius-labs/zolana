@@ -64,5 +64,8 @@
   "InputTreeIndexOutOfRange": 7062,
   "InputsNotGroupedByTree": 7063,
   "UnreferencedTreeContext": 7064,
-  "DuplicateInputTree": 7065
+  "DuplicateInputTree": 7065,
+  "InvalidPendingNullifiers": 7066,
+  "NullifierAlreadySpent": 7067,
+  "PendingNullifiersFull": 7068
 }

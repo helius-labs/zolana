@@ -11,6 +11,7 @@ import (
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
+	directprover "zolana/prover/prover/direct_spend"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -848,6 +849,10 @@ func servedCircuits() []common.CircuitType {
 		common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType,
 		common.MergeRingCircuitType,
+		common.InputCertificateCircuitType,
+		common.NullifierFreshnessCircuitType,
+		common.SpendBalanceCircuitType,
+		common.DirectPaymentCircuitType,
 		common.CustomRingBaseCircuitType,
 		common.CustomRingPolicyCircuitType,
 	}
@@ -1103,7 +1108,11 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.TransferP256RingCircuitType,
 		common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType,
-		common.MergeRingCircuitType:
+		common.MergeRingCircuitType,
+		common.InputCertificateCircuitType,
+		common.NullifierFreshnessCircuitType,
+		common.SpendBalanceCircuitType,
+		common.DirectPaymentCircuitType:
 		return "zk_transfer_queue"
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
 		return "zk_custom_ring_queue"
@@ -1117,6 +1126,8 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
 	case common.TransferP256RingCircuitType:
+		return "30-180 seconds"
+	case common.DirectPaymentCircuitType:
 		return "30-180 seconds"
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
 		return "1-10 seconds"
@@ -1138,6 +1149,8 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
 		return 60
+	case common.DirectPaymentCircuitType:
+		return 120
 	default:
 		return 1
 	}
@@ -1171,6 +1184,23 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.transferEddsaProof(buf)
 	case common.TransferP256RingCircuitType:
 		return handler.transferP256Proof(buf)
+	case common.InputCertificateCircuitType,
+		common.NullifierFreshnessCircuitType,
+		common.SpendBalanceCircuitType,
+		common.DirectPaymentCircuitType:
+		request, assignment, err := directprover.Decode(buf)
+		if err != nil {
+			return nil, malformedBodyError(err)
+		}
+		ps, err := handler.keyManager.GetTransferSystem(request.CircuitType, request.NInputs, request.NOutputs)
+		if err != nil {
+			return nil, provingError(err)
+		}
+		proof, err := directprover.Prove(ps, request, assignment)
+		if err != nil {
+			return nil, provingError(err)
+		}
+		return proof, nil
 	case common.MergeCircuitType:
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:

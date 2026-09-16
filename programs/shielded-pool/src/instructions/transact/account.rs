@@ -72,7 +72,17 @@ impl<'a> TransactAccounts<'a> {
             owner_signers: &[],
             settlements: ArrayVec::new(),
         });
-        for _ in 0..ix.inputs.len() {
+        let mut nullifier_accounts = 0;
+        for (index, tree) in this.input_trees.iter().enumerate() {
+            let inputs = ix
+                .inputs
+                .iter()
+                .filter(|input| usize::from(input.tree_index) == index)
+                .count();
+            nullifier_accounts +=
+                crate::instructions::nullifier_pda::nullifier_account_count(tree, inputs)?;
+        }
+        for _ in 0..nullifier_accounts {
             this.nullifier_pdas
                 .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
