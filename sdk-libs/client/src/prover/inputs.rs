@@ -135,6 +135,9 @@ pub struct MergeInputs {
     /// Policy-ring merge only: the ring program's `pk_field`, the merge-ring
     /// circuit's top-level public input. `0` for the default merge.
     pub ring_program_id: BigUint,
+    pub operation_id: BigUint,
+    pub has_cache: BigUint,
+    pub cache_owner_commitment: BigUint,
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree

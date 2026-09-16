@@ -82,19 +82,19 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 286
+- Total invariants: 295
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
-  - merge.md: 33 (MergeTransact 19, RingMergeTransact 14)
+  - merge.md: 42 (MergeTransact 19, RingMergeTransact 14, MergeCache 9)
   - tree.md: 55 (CreateTree 10, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 10, SetTreeFees 9, ClaimTreeLamports 7)
   - protocol-config.md: 18 (Create 10, Update 8)
   - ring-config.md: 26 (Create 9, UpdateOwner 5, Update 6, SetRingActivation 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
-- Critical (funds/double-spend/authority takeover): 103
-- High: 103
-- Medium: 75
+- Critical (funds/double-spend/authority takeover): 106
+- High: 107
+- Medium: 77
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
@@ -147,21 +147,27 @@ Ring activation sync (2026-09-04): `create_ring_config` is permissionless and
 all covered) and INV-CREATE-PC-10 landed with its loader-authority check and is
 ticked. The counts below include them.
 
+Merge-cache identity sync (2026-09-16): the cache keys on one opaque
+`owner_identity` that each merge rail proves rather than signs, its PDA belongs
+to the signing rent sponsor, and an immutable `expires_at` is the sole close
+condition; INV-MERGE-20..28 added (9: 6 covered, 3 untested pending the
+`merge_ring` proving-key rotation). The counts below include them.
+
 Post-PR172 sync (2026-07-31):
 
-- Covered: 259 / 286
+- Covered: 265 / 295
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
-- Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Partial: 22 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(259 + 2 + 19 + 1 + 5 = 286. The per-file partial+untested column sums to 21
+(265 + 2 + 22 + 1 + 5 = 295. The per-file partial+untested column sums to 24
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 29/9/0/4, tree 50/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 

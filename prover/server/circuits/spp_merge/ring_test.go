@@ -65,3 +65,35 @@ func TestMergeRingCircuitRejectsWrongOutputRingDataHash(t *testing.T) {
 		t.Fatal("expected output ring-data-hash binding to fail, got solved")
 	}
 }
+
+func TestMergeRingCircuitProvesWithCache(t *testing.T) {
+	a := buildCachedRingWitness(t)
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("cached ring merge witness not solved: %v", err)
+	}
+}
+
+func TestMergeRingCircuitRejectsMismatchedCacheOwnerCommitment(t *testing.T) {
+	a := buildCachedRingWitness(t)
+	a.OperationID = big.NewInt(0xBADCACE)
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected cache owner commitment opening to fail, got solved")
+	}
+}
+
+func TestMergeRingCircuitRejectsCacheCommitmentWithoutHasCache(t *testing.T) {
+	a := buildCachedRingWitness(t)
+	a.HasCache = big.NewInt(0)
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected a published commitment without a cache to fail, got solved")
+	}
+}
+
+func buildCachedRingWitness(t *testing.T) *merge.RingCircuit {
+	t.Helper()
+	return buildRingWitnessWithOptions(t, mergeFixtureOptions{
+		ringProgramID: big.NewInt(0x5A0E),
+		operationID:   big.NewInt(0x0FF1CE),
+		hasCache:      true,
+	})
+}

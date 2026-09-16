@@ -13,7 +13,7 @@ use crate::instructions::verifier;
 /// The owner-binding tail of the merge public-input hash, which differs by
 /// variant. Modeling it as an enum keeps the two shapes mutually exclusive: the
 /// default merge cannot carry a ring id, and the policy-ring merge cannot carry
-/// owner-identity fields. The variant also selects the verifying key.
+/// the registry's signing identity. The variant also selects the verifying key.
 pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
     /// registry record -- the tagged owner identity of the registered key.
@@ -22,10 +22,14 @@ pub enum MergeOwnerBinding {
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the output `ring_data_hash` the ring program
     /// selected; the proof asserts it against the output's
-    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_<n_inputs>_1`.
+    /// `Output.Utxo.RingDataHash`. `cache_owner_commitment` is read from the
+    /// cache account, or zero when the merge writes no cache: the program
+    /// cannot recompute it, so the proof must open it to the merging user's own
+    /// identity. Verified against `merge_ring_<n_inputs>_1`.
     Ring {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
+        cache_owner_commitment: [u8; 32],
     },
 }
 
@@ -93,11 +97,12 @@ impl<'a> MergeProof<'a> {
     /// hash, tree slot chain, output tree id, private tx hash, external data
     /// hash, dummy-input policy); the default merge then appends the owner's
     /// signing identity (bound from the user registry), while the policy-ring
-    /// merge omits owner identity (no registry to bind it against) and appends
-    /// the output `ring_data_hash` and `ring_program_id`. The 7-element prefix
-    /// is 1 + 3 + 3, so it ends on a complete HashChain4 group without padding.
-    /// Continuing from its hash with the owner-binding tail is therefore
-    /// equivalent to folding all 8 or 9 elements together.
+    /// merge omits that identity (no registry to bind it against) and appends
+    /// the output `ring_data_hash`, `ring_program_id` and the cache owner
+    /// commitment. The 7-element prefix is 1 + 3 + 3, so it ends on a complete
+    /// HashChain4 group without padding. Continuing from its hash with the
+    /// owner-binding tail is therefore equivalent to folding all 8 or 10
+    /// elements together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
@@ -114,10 +119,12 @@ impl<'a> MergeProof<'a> {
             MergeOwnerBinding::Ring {
                 ring_program_id,
                 output_ring_data_hash,
+                cache_owner_commitment,
             } => create_hash_chain_4_from_slice(&[
                 prefix_hash,
                 *output_ring_data_hash,
                 *ring_program_id,
+                *cache_owner_commitment,
             ]),
             MergeOwnerBinding::Registry { signing_pk_field } => {
                 create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field])

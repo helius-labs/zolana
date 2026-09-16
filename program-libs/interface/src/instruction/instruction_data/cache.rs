@@ -1,12 +1,12 @@
 use wincode::{SchemaRead, SchemaWrite};
 
-/// Accounts: rent payer (signer), registry owner or ring config (signer), cache, system.
+/// Accounts: rent payer (signer, becomes `rent_sponsor`), cache, system.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateCacheData {
-    pub owner_kind: u8,
-    pub operation_id: [u8; 32],
+    pub owner_identity: [u8; 32],
+    pub nonce: u64,
     pub tree_id: u16,
-    pub close_authority: [u8; 32],
+    pub expires_at: i64,
 }
 
 impl CreateCacheData {

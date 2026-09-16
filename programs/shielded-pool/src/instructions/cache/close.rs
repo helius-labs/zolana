@@ -1,22 +1,31 @@
 use super::loader::load_cache;
-use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use pinocchio::{
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, ProgramResult,
+};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::error::ShieldedPoolError;
 
-/// Accounts: cache (writable), close authority (signer), rent recipient (writable).
-/// Closing cancels the fast path; normal tree spending and nullifier protection remain.
+/// Accounts: cache (writable), rent recipient (writable).
+/// Permissionless once the cache has expired; the rent always returns to the
+/// stored sponsor. Closing cancels the fast path; normal tree spending and
+/// nullifier protection remain.
 pub fn process_close_cache(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     if !data.is_empty() {
         return Err(ShieldedPoolError::InvalidInstructionData.into());
     }
     let mut iter = AccountIterator::new(accounts);
     let cache = iter.next_mut("cache")?;
-    let authority = iter.next_signer("close_authority")?;
     let recipient = iter.next_mut("rent_recipient")?;
+    if !iter.remaining_unchecked_mut()?.is_empty() {
+        return Err(ShieldedPoolError::InvalidInstructionData.into());
+    }
+    let clock = Clock::get()?;
     {
         let state = load_cache(cache)?;
-        if authority.address().as_array() != &state.close_authority {
-            return Err(ShieldedPoolError::UnauthorizedCaller.into());
+        if clock.unix_timestamp < state.expiry_unix_ts() {
+            return Err(ShieldedPoolError::CacheNotExpired.into());
         }
         if recipient.address().as_array() != &state.rent_sponsor
             || recipient.address() == cache.address()

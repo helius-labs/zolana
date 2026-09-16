@@ -65,6 +65,7 @@ fn merge_instruction(
         payer: rpc.payer.pubkey(),
         user_record,
         data,
+        cache: None,
     }
     .instruction()
 }
@@ -249,6 +250,7 @@ fn merge_rejects_an_unsigned_payer() {
         payer: outsider,
         user_record: record,
         data: merge_ix_data(true),
+        cache: None,
     }
     .instruction();
     ix.accounts.get_mut(2).expect("payer meta").is_signer = false;
@@ -271,6 +273,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
         output_ring_data_hash: fe(99),
+        cache: None,
     }
     .cpi_instruction();
     // The `ring_config` signature IS the ring authorization; without the ring
@@ -454,6 +457,7 @@ fn merge_ring_cpi_instruction(
         payer: rpc.payer.pubkey(),
         data,
         output_ring_data_hash,
+        cache: None,
     }
     .cpi_instruction()
 }
@@ -545,6 +549,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
         payer: outsider,
         data: merge_ix_data(true),
         output_ring_data_hash: fe(92),
+        cache: None,
     }
     .cpi_instruction();
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config_signer.pubkey();
@@ -640,6 +645,7 @@ fn merge_ring_rejects_a_paused_tree() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
         output_ring_data_hash: fe(95),
+        cache: None,
     }
     .instruction();
     let error = rpc

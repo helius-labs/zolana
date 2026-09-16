@@ -8,11 +8,9 @@ use zolana_interface::{
 pub struct CacheInitParams {
     pub bump: u8,
     pub tree_id: u16,
-    pub owner_kind: u8,
-    pub owner: [u8; 32],
-    pub operation_id: [u8; 32],
+    pub expires_at: i64,
+    pub owner_identity: [u8; 32],
     pub rent_sponsor: [u8; 32],
-    pub close_authority: [u8; 32],
 }
 
 impl CacheInitParams {
@@ -29,11 +27,9 @@ impl CacheInitParams {
             bump: self.bump,
             frozen: 0,
             tree_id: self.tree_id.to_le_bytes(),
-            owner_kind: self.owner_kind,
-            owner: self.owner,
-            operation_id: self.operation_id,
+            expires_at: self.expires_at.to_le_bytes(),
+            owner_identity: self.owner_identity,
             rent_sponsor: self.rent_sponsor,
-            close_authority: self.close_authority,
             commitments: [[0; 32]; CACHE_CAPACITY],
         };
         Ok(())

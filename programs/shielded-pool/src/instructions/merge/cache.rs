@@ -1,19 +1,6 @@
 use crate::instructions::cache::loader::load_cache_mut;
 use pinocchio::{account::RefMut, error::ProgramError, AccountView, ProgramResult};
-use zolana_interface::{
-    error::ShieldedPoolError,
-    state::{
-        cache::{CACHE_OWNER_REGISTRY, CACHE_OWNER_RING},
-        CacheAccount,
-    },
-    tree_slot::tree_id_field,
-};
-
-pub(crate) enum CacheAuthority {
-    Registry([u8; 32]),
-    /// The signing ring authorizes the destination, including access within its ring.
-    Ring([u8; 32]),
-}
+use zolana_interface::{error::ShieldedPoolError, state::CacheAccount, tree_slot::tree_id_field};
 
 pub(crate) struct CacheSlot<'a> {
     state: RefMut<'a, CacheAccount>,
@@ -24,19 +11,21 @@ pub(crate) struct CacheSlot<'a> {
 impl<'a> CacheSlot<'a> {
     pub fn load_and_validate_optional(
         cache: Option<(&'a mut AccountView, u8)>,
-        authority: CacheAuthority,
+        expected_identity: Option<&[u8; 32]>,
+        now: i64,
     ) -> Result<Option<Self>, ProgramError> {
         let Some((account, slot)) = cache else {
             return Ok(None);
         };
         let address = account.address().to_bytes();
         let state = load_cache_mut(account)?;
-        let (kind, owner) = match authority {
-            CacheAuthority::Registry(owner) => (CACHE_OWNER_REGISTRY, owner),
-            CacheAuthority::Ring(program_id) => (CACHE_OWNER_RING, program_id),
-        };
-        if state.owner_kind != kind || state.owner != owner {
-            return Err(ShieldedPoolError::CacheOwnerMismatch.into());
+        if let Some(expected) = expected_identity {
+            if state.owner_identity != *expected {
+                return Err(ShieldedPoolError::CacheOwnerMismatch.into());
+            }
+        }
+        if now >= state.expiry_unix_ts() {
+            return Err(ShieldedPoolError::CacheExpired.into());
         }
         if state.frozen != 0 {
             return Err(ShieldedPoolError::CacheFrozen.into());
@@ -57,6 +46,10 @@ impl<'a> CacheSlot<'a> {
 
     pub fn destination(&self) -> (&[u8; 32], u8) {
         (&self.address, self.slot)
+    }
+
+    pub fn owner_identity(&self) -> [u8; 32] {
+        self.state.owner_identity
     }
 
     pub fn write(mut self, output: &[u8; 32], output_tree_id: [u8; 32]) -> ProgramResult {

@@ -244,6 +244,7 @@ impl CustomRingMergeInstruction {
             payer,
             data: data.merge,
             output_ring_data_hash: data.output_ring_data_hash,
+            cache: None,
         }
         .instruction()
     }

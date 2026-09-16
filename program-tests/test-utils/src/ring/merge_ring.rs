@@ -298,6 +298,7 @@ impl RingHarness {
                 signing_pubkey: owner,
                 nullifier_key: keypair.nullifier_key.clone(),
                 output_tree_id: tree_id,
+                cache: None,
             }
             .build()?;
             let proof = ProverClient::local().prove_merge(&result.inputs)?;
@@ -315,6 +316,7 @@ impl RingHarness {
                 nullifier_key: keypair.nullifier_key.clone(),
                 ring_program_id: ring,
                 output_tree_id: tree_id,
+                cache: None,
             }
             .build()?;
             let proof = ProverClient::local().prove_merge_ring(&result.inputs)?;
@@ -334,6 +336,7 @@ impl RingHarness {
             payer: payer.pubkey(),
             data: data.merge.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
+            cache: None,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -501,6 +504,7 @@ impl RingHarness {
             nullifier_key: keypair.nullifier_key.clone(),
             ring_program_id: ring,
             output_tree_id: tree_id,
+            cache: None,
         }
         .build()?;
 
@@ -517,6 +521,7 @@ impl RingHarness {
             payer: payer.pubkey(),
             data: data.merge.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
+            cache: None,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);

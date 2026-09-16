@@ -38,6 +38,10 @@ type RingCircuit struct {
 	OutputRingDataHash frontend.Variable
 	RingProgramID      frontend.Variable
 
+	OperationID          frontend.Variable
+	HasCache             frontend.Variable
+	CacheOwnerCommitment frontend.Variable
+
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
@@ -71,13 +75,18 @@ func (c *RingCircuit) Define(api frontend.API) error {
 		return err
 	}
 	api.AssertIsDifferent(c.RingProgramID, 0)
-	if _, err := tx.Constrain(api); err != nil {
+	derived, err := tx.Constrain(api)
+	if err != nil {
 		return err
 	}
 	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
 
+	cacheIdentity := gadget.PoseidonHash(api, []frontend.Variable{derived.UserOwnerHash, c.OperationID})
+	api.AssertIsBoolean(c.HasCache)
+	api.AssertIsEqual(c.CacheOwnerCommitment, api.Mul(c.HasCache, cacheIdentity))
+
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.OutputRingDataHash, c.RingProgramID)
+	fields = append(fields, c.OutputRingDataHash, c.RingProgramID, c.CacheOwnerCommitment)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }

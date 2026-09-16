@@ -75,5 +75,9 @@
   "CacheTreeMismatch": 7073,
   "CacheOwnerMismatch": 7074,
   "InvalidCacheRootIndex": 7075,
-  "CacheUnsupportedOwner": 7076
+  "CacheUnsupportedOwner": 7076,
+  "CacheExpired": 7077,
+  "CacheNotExpired": 7078,
+  "NonCanonicalCacheOwnerIdentity": 7079,
+  "CacheExpiryNotInFuture": 7080
 }
