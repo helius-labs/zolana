@@ -121,6 +121,12 @@ pub(crate) fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> 
         "--no-studio".to_string(),
         "--port".to_string(),
         opts.rpc_port.to_string(),
+        // surfpool defaults its WebSocket to 8900 whatever the RPC port is, so a
+        // clone running on a port offset would leave subscriptions on the default
+        // port: unreachable at `rpc_port + 1` where every Solana client looks for
+        // them, and colliding with any other clone on the same machine.
+        "--ws-port".to_string(),
+        opts.rpc_port.saturating_add(1).to_string(),
         "--host".to_string(),
         opts.gossip_host.clone(),
     ];
@@ -373,6 +379,8 @@ mod tests {
             "--no-studio",
             "--port",
             "8899",
+            "--ws-port",
+            "8900",
             "--host",
             "127.0.0.1",
             "--bpf-program",
