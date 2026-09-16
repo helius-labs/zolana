@@ -1,0 +1,99 @@
+--- a/prover/server/circuits/direct_spend/compact_benchmark_test.go
++++ b/prover/server/circuits/direct_spend/compact_benchmark_test.go
+@@ -66,7 +66,9 @@
+ 	}
+ 	balanceFields := []frontend.Variable{direct.BalanceDomain, b.Intent, b.OutputTreeID, gadget.HashChain4(api, values), gadget.HashChain4(api, outputs)}
+ 	if c.Subtree {
+-		c.constrainSubtree(api)
++		if err := c.constrainSubtree(api); err != nil {
++			return err
++		}
+ 	} else if err := (&direct.CertificateCircuit{Certificate: *p, PublicInputHash: gadget.HashChain4(api, certFields)}).Define(api); err != nil {
+ 		return err
+ 	}
+@@ -103,7 +105,13 @@
+ 	return nil
+ }
+ 
+-func (c *compactPayment) constrainSubtree(api frontend.API) {
++func (c *compactPayment) constrainSubtree(api frontend.API) error {
++ hashPair := func(left, right frontend.Variable) frontend.Variable { return gadget.PoseidonHash(api, []frontend.Variable{left, right}) }
++ if c.GKR {
++  compressor, err := gadget.NewGKRCompressor(api)
++  if err != nil { return err }
++  hashPair = compressor.Compress
++ }
+ 	p := &c.Certificate
+ 	api.ToBinary(p.TreeID, 16)
+ 	api.AssertIsDifferent(p.Asset, 0)
+@@ -132,16 +140,20 @@
+ 		for len(hashes) > 1 {
+ 			parents := make([]frontend.Variable, len(hashes)/2)
+ 			for i := range parents {
+-				parents[i] = gadget.PoseidonHash(api, hashes[2*i:2*i+2])
++				parents[i] = hashPair(hashes[2*i], hashes[2*i+1])
+ 			}
+ 			hashes = parents
+ 		}
+-		root := abstractor.Call(api, gadget.MerkleRootGadget{
+-			Hash: hashes[0], Index: baseBits[depth:], Path: p.Notes[start].Path, Height: 32 - depth,
+-		})
++		root := hashes[0]
++  for i, sibling := range p.Notes[start].Path {
++   left := api.Select(baseBits[depth+i], sibling, root)
++   right := api.Select(baseBits[depth+i], root, sibling)
++   root = hashPair(left, right)
++  }
+ 		api.AssertIsEqual(root, p.StateRoot)
+ 	}
+ 	api.AssertIsEqual(p.ValueCommitment, gadget.PoseidonHash(api, []frontend.Variable{direct.ValueDomain, p.ID, p.Asset, total, p.ValueRandomness}))
++ return nil
+ }
+ 
+ func compactWitness(t *testing.T, n int, subtree bool) *compactPayment {
+@@ -315,3 +327,45 @@
+ 		runtime.GC()
+ 	}
+ }
++
++func TestHybridScreen(t *testing.T) {
++ for _, size := range []int{1,16,512} {
++  for _, gkr := range []bool{false,true} {
++   c := newCompactPayment(512, false)
++   c.setClusters(size)
++   c.Balance.Outputs = make([]direct.Output, 2)
++   c.ExternalAdmission, c.Freshness.Witnesses, c.GKR = true, nil, gkr
++   cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, c, frontend.WithCompressThreshold(300))
++   if err != nil { t.Fatal(err) }
++   constraints := cs.GetNbConstraints()
++   t.Logf("HYBRID inputs=512 outputs=2 cluster_size=%d external_admission=true gkr=%t constraints=%d fft_domain=%d", size, gkr, constraints, uint64(1)<<bits.Len64(uint64(constraints-1)))
++   runtime.GC()
++  }
++ }
++}
++
++func TestHybridWitness(t *testing.T) {
++ for _, size := range []int{1,4,8} {
++  c := newCompactPayment(8,false)
++  c.setClusters(size)
++  c.ExternalAdmission, c.Freshness.Witnesses, c.GKR = true,nil,true
++  build := func() *compactPayment {
++   w := compactWitness(t,8,false)
++   w.Subtree,w.ClusterSize,w.ExternalAdmission,w.Freshness.Witnesses = true,size,true,nil
++   depth:=bits.TrailingZeros(uint(size))
++   for i := range w.Certificate.Notes {
++    if i%size==0 { w.Certificate.Notes[i].Path=w.Certificate.Notes[i].Path[depth:] } else { w.Certificate.Notes[i].Path=nil }
++   }
++   return w
++  }
++  if err := test.IsSolved(c,build(),ecc.BN254.ScalarField()); err!=nil {t.Fatal(err)}
++  for _, mutate := range []func(*compactPayment){
++   func(w *compactPayment){w.Certificate.StateRoot=1},
++   func(w *compactPayment){w.Certificate.Notes[0].Index=1},
++   func(w *compactPayment){w.Certificate.Notes[1].Amount=99},
++  } {
++   w:=build();mutate(w);bindPayment(t,w.PaymentCircuit)
++   if err:=test.IsSolved(c,w,ecc.BN254.ScalarField()); err==nil {t.Fatal("accepted invalid hybrid witness")}
++  }
++ }
++}

@@ -1,0 +1,12 @@
+=== RUN   TestHybridScreen
+    compact_benchmark_test.go:341: HYBRID inputs=512 outputs=2 cluster_size=1 external_admission=true gkr=false constraints=4522594 fft_domain=8388608
+    compact_benchmark_test.go:341: HYBRID inputs=512 outputs=2 cluster_size=1 external_admission=true gkr=true constraints=1754023 fft_domain=2097152
+    compact_benchmark_test.go:341: HYBRID inputs=512 outputs=2 cluster_size=16 external_admission=true gkr=false constraints=873506 fft_domain=1048576
+    compact_benchmark_test.go:341: HYBRID inputs=512 outputs=2 cluster_size=16 external_admission=true gkr=true constraints=1433348 fft_domain=2097152
+    compact_benchmark_test.go:341: HYBRID inputs=512 outputs=2 cluster_size=512 external_admission=true gkr=false constraints=668507 fft_domain=1048576
+    compact_benchmark_test.go:341: HYBRID inputs=512 outputs=2 cluster_size=512 external_admission=true gkr=true constraints=1350524 fft_domain=2097152
+--- PASS: TestHybridScreen (21.56s)
+=== RUN   TestHybridWitness
+--- PASS: TestHybridWitness (1.01s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	23.289s

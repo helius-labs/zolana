@@ -1,0 +1,60 @@
+{
+  "scope": "Compilation only, not measured proving latency or an integrated admission protocol. Standard POSEIDON2 transcript. All variants use external nullifier admission.",
+  "source_commit": "402540cdc",
+  "rows": [
+    {
+      "inputs": 512,
+      "outputs": 2,
+      "cluster_size": 1,
+      "external_admission": true,
+      "gkr": false,
+      "constraints": 4522594,
+      "fft_domain": 8388608
+    },
+    {
+      "inputs": 512,
+      "outputs": 2,
+      "cluster_size": 1,
+      "external_admission": true,
+      "gkr": true,
+      "constraints": 1754023,
+      "fft_domain": 2097152
+    },
+    {
+      "inputs": 512,
+      "outputs": 2,
+      "cluster_size": 16,
+      "external_admission": true,
+      "gkr": false,
+      "constraints": 873506,
+      "fft_domain": 1048576
+    },
+    {
+      "inputs": 512,
+      "outputs": 2,
+      "cluster_size": 16,
+      "external_admission": true,
+      "gkr": true,
+      "constraints": 1433348,
+      "fft_domain": 2097152
+    },
+    {
+      "inputs": 512,
+      "outputs": 2,
+      "cluster_size": 512,
+      "external_admission": true,
+      "gkr": false,
+      "constraints": 668507,
+      "fft_domain": 1048576
+    },
+    {
+      "inputs": 512,
+      "outputs": 2,
+      "cluster_size": 512,
+      "external_admission": true,
+      "gkr": true,
+      "constraints": 1350524,
+      "fft_domain": 2097152
+    }
+  ]
+}
