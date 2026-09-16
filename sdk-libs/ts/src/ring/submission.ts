@@ -62,8 +62,9 @@ export interface ReservationHold {
   extend(): void;
 }
 
-type BuildAttempt = (context?: RequestContext) => Promise<RingSubmissionAttempt>;
-type WindowChanged = (
+export type RingSubmissionBuild = (context?: RequestContext) => Promise<RingSubmissionAttempt>;
+/** Answers whether the slot clock left the window a rejected policy proof was built for. */
+export type RingSubmissionWindowChanged = (
   window: NonNullable<RingSubmissionAttempt["window"]>,
   context?: RequestContext,
 ) => Promise<boolean>;
@@ -74,9 +75,9 @@ const NO_RESERVATION: ReservationHold = Object.freeze({ release() {}, extend() {
 /** Resolves each broadcast before retrying an unchanged payment intent. */
 export class RingTransactionSubmission {
   readonly #intent: Bytes32;
-  readonly #build: BuildAttempt;
+  readonly #build: RingSubmissionBuild;
   readonly #reservation: ReservationHold;
-  readonly #windowChanged: WindowChanged;
+  readonly #windowChanged: RingSubmissionWindowChanged;
   #attempt: RingSubmissionAttempt;
   #pending: Signature | undefined;
   #attempts = 0;
@@ -86,8 +87,8 @@ export class RingTransactionSubmission {
   constructor(
     input: Readonly<{
       first: RingSubmissionAttempt;
-      build: BuildAttempt;
-      windowChanged: WindowChanged;
+      build: RingSubmissionBuild;
+      windowChanged: RingSubmissionWindowChanged;
       reservation?: ReservationHold;
     }>,
   ) {
@@ -106,12 +107,12 @@ export class RingTransactionSubmission {
         retry: RingSubmissionBuildState,
         context?: RequestContext,
       ) => Promise<RingSubmissionAttempt>;
-      windowChanged: WindowChanged;
+      windowChanged: RingSubmissionWindowChanged;
     }>,
     context?: RequestContext,
   ): Promise<RingTransactionSubmission> {
     const retry: RingSubmissionBuildState = {};
-    const build: BuildAttempt = (context) => input.build(retry, context);
+    const build: RingSubmissionBuild = (context) => input.build(retry, context);
     return new RingTransactionSubmission({
       first: await build(context),
       build,
@@ -227,7 +228,7 @@ export class RingTransactionSubmission {
 }
 
 /** @internal A rejected policy proof is rebuilt only once the slot clock left its window. */
-export function windowChangedOn(client: SlotReader): WindowChanged {
+export function windowChangedOn(client: SlotReader): RingSubmissionWindowChanged {
   return async (window, context) => (await client.getSlot(context)) / window.slots !== window.index;
 }
 

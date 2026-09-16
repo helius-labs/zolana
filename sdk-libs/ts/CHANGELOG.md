@@ -461,7 +461,9 @@ Added
 - `createRingTransferSubmission`, `createRingExitSubmission`,
   `createRingWithdrawalSubmission`, `createRingDelegateSubmission` and
   `createRingSpendRegistrationSubmission` return a
-  `RingTransactionSubmission` whose `send(transport)` retries a confirmed
+  `RingTransactionSubmission`, built from a `RingSubmissionBuild`, a
+  `RingSubmissionWindowChanged` and an optional `ReservationHold`, whose
+  `send(transport)` retries a confirmed
   stale-root or window failure up to three times, reports an unresolved
   broadcast as `unknown` until its signature settles or a valid status response
   confirms absence after blockhash expiry, retains pending state when history

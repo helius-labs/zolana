@@ -74,7 +74,10 @@ export type RingDelegateRecoveredClient = RingDelegateTransferClient &
   Readonly<{ proofService: ProofService }>;
 
 /** Recovered openings still require the configured delegate's signature. */
-export type RingDelegateRecoveredParams = Omit<DelegateMove, "client"> &
+export type RingDelegateRecoveredParams = Omit<
+  RingDelegateTransferParams,
+  "wallet" | "source" | "approve" | "client"
+> &
   Readonly<{
     client: RingDelegateRecoveredClient;
     source: ShieldedAddress;
