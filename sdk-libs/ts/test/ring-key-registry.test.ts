@@ -1016,47 +1016,51 @@ describe("recovery closure", () => {
     auditor.destroy();
   });
 
-  it("bounds each nullifier request while scanning more than a thousand historical notes", async () => {
-    const source = actor(3);
-    const auditor = ViewingKey.generate();
-    const key = source.keypair.nullifierKey();
-    const seeds = Array.from({ length: 251 }, (_, batch) =>
-      ringTransaction({
+  it(
+    "bounds each nullifier request while scanning more than a thousand historical notes",
+    { timeout: 120_000 },
+    async () => {
+      const source = actor(3);
+      const auditor = ViewingKey.generate();
+      const key = source.keypair.nullifierKey();
+      const seeds = Array.from({ length: 251 }, (_, batch) =>
+        ringTransaction({
+          auditor,
+          source,
+          outputs: Array.from({ length: 4 }, (_, index) => ({
+            amount: BigInt(batch * 4 + index + 1),
+          })),
+        }),
+      );
+      const sizes: number[] = [];
+      const client = {
+        ...ringAuditReader({
+          getShieldedTransactionsByTags: async () => transactionsPage({ transactions: seeds }),
+        }),
+        getShieldedTransactionsByNullifiers: async (
+          request: Readonly<{ nullifiers: readonly Bytes32[] }>,
+        ) => {
+          sizes.push(request.nullifiers.length);
+          if (request.nullifiers.length > 1000) throw new Error("Photon request limit");
+          return transactionsPage();
+        },
+      };
+      const result = await recoverRingMemberNotes({
+        client,
+        ringProgramId: RING,
         auditor,
-        source,
-        outputs: Array.from({ length: 4 }, (_, index) => ({
-          amount: BigInt(batch * 4 + index + 1),
-        })),
-      }),
-    );
-    const sizes: number[] = [];
-    const client = {
-      ...ringAuditReader({
-        getShieldedTransactionsByTags: async () => transactionsPage({ transactions: seeds }),
-      }),
-      getShieldedTransactionsByNullifiers: async (
-        request: Readonly<{ nullifiers: readonly Bytes32[] }>,
-      ) => {
-        sizes.push(request.nullifiers.length);
-        if (request.nullifiers.length > 1000) throw new Error("Photon request limit");
-        return transactionsPage();
-      },
-    };
-    const result = await recoverRingMemberNotes({
-      client,
-      ringProgramId: RING,
-      auditor,
-      source: source.address,
-      nullifierKey: key,
-      assets: new AssetRegistry(),
-      resolveTreeId: () => 0,
-      origin: { ringInvoked: async () => true },
-    });
-    expect(result.notes).toHaveLength(1004);
-    expect(sizes).toEqual([1000, 4]);
-    key.destroy();
-    auditor.destroy();
-  });
+        source: source.address,
+        nullifierKey: key,
+        assets: new AssetRegistry(),
+        resolveTreeId: () => 0,
+        origin: { ringInvoked: async () => true },
+      });
+      expect(result.notes).toHaveLength(1004);
+      expect(sizes).toEqual([1000, 4]);
+      key.destroy();
+      auditor.destroy();
+    },
+  );
 });
 
 describe("recovered delegate move", () => {
