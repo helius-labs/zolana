@@ -1,0 +1,20 @@
+=== RUN   TestScatteredGKRPaymentProving
+    gkr_benchmark_test.go:107: go=go1.27.1 arch=arm64 cpus=18 gomaxprocs=4 memory_limit=16GiB
+    gkr_benchmark_test.go:110: PAYMENT_WITNESS inputs=512 build_ms=1956
+=== RUN   TestScatteredGKRPaymentProving/gkr=false
+    gkr_benchmark_test.go:120: GKR_PAYMENT_COMPILE inputs=512 gkr=false constraints=10728434 compile_ms=22597
+    gkr_benchmark_test.go:140: GKR_PAYMENT_KEY inputs=512 load_and_validate_ms=96296 digest=f86cf9f8f251517c15131e3d39fb6c91a1da19b9c95eaa724b145c13847e6fc8
+    gkr_benchmark_test.go:141: PAYMENT_PROVE mode=gkr_false inputs=512 outputs=2 trial=0 constraints=10728434 prove_ms=41066.137 heap_bytes=14144096784
+    gkr_benchmark_test.go:141: PAYMENT_PROVE mode=gkr_false inputs=512 outputs=2 trial=1 constraints=10728434 prove_ms=40586.548 heap_bytes=14142015944
+    gkr_benchmark_test.go:141: PAYMENT_PROVE mode=gkr_false inputs=512 outputs=2 trial=2 constraints=10728434 prove_ms=40662.182 heap_bytes=14142020856
+=== RUN   TestScatteredGKRPaymentProving/gkr=true
+    gkr_benchmark_test.go:120: GKR_PAYMENT_COMPILE inputs=512 gkr=true constraints=3345785 compile_ms=6083
+    gkr_benchmark_test.go:149: GKR_PAYMENT_SETUP inputs=512 gkr=true setup_ms=184332
+    gkr_benchmark_test.go:150: PAYMENT_PROVE mode=gkr_true inputs=512 outputs=2 trial=0 constraints=3345785 prove_ms=12576.304 heap_bytes=4962926200
+    gkr_benchmark_test.go:150: PAYMENT_PROVE mode=gkr_true inputs=512 outputs=2 trial=1 constraints=3345785 prove_ms=12362.846 heap_bytes=4964002416
+    gkr_benchmark_test.go:150: PAYMENT_PROVE mode=gkr_true inputs=512 outputs=2 trial=2 constraints=3345785 prove_ms=12433.443 heap_bytes=4496085288
+--- PASS: TestScatteredGKRPaymentProving (472.80s)
+    --- PASS: TestScatteredGKRPaymentProving/gkr=false (242.79s)
+    --- PASS: TestScatteredGKRPaymentProving/gkr=true (227.80s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	473.570s

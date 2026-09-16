@@ -1,0 +1,5 @@
+=== RUN   TestGKRTranscriptConstraints
+    gkr_membership_test.go:216: GKR_CONSTRAINT_PROFILE inputs=512 total=1213765 transcript_poseidon2=1068942 remainder=144823
+--- PASS: TestGKRTranscriptConstraints (4.83s)
+PASS
+ok  	zolana/prover/circuits/gadget	5.513s

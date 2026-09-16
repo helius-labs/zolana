@@ -1,0 +1,17 @@
+=== RUN   TestScatteredMembershipProving
+    gkr_membership_test.go:115: go=go1.27.1 arch=arm64 gomaxprocs=4 inputs=512 depth=32
+    gkr_membership_test.go:118: MEMBERSHIP_WITNESS inputs=512 build_ms=164
+=== RUN   TestScatteredMembershipProving/gkr=true
+    gkr_membership_test.go:127: MEMBERSHIP_COMPILE inputs=512 gkr=true constraints=1213765 compile_ms=1195
+--- PASS: TestScatteredMembershipProving (1.39s)
+    --- PASS: TestScatteredMembershipProving/gkr=true (1.20s)
+PASS
+ok  	zolana/prover/circuits/gadget	1.696s
+=== RUN   TestScatteredGKRPaymentProving
+    gkr_benchmark_test.go:107: PAYMENT_WITNESS inputs=512 build_ms=1883
+=== RUN   TestScatteredGKRPaymentProving/gkr=true
+    gkr_benchmark_test.go:117: GKR_PAYMENT_COMPILE inputs=512 gkr=true constraints=3345785 compile_ms=5851
+--- PASS: TestScatteredGKRPaymentProving (7.78s)
+    --- PASS: TestScatteredGKRPaymentProving/gkr=true (5.85s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	8.058s

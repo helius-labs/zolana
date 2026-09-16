@@ -369,6 +369,21 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			ps.CircuitType = MergeCircuitType
 		}
 		return ps, nil
+	} else if kind := CircuitType(strings.Split(filepath.Base(path), "_")[0]); IsDirectSpend(kind) {
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		ps := new(TransferProofSystem)
+		if _, err := ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		ps.CircuitType = kind
+		if !IsDirectSpendShape(kind, ps.NInputs, ps.NOutputs) {
+			return nil, fmt.Errorf("invalid direct spend key shape")
+		}
+		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "address-append") {
 		ps := new(BatchProofSystem)
 		ps.CircuitType = BatchAddressAppendCircuitType

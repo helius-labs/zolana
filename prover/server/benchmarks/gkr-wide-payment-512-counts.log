@@ -1,0 +1,10 @@
+=== RUN   TestScatteredGKRPaymentProving
+    gkr_benchmark_test.go:112: go=go1.27.1 arch=arm64 cpus=18 gomaxprocs=4 memory_limit=16GiB
+    gkr_benchmark_test.go:115: PAYMENT_WITNESS inputs=512 build_ms=1962
+=== RUN   TestScatteredGKRPaymentProving/gkr=true
+    gkr_benchmark_test.go:129: GKR_PAYMENT_COMPILE inputs=512 gkr=true constraints=3009893 compile_ms=14182
+    gkr_benchmark_test.go:135: GKR_COMMITMENT inputs=512 commitments=1 committed_public=0 vk_ic=3 private_committed=153089
+--- PASS: TestScatteredGKRPaymentProving (16.18s)
+    --- PASS: TestScatteredGKRPaymentProving/gkr=true (14.18s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	16.517s

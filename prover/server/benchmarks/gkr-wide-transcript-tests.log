@@ -1,0 +1,106 @@
+=== RUN   TestNativeCircuitParity
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/0
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/1
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/0#01
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/1#01
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/2
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/3
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/3#01
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/4
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/5
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/64
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/0
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/1
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/4
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/5
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/6
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/7
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/11
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/12
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/13
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/64
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/0
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/1
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/8
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/9
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/10
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/11
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/19
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/20
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/21
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/64
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/0
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/1
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/12
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/13
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/14
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/15
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/27
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/28
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/29
+=== RUN   TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/64
+--- PASS: TestNativeCircuitParity (0.13s)
+    --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1 (0.03s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/0 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/1 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/0#01 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/1#01 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/2 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/3 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/3#01 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/4 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/5 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W4-R2-C2-V1/64 (0.01s)
+    --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1 (0.03s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/0 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/1 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/4 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/5 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/6 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/7 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/11 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/12 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/13 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W8-R6-C2-V1/64 (0.01s)
+    --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1 (0.03s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/0 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/1 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/8 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/9 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/10 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/11 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/19 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/20 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/21 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W12-R10-C2-V1/64 (0.00s)
+    --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1 (0.04s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/0 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/1 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/12 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/13 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/14 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/15 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/27 (0.01s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/28 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/29 (0.00s)
+        --- PASS: TestNativeCircuitParity/ZOLANA-GKR-P2-W16-R14-C2-V1/64 (0.01s)
+=== RUN   TestNativeFramingAndFinalization
+=== RUN   TestNativeFramingAndFinalization/ZOLANA-GKR-P2-W4-R2-C2-V1
+=== RUN   TestNativeFramingAndFinalization/ZOLANA-GKR-P2-W8-R6-C2-V1
+=== RUN   TestNativeFramingAndFinalization/ZOLANA-GKR-P2-W12-R10-C2-V1
+=== RUN   TestNativeFramingAndFinalization/ZOLANA-GKR-P2-W16-R14-C2-V1
+--- PASS: TestNativeFramingAndFinalization (0.00s)
+    --- PASS: TestNativeFramingAndFinalization/ZOLANA-GKR-P2-W4-R2-C2-V1 (0.00s)
+    --- PASS: TestNativeFramingAndFinalization/ZOLANA-GKR-P2-W8-R6-C2-V1 (0.00s)
+    --- PASS: TestNativeFramingAndFinalization/ZOLANA-GKR-P2-W12-R10-C2-V1 (0.00s)
+    --- PASS: TestNativeFramingAndFinalization/ZOLANA-GKR-P2-W16-R14-C2-V1 (0.00s)
+=== RUN   TestWidthDomains
+--- PASS: TestWidthDomains (0.00s)
+=== RUN   TestRejectsWrongDigest
+--- PASS: TestRejectsWrongDigest (0.00s)
+PASS
+ok  	zolana/prover/circuits/transcript	0.537s

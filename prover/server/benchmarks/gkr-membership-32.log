@@ -1,0 +1,20 @@
+=== RUN   TestScatteredMembershipProving
+    gkr_membership_test.go:115: go=go1.27.1 arch=arm64 gomaxprocs=4 inputs=32 depth=32
+    gkr_membership_test.go:118: MEMBERSHIP_WITNESS inputs=32 build_ms=12
+=== RUN   TestScatteredMembershipProving/gkr=false
+    gkr_membership_test.go:127: MEMBERSHIP_COMPILE inputs=32 gkr=false constraints=248896 compile_ms=453
+    gkr_membership_test.go:136: MEMBERSHIP_SETUP inputs=32 gkr=false setup_ms=14714
+    gkr_membership_test.go:163: MEMBERSHIP_PROVE inputs=32 gkr=false trial=0 prove_ms=1138.728 verify_ms=0.693 proof_bytes=164 heap_bytes=550497752
+    gkr_membership_test.go:163: MEMBERSHIP_PROVE inputs=32 gkr=false trial=1 prove_ms=1156.438 verify_ms=0.657 proof_bytes=164 heap_bytes=512781040
+    gkr_membership_test.go:163: MEMBERSHIP_PROVE inputs=32 gkr=false trial=2 prove_ms=1142.147 verify_ms=0.682 proof_bytes=164 heap_bytes=528750112
+=== RUN   TestScatteredMembershipProving/gkr=true
+    gkr_membership_test.go:127: MEMBERSHIP_COMPILE inputs=32 gkr=true constraints=1054476 compile_ms=1033
+    gkr_membership_test.go:136: MEMBERSHIP_SETUP inputs=32 gkr=true setup_ms=69979
+    gkr_membership_test.go:163: MEMBERSHIP_PROVE inputs=32 gkr=true trial=0 prove_ms=5147.211 verify_ms=1.309 proof_bytes=196 heap_bytes=1944239744
+    gkr_membership_test.go:163: MEMBERSHIP_PROVE inputs=32 gkr=true trial=1 prove_ms=5125.189 verify_ms=1.260 proof_bytes=196 heap_bytes=1834293904
+    gkr_membership_test.go:163: MEMBERSHIP_PROVE inputs=32 gkr=true trial=2 prove_ms=5132.836 verify_ms=1.290 proof_bytes=196 heap_bytes=2983321584
+--- PASS: TestScatteredMembershipProving (105.08s)
+    --- PASS: TestScatteredMembershipProving/gkr=false (18.61s)
+    --- PASS: TestScatteredMembershipProving/gkr=true (86.43s)
+PASS
+ok  	zolana/prover/circuits/gadget	105.383s
