@@ -5,8 +5,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use user_registry_tests::{
-    build_register_ix, build_set_merging_enabled_ix, user_registry_program_id,
-    TestTransactionResult, UserRegistryTestRig,
+    build_register_ix, build_set_merging_enabled_ix, build_sponsored_register_ix,
+    user_registry_program_id, TestTransactionResult, UserRegistryTestRig,
 };
 use zolana_user_registry::error::UserRegistryError;
 use zolana_user_registry_interface::{
@@ -68,6 +68,7 @@ fn register_rejects_wrong_pda() {
     let wrong_pda_ix = instruction::register(
         wrong_record,
         owner.pubkey(),
+        owner.pubkey(),
         RegisterData {
             owner_p256: Some(value.owner_p256),
             nullifier_pubkey: value.nullifier,
@@ -85,9 +86,13 @@ fn register_rejects_wrong_pda() {
 fn register_requires_owner_signature() {
     let mut rig = UserRegistryTestRig::new();
     let unsigned_owner = funded_keypair(&mut rig);
+    // A distinct payer keeps index 1 the owner's only meta; with `payer == owner`
+    // the message compiler would merge the payer meta's signer flag back in.
+    let sponsor = funded_keypair(&mut rig);
     let unsigned_value = keys(4);
-    let mut unsigned_ix = build_register_ix(
+    let mut unsigned_ix = build_sponsored_register_ix(
         &unsigned_owner.pubkey(),
+        &sponsor.pubkey(),
         Some(unsigned_value.owner_p256),
         unsigned_value.nullifier,
         unsigned_value.viewing,
@@ -99,7 +104,7 @@ fn register_requires_owner_signature() {
         .is_signer = false;
 
     assert_error(
-        rig.send(unsigned_ix, &[]),
+        rig.send(unsigned_ix, &[&sponsor]),
         InstructionError::MissingRequiredSignature,
     );
 }
@@ -118,7 +123,7 @@ fn register_rejects_invalid_system_program() {
     );
     bad_system_ix
         .accounts
-        .get_mut(2)
+        .get_mut(3)
         .expect("system program account")
         .pubkey = owner.pubkey();
 
@@ -126,6 +131,65 @@ fn register_rejects_invalid_system_program() {
         rig.send(bad_system_ix, &[&bad_system_owner]),
         UserRegistryError::InvalidSystemProgram,
     );
+}
+
+#[test]
+fn register_requires_payer_signature() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let sponsor = funded_keypair(&mut rig);
+    let value = keys(6);
+    let mut ix = build_sponsored_register_ix(
+        &owner.pubkey(),
+        &sponsor.pubkey(),
+        None,
+        value.nullifier,
+        value.viewing,
+    );
+    ix.accounts.get_mut(2).expect("payer account").is_signer = false;
+
+    assert_error(
+        rig.send(ix, &[&owner]),
+        InstructionError::MissingRequiredSignature,
+    );
+    assert_eq!(
+        rig.svm.get_account(&user_record_pda(&owner.pubkey()).0),
+        None
+    );
+}
+
+// Same `#[allow(deprecated)]` reason as `register_rejects_too_few_accounts`.
+#[allow(deprecated)]
+#[test]
+fn register_rejects_the_previous_three_account_layout() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let value = keys(7);
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let data = RegisterData {
+        owner_p256: None,
+        nullifier_pubkey: value.nullifier,
+        viewing_pubkey: value.viewing,
+    };
+    let mut encoded = vec![discriminator::REGISTER];
+    borsh::to_writer(&mut encoded, &data).expect("encode register data");
+    // `[record, owner (writable signer), system_program]`: the layout before the
+    // payer slot existed. The system program id is the all-zero pubkey.
+    let previous_layout = Instruction {
+        program_id: user_registry_program_id(),
+        accounts: vec![
+            AccountMeta::new(record_address, false),
+            AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+        ],
+        data: encoded,
+    };
+
+    assert_error(
+        rig.send(previous_layout, &[&owner]),
+        InstructionError::NotEnoughAccountKeys,
+    );
+    assert_eq!(rig.svm.get_account(&record_address), None);
 }
 
 #[test]

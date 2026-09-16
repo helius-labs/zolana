@@ -23,6 +23,9 @@ answer without releasing long-lived secrets.
 
 Breaking
 
+- The user-registry `register` instruction takes a `payer` writable signer
+  after `owner` and no longer debits `owner` → a transaction built against the
+  previous three-account layout fails with `NotEnoughAccountKeys`.
 - `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
   `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
   `WalletSyncMaterial` are removed → build
@@ -277,6 +280,8 @@ Breaking
 
 Added
 
+- `buildRegistrationTransaction({ payer })` lets a sponsor fund the record's
+  rent and pay the transaction fee; the owner still signs and may hold 0 SOL.
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
