@@ -40,8 +40,7 @@ for key in $keys; do
     fi
 done
 
-# Cached key modules are generated separately by the cache fixture generator.
-# Preserve their declarations even when its local setup artifacts are absent.
+# Preserve committed cached key modules, which have no matching .key artifacts.
 for cached_module in "$vkey_dir"/transfer_confidential_cached_*.rs; do
     [ -f "$cached_module" ] || continue
     modules="${modules}$(basename "$cached_module" .rs)"$'\n'
