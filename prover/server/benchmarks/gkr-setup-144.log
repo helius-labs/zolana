@@ -1,0 +1,5 @@
+21:37:58 INF compiling circuit
+21:37:58 INF parsed circuit inputs nbPublic=1 nbSecret=11549
+21:38:01 INF building constraint builder nbConstraints=1696484
+      108.80 real       379.80 user         9.54 sys
+time: sysctl kern.clockrate: Operation not permitted

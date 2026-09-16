@@ -38,6 +38,9 @@ bash scripts/generate_keys_transfer.sh "$keys_dir"
 echo "==> generating merge proving keys"
 bash scripts/generate_keys_merge.sh "$keys_dir"
 
+echo "==> generating direct-spend proving keys"
+bash scripts/generate_keys_direct_spend.sh "$keys_dir"
+
 echo "==> generating custom ring proving keys and their verifying keys"
 bash scripts/generate_keys_custom_ring.sh "$keys_dir"
 

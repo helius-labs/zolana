@@ -18,6 +18,14 @@
       "size": 145691406,
       "source": "release"
     },
+    "direct-payment_512_2.key": {
+      "sha256": "6d010abd4ca9e14588ab4c737c9ffdd93d46c043f8ef17a184c5729e3c8359f7",
+      "size": 3740487909
+    },
+    "input-certificate_36_0.key": {
+      "sha256": "c40d160b61f572121c59c358c7283c81c088140e3f745bf1ddfbdd90e99ed2b3",
+      "size": 110463939
+    },
     "merge_36_1.key": {
       "sha256": "60c357e8513b9e5d354900929980d1e8d3e132d6db67c50f68b5616630cf58a0",
       "size": 240902581
@@ -33,6 +41,14 @@
     "merge_ring_8_1.key": {
       "sha256": "68b11bc4da54b9655837a50adde4e5ea59737b273bdf605cbde0e7fb7e6eea9e",
       "size": 55528134
+    },
+    "nullifier-freshness_36_0.key": {
+      "sha256": "52eb3f09ecb134ff8f59e6a5ba68315289748aa12638741bfedb322f6d8a4310",
+      "size": 128453551
+    },
+    "spend-balance_16_2.key": {
+      "sha256": "f51417f5b50ad5bf56cbb5454aadb5c01f0180d81d182462b02b07d34484e721",
+      "size": 3891417
     },
     "transfer_confidential_1_1.key": {
       "sha256": "73218c4b3c0c037c759045e1d869bb6c03a2ec0bd42b7484a89f201218fb2894",
@@ -183,5 +199,5 @@
       "size": 30333212
     }
   },
-  "prefix": "proving-keys/7765d8fa45c5416c"
+  "prefix": "proving-keys/854dbc508cf8988b"
 }

@@ -1,0 +1,7 @@
+Setting up transfer-confidential-cached (eddsa/solana-only): nInputs 36 nOutputs 2
+21:44:03 INF compiling circuit
+21:44:03 INF parsed circuit inputs nbPublic=1 nbSecret=3244
+21:44:04 INF building constraint builder nbConstraints=812159
+21:45:01 INF Transfer proving system written bytes_written=251172476 circuit=transfer-confidential-cached n_inputs=36 n_outputs=2 output=proving-keys/transfer_confidential_cached_36_2.key
+
+SETUP_TOTAL_SECONDS=58.667437 EXIT=0

@@ -14,8 +14,8 @@ type PaymentCircuit struct {
 	Balance     Balance
 
 	PublicInputHash frontend.Variable `gnark:",public"`
-	GKR             bool              `gnark:"-"`
-	Transcript      string            `gnark:"-"`
+	GKR             bool              `gnark:"-" json:"-"`
+	Transcript      string            `gnark:"-" json:"-"`
 }
 
 func NewPayment(inputs, outputs int) *PaymentCircuit {
@@ -26,9 +26,6 @@ func NewPayment(inputs, outputs int) *PaymentCircuit {
 }
 
 func (c *PaymentCircuit) Define(api frontend.API) error {
-	if len(c.Balance.Values) != 1 || len(c.Certificate.Nullifiers) != len(c.Freshness.Nullifiers) {
-		return fmt.Errorf("direct spend: inconsistent payment shape")
-	}
 	var compressor *gadget.GKRCompressor
 	if c.GKR {
 		var err error
@@ -41,10 +38,17 @@ func (c *PaymentCircuit) Define(api frontend.API) error {
 			return err
 		}
 	}
-	if err := c.Certificate.constrainWithCompressor(api, compressor); err != nil {
+	return c.constrain(api, compressor, compressor)
+}
+
+func (c *PaymentCircuit) constrain(api frontend.API, certificate, freshness *gadget.GKRCompressor) error {
+	if len(c.Balance.Values) != 1 || len(c.Certificate.Nullifiers) != len(c.Freshness.Nullifiers) {
+		return fmt.Errorf("direct spend: inconsistent payment shape")
+	}
+	if err := c.Certificate.constrainWithCompressor(api, certificate); err != nil {
 		return err
 	}
-	if err := c.Freshness.constrainWithCompressor(api, compressor); err != nil {
+	if err := c.Freshness.constrainWithCompressor(api, freshness); err != nil {
 		return err
 	}
 	if err := c.Balance.constrain(api); err != nil {

@@ -59,7 +59,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 
 	// Transfer and merge circuits are keyed by their fixed shape instead of a
 	// tree height, so they are exempt from the tree-height requirement below.
-	isFixedShape := CircuitType(circuitType) == TransferConfidentialCircuitType ||
+	isFixedShape := IsDirectSpend(CircuitType(circuitType)) || CircuitType(circuitType) == TransferConfidentialCircuitType ||
 		CircuitType(circuitType) == TransferRingCircuitType ||
 		CircuitType(circuitType) == TransferP256RingCircuitType ||
 		CircuitType(circuitType) == TransferRingAuthorityCircuitType ||

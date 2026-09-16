@@ -46,7 +46,9 @@ impl<'a> MergeTransactAccounts<'a> {
             return Err(ProgramError::IncorrectProgramId);
         }
         let mut nullifier_pdas = ArrayVec::new();
-        for _ in 0..input_count {
+        for _ in
+            0..crate::instructions::nullifier_pda::nullifier_account_count(input_tree, input_count)?
+        {
             nullifier_pdas
                 .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;

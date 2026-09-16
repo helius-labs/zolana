@@ -11,6 +11,7 @@ import (
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
+	directprover "zolana/prover/prover/direct_spend"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -632,6 +633,8 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processTransferEddsaProof(job.Payload)
 	case common.TransferP256RingCircuitType:
 		proof, proofError = w.processTransferP256Proof(job.Payload)
+	case common.InputCertificateCircuitType, common.NullifierFreshnessCircuitType, common.SpendBalanceCircuitType, common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType:
+		proof, proofError = directprover.ProveRequest(w.keyManager, job.Payload)
 	case common.MergeCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
 	case common.MergeRingCircuitType:

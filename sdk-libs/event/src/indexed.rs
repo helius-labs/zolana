@@ -101,7 +101,8 @@ fn event_source_parent(
 fn is_general_event_source_tag(tag_byte: u8) -> bool {
     matches!(
         tag_byte,
-        tag::DEPOSIT
+        tag::DIRECT_SPEND
+            | tag::DEPOSIT
             | tag::RING_DEPOSIT
             | tag::TRANSACT
             | tag::RING_TRANSACT

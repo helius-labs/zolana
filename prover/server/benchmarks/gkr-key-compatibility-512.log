@@ -1,0 +1,8 @@
+=== RUN   TestGKRServiceProving
+21:59:30 INF Loading TransferProofSystem cache_key=direct-payment-gkr_512_2 key_path=/Users/tsv/Developer/zolana/zolana-second-gkr/prover/server/proving-keys/direct-payment-gkr_512_2.key
+21:59:55 INF TransferProofSystem loaded and cached successfully cache_key=direct-payment-gkr_512_2 circuit_type=direct-payment-gkr n_inputs=512 n_outputs=2 requires_p256=false
+    service_benchmark_test.go:73: GKR_SERVICE_LOAD inputs=512 load_ms=25206 constraints=3345785 request_bytes=2865184 go=go1.27.1
+    service_benchmark_test.go:77: GKR_SERVICE_KEY inputs=512 digest=90211240d2c37a319fb5a4a9108bff07a05694c2c61c85e36840fc25a6a803af
+--- PASS: TestGKRServiceProving (33.94s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	34.270s

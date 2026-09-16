@@ -285,3 +285,13 @@ path = "tests/spl_interface/validation.rs"
 [[test]]
 name = "dispatch_validation"
 path = "tests/dispatch/validation.rs"
+
+[[test]]
+name = "direct_spend_proofs"
+path = "tests/direct_spend/proofs.rs"
+required-features = ["proofs"]
+
+[[test]]
+name = "direct_spend_localnet"
+path = "tests/direct_spend/localnet.rs"
+required-features = ["localnet", "proofs"]

@@ -1,0 +1,53 @@
+ADAPTIVE_THREADS=18
+=== RUN   TestGKRServiceProving
+22:43:50 INF Loading TransferProofSystem cache_key=direct-payment-gkr_512_2 key_path=/Users/tsv/Developer/zolana/zolana-second-gkr/prover/server/proving-keys/direct-payment-gkr_512_2.key
+22:44:00 INF TransferProofSystem loaded and cached successfully cache_key=direct-payment-gkr_512_2 circuit_type=direct-payment-gkr n_inputs=512 n_outputs=2 requires_p256=false
+    service_benchmark_test.go:73: GKR_SERVICE_LOAD inputs=512 load_ms=10234 constraints=3345785 request_bytes=2865184 go=go1.27.1
+    service_benchmark_test.go:77: GKR_SERVICE_KEY inputs=512 digest=90211240d2c37a319fb5a4a9108bff07a05694c2c61c85e36840fc25a6a803af
+22:44:00 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:00 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=2 sample=0 request=0 seconds=7.772213
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=2 sample=0 request=1 seconds=5.337020
+    service_benchmark_test.go:123: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=2 sample=0 seconds=7.772228 heap_bytes=3834405592 sys_bytes=6529876760
+22:44:08 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:08 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=2 sample=1 request=0 seconds=7.989682
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=2 sample=1 request=1 seconds=5.389621
+    service_benchmark_test.go:123: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=2 sample=1 seconds=7.989694 heap_bytes=6165356776 sys_bytes=6529876760
+22:44:16 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:16 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=2 sample=2 request=0 seconds=5.459420
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=2 sample=2 request=1 seconds=8.007874
+    service_benchmark_test.go:123: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=2 sample=2 seconds=8.007881 heap_bytes=4516441368 sys_bytes=7197467576
+    service_benchmark_test.go:127: GKR_SERVICE_MEDIAN inputs=512 threads=18 concurrency=2 latency_seconds=6.615816 wave_seconds=7.989694 proofs_per_second=0.250322
+22:44:24 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:24 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:24 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:24 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=0 request=0 seconds=12.656476
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=0 request=1 seconds=5.735667
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=0 request=2 seconds=8.613064
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=0 request=3 seconds=15.391455
+    service_benchmark_test.go:123: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=4 sample=0 seconds=15.391466 heap_bytes=7045186592 sys_bytes=9578075624
+22:44:39 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:39 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:39 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:39 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=1 request=0 seconds=6.142811
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=1 request=1 seconds=16.405923
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=1 request=2 seconds=13.572323
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=1 request=3 seconds=9.181936
+    service_benchmark_test.go:123: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=4 sample=1 seconds=16.405936 heap_bytes=5854981512 sys_bytes=10518574792
+22:44:56 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:56 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:56 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+22:44:56 DBG Found cached TransferProofSystem key=direct-payment-gkr_512_2
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=2 request=0 seconds=13.972092
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=2 request=1 seconds=6.377659
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=2 request=2 seconds=9.471169
+    service_benchmark_test.go:119: GKR_SERVICE_PROVE inputs=512 threads=18 concurrency=4 sample=2 request=3 seconds=16.870030
+    service_benchmark_test.go:123: GKR_SERVICE_WAVE inputs=512 threads=18 concurrency=4 sample=2 seconds=16.870038 heap_bytes=6645677464 sys_bytes=10518574792
+    service_benchmark_test.go:127: GKR_SERVICE_MEDIAN inputs=512 threads=18 concurrency=4 latency_seconds=11.063823 wave_seconds=16.405936 proofs_per_second=0.243814
+--- PASS: TestGKRServiceProving (91.47s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	91.991s

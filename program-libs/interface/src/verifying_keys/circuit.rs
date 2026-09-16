@@ -12,6 +12,10 @@ const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 /// This lives in [`CircuitId::RingP256`] so the existing `TransactProof` and
 /// `TransactIxData` layouts need no additional proof-specific fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub struct Bsb22Commitment {
     pub commitment: [u8; 32],
     pub commitment_pok: [u8; 32],

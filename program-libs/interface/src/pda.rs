@@ -114,6 +114,13 @@ pub fn nullifier_pda(tree: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
     )
 }
 
+pub fn pending_nullifiers(tree: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[crate::PENDING_NULLIFIERS_SEED, tree.as_ref()],
+        &shielded_pool_program_id(),
+    )
+}
+
 pub fn tree(tree_id: u16) -> Pubkey {
     tree_with_bump(tree_id).0
 }

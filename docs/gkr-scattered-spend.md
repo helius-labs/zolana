@@ -6,7 +6,7 @@ The compressor computes the exact existing iden3 Poseidon permutation. During pa
 
 The existing 32-level note membership, 40-level indexed-nullifier nonmembership, ownership, value conservation, and output construction remain enforced. Notes can be scattered anywhere in the tree; the design needs neither clustered notes nor certificates prepared before the spend. The 3.27× result measures proving with resident keys, not end-to-end settlement or a comparison against parallel PR #320 merges.
 
-All positions, paths, and intermediate hashes remain private. SPP already has a commitment-aware verifier for P256 proofs, and this circuit matches its supported shape: one BSB22 commitment, no committed public inputs, and three VK IC entries. The full 512-input circuit commits 153,089 private/internal values. Production integration needs a new circuit selector, key/export metadata, and direct-spend wire support for the existing 64-byte BSB22 pair; it can reuse the existing verifier. This experiment does not implement that integration.
+All positions, paths, and intermediate hashes remain private. SPP already has a commitment-aware verifier for P256 proofs, and this circuit matches its supported shape: one BSB22 commitment, no committed public inputs, and three VK IC entries. The full 512-input circuit commits 153,089 private/internal values. The subsequent [localnet integration](gkr-localnet.md) adds the circuit selector, key/export metadata and direct-spend support for the existing 64-byte BSB22 pair, reusing that verifier. The measurements below describe the original native experiment.
 
 Settlement must still validate accepted roots, reject duplicate input nullifiers, and prevent concurrent spends through the normal on-chain checks. Keeping nullifier nonmembership inside the circuit does not replace those checks.
 
@@ -65,4 +65,4 @@ GOMAXPROCS=4 GOMEMLIMIT=16GiB GKR_PAYMENT_INPUTS=512 go test ./circuits/direct_s
 
 The last command generates transient keys for both modes. To reproduce the measured run's baseline key reuse, also set `GKR_BASELINE_KEY` to an existing `direct-payment_512_2.key`; the benchmark validates its shape and mathematical constraint digest before use. No proving keys are included in this commit.
 
-Raw measurement logs are in [prover/server/benchmarks](../prover/server/benchmarks). To regenerate the local constraint profile, set `GKR_CONSTRAINT_PROFILE` to an output path and run `go test ./circuits/gadget -run '^TestGKRTranscriptConstraints$' -count=1`. The service and on-chain payment path do not enable GKR in this experiment.
+Raw measurement logs are in [prover/server/benchmarks](../prover/server/benchmarks). To regenerate the local constraint profile, set `GKR_CONSTRAINT_PROFILE` to an output path and run `go test ./circuits/gadget -run '^TestGKRTranscriptConstraints$' -count=1`. Service integration and localnet measurements are documented separately in [gkr-localnet.md](gkr-localnet.md).

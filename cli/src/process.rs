@@ -62,7 +62,9 @@ pub(crate) fn stop_name(name: &str) {
 }
 
 pub(crate) fn stop_port(port: u16) {
-    let output = Command::new("lsof").arg(format!("-ti:{port}")).output();
+    let output = Command::new("lsof")
+        .args(["-nP", &format!("-tiTCP:{port}"), "-sTCP:LISTEN"])
+        .output();
     let Ok(output) = output else {
         return;
     };

@@ -1,0 +1,8 @@
+=== RUN   TestGKRPoolPartition
+    payment_pool_test.go:46: GKR_POOL_COMPILE inputs=144 split=false constraints=1696484 compile_ms=2366
+    payment_pool_test.go:46: GKR_POOL_COMPILE inputs=144 split=true constraints=2657255 compile_ms=3313
+    payment_pool_test.go:46: GKR_POOL_COMPILE inputs=512 split=false constraints=3345785 compile_ms=5701
+    payment_pool_test.go:46: GKR_POOL_COMPILE inputs=512 split=true constraints=4334237 compile_ms=6617
+--- PASS: TestGKRPoolPartition (18.00s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	18.711s

@@ -1,0 +1,999 @@
+{
+  "scope": "Resident proving keys only. Key loading and all 18 warmup spends are excluded. Timed endpoint: recipient decrypts full transferred balance.",
+  "excluded_warmups": 18,
+  "source_directory": "/Users/tsv/Developer/zolana/zolana-second-gkr/target/gkr-bench/matrix-final",
+  "manifest": {
+    "started_at": "2026-09-16T21:08:45.870143+00:00",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "logical_cpus": 18,
+    "settings": {
+      "GOMAXPROCS": "18",
+      "GOMEMLIMIT": "24GiB",
+      "PROVER_SYNC_CONCURRENCY": "4",
+      "E2E_BENCH_CONCURRENCY": "4",
+      "E2E_BENCH_POLL_MS": "25",
+      "E2E_BENCH_PREPARED": "0",
+      "E2E_BENCH_PACKED": "1"
+    },
+    "runs": 3,
+    "paired_cold_warm": true,
+    "artifacts": {
+      "cli": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/debug/zolana",
+        "sha256": "88dec4ab4ccd6569616855f41c0776aaded3cfd40aa3eebdfde157f13a2ad5ba"
+      },
+      "photon": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/debug/photon",
+        "sha256": "98a66c9fa6fc481c82afc79ba24795c1df24f16c07b200c8c5d0499f3f4141b9"
+      },
+      "gkr_prover": {
+        "path": "/Users/tsv/Developer/zolana/zolana-second-gkr/prover/server/light-prover",
+        "sha256": "baf204ab37509cbe917aa5ad8209b11cf51538deeb121e788dec6c794bb0e1a9"
+      },
+      "cache_prover": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-cache/target/prover-server",
+        "sha256": "46d2dfa440c2cddb89bdcf0a9a74a8e8a033c8c01e2f8051f2a131ea623d0a42"
+      },
+      "gkr_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-second-gkr/target/deploy/shielded_pool_program.so",
+        "sha256": "41e889570bfcc685b6481064c3ce3b96738f957c0c03e203aea88706d8e88cfb"
+      },
+      "cache_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-settlement/target/deploy/shielded_pool_program.so",
+        "sha256": "5094fa5dd8aac210e8d8de6def069eadd9d8c3e478b1bc569726afe42621baff"
+      },
+      "surfpool": {
+        "path": "/Users/tsv/Developer/zolana/zolana-second-gkr/target/tools/surfpool",
+        "sha256": "41182ea7d4c7f0b293e3336730817ff04d388f4054ce59b2f4b153844d1e05b7"
+      },
+      "gkr_squads_smart_account_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-second-gkr/target/deploy/squads_smart_account_program.so",
+        "sha256": "49cf27024d211ab827eadc11219a935abf9a5138ece1c0b0631c26790fd4f3c0"
+      },
+      "gkr_zolana_user_registry": {
+        "path": "/Users/tsv/Developer/zolana/zolana-second-gkr/target/deploy/zolana_user_registry.so",
+        "sha256": "60a98a92ac87c5f771431c4c934a0e365ef1f7020b19213e540c704c80d5aac2"
+      },
+      "cache_squads_smart_account_program": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-settlement/target/deploy/squads_smart_account_program.so",
+        "sha256": "49cf27024d211ab827eadc11219a935abf9a5138ece1c0b0631c26790fd4f3c0"
+      },
+      "cache_zolana_user_registry": {
+        "path": "/Users/tsv/Developer/zolana/zolana-10x-settlement/target/deploy/zolana_user_registry.so",
+        "sha256": "60a98a92ac87c5f771431c4c934a0e365ef1f7020b19213e540c704c80d5aac2"
+      }
+    },
+    "cases": [
+      {
+        "label": "cached-144-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-10x-settlement",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "-p",
+          "spp-test-validator",
+          "--test",
+          "proof_cu",
+          "cached_merge_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 3,
+        "cold_samples": 3
+      },
+      {
+        "label": "direct-144-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-second-gkr",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "-p",
+          "shielded-pool-tests",
+          "--features",
+          "localnet,proofs",
+          "--test",
+          "direct_spend_localnet",
+          "direct_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 3,
+        "cold_samples": 3
+      },
+      {
+        "label": "gkr-144-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-second-gkr",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "-p",
+          "shielded-pool-tests",
+          "--features",
+          "localnet,proofs",
+          "--test",
+          "direct_spend_localnet",
+          "direct_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 3,
+        "cold_samples": 3
+      },
+      {
+        "label": "cached-512-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-10x-settlement",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "-p",
+          "spp-test-validator",
+          "--test",
+          "proof_cu",
+          "cached_merge_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 3,
+        "cold_samples": 3
+      },
+      {
+        "label": "direct-512-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-second-gkr",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "-p",
+          "shielded-pool-tests",
+          "--features",
+          "localnet,proofs",
+          "--test",
+          "direct_spend_localnet",
+          "direct_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 3,
+        "cold_samples": 3
+      },
+      {
+        "label": "gkr-512-warm-interleaved",
+        "workspace": "/Users/tsv/Developer/zolana/zolana-second-gkr",
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "-j2",
+          "-p",
+          "shielded-pool-tests",
+          "--features",
+          "localnet,proofs",
+          "--test",
+          "direct_spend_localnet",
+          "direct_spend_e2e_benchmark",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "measured_samples": 3,
+        "cold_samples": 3
+      }
+    ]
+  },
+  "summary": [
+    {
+      "variant": "cached",
+      "inputs": 144,
+      "samples": 3,
+      "witness_ms": {
+        "median": 949,
+        "min": 908,
+        "max": 952
+      },
+      "prove_ms": {
+        "median": 3619,
+        "min": 3358,
+        "max": 3790
+      },
+      "submit_ms": {
+        "median": 1891,
+        "min": 1664,
+        "max": 2010
+      },
+      "confirmed_ms": {
+        "median": 6276,
+        "min": 6232,
+        "max": 6634
+      },
+      "total_ms": {
+        "median": 6792,
+        "min": 6755,
+        "max": 7162
+      },
+      "total_cu": {
+        "median": 1340893,
+        "min": 1337077,
+        "max": 1341644
+      },
+      "transactions": {
+        "median": 5,
+        "min": 5,
+        "max": 5
+      },
+      "proofs": {
+        "median": 5,
+        "min": 5,
+        "max": 5
+      }
+    },
+    {
+      "variant": "direct",
+      "inputs": 144,
+      "samples": 3,
+      "witness_ms": {
+        "median": 600,
+        "min": 599,
+        "max": 601
+      },
+      "prove_ms": {
+        "median": 3563,
+        "min": 3513,
+        "max": 3570
+      },
+      "submit_ms": {
+        "median": 1089,
+        "min": 1005,
+        "max": 1176
+      },
+      "confirmed_ms": {
+        "median": 5259,
+        "min": 5170,
+        "max": 5290
+      },
+      "total_ms": {
+        "median": 5785,
+        "min": 5696,
+        "max": 5815
+      },
+      "total_cu": {
+        "median": 1147365,
+        "min": 1145539,
+        "max": 1148473
+      },
+      "transactions": {
+        "median": 3,
+        "min": 3,
+        "max": 3
+      },
+      "proofs": {
+        "median": 9,
+        "min": 9,
+        "max": 9
+      }
+    },
+    {
+      "variant": "gkr",
+      "inputs": 144,
+      "samples": 3,
+      "witness_ms": {
+        "median": 629,
+        "min": 626,
+        "max": 631
+      },
+      "prove_ms": {
+        "median": 2655,
+        "min": 2650,
+        "max": 2655
+      },
+      "submit_ms": {
+        "median": 764,
+        "min": 760,
+        "max": 868
+      },
+      "confirmed_ms": {
+        "median": 4049,
+        "min": 4047,
+        "max": 4145
+      },
+      "total_ms": {
+        "median": 4662,
+        "min": 4572,
+        "max": 4665
+      },
+      "total_cu": {
+        "median": 567449,
+        "min": 567444,
+        "max": 567868
+      },
+      "transactions": {
+        "median": 2,
+        "min": 2,
+        "max": 2
+      },
+      "proofs": {
+        "median": 1,
+        "min": 1,
+        "max": 1
+      }
+    },
+    {
+      "variant": "cached",
+      "inputs": 512,
+      "samples": 3,
+      "witness_ms": {
+        "median": 3259,
+        "min": 3253,
+        "max": 3387
+      },
+      "prove_ms": {
+        "median": 12269,
+        "min": 12054,
+        "max": 13432
+      },
+      "submit_ms": {
+        "median": 5954,
+        "min": 5783,
+        "max": 5977
+      },
+      "confirmed_ms": {
+        "median": 21311,
+        "min": 21284,
+        "max": 22773
+      },
+      "total_ms": {
+        "median": 21846,
+        "min": 21807,
+        "max": 23288
+      },
+      "total_cu": {
+        "median": 4581152,
+        "min": 4564733,
+        "max": 4592556
+      },
+      "transactions": {
+        "median": 15,
+        "min": 15,
+        "max": 15
+      },
+      "proofs": {
+        "median": 16,
+        "min": 16,
+        "max": 16
+      }
+    },
+    {
+      "variant": "direct",
+      "inputs": 512,
+      "samples": 3,
+      "witness_ms": {
+        "median": 2247,
+        "min": 2238,
+        "max": 2248
+      },
+      "prove_ms": {
+        "median": 13293,
+        "min": 13230,
+        "max": 13448
+      },
+      "submit_ms": {
+        "median": 3444,
+        "min": 3148,
+        "max": 3515
+      },
+      "confirmed_ms": {
+        "median": 18986,
+        "min": 18836,
+        "max": 18993
+      },
+      "total_ms": {
+        "median": 19503,
+        "min": 19352,
+        "max": 19512
+      },
+      "total_cu": {
+        "median": 3880116,
+        "min": 3879359,
+        "max": 3883079
+      },
+      "transactions": {
+        "median": 8,
+        "min": 8,
+        "max": 8
+      },
+      "proofs": {
+        "median": 31,
+        "min": 31,
+        "max": 31
+      }
+    },
+    {
+      "variant": "gkr",
+      "inputs": 512,
+      "samples": 3,
+      "witness_ms": {
+        "median": 2211,
+        "min": 2192,
+        "max": 2216
+      },
+      "prove_ms": {
+        "median": 4657,
+        "min": 4634,
+        "max": 4669
+      },
+      "submit_ms": {
+        "median": 2603,
+        "min": 2549,
+        "max": 2605
+      },
+      "confirmed_ms": {
+        "median": 9454,
+        "min": 9431,
+        "max": 9456
+      },
+      "total_ms": {
+        "median": 9983,
+        "min": 9967,
+        "max": 9988
+      },
+      "total_cu": {
+        "median": 1334190,
+        "min": 1333259,
+        "max": 1334682
+      },
+      "transactions": {
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "proofs": {
+        "median": 1,
+        "min": 1,
+        "max": 1
+      }
+    }
+  ],
+  "measured_samples": [
+    {
+      "variant": "cached",
+      "run": 1,
+      "phase": "measured",
+      "inputs": 144,
+      "concurrency": 4,
+      "gomaxprocs": 18,
+      "prover_concurrency": 4,
+      "layout": "interleaved",
+      "key_state": "warm",
+      "warm_keys": true,
+      "warmup_ms": 18178,
+      "proofs": 5,
+      "transactions": 5,
+      "packed": true,
+      "poll_ms": 25,
+      "total_cu": 1337077,
+      "setup_ms": 7539,
+      "witness_ms": 952,
+      "prove_ms": 3790,
+      "submit_ms": 1891,
+      "confirmed_ms": 6634,
+      "total_ms": 7162,
+      "output_slots": 3,
+      "case": "cached-144-warm-interleaved"
+    },
+    {
+      "variant": "cached",
+      "run": 2,
+      "phase": "measured",
+      "inputs": 144,
+      "concurrency": 4,
+      "gomaxprocs": 18,
+      "prover_concurrency": 4,
+      "layout": "interleaved",
+      "key_state": "warm",
+      "warm_keys": true,
+      "warmup_ms": 17522,
+      "proofs": 5,
+      "transactions": 5,
+      "packed": true,
+      "poll_ms": 25,
+      "total_cu": 1340893,
+      "setup_ms": 7536,
+      "witness_ms": 908,
+      "prove_ms": 3358,
+      "submit_ms": 2010,
+      "confirmed_ms": 6276,
+      "total_ms": 6792,
+      "output_slots": 3,
+      "case": "cached-144-warm-interleaved"
+    },
+    {
+      "variant": "cached",
+      "run": 3,
+      "phase": "measured",
+      "inputs": 144,
+      "concurrency": 4,
+      "gomaxprocs": 18,
+      "prover_concurrency": 4,
+      "layout": "interleaved",
+      "key_state": "warm",
+      "warm_keys": true,
+      "warmup_ms": 17791,
+      "proofs": 5,
+      "transactions": 5,
+      "packed": true,
+      "poll_ms": 25,
+      "total_cu": 1341644,
+      "setup_ms": 7288,
+      "witness_ms": 949,
+      "prove_ms": 3619,
+      "submit_ms": 1664,
+      "confirmed_ms": 6232,
+      "total_ms": 6755,
+      "output_slots": 3,
+      "case": "cached-144-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 5170,
+      "final_transaction_cu": 288854,
+      "gomaxprocs": 18,
+      "indexed_ms": 5696,
+      "inputs": 144,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 9,
+      "prove_ms": 3563,
+      "prover_concurrency": 4,
+      "run": 1,
+      "send_transactions": 3,
+      "setup_ms": 63466,
+      "submit_ms": 1005,
+      "total_cu": 1147365,
+      "total_ms": 5696,
+      "transactions": 3,
+      "variant": "direct",
+      "warm_keys": true,
+      "warmup_ms": 7949,
+      "witness_ms": 601,
+      "case": "direct-144-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 5290,
+      "final_transaction_cu": 288145,
+      "gomaxprocs": 18,
+      "indexed_ms": 5815,
+      "inputs": 144,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 9,
+      "prove_ms": 3513,
+      "prover_concurrency": 4,
+      "run": 2,
+      "send_transactions": 3,
+      "setup_ms": 61996,
+      "submit_ms": 1176,
+      "total_cu": 1148473,
+      "total_ms": 5815,
+      "transactions": 3,
+      "variant": "direct",
+      "warm_keys": true,
+      "warmup_ms": 7980,
+      "witness_ms": 600,
+      "case": "direct-144-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 5259,
+      "final_transaction_cu": 288105,
+      "gomaxprocs": 18,
+      "indexed_ms": 5785,
+      "inputs": 144,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 9,
+      "prove_ms": 3570,
+      "prover_concurrency": 4,
+      "run": 3,
+      "send_transactions": 3,
+      "setup_ms": 61977,
+      "submit_ms": 1089,
+      "total_cu": 1145539,
+      "total_ms": 5785,
+      "transactions": 3,
+      "variant": "direct",
+      "warm_keys": true,
+      "warmup_ms": 8003,
+      "witness_ms": 599,
+      "case": "direct-144-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 4145,
+      "final_transaction_cu": 563544,
+      "gomaxprocs": 18,
+      "indexed_ms": 4665,
+      "inputs": 144,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 2650,
+      "prover_concurrency": 4,
+      "run": 1,
+      "send_transactions": 2,
+      "setup_ms": 61604,
+      "submit_ms": 868,
+      "total_cu": 567444,
+      "total_ms": 4665,
+      "transactions": 2,
+      "variant": "gkr",
+      "warm_keys": true,
+      "warmup_ms": 10261,
+      "witness_ms": 626,
+      "case": "gkr-144-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 4047,
+      "final_transaction_cu": 563549,
+      "gomaxprocs": 18,
+      "indexed_ms": 4662,
+      "inputs": 144,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 2655,
+      "prover_concurrency": 4,
+      "run": 2,
+      "send_transactions": 2,
+      "setup_ms": 62077,
+      "submit_ms": 760,
+      "total_cu": 567449,
+      "total_ms": 4662,
+      "transactions": 2,
+      "variant": "gkr",
+      "warm_keys": true,
+      "warmup_ms": 10266,
+      "witness_ms": 631,
+      "case": "gkr-144-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 4049,
+      "final_transaction_cu": 563598,
+      "gomaxprocs": 18,
+      "indexed_ms": 4572,
+      "inputs": 144,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 2655,
+      "prover_concurrency": 4,
+      "run": 3,
+      "send_transactions": 2,
+      "setup_ms": 62121,
+      "submit_ms": 764,
+      "total_cu": 567868,
+      "total_ms": 4572,
+      "transactions": 2,
+      "variant": "gkr",
+      "warm_keys": true,
+      "warmup_ms": 10370,
+      "witness_ms": 629,
+      "case": "gkr-144-warm-interleaved"
+    },
+    {
+      "variant": "cached",
+      "run": 1,
+      "phase": "measured",
+      "inputs": 512,
+      "concurrency": 4,
+      "gomaxprocs": 18,
+      "prover_concurrency": 4,
+      "layout": "interleaved",
+      "key_state": "warm",
+      "warm_keys": true,
+      "warmup_ms": 50043,
+      "proofs": 16,
+      "transactions": 15,
+      "packed": true,
+      "poll_ms": 25,
+      "total_cu": 4581152,
+      "setup_ms": 21908,
+      "witness_ms": 3259,
+      "prove_ms": 12269,
+      "submit_ms": 5783,
+      "confirmed_ms": 21311,
+      "total_ms": 21846,
+      "output_slots": 2,
+      "case": "cached-512-warm-interleaved"
+    },
+    {
+      "variant": "cached",
+      "run": 2,
+      "phase": "measured",
+      "inputs": 512,
+      "concurrency": 4,
+      "gomaxprocs": 18,
+      "prover_concurrency": 4,
+      "layout": "interleaved",
+      "key_state": "warm",
+      "warm_keys": true,
+      "warmup_ms": 50257,
+      "proofs": 16,
+      "transactions": 15,
+      "packed": true,
+      "poll_ms": 25,
+      "total_cu": 4564733,
+      "setup_ms": 22020,
+      "witness_ms": 3387,
+      "prove_ms": 13432,
+      "submit_ms": 5954,
+      "confirmed_ms": 22773,
+      "total_ms": 23288,
+      "output_slots": 2,
+      "case": "cached-512-warm-interleaved"
+    },
+    {
+      "variant": "cached",
+      "run": 3,
+      "phase": "measured",
+      "inputs": 512,
+      "concurrency": 4,
+      "gomaxprocs": 18,
+      "prover_concurrency": 4,
+      "layout": "interleaved",
+      "key_state": "warm",
+      "warm_keys": true,
+      "warmup_ms": 48957,
+      "proofs": 16,
+      "transactions": 15,
+      "packed": true,
+      "poll_ms": 25,
+      "total_cu": 4592556,
+      "setup_ms": 21171,
+      "witness_ms": 3253,
+      "prove_ms": 12054,
+      "submit_ms": 5977,
+      "confirmed_ms": 21284,
+      "total_ms": 21807,
+      "output_slots": 2,
+      "case": "cached-512-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 18993,
+      "final_transaction_cu": 873193,
+      "gomaxprocs": 18,
+      "indexed_ms": 19512,
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 31,
+      "prove_ms": 13230,
+      "prover_concurrency": 4,
+      "run": 1,
+      "send_transactions": 8,
+      "setup_ms": 90432,
+      "submit_ms": 3515,
+      "total_cu": 3883079,
+      "total_ms": 19512,
+      "transactions": 8,
+      "variant": "direct",
+      "warm_keys": true,
+      "warmup_ms": 22002,
+      "witness_ms": 2247,
+      "case": "direct-512-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 18836,
+      "final_transaction_cu": 874891,
+      "gomaxprocs": 18,
+      "indexed_ms": 19352,
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 31,
+      "prove_ms": 13448,
+      "prover_concurrency": 4,
+      "run": 2,
+      "send_transactions": 8,
+      "setup_ms": 88821,
+      "submit_ms": 3148,
+      "total_cu": 3879359,
+      "total_ms": 19352,
+      "transactions": 8,
+      "variant": "direct",
+      "warm_keys": true,
+      "warmup_ms": 22227,
+      "witness_ms": 2238,
+      "case": "direct-512-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 18986,
+      "final_transaction_cu": 873113,
+      "gomaxprocs": 18,
+      "indexed_ms": 19503,
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 31,
+      "prove_ms": 13293,
+      "prover_concurrency": 4,
+      "run": 3,
+      "send_transactions": 8,
+      "setup_ms": 89082,
+      "submit_ms": 3444,
+      "total_cu": 3880116,
+      "total_ms": 19503,
+      "transactions": 8,
+      "variant": "direct",
+      "warm_keys": true,
+      "warmup_ms": 22221,
+      "witness_ms": 2248,
+      "case": "direct-512-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 9431,
+      "final_transaction_cu": 1321820,
+      "gomaxprocs": 18,
+      "indexed_ms": 9967,
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 4669,
+      "prover_concurrency": 4,
+      "run": 1,
+      "send_transactions": 6,
+      "setup_ms": 89423,
+      "submit_ms": 2549,
+      "total_cu": 1334682,
+      "total_ms": 9967,
+      "transactions": 6,
+      "variant": "gkr",
+      "warm_keys": true,
+      "warmup_ms": 21021,
+      "witness_ms": 2211,
+      "case": "gkr-512-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 9454,
+      "final_transaction_cu": 1321844,
+      "gomaxprocs": 18,
+      "indexed_ms": 9983,
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 4634,
+      "prover_concurrency": 4,
+      "run": 2,
+      "send_transactions": 6,
+      "setup_ms": 90603,
+      "submit_ms": 2603,
+      "total_cu": 1333259,
+      "total_ms": 9983,
+      "transactions": 6,
+      "variant": "gkr",
+      "warm_keys": true,
+      "warmup_ms": 20750,
+      "witness_ms": 2216,
+      "case": "gkr-512-warm-interleaved"
+    },
+    {
+      "certificate_prove_ms": 0,
+      "concurrency": 4,
+      "confirmed_ms": 9456,
+      "final_transaction_cu": 1321687,
+      "gomaxprocs": 18,
+      "indexed_ms": 9988,
+      "inputs": 512,
+      "key_state": "warm",
+      "layout": "interleaved",
+      "phase": "measured",
+      "poll_ms": "25",
+      "preparation_ms": 0,
+      "prepared": false,
+      "proofs": 1,
+      "prove_ms": 4657,
+      "prover_concurrency": 4,
+      "run": 3,
+      "send_transactions": 6,
+      "setup_ms": 89432,
+      "submit_ms": 2605,
+      "total_cu": 1334190,
+      "total_ms": 9988,
+      "transactions": 6,
+      "variant": "gkr",
+      "warm_keys": true,
+      "warmup_ms": 20595,
+      "witness_ms": 2192,
+      "case": "gkr-512-warm-interleaved"
+    }
+  ]
+}
