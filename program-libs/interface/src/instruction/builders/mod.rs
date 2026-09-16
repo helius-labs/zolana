@@ -5,6 +5,7 @@ mod create_associated_token_account;
 mod create_spl_interface;
 mod create_tree;
 mod deposit;
+pub mod direct_spend;
 mod merge_ring;
 mod merge_transact;
 mod protocol_config;

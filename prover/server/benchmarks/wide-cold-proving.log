@@ -1,0 +1,34 @@
+=== RUN   TestCompactClusters
+--- PASS: TestCompactClusters (0.07s)
+=== RUN   TestCompactPaymentWitness
+--- PASS: TestCompactPaymentWitness (0.36s)
+=== RUN   TestMergePaymentProving
+=== RUN   TestMergePaymentProving/8
+    merge_benchmark_test.go:40: PAYMENT_PROVE mode=merge inputs=8 outputs=1 trial=0 constraints=177739 prove_ms=973.443 heap_bytes=394758016
+    merge_benchmark_test.go:40: PAYMENT_PROVE mode=merge inputs=8 outputs=1 trial=1 constraints=177739 prove_ms=1012.914 heap_bytes=327182568
+    merge_benchmark_test.go:40: PAYMENT_PROVE mode=merge inputs=8 outputs=1 trial=2 constraints=177739 prove_ms=1009.008 heap_bytes=322694152
+=== RUN   TestMergePaymentProving/36
+    merge_benchmark_test.go:40: PAYMENT_PROVE mode=merge inputs=36 outputs=1 trial=0 constraints=780681 prove_ms=3090.950 heap_bytes=1208027976
+    merge_benchmark_test.go:40: PAYMENT_PROVE mode=merge inputs=36 outputs=1 trial=1 constraints=780681 prove_ms=3061.368 heap_bytes=2092928816
+    merge_benchmark_test.go:40: PAYMENT_PROVE mode=merge inputs=36 outputs=1 trial=2 constraints=780681 prove_ms=3038.337 heap_bytes=1503539592
+--- PASS: TestMergePaymentProving (22.69s)
+    --- PASS: TestMergePaymentProving/8 (5.03s)
+    --- PASS: TestMergePaymentProving/36 (17.66s)
+=== RUN   TestWideCompactPaymentProving
+    wide_benchmark_test.go:30: go=go1.27.1 arch=arm64 cpus=18 gomaxprocs=4
+=== RUN   TestWideCompactPaymentProving/original
+    wide_benchmark_test.go:38: WIDE_SETUP mode=original compile_ms=23727 digest=f86cf9f8f251517c15131e3d39fb6c91a1da19b9c95eaa724b145c13847e6fc8
+    wide_benchmark_test.go:53: WIDE_SETUP mode=original load_and_validate_ms=93899
+    wide_benchmark_test.go:56: PAYMENT_PROVE mode=original inputs=512 outputs=2 trial=0 constraints=10728434 prove_ms=41314.760 heap_bytes=14139738456
+    wide_benchmark_test.go:56: PAYMENT_PROVE mode=original inputs=512 outputs=2 trial=1 constraints=10728434 prove_ms=40312.743 heap_bytes=13932264440
+    wide_benchmark_test.go:56: PAYMENT_PROVE mode=original inputs=512 outputs=2 trial=2 constraints=10728434 prove_ms=40238.146 heap_bytes=13932257632
+=== RUN   TestWideCompactPaymentProving/subtree_external_admission
+    wide_benchmark_test.go:74: WIDE_SETUP mode=subtree_external_admission compile_and_setup_ms=44293 constraints=668507
+    wide_benchmark_test.go:75: PAYMENT_PROVE mode=subtree_external_admission inputs=512 outputs=2 trial=0 constraints=668507 prove_ms=2873.810 heap_bytes=1273816888
+    wide_benchmark_test.go:75: PAYMENT_PROVE mode=subtree_external_admission inputs=512 outputs=2 trial=1 constraints=668507 prove_ms=2897.192 heap_bytes=1130359856
+    wide_benchmark_test.go:75: PAYMENT_PROVE mode=subtree_external_admission inputs=512 outputs=2 trial=2 constraints=668507 prove_ms=2875.214 heap_bytes=1955737640
+--- PASS: TestWideCompactPaymentProving (293.97s)
+    --- PASS: TestWideCompactPaymentProving/original (240.23s)
+    --- PASS: TestWideCompactPaymentProving/subtree_external_admission (53.55s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	317.930s

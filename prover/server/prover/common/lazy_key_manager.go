@@ -297,6 +297,9 @@ func (m *LazyKeyManager) mergeKeyPath(prefix string, nInputs uint32, nOutputs ui
 }
 
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
+	if IsDirectSpendShape(circuitType, nInputs, nOutputs) {
+		return m.keyPath(fmt.Sprintf("%s_%d_%d.key", circuitType, nInputs, nOutputs))
+	}
 	var prefix string
 	switch circuitType {
 	case TransferConfidentialCircuitType:

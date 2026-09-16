@@ -1,3 +1,7 @@
+pub const PENDING_NULLIFIERS_SEED: &[u8] = b"pending_nullifiers";
+
+#[cfg(feature = "borsh")]
+pub mod direct_spend;
 pub mod error;
 pub use zolana_event as event;
 pub mod instruction;

@@ -48,6 +48,7 @@ const MICRO_LAMPORTS_PER_LAMPORT: u128 = 1_000_000;
 /// default, so every ceiling is written explicitly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ComputeBudgetConfig {
+    pub heap_size: Option<u32>,
     pub cu_limit: u32,
     /// Priority bid in micro-lamports per compute unit, the unit
     /// `ComputeBudgetInstruction::set_compute_unit_price` took.
@@ -58,6 +59,7 @@ impl ComputeBudgetConfig {
     pub const fn new(cu_limit: u32) -> Self {
         Self {
             cu_limit,
+            heap_size: None,
             cu_price_micro_lamports: None,
         }
     }
@@ -91,10 +93,20 @@ impl ComputeBudgetConfig {
         self
     }
 
+    #[must_use]
+    pub const fn with_heap_size(mut self, bytes: u32) -> Self {
+        self.heap_size = Some(bytes);
+        self
+    }
+
     pub fn transaction_config(&self) -> v1::TransactionConfig {
         let config = v1::TransactionConfig::empty()
             .with_compute_unit_limit(self.cu_limit)
             .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE);
+        let config = match self.heap_size {
+            Some(bytes) => config.with_heap_size(bytes),
+            None => config,
+        };
         match self.cu_price_micro_lamports {
             Some(price) => config.with_priority_fee(priority_fee_lamports(price, self.cu_limit)),
             None => config,

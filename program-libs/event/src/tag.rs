@@ -40,10 +40,19 @@ pub const RING_TRANSACT: u8 = 19;
 pub const RING_MERGE_TRANSACT: u8 = 20;
 pub const RING_AUTHORITY_TRANSACT: u8 = 21;
 
+pub const ENABLE_PENDING_NULLIFIERS: u8 = 22;
+pub const DIRECT_SPEND_BUFFER: u8 = 23;
+pub const PREPARE_CERTIFICATE: u8 = 24;
+pub const DIRECT_SPEND: u8 = 25;
+
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InstructionTag {
+    DirectSpendBuffer = DIRECT_SPEND_BUFFER,
+    PrepareCertificate = PREPARE_CERTIFICATE,
+    DirectSpend = DIRECT_SPEND,
+    EnablePendingNullifiers = ENABLE_PENDING_NULLIFIERS,
     CreateProtocolConfig = CREATE_PROTOCOL_CONFIG,
     UpdateProtocolConfig = UPDATE_PROTOCOL_CONFIG,
     CreateTree = CREATE_TREE,
@@ -73,6 +82,10 @@ impl TryFrom<u8> for InstructionTag {
 
     fn try_from(tag: u8) -> Result<Self, Self::Error> {
         match tag {
+            DIRECT_SPEND_BUFFER => Ok(Self::DirectSpendBuffer),
+            PREPARE_CERTIFICATE => Ok(Self::PrepareCertificate),
+            DIRECT_SPEND => Ok(Self::DirectSpend),
+            ENABLE_PENDING_NULLIFIERS => Ok(Self::EnablePendingNullifiers),
             CREATE_PROTOCOL_CONFIG => Ok(Self::CreateProtocolConfig),
             UPDATE_PROTOCOL_CONFIG => Ok(Self::UpdateProtocolConfig),
             CREATE_TREE => Ok(Self::CreateTree),

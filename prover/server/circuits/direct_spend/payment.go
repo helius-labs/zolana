@@ -1,0 +1,53 @@
+package directspend
+
+import (
+	"fmt"
+
+	"github.com/consensys/gnark/frontend"
+
+	"zolana/prover/circuits/gadget"
+)
+
+type PaymentCircuit struct {
+	Certificate Certificate
+	Freshness   Freshness
+	Balance     Balance
+
+	PublicInputHash frontend.Variable `gnark:",public"`
+}
+
+func NewPayment(inputs, outputs int) *PaymentCircuit {
+	return &PaymentCircuit{
+		Certificate: newCertificate(inputs), Freshness: NewFreshness(inputs).Freshness,
+		Balance: NewBalance(1, outputs).Balance,
+	}
+}
+
+func (c *PaymentCircuit) Define(api frontend.API) error {
+	if len(c.Balance.Values) != 1 || len(c.Certificate.Nullifiers) != len(c.Freshness.Nullifiers) {
+		return fmt.Errorf("direct spend: inconsistent payment shape")
+	}
+	if err := c.Certificate.constrain(api); err != nil {
+		return err
+	}
+	if err := c.Freshness.constrain(api); err != nil {
+		return err
+	}
+	if err := c.Balance.constrain(api); err != nil {
+		return err
+	}
+	api.AssertIsEqual(c.Certificate.TreeID, c.Freshness.TreeID)
+	api.AssertIsEqual(c.Certificate.Count, c.Freshness.Count)
+	api.AssertIsEqual(c.Certificate.Asset, c.Balance.Asset)
+	api.AssertIsEqual(c.Certificate.ID, c.Balance.Values[0].ID)
+	api.AssertIsEqual(c.Certificate.ValueCommitment, c.Balance.Values[0].Commitment)
+	for i, nullifier := range c.Certificate.Nullifiers {
+		api.AssertIsEqual(nullifier, c.Freshness.Nullifiers[i])
+	}
+	fields := []frontend.Variable{PaymentDomain}
+	fields = append(fields, c.Certificate.fields(api)...)
+	fields = append(fields, c.Freshness.fields(api)...)
+	fields = append(fields, c.Balance.fields(api)...)
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
+	return nil
+}

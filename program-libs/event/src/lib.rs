@@ -141,6 +141,8 @@ pub enum EventKind {
     /// [`NullifierTreeUpdateEvent`] (one cascade event per update), not a
     /// [`GeneralEvent`].
     NullifierTreeUpdate = 4,
+    /// Body is a full [`GeneralEvent`].
+    DirectSpend = 5,
 }
 
 impl EventKind {
@@ -150,6 +152,7 @@ impl EventKind {
             2 => Some(Self::Transact),
             3 => Some(Self::Merge),
             4 => Some(Self::NullifierTreeUpdate),
+            5 => Some(Self::DirectSpend),
             _ => None,
         }
     }

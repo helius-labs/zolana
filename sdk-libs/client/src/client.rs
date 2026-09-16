@@ -215,6 +215,7 @@ impl<R> ZolanaClient<R> {
     /// builds.
     pub fn compute_budget(&self) -> ComputeBudgetConfig {
         ComputeBudgetConfig {
+            heap_size: None,
             cu_limit: self.cu_limit,
             cu_price_micro_lamports: self.cu_price_micro_lamports,
         }

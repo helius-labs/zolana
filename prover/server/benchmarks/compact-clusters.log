@@ -1,0 +1,9 @@
+=== RUN   TestCompactClusters
+--- PASS: TestCompactClusters (0.09s)
+=== RUN   TestCompactClusterConstraints
+    compact_benchmark_test.go:210: CLUSTER_BENCH inputs=512 outputs=1 cluster_size=8 constraints=1098368 fft_domain=2097152
+    compact_benchmark_test.go:210: CLUSTER_BENCH inputs=512 outputs=1 cluster_size=16 constraints=872576 fft_domain=1048576
+    compact_benchmark_test.go:210: CLUSTER_BENCH inputs=512 outputs=1 cluster_size=32 constraints=763536 fft_domain=1048576
+--- PASS: TestCompactClusterConstraints (7.39s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	8.110s

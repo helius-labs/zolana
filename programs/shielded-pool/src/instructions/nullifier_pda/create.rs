@@ -72,6 +72,9 @@ pub(crate) fn create_nullifier_pdas<'n>(
     nullifiers: impl Iterator<Item = &'n [u8; 32]>,
     input_tree: &InputTreeResult,
 ) -> ProgramResult {
+    if uses_pending_nullifiers(tree)? {
+        return consume_pending_nullifiers(payer, tree, nullifier_pdas, nullifiers, input_tree);
+    }
     let rent_sysvar = Rent::get()?;
     let rent = NullifierPdaRent {
         nullifier_pda_minimum: rent_sysvar.try_minimum_balance(NULLIFIER_PDA_SIZE)?,
@@ -150,4 +153,71 @@ impl NullifierPdaCreate<'_> {
             .write_to(&mut data)
             .ok_or(ShieldedPoolError::InvalidNullifierPda.into())
     }
+}
+
+pub(crate) fn nullifier_account_count(
+    tree: &AccountView,
+    inputs: usize,
+) -> Result<usize, ProgramError> {
+    Ok(if uses_pending_nullifiers(tree)? {
+        1
+    } else {
+        inputs
+    })
+}
+
+fn consume_pending_nullifiers<'n>(
+    payer: &AccountView,
+    tree: &mut AccountView,
+    accounts: &mut [&mut AccountView],
+    nullifiers: impl Iterator<Item = &'n [u8; 32]>,
+    input: &InputTreeResult,
+) -> ProgramResult {
+    use zolana_tree::{
+        pending_nullifiers::{PendingNullifierError, PendingNullifiers},
+        TreeAccount,
+    };
+    let [table] = accounts else {
+        return Err(ShieldedPoolError::InvalidPendingNullifiers.into());
+    };
+    let tree_address = tree.address().to_bytes();
+    crate::instructions::shared::verify_pda(
+        table.address(),
+        &[zolana_interface::PENDING_NULLIFIERS_SEED, &tree_address],
+        &crate::ID,
+    )?;
+    if !table.owned_by(&crate::ID) || !table.is_writable() {
+        return Err(ShieldedPoolError::InvalidPendingNullifiers.into());
+    }
+    let watermark = TreeAccount::from_account_view_mut(
+        tree,
+        &crate::ID,
+        zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    )
+    .map_err(crate::instructions::shared::tree_error)?
+    .close_before_index();
+    collect_forester_fee(payer, tree, input.forester_fee)?;
+    let mut bytes = table.try_borrow_mut()?;
+    let mut table = PendingNullifiers::from_bytes(&mut bytes, &tree_address)
+        .map_err(|_| ShieldedPoolError::InvalidPendingNullifiers)?;
+    for (index, nullifier) in nullifiers.enumerate() {
+        let sequence = input
+            .input_tree
+            .first_input_queue_seq
+            .checked_add(index as u64)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        table
+            .insert(nullifier, sequence, watermark)
+            .map_err(|error| match error {
+                PendingNullifierError::AlreadySpent => ShieldedPoolError::NullifierAlreadySpent,
+                PendingNullifierError::Full => ShieldedPoolError::PendingNullifiersFull,
+                _ => ShieldedPoolError::InvalidPendingNullifiers,
+            })?;
+    }
+    Ok(())
+}
+
+fn uses_pending_nullifiers(tree: &AccountView) -> Result<bool, ProgramError> {
+    zolana_tree::TreeAccount::read_compact_nullifiers(&tree.try_borrow()?)
+        .map_err(crate::instructions::shared::tree_error)
 }
