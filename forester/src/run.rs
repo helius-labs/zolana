@@ -40,12 +40,12 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 use zolana_client::{BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon2};
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::{TreeAccount, TreeFeeSchedule};
 
-type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
+type ReferenceNullifierTree = IndexedMerkleTree<Poseidon2, usize>;
 
 use crate::{
     config::ForesterConfig,
@@ -865,7 +865,7 @@ fn build_inputs(
 fn reference_nullifier_tree(height: u32) -> Result<ReferenceNullifierTree> {
     let init_next_value = BigUint::from_str_radix(NULLIFIER_INIT_NEXT_VALUE_DEC, 10)
         .expect("nullifier init next value is a valid decimal constant");
-    IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(height as usize, 0, init_next_value)
+    IndexedMerkleTree::<Poseidon2, usize>::new_with_next_value(height as usize, 0, init_next_value)
         .map_err(|err| anyhow!("init reference nullifier tree: {err:?}"))
 }
 

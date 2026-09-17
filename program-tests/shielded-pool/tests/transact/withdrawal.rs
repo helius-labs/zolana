@@ -23,7 +23,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{PublicInputs, PublicTransfers, TransferInput, STATE_TREE_HEIGHT};
 use zolana_event::{OutputDataEncoding, ProoflessOutput};
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
+use zolana_hasher::{primitives::solana_owner_identity, Poseidon, Poseidon2};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -787,7 +787,7 @@ struct ShieldedPayer {
     nullifier: [u8; 32],
     spend_input: TransferInput,
     state_tree: MerkleTree<Poseidon>,
-    nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    nf_tree: IndexedMerkleTree<Poseidon2, usize>,
     utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
@@ -803,7 +803,7 @@ struct TransferredRecipient {
     owner_field: [u8; 32],
     output_hash: [u8; 32],
     state_tree: MerkleTree<Poseidon>,
-    nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    nf_tree: IndexedMerkleTree<Poseidon2, usize>,
     utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
+	merkletree "zolana/prover/merkle-tree"
 	"zolana/prover/prover-test/poseidon"
 )
 
@@ -20,7 +21,7 @@ func indexedLeafHash(value, nextValue *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("indexed leaf next value", nextValue); err != nil {
 		return nil, err
 	}
-	return poseidon.Hash([]*big.Int{value, nextValue})
+	return merkletree.TreeHash(value, nextValue), nil
 }
 
 type NonInclusionWitness struct {
@@ -59,7 +60,7 @@ func VerifyNullifierNonInclusion(w NonInclusionWitness) error {
 	if err != nil {
 		return err
 	}
-	computed, err := MerkleRoot(leafHash, w.PathElements, w.LowIndex)
+	computed, err := NullifierMerkleRoot(leafHash, w.PathElements, w.LowIndex)
 	if err != nil {
 		return err
 	}
@@ -198,7 +199,7 @@ func (t *NullifierTree) InsertWithWitness(value *big.Int, height int) (Nullifier
 	for index, leaf := range t.leafHashes {
 		entries[index] = new(big.Int).Set(leaf)
 	}
-	_, oldProofs, err := buildSparseBinaryStateTree(entries, height)
+	_, oldProofs, err := buildSparseTree(nullifierNodeHash, entries, height)
 	if err != nil {
 		return NullifierInsertWitness{}, err
 	}
@@ -217,7 +218,7 @@ func (t *NullifierTree) InsertWithWitness(value *big.Int, height int) (Nullifier
 	}
 	afterLow[low.Index] = lowHash
 	afterLow[newIndex] = new(big.Int)
-	_, afterLowProofs, err := buildSparseBinaryStateTree(afterLow, height)
+	_, afterLowProofs, err := buildSparseTree(nullifierNodeHash, afterLow, height)
 	if err != nil {
 		return NullifierInsertWitness{}, err
 	}
@@ -264,7 +265,7 @@ func (t *NullifierTree) NonInclusionWitness(target *big.Int) (NonInclusionWitnes
 	for index, leafHash := range t.leafHashes {
 		entries[index] = leafHash
 	}
-	_, proofs, err := buildSparseBinaryStateTree(entries, NullifierTreeHeight)
+	_, proofs, err := buildSparseTree(nullifierNodeHash, entries, NullifierTreeHeight)
 	if err != nil {
 		return NonInclusionWitness{}, err
 	}
@@ -316,7 +317,7 @@ func (t *NullifierTree) rebuild() error {
 	for index, leafHash := range t.leafHashes {
 		entries[index] = leafHash
 	}
-	root, _, err := buildSparseBinaryStateTree(entries, NullifierTreeHeight)
+	root, _, err := buildSparseTree(nullifierNodeHash, entries, NullifierTreeHeight)
 	if err != nil {
 		return err
 	}

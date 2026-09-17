@@ -86,7 +86,7 @@ func constrainInput(
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
 	lowLeafHash := gadget.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
 	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, transaction.NullifierTreeHeight)
-	nfRoot := abstractor.Call(api, gadget.MerkleRootGadget{
+	nfRoot := abstractor.Call(api, gadget.NullifierMerkleRootGadget{
 		Hash:   lowLeafHash,
 		Index:  nfPathIndices,
 		Path:   in.NullifierLowPathElements,

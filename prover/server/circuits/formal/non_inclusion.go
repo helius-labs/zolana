@@ -33,7 +33,7 @@ func (g NonInclusionProof) DefineGadget(api frontend.API) interface{} {
 		lowLeafHash := gadget.IndexedLeafHash(api, g.LeafLowerRangeValues[i], g.LeafHigherRangeValues[i])
 
 		pathBits := api.ToBinary(g.InPathIndices[i], int(g.Height))
-		root := abstractor.Call(api, gadget.MerkleRootGadget{
+		root := abstractor.Call(api, gadget.NullifierMerkleRootGadget{
 			Hash:   lowLeafHash,
 			Index:  pathBits,
 			Path:   g.InPathElements[i],

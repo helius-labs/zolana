@@ -149,7 +149,7 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 	nonInclusionTarget := api.Select(api.Mul(absent, unclaimed), address, nullifier)
 
 	// 7. Authenticate the lower leaf at NullifierRoot.
-	nullifierRoot := abstractor.Call(api, gadget.MerkleRootGadget{
+	nullifierRoot := abstractor.Call(api, gadget.NullifierMerkleRootGadget{
 		Hash:   gadget.IndexedLeafHash(api, w.NullifierLowValue, w.NullifierNextValue),
 		Index:  api.ToBinary(w.NullifierLowPathIndex, shared.NullifierTreeHeight),
 		Path:   w.NullifierLowPathElements[:],

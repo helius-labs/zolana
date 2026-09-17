@@ -15,6 +15,7 @@ use zolana_interface::{
         RingDepositIxDataRef, MAX_DEPOSIT_ASSETS,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    SOL_ASSET_FIELD,
 };
 use zolana_tree::TreeAccount;
 
@@ -107,9 +108,8 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
         None => zero,
     };
     // Poseidon(0, 0), the `ring_hash` of every default-rail entry under no ring
-    // program, is the height-1 zero node; the table lookup replaces a syscall
-    // per entry.
-    let zero_ring_hash = Poseidon::zero_bytes()[1];
+    // program; the constant replaces a syscall per entry.
+    let zero_ring_hash = SOL_ASSET_FIELD;
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
     // Loaded before hashing: every entry is hashed under the id of the tree it

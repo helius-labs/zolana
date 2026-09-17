@@ -10,7 +10,7 @@ use zolana_client::{
     MergeProver, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProverClient,
     SpendProof, TransferSpendInput, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
+use zolana_hasher::{Poseidon, Poseidon2};
 use zolana_interface::{
     instruction::{
         instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeTransact,
@@ -100,7 +100,7 @@ pub struct RealDeposits {
     pub utxo_root: [u8; 32],
     pub utxo_root_index: u16,
     pub nullifier_root: [u8; 32],
-    pub nullifier_tree: IndexedMerkleTree<Poseidon, usize>,
+    pub nullifier_tree: IndexedMerkleTree<Poseidon2, usize>,
     pub deposits: Vec<RealDeposit>,
 }
 

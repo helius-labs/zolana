@@ -3,8 +3,6 @@ package merkle_tree
 import (
 	"fmt"
 	"math/big"
-
-	"github.com/iden3/go-iden3-crypto/poseidon"
 )
 
 type PoseidonNode interface {
@@ -77,8 +75,7 @@ type PoseidonFullNode struct {
 func (node *PoseidonFullNode) initHash() {
 	leftVal := node.Left.Value()
 	rightVal := node.Right.Value()
-	newHash, _ := poseidon.Hash([]*big.Int{&leftVal, &rightVal})
-	node.val = *newHash
+	node.val = *TreeHash(&leftVal, &rightVal)
 }
 
 type PoseidonEmptyNode struct {
@@ -107,8 +104,7 @@ func (tree *PoseidonTree) GetProofByIndex(index int) []big.Int {
 func NewTree(depth int) PoseidonTree {
 	initHashes := make([]big.Int, depth+1)
 	for i := 1; i <= depth; i++ {
-		val, _ := poseidon.Hash([]*big.Int{&initHashes[i-1], &initHashes[i-1]})
-		initHashes[i] = *val
+		initHashes[i] = *TreeHash(&initHashes[i-1], &initHashes[i-1])
 	}
 
 	return PoseidonTree{

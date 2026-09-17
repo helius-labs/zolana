@@ -3,8 +3,6 @@ package merkle_tree
 import (
 	"fmt"
 	"math/big"
-
-	"github.com/iden3/go-iden3-crypto/poseidon"
 )
 
 type IndexedArray struct {
@@ -162,14 +160,7 @@ func (imt *IndexedMerkleTree) Init() error {
 }
 
 func HashIndexedElement(element *IndexedElement) (*big.Int, error) {
-	hash, err := poseidon.Hash([]*big.Int{
-		element.Value,
-		element.NextValue,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return hash, nil
+	return TreeHash(element.Value, element.NextValue), nil
 }
 
 func (imt *IndexedMerkleTree) DeepCopy() *IndexedMerkleTree {
@@ -214,12 +205,11 @@ func (imt *IndexedMerkleTree) Verify(index int, element *IndexedElement, proof [
 	}
 
 	currentHash := leafHash
-	depth := len(proof)
 
-	for i := 0; i < depth; i++ {
+	for i := range proof {
 		var leftVal, rightVal *big.Int
 
-		if indexIsLeft(index, depth-i) {
+		if indexIsLeft(index, i+1) {
 			leftVal = currentHash
 			rightVal = new(big.Int).Set(&proof[i])
 		} else {
@@ -227,11 +217,7 @@ func (imt *IndexedMerkleTree) Verify(index int, element *IndexedElement, proof [
 			rightVal = currentHash
 		}
 
-		var err error
-		currentHash, err = poseidon.Hash([]*big.Int{leftVal, rightVal})
-		if err != nil {
-			return false, fmt.Errorf("failed to hash proof element: %v", err)
-		}
+		currentHash = TreeHash(leftVal, rightVal)
 	}
 
 	rootValue := imt.Tree.Root.Value()

@@ -16,7 +16,7 @@ func TestBuildSparseStateTreeProofsComputeRoot(t *testing.T) {
 	}
 
 	for index, proof := range proofs {
-		got, err := MerkleRoot(proof.Leaf, proof.PathElements, proof.PathIndex)
+		got, err := StateMerkleRoot(proof.Leaf, proof.PathElements, proof.PathIndex)
 		if err != nil {
 			t.Fatalf("compute Merkle root for proof %d: %v", index, err)
 		}

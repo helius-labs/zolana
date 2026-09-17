@@ -1,10 +1,11 @@
 //! Verifies the precomputed nullifier-tree init-root constant (BN254 `p-1`
-//! sentinel) against the canonical `zolana-merkle-tree` implementation.
+//! sentinel) against the canonical `zolana-merkle-tree` implementation and
+//! against the root the Go prover derives in `test-vectors/tree_hash.json`.
 
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
-use zolana_hasher::Poseidon;
+use zolana_hasher::Poseidon2;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 
@@ -22,11 +23,19 @@ fn bn254_field_size_minus_one() -> BigUint {
 fn nullifier_tree_init_root_matches_reference() {
     let next_value = bn254_field_size_minus_one();
     let tree =
-        IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(HEIGHT, 0, next_value).unwrap();
+        IndexedMerkleTree::<Poseidon2, usize>::new_with_next_value(HEIGHT, 0, next_value).unwrap();
     println!("NULLIFIER_TREE_INIT_ROOT_40 = {:?}", tree.root());
     assert_eq!(
         tree.root(),
         NULLIFIER_TREE_INIT_ROOT_40,
         "NULLIFIER_TREE_INIT_ROOT_40 does not match reference"
     );
+}
+
+#[test]
+fn nullifier_tree_init_root_matches_prover_vectors() {
+    let vectors: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../test-vectors/tree_hash.json")).unwrap();
+    let root = vectors["nullifier_tree_init_root_40"].as_str().unwrap();
+    assert_eq!(hex::encode(NULLIFIER_TREE_INIT_ROOT_40), root);
 }

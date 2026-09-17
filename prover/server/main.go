@@ -12,6 +12,7 @@ import (
 	"time"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/logging"
+	merkletree "zolana/prover/merkle-tree"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/extractor"
@@ -440,6 +441,16 @@ func runCli() {
 					}
 					logging.Logger().Info().Int("bytesWritten", len(circuitString)).Str("output", path).Msg("Lean circuits written to file")
 					return nil
+				},
+			},
+			{
+				Name:  "tree-hash-constants",
+				Usage: "Regenerate the Rust round keys, the zero tables and test-vectors/tree_hash.json from the Go tree hash",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "repo", Usage: "Repository root", Value: "../.."},
+				},
+				Action: func(context *cli.Context) error {
+					return merkletree.WriteTreeHashConstants(context.String("repo"))
 				},
 			},
 			{

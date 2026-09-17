@@ -6,8 +6,8 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 
+	merkletree "zolana/prover/merkle-tree"
 	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
 )
 
 func TestListFactBranches(t *testing.T) {
@@ -62,8 +62,8 @@ func TestListFactRequiresStrictNullifierInterval(t *testing.T) {
 			fact := s.listFactForEntry(t, allowedActive)
 			low, next := tt.bounds(s.derived[allowedActive].nullifier, ecc.BN254.ScalarField())
 			proof := s.nonInclusion[allowedActive]
-			leaf := spptest.MustPoseidon(t, 3, []*big.Int{low, next})
-			root, err := protocol.MerkleRoot(leaf, proof.PathElements, proof.LowIndex)
+			leaf := merkletree.TreeHash(low, next)
+			root, err := protocol.NullifierMerkleRoot(leaf, proof.PathElements, proof.LowIndex)
 			if err != nil {
 				t.Fatal(err)
 			}

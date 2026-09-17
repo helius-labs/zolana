@@ -7,6 +7,7 @@ fn error_codes_are_stable() {
         (HasherError::IntegerOverflow, 8001),
         (HasherError::InvalidInputLength(32, 31), 8005),
         (HasherError::InvalidNumFields, 8006),
+        (HasherError::InputLargerThanModulus, 8007),
     ];
     for (error, code) in cases {
         assert_eq!(u32::from(error), code);
@@ -19,6 +20,7 @@ fn error_codes_stay_out_of_shielded_pool_space() {
         u32::from(HasherError::IntegerOverflow),
         u32::from(HasherError::InvalidInputLength(32, 31)),
         u32::from(HasherError::InvalidNumFields),
+        u32::from(HasherError::InputLargerThanModulus),
     ];
     for code in codes {
         assert!((8000..9000).contains(&code));

@@ -12,7 +12,7 @@ use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon2};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, batch::CachedTreeUpdate, error::NullifierTreeError,
@@ -65,9 +65,9 @@ fn path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {
         .collect()
 }
 
-fn reference_address_tree() -> IndexedMerkleTree<Poseidon, usize> {
+fn reference_address_tree() -> IndexedMerkleTree<Poseidon2, usize> {
     let modulus: BigUint = Fr::MODULUS.into();
-    IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
+    IndexedMerkleTree::<Poseidon2, usize>::new_with_next_value(
         ADDRESS_HEIGHT as usize,
         0,
         modulus - 1u32,
@@ -76,7 +76,7 @@ fn reference_address_tree() -> IndexedMerkleTree<Poseidon, usize> {
 }
 
 fn append_reference_batch(
-    reference: &mut IndexedMerkleTree<Poseidon, usize>,
+    reference: &mut IndexedMerkleTree<Poseidon2, usize>,
     batch_values: &[[u8; 32]],
 ) -> [u8; 32] {
     for value_bytes in batch_values {
@@ -88,7 +88,7 @@ fn append_reference_batch(
 }
 
 fn build_index0_inputs(
-    reference: &mut IndexedMerkleTree<Poseidon, usize>,
+    reference: &mut IndexedMerkleTree<Poseidon2, usize>,
     next_index: u64,
     leaves_hash_chain: [u8; 32],
     old_root: [u8; 32],

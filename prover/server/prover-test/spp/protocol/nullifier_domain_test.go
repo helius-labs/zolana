@@ -12,7 +12,7 @@ import (
 // on-chain batched tree must initialize with the same sentinel and root, or
 // every non-inclusion witness the prover builds opens against a root the
 // on-chain tree never had.
-const nullifierTreeInitRootDecimal = "13368749264980912746696049467680321808043390952490062751616344095712404128375"
+const nullifierTreeInitRootDecimal = "8230683992928842152028276094475254410532939955635719721676338497729790813717"
 
 func TestNullifierTreeInitRoot(t *testing.T) {
 	tree, err := NewNullifierTree()

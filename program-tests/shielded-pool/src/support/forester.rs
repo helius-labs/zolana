@@ -17,7 +17,7 @@ use zolana_test_utils::localnet::send_transaction;
 use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
-type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon, usize>;
+type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon2, usize>;
 
 #[derive(Default)]
 pub struct NullifierTestForester {
@@ -299,7 +299,7 @@ fn reference_nullifier_tree() -> Result<NullifierTree> {
         .context("parse bn254 modulus")?
         - 1u32;
     Ok(
-        IndexedMerkleTree::<zolana_hasher::Poseidon, usize>::new_with_next_value(
+        IndexedMerkleTree::<zolana_hasher::Poseidon2, usize>::new_with_next_value(
             NULLIFIER_TREE_HEIGHT,
             0,
             modulus_minus_one,
