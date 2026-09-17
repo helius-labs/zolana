@@ -77,6 +77,9 @@ pub fn process_instruction(
         InstructionTag::RetireNullifierFilter => {
             instructions::historical_nullifiers::retire(accounts, payload)
         }
+        InstructionTag::CheckpointNullifierFilter => {
+            instructions::historical_nullifiers::checkpoint(accounts, payload)
+        }
         InstructionTag::DirectSpendBuffer => {
             instructions::direct_spend::process_buffer(accounts, payload)
         }

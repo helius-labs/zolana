@@ -28,11 +28,12 @@ func IsDirectSpendShape(kind CircuitType, inputs, outputs uint32) bool {
 	case DirectPaymentCircuitType:
 		return (inputs == 8 || inputs == 36 || inputs == 128 || inputs == 512) && (outputs == 1 || outputs == 2)
 	case DirectPaymentGKRCircuitType:
-		return (inputs == 144 || inputs == 512) && outputs == 2
-	case DirectPaymentAdmittedCircuitType:
 		// 100x1 is the inline shape: statement, proof and commitment fit one
-		// transaction, so a 100-note merge settles without a buffer account.
+		// transaction, so a 100-note merge settles without a buffer account. It
+		// proves non-inclusion at the nullifier filter's checkpoint root.
 		return ((inputs == 144 || inputs == 512) && outputs == 2) || (inputs == 100 && outputs == 1)
+	case DirectPaymentAdmittedCircuitType:
+		return (inputs == 144 || inputs == 512) && outputs == 2
 	case DirectPaymentAdmittedDAG10CircuitType:
 		return inputs == 512 && outputs == 2
 	default:

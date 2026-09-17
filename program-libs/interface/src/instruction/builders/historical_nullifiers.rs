@@ -17,6 +17,20 @@ pub fn enable_nullifier_filter(payer: Pubkey, authority: Pubkey, tree: Pubkey) -
     }
 }
 
+/// Permissionless: move the filter's checkpoint to the tree's current
+/// nullifier root and clear the bits, carrying over the queued backlog.
+pub fn checkpoint_nullifier_filter(tree: Pubkey) -> Instruction {
+    Instruction {
+        program_id: PROGRAM_ID_PUBKEY,
+        accounts: vec![
+            AccountMeta::new_readonly(tree, false),
+            AccountMeta::new_readonly(pda::pending_nullifiers(&tree).0, false),
+            AccountMeta::new(pda::nullifier_filter(&tree).0, false),
+        ],
+        data: vec![tag::CHECKPOINT_NULLIFIER_FILTER],
+    }
+}
+
 pub fn retire_nullifier_filter(authority: Pubkey, tree: Pubkey) -> Instruction {
     Instruction {
         program_id: PROGRAM_ID_PUBKEY,

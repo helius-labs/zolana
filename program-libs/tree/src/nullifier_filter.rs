@@ -1,15 +1,32 @@
-//! Append-only negative filter. Positives require exact spentness checks.
+//! Negative filter over the nullifiers spent since a checkpoint. Positives
+//! require exact spentness checks.
+//!
+//! The filter never covers the whole history on its own: its header carries a
+//! checkpoint `(root, next_index)` of the nullifier tree, and every spend that
+//! relies on a filter negative also proves non-inclusion at that root. A
+//! checkpoint moves the boundary forward and clears the bits: everything the
+//! tree had inserted by then is the root's job, everything still queued is
+//! re-recorded, so the filter starts again with only the recent spends.
 
 use thiserror::Error;
 use zolana_hasher::{primitives::is_canonical_bn254_scalar_be, Hasher, Keccak};
 
-use crate::pending_nullifiers::PendingNullifierBatch;
+use crate::{
+    nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40,
+    pending_nullifiers::PendingNullifierBatch,
+};
 
-const HEADER: usize = 64;
-const MAGIC: &[u8; 8] = b"ZNFBLOM2";
+const HEADER: usize = 128;
+const MAGIC: &[u8; 8] = b"ZNFBLOM3";
 const HASH_DOMAIN: &[u8] = b"SPP nullifier filter v2";
 const SEQUENCE: std::ops::Range<usize> = 48..56;
+const CHECKPOINT_ROOT: std::ops::Range<usize> = 64..96;
+const CHECKPOINT_INDEX: std::ops::Range<usize> = 96..104;
+const REBUILD_CURSOR: std::ops::Range<usize> = 104..112;
+const REBUILD_CLOSE_BEFORE: std::ops::Range<usize> = 112..120;
 pub const MAX_BATCH: usize = 512;
+/// Largest backlog chunk one rebuild step re-records.
+pub const MAX_CHECKPOINT_BACKLOG: usize = 1024;
 pub const MAX_BIT_BYTES: usize = 8 * 1024 * 1024;
 pub const DEFAULT_BIT_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_HASHES: u8 = 12;
@@ -73,7 +90,8 @@ impl<'a> NullifierFilter<'a> {
         Self::init_zeroed(bytes, tree, hashes)
     }
 
-    /// Requires fresh program-owned zero-filled data and a never-spent tree domain.
+    /// Requires fresh program-owned zero-filled data and a never-spent tree
+    /// domain: the first checkpoint is the empty nullifier tree.
     pub fn init_zeroed(
         bytes: &'a mut [u8],
         tree: &[u8; 32],
@@ -90,25 +108,13 @@ impl<'a> NullifierFilter<'a> {
         bytes[8..40].copy_from_slice(tree);
         bytes[40] = hashes;
         bytes[SEQUENCE].copy_from_slice(&1u64.to_le_bytes());
+        bytes[CHECKPOINT_ROOT].copy_from_slice(&NULLIFIER_TREE_INIT_ROOT_40);
+        bytes[CHECKPOINT_INDEX].copy_from_slice(&1u64.to_le_bytes());
         Self::from_bytes(bytes, tree)
     }
 
     pub fn from_bytes(bytes: &'a mut [u8], tree: &[u8; 32]) -> Result<Self, FilterError> {
-        let bit_bytes = bytes
-            .len()
-            .checked_sub(HEADER)
-            .ok_or(FilterError::InvalidFilter)?;
-        if !valid_shape(bit_bytes, bytes[40])
-            || bytes[..8] != *MAGIC
-            || bytes[8..40] != *tree
-            || bytes[41..48]
-                .iter()
-                .chain(&bytes[56..HEADER])
-                .any(|byte| *byte != 0)
-            || u64::from_le_bytes(bytes[SEQUENCE].try_into().unwrap()) == 0
-        {
-            return Err(FilterError::InvalidFilter);
-        }
+        validate_header(bytes, tree)?;
         let hashes = bytes[40];
         let (header, bits) = bytes.split_at_mut(HEADER);
         Ok(Self {
@@ -119,8 +125,112 @@ impl<'a> NullifierFilter<'a> {
         })
     }
 
+    /// `(checkpoint_root, checkpoint_index, settled)` of a filter, read-only.
+    pub fn read_checkpoint(
+        bytes: &[u8],
+        tree: &[u8; 32],
+    ) -> Result<([u8; 32], u64, bool), FilterError> {
+        validate_header(bytes, tree)?;
+        Ok((
+            bytes[CHECKPOINT_ROOT].try_into().unwrap(),
+            u64::from_le_bytes(bytes[CHECKPOINT_INDEX].try_into().unwrap()),
+            u64::from_le_bytes(bytes[REBUILD_CURSOR].try_into().unwrap()) == 0,
+        ))
+    }
+
     pub fn next_sequence(&self) -> u64 {
         u64::from_le_bytes(self.header[SEQUENCE].try_into().unwrap())
+    }
+
+    /// Nullifier-tree root every filter negative is paired with.
+    pub fn checkpoint_root(&self) -> [u8; 32] {
+        self.header[CHECKPOINT_ROOT].try_into().unwrap()
+    }
+
+    /// Tree `next_index` at the checkpoint: leaves below it are in the
+    /// checkpoint root. `1` means the filter still covers the whole history.
+    pub fn checkpoint_index(&self) -> u64 {
+        u64::from_le_bytes(self.header[CHECKPOINT_INDEX].try_into().unwrap())
+    }
+
+    /// Pending-table slot the checkpoint rebuild continues from, plus one;
+    /// `0` when no rebuild is in progress.
+    pub fn rebuild_cursor(&self) -> u64 {
+        u64::from_le_bytes(self.header[REBUILD_CURSOR].try_into().unwrap())
+    }
+
+    /// Tree `close_before_index` when the rebuild began; if it moved, the
+    /// pending table may have forgotten a backlog entry and the rebuild must
+    /// start over.
+    pub fn rebuild_close_before(&self) -> u64 {
+        u64::from_le_bytes(self.header[REBUILD_CLOSE_BEFORE].try_into().unwrap())
+    }
+
+    /// Whether the filter covers the spends since its checkpoint completely;
+    /// a filter negative means nothing while a rebuild is in progress.
+    pub fn is_settled(&self) -> bool {
+        self.rebuild_cursor() == 0
+    }
+
+    /// Move the checkpoint to `(root, next_index)` and clear the bits. The
+    /// nullifiers queued but not yet in the tree have to be re-recorded from
+    /// the pending table with [`Self::record_backlog`] before the filter is
+    /// settled again; `close_before` is remembered to detect a table that
+    /// forgot entries in between. Recording continuity (`next_sequence`) is
+    /// untouched. Fails without writing when the checkpoint would move
+    /// backwards.
+    pub fn begin_checkpoint(
+        &mut self,
+        root: [u8; 32],
+        next_index: u64,
+        close_before: u64,
+    ) -> Result<(), FilterError> {
+        if next_index < self.checkpoint_index() || root == [0; 32] {
+            return Err(FilterError::InvalidFilter);
+        }
+        self.bits.fill(0);
+        self.header[CHECKPOINT_ROOT].copy_from_slice(&root);
+        self.header[CHECKPOINT_INDEX].copy_from_slice(&next_index.to_le_bytes());
+        self.header[REBUILD_CURSOR].copy_from_slice(&1u64.to_le_bytes());
+        self.header[REBUILD_CLOSE_BEFORE].copy_from_slice(&close_before.to_le_bytes());
+        Ok(())
+    }
+
+    /// Re-record one chunk of the backlog during a rebuild and move the cursor
+    /// to `next_slot` (+1), or settle the filter when the scan is complete.
+    #[cfg_attr(feature = "profile-program", light_program_profiler::profile)]
+    pub fn record_backlog(
+        &mut self,
+        backlog: &[[u8; 32]],
+        next_slot: Option<usize>,
+    ) -> Result<(), FilterError> {
+        if self.is_settled() {
+            return Err(FilterError::InvalidFilter);
+        }
+        if backlog.len() > MAX_CHECKPOINT_BACKLOG
+            || backlog
+                .iter()
+                .any(|nf| *nf == [0; 32] || !is_canonical_bn254_scalar_be(nf))
+        {
+            return Err(FilterError::InvalidBatch);
+        }
+        let hashes = self.batch_hashes(backlog)?;
+        let mask = self.bits.len() * 8 - 1;
+        for (start, step) in hashes {
+            for i in 0..usize::from(self.hashes) {
+                let bit = start.wrapping_add(step.wrapping_mul(i)) & mask;
+                self.bits[bit / 8] |= 1 << (bit % 8);
+            }
+        }
+        let cursor = match next_slot {
+            Some(slot) => u64::try_from(slot)
+                .ok()
+                .and_then(|slot| slot.checked_add(1))
+                .ok_or(FilterError::InvalidBatch)?,
+            None => 0,
+        };
+        self.header[REBUILD_CURSOR].copy_from_slice(&cursor.to_le_bytes());
+        Ok(())
     }
 
     pub fn check_batch(
@@ -220,6 +330,27 @@ impl<'a> NullifierFilter<'a> {
             self.bits[bit / 8] & (1 << (bit % 8)) != 0
         })
     }
+}
+
+fn validate_header(bytes: &[u8], tree: &[u8; 32]) -> Result<(), FilterError> {
+    let bit_bytes = bytes
+        .len()
+        .checked_sub(HEADER)
+        .ok_or(FilterError::InvalidFilter)?;
+    if !valid_shape(bit_bytes, bytes[40])
+        || bytes[..8] != *MAGIC
+        || bytes[8..40] != *tree
+        || bytes[41..48]
+            .iter()
+            .chain(&bytes[56..64])
+            .chain(&bytes[120..HEADER])
+            .any(|byte| *byte != 0)
+        || u64::from_le_bytes(bytes[SEQUENCE].try_into().unwrap()) == 0
+        || u64::from_le_bytes(bytes[CHECKPOINT_INDEX].try_into().unwrap()) == 0
+    {
+        return Err(FilterError::InvalidFilter);
+    }
+    Ok(())
 }
 
 fn valid_shape(bit_bytes: usize, hashes: u8) -> bool {
@@ -420,14 +551,16 @@ mod tests {
     fn domain_configuration_and_layout_are_bound() {
         let bytes = init(32, 7);
         assert!(NullifierFilter::from_bytes(&mut bytes.clone(), &[2; 32]).is_err());
-        for index in [0, 8, 40, 41, 56] {
+        for index in [0, 8, 40, 41, 56, 120, HEADER - 1] {
             let mut corrupt = bytes.clone();
             corrupt[index] = 255;
             assert!(NullifierFilter::from_bytes(&mut corrupt, &[1; 32]).is_err());
         }
-        let mut corrupt = bytes.clone();
-        corrupt[SEQUENCE].fill(0);
-        assert!(NullifierFilter::from_bytes(&mut corrupt, &[1; 32]).is_err());
+        for range in [SEQUENCE, CHECKPOINT_INDEX] {
+            let mut corrupt = bytes.clone();
+            corrupt[range].fill(0);
+            assert!(NullifierFilter::from_bytes(&mut corrupt, &[1; 32]).is_err());
+        }
         assert!(
             NullifierFilter::from_bytes(&mut bytes[..bytes.len() - 1].to_vec(), &[1; 32]).is_err()
         );
@@ -489,6 +622,70 @@ mod tests {
         assert_eq!(bytes, before);
         assert!(NullifierFilter::init_zeroed(&mut bytes, &[1; 32], 7).is_err());
         assert_eq!(bytes, before);
+    }
+
+    #[test]
+    fn checkpoint_clears_bits_and_keeps_the_backlog() {
+        let mut bytes = init(1024, 7);
+        let mut filter = NullifierFilter::from_bytes(&mut bytes, &[1; 32]).unwrap();
+        assert_eq!(filter.checkpoint_root(), NULLIFIER_TREE_INIT_ROOT_40);
+        assert_eq!(filter.checkpoint_index(), 1);
+        assert!(filter.is_settled());
+        let spent: Vec<_> = (1..=300).map(nf).collect();
+        filter.record_batch(&spent, 1, false).unwrap();
+        assert_eq!(filter.check_batch(&spent, 301).unwrap().len(), 300);
+
+        // The tree inserted the first 200; the last 100 are still queued and
+        // come back in two chunks.
+        filter.begin_checkpoint([7; 32], 201, 150).unwrap();
+        assert!(!filter.is_settled());
+        assert_eq!(filter.rebuild_cursor(), 1);
+        assert_eq!(filter.rebuild_close_before(), 150);
+        assert!(filter.check_batch(&spent, 301).unwrap().is_empty());
+        filter.record_backlog(&spent[200..250], Some(4096)).unwrap();
+        assert_eq!(filter.rebuild_cursor(), 4097);
+        filter.record_backlog(&spent[250..], None).unwrap();
+        assert!(filter.is_settled());
+        assert_eq!(filter.checkpoint_root(), [7; 32]);
+        assert_eq!(filter.checkpoint_index(), 201);
+        assert_eq!(filter.next_sequence(), 301, "recording continuity is kept");
+        assert_eq!(
+            filter.check_batch(&spent, 301).unwrap(),
+            (200..300).collect::<Vec<_>>(),
+            "only the backlog survives the clear"
+        );
+        filter.record_batch(&[nf(301)], 301, false).unwrap();
+        assert_eq!(filter.check_batch(&[nf(301)], 302).unwrap(), vec![0]);
+        assert_eq!(
+            filter.record_backlog(&[nf(5)], None),
+            Err(FilterError::InvalidFilter),
+            "a settled filter takes no backlog"
+        );
+
+        let before = bytes.clone();
+        let mut filter = NullifierFilter::from_bytes(&mut bytes, &[1; 32]).unwrap();
+        assert_eq!(
+            filter.begin_checkpoint([8; 32], 200, 0),
+            Err(FilterError::InvalidFilter),
+            "a checkpoint never moves backwards"
+        );
+        assert_eq!(
+            filter.begin_checkpoint([0; 32], 202, 0),
+            Err(FilterError::InvalidFilter)
+        );
+        assert_eq!(bytes, before);
+        let mut filter = NullifierFilter::from_bytes(&mut bytes, &[1; 32]).unwrap();
+        filter.begin_checkpoint([8; 32], 202, 0).unwrap();
+        let too_many: Vec<_> = (1..=MAX_CHECKPOINT_BACKLOG as u64 + 1).map(nf).collect();
+        assert_eq!(
+            filter.record_backlog(&too_many, None),
+            Err(FilterError::InvalidBatch)
+        );
+        assert_eq!(
+            filter.record_backlog(&[[0; 32]], None),
+            Err(FilterError::InvalidBatch)
+        );
+        assert!(!filter.is_settled());
     }
 
     #[test]

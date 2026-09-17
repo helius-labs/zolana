@@ -169,6 +169,12 @@ pub enum ShieldedPoolError {
     InvalidNullifierFilter = 7069,
     #[error("nullifier filter positive requires an exact spentness proof")]
     NullifierProofRequired = 7070,
+    #[error("nullifier filter checkpoint backlog exceeds one transaction")]
+    NullifierFilterBacklog = 7071,
+    #[error("nullifier filter has been checkpointed; the proof must cover the checkpoint root")]
+    NullifierFilterCheckpointed = 7072,
+    #[error("nullifier filter checkpoint rebuild in progress")]
+    NullifierFilterRebuilding = 7073,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -286,6 +292,9 @@ mod tests {
                 PendingNullifiersFull => 7068,
                 InvalidNullifierFilter => 7069,
                 NullifierProofRequired => 7070,
+                NullifierFilterBacklog => 7071,
+                NullifierFilterCheckpointed => 7072,
+                NullifierFilterRebuilding => 7073,
             }
         }
 
@@ -363,6 +372,9 @@ mod tests {
             PendingNullifiersFull,
             InvalidNullifierFilter,
             NullifierProofRequired,
+            NullifierFilterBacklog,
+            NullifierFilterCheckpointed,
+            NullifierFilterRebuilding,
         ];
         for (variant, code) in variants.into_iter().zip(7000_u32..) {
             assert_eq!(
@@ -373,7 +385,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 71, "variant count drifted");
+        assert_eq!(variants.len(), 74, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

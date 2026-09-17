@@ -4,13 +4,13 @@
 
 mod circuit;
 #[cfg(feature = "verifying-keys")]
-pub mod direct_payment_admitted_100_1;
-#[cfg(feature = "verifying-keys")]
 pub mod direct_payment_admitted_144_2;
 #[cfg(feature = "verifying-keys")]
 pub mod direct_payment_admitted_512_2;
 #[cfg(feature = "verifying-keys")]
 pub mod direct_payment_admitted_dag10_512_2;
+#[cfg(feature = "verifying-keys")]
+pub mod direct_payment_gkr_100_1;
 #[cfg(feature = "verifying-keys")]
 pub mod direct_payment_gkr_144_2;
 #[cfg(feature = "verifying-keys")]

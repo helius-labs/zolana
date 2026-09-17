@@ -14,12 +14,12 @@ use zolana_interface::{
     event::{EventKind, GeneralEvent, Input, InputTreeSequence},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     verifying_keys::{
-        direct_payment_512_2, direct_payment_admitted_100_1, direct_payment_admitted_144_2,
-        direct_payment_admitted_512_2, direct_payment_admitted_dag10_512_2,
-        direct_payment_gkr_144_2, direct_payment_gkr_512_2, spend_balance_16_2, Bsb22Commitment,
+        direct_payment_512_2, direct_payment_admitted_144_2, direct_payment_admitted_512_2,
+        direct_payment_admitted_dag10_512_2, direct_payment_gkr_100_1, direct_payment_gkr_144_2,
+        direct_payment_gkr_512_2, spend_balance_16_2, Bsb22Commitment,
     },
 };
-use zolana_tree::{SppTreeLayout, TreeAccount};
+use zolana_tree::{nullifier_filter::NullifierFilter, SppTreeLayout, TreeAccount};
 
 use super::{buffer, check_freshness, load_payload, tree_layout, verify, verify_with_commitment};
 use crate::instructions::{
@@ -104,8 +104,15 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
             _ => return Err(ProgramError::InvalidAccountData),
         };
     let admitted = domain != PAYMENT_DOMAIN;
-    if admitted && filter.is_none() {
-        return Err(ShieldedPoolError::InvalidNullifierFilter.into());
+    if admitted {
+        // Without non-inclusion in the proof, the filter must still cover the
+        // whole history: no checkpoint has cleared it.
+        let filter = filter
+            .as_deref()
+            .ok_or(ShieldedPoolError::InvalidNullifierFilter)?;
+        if filter_checkpoint(filter, &input_tree.address().to_bytes())?.1 != 1 {
+            return Err(ShieldedPoolError::NullifierFilterCheckpointed.into());
+        }
     }
     let mut spend = Spend {
         owner,
@@ -196,6 +203,7 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
                     input_tree_address: &spend.input_tree.address().to_bytes(),
                     output_tree_id,
                     intent,
+                    checkpoint: None,
                 }
                 .verify()?;
                 nullifiers.extend_from_slice(&certificate.nullifiers);
@@ -224,6 +232,26 @@ pub(super) struct NotesProof<'a> {
     pub input_tree_address: &'a [u8; 32],
     pub output_tree_id: u16,
     pub intent: [u8; 32],
+    /// The filter's checkpoint root when freshness is proven against it
+    /// instead of a root in history.
+    pub checkpoint: Option<[u8; 32]>,
+}
+
+/// `(checkpoint_root, checkpoint_index)` of the tree's active filter. A
+/// filter negative is only meaningful once a checkpoint rebuild has settled.
+pub(super) fn filter_checkpoint(
+    filter: &AccountView,
+    tree: &[u8; 32],
+) -> Result<([u8; 32], u64), ProgramError> {
+    if !filter.owned_by(&crate::ID) {
+        return Err(ShieldedPoolError::InvalidNullifierFilter.into());
+    }
+    let (root, index, settled) = NullifierFilter::read_checkpoint(&filter.try_borrow()?, tree)
+        .map_err(|_| ShieldedPoolError::InvalidNullifierFilter)?;
+    if !settled {
+        return Err(ShieldedPoolError::NullifierFilterRebuilding.into());
+    }
+    Ok((root, index))
 }
 
 impl NotesProof<'_> {
@@ -242,12 +270,18 @@ impl NotesProof<'_> {
         {
             return Err(ProgramError::InvalidArgument);
         }
-        if admitted {
-            if self.freshness.index != 0 || self.freshness.value != [0; 32] {
-                return Err(ProgramError::InvalidArgument);
+        match (admitted, self.checkpoint) {
+            (true, _) => {
+                if self.freshness.index != 0 || self.freshness.value != [0; 32] {
+                    return Err(ProgramError::InvalidArgument);
+                }
             }
-        } else {
-            check_freshness(tree, *self.freshness)?;
+            (false, Some(root)) => {
+                if self.freshness.index != 0 || self.freshness.value != root {
+                    return Err(ProgramError::InvalidArgument);
+                }
+            }
+            (false, None) => check_freshness(tree, *self.freshness)?,
         }
         let id = certificate_id(self.binding)?;
         let values = [[id, self.certificate.value_commitment]];
@@ -276,9 +310,7 @@ impl NotesProof<'_> {
             self.capacity,
             outputs,
         ) {
-            (ADMITTED_PAYMENT_DOMAIN, true, INLINE_INPUTS, 1) => {
-                &direct_payment_admitted_100_1::VERIFYINGKEY
-            }
+            (PAYMENT_DOMAIN, true, INLINE_INPUTS, 1) => &direct_payment_gkr_100_1::VERIFYINGKEY,
             (ADMITTED_PAYMENT_DOMAIN, true, 144, 2) => &direct_payment_admitted_144_2::VERIFYINGKEY,
             (ADMITTED_PAYMENT_DOMAIN, true, MAX_INPUTS, 2) => {
                 &direct_payment_admitted_512_2::VERIFYINGKEY

@@ -31,7 +31,9 @@ pub struct Request {
 
 impl Request {
     pub fn with_gkr(mut self) -> Result<Self, ClientError> {
-        if self.kind != "direct-payment" || !wire::GKR_PAYMENT_INPUTS.contains(&self.inputs) {
+        if self.kind != "direct-payment"
+            || !wire::GKR_PAYMENT_SHAPES.contains(&(self.inputs, self.outputs))
+        {
             return Err(invalid("GKR requires a supported direct payment"));
         }
         self.kind = "direct-payment-gkr";
@@ -78,6 +80,7 @@ pub struct CertificatePlan {
     pub request: Request,
 }
 
+#[derive(Clone, Debug)]
 pub struct Input {
     note: ProofInputUtxo,
     proof: MerkleProof,
@@ -522,7 +525,7 @@ fn payment_request(
         if request.kind != "nullifier-freshness" || request.inputs != capacity {
             return Err(invalid("invalid fused freshness shape"));
         }
-        if !wire::GKR_PAYMENT_INPUTS.contains(&capacity) || outputs != 2 {
+        if !wire::GKR_PAYMENT_SHAPES.contains(&(capacity, outputs)) {
             return Err(invalid("invalid fused payment shape"));
         }
         ("direct-payment", wire::PAYMENT_DOMAIN)
@@ -570,8 +573,8 @@ fn payment_request(
     })
 }
 
-/// `inline_spend` instruction data from a one-output admitted payment and its
-/// committed proof.
+/// `inline_spend` instruction data from a one-output GKR payment whose
+/// freshness is the filter checkpoint root, and its committed proof.
 pub fn inline_spend(
     payment: &Payment,
     owner: Field,
