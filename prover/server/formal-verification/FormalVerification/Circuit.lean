@@ -277,47 +277,146 @@ def InclusionProof_8_8_8_32_8_8_32 (Roots: List.Vector F 8) (Leaves: List.Vector
     Gates.eq gate_22 Roots[7] ∧
     k vec![gate_1, gate_4, gate_7, gate_10, gate_13, gate_16, gate_19, gate_22]
 
-def MerkleRootGadget_40_40_40 (Hash: F) (Index: List.Vector F 40) (Path: List.Vector F 40) (k: F -> Prop): Prop :=
-    ProveParentHash Index[0] Hash Path[0] fun gate_0 =>
-    ProveParentHash Index[1] gate_0 Path[1] fun gate_1 =>
-    ProveParentHash Index[2] gate_1 Path[2] fun gate_2 =>
-    ProveParentHash Index[3] gate_2 Path[3] fun gate_3 =>
-    ProveParentHash Index[4] gate_3 Path[4] fun gate_4 =>
-    ProveParentHash Index[5] gate_4 Path[5] fun gate_5 =>
-    ProveParentHash Index[6] gate_5 Path[6] fun gate_6 =>
-    ProveParentHash Index[7] gate_6 Path[7] fun gate_7 =>
-    ProveParentHash Index[8] gate_7 Path[8] fun gate_8 =>
-    ProveParentHash Index[9] gate_8 Path[9] fun gate_9 =>
-    ProveParentHash Index[10] gate_9 Path[10] fun gate_10 =>
-    ProveParentHash Index[11] gate_10 Path[11] fun gate_11 =>
-    ProveParentHash Index[12] gate_11 Path[12] fun gate_12 =>
-    ProveParentHash Index[13] gate_12 Path[13] fun gate_13 =>
-    ProveParentHash Index[14] gate_13 Path[14] fun gate_14 =>
-    ProveParentHash Index[15] gate_14 Path[15] fun gate_15 =>
-    ProveParentHash Index[16] gate_15 Path[16] fun gate_16 =>
-    ProveParentHash Index[17] gate_16 Path[17] fun gate_17 =>
-    ProveParentHash Index[18] gate_17 Path[18] fun gate_18 =>
-    ProveParentHash Index[19] gate_18 Path[19] fun gate_19 =>
-    ProveParentHash Index[20] gate_19 Path[20] fun gate_20 =>
-    ProveParentHash Index[21] gate_20 Path[21] fun gate_21 =>
-    ProveParentHash Index[22] gate_21 Path[22] fun gate_22 =>
-    ProveParentHash Index[23] gate_22 Path[23] fun gate_23 =>
-    ProveParentHash Index[24] gate_23 Path[24] fun gate_24 =>
-    ProveParentHash Index[25] gate_24 Path[25] fun gate_25 =>
-    ProveParentHash Index[26] gate_25 Path[26] fun gate_26 =>
-    ProveParentHash Index[27] gate_26 Path[27] fun gate_27 =>
-    ProveParentHash Index[28] gate_27 Path[28] fun gate_28 =>
-    ProveParentHash Index[29] gate_28 Path[29] fun gate_29 =>
-    ProveParentHash Index[30] gate_29 Path[30] fun gate_30 =>
-    ProveParentHash Index[31] gate_30 Path[31] fun gate_31 =>
-    ProveParentHash Index[32] gate_31 Path[32] fun gate_32 =>
-    ProveParentHash Index[33] gate_32 Path[33] fun gate_33 =>
-    ProveParentHash Index[34] gate_33 Path[34] fun gate_34 =>
-    ProveParentHash Index[35] gate_34 Path[35] fun gate_35 =>
-    ProveParentHash Index[36] gate_35 Path[36] fun gate_36 =>
-    ProveParentHash Index[37] gate_36 Path[37] fun gate_37 =>
-    ProveParentHash Index[38] gate_37 Path[38] fun gate_38 =>
-    ProveParentHash Index[39] gate_38 Path[39] fun gate_39 =>
+def Poseidon2ExternalRound_2_2 (State: List.Vector F 2) (Keys: List.Vector F 2) (k: List.Vector F 2 -> Prop): Prop :=
+    ∃gate_0, gate_0 = Gates.add State[0] Keys[0] ∧
+    ∃gate_1, gate_1 = Gates.mul gate_0 gate_0 ∧
+    ∃gate_2, gate_2 = Gates.mul gate_1 gate_1 ∧
+    ∃gate_3, gate_3 = Gates.mul gate_2 gate_0 ∧
+    ∃gate_4, gate_4 = Gates.add State[1] Keys[1] ∧
+    ∃gate_5, gate_5 = Gates.mul gate_4 gate_4 ∧
+    ∃gate_6, gate_6 = Gates.mul gate_5 gate_5 ∧
+    ∃gate_7, gate_7 = Gates.mul gate_6 gate_4 ∧
+    ∃gate_8, gate_8 = Gates.add gate_3 gate_7 ∧
+    ∃gate_9, gate_9 = Gates.add gate_3 gate_8 ∧
+    ∃gate_10, gate_10 = Gates.add gate_7 gate_8 ∧
+    k vec![gate_9, gate_10]
+
+def Poseidon2InternalRound_2 (State: List.Vector F 2) (Key: F) (k: List.Vector F 2 -> Prop): Prop :=
+    ∃gate_0, gate_0 = Gates.add State[0] Key ∧
+    ∃gate_1, gate_1 = Gates.mul gate_0 gate_0 ∧
+    ∃gate_2, gate_2 = Gates.mul gate_1 gate_1 ∧
+    ∃gate_3, gate_3 = Gates.mul gate_2 gate_0 ∧
+    ∃gate_4, gate_4 = Gates.add gate_3 State[1] ∧
+    ∃gate_5, gate_5 = Gates.add gate_3 gate_4 ∧
+    ∃gate_6, gate_6 = Gates.add State[1] State[1] ∧
+    ∃gate_7, gate_7 = Gates.add gate_6 gate_4 ∧
+    k vec![gate_5, gate_7]
+
+def Poseidon2Permutation_2 (State: List.Vector F 2) (k: List.Vector F 2 -> Prop): Prop :=
+    ∃gate_0, gate_0 = Gates.add State[0] State[1] ∧
+    ∃gate_1, gate_1 = Gates.add State[0] gate_0 ∧
+    ∃gate_2, gate_2 = Gates.add State[1] gate_0 ∧
+    Poseidon2ExternalRound_2_2 vec![gate_1, gate_2] vec![(13408317191766118125459928988660904723912386643555460372160024256765517343823:F), (4194623319915549675396267121566035406844708410002911784811707666420946700108:F)] fun gate_3 =>
+    Poseidon2ExternalRound_2_2 gate_3 vec![(19099132494568541378562843506451972852480776695389613033913373571860854178538:F), (17810419507002284709462729017811262159774061887636745099369259563571135670706:F)] fun gate_4 =>
+    Poseidon2ExternalRound_2_2 gate_4 vec![(16637672700732259660713007544574603648803524830301453534877038090566057276978:F), (4100917072099705499299673928906075947689332257053041238472195725769211214409:F)] fun gate_5 =>
+    Poseidon2InternalRound_2 gate_5 (17639106492467163824471711470904197146741191403150907096205381935655010152412:F) fun gate_6 =>
+    Poseidon2InternalRound_2 gate_6 (251221379578039099722641770039556666816432372425106194464443603371701980030:F) fun gate_7 =>
+    Poseidon2InternalRound_2 gate_7 (11664463011721340365698453166723321157322068543573292740305207464213186166136:F) fun gate_8 =>
+    Poseidon2InternalRound_2 gate_8 (7004324882758367936267012257325156103107854105597714652480603553596442667371:F) fun gate_9 =>
+    Poseidon2InternalRound_2 gate_9 (11183397174705121495050000889058961924770734907437592228652321929897909696899:F) fun gate_10 =>
+    Poseidon2InternalRound_2 gate_10 (13965628736269595045732200714417191823660022259530961504793144233095264279078:F) fun gate_11 =>
+    Poseidon2InternalRound_2 gate_11 (18876260957675247699460687178670398948950895347812518971311710181575092230364:F) fun gate_12 =>
+    Poseidon2InternalRound_2 gate_12 (15721839469720612101931998781675361609089032814049220947310166412718707689979:F) fun gate_13 =>
+    Poseidon2InternalRound_2 gate_13 (15987522805045992073011611195501431286026168230632129977458705590081930609372:F) fun gate_14 =>
+    Poseidon2InternalRound_2 gate_14 (21849891745187821757295895925265312923307598910615147795003096515671556236412:F) fun gate_15 =>
+    Poseidon2InternalRound_2 gate_15 (15788707732316572545925752610637622153915918622432421349188443992597701954380:F) fun gate_16 =>
+    Poseidon2InternalRound_2 gate_16 (7593797540763919402884517133041950591437700051302004199655168095175137866185:F) fun gate_17 =>
+    Poseidon2InternalRound_2 gate_17 (4786288081555010367576132812783991156716637529429152500330338133781353446326:F) fun gate_18 =>
+    Poseidon2InternalRound_2 gate_18 (16250484128557655034220516270407681365821440963937570513566837676128661475354:F) fun gate_19 =>
+    Poseidon2InternalRound_2 gate_19 (10751384044253890114307794498692117563239627216084922942070391887261112646516:F) fun gate_20 =>
+    Poseidon2InternalRound_2 gate_20 (20948620838747852136572165773656939855751120892352494712632580654483153020156:F) fun gate_21 =>
+    Poseidon2InternalRound_2 gate_21 (6011866921474797075430220781623756855085518882229842294957405160135808170943:F) fun gate_22 =>
+    Poseidon2InternalRound_2 gate_22 (16080959498206373458056469438637782851631256933464239454890151941295188015649:F) fun gate_23 =>
+    Poseidon2InternalRound_2 gate_23 (475011957945228504613411512694129254104197236071087691042382419563809268069:F) fun gate_24 =>
+    Poseidon2InternalRound_2 gate_24 (3844934563230111554429866483630511291786749351183416170903799579961402900519:F) fun gate_25 =>
+    Poseidon2InternalRound_2 gate_25 (12445776490026952105694312983572436896928827178955914086760212572567681636827:F) fun gate_26 =>
+    Poseidon2InternalRound_2 gate_26 (19882511989640195256551451396737803065131682445974784911592454526262394195393:F) fun gate_27 =>
+    Poseidon2InternalRound_2 gate_27 (14662736223117945640475779196125996369190281768004963851456590435104790296615:F) fun gate_28 =>
+    Poseidon2InternalRound_2 gate_28 (16653538304299366637130860104464037237810599843456875850608007588505101030668:F) fun gate_29 =>
+    Poseidon2InternalRound_2 gate_29 (13495762016319714701131362508729420889393811338382553599336098729523926081848:F) fun gate_30 =>
+    Poseidon2InternalRound_2 gate_30 (5920815960715329492149390065013857744378978744132795532742692221807758902756:F) fun gate_31 =>
+    Poseidon2InternalRound_2 gate_31 (2423998659010423837891046475688425651818044743539988620874159923355076492629:F) fun gate_32 =>
+    Poseidon2InternalRound_2 gate_32 (7609234345997733604601365671354019965750592478299831694760455703823335907086:F) fun gate_33 =>
+    Poseidon2InternalRound_2 gate_33 (7329719784003365980137048661900757227431964727496807714726563883714376170070:F) fun gate_34 =>
+    Poseidon2InternalRound_2 gate_34 (19093315591366327788335793303988956501284105849456184373830269558400361791611:F) fun gate_35 =>
+    Poseidon2InternalRound_2 gate_35 (10286692123175445211885294198324243376847813394394121759541017832758783260580:F) fun gate_36 =>
+    Poseidon2InternalRound_2 gate_36 (1849913167831101059674683243651820136522176055221505874663814016275761054576:F) fun gate_37 =>
+    Poseidon2InternalRound_2 gate_37 (17482118192472167845779316643845527198746262196386144020153827412212715698194:F) fun gate_38 =>
+    Poseidon2InternalRound_2 gate_38 (4613380256331851481521539831711999965242654612186974365114434955995149550744:F) fun gate_39 =>
+    Poseidon2InternalRound_2 gate_39 (7177017867107877497845288307641192353167394592264671930122704536757921283492:F) fun gate_40 =>
+    Poseidon2InternalRound_2 gate_40 (4855608477142322340813526961011166527371072606074709643338773971090484152489:F) fun gate_41 =>
+    Poseidon2InternalRound_2 gate_41 (6182762714545209552110481646665911005101406630685657435660552632679196804686:F) fun gate_42 =>
+    Poseidon2InternalRound_2 gate_42 (18890066873741371776092058358901063882989736511381992354291303390445173845507:F) fun gate_43 =>
+    Poseidon2InternalRound_2 gate_43 (19908698160158923180185144790585371411533042547393459440180142406047626938460:F) fun gate_44 =>
+    Poseidon2InternalRound_2 gate_44 (4114971247548631540169942979154314894314326161622462887207029626918928260621:F) fun gate_45 =>
+    Poseidon2InternalRound_2 gate_45 (14067499235763010994047912093211381151786937206089777489095186761488638288729:F) fun gate_46 =>
+    Poseidon2InternalRound_2 gate_46 (12797297353090952782419134455454880127658189564791004621289992096341247395588:F) fun gate_47 =>
+    Poseidon2InternalRound_2 gate_47 (19634198835585989960391867780126619962153740067008787620258787521129142540507:F) fun gate_48 =>
+    Poseidon2InternalRound_2 gate_48 (14831926503507603971861214191004656983286353401324196519692920181455290353648:F) fun gate_49 =>
+    Poseidon2InternalRound_2 gate_49 (7608354194330158944040403025714416637198460773565087505299739908270826369718:F) fun gate_50 =>
+    Poseidon2InternalRound_2 gate_50 (5031964785456071857621657664974901675131914821496190010523524715693419097305:F) fun gate_51 =>
+    Poseidon2InternalRound_2 gate_51 (20642372567045579769748801840817624804771902578880762072335964601573819207327:F) fun gate_52 =>
+    Poseidon2InternalRound_2 gate_52 (1875643970757206774041489998362087336331608215563150717452304406451517837755:F) fun gate_53 =>
+    Poseidon2InternalRound_2 gate_53 (10911396680906278209743541232993586283435673221622400232439029347024496761329:F) fun gate_54 =>
+    Poseidon2InternalRound_2 gate_54 (9800085027356789658841874303911834868252246877035143204374635429188349060704:F) fun gate_55 =>
+    Poseidon2ExternalRound_2_2 gate_55 vec![(12640980308962023454502128342179777066075387205054411696146790539899692341882:F), (13052669284538006039571191006731764980447609222764780682721805844972790926191:F)] fun gate_56 =>
+    Poseidon2ExternalRound_2_2 gate_56 vec![(3692020480476718653924544931385037070283695223559898873110998565603377531518:F), (15417975566481477379401089060355093944277595557157434302909444541171169823626:F)] fun gate_57 =>
+    Poseidon2ExternalRound_2_2 gate_57 vec![(20360114355715495771034612979461096812309537724316694481184668688632722480127:F), (3910091859541134120391800995572544668894173656502109592309955225780361554898:F)] fun gate_58 =>
+    k gate_58
+
+def Poseidon2Compress (Left: F) (Right: F) (k: F -> Prop): Prop :=
+    Poseidon2Permutation_2 vec![Left, Right] fun gate_0 =>
+    ∃gate_1, gate_1 = Gates.add gate_0[1] Right ∧
+    k gate_1
+
+def NullifierParentHash (Bit: F) (Hash: F) (Sibling: F) (k: F -> Prop): Prop :=
+    Gates.is_bool Bit ∧
+    ∃gate_1, Gates.select Bit Sibling Hash gate_1 ∧
+    ∃gate_2, Gates.select Bit Hash Sibling gate_2 ∧
+    Poseidon2Compress gate_1 gate_2 fun gate_3 =>
+    k gate_3
+
+def NullifierMerkleRootGadget_40_40_40 (Hash: F) (Index: List.Vector F 40) (Path: List.Vector F 40) (k: F -> Prop): Prop :=
+    NullifierParentHash Index[0] Hash Path[0] fun gate_0 =>
+    NullifierParentHash Index[1] gate_0 Path[1] fun gate_1 =>
+    NullifierParentHash Index[2] gate_1 Path[2] fun gate_2 =>
+    NullifierParentHash Index[3] gate_2 Path[3] fun gate_3 =>
+    NullifierParentHash Index[4] gate_3 Path[4] fun gate_4 =>
+    NullifierParentHash Index[5] gate_4 Path[5] fun gate_5 =>
+    NullifierParentHash Index[6] gate_5 Path[6] fun gate_6 =>
+    NullifierParentHash Index[7] gate_6 Path[7] fun gate_7 =>
+    NullifierParentHash Index[8] gate_7 Path[8] fun gate_8 =>
+    NullifierParentHash Index[9] gate_8 Path[9] fun gate_9 =>
+    NullifierParentHash Index[10] gate_9 Path[10] fun gate_10 =>
+    NullifierParentHash Index[11] gate_10 Path[11] fun gate_11 =>
+    NullifierParentHash Index[12] gate_11 Path[12] fun gate_12 =>
+    NullifierParentHash Index[13] gate_12 Path[13] fun gate_13 =>
+    NullifierParentHash Index[14] gate_13 Path[14] fun gate_14 =>
+    NullifierParentHash Index[15] gate_14 Path[15] fun gate_15 =>
+    NullifierParentHash Index[16] gate_15 Path[16] fun gate_16 =>
+    NullifierParentHash Index[17] gate_16 Path[17] fun gate_17 =>
+    NullifierParentHash Index[18] gate_17 Path[18] fun gate_18 =>
+    NullifierParentHash Index[19] gate_18 Path[19] fun gate_19 =>
+    NullifierParentHash Index[20] gate_19 Path[20] fun gate_20 =>
+    NullifierParentHash Index[21] gate_20 Path[21] fun gate_21 =>
+    NullifierParentHash Index[22] gate_21 Path[22] fun gate_22 =>
+    NullifierParentHash Index[23] gate_22 Path[23] fun gate_23 =>
+    NullifierParentHash Index[24] gate_23 Path[24] fun gate_24 =>
+    NullifierParentHash Index[25] gate_24 Path[25] fun gate_25 =>
+    NullifierParentHash Index[26] gate_25 Path[26] fun gate_26 =>
+    NullifierParentHash Index[27] gate_26 Path[27] fun gate_27 =>
+    NullifierParentHash Index[28] gate_27 Path[28] fun gate_28 =>
+    NullifierParentHash Index[29] gate_28 Path[29] fun gate_29 =>
+    NullifierParentHash Index[30] gate_29 Path[30] fun gate_30 =>
+    NullifierParentHash Index[31] gate_30 Path[31] fun gate_31 =>
+    NullifierParentHash Index[32] gate_31 Path[32] fun gate_32 =>
+    NullifierParentHash Index[33] gate_32 Path[33] fun gate_33 =>
+    NullifierParentHash Index[34] gate_33 Path[34] fun gate_34 =>
+    NullifierParentHash Index[35] gate_34 Path[35] fun gate_35 =>
+    NullifierParentHash Index[36] gate_35 Path[36] fun gate_36 =>
+    NullifierParentHash Index[37] gate_36 Path[37] fun gate_37 =>
+    NullifierParentHash Index[38] gate_37 Path[38] fun gate_38 =>
+    NullifierParentHash Index[39] gate_38 Path[39] fun gate_39 =>
     k gate_39
 
 def AssertStrictlyOrdered (Lo: F) (Mid: F) (Hi: F) : Prop :=
@@ -359,44 +458,44 @@ def AssertStrictlyOrdered (Lo: F) (Mid: F) (Hi: F) : Prop :=
     True
 
 def NonInclusionProof_8_8_8_8_8_40_8_8_40 (Roots: List.Vector F 8) (Values: List.Vector F 8) (LeafLowerRangeValues: List.Vector F 8) (LeafHigherRangeValues: List.Vector F 8) (InPathIndices: List.Vector F 8) (InPathElements: List.Vector (List.Vector F 40) 8) (k: List.Vector F 8 -> Prop): Prop :=
-    Poseidon_2 vec![LeafLowerRangeValues[0], LeafHigherRangeValues[0]] (0:F) fun gate_0 =>
+    Poseidon2Compress LeafLowerRangeValues[0] LeafHigherRangeValues[0] fun gate_0 =>
     ∃gate_1, Gates.to_binary InPathIndices[0] 40 gate_1 ∧
-    MerkleRootGadget_40_40_40 gate_0 gate_1 InPathElements[0] fun gate_2 =>
+    NullifierMerkleRootGadget_40_40_40 gate_0 gate_1 InPathElements[0] fun gate_2 =>
     Gates.eq gate_2 Roots[0] ∧
     AssertStrictlyOrdered LeafLowerRangeValues[0] Values[0] LeafHigherRangeValues[0] ∧
-    Poseidon_2 vec![LeafLowerRangeValues[1], LeafHigherRangeValues[1]] (0:F) fun gate_5 =>
+    Poseidon2Compress LeafLowerRangeValues[1] LeafHigherRangeValues[1] fun gate_5 =>
     ∃gate_6, Gates.to_binary InPathIndices[1] 40 gate_6 ∧
-    MerkleRootGadget_40_40_40 gate_5 gate_6 InPathElements[1] fun gate_7 =>
+    NullifierMerkleRootGadget_40_40_40 gate_5 gate_6 InPathElements[1] fun gate_7 =>
     Gates.eq gate_7 Roots[1] ∧
     AssertStrictlyOrdered LeafLowerRangeValues[1] Values[1] LeafHigherRangeValues[1] ∧
-    Poseidon_2 vec![LeafLowerRangeValues[2], LeafHigherRangeValues[2]] (0:F) fun gate_10 =>
+    Poseidon2Compress LeafLowerRangeValues[2] LeafHigherRangeValues[2] fun gate_10 =>
     ∃gate_11, Gates.to_binary InPathIndices[2] 40 gate_11 ∧
-    MerkleRootGadget_40_40_40 gate_10 gate_11 InPathElements[2] fun gate_12 =>
+    NullifierMerkleRootGadget_40_40_40 gate_10 gate_11 InPathElements[2] fun gate_12 =>
     Gates.eq gate_12 Roots[2] ∧
     AssertStrictlyOrdered LeafLowerRangeValues[2] Values[2] LeafHigherRangeValues[2] ∧
-    Poseidon_2 vec![LeafLowerRangeValues[3], LeafHigherRangeValues[3]] (0:F) fun gate_15 =>
+    Poseidon2Compress LeafLowerRangeValues[3] LeafHigherRangeValues[3] fun gate_15 =>
     ∃gate_16, Gates.to_binary InPathIndices[3] 40 gate_16 ∧
-    MerkleRootGadget_40_40_40 gate_15 gate_16 InPathElements[3] fun gate_17 =>
+    NullifierMerkleRootGadget_40_40_40 gate_15 gate_16 InPathElements[3] fun gate_17 =>
     Gates.eq gate_17 Roots[3] ∧
     AssertStrictlyOrdered LeafLowerRangeValues[3] Values[3] LeafHigherRangeValues[3] ∧
-    Poseidon_2 vec![LeafLowerRangeValues[4], LeafHigherRangeValues[4]] (0:F) fun gate_20 =>
+    Poseidon2Compress LeafLowerRangeValues[4] LeafHigherRangeValues[4] fun gate_20 =>
     ∃gate_21, Gates.to_binary InPathIndices[4] 40 gate_21 ∧
-    MerkleRootGadget_40_40_40 gate_20 gate_21 InPathElements[4] fun gate_22 =>
+    NullifierMerkleRootGadget_40_40_40 gate_20 gate_21 InPathElements[4] fun gate_22 =>
     Gates.eq gate_22 Roots[4] ∧
     AssertStrictlyOrdered LeafLowerRangeValues[4] Values[4] LeafHigherRangeValues[4] ∧
-    Poseidon_2 vec![LeafLowerRangeValues[5], LeafHigherRangeValues[5]] (0:F) fun gate_25 =>
+    Poseidon2Compress LeafLowerRangeValues[5] LeafHigherRangeValues[5] fun gate_25 =>
     ∃gate_26, Gates.to_binary InPathIndices[5] 40 gate_26 ∧
-    MerkleRootGadget_40_40_40 gate_25 gate_26 InPathElements[5] fun gate_27 =>
+    NullifierMerkleRootGadget_40_40_40 gate_25 gate_26 InPathElements[5] fun gate_27 =>
     Gates.eq gate_27 Roots[5] ∧
     AssertStrictlyOrdered LeafLowerRangeValues[5] Values[5] LeafHigherRangeValues[5] ∧
-    Poseidon_2 vec![LeafLowerRangeValues[6], LeafHigherRangeValues[6]] (0:F) fun gate_30 =>
+    Poseidon2Compress LeafLowerRangeValues[6] LeafHigherRangeValues[6] fun gate_30 =>
     ∃gate_31, Gates.to_binary InPathIndices[6] 40 gate_31 ∧
-    MerkleRootGadget_40_40_40 gate_30 gate_31 InPathElements[6] fun gate_32 =>
+    NullifierMerkleRootGadget_40_40_40 gate_30 gate_31 InPathElements[6] fun gate_32 =>
     Gates.eq gate_32 Roots[6] ∧
     AssertStrictlyOrdered LeafLowerRangeValues[6] Values[6] LeafHigherRangeValues[6] ∧
-    Poseidon_2 vec![LeafLowerRangeValues[7], LeafHigherRangeValues[7]] (0:F) fun gate_35 =>
+    Poseidon2Compress LeafLowerRangeValues[7] LeafHigherRangeValues[7] fun gate_35 =>
     ∃gate_36, Gates.to_binary InPathIndices[7] 40 gate_36 ∧
-    MerkleRootGadget_40_40_40 gate_35 gate_36 InPathElements[7] fun gate_37 =>
+    NullifierMerkleRootGadget_40_40_40 gate_35 gate_36 InPathElements[7] fun gate_37 =>
     Gates.eq gate_37 Roots[7] ∧
     AssertStrictlyOrdered LeafLowerRangeValues[7] Values[7] LeafHigherRangeValues[7] ∧
     k vec![gate_2, gate_7, gate_12, gate_17, gate_22, gate_27, gate_32, gate_37]

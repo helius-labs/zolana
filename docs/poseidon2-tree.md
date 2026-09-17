@@ -54,14 +54,18 @@ string `Poseidon2-BN254[t=2,rF=6,rP=50,d=5]`; compression
 
 One definition per language:
 
-- Circuits: `gadget.NullifierTreeHash`
-  (`prover/server/circuits/gadget/tree_hash.go`), used by
-  `NullifierParentHash` / `NullifierMerkleRootGadget` and by
-  `IndexedLeafHash`; the state tree keeps `ProveParentHash` /
+- Circuits: `gadget.NullifierTreeHash` calls the `Poseidon2Compress` gadget
+  (`prover/server/circuits/gadget/poseidon2.go`: permutation, external and
+  internal round as abstractor gadgets, two-operand ops, round keys as
+  arguments), used by `NullifierParentHash` / `NullifierMerkleRootGadget`
+  and by `IndexedLeafHash`; the state tree keeps `ProveParentHash` /
   `MerkleRootGadget` on `PoseidonHash`. The two trees are separate gadget
   types on purpose: the Lean extractor identifies a gadget by type name and
   array lengths, so a field selecting the hash extracted one body for both
-  trees.
+  trees. The gadget compiles to the same R1CS as gnark's std Poseidon2
+  gadget (byte-identical constraint system on batch append 40×10), so the
+  keys rotated on the std gadget stay valid; `TestPoseidon2CompressMatchesNative`
+  checks it against gnark-crypto and pins 3 constraints per S-box.
 - Go host: `merkletree.TreeHash` (`prover/server/merkle-tree/tree_hash.go`).
   The `merkle-tree` package only builds nullifier trees. The SPP test
   protocol has `stateNodeHash` (Poseidon) and `nullifierNodeHash`
@@ -107,14 +111,18 @@ orders).
 
 ## Not done here
 
-- Formal verification. `extract-circuit` runs and emits `NullifierParentHash`
-  with the Poseidon2 permutation unrolled, but gnark's three-operand
-  `api.Add(a, b, key)` in the std Poseidon2 gadget is extracted as a
-  self-referencing binding (`∃gate_4, gate_4 = Gates.add gate_4 key`), so the
-  extracted body is not usable in Lean. Poseidon2 needs its own gadget with
-  two-operand ops (as `gadget/poseidon.go` does for Poseidon), then the
-  round proofs in `Poseidon.lean`, the `Merkle.lean` lemmas for
-  `NullifierParentHash`, and a regenerated `Circuit.lean`.
+- Formal verification is updated but has not been compiled here: the
+  mathlib cache is not reachable from this environment. `Circuit.lean` is
+  the current extraction (CI diffs it). `Poseidon.lean` proves the Poseidon2
+  round gadgets, the permutation and the compression have a unique
+  assignment and defines `nullifierHash`; `Merkle.lean` and
+  `RangeTree.lean` state the nullifier tree lemmas over `nullifierHash`
+  (`hashLevel` takes the hash as a parameter); `Main.lean` pins the
+  `(1, 2)` test vector and axiomatizes collision resistance and no zero
+  preimage for `nullifierHash` (the state tree and hash chains keep the
+  Poseidon axiom). To check:
+  `cd prover/server/formal-verification && lake exe cache get && lake build`,
+  or the `formal-verification` workflow.
 - Keys are on the Mac that rotated them and in the lockfile, not in S3.
 - The Go `IndexedMerkleTree.Init` sentinel is `2^248 - 1` while the protocol
   nullifier tree uses `p - 1`; pre-existing, unchanged.

@@ -15,11 +15,20 @@ abbrev B := 8
 theorem poseidon₂_testVector :
   poseidon₂ vec![1, 2] = 7853200120776062878684798364095072458815029376092732009249414926327459813530 := by native_decide
 
+/-- `test-vectors/tree_hash.json`, compress(1, 2). -/
+theorem nullifierHash_testVector :
+  nullifierHash vec![1, 2] = 1313337560616139085277676701856612540166622156368305732529371734734451176752 := by native_decide
+
+/-- The state tree and the hash chains: Poseidon. -/
 axiom poseidon₂_collisionResistant : CollisionResistant poseidon₂
 instance : Fact (CollisionResistant poseidon₂) := ⟨poseidon₂_collisionResistant⟩
 
-axiom poseidon₂_nez : poseidon₂_no_zero_preimage
-instance : Fact poseidon₂_no_zero_preimage := ⟨poseidon₂_nez⟩
+/-- The nullifier tree: Poseidon2. Empty range slots hash to 0, so no pair may. -/
+axiom nullifierHash_collisionResistant : CollisionResistant nullifierHash
+instance : Fact (CollisionResistant nullifierHash) := ⟨nullifierHash_collisionResistant⟩
+
+axiom nullifierHash_nez : nullifierHash_no_zero_preimage
+instance : Fact nullifierHash_no_zero_preimage := ⟨nullifierHash_nez⟩
 
 namespace InclusionCircuit
 

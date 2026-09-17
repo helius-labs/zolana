@@ -8,7 +8,7 @@ import Mathlib
 
 open ZolanaProver (F Order Gates)
 open ZolanaProver renaming MerkleRootGadget_32_32_32 → StateMerkleRootGadget,
-                           MerkleRootGadget_40_40_40 → AddressMerkleRootGadget,
+                           NullifierMerkleRootGadget_40_40_40 → AddressMerkleRootGadget,
                            InclusionProof_8_8_8_32_8_8_32 → InclusionProof,
                            InclusionCircuit_8_8_8_32_8_8_32 → InclusionCircuit,
                            NonInclusionProof_8_8_8_8_8_40_8_8_40 → NonInclusionProof,
@@ -20,16 +20,25 @@ private abbrev SD := 32
 private abbrev AD := 40
 private abbrev B := 8
 
-def hashLevel (d : Bool) (s h : F): F := match d with
-| false => poseidon₂ vec![h,s]
-| true => poseidon₂ vec![s,h]
+/-- One Merkle level under hash `H`: the state tree uses `poseidon₂`, the
+nullifier tree `nullifierHash`. -/
+def hashLevel (H : Hash F 2) (d : Bool) (s h : F): F := match d with
+| false => H vec![h,s]
+| true => H vec![s,h]
 
 @[simp]
 lemma ProveParentHash_rw {d : Bool} {h s : F} {k : F → Prop}:
   ZolanaProver.ProveParentHash d.toZMod h s k ↔
-    (k $ hashLevel d s h)
+    (k $ hashLevel poseidon₂ d s h)
   := by
   cases d <;> simp [ZolanaProver.ProveParentHash, Gates, GatesGnark12, GatesGnark9, GatesGnark8, hashLevel]
+
+@[simp]
+lemma NullifierParentHash_rw {d : Bool} {h s : F} {k : F → Prop}:
+  ZolanaProver.NullifierParentHash d.toZMod h s k ↔
+    (k $ hashLevel nullifierHash d s h)
+  := by
+  cases d <;> simp [ZolanaProver.NullifierParentHash, Gates, GatesGnark12, GatesGnark9, GatesGnark8, hashLevel]
 
 theorem StateMerkleRootGadget_rw {h : F} {i : List.Vector Bool SD} {p : List.Vector F SD} {k : F → Prop}:
     StateMerkleRootGadget h (i.map Bool.toZMod) p k ↔ k (MerkleTree.recover poseidon₂ i.reverse p.reverse h) := by
@@ -40,9 +49,9 @@ theorem StateMerkleRootGadget_rw {h : F} {i : List.Vector Bool SD} {p : List.Vec
 
 set_option maxRecDepth 10000 in
 theorem AddressMerkleRootGadget_rw {h : F} {i : List.Vector Bool AD} {p : List.Vector F AD} {k : F → Prop}:
-    AddressMerkleRootGadget h (i.map Bool.toZMod) p k ↔ k (MerkleTree.recover poseidon₂ i.reverse p.reverse h) := by
+    AddressMerkleRootGadget h (i.map Bool.toZMod) p k ↔ k (MerkleTree.recover nullifierHash i.reverse p.reverse h) := by
   unfold AddressMerkleRootGadget
-  simp only [List.Vector.getElem_map, ProveParentHash_rw]
+  simp only [List.Vector.getElem_map, NullifierParentHash_rw]
   rw [←List.Vector.ofFn_get (v:=p), ←List.Vector.ofFn_get (v:=i)]
   rfl
 
@@ -62,7 +71,7 @@ theorem StateInclusionProofStep_rw {l i e r} {k : F → Prop}:
 
 theorem AddressInclusionProofStep_rw {l i e r} {k : F → Prop}:
     (∃b, Gates.to_binary i AD b ∧ AddressMerkleRootGadget l b e fun o => Gates.eq o r ∧ k o) ↔
-    (∃ (hi : i.val < 2^AD), MerkleTree.recoverAtFin poseidon₂ ⟨i.val, hi⟩ e.reverse l = r) ∧ k r := by
+    (∃ (hi : i.val < 2^AD), MerkleTree.recoverAtFin nullifierHash ⟨i.val, hi⟩ e.reverse l = r) ∧ k r := by
   have : 2^AD < Order := by decide
   simp only [Gates, GatesGnark12, GatesDef.to_binary_12, GatesGnark8, GatesGnark9]
   simp only [←exists_and_right]
@@ -176,15 +185,15 @@ theorem InclusionCircuit_correct [Fact (CollisionResistant poseidon₂)] {ih : F
    ih = (inputHash (trees.map (·.root)) leaves) ∧ ∀i (_: i∈[0:B]), leaves[i] ∈ trees[i] := by
   simp [InclusionCircuit_rw, InclusionProof_correct]
 
-theorem AddressMerkleRootGadget_eq_rw [Fact (CollisionResistant poseidon₂)] {h i : F} {p : List.Vector F AD} {tree : MerkleTree F poseidon₂ AD} {k : F → Prop}:
+theorem AddressMerkleRootGadget_eq_rw [Fact (CollisionResistant nullifierHash)] {h i : F} {p : List.Vector F AD} {tree : MerkleTree F nullifierHash AD} {k : F → Prop}:
   (∃gate, Gates.to_binary i AD gate ∧ AddressMerkleRootGadget h gate p (fun r => Gates.eq r tree.root ∧ k r)) ↔ (∃(hi: i.val < 2^AD), h = tree.itemAtFin ⟨i.val, hi⟩ ∧ p.reverse = tree.proofAtFin ⟨i.val, hi⟩) ∧ k tree.root := by
   rw [AddressInclusionProofStep_rw]
   simp [and_comm]
 
-theorem Range.hashOpt_eq_poseidon_iff_is_some {lo hi : F} {r : Option Range} [Fact poseidon₂_no_zero_preimage] [Fact (CollisionResistant poseidon₂)]:
-    (Range.hashOpt r = poseidon₂ vec![lo, hi]) ↔ ∃(h:r.isSome), lo = (r.get h).lo ∧ hi = (r.get h).hi := by
-  have : poseidon₂_no_zero_preimage := Fact.elim inferInstance
-  unfold poseidon₂_no_zero_preimage at this
+theorem Range.hashOpt_eq_hash_iff_is_some {lo hi : F} {r : Option Range} [Fact nullifierHash_no_zero_preimage] [Fact (CollisionResistant nullifierHash)]:
+    (Range.hashOpt r = nullifierHash vec![lo, hi]) ↔ ∃(h:r.isSome), lo = (r.get h).lo ∧ hi = (r.get h).hi := by
+  have : nullifierHash_no_zero_preimage := Fact.elim inferInstance
+  unfold nullifierHash_no_zero_preimage at this
   apply Iff.intro
   · intro h
     cases r
@@ -200,12 +209,12 @@ theorem Range.hashOpt_eq_poseidon_iff_is_some {lo hi : F} {r : Option Range} [Fa
     · cases h
     · rfl
 
-/-- One item of the non-inclusion proof: the low leaf `poseidon₂(lo, hi)` is in
-the range tree at the given index, and the value is strictly inside `(lo, hi)`
-by the full-field ordering gadget. -/
-theorem NonInclusionStep_rw [Fact poseidon₂_no_zero_preimage] [Fact (CollisionResistant poseidon₂)]
+/-- One item of the non-inclusion proof: the low leaf `nullifierHash(lo, hi)`
+is in the range tree at the given index, and the value is strictly inside
+`(lo, hi)` by the full-field ordering gadget. -/
+theorem NonInclusionStep_rw [Fact nullifierHash_no_zero_preimage] [Fact (CollisionResistant nullifierHash)]
     {lo hi v ind : F} {proof : List.Vector F AD} {ranges : RangeVector (2^AD)} {k : F → Prop} :
-    (ZolanaProver.Poseidon_2 vec![lo, hi] (0:F) fun r =>
+    (ZolanaProver.Poseidon2Compress lo hi fun r =>
       ∃lv, Gates.to_binary ind AD lv ∧
       AddressMerkleRootGadget r lv proof fun root =>
       Gates.eq root ranges.root ∧ ZolanaProver.AssertStrictlyOrdered lo v hi ∧ k root)
@@ -213,12 +222,12 @@ theorem NonInclusionStep_rw [Fact poseidon₂_no_zero_preimage] [Fact (Collision
         ranges.ranges ⟨ind.val, hind⟩ = some range ∧ lo = range.lo ∧ hi = range.hi ∧
         proof.reverse = (rangeTree ranges).proofAtFin ⟨ind.val, hind⟩ ∧
         v.val ∈ range ∧ k ranges.root := by
-  simp only [Poseidon_2_iff_uniqueAssignment, RangeVector.root]
+  simp only [Poseidon2Compress_iff_uniqueAssignment, RangeVector.root]
   rw [AddressMerkleRootGadget_eq_rw (tree := rangeTree ranges)]
   simp only [rangeTree, MerkleTree.ofFn_itemAtFin, AssertStrictlyOrdered_rw]
   apply Iff.intro
   · rintro ⟨⟨hind, hhash, hproof⟩, ⟨hlo, hhi⟩, hk⟩
-    rw [eq_comm, Range.hashOpt_eq_poseidon_iff_is_some] at hhash
+    rw [eq_comm, Range.hashOpt_eq_hash_iff_is_some] at hhash
     rcases hhash with ⟨hsome, hloeq, hhieq⟩
     refine ⟨(ranges.ranges ⟨ind.val, hind⟩).get hsome, hind, by simp, hloeq, hhieq, by simpa [rangeTree] using hproof, ?_, hk⟩
     refine ⟨?_, ?_⟩
@@ -231,7 +240,7 @@ theorem NonInclusionStep_rw [Fact poseidon₂_no_zero_preimage] [Fact (Collision
 def NonInclusionProof_rec {n : Nat} (lo hi leaf inds roots : List.Vector F n) (proofs : List.Vector (List.Vector F AD) n) (k : List.Vector F n → Prop): Prop :=
   match n with
   | 0 => k List.Vector.nil
-  | _ + 1 => ZolanaProver.Poseidon_2 vec![lo.head, hi.head] (0:F) fun r =>
+  | _ + 1 => ZolanaProver.Poseidon2Compress lo.head hi.head fun r =>
     ∃lv, Gates.to_binary inds.head AD lv ∧
     AddressMerkleRootGadget r lv proofs.head fun root =>
     Gates.eq root roots.head ∧
@@ -250,7 +259,7 @@ lemma NonInclusionProof_rec_equiv {lo hi leaf inds roots proofs k}:
      ]
   rfl
 
-theorem NonInclusionCircuit_rec_correct [Fact poseidon₂_no_zero_preimage] [Fact (CollisionResistant poseidon₂)] {n : Nat} {trees : List.Vector (RangeVector (2^AD)) n} {leaves : List.Vector F n} {k : List.Vector F n → Prop}:
+theorem NonInclusionCircuit_rec_correct [Fact nullifierHash_no_zero_preimage] [Fact (CollisionResistant nullifierHash)] {n : Nat} {trees : List.Vector (RangeVector (2^AD)) n} {leaves : List.Vector F n} {k : List.Vector F n → Prop}:
   (∃lo hi inds proofs, NonInclusionProof_rec lo hi leaves inds (trees.map (·.root)) proofs k) ↔
   k (trees.map (·.root)) ∧ ∀i (_: i∈[0:n]), leaves[i].val ∈ trees[i] := by
   unfold AD at *
@@ -270,7 +279,7 @@ theorem NonInclusionCircuit_rec_correct [Fact poseidon₂_no_zero_preimage] [Fac
       cases proofs using List.Vector.casesOn with | cons hproof tproof =>
       cases trees using List.Vector.casesOn with | cons htree ttree =>
       -- `simp [NonInclusionStep_rw]` would not fire: the default-simp lemma
-      -- `Poseidon_2_iff_uniqueAssignment` rewrites the head first and destroys
+      -- `Poseidon2Compress_iff_uniqueAssignment` rewrites the head first and destroys
       -- the pattern. Unfold one step, then rewrite with the step lemma directly.
       simp only [NonInclusionProof_rec, List.Vector.head_cons, List.Vector.tail_cons,
         List.Vector.map_cons] at hp
@@ -331,7 +340,7 @@ theorem NonInclusionCircuit_rw:
   unfold NonInclusionCircuit
   simp only [HashChainGadget_B_rw, HashChainGadget_Two_rw, Gates, GatesGnark8, GatesGnark9, GatesGnark12, GatesDef.eq, inputHash]
 
-theorem NonInclusionCircuit_correct [Fact poseidon₂_no_zero_preimage] [Fact (CollisionResistant poseidon₂)] {trees : List.Vector (RangeVector (2^AD)) B} {leaves : List.Vector F B}:
+theorem NonInclusionCircuit_correct [Fact nullifierHash_no_zero_preimage] [Fact (CollisionResistant nullifierHash)] {trees : List.Vector (RangeVector (2^AD)) B} {leaves : List.Vector F B}:
     (∃lo hi inds proofs, NonInclusionCircuit h (trees.map (·.root)) leaves lo hi inds proofs) ↔
     h = inputHash (trees.map (·.root)) leaves ∧ ∀i (_: i∈[0:B]), leaves[i].val ∈ trees[i] := by
   simp only [NonInclusionCircuit_rw, ←NonInclusionProof_rec_equiv]

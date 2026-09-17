@@ -41,11 +41,11 @@ structure RangeVector (l : ℕ) : Type where
 instance {l : ℕ} : Membership Nat (RangeVector l) where
   mem rv x := ∃(j : Fin l) (r : Range), x ∈ r ∧ some r = rv.ranges j
 
-def Range.hash : Range → F := fun r => poseidon₂ vec![r.lo, r.hi]
+def Range.hash : Range → F := fun r => nullifierHash vec![r.lo, r.hi]
 
 def Range.hashOpt : Option Range → F := fun r => r.map Range.hash |>.getD 0
 
-def poseidon₂_no_zero_preimage : Prop := ∀(a b : F), poseidon₂ vec![a, b] ≠ 0
+def nullifierHash_no_zero_preimage : Prop := ∀(a b : F), nullifierHash vec![a, b] ≠ 0
 
 def MerkleTree.ofFn (H : Hash α 2) (emb : β → α) (f : Fin (2^d) → β) : MerkleTree α H d := match d with
   | 0 => leaf (emb (f 0))
@@ -140,7 +140,7 @@ lemma MerkleTree.ofFn_itemAtFin {fn : Fin (2^d) → α} : (ofFn H emb fn |>.item
         rw [Nat.mod_eq_of_lt]
         congr
 
-def rangeTree (r : RangeVector (2^d)) : MerkleTree F poseidon₂ d :=
-    MerkleTree.ofFn poseidon₂ Range.hashOpt r.ranges
+def rangeTree (r : RangeVector (2^d)) : MerkleTree F nullifierHash d :=
+    MerkleTree.ofFn nullifierHash Range.hashOpt r.ranges
 
 def RangeVector.root (r : RangeVector (2^d)) : F := rangeTree r |>.root

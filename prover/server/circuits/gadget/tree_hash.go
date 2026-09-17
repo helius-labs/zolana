@@ -2,7 +2,7 @@ package gadget
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/permutation/poseidon2"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 // Poseidon2 over BN254, width 2, 6 full and 50 partial rounds: the
@@ -19,9 +19,5 @@ const (
 // through the Poseidon syscall; the nullifier tree is only ever hashed in
 // circuits and off chain.
 func NullifierTreeHash(api frontend.API, left, right frontend.Variable) frontend.Variable {
-	h, err := poseidon2.NewPoseidon2FromParameters(api, NullifierTreeHashWidth, NullifierTreeHashFullRounds, NullifierTreeHashPartialRounds)
-	if err != nil {
-		panic(err)
-	}
-	return h.Compress(left, right)
+	return abstractor.Call(api, Poseidon2Compress{Left: left, Right: right})
 }
