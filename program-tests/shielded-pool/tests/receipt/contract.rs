@@ -6,6 +6,7 @@ use shielded_pool_tests::support::{fixtures::Pool, merge::write_user_record};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_signer::Signer;
+use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -99,16 +100,25 @@ fn send(rpc: &mut ZolanaProgramTest, ix: Instruction, what: &str) {
 }
 
 fn reject(rpc: &mut ZolanaProgramTest, ix: Instruction, error: ShieldedPoolError) {
+    reject_code(rpc, ix, error as u32);
+}
+
+fn reject_code(rpc: &mut ZolanaProgramTest, ix: Instruction, code: u32) {
     rpc.svm.expire_blockhash();
     let actual = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("must reject");
-    Rejection::custom(error as u32).assert_litesvm(actual);
+    Rejection::custom(code).assert_litesvm(actual);
 }
 
 #[test]
 fn lifecycle_create_upload_close() {
-    let Pool { mut rpc, tree, .. } = Pool::initialized();
+    let Pool {
+        mut rpc,
+        tree,
+        authority,
+        ..
+    } = Pool::initialized();
     let payer = rpc.payer.pubkey();
     let (receipt, create_ix) = create(payer, tree, 1, CAPACITY);
     send(&mut rpc, create_ix.clone(), "create a receipt");
@@ -126,7 +136,9 @@ fn lifecycle_create_upload_close() {
     );
 
     send(&mut rpc, create_ix, "an identical create is a no-op");
-    let (_, other) = create(payer, tree, 1, 512);
+    // Same PDA (sponsor, nonce), different tree.
+    let other_tree = rpc.create_tree(&authority).expect("second tree");
+    let (_, other) = create(payer, other_tree, 1, CAPACITY);
     reject(&mut rpc, other, ShieldedPoolError::ReceiptConfigMismatch);
     let (_, unsupported) = create(payer, tree, 2, 7);
     reject(
@@ -305,14 +317,14 @@ fn receipt_backed_merge_checks_the_receipt_before_the_proof() {
         if case != "unverified" {
             force_verified(&mut rpc, receipt, 8, root);
         }
-        let error = match case {
-            "unverified" => ShieldedPoolError::ReceiptNotVerified,
-            "slice" | "offset" => ShieldedPoolError::ReceiptSliceMismatch,
-            "root" => ShieldedPoolError::ReceiptRootMismatch,
-            "tree" => ShieldedPoolError::ReceiptTreeMismatch,
-            "p256" => ShieldedPoolError::ReceiptUnsupportedOwner,
-            "missing account" => ShieldedPoolError::InvalidMergeShape,
-            _ => ShieldedPoolError::TransactProofVerificationFailed,
+        let code = match case {
+            "unverified" => ShieldedPoolError::ReceiptNotVerified as u32,
+            "slice" | "offset" => ShieldedPoolError::ReceiptSliceMismatch as u32,
+            "root" => ShieldedPoolError::ReceiptRootMismatch as u32,
+            "tree" => ShieldedPoolError::ReceiptTreeMismatch as u32,
+            "p256" => ShieldedPoolError::ReceiptUnsupportedOwner as u32,
+            "missing account" => u32::from(AccountError::NotEnoughAccountKeys),
+            _ => ShieldedPoolError::TransactProofVerificationFailed as u32,
         };
         let data = MergeTransactIxData {
             cache_slot: None,
@@ -337,7 +349,7 @@ fn receipt_backed_merge_checks_the_receipt_before_the_proof() {
         }
         .instruction();
         let before = rpc.account_data(&tree).expect("tree data");
-        reject(&mut rpc, ix, error);
+        reject_code(&mut rpc, ix, code);
         assert_eq!(
             rpc.account_data(&tree).expect("tree data"),
             before,
