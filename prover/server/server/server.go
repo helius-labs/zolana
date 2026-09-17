@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"io"
 	"net/http"
 	"time"
@@ -624,7 +623,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		logging.Logger().Warn().Msg("No API key configured - server will accept all requests. Set PROVER_API_KEY environment variable to enable authentication.")
 	}
 	metricsMux := http.NewServeMux()
-	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsMux.Handle("/metrics", capacityMetrics(transferExecution, config.Readiness))
 	metricsServer := &http.Server{Addr: config.MetricsAddress, Handler: metricsMux}
 	metricsJob := spawnServerJob(metricsServer, "metrics server")
 	logging.Logger().Info().Str("addr", config.MetricsAddress).Msg("metrics server started")
@@ -640,9 +639,9 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		enableQueue:       config.Queue != nil && config.Queue.Enabled,
 		admission:         newSyncAdmission(syncPermits()),
 	}
-	proverMux.Handle("/prove", handler)
+	proverMux.Handle("/prove", observeProofHTTP("complete", handler))
 	handler.indexed = true
-	proverMux.Handle("/prove/indexed", handler)
+	proverMux.Handle("/prove/indexed", observeProofHTTP("indexed", handler))
 
 	proverMux.Handle("/ready", config.Readiness)
 	proverMux.Handle("/health", healthHandler{

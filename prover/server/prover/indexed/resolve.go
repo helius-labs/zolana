@@ -82,7 +82,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	return request, prepared, err
 }
 
-func (r *Resolver) Resolve(ctx context.Context, data []byte) (*Resolved, error) {
+func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {
 	request, prepared, err := decodeRequest(data)
 	if err != nil {
 		return nil, err

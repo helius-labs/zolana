@@ -62,3 +62,35 @@ selects one shape. A circuit name without a shape loads its supported shapes.
 `rpc` and `local-rpc` preload all transfer and merge shapes. The compose default preloads selected transfer 2×3 shapes and merge 8×1.
 Provision memory for the selected keys and workers. Mount the required
 proving keys at `/proving-keys`. `Dockerfile.light` contains the binary only.
+
+## Capacity and monitoring
+
+`compose.transfer.yml` builds the current source with two shared transfer
+workers, Redis fallback, and a local Prometheus. Start it with
+`docker compose -f compose.transfer.yml up --build`. The indexer setting
+remains optional. Restrict access and set `PROVER_API_KEY` before exposing
+the prover outside the local machine.
+
+Scrape `/metrics` on the metrics port. Transfer capacity and active permits
+cover direct and queued execution together. Completion counters cover both
+delivery modes. HTTP duration includes indexer preparation and admission.
+A queued `202` measures acceptance only. Use queue delay and generation
+duration to assess queued work. Network RTT and client polling need client
+measurements.
+
+Load `monitoring/alerts.yml` into Prometheus. Set the throughput target and
+latency thresholds to the deployment SLO. The example throughput target is
+for the whole `prover` job. Queue depth is shared across replicas, so the
+rules use the maximum depth rather than adding duplicate observations.
+The throughput alert requires backlog and does not fire for idle service.
+Configure an Alertmanager and notification receiver in your deployment to
+send alerts. The compose profile exposes firing alerts in Prometheus.
+Import `monitoring/dashboard.json` into Grafana and select the Prometheus
+data source. Validate rules with `promtool check rules monitoring/alerts.yml`
+and `promtool test rules monitoring/alerts.test.yml`.
+
+On saturation, compare completion rate, queue depth, request latency, and
+process memory. Increase `PROVER_TRANSFER_CONCURRENCY` one step and repeat
+the load test. Add replicas when concurrency raises latency without enough
+throughput gain. Gnark can use several CPU cores per proof, so worker count
+must not be set equal to CPU count without measurement.

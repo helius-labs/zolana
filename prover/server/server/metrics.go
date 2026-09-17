@@ -384,6 +384,7 @@ func (r *rollingStats) observe(circuit string, duration, memBytes float64) (mean
 }
 
 func (t *MetricTimer) ObserveDuration() {
+	ProofsCompleted.WithLabelValues(t.circuitType).Inc()
 	duration := time.Since(t.start).Seconds()
 	ProofGenerationDuration.WithLabelValues(t.circuitType).Observe(duration)
 	ActiveJobs.Dec()
