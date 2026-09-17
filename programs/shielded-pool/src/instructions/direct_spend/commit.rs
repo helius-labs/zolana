@@ -6,19 +6,20 @@ use pinocchio::{
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     direct_spend::{
-        certificate_id, field, Payload, PaymentInputs, ADMITTED_DAG_PAYMENT_DOMAIN,
-        ADMITTED_PAYMENT_DOMAIN, CERTIFICATE_INPUTS, MAX_CERTIFICATES, MAX_INPUTS, PAYMENT_DOMAIN,
+        certificate_id, field, Certificate, Payload, Payment, PaymentInputs, Root,
+        ADMITTED_DAG_PAYMENT_DOMAIN, ADMITTED_PAYMENT_DOMAIN, CERTIFICATE_INPUTS, INLINE_INPUTS,
+        MAX_CERTIFICATES, MAX_INPUTS, PAYMENT_DOMAIN,
     },
     error::ShieldedPoolError,
     event::{EventKind, GeneralEvent, Input, InputTreeSequence},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     verifying_keys::{
-        direct_payment_512_2, direct_payment_admitted_144_2, direct_payment_admitted_512_2,
-        direct_payment_admitted_dag10_512_2, direct_payment_gkr_144_2, direct_payment_gkr_512_2,
-        spend_balance_16_2,
+        direct_payment_512_2, direct_payment_admitted_100_1, direct_payment_admitted_144_2,
+        direct_payment_admitted_512_2, direct_payment_admitted_dag10_512_2,
+        direct_payment_gkr_144_2, direct_payment_gkr_512_2, spend_balance_16_2, Bsb22Commitment,
     },
 };
-use zolana_tree::TreeAccount;
+use zolana_tree::{SppTreeLayout, TreeAccount};
 
 use super::{buffer, check_freshness, load_payload, tree_layout, verify, verify_with_commitment};
 use crate::instructions::{
@@ -106,26 +107,14 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
     if admitted && filter.is_none() {
         return Err(ShieldedPoolError::InvalidNullifierFilter.into());
     }
-    let clock = Clock::get()?;
-    if !statement.validate()
-        || clock.slot > statement.expiry_slot
-        || statement.output_tree != output_tree.address().to_bytes()
-    {
-        return Err(ProgramError::InvalidArgument);
-    }
-    let output_tree_id = {
-        let bytes = output_tree.try_borrow()?;
-        if !output_tree.owned_by(&crate::ID) {
-            return Err(ProgramError::IllegalOwner);
-        }
-        let tree = TreeAccount::read_layout(&bytes).map_err(tree_error)?;
-        if tree.discriminator != TREE_ACCOUNT_DISCRIMINATOR
-            || tree.state != zolana_tree::INITIALIZED
-        {
-            return Err(ShieldedPoolError::InvalidTreeAccounts.into());
-        }
-        tree.tree_id
+    let mut spend = Spend {
+        owner,
+        input_tree,
+        output_tree,
+        pending,
+        filter,
     };
+    let output_tree_id = spend.check_statement(&statement)?;
     let intent = statement.intent(owner.address().as_array(), payment.address().as_array())?;
     let nullifier_capacity = match &statement.inputs {
         PaymentInputs::Certificates(addresses) => addresses
@@ -137,8 +126,8 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
     let mut nullifiers = Vec::with_capacity(nullifier_capacity);
     let mut values = Vec::with_capacity(MAX_CERTIFICATES);
     {
-        let bytes = input_tree.try_borrow()?;
-        let tree = tree_layout(input_tree, &bytes)?;
+        let bytes = spend.input_tree.try_borrow()?;
+        let tree = tree_layout(spend.input_tree, &bytes)?;
         match &statement.inputs {
             PaymentInputs::Certificates(addresses) => {
                 if commitment.is_some() {
@@ -162,7 +151,7 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
                         return Err(ProgramError::InvalidAccountData);
                     };
                     if !certificate.validate(CERTIFICATE_INPUTS)
-                        || certificate.tree != input_tree.address().to_bytes()
+                        || certificate.tree != spend.input_tree.address().to_bytes()
                     {
                         return Err(ProgramError::InvalidAccountData);
                     }
@@ -190,128 +179,256 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
                 certificate,
                 freshness,
             } => {
-                if !certificate.validate(capacity)
-                    || !receipts.is_empty()
-                    || certificate.tree != input_tree.address().to_bytes()
-                    || tree.utxo.root_by_index(certificate.state_root.index).ok()
-                        != Some(certificate.state_root.value)
-                {
+                if !receipts.is_empty() {
                     return Err(ProgramError::InvalidArgument);
                 }
-                if admitted {
-                    if freshness.index != 0 || freshness.value != [0; 32] {
-                        return Err(ProgramError::InvalidArgument);
-                    }
-                } else {
-                    check_freshness(tree, *freshness)?;
-                }
-                let id = certificate_id(payment.address().as_array())?;
-                values.push([id, certificate.value_commitment]);
-                let mut fields = vec![field(domain)];
-                fields.extend(certificate.fields(
-                    id,
-                    owner.address().as_array(),
-                    tree.tree_id,
+                NotesProof {
+                    statement: &statement,
+                    certificate,
+                    freshness,
+                    proof: &proof,
+                    commitment: commitment.as_ref(),
                     capacity,
-                )?);
-                if !admitted {
-                    fields.extend(certificate.freshness_fields(
-                        *freshness,
-                        tree.tree_id,
-                        capacity,
-                    )?);
+                    domain,
+                    owner: owner.address().as_array(),
+                    binding: payment.address().as_array(),
+                    input_tree: tree,
+                    input_tree_address: &spend.input_tree.address().to_bytes(),
+                    output_tree_id,
+                    intent,
                 }
-                fields.extend(statement.balance_fields(intent, output_tree_id, &values, 1)?);
-                let key = match (domain, commitment.is_some(), capacity) {
-                    (ADMITTED_PAYMENT_DOMAIN, true, 144) => {
-                        &direct_payment_admitted_144_2::VERIFYINGKEY
-                    }
-                    (ADMITTED_PAYMENT_DOMAIN, true, MAX_INPUTS) => {
-                        &direct_payment_admitted_512_2::VERIFYINGKEY
-                    }
-                    (ADMITTED_DAG_PAYMENT_DOMAIN, true, MAX_INPUTS) => {
-                        &direct_payment_admitted_dag10_512_2::VERIFYINGKEY
-                    }
-                    (PAYMENT_DOMAIN, false, MAX_INPUTS) => &direct_payment_512_2::VERIFYINGKEY,
-                    (PAYMENT_DOMAIN, true, 144) => &direct_payment_gkr_144_2::VERIFYINGKEY,
-                    (PAYMENT_DOMAIN, true, MAX_INPUTS) => &direct_payment_gkr_512_2::VERIFYINGKEY,
-                    _ => return Err(ProgramError::InvalidArgument),
-                };
-                verify_with_commitment(&proof, commitment.as_ref(), &fields, key)?;
+                .verify()?;
                 nullifiers.extend_from_slice(&certificate.nullifiers);
             }
         }
     }
-    if nullifiers.len() > MAX_INPUTS {
-        return Err(ProgramError::InvalidArgument);
-    }
-    let input_address = input_tree.address().to_bytes();
-    let result = {
-        let mut tree =
-            TreeAccount::from_account_view_mut(input_tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-                .map_err(tree_error)?;
-        let first_input_queue_seq = tree.nullifier_tree().queue_next_index;
-        for nullifier in &nullifiers {
-            tree.nullifier_tree()
-                .insert_nullifier_into_queue(nullifier)
-                .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
-        }
-        let forester_fee = tree
-            .credit_insertion_fee(nullifiers.len() as u64)
-            .map_err(tree_error)?;
-        if forester_fee > statement.max_forester_fee {
+    let settled = spend.settle(&nullifiers, &statement, admitted)?;
+    buffer::mark_spent(&mut payment.try_borrow_mut()?);
+    emit_events(&statement, &nullifiers, &settled)
+}
+
+/// A note payment's proof and everything its public input is computed from.
+pub(super) struct NotesProof<'a> {
+    pub statement: &'a Payment,
+    pub certificate: &'a Certificate,
+    pub freshness: &'a Root,
+    pub proof: &'a zolana_interface::direct_spend::Proof,
+    pub commitment: Option<&'a Bsb22Commitment>,
+    pub capacity: usize,
+    pub domain: u64,
+    pub owner: &'a [u8; 32],
+    /// The buffer address, or `INLINE_BINDING` for an inline spend; it fixes
+    /// the certificate id and the intent.
+    pub binding: &'a [u8; 32],
+    pub input_tree: &'a SppTreeLayout,
+    pub input_tree_address: &'a [u8; 32],
+    pub output_tree_id: u16,
+    pub intent: [u8; 32],
+}
+
+impl NotesProof<'_> {
+    /// Check the certificate against the input tree and verify the proof
+    /// under the key of `(domain, capacity, outputs)`.
+    pub fn verify(self) -> ProgramResult {
+        let admitted = self.domain != PAYMENT_DOMAIN;
+        let tree = self.input_tree;
+        if !self.certificate.validate(self.capacity)
+            || self.certificate.tree != *self.input_tree_address
+            || tree
+                .utxo
+                .root_by_index(self.certificate.state_root.index)
+                .ok()
+                != Some(self.certificate.state_root.value)
+        {
             return Err(ProgramError::InvalidArgument);
         }
-        InputTreeResult {
-            input_tree: InputTreeSequence {
-                tree: input_address,
-                first_input_queue_seq,
-            },
-            forester_fee,
-            fee_balance: tree.fee_balance(),
-            tree_id: tree.tree_id(),
-        }
-    };
-    let mut nullifier_accounts = vec![pending];
-    if let Some(filter) = filter {
-        nullifier_accounts.push(filter);
-    }
-    create_nullifier_pdas(
-        owner,
-        input_tree,
-        &mut nullifier_accounts,
-        nullifiers.iter(),
-        &result,
         if admitted {
-            NullifierAdmission::FilterNegative
+            if self.freshness.index != 0 || self.freshness.value != [0; 32] {
+                return Err(ProgramError::InvalidArgument);
+            }
         } else {
-            NullifierAdmission::ExactProof
-        },
-    )?;
-    let first_output_leaf_index = {
-        let mut tree =
-            TreeAccount::from_account_view_mut(output_tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-                .map_err(tree_error)?;
-        let start = tree.utxo_tree().next_index();
-        tree.utxo_tree()
-            .append_batch(
-                statement
-                    .outputs
-                    .iter()
-                    .map(|output| &output.utxo.utxo_hash),
-                clock.slot,
+            check_freshness(tree, *self.freshness)?;
+        }
+        let id = certificate_id(self.binding)?;
+        let values = [[id, self.certificate.value_commitment]];
+        let mut fields = vec![field(self.domain)];
+        fields.extend(
+            self.certificate
+                .fields(id, self.owner, tree.tree_id, self.capacity)?,
+        );
+        if !admitted {
+            fields.extend(self.certificate.freshness_fields(
+                *self.freshness,
+                tree.tree_id,
+                self.capacity,
+            )?);
+        }
+        fields.extend(self.statement.balance_fields(
+            self.intent,
+            self.output_tree_id,
+            &values,
+            1,
+        )?);
+        let outputs = self.statement.outputs.len();
+        let key = match (
+            self.domain,
+            self.commitment.is_some(),
+            self.capacity,
+            outputs,
+        ) {
+            (ADMITTED_PAYMENT_DOMAIN, true, INLINE_INPUTS, 1) => {
+                &direct_payment_admitted_100_1::VERIFYINGKEY
+            }
+            (ADMITTED_PAYMENT_DOMAIN, true, 144, 2) => &direct_payment_admitted_144_2::VERIFYINGKEY,
+            (ADMITTED_PAYMENT_DOMAIN, true, MAX_INPUTS, 2) => {
+                &direct_payment_admitted_512_2::VERIFYINGKEY
+            }
+            (ADMITTED_DAG_PAYMENT_DOMAIN, true, MAX_INPUTS, 2) => {
+                &direct_payment_admitted_dag10_512_2::VERIFYINGKEY
+            }
+            (PAYMENT_DOMAIN, false, MAX_INPUTS, 2) => &direct_payment_512_2::VERIFYINGKEY,
+            (PAYMENT_DOMAIN, true, 144, 2) => &direct_payment_gkr_144_2::VERIFYINGKEY,
+            (PAYMENT_DOMAIN, true, MAX_INPUTS, 2) => &direct_payment_gkr_512_2::VERIFYINGKEY,
+            _ => return Err(ProgramError::InvalidArgument),
+        };
+        verify_with_commitment(self.proof, self.commitment, &fields, key)
+    }
+}
+
+/// The accounts every spend settles into.
+pub(super) struct Spend<'a> {
+    pub owner: &'a AccountView,
+    pub input_tree: &'a mut AccountView,
+    pub output_tree: &'a mut AccountView,
+    pub pending: &'a mut AccountView,
+    pub filter: Option<&'a mut AccountView>,
+}
+
+pub(super) struct Settled {
+    pub input: InputTreeResult,
+    pub first_output_leaf_index: u64,
+}
+
+impl Spend<'_> {
+    /// Statement shape, expiry and output tree; returns the output tree id.
+    pub fn check_statement(&self, statement: &Payment) -> Result<u16, ProgramError> {
+        let clock = Clock::get()?;
+        if !statement.validate()
+            || clock.slot > statement.expiry_slot
+            || statement.output_tree != self.output_tree.address().to_bytes()
+        {
+            return Err(ProgramError::InvalidArgument);
+        }
+        let bytes = self.output_tree.try_borrow()?;
+        if !self.output_tree.owned_by(&crate::ID) {
+            return Err(ProgramError::IllegalOwner);
+        }
+        let tree = TreeAccount::read_layout(&bytes).map_err(tree_error)?;
+        if tree.discriminator != TREE_ACCOUNT_DISCRIMINATOR
+            || tree.state != zolana_tree::INITIALIZED
+        {
+            return Err(ShieldedPoolError::InvalidTreeAccounts.into());
+        }
+        Ok(tree.tree_id)
+    }
+
+    /// Queue and admit `nullifiers`, charge the forester fee, append the
+    /// outputs. The proof must already be verified.
+    pub fn settle(
+        &mut self,
+        nullifiers: &[[u8; 32]],
+        statement: &Payment,
+        admitted: bool,
+    ) -> Result<Settled, ProgramError> {
+        if nullifiers.len() > MAX_INPUTS {
+            return Err(ProgramError::InvalidArgument);
+        }
+        let input_address = self.input_tree.address().to_bytes();
+        let input = {
+            let mut tree = TreeAccount::from_account_view_mut(
+                self.input_tree,
+                &crate::ID,
+                TREE_ACCOUNT_DISCRIMINATOR,
             )
             .map_err(tree_error)?;
-        start
-    };
-    buffer::mark_spent(&mut payment.try_borrow_mut()?);
-    // Each event fits the CPI limit and carries its own complete queue coordinates.
+            let first_input_queue_seq = tree.nullifier_tree().queue_next_index;
+            for nullifier in nullifiers {
+                tree.nullifier_tree()
+                    .insert_nullifier_into_queue(nullifier)
+                    .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+            }
+            let forester_fee = tree
+                .credit_insertion_fee(nullifiers.len() as u64)
+                .map_err(tree_error)?;
+            if forester_fee > statement.max_forester_fee {
+                return Err(ProgramError::InvalidArgument);
+            }
+            InputTreeResult {
+                input_tree: InputTreeSequence {
+                    tree: input_address,
+                    first_input_queue_seq,
+                },
+                forester_fee,
+                fee_balance: tree.fee_balance(),
+                tree_id: tree.tree_id(),
+            }
+        };
+        let mut nullifier_accounts = vec![&mut *self.pending];
+        if let Some(filter) = self.filter.as_deref_mut() {
+            nullifier_accounts.push(filter);
+        }
+        create_nullifier_pdas(
+            self.owner,
+            self.input_tree,
+            &mut nullifier_accounts,
+            nullifiers.iter(),
+            &input,
+            if admitted {
+                NullifierAdmission::FilterNegative
+            } else {
+                NullifierAdmission::ExactProof
+            },
+        )?;
+        let first_output_leaf_index = {
+            let mut tree = TreeAccount::from_account_view_mut(
+                self.output_tree,
+                &crate::ID,
+                TREE_ACCOUNT_DISCRIMINATOR,
+            )
+            .map_err(tree_error)?;
+            let start = tree.utxo_tree().next_index();
+            tree.utxo_tree()
+                .append_batch(
+                    statement
+                        .outputs
+                        .iter()
+                        .map(|output| &output.utxo.utxo_hash),
+                    Clock::get()?.slot,
+                )
+                .map_err(tree_error)?;
+            start
+        };
+        Ok(Settled {
+            input,
+            first_output_leaf_index,
+        })
+    }
+}
+
+/// One event per 64 nullifiers, each within the CPI limit and carrying its
+/// own complete queue coordinates.
+pub(super) fn emit_events(
+    statement: &Payment,
+    nullifiers: &[[u8; 32]],
+    settled: &Settled,
+) -> ProgramResult {
+    let input_address = settled.input.input_tree.tree;
     let mut event_inputs = Vec::with_capacity(64);
     for (chunk_index, chunk) in nullifiers.chunks(64).enumerate() {
         event_inputs.clear();
         event_inputs.extend(chunk.iter().enumerate().map(|(index, nullifier)| Input {
             tree: input_address,
-            input_queue_seq: result.input_tree.first_input_queue_seq
+            input_queue_seq: settled.input.input_tree.first_input_queue_seq
                 + (chunk_index * 64 + index) as u64,
             nullifier: *nullifier,
         }));
@@ -330,7 +447,7 @@ pub fn process_commit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
             messages: Vec::new(),
             tx_viewing_pk: statement.tx_viewing_pk,
             salt: statement.salt,
-            first_output_leaf_index: first_output_leaf_index
+            first_output_leaf_index: settled.first_output_leaf_index
                 + if first {
                     0
                 } else {

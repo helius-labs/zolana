@@ -133,7 +133,7 @@ pub fn certificate(
     let _phase = crate::timing::Phase::start("direct_certificate_witness", 0);
     if inputs.is_empty()
         || inputs.len() > capacity
-        || ![CERTIFICATE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
+        || ![CERTIFICATE_INPUTS, wire::INLINE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
     {
         return Err(invalid("invalid certificate shape"));
     }
@@ -218,7 +218,7 @@ pub fn freshness(
     capacity: usize,
 ) -> Result<(Root, Request), ClientError> {
     if !statement.validate(capacity)
-        || ![CERTIFICATE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
+        || ![CERTIFICATE_INPUTS, wire::INLINE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
         || proofs.len() != statement.nullifiers.len()
     {
         return Err(invalid("invalid freshness shape"));
@@ -271,7 +271,7 @@ pub fn balance(
         || openings.is_empty()
         || openings.len() > capacity
         || ![1, MAX_CERTIFICATES].contains(&capacity)
-        || outputs.len() != 2
+        || outputs.len() != payment.outputs.len()
     {
         return Err(invalid("invalid balance shape"));
     }
@@ -305,7 +305,7 @@ pub fn balance(
     Ok(Request {
         kind: "spend-balance",
         inputs: capacity,
-        outputs: 2,
+        outputs: outputs.len(),
         witness: json!({ "Intent": hex(&intent), "OutputTreeID": hex(&field(output_tree_id.into())), "Asset": hex(&asset), "Values": values, "Outputs": output_witnesses, "PublicInputHash": hex(&public_hash) }),
     })
 }
@@ -511,9 +511,9 @@ fn payment_request(
         return Err(invalid("fused payment requires original notes"));
     };
     let capacity = certificate.inputs;
+    let outputs = balance.outputs;
     if certificate.kind != "input-certificate"
         || balance.kind != "spend-balance"
-        || !wire::GKR_PAYMENT_INPUTS.contains(&capacity)
         || balance.inputs != 1
     {
         return Err(invalid("invalid fused payment shape"));
@@ -522,12 +522,18 @@ fn payment_request(
         if request.kind != "nullifier-freshness" || request.inputs != capacity {
             return Err(invalid("invalid fused freshness shape"));
         }
+        if !wire::GKR_PAYMENT_INPUTS.contains(&capacity) || outputs != 2 {
+            return Err(invalid("invalid fused payment shape"));
+        }
         ("direct-payment", wire::PAYMENT_DOMAIN)
     } else {
         if root.index != 0 || root.value != [0; 32] {
             return Err(invalid(
                 "admitted payment requires canonical zero freshness",
             ));
+        }
+        if !wire::ADMITTED_PAYMENT_SHAPES.contains(&(capacity, outputs)) {
+            return Err(invalid("invalid admitted payment shape"));
         }
         ("direct-payment-admitted", domain)
     };
@@ -559,9 +565,35 @@ fn payment_request(
     Ok(Request {
         kind,
         inputs: capacity,
-        outputs: 2,
+        outputs,
         witness,
     })
+}
+
+/// `inline_spend` instruction data from a one-output admitted payment and its
+/// committed proof.
+pub fn inline_spend(
+    payment: &Payment,
+    owner: Field,
+    proof: ProofCompressed,
+) -> Result<wire::InlineSpend, ClientError> {
+    let commitment = proof
+        .commitment
+        .ok_or_else(|| invalid("inline spend requires a committed proof"))?;
+    wire::InlineSpend::from_payment(
+        payment,
+        &owner,
+        wire::Proof {
+            a: proof.a,
+            b: proof.b,
+            c: proof.c,
+        },
+        zolana_interface::verifying_keys::Bsb22Commitment {
+            commitment: commitment.commitment,
+            commitment_pok: commitment.commitment_pok,
+        },
+    )
+    .map_err(invalid)
 }
 
 impl TryFrom<ProofCompressed> for wire::Proof {

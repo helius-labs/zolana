@@ -1,7 +1,7 @@
 use crate::{
     direct_spend::{
-        BufferInstruction, Payload, PrepareCertificate, BUFFER_CHUNK_SIZE, BUFFER_HEADER_SIZE,
-        BUFFER_SEED, MAX_PAYLOAD,
+        BufferInstruction, InlineSpend, Payload, PrepareCertificate, BUFFER_CHUNK_SIZE,
+        BUFFER_HEADER_SIZE, BUFFER_SEED, MAX_PAYLOAD,
     },
     instruction::{encode_instruction, tag},
     pda, PROGRAM_ID_PUBKEY,
@@ -232,6 +232,29 @@ pub fn commit_spend(
         program_id: PROGRAM_ID_PUBKEY,
         accounts,
         data: vec![tag::DIRECT_SPEND],
+    }
+}
+
+/// One-transaction admitted spend: owner (signer, pays), input tree, output
+/// tree, the tree's pending-nullifier table and historical filter.
+pub fn inline_spend(
+    owner: Pubkey,
+    input_tree: Pubkey,
+    output_tree: Pubkey,
+    data: &InlineSpend,
+) -> Instruction {
+    Instruction {
+        program_id: PROGRAM_ID_PUBKEY,
+        accounts: vec![
+            AccountMeta::new(owner, true),
+            AccountMeta::new(input_tree, false),
+            AccountMeta::new(output_tree, false),
+            AccountMeta::new(pda::pending_nullifiers(&input_tree).0, false),
+            AccountMeta::new(pda::nullifier_filter(&input_tree).0, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+        ],
+        data: encode_instruction(tag::INLINE_SPEND, data),
     }
 }
 

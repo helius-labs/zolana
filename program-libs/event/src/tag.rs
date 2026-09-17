@@ -46,6 +46,7 @@ pub const PREPARE_CERTIFICATE: u8 = 24;
 pub const DIRECT_SPEND: u8 = 25;
 pub const ENABLE_NULLIFIER_FILTER: u8 = 26;
 pub const RETIRE_NULLIFIER_FILTER: u8 = 27;
+pub const INLINE_SPEND: u8 = 28;
 
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +57,7 @@ pub enum InstructionTag {
     DirectSpendBuffer = DIRECT_SPEND_BUFFER,
     PrepareCertificate = PREPARE_CERTIFICATE,
     DirectSpend = DIRECT_SPEND,
+    InlineSpend = INLINE_SPEND,
     EnablePendingNullifiers = ENABLE_PENDING_NULLIFIERS,
     CreateProtocolConfig = CREATE_PROTOCOL_CONFIG,
     UpdateProtocolConfig = UPDATE_PROTOCOL_CONFIG,
@@ -91,6 +93,7 @@ impl TryFrom<u8> for InstructionTag {
             DIRECT_SPEND_BUFFER => Ok(Self::DirectSpendBuffer),
             PREPARE_CERTIFICATE => Ok(Self::PrepareCertificate),
             DIRECT_SPEND => Ok(Self::DirectSpend),
+            INLINE_SPEND => Ok(Self::InlineSpend),
             ENABLE_PENDING_NULLIFIERS => Ok(Self::EnablePendingNullifiers),
             CREATE_PROTOCOL_CONFIG => Ok(Self::CreateProtocolConfig),
             UPDATE_PROTOCOL_CONFIG => Ok(Self::UpdateProtocolConfig),

@@ -172,6 +172,34 @@ impl Fixture {
         }
     }
 
+    /// Switch the tree to historical admission with an empty filter.
+    fn enable_filter(&mut self) -> Pubkey {
+        use zolana_tree::nullifier_filter::{NullifierFilter, DEFAULT_BIT_BYTES, DEFAULT_HASHES};
+        let filter_key = pda::nullifier_filter(&self.tree).0;
+        let mut tree = self.rpc.svm.get_account(&self.tree).unwrap();
+        TreeAccount::from_bytes(&mut tree.data, self.tree.to_bytes())
+            .unwrap()
+            .enable_nullifier_filter()
+            .unwrap();
+        self.rpc.svm.set_account(self.tree, tree).unwrap();
+        let mut data = vec![0; NullifierFilter::account_size(DEFAULT_BIT_BYTES).unwrap()];
+        NullifierFilter::init_zeroed(&mut data, &self.tree.to_bytes(), DEFAULT_HASHES).unwrap();
+        self.rpc
+            .svm
+            .set_account(
+                filter_key,
+                Account {
+                    lamports: 100_000_000_000,
+                    data,
+                    owner: PROGRAM_ID_PUBKEY,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
+        filter_key
+    }
+
     fn upload(&mut self, nonce: [u8; 32], payload: Payload) -> Pubkey {
         let owner = self.owner.pubkey();
         for instruction in instructions::upload_spend(owner, nonce, &payload).unwrap() {
@@ -221,12 +249,21 @@ impl Fixture {
     }
 
     fn payment(&self, inputs: PaymentInputs) -> (Payment, Vec<direct::Output>) {
+        self.payment_with_outputs(inputs, &[self.inputs.len() as u64 * 10, 0])
+    }
+
+    fn payment_with_outputs(
+        &self,
+        inputs: PaymentInputs,
+        amounts: &[u64],
+    ) -> (Payment, Vec<direct::Output>) {
         let recipient = self.owner.pubkey().to_bytes();
         let nullifier_pk = self.key.pubkey().unwrap();
         let owner_hash =
             Poseidon::hashv(&[&solana_owner_identity(&recipient).unwrap(), &nullifier_pk]).unwrap();
-        let outputs = [self.inputs.len() as u64 * 10, 0]
-            .into_iter()
+        let outputs = amounts
+            .iter()
+            .copied()
             .enumerate()
             .map(|(index, amount)| direct::Output {
                 note: ProofInputUtxo {
@@ -427,6 +464,153 @@ fn dag_payment_checks_history_commitment_statement_and_replay() {
     payment_checks_commitment_statement_and_replay(PaymentMode::Dag);
 }
 
+/// 100 notes spent and merged into one output in a single transaction: the
+/// admitted payment travels in the instruction, no buffer account.
+#[test]
+#[ignore]
+fn inline_spend_settles_100_notes_in_one_transaction() {
+    let count = std::env::var("DIRECT_SPEND_TEST_INPUTS")
+        .ok()
+        .map(|value| value.parse::<usize>().unwrap())
+        .unwrap_or(wire::INLINE_INPUTS);
+    let mut fixture = Fixture::new(count);
+    fixture.enable_filter();
+    let owner = fixture.owner.pubkey();
+    let plan = direct::certificate(
+        owner.to_bytes(),
+        wire::INLINE_BINDING,
+        fixture.tree.to_bytes(),
+        7,
+        &fixture.key,
+        &fixture.inputs,
+        field(23),
+        wire::INLINE_INPUTS,
+    )
+    .unwrap();
+    let (payment, outputs) = fixture.payment_with_outputs(
+        PaymentInputs::Notes {
+            certificate: plan.statement,
+            freshness: Root {
+                index: 0,
+                value: [0; 32],
+            },
+        },
+        &[count as u64 * 10],
+    );
+    let balance = direct::balance(
+        &payment,
+        owner.to_bytes(),
+        wire::INLINE_BINDING,
+        8,
+        &[&plan.opening],
+        &outputs,
+        1,
+    )
+    .unwrap();
+    let request = direct::admitted_payment(
+        plan.request,
+        balance,
+        &payment,
+        owner.to_bytes(),
+        wire::INLINE_BINDING,
+        7,
+        8,
+        &plan.opening,
+    )
+    .unwrap();
+    let url = std::env::var("ZOLANA_PROVER_URL").expect("set ZOLANA_PROVER_URL");
+    let started = std::time::Instant::now();
+    let proof = ProofCompressed::try_from(ProverClient::new(url).prove(&request).unwrap()).unwrap();
+    println!(
+        "inline_spend {count} inputs: proof in {:.2?}",
+        started.elapsed()
+    );
+    let data = direct::inline_spend(&payment, owner.to_bytes(), proof).unwrap();
+    let instruction = instructions::inline_spend(owner, fixture.tree, fixture.output_tree, &data);
+
+    let size = zolana_client::transaction_size(
+        &Address::new_from_array(owner.to_bytes()),
+        &[instruction.clone()],
+        direct::COMPUTE_BUDGET,
+    )
+    .unwrap();
+    println!(
+        "inline_spend {count} inputs: {} bytes, {} addresses",
+        size.bytes, size.addresses
+    );
+    assert!(
+        size.fits(),
+        "inline spend must fit one v1 transaction: {size:?}"
+    );
+
+    let queue_before = {
+        let mut tree = fixture.rpc.svm.get_account(&fixture.tree).unwrap();
+        TreeAccount::from_bytes(&mut tree.data, fixture.tree.to_bytes())
+            .unwrap()
+            .nullifier_tree()
+            .queue_next_index
+    };
+    fixture
+        .rpc
+        .create_and_send_transaction_with_budget(
+            &[instruction.clone()],
+            &owner,
+            &[&fixture.owner],
+            direct::COMPUTE_BUDGET,
+        )
+        .unwrap();
+    let trace = fixture.rpc.last_transaction_trace().unwrap();
+    println!(
+        "inline_spend {count} inputs: {} CU",
+        trace.compute_units_consumed
+    );
+    let queue_after = {
+        let mut tree = fixture.rpc.svm.get_account(&fixture.tree).unwrap();
+        TreeAccount::from_bytes(&mut tree.data, fixture.tree.to_bytes())
+            .unwrap()
+            .nullifier_tree()
+            .queue_next_index
+    };
+    assert_eq!(queue_after, queue_before + count as u64);
+
+    // Replay: every nullifier is pending now.
+    let error = fixture
+        .rpc
+        .create_and_send_transaction_with_budget(
+            &[instruction],
+            &owner,
+            &[&fixture.owner],
+            direct::COMPUTE_BUDGET,
+        )
+        .unwrap_err();
+    zolana_program_test::Rejection::pool(
+        zolana_interface::error::ShieldedPoolError::NullifierAlreadySpent,
+    )
+    .assert_litesvm(error);
+
+    // A changed statement no longer matches the proof.
+    let mut changed = data.clone();
+    changed.nullifiers[1][0] ^= 1;
+    let error = fixture
+        .rpc
+        .create_and_send_transaction_with_budget(
+            &[instructions::inline_spend(
+                owner,
+                fixture.tree,
+                fixture.output_tree,
+                &changed,
+            )],
+            &owner,
+            &[&fixture.owner],
+            direct::COMPUTE_BUDGET,
+        )
+        .unwrap_err();
+    zolana_program_test::Rejection::pool(
+        zolana_interface::error::ShieldedPoolError::TransactProofVerificationFailed,
+    )
+    .assert_litesvm(error);
+}
+
 enum PaymentMode {
     Gkr,
     Admitted,
@@ -442,32 +626,7 @@ fn payment_checks_commitment_statement_and_replay(mode: PaymentMode) {
         .unwrap_or(4);
     let capacity = if !dag && count <= 144 { 144 } else { 512 };
     let mut fixture = Fixture::new(count);
-    let filter_key = pda::nullifier_filter(&fixture.tree).0;
-    {
-        use zolana_tree::nullifier_filter::{NullifierFilter, DEFAULT_BIT_BYTES, DEFAULT_HASHES};
-        let mut tree = fixture.rpc.svm.get_account(&fixture.tree).unwrap();
-        TreeAccount::from_bytes(&mut tree.data, fixture.tree.to_bytes())
-            .unwrap()
-            .enable_nullifier_filter()
-            .unwrap();
-        fixture.rpc.svm.set_account(fixture.tree, tree).unwrap();
-        let mut data = vec![0; NullifierFilter::account_size(DEFAULT_BIT_BYTES).unwrap()];
-        NullifierFilter::init_zeroed(&mut data, &fixture.tree.to_bytes(), DEFAULT_HASHES).unwrap();
-        fixture
-            .rpc
-            .svm
-            .set_account(
-                filter_key,
-                Account {
-                    lamports: 100_000_000_000,
-                    data,
-                    owner: PROGRAM_ID_PUBKEY,
-                    executable: false,
-                    rent_epoch: 0,
-                },
-            )
-            .unwrap();
-    }
+    let filter_key = fixture.enable_filter();
     let owner = fixture.owner.pubkey();
     let nonce = field(8888);
     let buffer = instructions::spend_buffer(&owner, &nonce);

@@ -86,6 +86,9 @@ pub fn process_instruction(
         InstructionTag::DirectSpend => {
             instructions::direct_spend::process_commit(accounts, payload)
         }
+        InstructionTag::InlineSpend => {
+            instructions::direct_spend::process_inline(accounts, payload)
+        }
         InstructionTag::EnablePendingNullifiers => {
             instructions::pending_nullifiers::process_pending_nullifiers(accounts, payload)
         }

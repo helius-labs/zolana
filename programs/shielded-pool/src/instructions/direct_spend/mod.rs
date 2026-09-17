@@ -1,9 +1,11 @@
 mod buffer;
 mod commit;
+mod inline;
 mod prepare;
 
 pub use buffer::process_buffer;
 pub use commit::process_commit;
+pub use inline::process_inline;
 pub use prepare::process_prepare;
 
 use borsh::BorshDeserialize;

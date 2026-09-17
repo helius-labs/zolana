@@ -50,6 +50,18 @@ func TestAdmittedPayment(t *testing.T) {
 	}
 }
 
+// The inline shape: 100 notes, one output, admitted freshness.
+func TestAdmittedInlinePayment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("solves a 1.1M-constraint circuit")
+	}
+	for _, active := range []int{1, 100} {
+		if err := test.IsSolved(direct.NewAdmittedPayment(100, 1), admittedPayment(t, payment(t, 100, active)), ecc.BN254.ScalarField()); err != nil {
+			t.Fatalf("active=%d: %v", active, err)
+		}
+	}
+}
+
 func TestAdmittedPaymentRejects(t *testing.T) {
 	for name, mutate := range map[string]func(*direct.AdmittedPaymentCircuit){
 		"inflation":      func(w *direct.AdmittedPaymentCircuit) { w.Balance.Outputs[0].Amount = 21 },
@@ -345,9 +357,10 @@ func TestAdmittedPaymentConstraints(t *testing.T) {
 	if os.Getenv("ADMITTED_PAYMENT_COUNTS") == "" {
 		t.Skip("set ADMITTED_PAYMENT_COUNTS=1")
 	}
-	for _, inputs := range []int{144, 512} {
-		t.Run(fmt.Sprint(inputs), func(t *testing.T) {
-			cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, direct.NewAdmittedPayment(inputs, 2), frontend.WithCompressThreshold(300))
+	for _, shape := range [][2]int{{100, 1}, {144, 2}, {512, 2}} {
+		inputs, outputs := shape[0], shape[1]
+		t.Run(fmt.Sprintf("%dx%d", inputs, outputs), func(t *testing.T) {
+			cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, direct.NewAdmittedPayment(inputs, outputs), frontend.WithCompressThreshold(300))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -355,7 +368,7 @@ func TestAdmittedPaymentConstraints(t *testing.T) {
 			if len(commitments) != 1 || len(commitments[0].PublicAndCommitmentCommitted) != 0 || cs.GetNbPublicVariables() != 2 {
 				t.Fatal("admitted payment does not match the single private BSB22 commitment verifier")
 			}
-			t.Logf("ADMITTED_PAYMENT inputs=%d outputs=2 constraints=%d public_variables=%d private_committed=%d digest=%s", inputs, cs.GetNbConstraints(), cs.GetNbPublicVariables(), len(commitments[0].PrivateCommitted), constraintDigest(t, cs))
+			t.Logf("ADMITTED_PAYMENT inputs=%d outputs=%d constraints=%d public_variables=%d private_committed=%d digest=%s", inputs, outputs, cs.GetNbConstraints(), cs.GetNbPublicVariables(), len(commitments[0].PrivateCommitted), constraintDigest(t, cs))
 			for _, blueprint := range cs.(*csbn254.R1CS).Blueprints {
 				if reflect.TypeOf(blueprint).Elem().Name() == "BlueprintProve" {
 					elements := blueprint.NbOutputs(constraint.Instruction{})

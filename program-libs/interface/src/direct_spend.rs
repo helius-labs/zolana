@@ -11,6 +11,13 @@ pub const BUFFER_SEED: &[u8] = b"direct_spend";
 pub const CERTIFICATE_INPUTS: usize = 36;
 pub const MAX_INPUTS: usize = 512;
 pub const GKR_PAYMENT_INPUTS: [usize; 2] = [144, MAX_INPUTS];
+/// Input count of the inline admitted payment: statement, proof and
+/// commitment fit one transaction, so a merge of up to 100 notes settles in a
+/// single `inline_spend` without a buffer account.
+pub const INLINE_INPUTS: usize = 100;
+/// Admitted payment circuit shapes `(inputs, outputs)` with a committed key.
+pub const ADMITTED_PAYMENT_SHAPES: [(usize, usize); 3] =
+    [(144, 2), (MAX_INPUTS, 2), (INLINE_INPUTS, 1)];
 pub const MAX_CERTIFICATES: usize = 16;
 pub const MAX_PAYLOAD: usize = 24_000;
 pub const BUFFER_HEADER_SIZE: usize = 80;
@@ -129,7 +136,7 @@ impl Payment {
             PaymentInputs::Notes { certificate, .. } => certificate.validate(MAX_INPUTS),
         };
         inputs
-            && self.outputs.len() == 2
+            && (1..=2).contains(&self.outputs.len())
             && self.outputs.iter().all(|output| {
                 (output.utxo.data.is_empty()
                     || zolana_event::is_confidential_encrypted_output(&output.utxo.data))
@@ -204,6 +211,113 @@ pub enum Payload {
     },
 }
 
+/// `inline_spend` instruction data: an admitted payment carried in the
+/// transaction instead of a buffer account. Every output goes to the owner,
+/// and the input tree, output tree and state root value come from the
+/// accounts, so the encoding stays under the transaction limit at
+/// [`INLINE_INPUTS`] notes. [`Self::payment`] expands it to the [`Payment`]
+/// the circuit, the intent hash and the event are defined over.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct InlineSpend {
+    pub nullifiers: Vec<[u8; 32]>,
+    pub state_root_index: u16,
+    pub value_commitment: [u8; 32],
+    pub expiry_slot: u64,
+    pub max_forester_fee: u64,
+    pub output: OutputUtxo,
+    pub tx_viewing_pk: [u8; 33],
+    pub salt: [u8; 16],
+    pub proof: Proof,
+    pub commitment: crate::verifying_keys::Bsb22Commitment,
+}
+
+/// Stands in for the buffer address in the intent and certificate id of an
+/// inline payment, which has no buffer.
+pub const INLINE_BINDING: [u8; 32] = [0; 32];
+
+impl InlineSpend {
+    pub fn payment(
+        &self,
+        owner: &[u8; 32],
+        input_tree: &[u8; 32],
+        output_tree: &[u8; 32],
+        state_root: [u8; 32],
+    ) -> Payment {
+        Payment {
+            inputs: PaymentInputs::Notes {
+                certificate: Certificate {
+                    tree: *input_tree,
+                    state_root: Root {
+                        index: self.state_root_index,
+                        value: state_root,
+                    },
+                    nullifiers: self.nullifiers.clone(),
+                    value_commitment: self.value_commitment,
+                },
+                freshness: Root {
+                    index: 0,
+                    value: [0; 32],
+                },
+            },
+            output_tree: *output_tree,
+            expiry_slot: self.expiry_slot,
+            max_forester_fee: self.max_forester_fee,
+            outputs: vec![Output {
+                recipient: *owner,
+                utxo: self.output.clone(),
+            }],
+            tx_viewing_pk: self.tx_viewing_pk,
+            salt: self.salt,
+        }
+    }
+
+    /// The inverse of [`Self::payment`]: `payment` must be a one-output note
+    /// payment whose recipient is `owner`.
+    pub fn from_payment(
+        payment: &Payment,
+        owner: &[u8; 32],
+        proof: Proof,
+        commitment: crate::verifying_keys::Bsb22Commitment,
+    ) -> Result<Self, &'static str> {
+        let PaymentInputs::Notes {
+            certificate,
+            freshness,
+        } = &payment.inputs
+        else {
+            return Err("inline spend requires original notes");
+        };
+        if *freshness
+            != (Root {
+                index: 0,
+                value: [0; 32],
+            })
+        {
+            return Err("inline spend requires canonical zero freshness");
+        }
+        let [output] = payment.outputs.as_slice() else {
+            return Err("inline spend has exactly one output");
+        };
+        if output.recipient != *owner {
+            return Err("inline spend pays the owner");
+        }
+        if certificate.nullifiers.len() > INLINE_INPUTS {
+            return Err("too many inputs for an inline spend");
+        }
+        Ok(Self {
+            nullifiers: certificate.nullifiers.clone(),
+            state_root_index: certificate.state_root.index,
+            value_commitment: certificate.value_commitment,
+            expiry_slot: payment.expiry_slot,
+            max_forester_fee: payment.max_forester_fee,
+            output: output.utxo.clone(),
+            tx_viewing_pk: payment.tx_viewing_pk,
+            salt: payment.salt,
+            proof,
+            commitment,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum BufferInstruction {
     Create { nonce: [u8; 32], size: u16 },
@@ -254,6 +368,68 @@ mod tests {
             tx_viewing_pk: [0; 33],
             salt: [0; 16],
         }
+    }
+
+    #[test]
+    fn inline_spend_round_trips_and_fits_one_transaction() {
+        let owner = [5; 32];
+        let payment = Payment {
+            inputs: PaymentInputs::Notes {
+                certificate: Certificate {
+                    tree: [1; 32],
+                    state_root: Root {
+                        index: 3,
+                        value: [2; 32],
+                    },
+                    nullifiers: vec![[7; 32]; INLINE_INPUTS],
+                    value_commitment: [8; 32],
+                },
+                freshness: Root {
+                    index: 0,
+                    value: [0; 32],
+                },
+            },
+            output_tree: [9; 32],
+            expiry_slot: 77,
+            max_forester_fee: 5,
+            outputs: vec![Output {
+                recipient: owner,
+                utxo: OutputUtxo {
+                    view_tag: [4; 32],
+                    utxo_hash: [1; 32],
+                    data: Vec::new(),
+                },
+            }],
+            tx_viewing_pk: [6; 33],
+            salt: [3; 16],
+        };
+        let inline = InlineSpend::from_payment(
+            &payment,
+            &owner,
+            Proof {
+                a: [0; 32],
+                b: [0; 128],
+                c: [0; 32],
+            },
+            crate::verifying_keys::Bsb22Commitment {
+                commitment: [0; 32],
+                commitment_pok: [0; 32],
+            },
+        )
+        .unwrap();
+        assert_eq!(inline.payment(&owner, &[1; 32], &[9; 32], [2; 32]), payment);
+        // 100 nullifiers plus proof, commitment and statement; the transaction
+        // v1 envelope (signature, 7 addresses, compute budget) adds about 360.
+        assert_eq!(borsh::to_vec(&inline).unwrap().len(), 3_627);
+        let mut two_outputs = payment.clone();
+        two_outputs.outputs.push(two_outputs.outputs[0].clone());
+        assert!(InlineSpend::from_payment(
+            &two_outputs,
+            &owner,
+            inline.proof.clone(),
+            inline.commitment
+        )
+        .is_err());
     }
 
     #[test]
