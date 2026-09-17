@@ -851,6 +851,7 @@ func servedCircuits() []common.CircuitType {
 		common.MergeRingCircuitType,
 		common.InputCertificateCircuitType,
 		common.NullifierFreshnessCircuitType,
+		common.NullifierFreshnessGKRCircuitType,
 		common.SpendBalanceCircuitType,
 		common.DirectPaymentCircuitType,
 		common.DirectPaymentGKRCircuitType,
@@ -1114,6 +1115,7 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.MergeRingCircuitType,
 		common.InputCertificateCircuitType,
 		common.NullifierFreshnessCircuitType,
+		common.NullifierFreshnessGKRCircuitType,
 		common.SpendBalanceCircuitType,
 		common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType:
 		return "zk_transfer_queue"
@@ -1130,7 +1132,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 		return "10-30 seconds"
 	case common.TransferP256RingCircuitType:
 		return "30-180 seconds"
-	case common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType:
+	case common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType, common.NullifierFreshnessGKRCircuitType:
 		return "30-180 seconds"
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
 		return "1-10 seconds"
@@ -1152,7 +1154,7 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
 		return 60
-	case common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType:
+	case common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType, common.NullifierFreshnessGKRCircuitType:
 		return 120
 	default:
 		return 1
@@ -1189,6 +1191,7 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.transferP256Proof(buf)
 	case common.InputCertificateCircuitType,
 		common.NullifierFreshnessCircuitType,
+		common.NullifierFreshnessGKRCircuitType,
 		common.SpendBalanceCircuitType,
 		common.DirectPaymentCircuitType, common.DirectPaymentGKRCircuitType, common.DirectPaymentAdmittedCircuitType, common.DirectPaymentAdmittedDAG10CircuitType:
 		request, assignment, err := directprover.Decode(buf)

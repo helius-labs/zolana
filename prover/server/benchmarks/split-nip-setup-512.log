@@ -1,0 +1,4 @@
+[90m11:05:55[0m [32mINF[0m [1mcompiling circuit[0m
+[90m11:05:55[0m [32mINF[0m [1mparsed circuit inputs[0m [36mnbPublic=[0m1 [36mnbSecret=[0m22531
+[90m11:05:59[0m [32mINF[0m [1mbuilding constraint builder[0m [36mnbConstraints=[0m2579487
+       61.52 real       633.26 user        16.78 sys

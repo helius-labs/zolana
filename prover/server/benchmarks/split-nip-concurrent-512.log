@@ -1,0 +1,29 @@
+=== RUN   TestSplitNipConcurrentProving
+    split_nip_test.go:161: go=go1.27.1 arch=arm64 cpus=18 gomaxprocs=18 memory_limit=32GiB samples=3
+    split_nip_test.go:165: SPLIT_NIP_WITNESS half=private inputs=512 build_ms=1917
+    split_nip_test.go:168: SPLIT_NIP_WITNESS half=public inputs=512 build_ms=1154
+[90m11:07:28[0m [32mINF[0m [1mLoading TransferProofSystem[0m [36mcache_key=[0mdirect-payment-admitted_512_2 [36mkey_path=[0m/Users/tsv/Developer/zolana/zolana-split-nip/prover/server/proving-keys/direct-payment-admitted_512_2.key
+[90m11:07:34[0m [32mINF[0m [1mTransferProofSystem loaded and cached successfully[0m [36mcache_key=[0mdirect-payment-admitted_512_2 [36mcircuit_type=[0mdirect-payment-admitted [36mn_inputs=[0m512 [36mn_outputs=[0m2 [36mrequires_p256=[0mfalse
+    split_nip_test.go:176: SPLIT_NIP_KEY half=private constraints=1754522 load_ms=5959
+    split_nip_test.go:178: SPLIT_NIP_COMPILE inputs=512 constraints=2579487 compile_ms=4004
+[90m11:07:38[0m [32mINF[0m [1mLoading TransferProofSystem[0m [36mcache_key=[0mnullifier-freshness-gkr_512_0 [36mkey_path=[0m/Users/tsv/Developer/zolana/zolana-split-nip/prover/server/proving-keys/nullifier-freshness-gkr_512_0.key
+[90m11:07:47[0m [32mINF[0m [1mTransferProofSystem loaded and cached successfully[0m [36mcache_key=[0mnullifier-freshness-gkr_512_0 [36mcircuit_type=[0mnullifier-freshness-gkr [36mn_inputs=[0m512 [36mn_outputs=[0m0 [36mrequires_p256=[0mfalse
+    split_nip_test.go:179: SPLIT_NIP_KEY half=public constraints=2579487 load_ms=12756
+    split_nip_test.go:195: SPLIT_NIP_PROVE mode=sequential half=private inputs=512 sample=0 prove_ms=2994.016
+    split_nip_test.go:195: SPLIT_NIP_PROVE mode=sequential half=public inputs=512 sample=0 prove_ms=3783.285
+    split_nip_test.go:215: SPLIT_NIP_PROVE mode=concurrent half=private inputs=512 sample=0 prove_ms=3552.721
+    split_nip_test.go:215: SPLIT_NIP_PROVE mode=concurrent half=public inputs=512 sample=0 prove_ms=5658.629
+    split_nip_test.go:219: SPLIT_NIP_WALL inputs=512 sample=0 sequential_ms=6777.302 concurrent_ms=5663.983 heap_bytes=6855901312
+    split_nip_test.go:195: SPLIT_NIP_PROVE mode=sequential half=private inputs=512 sample=1 prove_ms=2999.713
+    split_nip_test.go:195: SPLIT_NIP_PROVE mode=sequential half=public inputs=512 sample=1 prove_ms=3832.929
+    split_nip_test.go:215: SPLIT_NIP_PROVE mode=concurrent half=private inputs=512 sample=1 prove_ms=3475.986
+    split_nip_test.go:215: SPLIT_NIP_PROVE mode=concurrent half=public inputs=512 sample=1 prove_ms=5532.202
+    split_nip_test.go:219: SPLIT_NIP_WALL inputs=512 sample=1 sequential_ms=6832.642 concurrent_ms=5537.129 heap_bytes=6867309352
+    split_nip_test.go:195: SPLIT_NIP_PROVE mode=sequential half=private inputs=512 sample=2 prove_ms=3028.354
+    split_nip_test.go:195: SPLIT_NIP_PROVE mode=sequential half=public inputs=512 sample=2 prove_ms=3945.703
+    split_nip_test.go:215: SPLIT_NIP_PROVE mode=concurrent half=private inputs=512 sample=2 prove_ms=3680.167
+    split_nip_test.go:215: SPLIT_NIP_PROVE mode=concurrent half=public inputs=512 sample=2 prove_ms=6043.161
+    split_nip_test.go:219: SPLIT_NIP_WALL inputs=512 sample=2 sequential_ms=6974.058 concurrent_ms=6048.304 heap_bytes=6872157896
+--- PASS: TestSplitNipConcurrentProving (59.88s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	60.282s

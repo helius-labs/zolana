@@ -34,6 +34,8 @@ func Circuit(kind common.CircuitType, inputs, outputs uint32) (frontend.Circuit,
 		return direct.NewCertificate(int(inputs)), nil
 	case common.NullifierFreshnessCircuitType:
 		return direct.NewFreshness(int(inputs)), nil
+	case common.NullifierFreshnessGKRCircuitType:
+		return direct.NewGKRFreshness(int(inputs)), nil
 	case common.SpendBalanceCircuitType:
 		return direct.NewBalance(int(inputs), int(outputs)), nil
 	case common.DirectPaymentCircuitType:

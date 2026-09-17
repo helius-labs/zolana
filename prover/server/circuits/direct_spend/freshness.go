@@ -48,6 +48,33 @@ func (c *FreshnessCircuit) Define(api frontend.API) error {
 	return nil
 }
 
+// GKRFreshnessCircuit proves the FreshnessCircuit statement with every
+// nullifier-tree hash batched through the GKR compressor. The public input is
+// identical, so the program-side statement does not change; only the
+// verifying key does. It is the public half of a split spend: non-membership
+// concerns published nullifiers and a public root, so anyone can prove it,
+// separately from and concurrently with the private membership proof.
+type GKRFreshnessCircuit struct {
+	Freshness
+	PublicInputHash frontend.Variable `gnark:",public"`
+}
+
+func NewGKRFreshness(n int) *GKRFreshnessCircuit {
+	return &GKRFreshnessCircuit{Freshness: NewFreshness(n).Freshness}
+}
+
+func (c *GKRFreshnessCircuit) Define(api frontend.API) error {
+	compressor, err := gadget.NewGKRCompressor(api)
+	if err != nil {
+		return err
+	}
+	if err := c.Freshness.constrainWithCompressor(api, compressor); err != nil {
+		return err
+	}
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, c.fields(api)))
+	return nil
+}
+
 func (f *Freshness) constrain(api frontend.API) error {
 	return f.constrainWithCompressor(api, nil)
 }

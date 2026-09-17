@@ -1,0 +1,12 @@
+=== RUN   TestSplitNipProving
+    split_nip_test.go:140: go=go1.27.1 arch=arm64 cpus=18 gomaxprocs=18 memory_limit=32GiB
+    split_nip_test.go:143: SPLIT_NIP_WITNESS inputs=512 build_ms=1131
+    split_nip_test.go:144: SPLIT_NIP_COMPILE inputs=512 constraints=2579487 compile_ms=4274
+[90m11:07:04[0m [32mINF[0m [1mLoading TransferProofSystem[0m [36mcache_key=[0mnullifier-freshness-gkr_512_0 [36mkey_path=[0m/Users/tsv/Developer/zolana/zolana-split-nip/prover/server/proving-keys/nullifier-freshness-gkr_512_0.key
+[90m11:07:13[0m [32mINF[0m [1mTransferProofSystem loaded and cached successfully[0m [36mcache_key=[0mnullifier-freshness-gkr_512_0 [36mcircuit_type=[0mnullifier-freshness-gkr [36mn_inputs=[0m512 [36mn_outputs=[0m0 [36mrequires_p256=[0mfalse
+    split_nip_test.go:145: PAYMENT_PROVE mode=nip_gkr inputs=512 outputs=0 trial=0 constraints=2579487 prove_ms=3658.167 heap_bytes=3897733608
+    split_nip_test.go:145: PAYMENT_PROVE mode=nip_gkr inputs=512 outputs=0 trial=1 constraints=2579487 prove_ms=3648.414 heap_bytes=4025548160
+    split_nip_test.go:145: PAYMENT_PROVE mode=nip_gkr inputs=512 outputs=0 trial=2 constraints=2579487 prove_ms=3618.464 heap_bytes=4027144160
+--- PASS: TestSplitNipProving (25.11s)
+PASS
+ok  	zolana/prover/circuits/direct_spend	25.866s

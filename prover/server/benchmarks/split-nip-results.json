@@ -1,0 +1,80 @@
+{
+  "experiment": "split-nip",
+  "machine": "Apple M5 Pro, 18 CPUs, arm64, GOMAXPROCS=18, GOMEMLIMIT=32GiB, resident keys",
+  "go": "go1.27.1",
+  "gnark": "0.16.3",
+  "circuits": {
+    "private": {
+      "kind": "direct-payment-admitted",
+      "inputs": 512,
+      "outputs": 2,
+      "constraints": 1754522
+    },
+    "public": {
+      "kind": "nullifier-freshness-gkr",
+      "inputs": 512,
+      "outputs": 0,
+      "constraints": 2579487,
+      "setup_real_s": 61.52
+    }
+  },
+  "witness_build_ms": {
+    "private": 1917,
+    "public": 1154
+  },
+  "public_alone_prove_ms": [
+    3658.167,
+    3648.414,
+    3618.464
+  ],
+  "sequential_prove_ms": {
+    "private": [
+      2994.016,
+      2999.713,
+      3028.354
+    ],
+    "public": [
+      3783.285,
+      3832.929,
+      3945.703
+    ],
+    "sum": [
+      6777.302,
+      6832.642,
+      6974.058
+    ]
+  },
+  "concurrent_prove_ms": {
+    "private": [
+      3552.721,
+      3475.986,
+      3680.167
+    ],
+    "public": [
+      5658.629,
+      5532.202,
+      6043.161
+    ],
+    "wall": [
+      5663.983,
+      5537.129,
+      6048.304
+    ]
+  },
+  "medians_ms": {
+    "public_alone": 3648.414,
+    "sequential_private": 2999.713,
+    "sequential_public": 3832.929,
+    "sequential_sum": 6832.642,
+    "concurrent_private": 3552.721,
+    "concurrent_public": 5658.629,
+    "concurrent_wall": 5663.983
+  },
+  "all_proofs_verified": true,
+  "samples": 3,
+  "logs": [
+    "benchmarks/split-nip-setup-512.log",
+    "benchmarks/split-nip-proving-512.log",
+    "benchmarks/split-nip-concurrent-512.log"
+  ]
+}
