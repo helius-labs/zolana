@@ -7,8 +7,9 @@ RUN go mod download && go mod verify
 
 COPY . .
 
-ENV CGO_ENABLED=0
-RUN go build -v -o /usr/local/bin/light-prover .
+ARG GOAMD64=v1
+ARG PROVER_PGO=off
+RUN GOAMD64="$GOAMD64" PROVER_PGO="$PROVER_PGO" sh ./build-release.sh /usr/local/bin/light-prover
 
 FROM gcr.io/distroless/base-debian11:nonroot
 
@@ -16,10 +17,9 @@ COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
 
 WORKDIR /proving-keys
 
-COPY --chown=nonroot:nonroot ./proving-keys/v1_* /proving-keys/
-COPY --chown=nonroot:nonroot ./proving-keys/v2_* /proving-keys/
+COPY --chown=nonroot:nonroot ./proving-keys/*.key /proving-keys/
 
 WORKDIR /
 
 ENTRYPOINT [ "light-prover" ]
-CMD [ "start", "--preload-keys", "rpc", "--keys-dir", "/proving-keys/" ]
+CMD [ "start", "--require-optimized-build", "--preload-circuits", "transfer-confidential:2:3,transfer-ring:2:3,transfer-p256-ring:2:3,merge:8:1", "--keys-dir", "/proving-keys/" ]

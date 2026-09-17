@@ -444,19 +444,15 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
     } else {
         repo.join(out)
     };
-    let status = Command::new("go")
+    let status = Command::new("sh")
         .current_dir(repo.join("prover/server"))
         .env("CGO_ENABLED", "0")
         .env("GOOS", goos)
         .env("GOARCH", goarch)
-        .arg("build")
+        .arg("build-release.sh")
         // -trimpath + empty buildid make the prover build reproducible so a
         // re-run produces byte-identical output (stable lockfile checksums).
-        .arg("-trimpath")
-        .args(["-ldflags", "-buildid="])
-        .arg("-o")
         .arg(&out_abs)
-        .arg(".")
         .status()
         .context("failed to run go build for prover")?;
     if !status.success() {

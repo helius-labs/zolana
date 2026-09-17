@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"io"
 	"net/http"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gorilla/handlers"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type proofStatusHandler struct {
@@ -265,6 +265,7 @@ type QueueConfig struct {
 }
 
 type EnhancedConfig struct {
+	Readiness         *Readiness
 	Indexer           *indexed.Resolver
 	TransferExecution *TransferExecution
 	ProverAddress     string
@@ -273,6 +274,7 @@ type EnhancedConfig struct {
 }
 
 type proveHandler struct {
+	readiness         *Readiness
 	indexer           *indexed.Resolver
 	indexed           bool
 	transferExecution *TransferExecution
@@ -373,6 +375,11 @@ func (handler proofStatusHandler) checkJobExistsDetailed(
 }
 
 func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !handler.readiness.Ready() {
+		http.Error(w, "Proving keys are not ready", http.StatusServiceUnavailable)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -594,6 +601,7 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 
 func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	return RunEnhanced(&EnhancedConfig{
+		Readiness:         config.Readiness,
 		Indexer:           config.Indexer,
 		TransferExecution: config.TransferExecution,
 		ProverAddress:     config.ProverAddress,
@@ -624,6 +632,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	proverMux := http.NewServeMux()
 
 	handler := proveHandler{
+		readiness:         config.Readiness,
 		indexer:           config.Indexer,
 		transferExecution: transferExecution,
 		keyManager:        keyManager,
@@ -635,6 +644,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	handler.indexed = true
 	proverMux.Handle("/prove/indexed", handler)
 
+	proverMux.Handle("/ready", config.Readiness)
 	proverMux.Handle("/health", healthHandler{
 		circuits: servedCircuits(),
 	})
@@ -843,6 +853,7 @@ func (error *Error) send(w http.ResponseWriter) {
 }
 
 type Config struct {
+	Readiness         *Readiness
 	Indexer           *indexed.Resolver
 	TransferExecution *TransferExecution
 	ProverAddress     string

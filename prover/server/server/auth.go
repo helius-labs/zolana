@@ -76,6 +76,7 @@ func getAPIKeyFromEnv() string {
 func requiresAuthentication(path string) bool {
 	publicPaths := []string{
 		"/health",
+		"/ready",
 	}
 
 	for _, publicPath := range publicPaths {

@@ -289,6 +289,9 @@ type ProofShape struct {
 }
 
 func (shape ProofShape) Supported() bool {
+	if shape.Circuit == TransferRingAuthorityCircuitType && (shape.Inputs != shape.Outputs || shape.Inputs > 4) {
+		return false
+	}
 	switch shape.Circuit {
 	case MergeCircuitType, MergeRingCircuitType:
 		for _, inputs := range mergeSupportedInputCounts {
@@ -321,6 +324,9 @@ func (m *LazyKeyManager) mergeKeyPath(prefix string, nInputs uint32, nOutputs ui
 }
 
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
+	if !(ProofShape{Circuit: circuitType, Inputs: nInputs, Outputs: nOutputs}).Supported() {
+		return ""
+	}
 	var prefix string
 	switch circuitType {
 	case TransferConfidentialCircuitType:
@@ -376,6 +382,10 @@ func (m *LazyKeyManager) PreloadForRunMode(runMode RunMode) error {
 		Msg("Preloading keys for run mode")
 
 	keys := GetKeys(m.keysDir, runMode, nil)
+	switch runMode {
+	case Rpc, LocalRpc, Full, FullTest:
+		keys = append(keys, m.transferPreloadPaths(transferPreloadCircuits)...)
+	}
 	return m.preloadKeys(keys)
 }
 
@@ -383,6 +393,9 @@ func (m *LazyKeyManager) PreloadAll() error {
 	logging.Logger().Info().Msg("Preloading all keys")
 
 	allKeys := make(map[string]bool)
+	for _, key := range m.transferPreloadPaths(transferPreloadCircuits) {
+		allKeys[key] = true
+	}
 	runModes := []RunMode{Full, FullTest}
 	for _, runMode := range runModes {
 		keys := GetKeys(m.keysDir, runMode, nil)
@@ -408,6 +421,19 @@ func (m *LazyKeyManager) PreloadCircuits(circuits []string) error {
 	seen := make(map[string]bool)
 
 	for _, circuit := range circuits {
+		paths, matched, err := m.selectedTransferPaths(circuit)
+		if err != nil {
+			return err
+		}
+		if matched {
+			for _, path := range paths {
+				if !seen[path] {
+					keyPaths = append(keyPaths, path)
+					seen[path] = true
+				}
+			}
+			continue
+		}
 		if specificPath := m.tryParseSpecificConfig(circuit); specificPath != "" {
 			if !seen[specificPath] {
 				keyPaths = append(keyPaths, specificPath)
@@ -417,6 +443,9 @@ func (m *LazyKeyManager) PreloadCircuits(circuits []string) error {
 		}
 
 		circuitKeys := GetKeys(m.keysDir, "", []string{circuit})
+		if len(circuitKeys) == 0 {
+			return fmt.Errorf("unknown preload circuit")
+		}
 		for _, key := range circuitKeys {
 			if !seen[key] {
 				keyPaths = append(keyPaths, key)

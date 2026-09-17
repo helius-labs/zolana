@@ -10,7 +10,7 @@ build:
     go build ./...
 
 build-binary:
-    go build -o light-prover .
+    sh build-release.sh light-prover
 
 # === Tests (no Redis required) ===
 test-unit:

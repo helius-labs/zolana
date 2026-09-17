@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"time"
+	"zolana/prover/buildcheck"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
@@ -526,6 +527,7 @@ func runCli() {
 			{
 				Name: "start",
 				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "require-optimized-build", Usage: "Reject builds with disabled compiler or cryptographic optimization", EnvVars: []string{"PROVER_REQUIRE_OPTIMIZED_BUILD"}},
 					&cli.BoolFlag{Name: "json-logging", Usage: "enable JSON logging", Required: false},
 					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server", Value: "0.0.0.0:5000", Required: false},
 					&cli.StringFlag{Name: "indexer-url", Usage: "Indexer for server fetched proof data", EnvVars: []string{"PROVER_INDEXER_URL"}},
@@ -573,6 +575,13 @@ func runCli() {
 					},
 				},
 				Action: func(context *cli.Context) error {
+					if err := buildcheck.Current(); err != nil {
+						if context.Bool("require-optimized-build") {
+							return err
+						}
+						logging.Logger().Warn().Err(err).Msg("Slow prover build")
+					}
+
 					if context.Bool("json-logging") {
 						logging.SetJSONOutput()
 					}
@@ -598,36 +607,29 @@ func runCli() {
 						Str("keys_dir", keysDirPath).
 						Msg("Initializing lazy key manager")
 
-					// Preload keys asynchronously to allow health checks to pass during startup
-					preloadAsync := func() {
+					readiness := &server.Readiness{}
+					preload := func() error {
 						if preloadKeys == "all" {
-							logging.Logger().Info().Msg("Preloading all keys (async)")
 							if err := keyManager.PreloadAll(); err != nil {
-								logging.Logger().Error().Err(err).Msg("Failed to preload all keys")
+								return err
 							}
 						} else if preloadKeys != "none" {
-							preloadRunMode, err := parseRunMode(preloadKeys)
+							mode, err := parseRunMode(preloadKeys)
 							if err != nil {
-								logging.Logger().Error().Err(err).Str("value", preloadKeys).Msg("Invalid --preload-keys value")
-							} else {
-								logging.Logger().Info().Str("run_mode", string(preloadRunMode)).Msg("Preloading keys for run mode (async)")
-								if err := keyManager.PreloadForRunMode(preloadRunMode); err != nil {
-									logging.Logger().Error().Err(err).Msg("Failed to preload keys for run mode")
-								}
+								return err
+							}
+							if err := keyManager.PreloadForRunMode(mode); err != nil {
+								return err
 							}
 						}
-
 						if len(preloadCircuits) > 0 {
-							logging.Logger().Info().Strs("circuits", preloadCircuits).Msg("Preloading specific circuits (async)")
 							if err := keyManager.PreloadCircuits(preloadCircuits); err != nil {
-								logging.Logger().Error().Err(err).Msg("Failed to preload circuits")
+								return err
 							}
 						}
-
-						stats := keyManager.GetStats()
-						logging.Logger().Info().
-							Interface("stats", stats).
-							Msg("Key preloading completed")
+						readiness.MarkReady()
+						logging.Logger().Info().Msg("Proving keys ready")
+						return nil
 					}
 
 					redisURL := context.String("redis-url")
@@ -723,6 +725,7 @@ func runCli() {
 
 					if enableServer {
 						config := server.Config{
+							Readiness:         readiness,
 							Indexer:           indexer,
 							TransferExecution: transferExecution,
 							ProverAddress:     context.String("prover-address"),
@@ -748,7 +751,11 @@ func runCli() {
 						return fmt.Errorf("at least one of server or queue mode must be enabled")
 					}
 
-					go preloadAsync()
+					go func() {
+						if err := preload(); err != nil {
+							logging.Logger().Error().Err(err).Msg("Key preload failed")
+						}
+					}()
 
 					sigint := make(chan os.Signal, 1)
 					signal.Notify(sigint, os.Interrupt)
