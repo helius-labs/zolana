@@ -200,6 +200,13 @@ impl Fixture {
         filter_key
     }
 
+    fn queue_next_index(&self) -> u64 {
+        let mut tree = self.rpc.svm.get_account(&self.tree).unwrap();
+        let mut account = TreeAccount::from_bytes(&mut tree.data, self.tree.to_bytes()).unwrap();
+        let index = account.nullifier_tree().queue_next_index;
+        index
+    }
+
     fn upload(&mut self, nonce: [u8; 32], payload: Payload) -> Pubkey {
         let owner = self.owner.pubkey();
         for instruction in instructions::upload_spend(owner, nonce, &payload).unwrap() {
@@ -543,13 +550,7 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
         "inline spend must fit one v1 transaction: {size:?}"
     );
 
-    let queue_before = {
-        let mut tree = fixture.rpc.svm.get_account(&fixture.tree).unwrap();
-        TreeAccount::from_bytes(&mut tree.data, fixture.tree.to_bytes())
-            .unwrap()
-            .nullifier_tree()
-            .queue_next_index
-    };
+    let queue_before = fixture.queue_next_index();
     fixture
         .rpc
         .create_and_send_transaction_with_budget(
@@ -564,13 +565,7 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
         "inline_spend {count} inputs: {} CU",
         trace.compute_units_consumed
     );
-    let queue_after = {
-        let mut tree = fixture.rpc.svm.get_account(&fixture.tree).unwrap();
-        TreeAccount::from_bytes(&mut tree.data, fixture.tree.to_bytes())
-            .unwrap()
-            .nullifier_tree()
-            .queue_next_index
-    };
+    let queue_after = fixture.queue_next_index();
     assert_eq!(queue_after, queue_before + count as u64);
 
     // Replay: every nullifier is pending now.
