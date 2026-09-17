@@ -187,10 +187,11 @@ fn lifecycle_create_upload_close() {
         verify(receipt, tree, 7),
         ShieldedPoolError::ReceiptIncomplete,
     );
+    // Zero points decompress (infinity); the pairing check rejects them.
     reject(
         &mut rpc,
         verify(receipt, tree, 8),
-        ShieldedPoolError::InvalidTransactProofEncoding,
+        ShieldedPoolError::TransactProofVerificationFailed,
     );
     assert_eq!(header(&rpc, &receipt).verified, 0);
 
