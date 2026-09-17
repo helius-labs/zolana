@@ -13,10 +13,10 @@ import (
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/poseidon2"
 )
 
-// The tree hash has one Go definition (gnark-crypto) and a Rust copy that
-// cannot import it. WriteTreeHashConstants regenerates the Rust round keys,
-// both zero tables and the shared test vectors from the Go definition so the
-// copies cannot drift apart.
+// The nullifier tree hash has one Go definition (gnark-crypto) and a Rust
+// copy that cannot import it. WriteTreeHashConstants regenerates the Rust
+// round keys, both Poseidon2 zero tables and the shared test vectors from the
+// Go definition so the copies cannot drift apart.
 const (
 	zeroTableHeight     = 40
 	nullifierTreeHeight = 40

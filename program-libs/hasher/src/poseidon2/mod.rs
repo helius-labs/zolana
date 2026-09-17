@@ -1,11 +1,13 @@
 //! Poseidon2 over the BN254 scalar field, width 2, 6 full and 50 partial
-//! rounds, with the gnark-crypto round keys: the 2-to-1 hash of every Merkle
-//! tree node and indexed leaf. The Go definition is
+//! rounds, with the gnark-crypto round keys: the 2-to-1 hash of the
+//! nullifier tree, its nodes and its indexed leaves. The Go definition is
 //! `prover/server/merkle-tree/tree_hash.go`; `round_keys.rs`, the zero table
 //! and `test-vectors/tree_hash.json` are generated from it.
 //!
 //! There is no Solana syscall for Poseidon2, so the permutation runs in
-//! plain Rust on every target.
+//! plain Rust on every target. That is why the state tree, which the program
+//! appends to on chain, stays on [`crate::Poseidon`]: one Poseidon2 append in
+//! BPF exceeds the transaction compute limit.
 
 mod round_keys;
 

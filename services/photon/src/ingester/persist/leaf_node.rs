@@ -146,7 +146,8 @@ pub async fn persist_leaf_nodes(
     all_ancestors.dedup();
 
     for (tree, tree_kind, node_index, child_level) in all_ancestors.into_iter().rev() {
-        let zero_hash = zero_hash_for_level(child_level)
+        let kind = RingsTreeKind::try_from(tree_kind)?;
+        let zero_hash = zero_hash_for_level(kind, child_level)
             .ok_or_else(|| {
                 IngesterError::ParserError(format!(
                     "Tree level {} exceeds zero hash table",
@@ -166,7 +167,7 @@ pub async fn persist_leaf_nodes(
 
         let level = child_level + 1;
 
-        let hash = compute_parent_hash(left_child_hash.clone(), right_child_hash.clone())?;
+        let hash = compute_parent_hash(kind, left_child_hash.clone(), right_child_hash.clone())?;
 
         let seq = max(left_child_seq, right_child_seq);
         let model = state_trees::ActiveModel {

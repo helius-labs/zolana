@@ -1,7 +1,7 @@
 //! Post-instruction checks for `deposit` (SOL deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_hasher::Poseidon2;
+use zolana_hasher::Poseidon;
 use zolana_interface::instruction::{deposit_blinding, AssetDeposit};
 use zolana_interface::{
     pda,
@@ -83,7 +83,7 @@ pub struct SolDepositOracle {
     tree: Pubkey,
     initial: SolDepositSnapshot,
     accepted: Vec<ExpectedSolDeposit>,
-    expected_tree: MerkleTree<Poseidon2>,
+    expected_tree: MerkleTree<Poseidon>,
     /// The deposit tree's raw id. Deposit commitments are hashed under the id
     /// of the tree they are appended to, so the model has to read it once.
     tree_id: u16,
@@ -94,7 +94,7 @@ impl SolDepositOracle {
         let initial = SolDepositSnapshot::capture(program_test, tree, depositor);
         let tree_id =
             read_tree_id(&program_test.account_data(tree).expect("tree account")).expect("tree id");
-        let mut expected_tree = MerkleTree::<Poseidon2>::new(STATE_HEIGHT, 0);
+        let mut expected_tree = MerkleTree::<Poseidon>::new(STATE_HEIGHT, 0);
         for indexed in program_test.indexer().utxos() {
             expected_tree
                 .append(&indexed.utxo_hash)

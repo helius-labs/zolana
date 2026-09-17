@@ -150,10 +150,11 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 
 	// 7. Authenticate the lower leaf at NullifierRoot.
 	nullifierRoot := abstractor.Call(api, gadget.MerkleRootGadget{
-		Hash:   gadget.IndexedLeafHash(api, w.NullifierLowValue, w.NullifierNextValue),
-		Index:  api.ToBinary(w.NullifierLowPathIndex, shared.NullifierTreeHeight),
-		Path:   w.NullifierLowPathElements[:],
-		Height: shared.NullifierTreeHeight,
+		Hash:          gadget.IndexedLeafHash(api, w.NullifierLowValue, w.NullifierNextValue),
+		Index:         api.ToBinary(w.NullifierLowPathIndex, shared.NullifierTreeHeight),
+		Path:          w.NullifierLowPathElements[:],
+		Height:        shared.NullifierTreeHeight,
+		NullifierTree: true,
 	})
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: w.Enabled,

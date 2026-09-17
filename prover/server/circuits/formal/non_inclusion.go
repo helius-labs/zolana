@@ -34,10 +34,11 @@ func (g NonInclusionProof) DefineGadget(api frontend.API) interface{} {
 
 		pathBits := api.ToBinary(g.InPathIndices[i], int(g.Height))
 		root := abstractor.Call(api, gadget.MerkleRootGadget{
-			Hash:   lowLeafHash,
-			Index:  pathBits,
-			Path:   g.InPathElements[i],
-			Height: int(g.Height),
+			Hash:          lowLeafHash,
+			Index:         pathBits,
+			Path:          g.InPathElements[i],
+			Height:        int(g.Height),
+			NullifierTree: true,
 		})
 		api.AssertIsEqual(root, g.Roots[i])
 

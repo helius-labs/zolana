@@ -5,5 +5,5 @@ import (
 )
 
 func IndexedLeafHash(api frontend.API, value, nextValue frontend.Variable) frontend.Variable {
-	return TreeHash(api, value, nextValue)
+	return NullifierTreeHash(api, value, nextValue)
 }

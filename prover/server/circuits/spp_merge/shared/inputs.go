@@ -87,10 +87,11 @@ func constrainInput(
 	lowLeafHash := gadget.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
 	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, transaction.NullifierTreeHeight)
 	nfRoot := abstractor.Call(api, gadget.MerkleRootGadget{
-		Hash:   lowLeafHash,
-		Index:  nfPathIndices,
-		Path:   in.NullifierLowPathElements,
-		Height: transaction.NullifierTreeHeight,
+		Hash:          lowLeafHash,
+		Index:         nfPathIndices,
+		Path:          in.NullifierLowPathElements,
+		Height:        transaction.NullifierTreeHeight,
+		NullifierTree: true,
 	})
 
 	api.AssertIsEqual(nfRoot, tree.NullifierRoot)

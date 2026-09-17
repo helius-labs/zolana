@@ -63,7 +63,7 @@ func TestListFactRequiresStrictNullifierInterval(t *testing.T) {
 			low, next := tt.bounds(s.derived[allowedActive].nullifier, ecc.BN254.ScalarField())
 			proof := s.nonInclusion[allowedActive]
 			leaf := merkletree.TreeHash(low, next)
-			root, err := protocol.MerkleRoot(leaf, proof.PathElements, proof.LowIndex)
+			root, err := protocol.NullifierMerkleRoot(leaf, proof.PathElements, proof.LowIndex)
 			if err != nil {
 				t.Fatal(err)
 			}

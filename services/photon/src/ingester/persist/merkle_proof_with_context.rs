@@ -1,4 +1,5 @@
 use crate::api::error::PhotonApiError;
+use crate::common::rings_tree::RingsTreeKind;
 use crate::ingester::persist::compute_parent_hash;
 use crate::ingester::persist::leaf_node::leaf_index_to_node_index;
 use crate::metric;
@@ -8,6 +9,7 @@ use zolana_indexer_api::{Hash, SerializablePubkey};
 
 #[derive(Debug, Clone)]
 pub struct MerkleProofWithContext {
+    pub tree_kind: RingsTreeKind,
     pub proof: Vec<Hash>,
     pub root: Hash,
     pub leaf_index: u64,
@@ -40,6 +42,7 @@ impl MerkleProofWithContext {
         for (idx, node) in self.proof.iter().enumerate() {
             let is_left = (node_index >> idx) & 1 == 0;
             computed_root = compute_parent_hash(
+                self.tree_kind,
                 if is_left {
                     computed_root.clone()
                 } else {

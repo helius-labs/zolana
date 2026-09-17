@@ -18,7 +18,7 @@ use zolana_client::{
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
-use zolana_hasher::Poseidon2;
+use zolana_hasher::{Poseidon, Poseidon2};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -789,7 +789,7 @@ pub fn build_spl_withdrawal(
         .get_nullifier_tree_root(0)
         .expect("nullifier root");
 
-    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root);
     let state_path: Vec<[u8; 32]> = state_tree

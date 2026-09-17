@@ -6,7 +6,7 @@
 //! |------|-------------|
 //! | [`Hasher`] | Trait with `hash`, `hashv`, and `zero_bytes` |
 //! | [`Poseidon`] | Poseidon hash over BN254 |
-//! | [`Poseidon2`] | Poseidon2 2-to-1 tree hash over BN254 |
+//! | [`Poseidon2`] | Poseidon2 2-to-1 hash over BN254, the nullifier tree hash |
 //! | [`Keccak`] | Keccak-256 hash |
 //! | [`Sha256`] | SHA-256 hash |
 //! | [`HasherError`] | Error type for hash operations |

@@ -8,15 +8,18 @@ import (
 // Poseidon2 over BN254, width 2, 6 full and 50 partial rounds: the
 // gnark-crypto defaults, round keys derived from the parameter string.
 const (
-	TreeHashWidth         = 2
-	TreeHashFullRounds    = 6
-	TreeHashPartialRounds = 50
+	NullifierTreeHashWidth         = 2
+	NullifierTreeHashFullRounds    = 6
+	NullifierTreeHashPartialRounds = 50
 )
 
-// TreeHash is the 2-to-1 hash of every Merkle node and indexed leaf:
-// Poseidon2 compression, `perm(left, right)[1] + right`.
-func TreeHash(api frontend.API, left, right frontend.Variable) frontend.Variable {
-	h, err := poseidon2.NewPoseidon2FromParameters(api, TreeHashWidth, TreeHashFullRounds, TreeHashPartialRounds)
+// NullifierTreeHash is the 2-to-1 hash of the nullifier tree, its nodes and
+// its indexed leaves: Poseidon2 compression, `perm(left, right)[1] + right`.
+// The state tree keeps Poseidon because the program appends to it on chain
+// through the Poseidon syscall; the nullifier tree is only ever hashed in
+// circuits and off chain.
+func NullifierTreeHash(api frontend.API, left, right frontend.Variable) frontend.Variable {
+	h, err := poseidon2.NewPoseidon2FromParameters(api, NullifierTreeHashWidth, NullifierTreeHashFullRounds, NullifierTreeHashPartialRounds)
 	if err != nil {
 		panic(err)
 	}

@@ -173,7 +173,7 @@ pub async fn get_multiple_compressed_leaf_proofs_from_full_leaf_info(
                                 "Failed to convert hash to bytes".to_string(),
                             )
                         }),
-                        None => zero_hash(level),
+                        None => zero_hash(leaf_node.tree_kind, level),
                     }
                 })
                 .collect::<Result<Vec<Hash>, PhotonApiError>>()?;
@@ -192,6 +192,7 @@ pub async fn get_multiple_compressed_leaf_proofs_from_full_leaf_info(
             ))?;
 
             Ok(MerkleProofWithContext {
+                tree_kind: leaf_node.tree_kind,
                 proof,
                 root,
                 leaf_index: leaf_node.leaf_index,
@@ -210,10 +211,12 @@ pub async fn get_multiple_compressed_leaf_proofs_from_full_leaf_info(
     Ok(proofs)
 }
 
-fn zero_hash(level: usize) -> Result<Hash, PhotonApiError> {
-    zero_hash_for_level(level).map(Hash::from).ok_or_else(|| {
-        PhotonApiError::UnexpectedError(format!("Tree level {} exceeds zero hash table", level))
-    })
+fn zero_hash(tree_kind: RingsTreeKind, level: usize) -> Result<Hash, PhotonApiError> {
+    zero_hash_for_level(tree_kind, level)
+        .map(Hash::from)
+        .ok_or_else(|| {
+            PhotonApiError::UnexpectedError(format!("Tree level {} exceeds zero hash table", level))
+        })
 }
 
 #[cfg(test)]

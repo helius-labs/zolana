@@ -9,7 +9,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{SolanaRpc, STATE_TREE_HEIGHT};
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon2};
+use zolana_hasher::{primitives::solana_owner_identity, Poseidon, Poseidon2};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::InterfaceTransfer, Deposit, Transact,
@@ -66,7 +66,7 @@ struct SolCycle {
     tree_pubkey: Pubkey,
     /// Raw id of [`Self::tree_pubkey`]; every commitment is hashed under it.
     tree_id: u16,
-    state_tree: MerkleTree<Poseidon2>,
+    state_tree: MerkleTree<Poseidon>,
     nf_tree: IndexedMerkleTree<Poseidon2, usize>,
 }
 
@@ -127,7 +127,7 @@ fn phase_setup() -> TestResult<SolCycle> {
     );
 
     let tree_pubkey = tree;
-    let state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+    let state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     let nf_tree = nullifier_tree()?;
     Ok(SolCycle {
         rpc_url,

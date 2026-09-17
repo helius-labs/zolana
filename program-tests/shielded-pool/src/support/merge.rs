@@ -10,7 +10,7 @@ use zolana_client::{
     MergeProver, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProverClient,
     SpendProof, TransferSpendInput, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon2;
+use zolana_hasher::{Poseidon, Poseidon2};
 use zolana_interface::{
     instruction::{
         instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeTransact,
@@ -129,7 +129,7 @@ impl ZeroDeposits<'_> {
         let zero = [0u8; 32];
         let nullifier_pk = self.nullifier_key.pubkey().expect("nullifier pubkey");
         let owner_field = owner_hash(&self.owner, &nullifier_pk).expect("owner field");
-        let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+        let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
         let mut utxos = Vec::with_capacity(self.count);
         for _ in 0..self.count {
             let event = self

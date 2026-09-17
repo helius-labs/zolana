@@ -26,7 +26,7 @@ use zolana_client::{
     prover::field::be, ComputeBudgetConfig, ProverClient, PublicInputs, PublicTransfers,
     TransferOutput,
 };
-use zolana_hasher::Poseidon2;
+use zolana_hasher::Poseidon;
 use zolana_hasher::{
     hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::{hash_bytes, solana_owner_identity},
@@ -108,7 +108,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         .hash(&nullifier_pk, &zero, &zero, tree_id)
         .expect("utxo hash");
     let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &env.tree);
-    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
     let state_path: Vec<[u8; 32]> = state_tree
@@ -382,7 +382,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .hash(&nullifier_pk, &zero, &zero, tree_id)
         .expect("utxo hash");
     let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &env.tree);
-    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
     let state_path: Vec<[u8; 32]> = state_tree
@@ -1695,7 +1695,7 @@ fn build_two_tree_transact_ix(
                 hash, deposit.utxo_hash,
                 "commitment from the actual deposit"
             );
-            let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+            let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
             state_tree.append(&hash).expect("append deposited UTXO");
             assert_eq!(
                 state_tree.root(),
@@ -1856,7 +1856,7 @@ fn build_two_tree_transact_ix(
     }
     transact_ix_data.proof = pack_transact_proof(&proof).expect("pack transact proof");
     transact_ix_data.private_tx_hash = private_tx;
-    let mut expected_output_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+    let mut expected_output_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     expected_output_tree
         .append(input_hashes.first().expect("first deposited UTXO"))
         .expect("append existing leaf");

@@ -260,7 +260,8 @@ mod tests {
         );
         let zeroeth_element_hash = zeroeth_element_hash_result.unwrap();
 
-        let zero_hash_at_level_0 = zero_hash_for_level(0).expect("zero hash level 0 should exist");
+        let zero_hash_at_level_0 = zero_hash_for_level(RingsTreeKind::Nullifier, 0)
+            .expect("zero hash level 0 should exist");
         assert_ne!(zeroeth_element_hash.to_vec(), zero_hash_at_level_0.to_vec(),);
     }
 

@@ -7,7 +7,7 @@ use zolana_client::{
     ProveResult, ProverClient, ProverInputs, Rpc, SpendProof, SppProofInputs,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon2;
+use zolana_hasher::{Poseidon, Poseidon2};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
 
@@ -22,7 +22,7 @@ fn test_merkle_context() -> MerkleContext {
 /// tree (nullifier non-inclusion) so it can answer [`Rpc`] proof queries with
 /// proofs consistent under one root each, and prove a transaction end to end.
 pub struct TestIndexer {
-    state_tree: MerkleTree<Poseidon2>,
+    state_tree: MerkleTree<Poseidon>,
     nullifier_tree: IndexedMerkleTree<Poseidon2, usize>,
     leaf_index: HashMap<[u8; 32], usize>,
 }
@@ -33,7 +33,7 @@ fn nullifier_upper_bound() -> BigUint {
 
 impl TestIndexer {
     pub fn new() -> Self {
-        let state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+        let state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
         let nullifier_tree = IndexedMerkleTree::<Poseidon2, usize>::new_with_next_value(
             NULLIFIER_TREE_HEIGHT,
             0,

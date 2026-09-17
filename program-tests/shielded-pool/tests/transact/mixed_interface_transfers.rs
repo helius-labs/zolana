@@ -12,7 +12,7 @@ use zolana_client::{
 };
 use zolana_event::SplTransfer;
 use zolana_event_parser::general_event_from_indexed;
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon2};
+use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, TransactIxData},
@@ -76,7 +76,7 @@ fn build_spend_note(
     let tree_id = env.tree_id;
     let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
 
-    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
     let state_path: Vec<[u8; 32]> = state_tree

@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_event::{EventKind, GeneralEvent, Input};
-use zolana_hasher::Poseidon2;
+use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{IndexerError, TestIndexer};
@@ -85,8 +85,8 @@ fn test_indexer_interleaves_outputs_in_two_trees() {
     let mut indexer = TestIndexer::new();
     let first_tree = Address::new_from_array([0x66; 32]);
     let second_tree = Address::new_from_array([0x77; 32]);
-    let mut first_reference = MerkleTree::<Poseidon2>::new(STATE_HEIGHT, 0);
-    let mut second_reference = MerkleTree::<Poseidon2>::new(STATE_HEIGHT, 0);
+    let mut first_reference = MerkleTree::<Poseidon>::new(STATE_HEIGHT, 0);
+    let mut second_reference = MerkleTree::<Poseidon>::new(STATE_HEIGHT, 0);
 
     for (tree, first_leaf, first_hash) in [
         (first_tree, 0, 1u8),

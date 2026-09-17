@@ -18,7 +18,6 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
-use zolana_hasher::{Hasher, Poseidon2};
 use zolana_indexer_api::Hash;
 
 use super::error;
@@ -105,8 +104,13 @@ pub(crate) fn get_node_direct_ancestors(leaf_index: i64) -> Vec<i64> {
     path
 }
 
-pub fn compute_parent_hash(left: Vec<u8>, right: Vec<u8>) -> Result<Vec<u8>, IngesterError> {
-    Poseidon2::hashv(&[&left, &right])
+pub fn compute_parent_hash(
+    tree_kind: RingsTreeKind,
+    left: Vec<u8>,
+    right: Vec<u8>,
+) -> Result<Vec<u8>, IngesterError> {
+    tree_kind
+        .parent_hash(&left, &right)
         .map_err(|e| IngesterError::ParserError(format!("Failed to compute parent hash: {}", e)))
         .map(|x| x.to_vec())
 }

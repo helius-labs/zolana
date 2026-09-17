@@ -574,6 +574,7 @@ mod tests {
     ) -> MerkleProof {
         let leaf = Hash::from([9u8; 32]);
         let proof = MerkleProofWithContext {
+            tree_kind: RingsTreeKind::State,
             proof: Vec::new(),
             root: Hash::from(root),
             leaf_index: 0,
@@ -709,6 +710,7 @@ mod tests {
         info.tree = tree;
         let leaf = Hash::from([2u8; 32]);
         let proof = MerkleProofWithContext {
+            tree_kind: RingsTreeKind::State,
             proof: Vec::new(),
             root: Hash::from([3u8; 32]),
             leaf_index: 0,

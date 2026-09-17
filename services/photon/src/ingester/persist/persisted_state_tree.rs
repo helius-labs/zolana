@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use sea_orm::{ConnectionTrait, DbErr, EntityTrait, Statement, TransactionTrait, Value};
 
+use crate::common::rings_tree::RingsTreeKind;
 use crate::dao::generated::state_trees;
-use zolana_hasher::{zero_bytes::ZeroBytes, Hasher, Poseidon2};
 
 pub fn get_proof_path(index: i64, include_leaf: bool) -> Vec<i64> {
     let mut indexes = vec![];
@@ -117,7 +117,7 @@ where
                     tree_kind: *tree_kind,
                     level,
                     node_idx: *index,
-                    hash: zero_bytes_for_level(level)?,
+                    hash: zero_bytes_for_level(*tree_kind, level)?,
                     leaf_idx: None,
                     seq: None,
                 },
@@ -139,21 +139,17 @@ pub fn get_merkle_proof_length(tree_height: u32) -> usize {
     usize::try_from(tree_height.saturating_sub(1)).unwrap_or(usize::MAX)
 }
 
-pub fn zero_hash_for_level(level: usize) -> Option<[u8; 32]> {
-    zero_bytes().get(level).copied()
+pub fn zero_hash_for_level(tree_kind: RingsTreeKind, level: usize) -> Option<[u8; 32]> {
+    tree_kind.zero_hash(level)
 }
 
-fn zero_bytes_for_level(level: i64) -> Result<Vec<u8>, DbErr> {
+fn zero_bytes_for_level(tree_kind: i32, level: i64) -> Result<Vec<u8>, DbErr> {
+    let tree_kind = RingsTreeKind::try_from(tree_kind).map_err(|e| DbErr::Custom(e.to_string()))?;
     let level = usize::try_from(level)
         .map_err(|_| DbErr::Custom(format!("Invalid negative tree level {}", level)))?;
-    zero_hash_for_level(level)
+    zero_hash_for_level(tree_kind, level)
         .map(|bytes| bytes.to_vec())
         .ok_or_else(|| DbErr::Custom(format!("Tree level {} exceeds zero hash table", level)))
-}
-
-/// Empty-subtree hashes of the tree hash, level 0 the zero leaf.
-pub fn zero_bytes() -> &'static ZeroBytes {
-    Poseidon2::zero_bytes()
 }
 
 #[cfg(test)]
@@ -169,7 +165,7 @@ mod tests {
     }
 
     fn test_zero_hash(level: usize) -> [u8; 32] {
-        zero_hash_for_level(level).expect("test zero hash level should exist")
+        zero_hash_for_level(RingsTreeKind::State, level).expect("test zero hash level should exist")
     }
 
     #[test]
@@ -205,8 +201,9 @@ mod tests {
     #[test]
     fn test_zero_bytes_consistency() {
         // Each level of the zero table is the hash of two copies of the level below
-        for level in (1..zero_bytes().len()).rev() {
+        for level in (1..=zolana_hasher::zero_bytes::MAX_HEIGHT).rev() {
             let parent_hash = compute_parent_hash(
+                RingsTreeKind::State,
                 test_zero_hash(level - 1).to_vec(),
                 test_zero_hash(level - 1).to_vec(),
             )
@@ -281,7 +278,8 @@ mod tests {
                 (sibling_hash, current_hash.clone())
             };
 
-            current_hash = compute_parent_hash(left_child, right_child).unwrap();
+            current_hash =
+                compute_parent_hash(RingsTreeKind::State, left_child, right_child).unwrap();
 
             // Verify against the zero table
             assert_eq!(
@@ -300,12 +298,13 @@ mod tests {
 
         // Create a proof for testing
         let mut proof = Vec::new();
-        for zero_bytes in zero_bytes().iter().take(31) {
+        for level in 0..31 {
             // One less than tree height since root is separate
-            proof.push(Hash::try_from(zero_bytes.to_vec()).unwrap());
+            proof.push(Hash::from(test_zero_hash(level)));
         }
 
         let proof_context = MerkleProofWithContext {
+            tree_kind: RingsTreeKind::State,
             proof,
             root: Hash::try_from(test_zero_hash(31).to_vec()).unwrap(),
             leaf_index: test_leaf_index,

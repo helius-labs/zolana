@@ -8,7 +8,7 @@ import (
 )
 
 // Poseidon2 over BN254, width 2, 6 full and 50 partial rounds; the same
-// parameters as `gadget.TreeHash` in the circuits.
+// parameters as `gadget.NullifierTreeHash` in the circuits.
 const (
 	TreeHashWidth         = 2
 	TreeHashFullRounds    = 6
@@ -17,8 +17,10 @@ const (
 
 var treeHashPermutation = poseidon2.NewPermutation(TreeHashWidth, TreeHashFullRounds, TreeHashPartialRounds)
 
-// TreeHash is the 2-to-1 hash of every Merkle node and indexed leaf:
-// `perm(left, right)[1] + right`. Inputs must be canonical field elements.
+// TreeHash is the 2-to-1 hash of the nullifier tree, its nodes and its
+// indexed leaves: `perm(left, right)[1] + right`. Inputs must be canonical
+// field elements. The trees in this package are nullifier trees; the state
+// tree stays Poseidon.
 func TreeHash(left, right *big.Int) *big.Int {
 	var x [2]fr.Element
 	x[0].SetBigInt(left)
