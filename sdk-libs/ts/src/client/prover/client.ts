@@ -196,7 +196,7 @@ export class ProverClient {
                 method: "POST",
                 headers: {
                   "content-type": "application/json",
-                  ...(delivery === "inResponse" ? { "X-Sync": "true" } : {}),
+                  ...(delivery === "inResponse" ? { "X-Sync": "true" } : { "X-Async": "true" }),
                 },
                 body,
                 redirect: "error",

@@ -650,6 +650,7 @@ func runCli() {
 						Str("redis_url", redisURL).
 						Msg("Starting ZK Prover service")
 
+					transferExecution := server.NewTransferExecution()
 					var workers []server.QueueWorker
 					var redisQueue *server.RedisQueue
 					var instance server.RunningJob
@@ -690,7 +691,7 @@ func runCli() {
 						}
 
 						if startAll || enabledCircuitsMap["transfer"] || enableServer {
-							transferWorker := server.NewTransferQueueWorker(redisQueue, keyManager)
+							transferWorker := server.NewTransferQueueWorker(server.TransferWorkerConfig{Queue: redisQueue, Keys: keyManager, Execution: transferExecution})
 							workers = append(workers, transferWorker)
 							go transferWorker.Start()
 							workersStarted = append(workersStarted, "transfer")
@@ -710,8 +711,9 @@ func runCli() {
 
 					if enableServer {
 						config := server.Config{
-							ProverAddress:  context.String("prover-address"),
-							MetricsAddress: context.String("metrics-address"),
+							TransferExecution: transferExecution,
+							ProverAddress:     context.String("prover-address"),
+							MetricsAddress:    context.String("metrics-address"),
 						}
 
 						if redisQueue != nil {

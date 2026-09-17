@@ -264,15 +264,17 @@ type QueueConfig struct {
 }
 
 type EnhancedConfig struct {
-	ProverAddress  string
-	MetricsAddress string
-	Queue          *QueueConfig
+	TransferExecution *TransferExecution
+	ProverAddress     string
+	MetricsAddress    string
+	Queue             *QueueConfig
 }
 
 type proveHandler struct {
-	keyManager  *common.LazyKeyManager
-	redisQueue  *RedisQueue
-	enableQueue bool
+	transferExecution *TransferExecution
+	keyManager        *common.LazyKeyManager
+	redisQueue        *RedisQueue
+	enableQueue       bool
 	// Bounds proving done inside a request. Shared across requests, so it must
 	// be the same instance for every one of them.
 	admission *syncAdmission
@@ -393,7 +395,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// `use_queue` is the decision, not the circuit's queueability: logging the
 	// latter under that name said use_queue=true on requests that were proved in
 	// the response, which is exactly the question the line exists to answer.
-	queued := useQueue(forceSync, forceAsync, circuitQueued, queueAvailable)
+	queued := useQueue(forceSync || isTransferCircuit(proofRequestMeta.CircuitType), forceAsync, circuitQueued, queueAvailable)
 
 	logging.Logger().Info().
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
@@ -575,8 +577,9 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 
 func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	return RunEnhanced(&EnhancedConfig{
-		ProverAddress:  config.ProverAddress,
-		MetricsAddress: config.MetricsAddress,
+		TransferExecution: config.TransferExecution,
+		ProverAddress:     config.ProverAddress,
+		MetricsAddress:    config.MetricsAddress,
 		Queue: &QueueConfig{
 			Enabled: redisQueue != nil,
 		},
@@ -584,6 +587,10 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 }
 
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
+	transferExecution := config.TransferExecution
+	if transferExecution == nil {
+		transferExecution = NewTransferExecution()
+	}
 	apiKey := getAPIKeyFromEnv()
 	if apiKey != "" {
 		logging.Logger().Info().Msg("API key authentication enabled for prover server")
@@ -599,10 +606,11 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	proverMux := http.NewServeMux()
 
 	proverMux.Handle("/prove", proveHandler{
-		keyManager:  keyManager,
-		redisQueue:  redisQueue,
-		enableQueue: config.Queue != nil && config.Queue.Enabled,
-		admission:   newSyncAdmission(syncPermits()),
+		transferExecution: transferExecution,
+		keyManager:        keyManager,
+		redisQueue:        redisQueue,
+		enableQueue:       config.Queue != nil && config.Queue.Enabled,
+		admission:         newSyncAdmission(syncPermits()),
 	})
 
 	proverMux.Handle("/health", healthHandler{
@@ -813,8 +821,9 @@ func (error *Error) send(w http.ResponseWriter) {
 }
 
 type Config struct {
-	ProverAddress  string
-	MetricsAddress string
+	TransferExecution *TransferExecution
+	ProverAddress     string
+	MetricsAddress    string
 }
 
 func spawnServerJob(server *http.Server, label string) RunningJob {
@@ -994,7 +1003,11 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	// Wait for a permit before starting work. Doing this here rather than around
 	// the whole handler keeps parsing and validation off the bound: a malformed
 	// request should be rejected while the prover is busy, not queued behind it.
-	release, admitErr := handler.admission.admit(ctx)
+	admission := handler.admission
+	if isTransferCircuit(meta.CircuitType) && handler.transferExecution != nil {
+		admission = handler.transferExecution.admission
+	}
+	release, admitErr := admission.admit(ctx)
 	if admitErr != nil {
 		logging.Logger().Warn().
 			Str("circuit_type", string(meta.CircuitType)).

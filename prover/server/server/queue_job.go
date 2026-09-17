@@ -78,22 +78,6 @@ func getMaxConcurrency() int {
 	return MinConcurrencyPerWorker
 }
 
-// getTransferMaxConcurrency returns how many transfer proofs the transfer worker
-// runs at once. Transfer proofs are far lighter than batch address-append, so the
-// operator can raise TRANSFER_WORKER_CONCURRENCY above the shared default (which
-// getMaxConcurrency keeps conservative for the heavy batch worker).
-func getTransferMaxConcurrency() int {
-	if val := os.Getenv("TRANSFER_WORKER_CONCURRENCY"); val != "" {
-		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
-			logging.Logger().Info().
-				Int("max_concurrency", concurrency).
-				Msg("Using TRANSFER_WORKER_CONCURRENCY")
-			return concurrency
-		}
-	}
-	return getMaxConcurrency()
-}
-
 func getCustomRingMaxConcurrency() int {
 	if val := os.Getenv("CUSTOM_RING_WORKER_CONCURRENCY"); val != "" {
 		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
@@ -147,6 +131,7 @@ type QueueWorker interface {
 }
 
 type BaseQueueWorker struct {
+	transferExecution   *TransferExecution
 	queue               *RedisQueue
 	keyManager          *common.LazyKeyManager
 	stopChan            chan struct{}
@@ -387,7 +372,21 @@ func (w *BaseQueueWorker) processJobs() {
 	// Blocking here means every worker is busy, which is the one healthy reason
 	// for the loop to stall. Separated from dedup so the two are never confused.
 	semaphoreStart := time.Now()
-	w.semaphore <- struct{}{}
+	release := func() { <-w.semaphore }
+	// 1. Keep queued and direct transfers inside one CPU budget.
+	if w.transferExecution != nil {
+		var acquired bool
+		release, acquired = w.transferExecution.acquireQueued(w.stopChan)
+		if !acquired {
+			// 2. Return the dequeued job before stopping its dispatcher.
+			if err := w.queue.EnqueueProof(w.queueName, job); err != nil {
+				logging.Logger().Error().Err(err).Str("job_id", job.ID).Msg("Failed to return waiting job")
+			}
+			return
+		}
+	} else {
+		w.semaphore <- struct{}{}
+	}
 	RecordDispatchStage(w.queueName, "semaphore", time.Since(semaphoreStart))
 
 	go func(job *ProofJob, inputHash string) {
@@ -435,7 +434,7 @@ func (w *BaseQueueWorker) processJobs() {
 						Msg("Failed to record job failure in metadata")
 				}
 			}
-			<-w.semaphore
+			release()
 		}()
 
 		proofStartTime := time.Now()
@@ -581,12 +580,17 @@ type TransferQueueWorker struct {
 	*BaseQueueWorker
 }
 
-func NewTransferQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *TransferQueueWorker {
-	maxConcurrency := getTransferMaxConcurrency()
+func NewTransferQueueWorker(config TransferWorkerConfig) *TransferQueueWorker {
+	execution := config.Execution
+	if execution == nil {
+		execution = NewTransferExecution()
+	}
+	maxConcurrency := cap(execution.admission.permits)
 	return &TransferQueueWorker{
 		BaseQueueWorker: &BaseQueueWorker{
-			queue:               redisQueue,
-			keyManager:          keyManager,
+			transferExecution:   execution,
+			queue:               config.Queue,
+			keyManager:          config.Keys,
 			stopChan:            make(chan struct{}),
 			queueName:           "zk_transfer_queue",
 			processingQueueName: "zk_transfer_processing_queue",

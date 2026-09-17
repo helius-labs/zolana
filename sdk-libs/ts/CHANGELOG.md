@@ -454,6 +454,8 @@ Changed
 
 Fixed
 
+- `ProverClient` explicitly requests queued delivery after synchronous admission is refused.
+
 - `decryptTransactions` rejects malformed key-holder batches with
   `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and
   leaves wallet state unchanged on failure.

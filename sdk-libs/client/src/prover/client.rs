@@ -287,6 +287,8 @@ impl ProverClient {
                 .header("Content-Type", "application/json");
             if delivery == Delivery::InResponse {
                 request = request.header("X-Sync", "true");
+            } else {
+                request = request.header("X-Async", "true");
             }
             match request.body(body.to_string()).send() {
                 Ok(response) => break response,
@@ -621,6 +623,8 @@ impl AsyncProverClient {
                 .header("Content-Type", "application/json");
             if delivery == Delivery::InResponse {
                 request = request.header("X-Sync", "true");
+            } else {
+                request = request.header("X-Async", "true");
             }
             match request.body(body.to_string()).send().await {
                 Ok(response) => {
@@ -1376,6 +1380,7 @@ mod tests {
                 .sync_requested,
             "the retry must queue rather than ask again for a permit just refused"
         );
+        assert!(requests.get(1).expect("queued retry").async_requested);
     }
 
     #[test]
@@ -1432,6 +1437,7 @@ mod tests {
         path: String,
         /// Whether the request asked for the proof in the response.
         sync_requested: bool,
+        async_requested: bool,
     }
 
     enum MockResponse {
@@ -1655,6 +1661,12 @@ mod tests {
             .to_string();
         RecordedRequest {
             path,
+            async_requested: header.lines().any(|line| {
+                line.to_ascii_lowercase()
+                    .strip_prefix("x-async:")
+                    .map(str::trim)
+                    == Some("true")
+            }),
             sync_requested: header.lines().any(|line| {
                 let lower = line.to_ascii_lowercase();
                 lower.strip_prefix("x-sync:").map(str::trim) == Some("true")
