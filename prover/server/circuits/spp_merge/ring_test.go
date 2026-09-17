@@ -75,25 +75,32 @@ func TestMergeRingCircuitProvesWithCache(t *testing.T) {
 
 func TestMergeRingCircuitRejectsMismatchedCacheOwnerCommitment(t *testing.T) {
 	a := buildCachedRingWitness(t)
-	a.OperationID = big.NewInt(0xBADCACE)
+	a.CacheOwnerBlinding = big.NewInt(0xBADCACE)
 	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected cache owner commitment opening to fail, got solved")
 	}
 }
 
-func TestMergeRingCircuitRejectsCacheCommitmentWithoutHasCache(t *testing.T) {
+func TestMergeRingCircuitRejectsCacheCommitmentWithZeroBlinding(t *testing.T) {
 	a := buildCachedRingWitness(t)
-	a.HasCache = big.NewInt(0)
+	a.CacheOwnerBlinding = big.NewInt(0)
 	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected a published commitment without a cache to fail, got solved")
+		t.Fatal("expected a cache commitment with zero blinding to fail, got solved")
+	}
+}
+
+func TestMergeRingCircuitRejectsNonzeroBlindingWithoutCacheCommitment(t *testing.T) {
+	a := buildRingWitness(t, big.NewInt(0x5A0E))
+	a.CacheOwnerBlinding = big.NewInt(0x0FF1CE)
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected nonzero blinding without a cache commitment to fail, got solved")
 	}
 }
 
 func buildCachedRingWitness(t *testing.T) *merge.RingCircuit {
 	t.Helper()
 	return buildRingWitnessWithOptions(t, mergeFixtureOptions{
-		ringProgramID: big.NewInt(0x5A0E),
-		operationID:   big.NewInt(0x0FF1CE),
-		hasCache:      true,
+		ringProgramID:      big.NewInt(0x5A0E),
+		cacheOwnerBlinding: big.NewInt(0x0FF1CE),
 	})
 }

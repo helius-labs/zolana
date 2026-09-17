@@ -20,7 +20,7 @@ use crate::{
     error::ClientError,
     prover::{
         field::be,
-        merge::{MergeCacheTarget, MergeProofResult, MergeProver, MergeRailTail},
+        merge::{MergeCacheTarget, MergeProofResult, MergeProver},
         transact::{
             assembly::TransferSpendInput,
             witness::{attach_input_proofs, SpendProof},
@@ -57,11 +57,19 @@ pub struct MergeRingProver {
 pub struct MergeRingCacheTarget {
     pub address: Address,
     pub slot: u8,
-    pub operation_id: [u8; 32],
+    /// Nonzero field-element salt used with the UTXO owner hash to derive the
+    /// cache owner identity. Zero is reserved for merges without a cache.
+    pub owner_blinding: [u8; 32],
 }
 
 impl MergeRingProver {
     pub fn build(mut self) -> Result<MergeProofResult, ClientError> {
+        if self
+            .cache
+            .is_some_and(|target| target.owner_blinding == [0; 32])
+        {
+            return Err(ClientError::ZeroCacheOwnerBlinding);
+        }
         // Stamp the shared ring on every input UTXO and the output so the per-UTXO
         // ring_program_id field matches the public-input commitment below.
         for spend in &mut self.inputs {
@@ -105,7 +113,7 @@ impl MergeRingProver {
             Some(target) => {
                 let user_owner_hash =
                     Poseidon::hashv(&[&merge.user_signing_pk_hash, &merge.user_nullifier_pk])?;
-                Poseidon::hashv(&[&user_owner_hash, &target.operation_id])?
+                Poseidon::hashv(&[&user_owner_hash, &target.owner_blinding])?
             }
             None => [0u8; 32],
         };
@@ -118,16 +126,14 @@ impl MergeRingProver {
         ]);
         let public_input = create_hash_chain_4_from_slice(&elements)?;
 
-        Ok(merge.finish(MergeRailTail {
+        Ok(merge.finish(
             public_input,
-            ring_program_id: be(&ring_program_id_proof_input_hash),
-            output_ring_data_hash: be(&output_ring_data_hash),
-            operation_id: cache
-                .map(|target| be(&target.operation_id))
+            be(&ring_program_id_proof_input_hash),
+            be(&output_ring_data_hash),
+            cache
+                .map(|target| be(&target.owner_blinding))
                 .unwrap_or(BigUint::ZERO),
-            has_cache: BigUint::from(u8::from(cache.is_some())),
-            cache_owner_commitment: be(&cache_owner_commitment),
-        }))
+        ))
     }
 }
 

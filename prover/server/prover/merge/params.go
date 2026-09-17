@@ -85,9 +85,7 @@ type MergeParameters struct {
 	// default rail.
 	OutputRingDataHash *big.Int
 
-	OperationID          *big.Int
-	HasCache             *big.Int
-	CacheOwnerCommitment *big.Int
+	CacheOwnerBlinding *big.Int
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int

@@ -338,7 +338,7 @@ identity check, and its remaining codes (`CacheSlotEmpty`, `InvalidCacheBitmap`,
 - [ ] **INV-MERGE-22: the two rails cannot write each other's caches**
   - Partial coverage: `program-tests/shielded-pool/tests/cache/functional.rs` `cross_rail_caches_are_mutually_unwritable` (`#[ignore]`d pending the same key rotation)
   - Kind: precondition
-  - Statement: the two identity constructions are preimage-resistant hashes over unrelated inputs -- the registered signing key on one rail, the user's owner hash and operation id on the other -- so a confidential merge cannot match a ring cache's `owner_identity` and a ring merge cannot open a confidential one. The 32 bytes are therefore self-discriminating and the account carries no rail tag.
+  - Statement: the two identity constructions are preimage-resistant hashes over unrelated inputs -- the registered signing key on one rail, the user's owner hash and owner blinding on the other -- so a confidential merge cannot match a ring cache's `owner_identity` and a ring merge cannot open a confidential one. The 32 bytes are therefore self-discriminating and the account carries no rail tag.
   - Location: `program-libs/interface/src/state/cache.rs` (`struct CacheAccount`), `programs/shielded-pool/src/instructions/merge/processor.rs`, `merge_ring/processor.rs`
   - Error: `ShieldedPoolError::CacheOwnerMismatch = 7074` (confidential merge against a ring cache) / `TransactProofVerificationFailed = 7008` (ring merge against a confidential cache)
   - Severity: High
@@ -391,11 +391,11 @@ identity check, and its remaining codes (`CacheSlotEmpty`, `InvalidCacheBitmap`,
   - Severity: Medium
   - Suggested test: negative; harness: litesvm
 
-- [x] **INV-MERGE-28: closure is permissionless, timeout-only, and refunds the stored sponsor**
-  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `create_is_idempotent_and_close_refunds_sponsor` (clock warped past `expires_at`, no authority signature, sponsor credited the full balance) and `create_and_close_reject_unauthorized_configuration` (close before expiry -> 7078; wrong recipient -> 7050)
+- [x] **INV-MERGE-28: closure requires expiry or the frozen cache's owner, and refunds the stored sponsor**
+  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `create_is_idempotent_and_close_refunds_sponsor` (expired, permissionless close), `create_and_close_reject_unauthorized_configuration` (early close without authorization and wrong recipient), and `frozen_cache_early_close_requires_its_owner_and_refunds_sponsor` (owner signature, frozen state, sponsor-only refund, and owner/sponsor aliasing)
   - Kind: precondition
-  - Statement: `close_cache` takes `cache` (writable) and `rent_recipient` (writable) and no signer at all. It returns Err while `Clock::unix_timestamp < expires_at`, and after that succeeds for any caller, always moving the whole balance to the stored `rent_sponsor`; any other recipient, or the cache itself, returns Err. There is no early closure and no close authority.
+  - Statement: `close_cache` takes `cache` (writable), `rent_recipient` (writable), and an optional owner signer. Before expiry, the cache must be frozen and the signer's default-ring owner identity must match `owner_identity`. After expiry, any caller may close without an owner account. Both paths move the whole balance to the stored `rent_sponsor`; any other recipient, or the cache itself, returns Err. Ring caches retain permissionless expiry-based closure; cached spending currently freezes only default-ring caches.
   - Location: `programs/shielded-pool/src/instructions/cache/close.rs` (`fn process_close_cache`)
-  - Error: `ShieldedPoolError::CacheNotExpired = 7078`, `InvalidReimbursementRecipient = 7050`
+  - Error: `ShieldedPoolError::CacheNotExpired = 7078`, `CacheOwnerMismatch = 7074`, `InvalidReimbursementRecipient = 7050`, `AccountError::InvalidSigner = 20009`
   - Severity: High (rent custody)
   - Suggested test: negative both legs + positive; harness: litesvm

@@ -13,11 +13,11 @@ pub struct CacheAccount {
     pub frozen: u8,
     pub tree_id: [u8; 2],
     pub expires_at: [u8; 8],
-    pub owner_identity: [u8; 32],
+    pub owner_identity: [u8; 32], // TODO: user Address, rename to utxo owner
     pub rent_sponsor: [u8; 32],
     /// Zero marks an empty slot; a verified merge's Poseidon output collides
     /// with this sentinel only with negligible probability.
-    pub commitments: [[u8; 32]; CACHE_CAPACITY],
+    pub commitments: [[u8; 32]; CACHE_CAPACITY], // TODO: rename to UTXO hashes
 }
 
 impl CacheAccount {

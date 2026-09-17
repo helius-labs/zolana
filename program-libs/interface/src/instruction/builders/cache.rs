@@ -38,16 +38,22 @@ impl CreateCache {
 pub struct CloseCache {
     pub cache: Pubkey,
     pub rent_recipient: Pubkey,
+    /// Default-ring owner signing an early close of a frozen cache. None after expiry.
+    pub owner: Option<Pubkey>,
 }
 
 impl CloseCache {
     pub fn instruction(&self) -> Instruction {
+        let mut accounts = vec![
+            AccountMeta::new(self.cache, false),
+            AccountMeta::new(self.rent_recipient, false),
+        ];
+        if let Some(owner) = self.owner {
+            accounts.push(AccountMeta::new_readonly(owner, true));
+        }
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,
-            accounts: vec![
-                AccountMeta::new(self.cache, false),
-                AccountMeta::new(self.rent_recipient, false),
-            ],
+            accounts,
             data: vec![tag::CLOSE_CACHE],
         }
     }

@@ -67,9 +67,7 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OutputTreeID = p.OutputTreeID
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID
-	circuit.OperationID = p.OperationID
-	circuit.HasCache = p.HasCache
-	circuit.CacheOwnerCommitment = p.CacheOwnerCommitment
+	circuit.CacheOwnerBlinding = p.CacheOwnerBlinding
 	circuit.PublicInputHash = p.PublicInputHash
 
 	if err := p.assignTreeSlots(circuit.TreeSlots); err != nil {

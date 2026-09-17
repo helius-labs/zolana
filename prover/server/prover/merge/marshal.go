@@ -56,9 +56,7 @@ type MergeParametersJSON struct {
 	// the default merge rail leaves it zero.
 	RingProgramID string `json:"ringProgramId"`
 
-	OperationID          string `json:"operationId"`
-	HasCache             string `json:"hasCache"`
-	CacheOwnerCommitment string `json:"cacheOwnerCommitment"`
+	CacheOwnerBlinding string `json:"cacheOwnerBlinding"`
 }
 
 func (p *MergeParameters) MarshalJSON() ([]byte, error) {
@@ -79,22 +77,20 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		circuitType = common.MergeCircuitType
 	}
 	paramsJson := MergeParametersJSON{
-		CircuitType:          circuitType,
-		TreeSlots:            common.TreeSlotsToJSON(p.TreeSlots),
-		OutputTreeID:         common.FeHex(p.OutputTreeID),
-		Asset:                common.FeHex(p.Asset),
-		RingProgramID:        common.FeHex(p.RingProgramID),
-		OutputRingDataHash:   common.FeHex(p.OutputRingDataHash),
-		OperationID:          common.FeHex(p.OperationID),
-		HasCache:             common.FeHex(p.HasCache),
-		CacheOwnerCommitment: common.FeHex(p.CacheOwnerCommitment),
-		OwnerPkHash:          common.FeHex(p.OwnerPkHash),
-		UserNullifierPk:      common.FeHex(p.UserNullifierPk),
-		UserNullifierSecret:  common.FeHex(p.UserNullifierSecret),
-		ExternalDataHash:     common.FeHex(p.ExternalDataHash),
-		PrivateTxHash:        common.FeHex(p.PrivateTxHash),
-		PublicInputHash:      common.FeHex(p.PublicInputHash),
-		AllowDummyInputs:     common.FeHex(p.AllowDummyInputs),
+		CircuitType:         circuitType,
+		TreeSlots:           common.TreeSlotsToJSON(p.TreeSlots),
+		OutputTreeID:        common.FeHex(p.OutputTreeID),
+		Asset:               common.FeHex(p.Asset),
+		RingProgramID:       common.FeHex(p.RingProgramID),
+		OutputRingDataHash:  common.FeHex(p.OutputRingDataHash),
+		CacheOwnerBlinding:  common.FeHex(p.CacheOwnerBlinding),
+		OwnerPkHash:         common.FeHex(p.OwnerPkHash),
+		UserNullifierPk:     common.FeHex(p.UserNullifierPk),
+		UserNullifierSecret: common.FeHex(p.UserNullifierSecret),
+		ExternalDataHash:    common.FeHex(p.ExternalDataHash),
+		PrivateTxHash:       common.FeHex(p.PrivateTxHash),
+		PublicInputHash:     common.FeHex(p.PublicInputHash),
+		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -141,13 +137,7 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.OutputRingDataHash, err = common.FeFromHex(params.OutputRingDataHash); err != nil {
 		return err
 	}
-	if p.OperationID, err = common.FeFromHex(params.OperationID); err != nil {
-		return err
-	}
-	if p.HasCache, err = common.FeFromHex(params.HasCache); err != nil {
-		return err
-	}
-	if p.CacheOwnerCommitment, err = common.FeFromHex(params.CacheOwnerCommitment); err != nil {
+	if p.CacheOwnerBlinding, err = common.FeFromHex(params.CacheOwnerBlinding); err != nil {
 		return err
 	}
 	if p.OwnerPkHash, err = common.FeFromHex(params.OwnerPkHash); err != nil {

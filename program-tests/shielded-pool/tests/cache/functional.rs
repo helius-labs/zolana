@@ -242,8 +242,8 @@ fn ring_merge_writes_the_bound_slot() {
     let mut pool = proof_env();
     let tree = pool.tree;
     let tree_id = pool.tree_id;
-    let operation_id = test_blinding(21);
-    let owner_identity = ring_cache_identity(&shielded_keypair(&pool), &operation_id);
+    let owner_blinding = test_blinding(21);
+    let owner_identity = ring_cache_identity(&shielded_keypair(&pool), &owner_blinding);
     let cache = create_cache(&mut pool, owner_identity, 1, tree_id);
 
     let merge = RealRingMergeProof {
@@ -255,7 +255,7 @@ fn ring_merge_writes_the_bound_slot() {
         MergeRingCacheTarget {
             address: cache.address,
             slot: SLOT,
-            operation_id,
+            owner_blinding,
         },
     );
     let ix = merge.instruction(&pool);
@@ -282,10 +282,10 @@ fn ring_merge_cannot_write_another_users_cache_on_the_same_ring() {
     const SLOT: u8 = 1;
     let mut pool = proof_env();
     let tree_id = pool.tree_id;
-    let operation_id = test_blinding(22);
+    let owner_blinding = test_blinding(22);
     let stranger =
         ShieldedKeypair::from_keypair(&Keypair::new()).expect("a second user of the same ring");
-    let owner_identity = ring_cache_identity(&stranger, &operation_id);
+    let owner_identity = ring_cache_identity(&stranger, &owner_blinding);
     let mut cache = create_cache(&mut pool, owner_identity, 1, tree_id);
 
     let merge = RealRingMergeProof {
@@ -297,7 +297,7 @@ fn ring_merge_cannot_write_another_users_cache_on_the_same_ring() {
         MergeRingCacheTarget {
             address: cache.address,
             slot: SLOT,
-            operation_id,
+            owner_blinding,
         },
     );
     let ix = merge.instruction(&pool);
@@ -309,7 +309,7 @@ fn ring_merge_cannot_write_another_users_cache_on_the_same_ring() {
     );
     assert_eq!(cache_state(&pool.rpc, &cache.address), cache.empty());
 
-    let merger_identity = ring_cache_identity(&shielded_keypair(&pool), &operation_id);
+    let merger_identity = ring_cache_identity(&shielded_keypair(&pool), &owner_blinding);
     rebind_cache_owner(&mut pool, &cache.address, merger_identity);
     cache.owner_identity = merger_identity;
     send_merge(
@@ -356,11 +356,11 @@ fn plain_ring_merge_without_a_cache_still_verifies() {
 #[test]
 fn cross_rail_caches_are_mutually_unwritable() {
     const SLOT: u8 = 4;
-    let operation_id = test_blinding(23);
+    let owner_blinding = test_blinding(23);
 
     let mut confidential = proof_env();
     let tree_id = confidential.tree_id;
-    let ring_identity = ring_cache_identity(&shielded_keypair(&confidential), &operation_id);
+    let ring_identity = ring_cache_identity(&shielded_keypair(&confidential), &owner_blinding);
     let ring_cache = create_cache(&mut confidential, ring_identity, 1, tree_id);
     let merge = RealMergeProof {
         input_count: MERGE_DEFAULT_INPUT_COUNT,
@@ -393,7 +393,7 @@ fn cross_rail_caches_are_mutually_unwritable() {
         MergeRingCacheTarget {
             address: confidential_cache.address,
             slot: SLOT,
-            operation_id,
+            owner_blinding,
         },
     );
     let ring_ix = ring_merge.instruction(&ring);
@@ -407,7 +407,7 @@ fn cross_rail_caches_are_mutually_unwritable() {
         confidential_cache.empty()
     );
 
-    let ring_merger_identity = ring_cache_identity(&shielded_keypair(&ring), &operation_id);
+    let ring_merger_identity = ring_cache_identity(&shielded_keypair(&ring), &owner_blinding);
     rebind_cache_owner(&mut ring, &confidential_cache.address, ring_merger_identity);
     confidential_cache.owner_identity = ring_merger_identity;
     send_merge(

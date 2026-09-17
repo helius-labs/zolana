@@ -416,11 +416,11 @@ pub fn activate_ring_test_program(pool: &mut Pool) -> Pubkey {
     Pubkey::new_from_array(RING_TEST_PROGRAM_ID)
 }
 
-pub fn ring_cache_identity(keypair: &ShieldedKeypair, operation_id: &[u8; 32]) -> [u8; 32] {
+pub fn ring_cache_identity(keypair: &ShieldedKeypair, owner_blinding: &[u8; 32]) -> [u8; 32] {
     let nullifier_pk = keypair.nullifier_key().pubkey().expect("nullifier pubkey");
     let user_owner_hash =
         owner_hash(&keypair.signing_pubkey(), &nullifier_pk).expect("user owner hash");
-    Poseidon::hashv(&[&user_owner_hash, operation_id]).expect("ring cache identity")
+    Poseidon::hashv(&[&user_owner_hash, owner_blinding]).expect("ring cache identity")
 }
 
 pub struct RingZeroDeposits<'a> {

@@ -318,12 +318,8 @@ pub(crate) struct MergeParametersJson {
     /// the ring's pk_field for merge-ring (the circuit's top-level public input).
     #[serde(rename = "ringProgramId")]
     pub ring_program_id: String,
-    #[serde(rename = "operationId")]
-    pub operation_id: String,
-    #[serde(rename = "hasCache")]
-    pub has_cache: String,
-    #[serde(rename = "cacheOwnerCommitment")]
-    pub cache_owner_commitment: String,
+    #[serde(rename = "cacheOwnerBlinding")]
+    pub cache_owner_blinding: String,
 }
 
 /// Serialize a merge witness under the given circuit type. The default merge and
@@ -378,9 +374,7 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
         ring_program_id: big_uint_to_string(&inputs.ring_program_id),
-        operation_id: big_uint_to_string(&inputs.operation_id),
-        has_cache: big_uint_to_string(&inputs.has_cache),
-        cache_owner_commitment: big_uint_to_string(&inputs.cache_owner_commitment),
+        cache_owner_blinding: big_uint_to_string(&inputs.cache_owner_blinding),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
@@ -721,9 +715,7 @@ mod merge_tests {
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
             ring_program_id: BigUint::ZERO,
-            operation_id: BigUint::ZERO,
-            has_cache: BigUint::ZERO,
-            cache_owner_commitment: BigUint::ZERO,
+            cache_owner_blinding: BigUint::ZERO,
         };
 
         let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
@@ -743,9 +735,7 @@ mod merge_tests {
             "publicInputHash",
             "outputRingDataHash",
             "ringProgramId",
-            "operationId",
-            "hasCache",
-            "cacheOwnerCommitment",
+            "cacheOwnerBlinding",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }

@@ -43,6 +43,7 @@ fn close(cache: Address, rent_recipient: Address) -> Instruction {
     CloseCache {
         cache,
         rent_recipient,
+        owner: None,
     }
     .instruction()
 }
@@ -184,6 +185,115 @@ fn create_and_close_reject_unauthorized_configuration() {
         ShieldedPoolError::InvalidReimbursementRecipient,
     );
     assert_eq!(state(&rpc, &cache), before);
+}
+
+#[test]
+fn frozen_cache_early_close_requires_its_owner_and_refunds_sponsor() {
+    for owner_is_sponsor in [false, true] {
+        let Pool {
+            mut rpc, tree_id, ..
+        } = Pool::initialized();
+        let sponsor = rpc.payer.pubkey();
+        let separate_owner = Keypair::new();
+        rpc.airdrop(&separate_owner.pubkey(), 1_000_000)
+            .expect("fund the owner account");
+        let owner = if owner_is_sponsor {
+            sponsor
+        } else {
+            separate_owner.pubkey()
+        };
+        let owner_signers: Vec<&dyn Signer> = if owner_is_sponsor {
+            vec![]
+        } else {
+            vec![&separate_owner]
+        };
+        let owner_identity = solana_owner_identity(owner.as_array()).expect("owner identity");
+        let expires_at = now(&rpc) + 1_000;
+        let (cache, _, create_ix) = create(sponsor, owner_identity, 6, tree_id, expires_at);
+        rpc.create_and_send_default_payer_transaction(&[create_ix], &[])
+            .expect("create the cache");
+        let owner_close = CloseCache {
+            cache,
+            rent_recipient: sponsor,
+            owner: Some(owner),
+        }
+        .instruction();
+
+        let before = state(&rpc, &cache);
+        let failure = rpc
+            .create_and_send_default_payer_transaction(
+                std::slice::from_ref(&owner_close),
+                &owner_signers,
+            )
+            .expect_err("even the owner must wait until the cache is frozen");
+        Rejection::pool(ShieldedPoolError::CacheNotExpired).assert_litesvm(failure);
+        assert_eq!(state(&rpc, &cache), before);
+
+        // A partial spend freezes the cache; remaining commitments need not be empty.
+        let mut frozen = before;
+        frozen.frozen = 1;
+        *frozen.commitments.first_mut().expect("cache slot") = fe(7);
+        store(&mut rpc, cache, frozen);
+        reject(
+            &mut rpc,
+            close(cache, sponsor),
+            ShieldedPoolError::CacheNotExpired,
+        );
+        assert_eq!(state(&rpc, &cache), frozen);
+
+        if !owner_is_sponsor {
+            let sponsor_close = CloseCache {
+                cache,
+                rent_recipient: sponsor,
+                owner: Some(sponsor),
+            }
+            .instruction();
+            reject(
+                &mut rpc,
+                sponsor_close,
+                ShieldedPoolError::CacheOwnerMismatch,
+            );
+            assert_eq!(state(&rpc, &cache), frozen);
+
+            let mut unsigned = owner_close.clone();
+            unsigned.accounts.last_mut().expect("owner meta").is_signer = false;
+            reject(
+                &mut rpc,
+                unsigned,
+                zolana_account_checks::AccountError::InvalidSigner,
+            );
+            assert_eq!(state(&rpc, &cache), frozen);
+
+            let wrong_recipient = CloseCache {
+                cache,
+                rent_recipient: owner,
+                owner: Some(owner),
+            }
+            .instruction();
+            let failure = rpc
+                .create_and_send_default_payer_transaction(&[wrong_recipient], &owner_signers)
+                .expect_err("the owner cannot redirect the sponsor's rent");
+            Rejection::pool(ShieldedPoolError::InvalidReimbursementRecipient)
+                .assert_litesvm(failure);
+            assert_eq!(state(&rpc, &cache), frozen);
+        }
+
+        rpc.svm.expire_blockhash();
+        let sponsor_before = rpc.svm.get_account(&sponsor).expect("sponsor").lamports;
+        let rent = rpc.svm.get_account(&cache).expect("cache").lamports;
+        rpc.create_and_send_default_payer_transaction(&[owner_close], &owner_signers)
+            .expect("owner closes a frozen cache before expiry");
+        assert!(rpc
+            .svm
+            .get_account(&cache)
+            .is_none_or(|account| account.lamports == 0));
+        let signature_fee = if owner_is_sponsor { 5_000 } else { 10_000 };
+        assert_eq!(
+            rpc.svm.get_account(&sponsor).expect("sponsor").lamports,
+            sponsor_before + rent - signature_fee,
+            "the sponsor receives the full rent less transaction signature fees"
+        );
+    }
 }
 
 #[test]

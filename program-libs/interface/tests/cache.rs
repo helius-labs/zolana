@@ -82,6 +82,7 @@ fn close_cache_takes_no_signer_and_writes_both_accounts() {
     let ix = CloseCache {
         cache,
         rent_recipient,
+        owner: None,
     }
     .instruction();
     assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
@@ -90,6 +91,28 @@ fn close_cache_takes_no_signer_and_writes_both_accounts() {
         vec![
             AccountMeta::new(cache, false),
             AccountMeta::new(rent_recipient, false),
+        ]
+    );
+    assert_eq!(ix.data, vec![tag::CLOSE_CACHE]);
+}
+
+#[test]
+fn close_cache_appends_the_owner_signer_for_early_close() {
+    let cache = Pubkey::new_unique();
+    let rent_recipient = Pubkey::new_unique();
+    let owner = Pubkey::new_unique();
+    let ix = CloseCache {
+        cache,
+        rent_recipient,
+        owner: Some(owner),
+    }
+    .instruction();
+    assert_eq!(
+        ix.accounts,
+        vec![
+            AccountMeta::new(cache, false),
+            AccountMeta::new(rent_recipient, false),
+            AccountMeta::new_readonly(owner, true),
         ]
     );
     assert_eq!(ix.data, vec![tag::CLOSE_CACHE]);

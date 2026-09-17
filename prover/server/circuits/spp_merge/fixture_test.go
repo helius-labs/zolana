@@ -38,16 +38,15 @@ const (
 const defaultFixtureInputs = 8
 
 type mergeFixtureOptions struct {
-	rail              mergeFixtureRail
-	eddsa             bool
-	asset             *big.Int
-	ringProgramID     *big.Int
-	inputRingData     []*big.Int
-	outputRingData    *big.Int
-	userSigningPkHash *big.Int
-	allowDummyInputs  *big.Int
-	operationID       *big.Int
-	hasCache          bool
+	rail               mergeFixtureRail
+	eddsa              bool
+	asset              *big.Int
+	ringProgramID      *big.Int
+	inputRingData      []*big.Int
+	outputRingData     *big.Int
+	userSigningPkHash  *big.Int
+	allowDummyInputs   *big.Int
+	cacheOwnerBlinding *big.Int
 	// duplicateFirstInput fills input slot 1 with an exact copy of slot 0
 	// (same UTXO, same paths, same nullifier); only the distinctness
 	// constraint can reject the resulting witness.
@@ -115,9 +114,7 @@ type mergeWitnessFixture struct {
 	outputRingDataHash  *big.Int
 	ringProgramID       *big.Int
 
-	operationID          *big.Int
-	hasCache             *big.Int
-	cacheOwnerCommitment *big.Int
+	cacheOwnerBlinding *big.Int
 
 	publicInputHash *big.Int
 }
@@ -394,19 +391,16 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	if options.allowDummyInputs != nil {
 		allowDummyInputs = options.allowDummyInputs
 	}
-	operationID := big.NewInt(0)
-	if options.operationID != nil {
-		operationID = options.operationID
+	cacheOwnerBlinding := big.NewInt(0)
+	if options.cacheOwnerBlinding != nil {
+		cacheOwnerBlinding = options.cacheOwnerBlinding
 	}
-	cacheIdentity, err := poseidon.Hash([]*big.Int{userOwnerHash, operationID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	hasCache := big.NewInt(0)
 	cacheOwnerCommitment := big.NewInt(0)
-	if options.hasCache {
-		hasCache = big.NewInt(1)
-		cacheOwnerCommitment = cacheIdentity
+	if cacheOwnerBlinding.Sign() != 0 {
+		cacheOwnerCommitment, err = poseidon.Hash([]*big.Int{userOwnerHash, cacheOwnerBlinding})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	outputTreeID := big.NewInt(fixtureOutputTreeID)
@@ -500,9 +494,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		outputRingDataHash:  outputRingData,
 		ringProgramID:       ringProgramID,
 
-		operationID:          operationID,
-		hasCache:             hasCache,
-		cacheOwnerCommitment: cacheOwnerCommitment,
+		cacheOwnerBlinding: cacheOwnerBlinding,
 
 		publicInputHash: publicInputHash,
 	}
@@ -533,9 +525,7 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment.CommonPublicInputs = f.public
 	assignment.OutputRingDataHash = f.outputRingDataHash
 	assignment.RingProgramID = f.ringProgramID
-	assignment.OperationID = f.operationID
-	assignment.HasCache = f.hasCache
-	assignment.CacheOwnerCommitment = f.cacheOwnerCommitment
+	assignment.CacheOwnerBlinding = f.cacheOwnerBlinding
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }

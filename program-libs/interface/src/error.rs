@@ -175,7 +175,7 @@ pub enum ShieldedPoolError {
     InvalidCacheBitmap = 7072,
     #[error("cache tree does not match")]
     CacheTreeMismatch = 7073,
-    #[error("cache owner does not match merge owner")]
+    #[error("cache owner identity does not match")]
     CacheOwnerMismatch = 7074,
     #[error("unused cached-input state root index must be zero")]
     InvalidCacheRootIndex = 7075,

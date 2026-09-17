@@ -140,24 +140,8 @@ impl MergeProver {
         let public_input = create_hash_chain_4_from_slice(&elements)?;
 
         // Default merge is non-ring; the merge-ring builder sets the ring binding.
-        Ok(merge.finish(MergeRailTail {
-            public_input,
-            ring_program_id: BigUint::ZERO,
-            output_ring_data_hash: BigUint::ZERO,
-            operation_id: BigUint::ZERO,
-            has_cache: BigUint::ZERO,
-            cache_owner_commitment: BigUint::ZERO,
-        }))
+        Ok(merge.finish(public_input, BigUint::ZERO, BigUint::ZERO, BigUint::ZERO))
     }
-}
-
-pub(crate) struct MergeRailTail {
-    pub public_input: [u8; 32],
-    pub ring_program_id: BigUint,
-    pub output_ring_data_hash: BigUint,
-    pub operation_id: BigUint,
-    pub has_cache: BigUint,
-    pub cache_owner_commitment: BigUint,
 }
 
 /// Everything the default ([`MergeProver`]) and policy-ring
@@ -322,17 +306,16 @@ impl MergeProver {
 }
 
 impl CommonMerge {
-    /// Fold the rail's tail values (all zero for the default merge) into the
-    /// final witness and proof result.
-    pub(crate) fn finish(self, tail: MergeRailTail) -> MergeProofResult {
-        let MergeRailTail {
-            public_input,
-            ring_program_id,
-            output_ring_data_hash,
-            operation_id,
-            has_cache,
-            cache_owner_commitment,
-        } = tail;
+    /// Fold the rail's completed public-input hash, ring binding, output
+    /// ring-data hash, and cache salt (all three zero for the default merge)
+    /// into the final witness and proof result.
+    pub(crate) fn finish(
+        self,
+        public_input: [u8; 32],
+        ring_program_id: BigUint,
+        output_ring_data_hash: BigUint,
+        cache_owner_blinding: BigUint,
+    ) -> MergeProofResult {
         let inputs = MergeInputs {
             inputs: self.inputs,
             output: self.output,
@@ -347,9 +330,7 @@ impl CommonMerge {
             public_input_hash: be(&public_input),
             output_ring_data_hash,
             ring_program_id,
-            operation_id,
-            has_cache,
-            cache_owner_commitment,
+            cache_owner_blinding,
         };
         MergeProofResult {
             inputs,
