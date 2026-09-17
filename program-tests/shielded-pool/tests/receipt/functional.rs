@@ -23,9 +23,10 @@ const COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 /// `verify_receipt`: one commitment-aware Groth16 verification plus a Poseidon
 /// hash chain over every slot of the receipt's capacity.
 fn verify_receipt_cu_ceiling(capacity: usize) -> u64 {
+    // Measured 219k and 490k; the 512 chain is 511 Poseidon syscalls.
     match capacity {
-        8 => 500_000,
-        512 => 1_300_000,
+        8 => 300_000,
+        512 => 650_000,
         other => panic!("no pinned compute-unit ceiling for a {other}-slot receipt"),
     }
 }

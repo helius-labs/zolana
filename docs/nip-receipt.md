@@ -98,6 +98,20 @@ slot. A 512 receipt covers 14 merges of 36: per merge that is 348k private
 plus 184k public work (2,579k / 14) instead of 781k private. The public part
 can be proven by any party and in parallel with the merges.
 
+Compute units (LiteSVM, `receipt_functional`, M5 Pro, 2026-09-17):
+
+| transaction | CU |
+|---|---|
+| `verify_receipt`, 8 slots | 219k |
+| `verify_receipt`, 512 slots (36 filled) | 490k |
+| receipt-backed `merge_transact`, 8 inputs | 148k |
+| receipt-backed `merge_transact`, 36 inputs | 239k |
+
+The 512 verification is one commitment-aware Groth16 check plus a 511-hash
+Poseidon chain; amortised over 14 merges of 36 it adds about 35k CU per merge.
+The merge itself does the same on-chain work as a default merge plus one slice
+comparison; `merge_functional` prints the default numbers for comparison.
+
 ## Soundness
 
 The freshness rule is the same as today. A default merge proves "nullifier not
@@ -169,9 +183,6 @@ MERGE_COUNTS=1 go test ./circuits/spp_merge -run TestReceiptMergeConstraints -v
 
 ## Open items
 
-- Record CU from `receipt_functional`: `verify_receipt` at 8 and 512 slots
-  (the 512 slot hash chain is 511 Poseidon hashes), receipt-backed merge at
-  8 and 36.
 - Wallet integration: who builds and pays for receipts (the wallet before a
   batch of merges, or a relayer), and receipt reuse across merges of one user.
 - Ring merges could take a receipt the same way; not done here.
