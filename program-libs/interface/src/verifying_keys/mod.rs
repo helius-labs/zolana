@@ -18,6 +18,8 @@ pub mod merge_ring_36_1;
 #[cfg(feature = "verifying-keys")]
 pub mod merge_ring_8_1;
 #[cfg(feature = "verifying-keys")]
+pub mod nullifier_receipt_512_0;
+#[cfg(feature = "verifying-keys")]
 pub mod nullifier_receipt_8_0;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_1_1;

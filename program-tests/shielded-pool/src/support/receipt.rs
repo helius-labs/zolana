@@ -14,7 +14,7 @@ use zolana_interface::{
     instruction::{
         CreateReceipt, CreateReceiptData, UploadReceipt, UploadReceiptData, VerifyReceipt,
     },
-    verifying_keys::nullifier_receipt_8_0,
+    verifying_keys::{nullifier_receipt_512_0, nullifier_receipt_8_0},
 };
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 
@@ -140,6 +140,7 @@ pub fn receipt_verifying_key(
 ) -> &'static groth16_solana::groth16::Groth16Verifyingkey<'static> {
     match capacity {
         8 => &nullifier_receipt_8_0::VERIFYINGKEY,
+        512 => &nullifier_receipt_512_0::VERIFYINGKEY,
         other => panic!("no committed verifying key for a {other}-slot receipt"),
     }
 }

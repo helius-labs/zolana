@@ -3,9 +3,8 @@ use bytemuck::{Pod, Zeroable};
 pub const RECEIPT_SEED: &[u8] = b"receipt";
 
 /// Receipt shapes with a committed verifying key. A receipt pads to its
-/// capacity with zero slots; `count` is the number of live nullifiers. The 512
-/// shape joins once its key is generated (`nullifier_receipt_512_0`).
-pub const RECEIPT_CAPACITIES: [u16; 1] = [8];
+/// capacity with zero slots; `count` is the number of live nullifiers.
+pub const RECEIPT_CAPACITIES: [u16; 2] = [8, 512];
 
 /// Largest receipt shape.
 pub const RECEIPT_MAX_CAPACITY: u16 = 512;

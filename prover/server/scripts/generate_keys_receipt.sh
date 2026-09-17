@@ -3,11 +3,13 @@ set -euo pipefail
 
 server_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "$server_dir/../.." && pwd)"
-cd "$server_dir"
 
-keys_dir="${1:-./proving-keys}"
+# Resolve before changing directory so a relative argument means what the
+# caller sees.
+mkdir -p "${1:-$server_dir/proving-keys}"
+keys_dir="$(cd "${1:-$server_dir/proving-keys}" && pwd)"
 vkey_dir="$repo_root/program-libs/interface/src/verifying_keys"
-mkdir -p "$keys_dir"
+cd "$server_dir"
 
 # Rebuild right before setup: a stale binary compiles a different constraint
 # system than the running server.
@@ -25,7 +27,7 @@ for n_inputs in 8 36; do
 done
 
 # Nullifier receipt: keep in sync with receipt.SupportedNInputs and
-# RECEIPT_CAPACITIES. 512 needs roughly 16 GB during setup.
+# RECEIPT_CAPACITIES.
 for n_inputs in 8 512; do
     output="${keys_dir}/nullifier_receipt_${n_inputs}_0.key"
     echo "Generating nullifier-receipt ${n_inputs} -> ${output}"
@@ -35,5 +37,4 @@ for n_inputs in 8 512; do
 done
 
 rustfmt "$vkey_dir"/merge_receipt_*.rs "$vkey_dir"/nullifier_receipt_*.rs
-echo "Done. Receipt proving keys written to ${keys_dir}; register new modules in ${vkey_dir}/mod.rs"
-echo "and re-pin program-libs/interface/tests/vk_fingerprint.rs."
+echo "Done. Receipt proving keys written to ${keys_dir}; re-pin program-libs/interface/tests/vk_fingerprint.rs."

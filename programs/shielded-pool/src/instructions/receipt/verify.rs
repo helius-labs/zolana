@@ -7,7 +7,7 @@ use zolana_interface::{
     instruction::{VerifyReceiptData, RECEIPT_DOMAIN},
     state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, receipt::receipt_nullifiers},
     tree_slot::tree_id_field,
-    verifying_keys::nullifier_receipt_8_0,
+    verifying_keys::{nullifier_receipt_512_0, nullifier_receipt_8_0},
 };
 use zolana_tree::TreeAccount;
 
@@ -94,6 +94,7 @@ fn verifying_key(capacity: u16) -> Result<&'static Groth16Verifyingkey<'static>,
     // One arm per entry of `RECEIPT_CAPACITIES`.
     Ok(match capacity {
         8 => &nullifier_receipt_8_0::VERIFYINGKEY,
+        512 => &nullifier_receipt_512_0::VERIFYINGKEY,
         _ => return Err(ShieldedPoolError::UnsupportedReceiptCapacity.into()),
     })
 }

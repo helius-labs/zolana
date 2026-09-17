@@ -31,8 +31,8 @@ Accounts:
   the pool program. Header 120 bytes (`ReceiptHeader`): `capacity`, `count`,
   `filled`, `verified`, `tree`, `nullifier_root`, `rent_sponsor`, `nonce`.
   Body: `capacity` slots of 32 bytes.
-- Supported capacities: `RECEIPT_CAPACITIES` (8 now; 512 once its key is
-  generated). A receipt with `count < capacity` is zero-padded.
+- Supported capacities: `RECEIPT_CAPACITIES = [8, 512]`. A receipt with
+  `count < capacity` is zero-padded.
 
 Instructions (event tags 24–27):
 
@@ -136,16 +136,16 @@ TTL: it lapses when `R` leaves root history.
 
 ## Reproduce
 
-Keys (Mac, ~16 GB for the 512 receipt):
+Keys (the 512 receipt setup takes about two minutes on an M-series Mac):
 
 ```
 prover/server/scripts/generate_keys_receipt.sh prover/server/proving-keys
 ```
 
 This writes `merge_receipt_{8,36}_1.key`, `nullifier_receipt_{8,512}_0.key`
-and their `.rs` verifying-key modules. After that: add `nullifier_receipt_512_0`
-to `verifying_keys/mod.rs`, set `RECEIPT_CAPACITIES = [8, 512]`, add the arm in
-`instructions/receipt/verify.rs`, re-pin `tests/vk_fingerprint.rs`.
+and regenerates their `.rs` verifying-key modules; re-pin
+`tests/vk_fingerprint.rs` afterwards. The committed modules match the keys
+generated on the Mac on 2026-09-17.
 
 Tests:
 
@@ -167,10 +167,9 @@ MERGE_COUNTS=1 go test ./circuits/spp_merge -run TestReceiptMergeConstraints -v
 
 ## Open items
 
-- Generate `nullifier_receipt_512_0` and enable capacity 512; add the
-  36-input receipt-backed merge test (needs capacity ≥ 36).
-- Measure CU on the Mac: `verify_receipt` at 8 and 512 slots (the 512 slot
-  hash chain is 511 Poseidon hashes), receipt-backed merge at 8 and 36.
+- Record CU from `receipt_functional`: `verify_receipt` at 8 and 512 slots
+  (the 512 slot hash chain is 511 Poseidon hashes), receipt-backed merge at
+  8 and 36.
 - Wallet integration: who builds and pays for receipts (the wallet before a
   batch of merges, or a relayer), and receipt reuse across merges of one user.
 - Ring merges could take a receipt the same way; not done here.

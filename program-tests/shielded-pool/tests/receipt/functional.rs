@@ -9,7 +9,7 @@ use shielded_pool_tests::support::{
 use solana_pubkey::Pubkey;
 use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
-    instruction::instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT,
+    instruction::instruction_data::merge_transact::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
     state::receipt::ReceiptHeader,
 };
 use zolana_test_utils::{
@@ -20,13 +20,25 @@ use zolana_test_utils::{
 
 const COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
-/// `verify_receipt`: one commitment-aware Groth16 verification plus the slot
-/// hash chain.
-const VERIFY_RECEIPT_8_CU_CEILING: u64 = 500_000;
+/// `verify_receipt`: one commitment-aware Groth16 verification plus a Poseidon
+/// hash chain over every slot of the receipt's capacity.
+fn verify_receipt_cu_ceiling(capacity: usize) -> u64 {
+    match capacity {
+        8 => 500_000,
+        512 => 1_300_000,
+        other => panic!("no pinned compute-unit ceiling for a {other}-slot receipt"),
+    }
+}
 
 /// Receipt-backed merge: the default merge's on-chain work plus a slice
-/// comparison, so the default ceilings apply.
-const MERGE_RECEIPT_8_CU_CEILING: u64 = 420_000;
+/// comparison, so the default merge ceilings apply.
+fn merge_cu_ceiling(input_count: usize) -> u64 {
+    match input_count {
+        8 => 420_000,
+        36 => 1_000_000,
+        other => panic!("no pinned compute-unit ceiling for a {other}-input merge"),
+    }
+}
 
 /// Prover round trip without a chain: the SDK witness proves and the proof
 /// verifies against the committed verifying key.
@@ -54,11 +66,13 @@ fn receipt_backed_merge_at_input_count(input_count: usize, real_input_count: usi
         real_input_count,
     }
     .build_receipt_backed(&mut pool, 1);
+    let capacity = built.receipt.inputs.nullifiers.len();
     let verify_cu = built.receipt.publish(&mut pool);
-    println!("verify_receipt {input_count} slots: {verify_cu} CU");
+    println!("verify_receipt {input_count} of {capacity} slots: {verify_cu} CU");
+    let verify_ceiling = verify_receipt_cu_ceiling(capacity);
     assert!(
-        verify_cu <= VERIFY_RECEIPT_8_CU_CEILING,
-        "verify_receipt consumed {verify_cu} CU (ceiling {VERIFY_RECEIPT_8_CU_CEILING})"
+        verify_cu <= verify_ceiling,
+        "verify_receipt consumed {verify_cu} CU (ceiling {verify_ceiling})"
     );
 
     let receipt_data = pool
@@ -84,9 +98,10 @@ fn receipt_backed_merge_at_input_count(input_count: usize, real_input_count: usi
         .expect("merge trace")
         .compute_units_consumed;
     println!("merge_transact (receipt) {input_count} inputs: {merge_cu} CU");
+    let merge_ceiling = merge_cu_ceiling(input_count);
     assert!(
-        merge_cu <= MERGE_RECEIPT_8_CU_CEILING,
-        "receipt-backed merge consumed {merge_cu} CU (ceiling {MERGE_RECEIPT_8_CU_CEILING})"
+        merge_cu <= merge_ceiling,
+        "receipt-backed merge consumed {merge_cu} CU (ceiling {merge_ceiling})"
     );
 
     let (utxo_next_after, nullifier_next_after) = tree_progress(&pool.rpc, &tree);
@@ -119,4 +134,10 @@ fn receipt_backed_merge_verifies_one_real_input() {
 #[test]
 fn receipt_backed_merge_verifies_several_real_inputs() {
     receipt_backed_merge_at_input_count(MERGE_DEFAULT_INPUT_COUNT, 3);
+}
+
+/// 36 inputs take a slice of a 512-slot receipt.
+#[test]
+fn receipt_backed_merge_verifies_the_wide_shape() {
+    receipt_backed_merge_at_input_count(MAX_MERGE_INPUTS, 9);
 }
