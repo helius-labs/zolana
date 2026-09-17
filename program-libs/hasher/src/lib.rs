@@ -6,6 +6,7 @@
 //! |------|-------------|
 //! | [`Hasher`] | Trait with `hash`, `hashv`, and `zero_bytes` |
 //! | [`Poseidon`] | Poseidon hash over BN254 |
+//! | [`Poseidon2`] | Poseidon2 2-to-1 tree hash over BN254 |
 //! | [`Keccak`] | Keccak-256 hash |
 //! | [`Sha256`] | SHA-256 hash |
 //! | [`HasherError`] | Error type for hash operations |
@@ -31,6 +32,7 @@ pub mod hash_chain;
 pub mod keccak;
 pub mod p256;
 pub mod poseidon;
+pub mod poseidon2;
 pub mod primitives;
 pub mod sha256;
 pub mod syscalls;
@@ -38,6 +40,7 @@ pub mod zero_bytes;
 
 pub use keccak::Keccak;
 pub use poseidon::Poseidon;
+pub use poseidon2::Poseidon2;
 pub use sha256::Sha256;
 
 pub use crate::errors::HasherError;

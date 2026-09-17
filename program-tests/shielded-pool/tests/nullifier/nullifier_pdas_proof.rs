@@ -5,7 +5,7 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
+use zolana_hasher::{primitives::solana_owner_identity, Poseidon2};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{instruction_data::transact::TransactIxData, Transact},
@@ -79,7 +79,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         .hash(&nullifier_pk, &zero, &zero, tree_id)
         .expect("utxo hash");
     let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &env.tree);
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
     let state_path: Vec<[u8; 32]> = state_tree

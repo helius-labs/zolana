@@ -4,7 +4,7 @@ use ark_ff::PrimeField;
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon2};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, constants::NULLIFIER_TREE_INIT_ROOT_40,
@@ -22,9 +22,9 @@ type NullifierTree = NullifierTreeLayout<ZKP>;
 
 const TREE_PUBKEY: [u8; 32] = [7u8; 32];
 
-fn reference_nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
+fn reference_nullifier_tree() -> IndexedMerkleTree<Poseidon2, usize> {
     let modulus: BigUint = Fr::MODULUS.into();
-    IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(HEIGHT as usize, 0, modulus - 1u32)
+    IndexedMerkleTree::<Poseidon2, usize>::new_with_next_value(HEIGHT as usize, 0, modulus - 1u32)
         .unwrap()
 }
 
@@ -69,7 +69,7 @@ struct PreparedUpdate {
 }
 
 struct NullifierForester {
-    reference: IndexedMerkleTree<Poseidon, usize>,
+    reference: IndexedMerkleTree<Poseidon2, usize>,
     inserted_into_tree: usize,
 }
 

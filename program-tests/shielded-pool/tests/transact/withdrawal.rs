@@ -23,7 +23,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{PublicInputs, PublicTransfers, TransferInput, STATE_TREE_HEIGHT};
 use zolana_event::{OutputDataEncoding, ProoflessOutput};
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
+use zolana_hasher::{primitives::solana_owner_identity, Poseidon2};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -171,7 +171,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
 
     // State inclusion proof (height 32) for leaf 0.
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
     let state_path: Vec<[u8; 32]> = state_tree
@@ -786,8 +786,8 @@ struct ShieldedPayer {
     utxo_hash: [u8; 32],
     nullifier: [u8; 32],
     spend_input: TransferInput,
-    state_tree: MerkleTree<Poseidon>,
-    nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    state_tree: MerkleTree<Poseidon2>,
+    nf_tree: IndexedMerkleTree<Poseidon2, usize>,
     utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
@@ -802,8 +802,8 @@ struct TransferredRecipient {
     nullifier_pk: [u8; 32],
     owner_field: [u8; 32],
     output_hash: [u8; 32],
-    state_tree: MerkleTree<Poseidon>,
-    nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    state_tree: MerkleTree<Poseidon2>,
+    nf_tree: IndexedMerkleTree<Poseidon2, usize>,
     utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
@@ -849,7 +849,7 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
         .expect("payer utxo hash");
     assert_eq!(payer_utxo_hash, event.utxo_hash);
 
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
     state_tree
         .append(&payer_utxo_hash)
         .expect("append shield leaf");

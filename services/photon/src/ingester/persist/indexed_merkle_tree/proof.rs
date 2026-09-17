@@ -6,7 +6,7 @@ use crate::ingester::error::IngesterError;
 use crate::ingester::persist::indexed_merkle_tree::{
     compute_hash_by_tree_kind, get_zeroeth_nullifier_exclusion_range,
 };
-use crate::ingester::persist::persisted_state_tree::ZERO_BYTES;
+use crate::ingester::persist::persisted_state_tree::zero_bytes;
 use crate::ingester::persist::{
     compute_parent_hash, get_multiple_compressed_leaf_proofs_from_full_leaf_info,
     leaf_node::u64_from_i64, LeafNode, MerkleProofWithContext,
@@ -37,7 +37,7 @@ fn proof_for_empty_tree_with_model(
     let mut proof: Vec<Hash> = vec![];
 
     for i in 0..(tree_height - 1) {
-        let zero_hash = ZERO_BYTES
+        let zero_hash = zero_bytes()
             .get(usize::try_from(i).map_err(|_| {
                 PhotonApiError::UnexpectedError(format!("Tree level {} does not fit in usize", i))
             })?)
@@ -352,10 +352,7 @@ mod tests {
     use super::*;
     use crate::ingester::persist::indexed_merkle_tree::get_zeroeth_nullifier_exclusion_range;
 
-    const RINGS_NULLIFIER_INIT_ROOT_40: [u8; 32] = [
-        29, 142, 113, 166, 1, 179, 232, 222, 187, 186, 155, 85, 123, 131, 105, 199, 244, 4, 174,
-        87, 190, 191, 8, 82, 35, 107, 7, 40, 32, 149, 66, 119,
-    ];
+    use zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 
     fn test_range(value: [u8; 32], next_value: [u8; 32]) -> indexed_trees::Model {
         indexed_trees::Model {
@@ -387,7 +384,7 @@ mod tests {
             proof_for_empty_tree_with_model(tree, 41, None, RingsTreeKind::Nullifier, empty_range)
                 .expect("empty proof");
 
-        assert_eq!(proof.root.0, RINGS_NULLIFIER_INIT_ROOT_40);
+        assert_eq!(proof.root.0, NULLIFIER_TREE_INIT_ROOT_40);
         assert_eq!(proof.root_seq, None);
         assert_eq!(proof.proof.len(), 40);
     }

@@ -9,7 +9,6 @@ use crate::{
 };
 use cadence_macros::statsd_count;
 use error::IngesterError;
-use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use log::debug;
 use nullifier_tree_batch_update::persist_nullifier_tree_batch_updates;
 use ring_configs::persist_ring_configs;
@@ -19,10 +18,10 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
+use zolana_hasher::{Hasher, Poseidon2};
 use zolana_indexer_api::Hash;
 
 use super::error;
-use ark_bn254::Fr;
 
 pub mod indexed_merkle_tree;
 pub mod nullifier_tree_batch_update;
@@ -107,11 +106,7 @@ pub(crate) fn get_node_direct_ancestors(leaf_index: i64) -> Vec<i64> {
 }
 
 pub fn compute_parent_hash(left: Vec<u8>, right: Vec<u8>) -> Result<Vec<u8>, IngesterError> {
-    let mut poseidon = Poseidon::<Fr>::new_circom(2).map_err(|e| {
-        IngesterError::ParserError(format!("Failed to initialize Poseidon hasher: {}", e))
-    })?;
-    poseidon
-        .hash_bytes_be(&[&left, &right])
+    Poseidon2::hashv(&[&left, &right])
         .map_err(|e| IngesterError::ParserError(format!("Failed to compute parent hash: {}", e)))
         .map(|x| x.to_vec())
 }

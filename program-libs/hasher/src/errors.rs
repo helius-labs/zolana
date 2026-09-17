@@ -19,6 +19,8 @@ pub enum HasherError {
     InvalidInputLength(usize, usize),
     #[error("Invalid number of fields")]
     InvalidNumFields,
+    #[error("Input is larger than the modulus of the prime field")]
+    InputLargerThanModulus,
 }
 
 // NOTE(vadorovsky): Unfortunately, we need to do it by hand. `num_derive::ToPrimitive`
@@ -33,6 +35,7 @@ impl From<HasherError> for u32 {
             HasherError::UnknownSolanaSyscall(e) => e.try_into().unwrap_or(8004),
             HasherError::InvalidInputLength(_, _) => 8005,
             HasherError::InvalidNumFields => 8006,
+            HasherError::InputLargerThanModulus => 8007,
         }
     }
 }

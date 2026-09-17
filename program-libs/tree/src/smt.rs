@@ -5,7 +5,7 @@ use wincode::{
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
 };
-use zolana_hasher::{Hasher, Poseidon};
+use zolana_hasher::{Hasher, Poseidon2};
 
 use crate::error::TreeError;
 
@@ -52,7 +52,7 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         let height_byte = u8::try_from(height).map_err(|_| TreeError::HeightTooLarge)?;
         let capacity =
             u16::try_from(ROOT_HISTORY_CAPACITY).map_err(|_| TreeError::HeightTooLarge)?;
-        let zero_bytes = Poseidon::zero_bytes();
+        let zero_bytes = Poseidon2::zero_bytes();
         let empty_root = *zero_bytes.get(height).ok_or(TreeError::HeightTooLarge)?;
 
         self.next_index = 0u64.to_le_bytes();
@@ -93,7 +93,7 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
     where
         I: IntoIterator<Item = &'l [u8; 32]>,
     {
-        let zero_bytes = Poseidon::zero_bytes();
+        let zero_bytes = Poseidon2::zero_bytes();
         let mut leaves = leaves.into_iter().peekable();
         // `next_index` changes for every leaf, so capture this before walking
         // the batch. In particular, a multi-leaf first batch must still
@@ -117,11 +117,11 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
                     if !is_last {
                         break;
                     }
-                    current_level_hash = Poseidon::hashv(&[&current_level_hash, zero_byte])
+                    current_level_hash = Poseidon2::hashv(&[&current_level_hash, zero_byte])
                         .map_err(|_| TreeError::Hash)?;
                 } else {
                     let left = *subtree;
-                    current_level_hash = Poseidon::hashv(&[&left, &current_level_hash])
+                    current_level_hash = Poseidon2::hashv(&[&left, &current_level_hash])
                         .map_err(|_| TreeError::Hash)?;
                 }
                 current_index /= 2;

@@ -18,7 +18,7 @@ use zolana_client::{
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
-use zolana_hasher::Poseidon;
+use zolana_hasher::Poseidon2;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -581,7 +581,7 @@ pub fn change_and_dummy_outputs(
 /// rejects any non-zero owner identity on a content-less slot.
 pub fn dummy_input(
     blinding: &[u8; 31],
-    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+    nf_tree: &IndexedMerkleTree<Poseidon2, usize>,
     tree_id: u16,
 ) -> Result<(TransferInput, [u8; 32])> {
     let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
@@ -642,11 +642,11 @@ pub fn dummy_input_with_proof(
     })
 }
 
-pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon, usize>> {
+pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon2, usize>> {
     let modulus_minus_one = BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10)
         .context("parse bn254 modulus")?
         - 1u32;
-    Ok(IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
+    Ok(IndexedMerkleTree::<Poseidon2, usize>::new_with_next_value(
         NULLIFIER_TREE_HEIGHT,
         0,
         modulus_minus_one,
@@ -789,7 +789,7 @@ pub fn build_spl_withdrawal(
         .get_nullifier_tree_root(0)
         .expect("nullifier root");
 
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root);
     let state_path: Vec<[u8; 32]> = state_tree

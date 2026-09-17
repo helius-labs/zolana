@@ -14,7 +14,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{ProverClient, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
 use zolana_hasher::primitives::solana_owner_identity;
-use zolana_hasher::Poseidon;
+use zolana_hasher::Poseidon2;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::InterfaceTransfer, Deposit, Transact,
@@ -757,7 +757,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
     assert_eq!(utxo_hash, event.utxo_hash);
 
     let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&pt, &tree);
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    let mut state_tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
     let state_path: Vec<[u8; 32]> = state_tree

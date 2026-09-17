@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
 use zolana_event_parser::proofless_output;
-use zolana_hasher::Poseidon;
+use zolana_hasher::Poseidon2;
 use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::{P256Pubkey, PublicKey};
 use zolana_merkle_tree::MerkleTree;
@@ -77,7 +77,7 @@ impl IndexedUtxo {
 }
 
 pub struct TestIndexer {
-    trees: BTreeMap<Address, MerkleTree<Poseidon>>,
+    trees: BTreeMap<Address, MerkleTree<Poseidon2>>,
     utxos: Vec<IndexedUtxo>,
     nullifiers: Vec<[u8; 32]>,
     transactions: Vec<ShieldedTransaction>,
@@ -209,7 +209,7 @@ impl TestIndexer {
     /// The reference root for `tree`, or the empty root before its first output.
     pub fn root(&self, tree: &Address) -> [u8; 32] {
         self.trees.get(tree).map_or_else(
-            || MerkleTree::<Poseidon>::new(STATE_HEIGHT, 0).root(),
+            || MerkleTree::<Poseidon2>::new(STATE_HEIGHT, 0).root(),
             MerkleTree::root,
         )
     }

@@ -33,7 +33,7 @@ use zolana_client::{
     transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof,
     ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
+use zolana_hasher::Poseidon2;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactIxData, TransactOutput},
     state::{
@@ -133,18 +133,18 @@ fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32],
     (fixture, utxo_root, nullifier_root, root_index)
 }
 
-fn local_state_tree(leaves: &[[u8; 32]]) -> MerkleTree<Poseidon> {
-    let mut tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+fn local_state_tree(leaves: &[[u8; 32]]) -> MerkleTree<Poseidon2> {
+    let mut tree = MerkleTree::<Poseidon2>::new(STATE_TREE_HEIGHT, 0);
     for leaf in leaves {
         tree.append(leaf).expect("append state leaf");
     }
     tree
 }
 
-fn nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
+fn nullifier_tree() -> IndexedMerkleTree<Poseidon2, usize> {
     let modulus_minus_one =
         BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("parse bn254 modulus") - 1u32;
-    IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
+    IndexedMerkleTree::<Poseidon2, usize>::new_with_next_value(
         NULLIFIER_TREE_HEIGHT,
         0,
         modulus_minus_one,
@@ -154,8 +154,8 @@ fn nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
 
 fn build_spend_proofs(
     tree: &Pubkey,
-    state_tree: &MerkleTree<Poseidon>,
-    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+    state_tree: &MerkleTree<Poseidon2>,
+    nf_tree: &IndexedMerkleTree<Poseidon2, usize>,
     commitments: &[zolana_transaction::instructions::types::InputUtxoContext],
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
