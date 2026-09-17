@@ -66,21 +66,26 @@ anchor roots the forester pins in root history, if it turns out to matter.
 
 ## Measured
 
-LiteSVM proof tests, M5 Pro, 2026-09-17, 100 real notes spent into one
-output in one transaction:
+LiteSVM proof tests, M5 Pro, 2026-09-17, three tests run in parallel on one
+prover (proof times include key loading and contention; resident-key,
+single-request proving is about 3 s for either shape):
 
-| | admitted shape (earlier) | this shape |
-|---|---|---|
-| transaction | 3,981 B, 7 addresses | ~4,020 B, 6 addresses (7 with a filter) |
-| compute units | 464,141 | see test output |
-| constraints | 1,091,546 | 1,432,787 |
-| proof, cold key | 5.97 s | 8.64 s |
-| proof, resident key, 20 inputs | — | 2.2–3.8 s |
+| | 100×1 merge | 100×1 merge, tree with filter | 64×2 payment, two 500-B ciphertexts |
+|---|---|---|---|
+| transaction | 3,988 B, 6 addresses | 4,021 B, 7 addresses | 3,948 B, 6 addresses |
+| compute units | 420,220 | 463,239 | 364,660 |
+| constraints | 1,432,787 | 1,432,787 | 1,301,843 |
+| transactions | 1 | 1 | 1 |
+
+Sharing the nullifier chain between the certificate and freshness fields
+took the 100×1 merge from 518,969 CU (checkpointed shape) to 420,220. A
+historical filter on the tree costs 43k CU per spend for its 100 × 12
+Keccak probes and is not needed by this path.
 
 For comparison on the same machine: PR #320 needs three sequential 36-input
-merges (about 240k CU each, three proofs of 781k constraints); the
-10x-admission buffer path needs the buffer allocation, the chunk uploads and
-the commit.
+merges (about 240k CU each, three proofs of 781k constraints, ~720k CU);
+the 10x-admission buffer path needs the buffer allocation, the chunk uploads
+and the commit.
 
 ## Soundness
 
@@ -123,7 +128,6 @@ a regenerated key needs a regenerated module.
 
 ## Open
 
-- Compute units and resident-key proof time at 100 inputs for this shape.
 - Smaller inline shapes (8, 36) cost one key each; the GKR fixed cost makes
   them no faster to prove than 64.
 - Poseidon2 for the tree hashes (circuit-only, roughly halves the membership
