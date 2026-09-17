@@ -471,17 +471,31 @@ fn dag_payment_checks_history_commitment_statement_and_replay() {
     payment_checks_commitment_statement_and_replay(PaymentMode::Dag);
 }
 
-/// 100 notes spent and merged into one output in a single transaction: the
-/// admitted payment travels in the instruction, no buffer account.
+/// 100 notes spent into one output in a single transaction: the payment
+/// travels in the instruction, no buffer account. Non-inclusion is proven at
+/// a nullifier root in history, so the tree needs only the compact pending
+/// table; with a filter enabled the spend records into it as an exact proof.
 #[test]
 #[ignore]
 fn inline_spend_settles_100_notes_in_one_transaction() {
+    inline_spend_settles(false);
+}
+
+#[test]
+#[ignore]
+fn inline_spend_settles_with_a_nullifier_filter() {
+    inline_spend_settles(true);
+}
+
+fn inline_spend_settles(with_filter: bool) {
     let count = std::env::var("DIRECT_SPEND_TEST_INPUTS")
         .ok()
         .map(|value| value.parse::<usize>().unwrap())
         .unwrap_or(wire::INLINE_INPUTS);
     let mut fixture = Fixture::new(count);
-    fixture.enable_filter();
+    if with_filter {
+        fixture.enable_filter();
+    }
     let owner = fixture.owner.pubkey();
     let plan = direct::certificate(
         owner.to_bytes(),
@@ -494,13 +508,11 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
         wire::INLINE_INPUTS,
     )
     .unwrap();
+    let (root, freshness) = fixture.freshness(&plan.statement, wire::INLINE_INPUTS);
     let (payment, outputs) = fixture.payment_with_outputs(
         PaymentInputs::Notes {
             certificate: plan.statement,
-            freshness: Root {
-                index: 0,
-                value: [0; 32],
-            },
+            freshness: root,
         },
         &[count as u64 * 10],
     );
@@ -514,8 +526,9 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
         1,
     )
     .unwrap();
-    let request = direct::admitted_payment(
+    let request = direct::payment(
         plan.request,
+        freshness,
         balance,
         &payment,
         owner.to_bytes(),
@@ -524,6 +537,8 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
         8,
         &plan.opening,
     )
+    .unwrap()
+    .with_gkr()
     .unwrap();
     let url = std::env::var("ZOLANA_PROVER_URL").expect("set ZOLANA_PROVER_URL");
     let started = std::time::Instant::now();
@@ -533,7 +548,19 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
         started.elapsed()
     );
     let data = direct::inline_spend(&payment, owner.to_bytes(), proof).unwrap();
-    let instruction = instructions::inline_spend(owner, fixture.tree, fixture.output_tree, &data);
+    let build = |data: &wire::InlineSpend| {
+        let mut instruction =
+            instructions::inline_spend(owner, fixture.tree, fixture.output_tree, data);
+        if with_filter {
+            zolana_interface::instruction::builders::historical_nullifiers::use_nullifier_filter(
+                &mut instruction,
+                &fixture.tree,
+            )
+            .unwrap();
+        }
+        instruction
+    };
+    let instruction = build(&data);
 
     let size = zolana_client::transaction_size(
         &Address::new_from_array(owner.to_bytes()),
@@ -562,11 +589,10 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
         .unwrap();
     let trace = fixture.rpc.last_transaction_trace().unwrap();
     println!(
-        "inline_spend {count} inputs: {} CU",
+        "inline_spend {count} inputs, filter={with_filter}: {} CU",
         trace.compute_units_consumed
     );
-    let queue_after = fixture.queue_next_index();
-    assert_eq!(queue_after, queue_before + count as u64);
+    assert_eq!(fixture.queue_next_index(), queue_before + count as u64);
 
     // Replay: every nullifier is pending now.
     let error = fixture
@@ -589,12 +615,7 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
     let error = fixture
         .rpc
         .create_and_send_transaction_with_budget(
-            &[instructions::inline_spend(
-                owner,
-                fixture.tree,
-                fixture.output_tree,
-                &changed,
-            )],
+            &[build(&changed)],
             &owner,
             &[&fixture.owner],
             direct::COMPUTE_BUDGET,
@@ -602,6 +623,23 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
         .unwrap_err();
     zolana_program_test::Rejection::pool(
         zolana_interface::error::ShieldedPoolError::TransactProofVerificationFailed,
+    )
+    .assert_litesvm(error);
+
+    // A stale nullifier root index is refused before the proof.
+    let mut stale = data.clone();
+    stale.nullifier_root_index = 7;
+    let error = fixture
+        .rpc
+        .create_and_send_transaction_with_budget(
+            &[build(&stale)],
+            &owner,
+            &[&fixture.owner],
+            direct::COMPUTE_BUDGET,
+        )
+        .unwrap_err();
+    zolana_program_test::Rejection::pool(
+        zolana_interface::error::ShieldedPoolError::InvalidTreeAccounts,
     )
     .assert_litesvm(error);
 }

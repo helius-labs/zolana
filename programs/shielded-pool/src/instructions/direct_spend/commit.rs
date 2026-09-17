@@ -14,9 +14,9 @@ use zolana_interface::{
     event::{EventKind, GeneralEvent, Input, InputTreeSequence},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     verifying_keys::{
-        direct_payment_512_2, direct_payment_admitted_100_1, direct_payment_admitted_144_2,
-        direct_payment_admitted_512_2, direct_payment_admitted_dag10_512_2,
-        direct_payment_gkr_144_2, direct_payment_gkr_512_2, spend_balance_16_2, Bsb22Commitment,
+        direct_payment_512_2, direct_payment_admitted_144_2, direct_payment_admitted_512_2,
+        direct_payment_admitted_dag10_512_2, direct_payment_gkr_100_1, direct_payment_gkr_144_2,
+        direct_payment_gkr_512_2, spend_balance_16_2, Bsb22Commitment,
     },
 };
 use zolana_tree::{SppTreeLayout, TreeAccount};
@@ -276,9 +276,7 @@ impl NotesProof<'_> {
             self.capacity,
             outputs,
         ) {
-            (ADMITTED_PAYMENT_DOMAIN, true, INLINE_INPUTS, 1) => {
-                &direct_payment_admitted_100_1::VERIFYINGKEY
-            }
+            (PAYMENT_DOMAIN, true, INLINE_INPUTS, 1) => &direct_payment_gkr_100_1::VERIFYINGKEY,
             (ADMITTED_PAYMENT_DOMAIN, true, 144, 2) => &direct_payment_admitted_144_2::VERIFYINGKEY,
             (ADMITTED_PAYMENT_DOMAIN, true, MAX_INPUTS, 2) => {
                 &direct_payment_admitted_512_2::VERIFYINGKEY

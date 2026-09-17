@@ -108,6 +108,21 @@ func TestScatteredGKRPayment(t *testing.T) {
 	}
 }
 
+// The inline shape: 100 notes, one output, non-inclusion at a root in
+// history, GKR-compressed.
+func TestInlineGKRPayment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("solves a 1.4M-constraint circuit")
+	}
+	c := direct.NewPayment(100, 1)
+	c.GKR = true
+	for _, active := range []int{1, 100} {
+		if err := test.IsSolved(c, payment(t, 100, active), ecc.BN254.ScalarField()); err != nil {
+			t.Fatalf("active=%d: %v", active, err)
+		}
+	}
+}
+
 func TestScatteredGKRPaymentProving(t *testing.T) {
 	n, err := strconv.Atoi(os.Getenv("GKR_PAYMENT_INPUTS"))
 	if err != nil || n < 1 || n > 512 {

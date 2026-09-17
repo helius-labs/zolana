@@ -11,13 +11,14 @@ pub const BUFFER_SEED: &[u8] = b"direct_spend";
 pub const CERTIFICATE_INPUTS: usize = 36;
 pub const MAX_INPUTS: usize = 512;
 pub const GKR_PAYMENT_INPUTS: [usize; 2] = [144, MAX_INPUTS];
-/// Input count of the inline admitted payment: statement, proof and
-/// commitment fit one transaction, so a merge of up to 100 notes settles in a
-/// single `inline_spend` without a buffer account.
+/// Input count of the inline payment: statement, proof and commitment fit
+/// one transaction, so a spend of up to 100 notes settles in a single
+/// `inline_spend` without a buffer account.
 pub const INLINE_INPUTS: usize = 100;
-/// Admitted payment circuit shapes `(inputs, outputs)` with a committed key.
-pub const ADMITTED_PAYMENT_SHAPES: [(usize, usize); 3] =
-    [(144, 2), (MAX_INPUTS, 2), (INLINE_INPUTS, 1)];
+/// GKR payment circuit shapes `(inputs, outputs)` with a committed key.
+pub const GKR_PAYMENT_SHAPES: [(usize, usize); 3] = [(144, 2), (MAX_INPUTS, 2), (INLINE_INPUTS, 1)];
+/// Admitted (no non-inclusion in the proof) payment shapes.
+pub const ADMITTED_PAYMENT_SHAPES: [(usize, usize); 2] = [(144, 2), (MAX_INPUTS, 2)];
 pub const MAX_CERTIFICATES: usize = 16;
 pub const MAX_PAYLOAD: usize = 24_000;
 pub const BUFFER_HEADER_SIZE: usize = 80;
@@ -211,16 +212,17 @@ pub enum Payload {
     },
 }
 
-/// `inline_spend` instruction data: an admitted payment carried in the
-/// transaction instead of a buffer account. Every output goes to the owner,
-/// and the input tree, output tree and state root value come from the
-/// accounts, so the encoding stays under the transaction limit at
+/// `inline_spend` instruction data: a GKR payment carried in the transaction
+/// instead of a buffer account. Every output goes to the owner, and the input
+/// tree, output tree and both root values come from the accounts (the roots
+/// by history index), so the encoding stays under the transaction limit at
 /// [`INLINE_INPUTS`] notes. [`Self::payment`] expands it to the [`Payment`]
 /// the circuit, the intent hash and the event are defined over.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct InlineSpend {
     pub nullifiers: Vec<[u8; 32]>,
     pub state_root_index: u16,
+    pub nullifier_root_index: u16,
     pub value_commitment: [u8; 32],
     pub expiry_slot: u64,
     pub max_forester_fee: u64,
@@ -242,6 +244,7 @@ impl InlineSpend {
         input_tree: &[u8; 32],
         output_tree: &[u8; 32],
         state_root: [u8; 32],
+        nullifier_root: [u8; 32],
     ) -> Payment {
         Payment {
             inputs: PaymentInputs::Notes {
@@ -255,8 +258,8 @@ impl InlineSpend {
                     value_commitment: self.value_commitment,
                 },
                 freshness: Root {
-                    index: 0,
-                    value: [0; 32],
+                    index: self.nullifier_root_index,
+                    value: nullifier_root,
                 },
             },
             output_tree: *output_tree,
@@ -272,7 +275,8 @@ impl InlineSpend {
     }
 
     /// The inverse of [`Self::payment`]: `payment` must be a one-output note
-    /// payment whose recipient is `owner`.
+    /// payment whose recipient is `owner`, fresh at a nullifier root in
+    /// history.
     pub fn from_payment(
         payment: &Payment,
         owner: &[u8; 32],
@@ -286,13 +290,8 @@ impl InlineSpend {
         else {
             return Err("inline spend requires original notes");
         };
-        if *freshness
-            != (Root {
-                index: 0,
-                value: [0; 32],
-            })
-        {
-            return Err("inline spend requires canonical zero freshness");
+        if freshness.value == [0; 32] {
+            return Err("inline spend proves freshness at a nullifier root in history");
         }
         let [output] = payment.outputs.as_slice() else {
             return Err("inline spend has exactly one output");
@@ -306,6 +305,7 @@ impl InlineSpend {
         Ok(Self {
             nullifiers: certificate.nullifiers.clone(),
             state_root_index: certificate.state_root.index,
+            nullifier_root_index: freshness.index,
             value_commitment: certificate.value_commitment,
             expiry_slot: payment.expiry_slot,
             max_forester_fee: payment.max_forester_fee,
@@ -385,8 +385,8 @@ mod tests {
                     value_commitment: [8; 32],
                 },
                 freshness: Root {
-                    index: 0,
-                    value: [0; 32],
+                    index: 4,
+                    value: [11; 32],
                 },
             },
             output_tree: [9; 32],
@@ -417,10 +417,13 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(inline.payment(&owner, &[1; 32], &[9; 32], [2; 32]), payment);
+        assert_eq!(
+            inline.payment(&owner, &[1; 32], &[9; 32], [2; 32], [11; 32]),
+            payment
+        );
         // 100 nullifiers plus proof, commitment and statement; the transaction
         // v1 envelope (signature, 7 addresses, compute budget) adds about 360.
-        assert_eq!(borsh::to_vec(&inline).unwrap().len(), 3_627);
+        assert_eq!(borsh::to_vec(&inline).unwrap().len(), 3_629);
         let mut two_outputs = payment.clone();
         two_outputs.outputs.push(two_outputs.outputs[0].clone());
         assert!(InlineSpend::from_payment(

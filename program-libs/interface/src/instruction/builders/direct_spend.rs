@@ -235,8 +235,9 @@ pub fn commit_spend(
     }
 }
 
-/// One-transaction admitted spend: owner (signer, pays), input tree, output
-/// tree, the tree's pending-nullifier table and historical filter.
+/// One-transaction spend: owner (signer, pays), input tree, output tree and
+/// the tree's pending-nullifier table. Add the historical filter with
+/// `historical_nullifiers::use_nullifier_filter` when the tree has one.
 pub fn inline_spend(
     owner: Pubkey,
     input_tree: Pubkey,
@@ -250,7 +251,6 @@ pub fn inline_spend(
             AccountMeta::new(input_tree, false),
             AccountMeta::new(output_tree, false),
             AccountMeta::new(pda::pending_nullifiers(&input_tree).0, false),
-            AccountMeta::new(pda::nullifier_filter(&input_tree).0, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ],
