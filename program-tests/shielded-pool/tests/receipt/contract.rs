@@ -216,6 +216,44 @@ fn lifecycle_create_upload_close() {
     );
 }
 
+/// A 512-slot receipt exceeds the per-transaction data growth cap: the first
+/// create allocates 10 KiB, the second grows it to full size and tops up rent.
+#[test]
+fn wide_receipt_grows_across_creates() {
+    let Pool { mut rpc, tree, .. } = Pool::initialized();
+    let payer = rpc.payer.pubkey();
+    let (receipt, create_ix) = create(payer, tree, 1, 512);
+    send(&mut rpc, create_ix.clone(), "first create");
+    assert_eq!(rpc.account_data(&receipt).expect("receipt").len(), 10_240);
+    assert_eq!(header(&rpc, &receipt).capacity(), 512);
+    reject(
+        &mut rpc,
+        upload(payer, receipt, 0, vec![fe(1)]),
+        ShieldedPoolError::InvalidReceipt,
+    );
+
+    send(
+        &mut rpc,
+        create_ix.clone(),
+        "second create grows the account",
+    );
+    let account = rpc.svm.get_account(&receipt).expect("receipt");
+    assert_eq!(account.data.len(), receipt_account_size(512));
+    assert!(
+        account.lamports
+            >= rpc
+                .svm
+                .minimum_balance_for_rent_exemption(account.data.len()),
+        "grown receipt is rent exempt"
+    );
+    assert!(receipt_nullifiers(&account.data)
+        .iter()
+        .all(|slot| *slot == [0; 32]));
+    send(&mut rpc, create_ix, "a full receipt is a no-op");
+    send(&mut rpc, upload(payer, receipt, 0, vec![fe(1)]), "upload");
+    assert_eq!(header(&rpc, &receipt).filled(), 1);
+}
+
 #[test]
 fn only_the_sponsor_uploads_and_closes() {
     let Pool { mut rpc, tree, .. } = Pool::initialized();

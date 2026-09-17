@@ -14,6 +14,7 @@ use zolana_interface::{
     instruction::{
         CreateReceipt, CreateReceiptData, UploadReceipt, UploadReceiptData, VerifyReceipt,
     },
+    state::receipt::receipt_account_size,
     verifying_keys::{nullifier_receipt_512_0, nullifier_receipt_8_0},
 };
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
@@ -164,10 +165,17 @@ impl RealReceipt {
             },
         };
         assert_eq!(create.receipt(), self.address, "receipt address");
-        pool.rpc.svm.expire_blockhash();
-        pool.rpc
-            .create_and_send_default_payer_transaction(&[create.instruction()], &[])
-            .expect("create receipt");
+        // A wide receipt grows by at most 10 KiB per transaction.
+        let full_size = receipt_account_size(capacity);
+        loop {
+            pool.rpc.svm.expire_blockhash();
+            pool.rpc
+                .create_and_send_default_payer_transaction(&[create.instruction()], &[])
+                .expect("create receipt");
+            if pool.rpc.account_data(&self.address).expect("receipt").len() >= full_size {
+                break;
+            }
+        }
 
         for (chunk_index, chunk) in nullifiers.chunks(UPLOAD_CHUNK).enumerate() {
             let ix = UploadReceipt {

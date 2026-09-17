@@ -37,7 +37,9 @@ Accounts:
 Instructions (event tags 24–27):
 
 - `create_receipt(nonce, capacity)` — sponsor pays rent, binds the tree.
-  Idempotent for the same config.
+  Idempotent for the same config. The runtime allows 10 KiB of account growth
+  per transaction, so a 512 receipt (16,504 bytes) takes two creates; the
+  second grows the account and tops up rent.
 - `upload_receipt(offset, nullifiers)` — sponsor appends a contiguous slice
   (`offset == filled`). Zero is not a nullifier. Rejected once verified.
 - `verify_receipt(root_index, count, proof, commitment, pok)` — permissionless.

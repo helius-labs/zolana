@@ -1,4 +1,9 @@
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{
+    account::MAX_PERMITTED_DATA_INCREASE,
+    sysvars::{rent::Rent, Sysvar},
+    AccountView, ProgramResult, Resize,
+};
+use pinocchio_system::instructions::Transfer;
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -10,13 +15,15 @@ use zolana_interface::{
 };
 use zolana_tree::TreeAccount;
 
-use super::loader::{header_mut, load_receipt};
+use super::loader::header_mut;
 use crate::instructions::shared::{caused_by, tree_error, verify_pda, CreatePdaAccount};
 
 /// Accounts: rent payer (signer, becomes the sponsor), receipt (writable),
 /// tree (read-only, bound into the receipt), system program. Idempotent: a
-/// repeated create with the same configuration is a no-op, a different one is
-/// rejected. The PDA derives from the sponsor, so nobody can squat it.
+/// repeated create with the same configuration grows the account towards its
+/// full size (at most `MAX_PERMITTED_DATA_INCREASE` per transaction) and is a
+/// no-op once full; a different configuration is rejected. The PDA derives
+/// from the sponsor, so nobody can squat it.
 pub fn process_create_receipt(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = CreateReceiptData::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
@@ -48,9 +55,57 @@ pub fn process_create_receipt(accounts: &mut [AccountView], data: &[u8]) -> Prog
         &[RECEIPT_SEED, &rent_sponsor, &nonce_le],
         &crate::ID,
     )?;
-    if receipt.owned_by(&crate::ID) {
-        let data = load_receipt(receipt)?;
-        let current = super::loader::header(&data);
+    let full_size = receipt_account_size(ix.capacity);
+    if !receipt.owned_by(&crate::ID) {
+        if !pinocchio_system::check_id(receipt.owner()) || receipt.data_len() != 0 {
+            return Err(ShieldedPoolError::InvalidReceipt.into());
+        }
+        // The runtime caps data growth per transaction; a wide receipt is
+        // created at the cap and grown by repeated creates.
+        CreatePdaAccount {
+            fee_payer: payer,
+            new_account: receipt,
+            space: full_size.min(MAX_PERMITTED_DATA_INCREASE),
+            owner: &crate::ID,
+            signer_seeds: [RECEIPT_SEED, &rent_sponsor, &nonce_le],
+            bump,
+        }
+        .execute()?;
+        let mut data = receipt
+            .try_borrow_mut()
+            .map_err(caused_by(ShieldedPoolError::InvalidReceipt))?;
+        if data.iter().any(|byte| *byte != 0) {
+            return Err(ShieldedPoolError::InvalidReceipt.into());
+        }
+        *header_mut(&mut data) = ReceiptHeader {
+            discriminator: RECEIPT,
+            bump,
+            verified: 0,
+            _padding: 0,
+            capacity: ix.capacity.to_le_bytes(),
+            count: [0; 2],
+            filled: [0; 2],
+            _padding2: [0; 6],
+            tree: tree_address,
+            nullifier_root: [0; 32],
+            rent_sponsor,
+            nonce: nonce_le,
+        };
+        return Ok(());
+    }
+
+    {
+        let data = receipt
+            .try_borrow()
+            .map_err(caused_by(ShieldedPoolError::InvalidReceipt))?;
+        let current: &ReceiptHeader = bytemuck::try_from_bytes(
+            data.get(..ReceiptHeader::SIZE)
+                .ok_or(ShieldedPoolError::InvalidReceipt)?,
+        )
+        .map_err(caused_by(ShieldedPoolError::InvalidReceipt))?;
+        if !current.has_discriminator() {
+            return Err(ShieldedPoolError::InvalidReceipt.into());
+        }
         if current.capacity() != ix.capacity
             || current.tree != tree_address
             || current.rent_sponsor != rent_sponsor
@@ -59,39 +114,22 @@ pub fn process_create_receipt(accounts: &mut [AccountView], data: &[u8]) -> Prog
         {
             return Err(ShieldedPoolError::ReceiptConfigMismatch.into());
         }
+    }
+    let len = receipt.data_len();
+    if len >= full_size {
         return Ok(());
     }
-    if !pinocchio_system::check_id(receipt.owner()) || receipt.data_len() != 0 {
-        return Err(ShieldedPoolError::InvalidReceipt.into());
+    let new_len = full_size.min(len + MAX_PERMITTED_DATA_INCREASE);
+    let rent_minimum = Rent::get()?.try_minimum_balance(new_len)?;
+    let top_up = rent_minimum.saturating_sub(receipt.lamports());
+    if top_up > 0 {
+        Transfer {
+            from: payer,
+            to: receipt,
+            lamports: top_up,
+        }
+        .invoke()?;
     }
-    CreatePdaAccount {
-        fee_payer: payer,
-        new_account: receipt,
-        space: receipt_account_size(ix.capacity),
-        owner: &crate::ID,
-        signer_seeds: [RECEIPT_SEED, &rent_sponsor, &nonce_le],
-        bump,
-    }
-    .execute()?;
-    let mut data = receipt
-        .try_borrow_mut()
-        .map_err(caused_by(ShieldedPoolError::InvalidReceipt))?;
-    if data.len() != receipt_account_size(ix.capacity) || data.iter().any(|byte| *byte != 0) {
-        return Err(ShieldedPoolError::InvalidReceipt.into());
-    }
-    *header_mut(&mut data) = ReceiptHeader {
-        discriminator: RECEIPT,
-        bump,
-        verified: 0,
-        _padding: 0,
-        capacity: ix.capacity.to_le_bytes(),
-        count: [0; 2],
-        filled: [0; 2],
-        _padding2: [0; 6],
-        tree: tree_address,
-        nullifier_root: [0; 32],
-        rent_sponsor,
-        nonce: nonce_le,
-    };
+    receipt.resize(new_len)?;
     Ok(())
 }
