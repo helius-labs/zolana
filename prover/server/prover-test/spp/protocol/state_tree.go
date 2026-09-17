@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover-test/poseidon"
+	merkletree "zolana/prover/merkle-tree"
 )
 
 func stateNodeHash(left, right *big.Int) (*big.Int, error) {
@@ -14,7 +14,7 @@ func stateNodeHash(left, right *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("right", right); err != nil {
 		return nil, err
 	}
-	return poseidon.Hash([]*big.Int{left, right})
+	return merkletree.TreeHash(left, right), nil
 }
 
 func MerkleRoot(leaf *big.Int, pathElements []*big.Int, pathIndex uint64) (*big.Int, error) {

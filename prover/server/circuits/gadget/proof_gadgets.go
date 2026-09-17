@@ -16,8 +16,7 @@ func (gadget ProveParentHash) DefineGadget(api frontend.API) interface{} {
 	api.AssertIsBoolean(gadget.Bit)
 	d1 := api.Select(gadget.Bit, gadget.Sibling, gadget.Hash)
 	d2 := api.Select(gadget.Bit, gadget.Hash, gadget.Sibling)
-	hash := PoseidonHash(api, []frontend.Variable{d1, d2})
-	return hash
+	return TreeHash(api, d1, d2)
 }
 
 type MerkleRootGadget struct {

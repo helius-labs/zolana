@@ -112,10 +112,11 @@ func (circuit *BatchAddressTreeAppendCircuit) Define(api frontend.API) error {
 			circuit.LowElementNextValues[i],
 		)
 
-		lowLeafHash := gadget.PoseidonHash(api, []frontend.Variable{
+		lowLeafHash := gadget.IndexedLeafHash(
+			api,
 			circuit.LowElementValues[i],
 			circuit.NewElementValues[i],
-		})
+		)
 
 		pathIndexBits := api.ToBinary(circuit.LowElementIndices[i], int(circuit.TreeHeight))
 		currentRoot = abstractor.Call(api, gadget.MerkleRootUpdateGadget{
@@ -130,10 +131,11 @@ func (circuit *BatchAddressTreeAppendCircuit) Define(api frontend.API) error {
 		// value = new value
 		// next value is low leaf next value
 		// next index is new value next index
-		newLeafHash := gadget.PoseidonHash(api, []frontend.Variable{
+		newLeafHash := gadget.IndexedLeafHash(
+			api,
 			circuit.NewElementValues[i],
 			circuit.LowElementNextValues[i],
-		})
+		)
 
 		indexBits := api.ToBinary(api.Add(circuit.StartIndex, i), int(circuit.TreeHeight))
 		currentRoot = abstractor.Call(api, gadget.MerkleRootUpdateGadget{

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
+	merkletree "zolana/prover/merkle-tree"
 	"zolana/prover/prover-test/poseidon"
 )
 
@@ -20,7 +21,7 @@ func indexedLeafHash(value, nextValue *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("indexed leaf next value", nextValue); err != nil {
 		return nil, err
 	}
-	return poseidon.Hash([]*big.Int{value, nextValue})
+	return merkletree.TreeHash(value, nextValue), nil
 }
 
 type NonInclusionWitness struct {

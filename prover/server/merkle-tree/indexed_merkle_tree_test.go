@@ -7,22 +7,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIndexedMerkleTreeInit(t *testing.T) {
-	expectedRoot := []byte{12, 192, 184, 61, 225, 169, 250, 219, 72, 31, 85, 251, 98, 186, 97, 83, 160, 211, 181, 216, 86, 130, 15, 129, 178, 199, 135, 240, 163, 58, 240, 219}
+// Root of a tree whose only leaf is `leaf` at index 0.
+func singleLeafRoot(leaf *big.Int, height int) *big.Int {
+	root := leaf
+	for i := 0; i < height; i++ {
+		root = TreeHash(root, new(big.Int).SetBytes(ZERO_BYTES[i][:]))
+	}
+	return root
+}
 
+func TestIndexedMerkleTreeInit(t *testing.T) {
 	tree, err := NewIndexedMerkleTree(26)
 	require.NoError(t, err)
+	require.NoError(t, tree.Init())
 
-	err = tree.Init()
-	require.NoError(t, err)
-
-	root := tree.Tree.Root.Bytes()
-	require.Equal(t, expectedRoot, root)
+	maxVal := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 248), big.NewInt(1))
+	root := tree.Tree.Root.Value()
+	require.Equal(t, singleLeafRoot(TreeHash(big.NewInt(0), maxVal), 26), &root)
 
 	require.Equal(t, uint32(0), tree.IndexArray.Get(0).Index)
 	require.Equal(t, "0", tree.IndexArray.Get(0).Value.String())
-
-	maxVal := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 248), big.NewInt(1))
 	require.Equal(t, maxVal, tree.IndexArray.Get(0).NextValue)
 	require.Len(t, tree.IndexArray.Elements, 1)
 	require.Equal(t, uint32(1), tree.IndexArray.CurrentNodeIndex)
@@ -31,45 +35,33 @@ func TestIndexedMerkleTreeInit(t *testing.T) {
 func TestIndexedMerkleTreeAppend(t *testing.T) {
 	tree, err := NewIndexedMerkleTree(26)
 	require.NoError(t, err)
-
-	err = tree.Init()
-	require.NoError(t, err)
-
-	value := big.NewInt(30)
-	err = tree.Append(value)
-	require.NoError(t, err)
-
-	expectedRootFirstAppend := []byte{18, 210, 177, 207, 132, 232, 166, 171, 149, 166, 95, 175, 189, 87, 214, 204, 41, 132, 24, 175, 122, 252, 120, 118, 68, 169, 16, 250, 149, 139, 14, 121}
-
-	root := tree.Tree.Root.Bytes()
-
-	require.Equal(t, expectedRootFirstAppend, root)
-
-	require.Equal(t, uint32(0), tree.IndexArray.Get(0).Index)
-	require.Equal(t, "0", tree.IndexArray.Get(0).Value.String())
-
+	require.NoError(t, tree.Init())
 	maxVal := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 248), big.NewInt(1))
 
-	require.Equal(t, uint32(1), tree.IndexArray.Get(1).Index)
-	require.Equal(t, "30", tree.IndexArray.Get(1).Value.String())
-	require.Equal(t, maxVal, tree.IndexArray.Get(1).NextValue)
+	for _, value := range []int64{30, 42, 12} {
+		require.NoError(t, tree.Append(big.NewInt(value)))
+		for i := range tree.IndexArray.Elements {
+			element := tree.IndexArray.Get(uint32(i))
+			proof, err := tree.GetProof(i)
+			require.NoError(t, err)
+			ok, err := tree.Verify(i, element, proof)
+			require.NoError(t, err)
+			require.True(t, ok, "element %d after appending %d", i, value)
+		}
+	}
 
-	value = big.NewInt(42)
-	err = tree.Append(value)
+	// 0 -> 12 -> 30 -> 42 -> max, in insertion order 0, 30, 42, 12.
+	require.Equal(t, "12", tree.IndexArray.Get(0).NextValue.String())
+	require.Equal(t, "42", tree.IndexArray.Get(1).NextValue.String())
+	require.Equal(t, maxVal, tree.IndexArray.Get(2).NextValue)
+	require.Equal(t, "30", tree.IndexArray.Get(3).NextValue.String())
+
+	// A wrong element does not verify.
+	proof, err := tree.GetProof(1)
 	require.NoError(t, err)
-
-	expectedRootSecondAppend := []byte{45, 242, 215, 173, 43, 96, 199, 85, 120, 124, 89, 79, 128, 69, 141, 118, 120, 67, 192, 16, 42, 75, 34, 18, 174, 59, 55, 58, 229, 72, 190, 14}
-
-	root = tree.Tree.Root.Bytes()
-
-	require.Equal(t, expectedRootSecondAppend, root)
-
-	value = big.NewInt(12)
-	err = tree.Append(value)
+	wrong := *tree.IndexArray.Get(1)
+	wrong.NextValue = big.NewInt(43)
+	ok, err := tree.Verify(1, &wrong, proof)
 	require.NoError(t, err)
-
-	expectedRootThirdAttempt := []byte{24, 4, 103, 62, 36, 147, 104, 245, 147, 222, 116, 243, 153, 89, 210, 69, 117, 248, 103, 35, 162, 136, 234, 244, 113, 152, 175, 75, 113, 137, 112, 62}
-
-	root = tree.Tree.Root.Bytes()
-	require.Equal(t, expectedRootThirdAttempt, root)
+	require.False(t, ok)
 }
