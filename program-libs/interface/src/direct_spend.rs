@@ -11,12 +11,16 @@ pub const BUFFER_SEED: &[u8] = b"direct_spend";
 pub const CERTIFICATE_INPUTS: usize = 36;
 pub const MAX_INPUTS: usize = 512;
 pub const GKR_PAYMENT_INPUTS: [usize; 2] = [144, MAX_INPUTS];
-/// Input count of the inline payment: statement, proof and commitment fit
-/// one transaction, so a spend of up to 100 notes settles in a single
-/// `inline_spend` without a buffer account.
+/// Input count of the inline merge shape: statement, proof and commitment
+/// fit one transaction, so a spend of up to 100 notes into one output
+/// settles in a single `inline_spend` without a buffer account.
 pub const INLINE_INPUTS: usize = 100;
+/// Inline shapes `(inputs, outputs)`: 100×1 merges; 64×2 pays and leaves
+/// about 1.1 KB of the transaction for two encrypted outputs.
+pub const INLINE_SHAPES: [(usize, usize); 2] = [(INLINE_INPUTS, 1), (64, 2)];
 /// GKR payment circuit shapes `(inputs, outputs)` with a committed key.
-pub const GKR_PAYMENT_SHAPES: [(usize, usize); 3] = [(144, 2), (MAX_INPUTS, 2), (INLINE_INPUTS, 1)];
+pub const GKR_PAYMENT_SHAPES: [(usize, usize); 4] =
+    [(144, 2), (MAX_INPUTS, 2), (INLINE_INPUTS, 1), (64, 2)];
 /// Admitted (no non-inclusion in the proof) payment shapes.
 pub const ADMITTED_PAYMENT_SHAPES: [(usize, usize); 2] = [(144, 2), (MAX_INPUTS, 2)];
 pub const MAX_CERTIFICATES: usize = 16;
@@ -70,6 +74,18 @@ impl Certificate {
         tree_id: u16,
         capacity: usize,
     ) -> Result<Vec<[u8; 32]>, HasherError> {
+        self.fields_with(id, owner, tree_id, self.nullifier_hash(capacity)?)
+    }
+
+    /// [`Self::fields`] with the padded nullifier chain already computed; the
+    /// same chain goes into [`Self::freshness_fields_with`].
+    pub fn fields_with(
+        &self,
+        id: [u8; 32],
+        owner: &[u8; 32],
+        tree_id: u16,
+        nullifier_hash: [u8; 32],
+    ) -> Result<Vec<[u8; 32]>, HasherError> {
         Ok(vec![
             field(CERTIFICATE_DOMAIN),
             id,
@@ -77,7 +93,7 @@ impl Certificate {
             self.state_root.value,
             solana_owner_identity(owner)?,
             field(self.nullifiers.len() as u64),
-            self.nullifier_hash(capacity)?,
+            nullifier_hash,
             self.value_commitment,
         ])
     }
@@ -88,16 +104,26 @@ impl Certificate {
         tree_id: u16,
         capacity: usize,
     ) -> Result<Vec<[u8; 32]>, HasherError> {
-        Ok(vec![
+        Ok(self.freshness_fields_with(root, tree_id, self.nullifier_hash(capacity)?))
+    }
+
+    pub fn freshness_fields_with(
+        &self,
+        root: Root,
+        tree_id: u16,
+        nullifier_hash: [u8; 32],
+    ) -> Vec<[u8; 32]> {
+        vec![
             field(FRESHNESS_DOMAIN),
             field(tree_id.into()),
             root.value,
             field(self.nullifiers.len() as u64),
-            self.nullifier_hash(capacity)?,
-        ])
+            nullifier_hash,
+        ]
     }
 
-    fn nullifier_hash(&self, capacity: usize) -> Result<[u8; 32], HasherError> {
+    /// Hash chain over the nullifiers padded with zeros to `capacity`.
+    pub fn nullifier_hash(&self, capacity: usize) -> Result<[u8; 32], HasherError> {
         let mut nullifiers = self.nullifiers.clone();
         nullifiers.resize(capacity, [0; 32]);
         chain(&nullifiers)
@@ -213,20 +239,22 @@ pub enum Payload {
 }
 
 /// `inline_spend` instruction data: a GKR payment carried in the transaction
-/// instead of a buffer account. Every output goes to the owner, and the input
-/// tree, output tree and both root values come from the accounts (the roots
-/// by history index), so the encoding stays under the transaction limit at
-/// [`INLINE_INPUTS`] notes. [`Self::payment`] expands it to the [`Payment`]
-/// the circuit, the intent hash and the event are defined over.
+/// instead of a buffer account. The input tree, output tree and both root
+/// values come from the accounts (the roots by history index), so the
+/// encoding stays under the transaction limit at every [`INLINE_SHAPES`]
+/// shape. [`Self::payment`] expands it to the [`Payment`] the circuit, the
+/// intent hash and the event are defined over.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct InlineSpend {
+    /// Circuit capacity, one of [`INLINE_SHAPES`] with `outputs.len()`.
+    pub inputs: u16,
     pub nullifiers: Vec<[u8; 32]>,
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
     pub value_commitment: [u8; 32],
     pub expiry_slot: u64,
     pub max_forester_fee: u64,
-    pub output: OutputUtxo,
+    pub outputs: Vec<Output>,
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
     pub proof: Proof,
@@ -238,9 +266,12 @@ pub struct InlineSpend {
 pub const INLINE_BINDING: [u8; 32] = [0; 32];
 
 impl InlineSpend {
+    pub fn shape(&self) -> (usize, usize) {
+        (usize::from(self.inputs), self.outputs.len())
+    }
+
     pub fn payment(
         &self,
-        owner: &[u8; 32],
         input_tree: &[u8; 32],
         output_tree: &[u8; 32],
         state_root: [u8; 32],
@@ -265,21 +296,17 @@ impl InlineSpend {
             output_tree: *output_tree,
             expiry_slot: self.expiry_slot,
             max_forester_fee: self.max_forester_fee,
-            outputs: vec![Output {
-                recipient: *owner,
-                utxo: self.output.clone(),
-            }],
+            outputs: self.outputs.clone(),
             tx_viewing_pk: self.tx_viewing_pk,
             salt: self.salt,
         }
     }
 
-    /// The inverse of [`Self::payment`]: `payment` must be a one-output note
-    /// payment whose recipient is `owner`, fresh at a nullifier root in
-    /// history.
+    /// The inverse of [`Self::payment`]: a note payment fresh at a nullifier
+    /// root in history, proven at `inputs` capacity.
     pub fn from_payment(
         payment: &Payment,
-        owner: &[u8; 32],
+        inputs: usize,
         proof: Proof,
         commitment: crate::verifying_keys::Bsb22Commitment,
     ) -> Result<Self, &'static str> {
@@ -293,23 +320,21 @@ impl InlineSpend {
         if freshness.value == [0; 32] {
             return Err("inline spend proves freshness at a nullifier root in history");
         }
-        let [output] = payment.outputs.as_slice() else {
-            return Err("inline spend has exactly one output");
-        };
-        if output.recipient != *owner {
-            return Err("inline spend pays the owner");
+        if !INLINE_SHAPES.contains(&(inputs, payment.outputs.len())) {
+            return Err("unsupported inline spend shape");
         }
-        if certificate.nullifiers.len() > INLINE_INPUTS {
-            return Err("too many inputs for an inline spend");
+        if certificate.nullifiers.len() > inputs {
+            return Err("too many inputs for the inline spend shape");
         }
         Ok(Self {
+            inputs: inputs as u16,
             nullifiers: certificate.nullifiers.clone(),
             state_root_index: certificate.state_root.index,
             nullifier_root_index: freshness.index,
             value_commitment: certificate.value_commitment,
             expiry_slot: payment.expiry_slot,
             max_forester_fee: payment.max_forester_fee,
-            output: output.utxo.clone(),
+            outputs: payment.outputs.clone(),
             tx_viewing_pk: payment.tx_viewing_pk,
             salt: payment.salt,
             proof,
@@ -373,7 +398,15 @@ mod tests {
     #[test]
     fn inline_spend_round_trips_and_fits_one_transaction() {
         let owner = [5; 32];
-        let payment = Payment {
+        let output = |recipient: [u8; 32], data: Vec<u8>| Output {
+            recipient,
+            utxo: OutputUtxo {
+                view_tag: [4; 32],
+                utxo_hash: [1; 32],
+                data,
+            },
+        };
+        let payment = |inputs: usize, outputs: Vec<Output>| Payment {
             inputs: PaymentInputs::Notes {
                 certificate: Certificate {
                     tree: [1; 32],
@@ -381,7 +414,7 @@ mod tests {
                         index: 3,
                         value: [2; 32],
                     },
-                    nullifiers: vec![[7; 32]; INLINE_INPUTS],
+                    nullifiers: vec![[7; 32]; inputs],
                     value_commitment: [8; 32],
                 },
                 freshness: Root {
@@ -392,47 +425,46 @@ mod tests {
             output_tree: [9; 32],
             expiry_slot: 77,
             max_forester_fee: 5,
-            outputs: vec![Output {
-                recipient: owner,
-                utxo: OutputUtxo {
-                    view_tag: [4; 32],
-                    utxo_hash: [1; 32],
-                    data: Vec::new(),
-                },
-            }],
+            outputs,
             tx_viewing_pk: [6; 33],
             salt: [3; 16],
         };
-        let inline = InlineSpend::from_payment(
-            &payment,
-            &owner,
-            Proof {
-                a: [0; 32],
-                b: [0; 128],
-                c: [0; 32],
-            },
-            crate::verifying_keys::Bsb22Commitment {
-                commitment: [0; 32],
-                commitment_pok: [0; 32],
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            inline.payment(&owner, &[1; 32], &[9; 32], [2; 32], [11; 32]),
-            payment
-        );
+        let proof = Proof {
+            a: [0; 32],
+            b: [0; 128],
+            c: [0; 32],
+        };
+        let commitment = crate::verifying_keys::Bsb22Commitment {
+            commitment: [0; 32],
+            commitment_pok: [0; 32],
+        };
+
+        let merge = payment(INLINE_INPUTS, vec![output(owner, Vec::new())]);
+        let inline =
+            InlineSpend::from_payment(&merge, INLINE_INPUTS, proof.clone(), commitment).unwrap();
+        assert_eq!(inline.shape(), (INLINE_INPUTS, 1));
+        assert_eq!(inline.payment(&[1; 32], &[9; 32], [2; 32], [11; 32]), merge);
         // 100 nullifiers plus proof, commitment and statement; the transaction
-        // v1 envelope (signature, 7 addresses, compute budget) adds about 360.
-        assert_eq!(borsh::to_vec(&inline).unwrap().len(), 3_629);
-        let mut two_outputs = payment.clone();
-        two_outputs.outputs.push(two_outputs.outputs[0].clone());
-        assert!(InlineSpend::from_payment(
-            &two_outputs,
-            &owner,
-            inline.proof.clone(),
-            inline.commitment
-        )
-        .is_err());
+        // v1 envelope (signature, 6 addresses, compute budget) adds about 355.
+        assert_eq!(borsh::to_vec(&inline).unwrap().len(), 3_667);
+
+        // 64 inputs, two outputs with room for encrypted note data.
+        let encrypted =
+            borsh::to_vec(&zolana_event::OutputDataEncoding::Encrypted(vec![9; 500])).unwrap();
+        let pay = payment(
+            64,
+            vec![
+                output([12; 32], encrypted.clone()),
+                output(owner, encrypted),
+            ],
+        );
+        let inline = InlineSpend::from_payment(&pay, 64, proof.clone(), commitment).unwrap();
+        assert_eq!(inline.shape(), (64, 2));
+        assert!(borsh::to_vec(&inline).unwrap().len() <= 3_700);
+
+        assert!(InlineSpend::from_payment(&merge, 64, proof.clone(), commitment).is_err());
+        let two_outputs = payment(INLINE_INPUTS, vec![output(owner, Vec::new()); 2]);
+        assert!(InlineSpend::from_payment(&two_outputs, INLINE_INPUTS, proof, commitment).is_err());
     }
 
     #[test]

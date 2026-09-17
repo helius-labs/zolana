@@ -15,6 +15,8 @@ pub mod direct_payment_gkr_100_1;
 pub mod direct_payment_gkr_144_2;
 #[cfg(feature = "verifying-keys")]
 pub mod direct_payment_gkr_512_2;
+#[cfg(feature = "verifying-keys")]
+pub mod direct_payment_gkr_64_2;
 pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData};
 
 #[cfg(feature = "verifying-keys")]

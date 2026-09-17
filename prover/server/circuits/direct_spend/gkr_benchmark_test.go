@@ -114,11 +114,17 @@ func TestInlineGKRPayment(t *testing.T) {
 	if testing.Short() {
 		t.Skip("solves a 1.4M-constraint circuit")
 	}
-	c := direct.NewPayment(100, 1)
-	c.GKR = true
-	for _, active := range []int{1, 100} {
-		if err := test.IsSolved(c, payment(t, 100, active), ecc.BN254.ScalarField()); err != nil {
-			t.Fatalf("active=%d: %v", active, err)
+	for _, shape := range [][2]int{{100, 1}, {64, 2}} {
+		c := direct.NewPayment(shape[0], shape[1])
+		c.GKR = true
+		for _, active := range []int{1, shape[0]} {
+			w := payment(t, shape[0], active)
+			if shape[1] == 2 {
+				addSecondOutput(t, w)
+			}
+			if err := test.IsSolved(c, w, ecc.BN254.ScalarField()); err != nil {
+				t.Fatalf("shape=%v active=%d: %v", shape, active, err)
+			}
 		}
 	}
 }

@@ -28,9 +28,10 @@ func IsDirectSpendShape(kind CircuitType, inputs, outputs uint32) bool {
 	case DirectPaymentCircuitType:
 		return (inputs == 8 || inputs == 36 || inputs == 128 || inputs == 512) && (outputs == 1 || outputs == 2)
 	case DirectPaymentGKRCircuitType:
-		// 100x1 is the inline shape: statement, proof and commitment fit one
-		// transaction, so a 100-note spend settles without a buffer account.
-		return ((inputs == 144 || inputs == 512) && outputs == 2) || (inputs == 100 && outputs == 1)
+		// 100x1 and 64x2 are the inline shapes: statement, proof and commitment
+		// fit one transaction, so the spend settles without a buffer account.
+		// 100x1 merges; 64x2 pays and leaves room for two encrypted outputs.
+		return ((inputs == 144 || inputs == 512) && outputs == 2) || (inputs == 100 && outputs == 1) || (inputs == 64 && outputs == 2)
 	case DirectPaymentAdmittedCircuitType:
 		return (inputs == 144 || inputs == 512) && outputs == 2
 	case DirectPaymentAdmittedDAG10CircuitType:

@@ -16,7 +16,7 @@ use zolana_interface::{
     verifying_keys::{
         direct_payment_512_2, direct_payment_admitted_144_2, direct_payment_admitted_512_2,
         direct_payment_admitted_dag10_512_2, direct_payment_gkr_100_1, direct_payment_gkr_144_2,
-        direct_payment_gkr_512_2, spend_balance_16_2, Bsb22Commitment,
+        direct_payment_gkr_512_2, direct_payment_gkr_64_2, spend_balance_16_2, Bsb22Commitment,
     },
 };
 use zolana_tree::{SppTreeLayout, TreeAccount};
@@ -251,17 +251,22 @@ impl NotesProof<'_> {
         }
         let id = certificate_id(self.binding)?;
         let values = [[id, self.certificate.value_commitment]];
+        // One padded chain over the nullifiers serves both the certificate
+        // and the freshness fields.
+        let nullifier_hash = self.certificate.nullifier_hash(self.capacity)?;
         let mut fields = vec![field(self.domain)];
-        fields.extend(
-            self.certificate
-                .fields(id, self.owner, tree.tree_id, self.capacity)?,
-        );
+        fields.extend(self.certificate.fields_with(
+            id,
+            self.owner,
+            tree.tree_id,
+            nullifier_hash,
+        )?);
         if !admitted {
-            fields.extend(self.certificate.freshness_fields(
+            fields.extend(self.certificate.freshness_fields_with(
                 *self.freshness,
                 tree.tree_id,
-                self.capacity,
-            )?);
+                nullifier_hash,
+            ));
         }
         fields.extend(self.statement.balance_fields(
             self.intent,
@@ -277,6 +282,7 @@ impl NotesProof<'_> {
             outputs,
         ) {
             (PAYMENT_DOMAIN, true, INLINE_INPUTS, 1) => &direct_payment_gkr_100_1::VERIFYINGKEY,
+            (PAYMENT_DOMAIN, true, 64, 2) => &direct_payment_gkr_64_2::VERIFYINGKEY,
             (ADMITTED_PAYMENT_DOMAIN, true, 144, 2) => &direct_payment_admitted_144_2::VERIFYINGKEY,
             (ADMITTED_PAYMENT_DOMAIN, true, MAX_INPUTS, 2) => {
                 &direct_payment_admitted_512_2::VERIFYINGKEY

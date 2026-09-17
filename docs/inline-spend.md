@@ -19,15 +19,19 @@ things at once:
 
 ## What was added
 
-- Circuit shape `direct-payment-gkr` 100 inputs × 1 output: the existing GKR
-  payment (membership, ownership, balance, non-inclusion at a nullifier root)
-  at a new shape. 1,432,787 constraints. Key `direct-payment-gkr_100_1.key`,
-  455 MB; verifying key module `direct_payment_gkr_100_1`.
-- Instruction `inline_spend` (tag 28). Data `InlineSpend`: nullifiers, state
-  root index, nullifier root index, value commitment, expiry slot, max
-  forester fee, one output (`OutputUtxo`), tx viewing key, salt, proof,
-  commitment. The input tree, output tree and both root values come from the
-  accounts; every output is paid to the owner. 3,629 bytes at 100 inputs.
+- Two shapes of the existing GKR payment circuit (membership, ownership,
+  balance, non-inclusion at a nullifier root), `INLINE_SHAPES`:
+  100 inputs × 1 output for merging (1,432,787 constraints, key 455 MB) and
+  64 × 2 for paying (1,301,843 constraints, key 429 MB), so a wallet pays
+  straight from 64 small notes with a recipient output and change, each
+  output carrying an encrypted note. Verifying key modules
+  `direct_payment_gkr_100_1` and `direct_payment_gkr_64_2`.
+- Instruction `inline_spend` (tag 28). Data `InlineSpend`: shape capacity,
+  nullifiers, state root index, nullifier root index, value commitment,
+  expiry slot, max forester fee, outputs (recipient + `OutputUtxo`), tx
+  viewing key, salt, proof, commitment. The input tree, output tree and both
+  root values come from the accounts. 3,667 bytes at 100×1 with an empty
+  output; 64×2 with two 500-byte ciphertexts is about 3,600.
 - Accounts: owner (signer, pays), input tree, output tree, pending
   nullifiers, [nullifier filter if the tree has one], system program, this
   program. Six or seven addresses. The tree must be in compact
@@ -39,8 +43,9 @@ things at once:
   `NotesProof`, `Spend::settle`, `emit_events`). Admission is
   `ExactProof`: the proof covers history at a root in the last hundred, the
   pending table covers the window since. A historical filter, if present,
-  is recorded into but never relied on.
-- SDK: `direct::inline_spend(payment, owner, proof)` builds the data;
+  is recorded into but never relied on. The padded nullifier chain is hashed
+  once on chain and shared by the certificate and freshness fields.
+- SDK: `direct::inline_spend(payment, capacity, proof)` builds the data;
   `payment(..).with_gkr()` accepts `(inputs, outputs)` from
   `GKR_PAYMENT_SHAPES`; `balance` takes one or two outputs.
 
@@ -66,7 +71,7 @@ output in one transaction:
 
 | | admitted shape (earlier) | this shape |
 |---|---|---|
-| transaction | 3,981 B, 7 addresses | 3,983 B, 6 addresses (7 with a filter) |
+| transaction | 3,981 B, 7 addresses | ~4,020 B, 6 addresses (7 with a filter) |
 | compute units | 464,141 | see test output |
 | constraints | 1,091,546 | 1,432,787 |
 | proof, cold key | 5.97 s | 8.64 s |
@@ -98,8 +103,9 @@ ZOLANA_PROVER_URL=http://127.0.0.1:3001 cargo test -p shielded-pool-tests --feat
 ```
 
 The proof tests need a prover serving `direct-payment-gkr_100_1.key` and
-print proof time, transaction bytes and addresses, and compute units, once
-without and once with a historical filter on the tree.
+print proof time, transaction bytes and addresses, and compute units: the
+100×1 merge without and with a historical filter on the tree, and the 64×2
+payment with two 500-byte encrypted outputs.
 
 Key generation:
 
@@ -118,10 +124,8 @@ a regenerated key needs a regenerated module.
 ## Open
 
 - Compute units and resident-key proof time at 100 inputs for this shape.
-- The freshness public input hashes the nullifier list a second time on
-  chain (the certificate already hashes it); reusing the chain saves ~50k CU.
-- Shapes: 100×1 only. A 2-output shape turns the merge into a payment
-  (+100 bytes, still fits); 8 and 36 inline shapes cost one key each.
+- Smaller inline shapes (8, 36) cost one key each; the GKR fixed cost makes
+  them no faster to prove than 64.
 - Poseidon2 for the tree hashes (circuit-only, roughly halves the membership
   and non-inclusion constraints) and sibling sharing for scattered notes are
   the next prover-side steps; both need fresh trees or a circuit change only.

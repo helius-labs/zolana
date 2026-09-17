@@ -264,6 +264,17 @@ impl Fixture {
         inputs: PaymentInputs,
         amounts: &[u64],
     ) -> (Payment, Vec<direct::Output>) {
+        self.payment_with_output_data(inputs, amounts, Vec::new())
+    }
+
+    /// `data` is attached to every output, as a confidential encrypted note
+    /// of that many bytes would be.
+    fn payment_with_output_data(
+        &self,
+        inputs: PaymentInputs,
+        amounts: &[u64],
+        data: Vec<u8>,
+    ) -> (Payment, Vec<direct::Output>) {
         let recipient = self.owner.pubkey().to_bytes();
         let nullifier_pk = self.key.pubkey().unwrap();
         let owner_hash =
@@ -294,7 +305,7 @@ impl Fixture {
                 utxo: zolana_interface::event::OutputUtxo {
                     view_tag: [0; 32],
                     utxo_hash: output.note.hash().unwrap(),
-                    data: Vec::new(),
+                    data: data.clone(),
                 },
             })
             .collect();
@@ -471,6 +482,16 @@ fn dag_payment_checks_history_commitment_statement_and_replay() {
     payment_checks_commitment_statement_and_replay(PaymentMode::Dag);
 }
 
+/// Confidential encrypted output envelope of `len` ciphertext bytes.
+fn encrypted_output(len: usize) -> Vec<u8> {
+    let mut body = vec![zolana_interface::event::CONFIDENTIAL_ENCRYPTED_SCHEME_TAG];
+    body.extend(std::iter::repeat_n(7u8, len));
+    borsh::to_vec(&zolana_interface::event::OutputDataEncoding::Encrypted(
+        body,
+    ))
+    .unwrap()
+}
+
 /// 100 notes spent into one output in a single transaction: the payment
 /// travels in the instruction, no buffer account. Non-inclusion is proven at
 /// a nullifier root in history, so the tree needs only the compact pending
@@ -478,20 +499,28 @@ fn dag_payment_checks_history_commitment_statement_and_replay() {
 #[test]
 #[ignore]
 fn inline_spend_settles_100_notes_in_one_transaction() {
-    inline_spend_settles(false);
+    inline_spend_settles(wire::INLINE_INPUTS, 1, 0, false);
 }
 
 #[test]
 #[ignore]
 fn inline_spend_settles_with_a_nullifier_filter() {
-    inline_spend_settles(true);
+    inline_spend_settles(wire::INLINE_INPUTS, 1, 0, true);
 }
 
-fn inline_spend_settles(with_filter: bool) {
+/// The payment shape: 64 notes into two outputs, each carrying a 500-byte
+/// encrypted note, still in one transaction.
+#[test]
+#[ignore]
+fn inline_spend_pays_two_encrypted_outputs_from_64_notes() {
+    inline_spend_settles(64, 2, 500, false);
+}
+
+fn inline_spend_settles(capacity: usize, outputs: usize, ciphertext: usize, with_filter: bool) {
     let count = std::env::var("DIRECT_SPEND_TEST_INPUTS")
         .ok()
         .map(|value| value.parse::<usize>().unwrap())
-        .unwrap_or(wire::INLINE_INPUTS);
+        .unwrap_or(capacity);
     let mut fixture = Fixture::new(count);
     if with_filter {
         fixture.enable_filter();
@@ -505,16 +534,26 @@ fn inline_spend_settles(with_filter: bool) {
         &fixture.key,
         &fixture.inputs,
         field(23),
-        wire::INLINE_INPUTS,
+        capacity,
     )
     .unwrap();
-    let (root, freshness) = fixture.freshness(&plan.statement, wire::INLINE_INPUTS);
-    let (payment, outputs) = fixture.payment_with_outputs(
+    let (root, freshness) = fixture.freshness(&plan.statement, capacity);
+    let total = count as u64 * 10;
+    let amounts: Vec<u64> = match outputs {
+        1 => vec![total],
+        _ => vec![total - 10, 10],
+    };
+    let (payment, output_witnesses) = fixture.payment_with_output_data(
         PaymentInputs::Notes {
             certificate: plan.statement,
             freshness: root,
         },
-        &[count as u64 * 10],
+        &amounts,
+        if ciphertext == 0 {
+            Vec::new()
+        } else {
+            encrypted_output(ciphertext)
+        },
     );
     let balance = direct::balance(
         &payment,
@@ -522,7 +561,7 @@ fn inline_spend_settles(with_filter: bool) {
         wire::INLINE_BINDING,
         8,
         &[&plan.opening],
-        &outputs,
+        &output_witnesses,
         1,
     )
     .unwrap();
@@ -544,10 +583,10 @@ fn inline_spend_settles(with_filter: bool) {
     let started = std::time::Instant::now();
     let proof = ProofCompressed::try_from(ProverClient::new(url).prove(&request).unwrap()).unwrap();
     println!(
-        "inline_spend {count} inputs: proof in {:.2?}",
+        "inline_spend {capacity}x{outputs}, {count} inputs: proof in {:.2?}",
         started.elapsed()
     );
-    let data = direct::inline_spend(&payment, owner.to_bytes(), proof).unwrap();
+    let data = direct::inline_spend(&payment, capacity, proof).unwrap();
     let build = |data: &wire::InlineSpend| {
         let mut instruction =
             instructions::inline_spend(owner, fixture.tree, fixture.output_tree, data);
@@ -564,12 +603,12 @@ fn inline_spend_settles(with_filter: bool) {
 
     let size = zolana_client::transaction_size(
         &Address::new_from_array(owner.to_bytes()),
-        &[instruction.clone()],
+        std::slice::from_ref(&instruction),
         direct::COMPUTE_BUDGET,
     )
     .unwrap();
     println!(
-        "inline_spend {count} inputs: {} bytes, {} addresses",
+        "inline_spend {capacity}x{outputs}: {} bytes, {} addresses",
         size.bytes, size.addresses
     );
     assert!(
@@ -581,7 +620,7 @@ fn inline_spend_settles(with_filter: bool) {
     fixture
         .rpc
         .create_and_send_transaction_with_budget(
-            &[instruction.clone()],
+            std::slice::from_ref(&instruction),
             &owner,
             &[&fixture.owner],
             direct::COMPUTE_BUDGET,
@@ -589,7 +628,7 @@ fn inline_spend_settles(with_filter: bool) {
         .unwrap();
     let trace = fixture.rpc.last_transaction_trace().unwrap();
     println!(
-        "inline_spend {count} inputs, filter={with_filter}: {} CU",
+        "inline_spend {capacity}x{outputs}, {count} inputs, filter={with_filter}: {} CU",
         trace.compute_units_consumed
     );
     assert_eq!(fixture.queue_next_index(), queue_before + count as u64);

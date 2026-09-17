@@ -136,7 +136,7 @@ pub fn certificate(
     let _phase = crate::timing::Phase::start("direct_certificate_witness", 0);
     if inputs.is_empty()
         || inputs.len() > capacity
-        || ![CERTIFICATE_INPUTS, wire::INLINE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
+        || ![CERTIFICATE_INPUTS, 64, wire::INLINE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
     {
         return Err(invalid("invalid certificate shape"));
     }
@@ -221,7 +221,7 @@ pub fn freshness(
     capacity: usize,
 ) -> Result<(Root, Request), ClientError> {
     if !statement.validate(capacity)
-        || ![CERTIFICATE_INPUTS, wire::INLINE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
+        || ![CERTIFICATE_INPUTS, 64, wire::INLINE_INPUTS, 144, MAX_INPUTS].contains(&capacity)
         || proofs.len() != statement.nullifiers.len()
     {
         return Err(invalid("invalid freshness shape"));
@@ -573,11 +573,11 @@ fn payment_request(
     })
 }
 
-/// `inline_spend` instruction data from a one-output GKR payment and its
-/// committed proof.
+/// `inline_spend` instruction data from a GKR payment proven at `inputs`
+/// capacity and its committed proof.
 pub fn inline_spend(
     payment: &Payment,
-    owner: Field,
+    inputs: usize,
     proof: ProofCompressed,
 ) -> Result<wire::InlineSpend, ClientError> {
     let commitment = proof
@@ -585,7 +585,7 @@ pub fn inline_spend(
         .ok_or_else(|| invalid("inline spend requires a committed proof"))?;
     wire::InlineSpend::from_payment(
         payment,
-        &owner,
+        inputs,
         wire::Proof {
             a: proof.a,
             b: proof.b,
