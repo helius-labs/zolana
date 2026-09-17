@@ -9,10 +9,10 @@ use support::{
     emit_event_data, emit_instruction, input_trees, merge_event, merge_ix, merge_ring_ix, source,
     transact_ix, transact_source, OUTPUT_TREE,
 };
-use zolana_event::{tag, EventKind, TransactEvent};
+use zolana_event::{tag, EventKind, GeneralEvent, Input, TransactEvent};
 use zolana_event_parser::{
     event_kind_from_indexed, indexed_events_from_instruction_groups, instruction_may_emit_events,
-    reconstruct_general_event, IndexedEvent, InstructionGroup, ParsedInstruction,
+    reconstruct_general_event, EventDecodeError, IndexedEvent, InstructionGroup, ParsedInstruction,
 };
 use zolana_interface::instruction::{InputUtxo, OwnerTag, TransactIxData, TransactOutput};
 
@@ -197,4 +197,40 @@ fn instruction_may_emit_events_matches_direct_and_ring_wrappers() {
         spp,
         &ParsedInstruction::new(ring, vec![spp], vec![tag::TRANSACT], 1),
     ));
+}
+
+/// The direct-spend commit and the inline spend emit the same `DirectSpend`
+/// event; both instructions are event sources, nothing else may carry it.
+#[test]
+fn direct_spend_event_is_indexed_under_both_direct_spend_sources() {
+    let spp = Pubkey::new_unique();
+    let event = GeneralEvent {
+        inputs: vec![Input {
+            tree: [1; 32],
+            input_queue_seq: 7,
+            nullifier: [2; 32],
+        }],
+        outputs: Vec::new(),
+        messages: Vec::new(),
+        tx_viewing_pk: [3; 33],
+        salt: [4; 16],
+        first_output_leaf_index: 9,
+        output_tree: OUTPUT_TREE,
+        spl_transfers: Vec::new(),
+    };
+    for source_tag in [tag::DIRECT_SPEND, tag::INLINE_SPEND] {
+        let group = InstructionGroup {
+            outer: source(spp, source_tag, Vec::new(), Vec::new(), 1),
+            inner: vec![emit_instruction(spp, EventKind::DirectSpend, &event, 2)],
+        };
+        let events = indexed_events_from_instruction_groups(spp, &[group]);
+        assert_eq!(events.len(), 1, "tag {source_tag}");
+        assert_eq!(events[0].decoded.as_ref(), Ok(&event), "tag {source_tag}");
+    }
+
+    let transact = source(spp, tag::TRANSACT, Vec::new(), Vec::new(), 1);
+    assert_eq!(
+        reconstruct_general_event(&transact, &emit_event_data(EventKind::DirectSpend, &event)),
+        Err(EventDecodeError::InvalidPayload)
+    );
 }

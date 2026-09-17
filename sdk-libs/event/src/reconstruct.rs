@@ -48,7 +48,10 @@ pub fn reconstruct_general_event_from_payload(
         EventKind::from_byte(kind_byte).ok_or(EventDecodeError::InvalidEventKind(kind_byte))?;
     match kind {
         EventKind::DirectSpend => {
-            if source.data.first() != Some(&tag::DIRECT_SPEND) {
+            if !matches!(
+                source.data.first(),
+                Some(&tag::DIRECT_SPEND) | Some(&tag::INLINE_SPEND)
+            ) {
                 return Err(EventDecodeError::InvalidPayload);
             }
             GeneralEvent::try_from_slice(body).map_err(|_| EventDecodeError::InvalidPayload)

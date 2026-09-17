@@ -13,6 +13,8 @@ shapes=(
     "nullifier-freshness 36 0"
     "spend-balance 16 2"
     "direct-payment 512 2"
+    "direct-payment-gkr 100 1"
+    "direct-payment-gkr 64 2"
 )
 
 for shape in "${shapes[@]}"; do

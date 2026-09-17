@@ -156,12 +156,13 @@ fn is_general_event_source(source_instruction_tag: u8) -> bool {
     // `emit_event` with a GeneralEvent-view kind (Deposit, Transact, Merge).
     // Self-emitting instructions: TRANSACT, RING_TRANSACT,
     // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
-    // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
-    // drops those transactions from the index (they never get a rings_transactions
-    // row).
+    // (merge core); DEPOSIT, RING_DEPOSIT (deposit); DIRECT_SPEND, INLINE_SPEND
+    // (direct spend). Missing a tag here silently drops those transactions from
+    // the index (they never get a rings_transactions row).
     matches!(
         source_instruction_tag,
         tag::DIRECT_SPEND
+            | tag::INLINE_SPEND
             | tag::TRANSACT
             | tag::RING_TRANSACT
             | tag::RING_AUTHORITY_TRANSACT
