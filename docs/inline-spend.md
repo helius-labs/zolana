@@ -88,21 +88,25 @@ they are refused after the first checkpoint (`NullifierFilterCheckpointed`).
 
 ## Measured
 
-LiteSVM proof test, M5 Pro, 2026-09-17, 100 real notes merged into one output
-(admitted shape, before the checkpoint change):
+LiteSVM proof tests, M5 Pro, 2026-09-17, 100 real notes merged into one
+output in one transaction:
 
-| | |
-|---|---|
-| transaction | 3,981 of 4,096 bytes, 7 of 64 addresses |
-| compute units | 464,141 |
-| proof (cold key, first request) | 5.97 s |
-| transactions | 1 |
+| | admitted shape (no checkpoint) | checkpointed shape |
+|---|---|---|
+| transaction | 3,981 B, 7 addresses | 3,981 B, 7 addresses |
+| compute units | 464,141 | 518,969 |
+| constraints | 1,091,546 | 1,432,787 |
+| proof, cold key | 5.97 s | 8.64 s |
+| proof, resident key, 20 inputs | — | 2.2–3.8 s |
 
-The checkpointed shape has the same transaction size (the proof is the same
-size) and about 30% more constraints; its numbers come from
-`inline_spend_settles_100_notes_in_one_transaction` and
-`inline_spend_survives_a_filter_checkpoint`, which also prints the compute
-units of each checkpoint step.
+`checkpoint_nullifier_filter` on the default 131,072-slot pending table:
+four steps of 138–168k CU each; a 20-nullifier backlog adds about 15k CU to
+the step that re-records it.
+
+The 55k CU difference between the shapes is the freshness public input: its
+nullifier hash chain over the 100 slots is computed on chain a second time
+(the certificate already hashes the same list). Reusing it is a small
+follow-up.
 
 For comparison on the same machine: PR #320 needs three sequential 36-input
 merges (about 240k CU each, three proofs of 781k constraints); the
@@ -151,7 +155,10 @@ a regenerated key needs a regenerated module.
 
 ## Open
 
-- Resident-key proof time for the checkpointed shape.
+- Resident-key proof time at 100 inputs (the 20-input runs above are
+  dominated by the GKR fixed cost; expect about 3 s).
+- Hash the nullifier list once on chain for both the certificate and the
+  freshness fields (about 50k CU).
 - Shapes: 100×1 only. 8 and 36 inline shapes would cost one key each.
 - Notes to a different recipient (a payment rather than a merge) need the
   recipient in the data; +32 bytes per output, still fits.
