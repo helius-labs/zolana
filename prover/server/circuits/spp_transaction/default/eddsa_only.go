@@ -58,6 +58,8 @@ type DefaultRingEddsaOnlyPrivate struct {
 }
 
 type DefaultRingEddsaOnlyCircuit struct {
+	CachedInputs shared.CachedInputs
+
 	Shape   shared.Shape `gnark:"-"`
 	Public  DefaultRingEddsaOnlyPublic
 	Private DefaultRingEddsaOnlyPrivate
@@ -87,6 +89,7 @@ func NewDefaultRingEddsaOnlyCircuit(shape shared.Shape) (*DefaultRingEddsaOnlyCi
 
 func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
+		CachedInputs:      &c.CachedInputs,
 		Shape:             c.Shape,
 		Nullifiers:        c.Public.Nullifiers,
 		OutputHashes:      c.Public.OutputHashes,

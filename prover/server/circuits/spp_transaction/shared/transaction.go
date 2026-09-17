@@ -44,6 +44,8 @@ type Transaction struct {
 	// Inclusion is nil for variants that prove every input against the state
 	// tree, and set by variants that prove some inputs exist another way.
 	Inclusion *InclusionRelay
+	// Nil on ring authority, which always proves state-tree inclusion.
+	CachedInputs *CachedInputs
 
 	Nullifiers   []frontend.Variable
 	OutputHashes []frontend.Variable
@@ -167,6 +169,9 @@ type LengthCheck struct {
 // run before anything indexes them, so a variant calls it before asserting its
 // ring rule or resolving its signers.
 func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
+	if t.CachedInputs != nil && t.Shape.NInputs > CacheCapacity {
+		return fmt.Errorf("spp: cached UTXO proving supports at most %d inputs, got %d", CacheCapacity, t.Shape.NInputs)
+	}
 	if err := validateInputs(t.Shape.NInputs, t.Inputs); err != nil {
 		return err
 	}
@@ -193,6 +198,9 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	}
 	if err := ValidateLength("output signed", len(outputSigned), t.Shape.NOutputs); err != nil {
 		return err
+	}
+	if t.CachedInputs != nil {
+		t.CachedInputs.prepare(api, &t)
 	}
 	// ToBinary over the shape's exact packed width both decomposes InputFlags
 	// and range-checks it, so no bit above the layout can carry a value.
@@ -226,6 +234,9 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		}
 		inputHashes[i], addressNullifiers[i] = constrainInput(api, in, signals)
 		t.Inclusion.record(i, inputHashes[i], signals.Tree.ID)
+	}
+	if t.CachedInputs != nil {
+		t.CachedInputs.constrain(api, t.Inputs, t.Inclusion)
 	}
 	AssertDistinctNullifiers(api, t.Nullifiers)
 

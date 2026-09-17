@@ -50,6 +50,7 @@ type PublicInputs struct {
 	// right after PrivateTxHash: nil for the EdDSA rails, the P256 message hash
 	// and the default P256 owner identity for the P256 rail.
 	PreimageAfterPrivateTxHash []*big.Int
+	PreimageTail               []*big.Int
 	ExternalDataHash           *big.Int
 	PublicAssets               [NPublicSlots]*big.Int
 	PublicAmounts              [NPublicSlots]*big.Int
@@ -118,5 +119,5 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		}
 		fields = append(fields, outputOwnerChain)
 	}
-	return HashChain4(fields)
+	return HashChain4(append(fields, inputs.PreimageTail...))
 }

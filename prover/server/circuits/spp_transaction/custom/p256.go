@@ -57,6 +57,8 @@ type CustomRingP256Private struct {
 }
 
 type CustomRingP256Circuit struct {
+	CachedInputs shared.CachedInputs
+
 	Shape   shared.Shape `gnark:"-"`
 	Public  CustomRingP256Public
 	Private CustomRingP256Private
@@ -90,6 +92,7 @@ func (c *CustomRingP256Circuit) transaction(
 	p256MessageHash frontend.Variable,
 ) shared.Transaction {
 	return shared.Transaction{
+		CachedInputs:      &c.CachedInputs,
 		Shape:             c.Shape,
 		Nullifiers:        c.Public.Nullifiers,
 		OutputHashes:      c.Public.OutputHashes,
