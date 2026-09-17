@@ -203,12 +203,11 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 	// 2. indexed leaf H(in.NullifierLowValue, in.NullifierNextValue) exists in nullifier tree.
 	lowLeafHash := gadgetlib.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
 	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, NullifierTreeHeight)
-	nfRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
-		Hash:          lowLeafHash,
-		Index:         nfPathIndices,
-		Path:          in.NullifierLowPathElements,
-		Height:        NullifierTreeHeight,
-		NullifierTree: true,
+	nfRoot := abstractor.Call(api, gadgetlib.NullifierMerkleRootGadget{
+		Hash:   lowLeafHash,
+		Index:  nfPathIndices,
+		Path:   in.NullifierLowPathElements,
+		Height: NullifierTreeHeight,
 	})
 	api.AssertIsEqual(nfRoot, signals.Tree.NullifierRoot)
 	// 3.  nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)

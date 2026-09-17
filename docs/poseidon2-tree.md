@@ -55,10 +55,13 @@ string `Poseidon2-BN254[t=2,rF=6,rP=50,d=5]`; compression
 One definition per language:
 
 - Circuits: `gadget.NullifierTreeHash`
-  (`prover/server/circuits/gadget/tree_hash.go`). `ProveParentHash` and
-  `MerkleRootGadget` take `NullifierTree: true` to select it; the state tree
-  paths keep `PoseidonHash`. `IndexedLeafHash` and the batch-append circuit
-  use it for the leaves.
+  (`prover/server/circuits/gadget/tree_hash.go`), used by
+  `NullifierParentHash` / `NullifierMerkleRootGadget` and by
+  `IndexedLeafHash`; the state tree keeps `ProveParentHash` /
+  `MerkleRootGadget` on `PoseidonHash`. The two trees are separate gadget
+  types on purpose: the Lean extractor identifies a gadget by type name and
+  array lengths, so a field selecting the hash extracted one body for both
+  trees.
 - Go host: `merkletree.TreeHash` (`prover/server/merkle-tree/tree_hash.go`).
   The `merkle-tree` package only builds nullifier trees. The SPP test
   protocol has `stateNodeHash` (Poseidon) and `nullifierNodeHash`
@@ -93,18 +96,25 @@ cargo test -p zolana-hasher -p zolana-tree -p zolana-merkle-tree -p photon-index
 Cross-implementation checks: `program-libs/hasher/tests/poseidon2.rs`
 (Rust against the Go vectors), `program-libs/tree/tests/nullifier_tree/init_roots.rs`
 (constant against Rust reference and Go vector), photon
-`empty_rings_nullifier_proof_matches_init_root`, and after key rotation
-`program-libs/tree/tests/nullifier_tree/prover_e2e.rs` (Rust reference tree
-against the Go batch-append prover).
+`empty_rings_nullifier_proof_matches_init_root`.
+
+On the rotated keys, both prover-backed suites pass: `transact_functional`
+(21 tests, wallet-side reference trees -> Go prover -> on-chain Groth16) and
+`prover_e2e` (8 tests, `--features test-only,verify`: 300 nullifiers in 5
+batches through the forester's reference `IndexedMerkleTree<Poseidon2>` ->
+Go batch-append prover -> on-chain verification, in random submission
+orders).
 
 ## Not done here
 
-- Proving keys and verifying keys: every circuit with a nullifier path
-  moved, so every key except `custom_ring_base` must be rotated
-  (`prover/server/scripts/rotate_local_no_upload.sh`) before the proof tests
-  run.
-- Formal verification: `Poseidon.lean` proves the Poseidon round gadgets and
-  `Circuit.lean` is extracted from the circuits; both need the Poseidon2
-  gadget added.
+- Formal verification. `extract-circuit` runs and emits `NullifierParentHash`
+  with the Poseidon2 permutation unrolled, but gnark's three-operand
+  `api.Add(a, b, key)` in the std Poseidon2 gadget is extracted as a
+  self-referencing binding (`∃gate_4, gate_4 = Gates.add gate_4 key`), so the
+  extracted body is not usable in Lean. Poseidon2 needs its own gadget with
+  two-operand ops (as `gadget/poseidon.go` does for Poseidon), then the
+  round proofs in `Poseidon.lean`, the `Merkle.lean` lemmas for
+  `NullifierParentHash`, and a regenerated `Circuit.lean`.
+- Keys are on the Mac that rotated them and in the lockfile, not in S3.
 - The Go `IndexedMerkleTree.Init` sentinel is `2^248 - 1` while the protocol
   nullifier tree uses `p - 1`; pre-existing, unchanged.
