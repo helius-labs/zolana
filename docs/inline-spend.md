@@ -40,12 +40,22 @@ things at once:
   `admitted_payment` accepts `(inputs, outputs)` from
   `ADMITTED_PAYMENT_SHAPES`; `balance` takes one or two outputs.
 
-## Size
+## Measured
 
-`InlineSpend` for 100 inputs is 3,627 bytes. The v1 envelope (one signature,
-seven addresses, two compute-budget instructions) adds about 360, so the
-transaction is about 3,990 of 4,096 bytes. `transaction_size` in the SDK
-measures it; the proof test asserts it fits.
+LiteSVM proof test, M5 Pro, 2026-09-17, 100 real notes merged into one output:
+
+| | |
+|---|---|
+| transaction | 3,981 of 4,096 bytes, 7 of 64 addresses |
+| compute units | 464,141 |
+| proof (cold key, first request) | 5.97 s |
+| transactions | 1 |
+
+For comparison on the same machine: PR #320 needs three sequential 36-input
+merges (about 240k CU each, three proofs of 781k constraints); the
+10x-admission buffer path needs the buffer allocation, the chunk uploads and
+the commit. The first proof request loads the 389 MB key; a resident-key
+number comes from a second run.
 
 ## Soundness
 
@@ -88,7 +98,7 @@ a regenerated key needs a regenerated module.
 
 ## Open
 
-- Measured proof time and CU: see the test output.
+- Resident-key proof time (the table above is a cold first request).
 - Shapes: 100×1 only. 8 and 36 inline shapes would cost one key each.
 - Notes to a different recipient (a payment rather than a merge) need the
   recipient in the data; +32 bytes per output, still fits.
