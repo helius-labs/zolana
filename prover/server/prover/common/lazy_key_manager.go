@@ -282,6 +282,30 @@ var transferSupportedShapes = [][2]uint32{
 // circuits/spp_merge/shared/transaction.go.
 var mergeSupportedInputCounts = []uint32{8, 36}
 
+type ProofShape struct {
+	Circuit CircuitType
+	Inputs  uint32
+	Outputs uint32
+}
+
+func (shape ProofShape) Supported() bool {
+	switch shape.Circuit {
+	case MergeCircuitType, MergeRingCircuitType:
+		for _, inputs := range mergeSupportedInputCounts {
+			if shape.Inputs == inputs && shape.Outputs == 1 {
+				return true
+			}
+		}
+	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferP256RingCircuitType:
+		for _, supported := range transferSupportedShapes {
+			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // mergeKeyPath resolves a merge key file. Merge always produces one output, so
 // only the input count varies across shapes.
 func (m *LazyKeyManager) mergeKeyPath(prefix string, nInputs uint32, nOutputs uint32) string {

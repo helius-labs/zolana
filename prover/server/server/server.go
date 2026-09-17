@@ -11,6 +11,7 @@ import (
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
+	"zolana/prover/prover/indexed"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -264,6 +265,7 @@ type QueueConfig struct {
 }
 
 type EnhancedConfig struct {
+	Indexer           *indexed.Resolver
 	TransferExecution *TransferExecution
 	ProverAddress     string
 	MetricsAddress    string
@@ -271,6 +273,8 @@ type EnhancedConfig struct {
 }
 
 type proveHandler struct {
+	indexer           *indexed.Resolver
+	indexed           bool
 	transferExecution *TransferExecution
 	keyManager        *common.LazyKeyManager
 	redisQueue        *RedisQueue
@@ -374,6 +378,13 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if handler.indexed {
+		if handler.indexer == nil {
+			(&Error{StatusCode: http.StatusServiceUnavailable, Code: "indexer_unconfigured", Message: "Indexer proving is not configured"}).send(w)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	}
 	buf, err := io.ReadAll(r.Body)
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("Error reading request body")
@@ -381,6 +392,12 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if handler.indexed {
+		if err := indexed.Validate(buf); err != nil {
+			malformedBodyError(err).send(w)
+			return
+		}
+	}
 	proofRequestMeta, err := common.ParseProofRequestMeta(buf)
 	if err != nil {
 		malformedBodyError(err).send(w)
@@ -577,6 +594,7 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 
 func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	return RunEnhanced(&EnhancedConfig{
+		Indexer:           config.Indexer,
 		TransferExecution: config.TransferExecution,
 		ProverAddress:     config.ProverAddress,
 		MetricsAddress:    config.MetricsAddress,
@@ -605,13 +623,17 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 
 	proverMux := http.NewServeMux()
 
-	proverMux.Handle("/prove", proveHandler{
+	handler := proveHandler{
+		indexer:           config.Indexer,
 		transferExecution: transferExecution,
 		keyManager:        keyManager,
 		redisQueue:        redisQueue,
 		enableQueue:       config.Queue != nil && config.Queue.Enabled,
 		admission:         newSyncAdmission(syncPermits()),
-	})
+	}
+	proverMux.Handle("/prove", handler)
+	handler.indexed = true
+	proverMux.Handle("/prove/indexed", handler)
 
 	proverMux.Handle("/health", healthHandler{
 		circuits: servedCircuits(),
@@ -821,6 +843,7 @@ func (error *Error) send(w http.ResponseWriter) {
 }
 
 type Config struct {
+	Indexer           *indexed.Resolver
 	TransferExecution *TransferExecution
 	ProverAddress     string
 	MetricsAddress    string
@@ -912,6 +935,7 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 	jobID := dedupResult.JobID
 
 	job := &ProofJob{
+		Indexed:    handler.indexed,
 		ID:         jobID,
 		Type:       "zk_proof",
 		Payload:    json.RawMessage(buf),
@@ -999,6 +1023,19 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
+	var resolution *common.ProofResolution
+	if handler.indexed {
+		resolved, err := handler.indexer.Resolve(ctx, buf)
+		if err != nil {
+			failure := &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable"}
+			if ctx.Err() != nil {
+				failure = &Error{StatusCode: http.StatusRequestTimeout, Code: "proof_timeout", Message: "Proof request expired"}
+			}
+			failure.send(w)
+			return
+		}
+		buf, resolution = resolved.Payload, resolved.Resolution
+	}
 
 	// Wait for a permit before starting work. Doing this here rather than around
 	// the whole handler keeps parsing and validation off the bound: a malformed
@@ -1028,6 +1065,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		// Recover from panics to prevent server crash from malformed input
 		defer func() {
 			if r := recover(); r != nil {
+				if handler.indexed {
+					r = "indexed proof failed"
+				}
 				ProofPanicsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
 				logging.Logger().Error().
 					Interface("panic", r).
@@ -1043,8 +1083,14 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		timer := StartProofTimer(string(meta.CircuitType))
 
 		proof, proofError := handler.processProofSync(buf)
+		if proof != nil {
+			proof.Resolution = resolution
+		}
 
 		if proofError != nil {
+			if handler.indexed {
+				proofError = provingError(errors.New("indexed proof failed"))
+			}
 			timer.ObserveError(proofError.Code)
 			RecordJobComplete(false)
 		} else {

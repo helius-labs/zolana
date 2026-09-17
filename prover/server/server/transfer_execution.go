@@ -7,6 +7,7 @@ import (
 
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/indexed"
 )
 
 type TransferExecution struct {
@@ -48,6 +49,7 @@ func isTransferCircuit(circuit common.CircuitType) bool {
 }
 
 type TransferWorkerConfig struct {
+	Indexer   *indexed.Resolver
 	Queue     *RedisQueue
 	Keys      *common.LazyKeyManager
 	Execution *TransferExecution

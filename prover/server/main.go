@@ -15,6 +15,7 @@ import (
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/extractor"
+	"zolana/prover/prover/indexed"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -527,6 +528,9 @@ func runCli() {
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "json-logging", Usage: "enable JSON logging", Required: false},
 					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server", Value: "0.0.0.0:5000", Required: false},
+					&cli.StringFlag{Name: "indexer-url", Usage: "Indexer for server fetched proof data", EnvVars: []string{"PROVER_INDEXER_URL"}},
+					&cli.StringFlag{Name: "indexer-api-key", Usage: "Indexer authentication key", EnvVars: []string{"PROVER_INDEXER_API_KEY"}},
+					&cli.IntFlag{Name: "indexer-concurrency", Usage: "Concurrent indexer preparation requests", Value: 32, EnvVars: []string{"PROVER_INDEXER_CONCURRENCY"}},
 					&cli.StringFlag{Name: "metrics-address", Usage: "address for the metrics server", Value: "0.0.0.0:9998", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
@@ -650,6 +654,14 @@ func runCli() {
 						Str("redis_url", redisURL).
 						Msg("Starting ZK Prover service")
 
+					var indexer *indexed.Resolver
+					if context.String("indexer-url") != "" {
+						var err error
+						indexer, err = indexed.NewResolver(indexed.Config{URL: context.String("indexer-url"), APIKey: context.String("indexer-api-key"), Concurrency: context.Int("indexer-concurrency")})
+						if err != nil {
+							return err
+						}
+					}
 					transferExecution := server.NewTransferExecution()
 					var workers []server.QueueWorker
 					var redisQueue *server.RedisQueue
@@ -691,7 +703,7 @@ func runCli() {
 						}
 
 						if startAll || enabledCircuitsMap["transfer"] || enableServer {
-							transferWorker := server.NewTransferQueueWorker(server.TransferWorkerConfig{Queue: redisQueue, Keys: keyManager, Execution: transferExecution})
+							transferWorker := server.NewTransferQueueWorker(server.TransferWorkerConfig{Queue: redisQueue, Keys: keyManager, Execution: transferExecution, Indexer: indexer})
 							workers = append(workers, transferWorker)
 							go transferWorker.Start()
 							workersStarted = append(workersStarted, "transfer")
@@ -711,6 +723,7 @@ func runCli() {
 
 					if enableServer {
 						config := server.Config{
+							Indexer:           indexer,
 							TransferExecution: transferExecution,
 							ProverAddress:     context.String("prover-address"),
 							MetricsAddress:    context.String("metrics-address"),
