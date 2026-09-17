@@ -436,7 +436,30 @@ mod tests {
             .expect("sign");
 
         let requested = proof_inputs.dummy_nullifiers().expect("dummy nullifiers");
+        let indexed =
+            crate::prover::indexed::PreparedIndexedTransfer::new(proof_inputs.clone()).unwrap();
+        let indexed_body: serde_json::Value =
+            serde_json::from_str(&indexed.request().body().unwrap()).unwrap();
         let assembled = assemble(proof_inputs, &[fake_spend_proof()], &[]).expect("assemble");
+        let super::ProverInputs::Eddsa(complete) = &assembled.prover_inputs;
+        let mut complete_json: serde_json::Value =
+            serde_json::from_str(&crate::prover::json::to_json(complete)).unwrap();
+        let object = complete_json.as_object_mut().unwrap();
+        object.remove("treeSlots");
+        object.remove("publicInputHash");
+        for input in object["inputs"].as_array_mut().unwrap() {
+            for field in [
+                "statePathElements",
+                "statePathIndex",
+                "nullifierLowValue",
+                "nullifierNextValue",
+                "nullifierLowPathElements",
+                "nullifierLowPathIndex",
+            ] {
+                input.as_object_mut().unwrap().remove(field);
+            }
+        }
+        assert_eq!(indexed_body["prepared"], complete_json);
 
         let witnessed: Vec<[u8; 32]> = assembled
             .ix

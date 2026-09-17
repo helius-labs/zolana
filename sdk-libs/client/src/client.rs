@@ -5,6 +5,7 @@
 //! Submit that transaction through the client's RPC adapter, then confirm on-chain and wait
 //! for Photon indexing with [`ZolanaClient::confirm_private_transaction`].
 
+use crate::prover::indexed::{PreparedIndexedTransfer, ProvenIndexedTransfer};
 use std::{sync::OnceLock, thread::sleep, time::Duration};
 
 /// Reject a service URL that would carry shielded material in plaintext.
@@ -98,6 +99,13 @@ pub struct SignedPrivateTransaction {
 /// carries its own ceiling and does not come through here.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProofDataSource {
+    #[default]
+    Client,
+    Prover,
+}
+
 /// Unified client for private transaction proving and submission helpers.
 ///
 /// The caller should not have to thread Solana RPC, Photon, and prover handles
@@ -116,6 +124,7 @@ pub struct ZolanaClient<R> {
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
     indexer_config: IndexerRpcConfig,
+    proof_data_source: ProofDataSource,
 }
 
 impl<R> ZolanaClient<R> {
@@ -139,6 +148,7 @@ impl<R> ZolanaClient<R> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
+            proof_data_source: ProofDataSource::default(),
         }
     }
 
@@ -187,6 +197,7 @@ impl<R> ZolanaClient<R> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
+            proof_data_source: ProofDataSource::default(),
         }
     }
 
@@ -223,6 +234,30 @@ impl<R> ZolanaClient<R> {
     pub fn with_indexer_poll_config(mut self, config: IndexerPollConfig) -> Self {
         self.indexer_config.poll = config;
         self
+    }
+
+    #[must_use]
+    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
+        self.proof_data_source = source;
+        self
+    }
+
+    fn indexed_transfer(
+        &self,
+        preparation: TransferPreparation,
+    ) -> Result<ProvenIndexedTransfer, ClientError> {
+        let prepared = preparation.prepare()?;
+        let proof = self.blocking_prover().prove_indexed(prepared.request())?;
+        prepared.finish(proof)
+    }
+
+    async fn indexed_transfer_async(
+        &self,
+        preparation: TransferPreparation,
+    ) -> Result<ProvenIndexedTransfer, ClientError> {
+        let prepared = preparation.prepare()?;
+        let proof = self.async_prover.prove_indexed(prepared.request()).await?;
+        prepared.finish(proof)
     }
 
     pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
@@ -273,6 +308,15 @@ impl<R: Rpc> ZolanaClient<R> {
         proof_inputs: SppProofInputs,
         config: Option<IndexerRpcConfig>,
     ) -> Result<TransactIxData, ClientError> {
+        if self.proof_data_source == ProofDataSource::Prover {
+            return Ok(self
+                .indexed_transfer(TransferPreparation {
+                    transaction: proof_inputs,
+                    input_tree,
+                    config: config.unwrap_or(self.indexer_config),
+                })?
+                .data);
+        }
         let commitments = proof_inputs.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs(self.blocking_indexer(), input_tree, &commitments, config)?;
@@ -306,45 +350,55 @@ impl<R: Rpc> ZolanaClient<R> {
     {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        let commitments = signed.transaction.input_utxo_hashes()?;
-        // Two independent indexer round trips (317ms and 114ms on devnet) that
-        // ran back to back. Nothing links them: different methods, and neither
-        // consumes the other's output.
-        let (spend_proofs, dummy_proofs) = std::thread::scope(|scope| {
-            let spend = scope.spawn(|| {
-                let _t = crate::timing::Phase::start("fetch_spend_proofs", 0);
-                fetch_spend_proofs(
-                    self.blocking_indexer(),
-                    signed.input_tree,
-                    &commitments,
-                    None,
-                )
+        let data = if self.proof_data_source == ProofDataSource::Prover {
+            self.indexed_transfer(TransferPreparation {
+                transaction: signed.transaction.clone(),
+                input_tree: signed.input_tree,
+                config: self.indexer_config,
+            })?
+            .data
+        } else {
+            let commitments = signed.transaction.input_utxo_hashes()?;
+            // Two independent indexer round trips (317ms and 114ms on devnet) that
+            // ran back to back. Nothing links them: different methods, and neither
+            // consumes the other's output.
+            let (spend_proofs, dummy_proofs) = std::thread::scope(|scope| {
+                let spend = scope.spawn(|| {
+                    let _t = crate::timing::Phase::start("fetch_spend_proofs", 0);
+                    fetch_spend_proofs(
+                        self.blocking_indexer(),
+                        signed.input_tree,
+                        &commitments,
+                        None,
+                    )
+                });
+                let dummy = scope.spawn(|| {
+                    let _t = crate::timing::Phase::start("fetch_dummy_nullifier_proofs", 0);
+                    fetch_dummy_nullifier_proofs(
+                        self.blocking_indexer(),
+                        signed.input_tree,
+                        &signed.transaction,
+                        None,
+                    )
+                });
+                (spend.join(), dummy.join())
             });
-            let dummy = scope.spawn(|| {
-                let _t = crate::timing::Phase::start("fetch_dummy_nullifier_proofs", 0);
-                fetch_dummy_nullifier_proofs(
-                    self.blocking_indexer(),
-                    signed.input_tree,
-                    &signed.transaction,
-                    None,
-                )
-            });
-            (spend.join(), dummy.join())
-        });
-        // A panic here is a bug in proof assembly, not an unreachable indexer.
-        let spend_proofs =
-            spend_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
-        let dummy_proofs =
-            dummy_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
-        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
-        let proof = {
-            let _t = crate::timing::Phase::start("prove_transfer", 0);
-            let proof = self.blocking_prover().prove_transfer(inputs)?;
-            verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
-            proof
+            // A panic here is a bug in proof assembly, not an unreachable indexer.
+            let spend_proofs =
+                spend_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
+            let dummy_proofs =
+                dummy_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
+            let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
+            let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+            let proof = {
+                let _t = crate::timing::Phase::start("prove_transfer", 0);
+                let proof = self.blocking_prover().prove_transfer(inputs)?;
+                verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
+                proof
+            };
+            let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+            assembled.with_proof(proof)
         };
-        let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         // Last thing before building, so the blockhash is as young as it can be
         // when the transaction reaches the cluster.
         let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
@@ -357,7 +411,7 @@ impl<R: Rpc> ZolanaClient<R> {
             },
             owner_signers,
             signed.settlement_transfers.clone(),
-            assembled.with_proof(proof),
+            data,
             recent_blockhash,
         )
     }
@@ -424,22 +478,37 @@ impl<R: AsyncRpc> ZolanaClient<R> {
     ) -> Result<VersionedMessage, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        let commitments = signed.transaction.input_utxo_hashes()?;
-        let spend_proofs =
-            fetch_spend_proofs_async(&self.async_indexer, signed.input_tree, &commitments, None)
-                .await?;
-        let dummy_proofs = fetch_dummy_nullifier_proofs_async(
-            &self.async_indexer,
-            signed.input_tree,
-            &signed.transaction,
-            None,
-        )
-        .await?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
-        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
-        let proof = self.async_prover.prove_transfer(inputs).await?;
-        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
-        let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+        let data = if self.proof_data_source == ProofDataSource::Prover {
+            self.indexed_transfer_async(TransferPreparation {
+                transaction: signed.transaction.clone(),
+                input_tree: signed.input_tree,
+                config: self.indexer_config,
+            })
+            .await?
+            .data
+        } else {
+            let commitments = signed.transaction.input_utxo_hashes()?;
+            let spend_proofs = fetch_spend_proofs_async(
+                &self.async_indexer,
+                signed.input_tree,
+                &commitments,
+                None,
+            )
+            .await?;
+            let dummy_proofs = fetch_dummy_nullifier_proofs_async(
+                &self.async_indexer,
+                signed.input_tree,
+                &signed.transaction,
+                None,
+            )
+            .await?;
+            let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
+            let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+            let proof = self.async_prover.prove_transfer(inputs).await?;
+            verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
+            let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+            assembled.with_proof(proof)
+        };
         build_unsigned_message(
             self.compute_budget(),
             fee_payer,
@@ -449,7 +518,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             },
             owner_signers,
             signed.settlement_transfers.clone(),
-            assembled.with_proof(proof),
+            data,
             recent_blockhash,
         )
     }
@@ -696,6 +765,20 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     }
 
     async fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
+        if self.proof_data_source == ProofDataSource::Prover {
+            let proved = self
+                .indexed_transfer_async(TransferPreparation {
+                    transaction,
+                    input_tree: self.output_tree,
+                    config: self.indexer_config,
+                })
+                .await?;
+            return Ok(ProveResult {
+                proof: proved.proof,
+                public_inputs: vec![proved.public_input_hash],
+                circuit_id: 0,
+            });
+        }
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None).await?;
         let dummy_proofs = fetch_dummy_nullifier_proofs_async(
@@ -922,6 +1005,18 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     }
 
     fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
+        if self.proof_data_source == ProofDataSource::Prover {
+            let proved = self.indexed_transfer(TransferPreparation {
+                transaction,
+                input_tree: self.output_tree,
+                config: self.indexer_config,
+            })?;
+            return Ok(ProveResult {
+                proof: proved.proof,
+                public_inputs: vec![proved.public_input_hash],
+                circuit_id: 0,
+            });
+        }
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
         let dummy_proofs = fetch_dummy_nullifier_proofs(
@@ -939,6 +1034,25 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             proof: ProofCompressed::try_from(proof)?,
             public_inputs: vec![assembled.public_input_hash],
             circuit_id,
+        })
+    }
+}
+
+struct TransferPreparation {
+    transaction: SppProofInputs,
+    input_tree: Address,
+    config: IndexerRpcConfig,
+}
+
+impl TransferPreparation {
+    fn prepare(self) -> Result<PreparedIndexedTransfer, ClientError> {
+        let prepared = PreparedIndexedTransfer::new(self.transaction)?;
+        if !matches!(prepared.request().input_trees(), [tree] if tree.tree == self.input_tree) {
+            return Err(ClientError::InputTreeRootMismatch);
+        }
+        Ok(match self.config.require_slot {
+            Some(slot) => prepared.with_min_context_slot(slot),
+            None => prepared,
         })
     }
 }

@@ -494,12 +494,12 @@ pub(crate) fn assemble_outputs(
     })
 }
 
-pub struct PublicInputs<'a> {
+pub struct PublicInputs<'a, Roots = &'a [TreeSlot; INPUT_TREES]> {
     pub nullifiers: &'a [[u8; 32]],
     pub output_hashes: &'a [[u8; 32]],
     /// The trees the inputs may be spent from. They enter the preimage as one
     /// element, the right fold over every slot's hash.
-    pub tree_slots: &'a [TreeSlot; INPUT_TREES],
+    pub tree_slots: Roots,
     /// Raw `u16` id of the tree every output is appended to.
     pub output_tree_id: u16,
     pub private_tx: &'a [u8; 32],
@@ -527,12 +527,22 @@ impl PublicInputs<'_> {
         &self,
         after_private_tx: &[[u8; 32]],
     ) -> Result<[u8; 32], ClientError> {
+        let mut elements = self.without_roots(after_private_tx)?;
+        elements.insert(2, tree_slots_hash_chain(self.tree_slots)?);
+        Ok(create_hash_chain_4_from_slice(&elements)?)
+    }
+}
+
+impl<Roots> PublicInputs<'_, Roots> {
+    pub fn without_roots(
+        &self,
+        after_private_tx: &[[u8; 32]],
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
         let slots = self.public_transfers.interleaved();
         let mut elements = Vec::with_capacity(12 + after_private_tx.len() + slots.len());
         elements.extend([
             create_hash_chain_4_from_slice(self.nullifiers)?,
             create_hash_chain_4_from_slice(self.output_hashes)?,
-            tree_slots_hash_chain(self.tree_slots)?,
             tree_id_field(self.output_tree_id),
             *self.private_tx,
         ]);
@@ -547,7 +557,7 @@ impl PublicInputs<'_> {
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             elements.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
         }
-        Ok(create_hash_chain_4_from_slice(&elements)?)
+        Ok(elements)
     }
 }
 

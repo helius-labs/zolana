@@ -1,3 +1,4 @@
+use super::indexed::{decode_resolution, IndexedProof, IndexedProofRequest};
 use std::{
     env,
     path::Path,
@@ -310,13 +311,44 @@ impl ProverClient {
     }
 
     fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
-        crate::timing::note(0, "prover_request_bytes", body.as_ref().len());
+        self.send_response(ProofRequest {
+            body: body.as_ref(),
+            delivery,
+            route: ProofRoute::Complete,
+        })
+    }
+
+    pub fn prove_indexed(
+        &self,
+        request: &IndexedProofRequest,
+    ) -> Result<IndexedProof, ClientError> {
+        let body = request.body()?;
+        let proof = self
+            .send_response(ProofRequest {
+                body: &body,
+                delivery: self.delivery,
+                route: ProofRoute::Indexed,
+            })
+            .map_err(indexed_failure)?;
+        request.validate(proof)
+    }
+
+    fn send_response<T: ProverResponse>(
+        &self,
+        request: ProofRequest<'_>,
+    ) -> Result<T, ClientError> {
+        let ProofRequest {
+            body,
+            delivery,
+            route,
+        } = request;
+        let url = format!("{}{}", self.server_address, route.path());
+        crate::timing::note(0, "prover_request_bytes", body.len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
         let mut delivery = delivery;
         let (status, text) = loop {
-            let (status, text) = self.post(&url, body.as_ref(), delivery)?;
+            let (status, text) = self.post(&url, body, delivery)?;
             if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
                 // Retrying synchronously would compete for the same permit that
                 // was just refused; queueing waits for it once instead.
@@ -343,11 +375,11 @@ impl ProverClient {
                 return self.poll_async(job_id);
             }
         }
-        Self::proof_from_value(&value, &text)
+        T::decode(&value, &text)
     }
 
     /// Poll the async job status endpoint until the queued proof completes.
-    fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+    fn poll_async<T: ProverResponse>(&self, job_id: &str) -> Result<T, ClientError> {
         let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
         // The configured interval caps the backoff rather than setting it. This
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
@@ -421,7 +453,7 @@ impl ProverClient {
                 // nested under `result`.
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return Self::proof_from_value(result, &text);
+                    return T::decode(result, &text);
                 }
                 Some("failed") => {
                     return Err(ClientError::ProverServer(format!(
@@ -450,6 +482,60 @@ impl ProverClient {
             .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
         proof_from_gnark_json(&proof_json)
             .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
+    }
+}
+
+enum ProofRoute {
+    Complete,
+    Indexed,
+}
+
+impl ProofRoute {
+    fn path(&self) -> &'static str {
+        match self {
+            Self::Complete => PROVE_PATH,
+            Self::Indexed => "/prove/indexed",
+        }
+    }
+}
+
+struct ProofRequest<'a> {
+    body: &'a str,
+    delivery: Delivery,
+    route: ProofRoute,
+}
+
+trait ProverResponse: Sized {
+    fn decode(value: &serde_json::Value, raw: &str) -> Result<Self, ClientError>;
+}
+
+impl ProverResponse for Proof {
+    fn decode(value: &serde_json::Value, raw: &str) -> Result<Self, ClientError> {
+        ProverClient::proof_from_value(value, raw)
+    }
+}
+
+impl ProverResponse for IndexedProof {
+    fn decode(value: &serde_json::Value, raw: &str) -> Result<Self, ClientError> {
+        let proof = ProverClient::proof_from_value(value, raw)?;
+        let resolution = value
+            .get("proof")
+            .unwrap_or(value)
+            .get("resolution")
+            .ok_or_else(|| ClientError::ProofParse("missing proof resolution".to_owned()))?;
+        Ok(Self {
+            proof,
+            resolution: decode_resolution(resolution)?,
+        })
+    }
+}
+
+fn indexed_failure(error: ClientError) -> ClientError {
+    match error {
+        ClientError::ProofParse(_) => {
+            ClientError::ProofParse("invalid indexed proof response".to_owned())
+        }
+        _ => ClientError::ProverServer("indexed proof request failed".to_owned()),
     }
 }
 
@@ -582,10 +668,43 @@ impl AsyncProverClient {
     }
 
     async fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        self.send_response(ProofRequest {
+            body: body.as_ref(),
+            delivery,
+            route: ProofRoute::Complete,
+        })
+        .await
+    }
+
+    pub async fn prove_indexed(
+        &self,
+        request: &IndexedProofRequest,
+    ) -> Result<IndexedProof, ClientError> {
+        let body = request.body()?;
+        let proof = self
+            .send_response(ProofRequest {
+                body: &body,
+                delivery: self.delivery,
+                route: ProofRoute::Indexed,
+            })
+            .await
+            .map_err(indexed_failure)?;
+        request.validate(proof)
+    }
+
+    async fn send_response<T: ProverResponse>(
+        &self,
+        request: ProofRequest<'_>,
+    ) -> Result<T, ClientError> {
+        let ProofRequest {
+            body,
+            delivery,
+            route,
+        } = request;
+        let url = format!("{}{}", self.server_address, route.path());
         let mut delivery = delivery;
         let (status, text) = loop {
-            let (status, text) = self.post(&url, body.as_ref(), delivery).await?;
+            let (status, text) = self.post(&url, body, delivery).await?;
             if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
                 delivery = Delivery::Queued;
                 continue;
@@ -605,7 +724,7 @@ impl AsyncProverClient {
                 return self.poll_async(job_id).await;
             }
         }
-        ProverClient::proof_from_value(&value, &text)
+        T::decode(&value, &text)
     }
 
     async fn post(
@@ -646,7 +765,7 @@ impl AsyncProverClient {
         }
     }
 
-    async fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+    async fn poll_async<T: ProverResponse>(&self, job_id: &str) -> Result<T, ClientError> {
         let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
         let poll_cap_ms = self
             .async_poll
@@ -701,7 +820,7 @@ impl AsyncProverClient {
             match value.get("status").and_then(|v| v.as_str()) {
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return ProverClient::proof_from_value(result, &text);
+                    return T::decode(result, &text);
                 }
                 Some("failed") => {
                     return Err(ClientError::ProverServer(format!(
@@ -1381,6 +1500,88 @@ mod tests {
             "the retry must queue rather than ask again for a permit just refused"
         );
         assert!(requests.get(1).expect("queued retry").async_requested);
+    }
+
+    fn indexed_fixture() -> (IndexedProofRequest, Value) {
+        use super::super::indexed::{
+            IndexedLookup, IndexedProofData, IndexedTree, ProofResolution, ResolvedProofTree,
+        };
+        use zolana_interface::instruction::instruction_data::transact::TreeContext;
+        let tree = IndexedTree {
+            tree: zolana_interface::pda::tree(3).to_bytes().into(),
+            id: 3,
+        };
+        let fields = vec![[0; 32]; 15];
+        let resolution = ProofResolution {
+            trees: vec![ResolvedProofTree {
+                tree: tree.tree,
+                id: 3,
+                utxo_root: [0; 32],
+                nullifier_root: [0; 32],
+                context: TreeContext {
+                    utxo_tree_root_index: 0,
+                    nullifier_tree_root_index: 0,
+                },
+            }],
+            public_input_hash: [0; 32],
+        };
+        let hash = resolution.hash(&fields).unwrap();
+        let request = IndexedProofRequest::new(IndexedProofData {
+            witness: zeroize::Zeroizing::new(
+                json!({"circuitType":"transfer-confidential", "nInputs":1,
+                "nOutputs":1, "inputs":[{"treeSlot":"0x0","isDummy":"0x0"}], "outputs":[{}]})
+                .to_string(),
+            ),
+            inputs: vec![IndexedLookup {
+                tree_slot: 0,
+                commitment: Some([0; 32]),
+            }],
+            trees: vec![tree.clone()],
+            public_inputs: fields,
+        })
+        .unwrap();
+        let mut proof = gnark_proof();
+        proof["resolution"] = json!({"trees":[{"tree":tree.tree.to_string(),"id":3,
+            "utxoRoot":"0x0","nullifierRoot":"0x0","utxoRootIndex":0,"nullifierRootIndex":0}],
+            "publicInputHash":super::super::indexed::hex_field(&hash)});
+        (request, proof)
+    }
+
+    #[test]
+    fn indexed_overload_retains_route_and_resolution() {
+        let (request, proof) = indexed_fixture();
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(429, json!({"error":"busy"})),
+            MockResponse::json(202, json!({"jobId":"indexed-queued", "status":"queued"})),
+            MockResponse::json(200, json!({"status":"completed", "result":{"proof":proof}})),
+        ]);
+        let proof = queued_prover_client(server.url())
+            .prove_indexed(&request)
+            .unwrap();
+        assert_eq!(proof.resolution.trees[0].id, 3);
+        let requests = server.requests();
+        assert_paths(
+            &requests,
+            [
+                "/prove/indexed",
+                "/prove/indexed",
+                "/prove/status?jobId=indexed-queued",
+            ],
+        );
+        assert!(requests[0].sync_requested);
+        assert!(requests[1].async_requested);
+    }
+
+    #[tokio::test]
+    async fn indexed_async_binds_response_to_request() {
+        let (request, mut proof) = indexed_fixture();
+        proof["resolution"]["publicInputHash"] = json!("0x1");
+        let server = MockServer::respond_with(vec![MockResponse::json(200, proof)]);
+        assert!(async_prover_client(server.url())
+            .prove_indexed(&request)
+            .await
+            .is_err());
+        assert_paths(&server.requests(), ["/prove/indexed"]);
     }
 
     #[test]

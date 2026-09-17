@@ -1,5 +1,6 @@
 mod client;
 pub mod field;
+pub mod indexed;
 mod inputs;
 mod json;
 pub mod merge;

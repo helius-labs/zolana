@@ -30,7 +30,9 @@ pub mod timing;
 pub mod transaction_size;
 
 #[cfg(feature = "indexer-api")]
-pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
+pub use client::{
+    ProofDataSource, SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
+};
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
