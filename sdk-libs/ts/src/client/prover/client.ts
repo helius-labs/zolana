@@ -1,3 +1,10 @@
+import type {
+  IndexedProofInputs,
+  IndexedProofResult,
+  PreparedTransferInput,
+  PreparedMergeInputs,
+} from "../ports.js";
+import { decodeIndexedInputs, indexedRequestEnvelope, parseIndexedResult } from "./indexed.js";
 import { treeIdField } from "../../interface/tree-slot.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
@@ -6,6 +13,7 @@ import type { RequestContext } from "../../interface/types.js";
 import { ClientError } from "../error.js";
 import {
   checkedBytes,
+  field,
   checkedServiceUrl,
   composeSignal,
   requestError,
@@ -118,14 +126,40 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(proverRequest(inputs, completeSecret)), "inResponse", context);
+    return parseProof(
+      await this.#send(
+        JSON.stringify(proverRequest(inputs, completeSecret)),
+        "inResponse",
+        context,
+      ),
+    );
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(
-      JSON.stringify(mergeProverRequest(inputs, completeSecret)),
-      "inResponse",
-      context,
+    return parseProof(
+      await this.#send(
+        JSON.stringify(mergeProverRequest(inputs, completeSecret)),
+        "inResponse",
+        context,
+      ),
+    );
+  }
+
+  async proveIndexed(
+    request: IndexedProofInputs,
+    context?: RequestContext,
+  ): Promise<IndexedProofResult> {
+    const inputs = decodeIndexedInputs(request);
+    const prepared =
+      inputs.circuit === "merge"
+        ? mergeProverRequest(inputs.payload, completeSecret)
+        : proverRequest(inputs, completeSecret);
+    const body = indexedRequestEnvelope(inputs, prepared);
+    const url = new URL(this.#url);
+    url.pathname += "/indexed";
+    return parseIndexedResult(
+      await this.#send(JSON.stringify(body), "inResponse", context, url),
+      inputs,
     );
   }
 
@@ -133,14 +167,18 @@ export class ProverClient {
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingPolicyProofRequest(inputs)), "queued", context);
+    return parseProof(
+      await this.#send(JSON.stringify(customRingPolicyProofRequest(inputs)), "queued", context),
+    );
   }
 
   async proveCustomRingBase(
     inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingBaseProofRequest(inputs)), "queued", context);
+    return parseProof(
+      await this.#send(JSON.stringify(customRingBaseProofRequest(inputs)), "queued", context),
+    );
   }
 
   /** The circuits the server serves. */
@@ -179,7 +217,12 @@ export class ProverClient {
     }
   }
 
-  async #send(body: string, delivery: Delivery, context?: RequestContext): Promise<Proof> {
+  async #send(
+    body: string,
+    delivery: Delivery,
+    context?: RequestContext,
+    url = this.#url,
+  ): Promise<unknown> {
     const signal = composeSignal(context, "prove");
     try {
       deliveryAttempt: for (;;) {
@@ -192,7 +235,7 @@ export class ProverClient {
           try {
             let response: Response;
             try {
-              response = await this.#fetch(this.#url, {
+              response = await this.#fetch(url, {
                 method: "POST",
                 headers: {
                   "content-type": "application/json",
@@ -222,7 +265,7 @@ export class ProverClient {
                   method: "prove",
                   status: response.status,
                   attempts: attempt,
-                  ...(await proverReason(response)),
+                  ...(url === this.#url ? await proverReason(response) : {}),
                 },
               });
             }
@@ -239,9 +282,13 @@ export class ProverClient {
               typeof value["jobId"] === "string" &&
               value["proof"] === undefined
             ) {
-              return await this.#poll(value["jobId"], signal);
+              return await this.#poll(
+                value["jobId"],
+                signal,
+                url === this.#url ? "serverText" : "code",
+              );
             }
-            return parseProof(value);
+            return value;
           } finally {
             request.cleanup();
           }
@@ -258,7 +305,11 @@ export class ProverClient {
   /// Mirrors `poll_async`: request the status, then wait between attempts, with
   /// the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final, a 5xx or a
   /// transport failure is transient, and every other status has its body read.
-  async #poll(jobId: string, signal: ComposedSignal): Promise<Proof> {
+  async #poll(
+    jobId: string,
+    signal: ComposedSignal,
+    failureDetail: "serverText" | "code",
+  ): Promise<unknown> {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
     }
@@ -307,7 +358,7 @@ export class ProverClient {
             details: {
               method: "proveStatus",
               status: response.status,
-              ...(await proverReason(response)),
+              ...(failureDetail === "serverText" ? await proverReason(response) : {}),
             },
           });
         }
@@ -338,7 +389,7 @@ export class ProverClient {
           // sent a `result: null` back into the parser as the whole envelope,
           // where the missing proof read as malformed rather than as absent.
           const result = isObject(value) && "result" in value ? value["result"] : value;
-          return parseProof(result);
+          return result;
         }
         // queued / processing / pending / unknown: keep polling until the bound.
         await waitOrTimeout();
@@ -374,12 +425,20 @@ export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
 }
 
 /** Mirrors Rust `MergeParametersJson`, key set included. */
-function mergeProverRequest(inputs: MergeInputs, secret: SecretEncoder): ProverRequestBody {
+function mergeProverRequest(
+  inputs: MergeInputs | PreparedMergeInputs,
+  secret: SecretEncoder,
+): ProverRequestBody {
   return Object.freeze({
     circuitType: "merge",
     inputs: inputs.inputs.map(mergeInputJson),
     output: mergeOutputJson(inputs.output),
-    treeSlots: inputs.treeSlots.map(treeSlotJson),
+    ...("treeSlots" in inputs
+      ? {
+          treeSlots: inputs.treeSlots.map(treeSlotJson),
+          publicInputHash: hex(inputs.publicInputHash),
+        }
+      : {}),
     outputTreeId: hex(inputs.outputTreeId),
     asset: hex(inputs.output.circuit.asset),
     ownerPkHash: hex(inputs.ownerPublicKeyHash),
@@ -387,26 +446,22 @@ function mergeProverRequest(inputs: MergeInputs, secret: SecretEncoder): ProverR
     userNullifierSecret: secret(inputs.userNullifierSecret),
     externalDataHash: hex(inputs.externalDataHash),
     privateTxHash: hex(inputs.privateTxHash),
-    publicInputHash: hex(inputs.publicInputHash),
     allowDummyInputs: hex(inputs.allowDummyInputs),
     outputRingDataHash: hex(inputs.outputRingDataHash),
     ringProgramId: hex(inputs.ringProgramId),
   });
 }
 
-function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>> {
+function mergeInputJson(
+  input: TransferInput | PreparedTransferInput,
+): Readonly<Record<string, unknown>> {
   const utxo = input.circuit;
   return Object.freeze({
     domain: hex(utxo.domain),
     amount: hex(utxo.amount),
     blinding: hex(utxo.blinding),
     ringDataHash: hex(utxo.ringDataHash),
-    statePathElements: input.statePathElements.map(hex),
-    statePathIndex: hex(input.statePathIndex),
-    nullifierLowValue: hex(input.nullifierLowValue),
-    nullifierNextValue: hex(input.nullifierNextValue),
-    nullifierLowPathElements: input.nullifierLowPathElements.map(hex),
-    nullifierLowPathIndex: hex(input.nullifierLowPathIndex),
+    ...pathJson(input),
     treeSlot: hex(input.treeSlot),
     nullifier: hex(input.nullifier),
   });
@@ -572,7 +627,10 @@ function sized<T>(values: readonly T[], expected: number, field: string): readon
 }
 
 /** Mirrors Rust `TransferInputsJson`, key set and order included. */
-function proverRequest(inputs: ProverInputs, secret: SecretEncoder): ProverRequestBody {
+function proverRequest(
+  inputs: ProverInputs | Exclude<IndexedProofInputs, { circuit: "merge" }>,
+  secret: SecretEncoder,
+): ProverRequestBody {
   const payload = inputs.payload;
   return Object.freeze({
     circuitType: inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential",
@@ -580,7 +638,12 @@ function proverRequest(inputs: ProverInputs, secret: SecretEncoder): ProverReque
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map((input) => inputJson(input, secret)),
     outputs: payload.outputs.map(outputJson),
-    treeSlots: payload.treeSlots.map(treeSlotJson),
+    ...("treeSlots" in payload
+      ? {
+          treeSlots: payload.treeSlots.map(treeSlotJson),
+          publicInputHash: hex(payload.publicInputHash),
+        }
+      : {}),
     outputTreeId: hex(payload.outputTreeId),
     externalDataHash: hex(payload.externalDataHash),
     privateTxHash: hex(payload.privateTxHash),
@@ -591,25 +654,34 @@ function proverRequest(inputs: ProverInputs, secret: SecretEncoder): ProverReque
     signerPkHashes: payload.signerPublicKeyHashes.map(hex),
     inputFlags: hex(payload.inputFlags),
     publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
-    publicInputHash: hex(payload.publicInputHash),
   });
 }
 
-function inputJson(input: TransferInput, secret: SecretEncoder): Readonly<Record<string, unknown>> {
+function inputJson(
+  input: TransferInput | PreparedTransferInput,
+  secret: SecretEncoder,
+): Readonly<Record<string, unknown>> {
   return Object.freeze({
     utxo: utxoJson(input),
     isDummy: hex(input.isDummy),
+    ...pathJson(input),
+    treeSlot: hex(input.treeSlot),
+    nullifier: hex(input.nullifier),
+    ownerPkHash: hex(input.ownerPublicKeyHash),
+    nullifierSecret: secret(input.nullifierSecret),
+  });
+}
+
+function pathJson(input: TransferInput | PreparedTransferInput): Readonly<Record<string, unknown>> {
+  if (!("statePathElements" in input)) return {};
+  return {
     statePathElements: input.statePathElements.map(hex),
     statePathIndex: hex(input.statePathIndex),
     nullifierLowValue: hex(input.nullifierLowValue),
     nullifierNextValue: hex(input.nullifierNextValue),
     nullifierLowPathElements: input.nullifierLowPathElements.map(hex),
     nullifierLowPathIndex: hex(input.nullifierLowPathIndex),
-    treeSlot: hex(input.treeSlot),
-    nullifier: hex(input.nullifier),
-    ownerPkHash: hex(input.ownerPublicKeyHash),
-    nullifierSecret: secret(input.nullifierSecret),
-  });
+  };
 }
 
 function outputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
@@ -622,7 +694,9 @@ function outputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   });
 }
 
-function utxoJson(value: TransferInput | TransferOutput): Readonly<Record<string, unknown>> {
+function utxoJson(
+  value: TransferInput | TransferOutput | PreparedTransferInput,
+): Readonly<Record<string, unknown>> {
   const utxo = value.circuit;
   return Object.freeze({
     domain: hex(utxo.domain),
@@ -643,7 +717,7 @@ function requireSecret(secret: Field | undefined): Field {
 }
 
 function hex(value: Field): string {
-  return `0x${value.toString(16)}`;
+  return `0x${field(value, "prover field").toString(16)}`;
 }
 
 function bytesHex(bytes: Uint8Array): string {

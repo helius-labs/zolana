@@ -7,15 +7,10 @@ import type {
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
 import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
-import {
-  inputTreeSlots,
-  treeIdField,
-  treeSlotsHashChain,
-  type TreeSlot,
-} from "../../interface/tree-slot.js";
+import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
 
-import type { ProofReader } from "../ports.js";
+import type { ProofReader, IndexedProofInputs, PreparedMergeInputs } from "../ports.js";
 import { ClientError, fromClientCause } from "../error.js";
 import {
   bigintToBytes,
@@ -31,6 +26,8 @@ import {
   createDummyTransferInput,
   createOutput,
   createRealInput,
+  prepareInput,
+  resolvedPublicInputHash,
   treeSlotFields,
   validateSpendProof,
 } from "./assembly.js";
@@ -99,22 +96,7 @@ function assembleMergeUnchecked(
   dummyNullifierProofs: readonly NonInclusionProof[],
   tree: Address,
 ): MergeAssembly {
-  validatePreparedMerge(prepared);
-  // The submit tree must be the tree the inputs are hashed under, or the proof
-  // and the instruction would name different trees.
-  if (treeAddress(prepared.inputTreeId) !== tree) {
-    throw new ClientError("CLIENT_MERGE_TREE_MISMATCH", {
-      details: { proofTree: treeAddress(prepared.inputTreeId), submitTree: tree },
-    });
-  }
-  // The merge instruction appends its output to the same tree it spends from,
-  // so an output hashed under another tree would prove a commitment the
-  // instruction's output tree rejects.
-  if (prepared.outputTreeId !== prepared.inputTreeId) {
-    throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
-      details: { expected: prepared.inputTreeId, actual: prepared.outputTreeId },
-    });
-  }
+  validateMergeTree(prepared, tree);
   const realInputs = prepared.inputs.filter((input) => !input.isDummy());
   if (proofs.length !== realInputs.length) {
     throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
@@ -133,8 +115,6 @@ function assembleMergeUnchecked(
     });
   }
   const inputs: TransferInput[] = [];
-  const inputHashes: bigint[] = [];
-  const nullifiers: Bytes32[] = [];
   let inputTree: MergeInputTree | undefined;
   let proofIndex = 0;
   let dummyIndex = 0;
@@ -161,8 +141,6 @@ function assembleMergeUnchecked(
       checkNullifierRoot(inputTree, proof, index);
       const converted = createDummyTransferInput(input, proof, nullifier);
       inputs.push(converted);
-      inputHashes.push(0n);
-      nullifiers.push(new Uint8Array(nullifier) as Bytes32);
       continue;
     }
     const proof = proofs[proofIndex];
@@ -215,18 +193,58 @@ function assembleMergeUnchecked(
         : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
     const converted = createRealInput(input, proof, ownerPublicKeyHash);
     inputs.push(converted);
-    inputHashes.push(bytesToBigInt(input.hash()));
-    nullifiers.push(new Uint8Array(input.nullifier()) as Bytes32);
     proofIndex++;
   }
   if (inputTree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
 
+  const local = prepareMerge(prepared, tree);
+  const complete = local.finish(inputTree);
+  return Object.freeze({
+    ...complete,
+    proverInputs: Object.freeze({
+      ...local.inputs.payload,
+      inputs: Object.freeze(inputs),
+      treeSlots: Object.freeze(inputTreeSlots([inputTree.slot]).map(treeSlotFields)),
+      publicInputHash: asField(bytesToBigInt(complete.publicInputHash)),
+    }),
+  });
+}
+
+interface PreparedMergeAssembly {
+  readonly inputs: IndexedProofInputs & {
+    readonly circuit: "merge";
+    readonly payload: PreparedMergeInputs;
+  };
+  finish(tree: MergeInputTree): Omit<MergeAssembly, "proverInputs">;
+}
+
+export function prepareMerge(prepared: PreparedMerge, tree: Address): PreparedMergeAssembly {
+  validateMergeTree(prepared, tree);
+  const expiryUnixTs = prepared.expiryUnixTs;
+  prepared.inputUtxoHashes();
+  const dummyNullifiers = prepared.dummyNullifiers();
+  let dummyIndex = 0;
+  const inputs = prepared.inputs.map((input) => {
+    const nullifier = input.isDummy() ? dummyNullifiers[dummyIndex++] : input.nullifier();
+    if (nullifier === undefined) throw new ClientError("CLIENT_INVALID_MERGE");
+    const owner =
+      input.isDummy() || input.utxo.owner.signatureType() === "p256"
+        ? 0n
+        : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
+    return prepareInput(input, { owner, treeSlot: 0, nullifier });
+  });
+  const inputHashes = prepared.inputs.map((input) =>
+    input.isDummy() ? 0n : bytesToBigInt(input.hash()),
+  );
+  const nullifiers = inputs.map((input) =>
+    checkedBytes(bigintToBytes(input.nullifier), 32, "nullifier"),
+  );
   const output = createOutput(prepared.output, prepared.outputTreeId);
   if (prepared.output.isDummy()) throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
   const outputHash = checkedBytes(prepared.outputHash(), 32, "merge output hash");
   const externalDataHash = mergeExternalDataHash({
     instructionTag: InstructionTag.mergeTransact,
-    expiryUnixTs: prepared.expiryUnixTs,
+    expiryUnixTs,
     outputUtxoHash: outputHash,
   });
   // Merge has no blinding seed: the owner's nullifier secret takes its place
@@ -249,24 +267,19 @@ function assembleMergeUnchecked(
     prepared.signingPublicKey.ownerProofInputHash(),
     "merge owner public key",
   );
-  const treeSlots = inputTreeSlots([inputTree.slot]);
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
-  const publicInputHash = bigintToBytes(
-    hashChain4([
-      hashChain4(nullifiers.map(bytesToBigInt)),
-      bytesToBigInt(outputHash),
-      bytesToBigInt(treeSlotsHashChain(treeSlots)),
-      outputTreeIdField,
-      bytesToBigInt(privateTxHash),
-      bytesToBigInt(externalDataHash),
-      1n,
-      ownerPublicKeyHash,
-    ]),
-  ) as Bytes32;
-  const proverInputs: MergeInputs = Object.freeze({
+  const publicInputs = [
+    hashChain4(nullifiers.map(bytesToBigInt)),
+    bytesToBigInt(outputHash),
+    outputTreeIdField,
+    bytesToBigInt(privateTxHash),
+    bytesToBigInt(externalDataHash),
+    1n,
+    ownerPublicKeyHash,
+  ].map(asField);
+  const payload: PreparedMergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
     output,
-    treeSlots: Object.freeze(treeSlots.map(treeSlotFields)),
     outputTreeId: asField(outputTreeIdField),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
     userNullifierPublicKey: asField(
@@ -275,45 +288,84 @@ function assembleMergeUnchecked(
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
     allowDummyInputs: asField(1n),
-    publicInputHash: asField(bytesToBigInt(publicInputHash)),
     outputRingDataHash: asField(0n),
     ringProgramId: asField(0n),
   });
-  const utxoTreeRootIndex = inputTree.utxoRootIndex;
-  const nullifierTreeRootIndex = inputTree.nullifierRootIndex;
-  const instructionData = (
-    proof: MergeTransactInstructionData["proof"],
-  ): MergeTransactInstructionData =>
-    Object.freeze({
-      expiryUnixTs: prepared.expiryUnixTs,
-      proof: copyMergeProof(proof),
-      outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
-      eddsaOwner,
-      privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
-      nullifiers: Object.freeze(
-        nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
-      ),
-      utxoTreeRootIndex,
-      nullifierTreeRootIndex,
-    });
   return Object.freeze({
-    proverInputs,
-    expiryUnixTs: prepared.expiryUnixTs,
-    // `Object.freeze` seals the assembly and the nullifier array but not the
-    // buffers inside them, and those are the buffers `instructionData` copies
-    // from on every call. Hand out copies of everything the closure reads so a
-    // frozen assembly cannot be steered into emitting different instruction
-    // data than the one it was proved with.
-    outputHash: new Uint8Array(outputHash) as Bytes32,
-    nullifiers: Object.freeze(nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32)),
-    utxoTreeRootIndex,
-    nullifierTreeRootIndex,
-    privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
-    publicInputHash,
-    externalDataHash,
-    eddsaOwner,
-    instructionData,
+    inputs: Object.freeze({
+      circuit: "merge",
+      payload,
+      trees: Object.freeze([{ tree, id: prepared.inputTreeId }]),
+      lookups: Object.freeze(
+        prepared.inputs.map((input) =>
+          Object.freeze({ treeSlot: 0, commitment: input.isDummy() ? null : input.hash() }),
+        ),
+      ),
+      publicInputs: Object.freeze(publicInputs),
+    }),
+    finish(inputTree: MergeInputTree): Omit<MergeAssembly, "proverInputs"> {
+      const publicInputHash = checkedBytes(
+        bigintToBytes(resolvedPublicInputHash(publicInputs, inputTreeSlots([inputTree.slot]))),
+        32,
+        "public input hash",
+      );
+      const utxoTreeRootIndex = inputTree.utxoRootIndex;
+      const nullifierTreeRootIndex = inputTree.nullifierRootIndex;
+      const instructionData = (
+        proof: MergeTransactInstructionData["proof"],
+      ): MergeTransactInstructionData =>
+        Object.freeze({
+          expiryUnixTs,
+          proof: copyMergeProof(proof),
+          outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
+          eddsaOwner,
+          privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
+          nullifiers: Object.freeze(
+            nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
+          ),
+          utxoTreeRootIndex,
+          nullifierTreeRootIndex,
+        });
+      return Object.freeze({
+        expiryUnixTs,
+        // `Object.freeze` seals the assembly and the nullifier array but not the
+        // buffers inside them, and those are the buffers `instructionData` copies
+        // from on every call. Hand out copies of everything the closure reads so a
+        // frozen assembly cannot be steered into emitting different instruction
+        // data than the one it was proved with.
+        outputHash: new Uint8Array(outputHash) as Bytes32,
+        nullifiers: Object.freeze(
+          nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
+        ),
+        utxoTreeRootIndex,
+        nullifierTreeRootIndex,
+        privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
+        publicInputHash,
+        externalDataHash,
+        eddsaOwner,
+        instructionData,
+      });
+    },
   });
+}
+
+function validateMergeTree(prepared: PreparedMerge, tree: Address): void {
+  validatePreparedMerge(prepared);
+  // The submit tree must be the tree the inputs are hashed under, or the proof
+  // and the instruction would name different trees.
+  if (treeAddress(prepared.inputTreeId) !== tree) {
+    throw new ClientError("CLIENT_MERGE_TREE_MISMATCH", {
+      details: { proofTree: treeAddress(prepared.inputTreeId), submitTree: tree },
+    });
+  }
+  // The merge instruction appends its output to the same tree it spends from,
+  // so an output hashed under another tree would prove a commitment the
+  // instruction's output tree rejects.
+  if (prepared.outputTreeId !== prepared.inputTreeId) {
+    throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
+      details: { expected: prepared.inputTreeId, actual: prepared.outputTreeId },
+    });
+  }
 }
 
 function checkNullifierRoot(

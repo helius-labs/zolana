@@ -167,6 +167,13 @@ endpoint configuration.
 const client = await createZolanaClient({});
 ```
 
+To let the prover fetch Merkle data, set `proofDataSource: "prover"` in the
+client config. The prover must have `PROVER_INDEXER_URL` configured for the
+same network. Client fetching remains the default. `LocalKeys` supports both
+modes. A remote key holder must implement `IndexedProofAuthority.proveIndexed`
+for prover fetching. Responses bind the returned tree roots to the requested
+public transcript before transaction assembly.
+
 ## Common transactions
 
 These snippets continue from the setup used in quickstart.

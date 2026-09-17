@@ -1,3 +1,6 @@
+import { prepareMerge } from "./prover/merge.js";
+import { prepareTransfer } from "./prover/assembly.js";
+import { indexedAuthority, validateResolution } from "./prover/indexed.js";
 import {
   assertIsAddress,
   assertIsSignature,
@@ -114,6 +117,7 @@ const DEFAULT_TRANSACT_CU_LIMIT = 450_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
+  readonly proofDataSource?: "client" | "prover";
   /**
    * Serves the indexer and the prover too, unless either names its own URL.
    * Left out, the whole config falls back to the local validator stack.
@@ -180,12 +184,13 @@ export class ZolanaClient
   readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
   readonly commitment: Commitment;
   /** The prover server, for a `LocalKeys` to forward completed inputs to. */
-  readonly proofService: ProofService;
+  readonly proofService: ProofService & import("./ports.js").IndexedProofAuthority;
   readonly #indexer: ZolanaIndexer;
   readonly #prover: ProverClient;
   readonly #computeUnitLimit: number;
   readonly #priorityFee: bigint | undefined;
   readonly #indexerConfig: IndexerRpcConfig;
+  readonly #proofDataSource: "client" | "prover";
 
   constructor(input: ZolanaClientConfig) {
     const candidate: unknown = input;
@@ -193,6 +198,13 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
 
+    if (
+      input.proofDataSource !== undefined &&
+      input.proofDataSource !== "client" &&
+      input.proofDataSource !== "prover"
+    )
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
+    this.#proofDataSource = input.proofDataSource ?? "client";
     const treeId = input.treeId ?? DEFAULT_TREE_ID;
     if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "treeId" } });
@@ -710,6 +722,20 @@ export class ZolanaClient
       });
     }
     try {
+      if (this.#proofDataSource === "prover") {
+        const prepared = prepareTransfer(proofInputs, ring);
+        const slot = (config ?? this.#indexerConfig).requireSlot;
+        const inputs = {
+          ...prepared.inputs,
+          ...(slot === undefined ? {} : { minContextSlot: slot }),
+        };
+        const result = await indexedAuthority(keys).proveIndexed(inputs, context);
+        const complete = prepared.finish(validateResolution(inputs, result.resolution));
+        return Object.freeze({
+          data: complete.withProof(compressProof(result.proof).toTransactProof()),
+          roots: complete.roots,
+        });
+      }
       const commitments = proofInputs.inputContexts();
       const dummyNullifiers = proofInputs.dummyNullifiers();
       // One non-inclusion request for real and dummy nullifiers alike, so every
@@ -775,6 +801,23 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_MERGE");
     }
     checkProofAuthority(input.keys);
+    if (this.#proofDataSource === "prover") {
+      const prepared = prepareMerge(input.prepared, this.tree);
+      const slot = this.#indexerConfig.requireSlot;
+      const inputs = {
+        ...prepared.inputs,
+        ...(slot === undefined ? {} : { minContextSlot: slot }),
+      };
+      const result = await indexedAuthority(input.keys).proveIndexed(inputs, context);
+      const tree = validateResolution(inputs, result.resolution)[0];
+      if (tree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
+      const complete = prepared.finish(tree);
+      const compressed = compressProof(result.proof);
+      return Object.freeze({
+        data: complete.instructionData({ a: compressed.a, b: compressed.b, c: compressed.c }),
+        outputHash: new Uint8Array(complete.outputHash) as Bytes32,
+      });
+    }
     const assembled = await assembleMerge(
       input.prepared,
       input.indexer ?? this,
