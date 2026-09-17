@@ -69,8 +69,5 @@
   "NullifierAlreadySpent": 7067,
   "PendingNullifiersFull": 7068,
   "InvalidNullifierFilter": 7069,
-  "NullifierProofRequired": 7070,
-  "NullifierFilterBacklog": 7071,
-  "NullifierFilterCheckpointed": 7072,
-  "NullifierFilterRebuilding": 7073
+  "NullifierProofRequired": 7070
 }

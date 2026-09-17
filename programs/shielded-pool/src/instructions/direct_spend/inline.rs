@@ -2,23 +2,23 @@ use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    direct_spend::{InlineSpend, PaymentInputs, INLINE_BINDING, INLINE_INPUTS, PAYMENT_DOMAIN},
+    direct_spend::{
+        InlineSpend, PaymentInputs, ADMITTED_PAYMENT_DOMAIN, INLINE_BINDING, INLINE_INPUTS,
+    },
     error::ShieldedPoolError,
 };
 
 use super::{
-    commit::{emit_events, filter_checkpoint, NotesProof, Spend},
+    commit::{emit_events, NotesProof, Spend},
     tree_layout,
 };
 use crate::instructions::nullifier_pda::uses_nullifier_filter;
 
 /// Accounts: owner (signer), input tree, output tree, pending nullifiers,
-/// nullifier filter, system program, this program. The payment is carried in
-/// the instruction and settles in this transaction; there is no buffer, so
-/// `INLINE_BINDING` takes the buffer's place in the intent and the
-/// certificate id. Freshness is proven at the filter's checkpoint root, and
-/// every nullifier must test negative in the filter, which covers the spends
-/// since that checkpoint.
+/// nullifier filter, system program, this program. The admitted payment is
+/// carried in the instruction and settles in this transaction; there is no
+/// buffer, so `INLINE_BINDING` takes the buffer's place in the intent and the
+/// certificate id.
 #[light_program_profiler::profile]
 pub fn process_inline(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = InlineSpend::try_from_slice(data).map_err(|_| ProgramError::InvalidInstructionData)?;
@@ -48,13 +48,11 @@ pub fn process_inline(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
             .root_by_index(ix.state_root_index)
             .map_err(|_| ProgramError::InvalidArgument)?
     };
-    let (checkpoint_root, _) = filter_checkpoint(filter, &input_tree_address)?;
     let statement = ix.payment(
         owner.address().as_array(),
         &input_tree_address,
         &output_tree.address().to_bytes(),
         state_root,
-        checkpoint_root,
     );
     let mut spend = Spend {
         owner,
@@ -82,14 +80,13 @@ pub fn process_inline(accounts: &mut [AccountView], data: &[u8]) -> ProgramResul
             proof: &ix.proof,
             commitment: Some(&ix.commitment),
             capacity: INLINE_INPUTS,
-            domain: PAYMENT_DOMAIN,
+            domain: ADMITTED_PAYMENT_DOMAIN,
             owner: owner.address().as_array(),
             binding: &INLINE_BINDING,
             input_tree: tree,
             input_tree_address: &input_tree_address,
             output_tree_id,
             intent,
-            checkpoint: Some(checkpoint_root),
         }
         .verify()?;
     }

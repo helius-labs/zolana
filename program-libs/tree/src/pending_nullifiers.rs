@@ -150,29 +150,6 @@ impl<'a> PendingNullifiers<'a> {
         Ok(())
     }
 
-    /// Scan slots `[start, start + limit)` for entries queued at or after
-    /// `sequence`: the nullifiers a checkpoint at the tree's `next_index` has
-    /// to carry over, since the tree does not hold them yet. Returns them with
-    /// the next slot to scan, or `None` once the table is exhausted.
-    pub fn queued_since(
-        &self,
-        sequence: u64,
-        start: usize,
-        limit: usize,
-    ) -> (Vec<[u8; 32]>, Option<usize>) {
-        let end = start.saturating_add(limit).min(self.entries.len());
-        let backlog = self.entries[start.min(end)..end]
-            .iter()
-            .filter(|entry| u64::from_le_bytes(entry[32..].try_into().unwrap()) >= sequence.max(1))
-            .map(|entry| entry[..32].try_into().unwrap())
-            .collect();
-        (backlog, (end < self.entries.len()).then_some(end))
-    }
-
-    pub fn slots(&self) -> usize {
-        self.entries.len()
-    }
-
     fn bucket(&self, nullifier: &[u8; 32]) -> usize {
         let mut value = u64::from_le_bytes(nullifier[..8].try_into().unwrap());
         value ^= u64::from_le_bytes(nullifier[24..].try_into().unwrap());
@@ -190,37 +167,6 @@ mod tests {
         let mut value = [0; 32];
         value[24..].copy_from_slice(&n.to_be_bytes());
         value
-    }
-
-    #[test]
-    fn queued_since_lists_the_uninserted_backlog_in_chunks() {
-        let mut bytes = vec![0; PendingNullifiers::account_size(10).unwrap()];
-        let mut table = PendingNullifiers::init(&mut bytes, &[1; 32]).unwrap();
-        for sequence in 1..=5 {
-            table.insert(&nullifier(sequence), sequence, 0).unwrap();
-        }
-        let slots = table.slots();
-        let (mut backlog, next) = table.queued_since(4, 0, slots);
-        backlog.sort_unstable();
-        assert_eq!(backlog, vec![nullifier(4), nullifier(5)]);
-        assert_eq!(next, None);
-        assert_eq!(table.queued_since(6, 0, slots).0, Vec::<[u8; 32]>::new());
-        assert_eq!(
-            table.queued_since(0, 0, slots).0.len(),
-            5,
-            "empty slots are skipped"
-        );
-
-        let mut chunked = Vec::new();
-        let mut cursor = Some(0);
-        while let Some(start) = cursor {
-            let (part, next) = table.queued_since(1, start, 3);
-            chunked.extend(part);
-            cursor = next;
-        }
-        chunked.sort_unstable();
-        assert_eq!(chunked, (1..=5).map(nullifier).collect::<Vec<_>>());
-        assert_eq!(table.queued_since(1, slots, 3), (Vec::new(), None));
     }
 
     #[test]

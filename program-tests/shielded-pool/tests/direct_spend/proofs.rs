@@ -18,7 +18,7 @@ use zolana_interface::{
     pda, PROGRAM_ID_PUBKEY,
 };
 use zolana_keypair::NullifierKey;
-use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::ProofInputUtxo;
@@ -200,164 +200,6 @@ impl Fixture {
         filter_key
     }
 
-    /// Payment, prover request and expected output for an inline spend of
-    /// `inputs`, fresh at `nullifier_tree` (the filter's checkpoint root).
-    fn inline_request(
-        &self,
-        inputs: &[direct::Input],
-        nullifier_tree: &IndexedMerkleTree<Poseidon, usize>,
-    ) -> (Payment, direct::Request) {
-        let owner = self.owner.pubkey();
-        let plan = direct::certificate(
-            owner.to_bytes(),
-            wire::INLINE_BINDING,
-            self.tree.to_bytes(),
-            7,
-            &self.key,
-            inputs,
-            field(23),
-            wire::INLINE_INPUTS,
-        )
-        .unwrap();
-        let (root, freshness) =
-            self.freshness_at(&plan.statement, wire::INLINE_INPUTS, nullifier_tree);
-        let (payment, outputs) = self.payment_with_outputs(
-            PaymentInputs::Notes {
-                certificate: plan.statement,
-                freshness: root,
-            },
-            &[inputs.len() as u64 * 10],
-        );
-        let balance = direct::balance(
-            &payment,
-            owner.to_bytes(),
-            wire::INLINE_BINDING,
-            8,
-            &[&plan.opening],
-            &outputs,
-            1,
-        )
-        .unwrap();
-        let request = direct::payment(
-            plan.request,
-            freshness,
-            balance,
-            &payment,
-            owner.to_bytes(),
-            wire::INLINE_BINDING,
-            7,
-            8,
-            &plan.opening,
-        )
-        .unwrap()
-        .with_gkr()
-        .unwrap();
-        (payment, request)
-    }
-
-    fn prove_inline(
-        &self,
-        inputs: &[direct::Input],
-        tree: &IndexedMerkleTree<Poseidon, usize>,
-    ) -> wire::InlineSpend {
-        let (payment, request) = self.inline_request(inputs, tree);
-        let url = std::env::var("ZOLANA_PROVER_URL").expect("set ZOLANA_PROVER_URL");
-        let started = std::time::Instant::now();
-        let proof =
-            ProofCompressed::try_from(ProverClient::new(url).prove(&request).unwrap()).unwrap();
-        println!(
-            "inline_spend {} inputs: proof in {:.2?}",
-            inputs.len(),
-            started.elapsed()
-        );
-        direct::inline_spend(&payment, self.owner.pubkey().to_bytes(), proof).unwrap()
-    }
-
-    fn send_inline(
-        &mut self,
-        data: &wire::InlineSpend,
-    ) -> Result<u64, zolana_program_test::ProgramTestError> {
-        let owner = self.owner.pubkey();
-        let instruction = instructions::inline_spend(owner, self.tree, self.output_tree, data);
-        self.rpc
-            .create_and_send_transaction_with_budget(
-                &[instruction],
-                &owner,
-                &[&self.owner],
-                direct::COMPUTE_BUDGET,
-            )
-            .map(|_| {
-                self.rpc
-                    .last_transaction_trace()
-                    .unwrap()
-                    .compute_units_consumed
-            })
-    }
-
-    /// Stand in for the forester: insert `nullifiers` into `tree` and make the
-    /// on-chain nullifier tree report its root with `next_index` advanced.
-    fn forester_inserts(
-        &mut self,
-        tree: &mut IndexedMerkleTree<Poseidon, usize>,
-        nullifiers: &[[u8; 32]],
-    ) {
-        for nullifier in nullifiers {
-            tree.append(&BigUint::from_bytes_be(nullifier)).unwrap();
-        }
-        let mut account = self.rpc.svm.get_account(&self.tree).unwrap();
-        {
-            let mut on_chain =
-                TreeAccount::from_bytes(&mut account.data, self.tree.to_bytes()).unwrap();
-            let nullifier_tree = on_chain.nullifier_tree();
-            let slot = nullifier_tree.root_history.current_index as usize;
-            let capacity = nullifier_tree.root_history.roots.len();
-            nullifier_tree.root_history.roots[slot] = tree.root();
-            nullifier_tree.root_history.current_index = ((slot + 1) % capacity) as u64;
-            nullifier_tree.next_index += nullifiers.len() as u64;
-        }
-        self.rpc.svm.set_account(self.tree, account).unwrap();
-    }
-
-    fn filter_checkpoint(&self) -> ([u8; 32], u64, bool) {
-        let account = self
-            .rpc
-            .svm
-            .get_account(&pda::nullifier_filter(&self.tree).0)
-            .unwrap();
-        zolana_tree::nullifier_filter::NullifierFilter::read_checkpoint(
-            &account.data,
-            &self.tree.to_bytes(),
-        )
-        .unwrap()
-    }
-
-    /// Run `checkpoint_nullifier_filter` until the filter is settled; returns
-    /// the compute units of every step.
-    fn checkpoint_filter(&mut self) -> Vec<u64> {
-        let owner = self.owner.pubkey();
-        let mut steps = Vec::new();
-        loop {
-            self.rpc
-                .create_and_send_transaction_with_budget(
-                    &[zolana_interface::instruction::builders::historical_nullifiers::checkpoint_nullifier_filter(self.tree)],
-                    &owner,
-                    &[&self.owner],
-                    direct::COMPUTE_BUDGET,
-                )
-                .unwrap();
-            steps.push(
-                self.rpc
-                    .last_transaction_trace()
-                    .unwrap()
-                    .compute_units_consumed,
-            );
-            if self.filter_checkpoint().2 {
-                return steps;
-            }
-            assert!(steps.len() < 16, "checkpoint rebuild does not settle");
-        }
-    }
-
     fn queue_next_index(&self) -> u64 {
         let mut tree = self.rpc.svm.get_account(&self.tree).unwrap();
         let mut account = TreeAccount::from_bytes(&mut tree.data, self.tree.to_bytes()).unwrap();
@@ -385,17 +227,7 @@ impl Fixture {
         certificate: &wire::Certificate,
         capacity: usize,
     ) -> (Root, direct::Request) {
-        self.freshness_at(certificate, capacity, &nullifier_tree().unwrap())
-    }
-
-    /// Non-inclusion witnesses against `tree`, whose root is reported at
-    /// history index 0.
-    fn freshness_at(
-        &self,
-        certificate: &wire::Certificate,
-        capacity: usize,
-        tree: &IndexedMerkleTree<Poseidon, usize>,
-    ) -> (Root, direct::Request) {
+        let tree = nullifier_tree().unwrap();
         let proofs = certificate
             .nullifiers
             .iter()
@@ -640,8 +472,7 @@ fn dag_payment_checks_history_commitment_statement_and_replay() {
 }
 
 /// 100 notes spent and merged into one output in a single transaction: the
-/// payment travels in the instruction, no buffer account. Freshness is proven
-/// at the filter's checkpoint root, the empty tree for a fresh filter.
+/// admitted payment travels in the instruction, no buffer account.
 #[test]
 #[ignore]
 fn inline_spend_settles_100_notes_in_one_transaction() {
@@ -652,13 +483,61 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
     let mut fixture = Fixture::new(count);
     fixture.enable_filter();
     let owner = fixture.owner.pubkey();
-    let inputs = fixture.inputs.clone();
-    let data = fixture.prove_inline(&inputs, &nullifier_tree().unwrap());
+    let plan = direct::certificate(
+        owner.to_bytes(),
+        wire::INLINE_BINDING,
+        fixture.tree.to_bytes(),
+        7,
+        &fixture.key,
+        &fixture.inputs,
+        field(23),
+        wire::INLINE_INPUTS,
+    )
+    .unwrap();
+    let (payment, outputs) = fixture.payment_with_outputs(
+        PaymentInputs::Notes {
+            certificate: plan.statement,
+            freshness: Root {
+                index: 0,
+                value: [0; 32],
+            },
+        },
+        &[count as u64 * 10],
+    );
+    let balance = direct::balance(
+        &payment,
+        owner.to_bytes(),
+        wire::INLINE_BINDING,
+        8,
+        &[&plan.opening],
+        &outputs,
+        1,
+    )
+    .unwrap();
+    let request = direct::admitted_payment(
+        plan.request,
+        balance,
+        &payment,
+        owner.to_bytes(),
+        wire::INLINE_BINDING,
+        7,
+        8,
+        &plan.opening,
+    )
+    .unwrap();
+    let url = std::env::var("ZOLANA_PROVER_URL").expect("set ZOLANA_PROVER_URL");
+    let started = std::time::Instant::now();
+    let proof = ProofCompressed::try_from(ProverClient::new(url).prove(&request).unwrap()).unwrap();
+    println!(
+        "inline_spend {count} inputs: proof in {:.2?}",
+        started.elapsed()
+    );
+    let data = direct::inline_spend(&payment, owner.to_bytes(), proof).unwrap();
     let instruction = instructions::inline_spend(owner, fixture.tree, fixture.output_tree, &data);
 
     let size = zolana_client::transaction_size(
         &Address::new_from_array(owner.to_bytes()),
-        &[instruction],
+        &[instruction.clone()],
         direct::COMPUTE_BUDGET,
     )
     .unwrap();
@@ -672,12 +551,33 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
     );
 
     let queue_before = fixture.queue_next_index();
-    let compute_units = fixture.send_inline(&data).unwrap();
-    println!("inline_spend {count} inputs: {compute_units} CU");
-    assert_eq!(fixture.queue_next_index(), queue_before + count as u64);
+    fixture
+        .rpc
+        .create_and_send_transaction_with_budget(
+            &[instruction.clone()],
+            &owner,
+            &[&fixture.owner],
+            direct::COMPUTE_BUDGET,
+        )
+        .unwrap();
+    let trace = fixture.rpc.last_transaction_trace().unwrap();
+    println!(
+        "inline_spend {count} inputs: {} CU",
+        trace.compute_units_consumed
+    );
+    let queue_after = fixture.queue_next_index();
+    assert_eq!(queue_after, queue_before + count as u64);
 
     // Replay: every nullifier is pending now.
-    let error = fixture.send_inline(&data).unwrap_err();
+    let error = fixture
+        .rpc
+        .create_and_send_transaction_with_budget(
+            &[instruction],
+            &owner,
+            &[&fixture.owner],
+            direct::COMPUTE_BUDGET,
+        )
+        .unwrap_err();
     zolana_program_test::Rejection::pool(
         zolana_interface::error::ShieldedPoolError::NullifierAlreadySpent,
     )
@@ -686,91 +586,22 @@ fn inline_spend_settles_100_notes_in_one_transaction() {
     // A changed statement no longer matches the proof.
     let mut changed = data.clone();
     changed.nullifiers[1][0] ^= 1;
-    let error = fixture.send_inline(&changed).unwrap_err();
-    zolana_program_test::Rejection::pool(
-        zolana_interface::error::ShieldedPoolError::TransactProofVerificationFailed,
-    )
-    .assert_litesvm(error);
-}
-
-/// The filter is cleared at a checkpoint and the tree keeps working: a spend
-/// before, the forester inserting, the checkpoint, and a spend after it that
-/// proves freshness at the new root. Witnesses at the old root are rejected.
-#[test]
-#[ignore]
-fn inline_spend_survives_a_filter_checkpoint() {
-    let mut fixture = Fixture::new(40);
-    fixture.enable_filter();
-    let mut tree = nullifier_tree().unwrap();
-    let (first, second) = fixture.inputs.split_at(20);
-    let (first, second) = (first.to_vec(), second.to_vec());
-    let (root_at_start, _, settled) = fixture.filter_checkpoint();
-    assert!(settled);
-    assert_eq!(
-        root_at_start,
-        tree.root(),
-        "a fresh filter checkpoints the empty tree"
-    );
-
-    let spend_a = fixture.prove_inline(&first, &tree);
-    fixture.send_inline(&spend_a).unwrap();
-
-    // Nothing inserted yet: the checkpoint keeps the root and carries the 20
-    // queued nullifiers over as the backlog, so a replay still fails.
-    let steps = fixture.checkpoint_filter();
-    println!(
-        "checkpoint_nullifier_filter, 20 queued: {steps:?} CU over {} steps",
-        steps.len()
-    );
-    assert_eq!(fixture.filter_checkpoint(), (tree.root(), 1, true));
-    let error = fixture.send_inline(&spend_a).unwrap_err();
-    zolana_program_test::Rejection::pool(
-        zolana_interface::error::ShieldedPoolError::NullifierAlreadySpent,
-    )
-    .assert_litesvm(error);
-
-    // The forester inserts the first spend; the checkpoint moves to that root
-    // and the filter is cleared. While the rebuild is in progress, filter-
-    // negative spends wait.
-    fixture.forester_inserts(&mut tree, &spend_a.nullifiers);
-    let spend_b = fixture.prove_inline(&second, &tree);
-    fixture
+    let error = fixture
         .rpc
         .create_and_send_transaction_with_budget(
-            &[zolana_interface::instruction::builders::historical_nullifiers::checkpoint_nullifier_filter(fixture.tree)],
-            &fixture.owner.pubkey(),
+            &[instructions::inline_spend(
+                owner,
+                fixture.tree,
+                fixture.output_tree,
+                &changed,
+            )],
+            &owner,
             &[&fixture.owner],
             direct::COMPUTE_BUDGET,
         )
-        .unwrap();
-    assert_eq!(fixture.filter_checkpoint(), (tree.root(), 21, false));
-    let error = fixture.send_inline(&spend_b).unwrap_err();
-    zolana_program_test::Rejection::pool(
-        zolana_interface::error::ShieldedPoolError::NullifierFilterRebuilding,
-    )
-    .assert_litesvm(error);
-    let steps = fixture.checkpoint_filter();
-    println!(
-        "checkpoint_nullifier_filter, 0 queued: {steps:?} CU over {} steps",
-        steps.len()
-    );
-    assert_eq!(fixture.filter_checkpoint(), (tree.root(), 21, true));
-
-    // Witnesses at the old root do not verify any more.
-    let stale = fixture.prove_inline(&second, &nullifier_tree().unwrap());
-    let error = fixture.send_inline(&stale).unwrap_err();
+        .unwrap_err();
     zolana_program_test::Rejection::pool(
         zolana_interface::error::ShieldedPoolError::TransactProofVerificationFailed,
-    )
-    .assert_litesvm(error);
-
-    // Witnesses at the checkpoint root do, and the spend settles on the same tree.
-    let queue_before = fixture.queue_next_index();
-    fixture.send_inline(&spend_b).unwrap();
-    assert_eq!(fixture.queue_next_index(), queue_before + 20);
-    let error = fixture.send_inline(&spend_b).unwrap_err();
-    zolana_program_test::Rejection::pool(
-        zolana_interface::error::ShieldedPoolError::NullifierAlreadySpent,
     )
     .assert_litesvm(error);
 }

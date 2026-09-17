@@ -11,16 +11,13 @@ pub const BUFFER_SEED: &[u8] = b"direct_spend";
 pub const CERTIFICATE_INPUTS: usize = 36;
 pub const MAX_INPUTS: usize = 512;
 pub const GKR_PAYMENT_INPUTS: [usize; 2] = [144, MAX_INPUTS];
-/// Input count of the inline payment: statement, proof and commitment fit
-/// one transaction, so a merge of up to 100 notes settles in a single
-/// `inline_spend` without a buffer account.
+/// Input count of the inline admitted payment: statement, proof and
+/// commitment fit one transaction, so a merge of up to 100 notes settles in a
+/// single `inline_spend` without a buffer account.
 pub const INLINE_INPUTS: usize = 100;
-/// GKR payment circuit shapes `(inputs, outputs)` with a committed key. The
-/// inline shape proves non-inclusion at the filter checkpoint root.
-pub const GKR_PAYMENT_SHAPES: [(usize, usize); 3] = [(144, 2), (MAX_INPUTS, 2), (INLINE_INPUTS, 1)];
-/// Admitted (no non-inclusion) payment shapes; valid only while the filter
-/// still covers the whole history, that is before its first checkpoint.
-pub const ADMITTED_PAYMENT_SHAPES: [(usize, usize); 2] = [(144, 2), (MAX_INPUTS, 2)];
+/// Admitted payment circuit shapes `(inputs, outputs)` with a committed key.
+pub const ADMITTED_PAYMENT_SHAPES: [(usize, usize); 3] =
+    [(144, 2), (MAX_INPUTS, 2), (INLINE_INPUTS, 1)];
 pub const MAX_CERTIFICATES: usize = 16;
 pub const MAX_PAYLOAD: usize = 24_000;
 pub const BUFFER_HEADER_SIZE: usize = 80;
@@ -214,10 +211,9 @@ pub enum Payload {
     },
 }
 
-/// `inline_spend` instruction data: a GKR payment carried in the transaction
-/// instead of a buffer account, proving non-inclusion at the nullifier
-/// filter's checkpoint root. Every output goes to the owner, and the input
-/// tree, output tree, state root value and checkpoint root come from the
+/// `inline_spend` instruction data: an admitted payment carried in the
+/// transaction instead of a buffer account. Every output goes to the owner,
+/// and the input tree, output tree and state root value come from the
 /// accounts, so the encoding stays under the transaction limit at
 /// [`INLINE_INPUTS`] notes. [`Self::payment`] expands it to the [`Payment`]
 /// the circuit, the intent hash and the event are defined over.
@@ -246,7 +242,6 @@ impl InlineSpend {
         input_tree: &[u8; 32],
         output_tree: &[u8; 32],
         state_root: [u8; 32],
-        checkpoint_root: [u8; 32],
     ) -> Payment {
         Payment {
             inputs: PaymentInputs::Notes {
@@ -261,7 +256,7 @@ impl InlineSpend {
                 },
                 freshness: Root {
                     index: 0,
-                    value: checkpoint_root,
+                    value: [0; 32],
                 },
             },
             output_tree: *output_tree,
@@ -277,8 +272,7 @@ impl InlineSpend {
     }
 
     /// The inverse of [`Self::payment`]: `payment` must be a one-output note
-    /// payment whose recipient is `owner`, with the checkpoint root as
-    /// freshness at index 0.
+    /// payment whose recipient is `owner`.
     pub fn from_payment(
         payment: &Payment,
         owner: &[u8; 32],
@@ -292,8 +286,13 @@ impl InlineSpend {
         else {
             return Err("inline spend requires original notes");
         };
-        if freshness.index != 0 || freshness.value == [0; 32] {
-            return Err("inline spend proves freshness at the checkpoint root, index 0");
+        if *freshness
+            != (Root {
+                index: 0,
+                value: [0; 32],
+            })
+        {
+            return Err("inline spend requires canonical zero freshness");
         }
         let [output] = payment.outputs.as_slice() else {
             return Err("inline spend has exactly one output");
@@ -387,7 +386,7 @@ mod tests {
                 },
                 freshness: Root {
                     index: 0,
-                    value: [11; 32],
+                    value: [0; 32],
                 },
             },
             output_tree: [9; 32],
@@ -418,10 +417,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(
-            inline.payment(&owner, &[1; 32], &[9; 32], [2; 32], [11; 32]),
-            payment
-        );
+        assert_eq!(inline.payment(&owner, &[1; 32], &[9; 32], [2; 32]), payment);
         // 100 nullifiers plus proof, commitment and statement; the transaction
         // v1 envelope (signature, 7 addresses, compute budget) adds about 360.
         assert_eq!(borsh::to_vec(&inline).unwrap().len(), 3_627);
