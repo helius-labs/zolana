@@ -29,6 +29,7 @@ use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
+        receipt_offset: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
@@ -66,6 +67,7 @@ fn merge_instruction(
         user_record,
         data,
         cache: None,
+        receipt: None,
     }
     .instruction()
 }
@@ -251,6 +253,7 @@ fn merge_rejects_an_unsigned_payer() {
         user_record: record,
         data: merge_ix_data(true),
         cache: None,
+        receipt: None,
     }
     .instruction();
     ix.accounts.get_mut(2).expect("payer meta").is_signer = false;
@@ -678,6 +681,7 @@ mod program_unit {
             &mut accounts,
             MERGE_DEFAULT_INPUT_COUNT,
             None,
+            None,
         ) {
             Ok(_) => panic!("invalid System Program must fail"),
             Err(error) => error,
@@ -705,6 +709,7 @@ mod program_unit {
         let error = match MergeTransactAccounts::validate_and_parse(
             &mut accounts,
             MERGE_DEFAULT_INPUT_COUNT,
+            None,
             None,
         ) {
             Ok(_) => panic!("a non-SPP program account must fail"),

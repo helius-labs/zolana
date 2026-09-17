@@ -307,6 +307,7 @@ fn merge_rejects_overwrites_frozen_caches_and_foreign_owners() {
         let cached = case != "p256 plain";
         let data = MergeTransactIxData {
             cache_slot: cached.then_some(if case == "slot" { 36 } else { 0 }),
+            receipt_offset: None,
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: fe(9),
@@ -323,6 +324,7 @@ fn merge_rejects_overwrites_frozen_caches_and_foreign_owners() {
             user_record: record,
             data,
             cache: cached.then_some(cache),
+            receipt: None,
         }
         .instruction();
         let before = rpc.account_data(&tree).expect("tree data");

@@ -11,8 +11,9 @@ use crate::{
 /// `input_tree` and `output_tree` (writable), `payer` (signer, writable),
 /// `user_record` (read-only), the System Program, the program account for the
 /// `emit_event` self-CPI, one writable nullifier PDA per `nullifiers` entry,
-/// then the writable cache account when `data.cache_slot` is set. The program
-/// rejects any account beyond that, so `cache` and `data.cache_slot` must be
+/// then the writable cache account when `data.cache_slot` is set, then the
+/// read-only receipt account when `data.receipt_offset` is set. The program
+/// rejects any account beyond that, so each account and its data field must be
 /// set together.
 pub struct MergeTransact {
     pub input_tree: Pubkey,
@@ -21,6 +22,7 @@ pub struct MergeTransact {
     pub user_record: Pubkey,
     pub data: MergeTransactIxData,
     pub cache: Option<Pubkey>,
+    pub receipt: Option<Pubkey>,
 }
 
 impl MergeTransact {
@@ -47,6 +49,9 @@ impl MergeTransact {
         ));
         if let Some(cache) = self.cache {
             accounts.push(AccountMeta::new(cache, false));
+        }
+        if let Some(receipt) = self.receipt {
+            accounts.push(AccountMeta::new_readonly(receipt, false));
         }
 
         Instruction {

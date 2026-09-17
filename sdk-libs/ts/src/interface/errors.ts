@@ -91,6 +91,19 @@ export const ShieldedPoolError = Object.freeze({
   CacheNotExpired: 7078,
   NonCanonicalCacheOwnerIdentity: 7079,
   CacheExpiryNotInFuture: 7080,
+  InvalidReceipt: 7081,
+  ReceiptConfigMismatch: 7082,
+  ReceiptAlreadyVerified: 7083,
+  ReceiptNotVerified: 7084,
+  ReceiptUploadOutOfOrder: 7085,
+  ReceiptIncomplete: 7086,
+  ReceiptTreeMismatch: 7087,
+  ReceiptRootMismatch: 7088,
+  ReceiptSliceMismatch: 7089,
+  ReceiptUnsupportedOwner: 7090,
+  InvalidReceiptSponsor: 7091,
+  NonCanonicalReceiptNullifier: 7092,
+  UnsupportedReceiptCapacity: 7093,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

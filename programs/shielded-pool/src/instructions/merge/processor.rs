@@ -28,6 +28,7 @@ use super::{
 use crate::instructions::{
     event::emit_event,
     nullifier_pda::{create_nullifier_pdas, InputTreeResult},
+    receipt::ReceiptSlice,
     shared::{
         bool_field, check_field_element, check_field_elements, check_not_expired, tree_error,
     },
@@ -38,6 +39,8 @@ pub(crate) struct MergeCoreAccounts<'a> {
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
+    /// Verified receipt slice the merge spends from, if receipt-backed.
+    pub receipt: Option<ReceiptSlice<'a>>,
 }
 
 pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> ProgramResult {
@@ -69,8 +72,12 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    let merge_accounts =
-        MergeTransactAccounts::validate_and_parse(accounts, ix.nullifiers.len(), ix.cache_slot)?;
+    let merge_accounts = MergeTransactAccounts::validate_and_parse(
+        accounts,
+        ix.nullifiers.len(),
+        ix.cache_slot,
+        ix.receipt_offset,
+    )?;
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
 
@@ -81,6 +88,27 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     }
     if ix.cache_slot.is_some() && !ix.eddsa_owner {
         return Err(ShieldedPoolError::CacheUnsupportedOwner.into());
+    }
+    if ix.receipt_offset.is_some() && !ix.eddsa_owner {
+        return Err(ShieldedPoolError::ReceiptUnsupportedOwner.into());
+    }
+    // The receipt covers exactly this merge's nullifiers for this tree; its root
+    // is compared with the merge's nullifier root once that root is resolved.
+    let receipt = merge_accounts
+        .receipt
+        .map(|(account, offset)| {
+            ReceiptSlice::load(
+                account,
+                &merge_accounts.input_tree.address().to_bytes(),
+                offset,
+                ix.nullifiers.len(),
+            )
+        })
+        .transpose()?;
+    if let Some(receipt) = &receipt {
+        if receipt.nullifiers() != ix.nullifiers.as_slice() {
+            return Err(ShieldedPoolError::ReceiptSliceMismatch.into());
+        }
     }
 
     let signing_pk_field = pk_fields.signing_pk_field;
@@ -112,6 +140,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
             output_tree: merge_accounts.output_tree,
             payer: merge_accounts.payer,
             nullifier_pdas: merge_accounts.nullifier_pdas,
+            receipt,
         },
         &ix,
         external_data_hash,
@@ -151,8 +180,18 @@ pub(crate) fn process_merge_core(
             external_data_hash,
             allow_dummy_inputs: bool_field(allow_dummy_inputs),
             owner_binding,
+            receipt_backed: accounts.receipt.is_some(),
         };
         let first_input_queue_seq = apply_input_tree(&mut tree, ix, &mut derived)?;
+        // A receipt proves non-inclusion at one root; the merge must spend
+        // against that same root, which the history lookup above has just
+        // shown to be still acceptable. Pending insertion below covers the gap
+        // since then, exactly as for an in-proof non-inclusion.
+        if let Some(receipt) = &accounts.receipt {
+            if receipt.nullifier_root() != derived.tree_slot.nullifier_root {
+                return Err(ShieldedPoolError::ReceiptRootMismatch.into());
+            }
+        }
         let forester_fee = tree
             .credit_insertion_fee(ix.nullifiers.len() as u64)
             .map_err(tree_error)?;

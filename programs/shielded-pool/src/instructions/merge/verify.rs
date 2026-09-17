@@ -5,7 +5,10 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::MergeTransactIxDataRef,
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
-    verifying_keys::{merge_36_1, merge_8_1, merge_ring_36_1, merge_ring_8_1},
+    verifying_keys::{
+        merge_36_1, merge_8_1, merge_receipt_36_1, merge_receipt_8_1, merge_ring_36_1,
+        merge_ring_8_1,
+    },
 };
 
 use crate::instructions::verifier;
@@ -45,6 +48,10 @@ pub struct MergeProofInputs {
     pub external_data_hash: [u8; 32],
     pub allow_dummy_inputs: [u8; 32],
     pub owner_binding: MergeOwnerBinding,
+    /// Receipt-backed merge: the circuit proved no non-inclusion, so the key is
+    /// `merge_receipt_<n>_1`. The public-input hash is unchanged; the program
+    /// has already matched the nullifiers and root against the receipt.
+    pub receipt_backed: bool,
 }
 
 pub struct MergeProof<'a> {
@@ -79,11 +86,18 @@ impl<'a> MergeProof<'a> {
     }
 
     fn verifying_key(&self) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
-        let vk = match (&self.derived.owner_binding, self.ix.nullifiers.len()) {
-            (MergeOwnerBinding::Registry { .. }, 8) => &merge_8_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Registry { .. }, 36) => &merge_36_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Ring { .. }, 36) => &merge_ring_36_1::VERIFYINGKEY,
+        let inputs = self.ix.nullifiers.len();
+        let vk = match (
+            &self.derived.owner_binding,
+            self.derived.receipt_backed,
+            inputs,
+        ) {
+            (MergeOwnerBinding::Registry { .. }, false, 8) => &merge_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Registry { .. }, false, 36) => &merge_36_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Registry { .. }, true, 8) => &merge_receipt_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Registry { .. }, true, 36) => &merge_receipt_36_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, false, 8) => &merge_ring_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, false, 36) => &merge_ring_36_1::VERIFYINGKEY,
             _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
         };
         Ok(vk)

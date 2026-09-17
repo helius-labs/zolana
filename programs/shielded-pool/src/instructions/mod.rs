@@ -12,6 +12,7 @@ pub mod merge;
 pub mod merge_ring;
 pub(crate) mod nullifier_pda;
 pub mod protocol_config;
+pub mod receipt;
 pub mod ring_config;
 pub mod set_tree_fees;
 pub mod settlement;

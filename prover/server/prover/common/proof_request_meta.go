@@ -65,6 +65,8 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		CircuitType(circuitType) == TransferRingAuthorityCircuitType ||
 		CircuitType(circuitType) == MergeCircuitType ||
 		CircuitType(circuitType) == MergeRingCircuitType ||
+		CircuitType(circuitType) == MergeReceiptCircuitType ||
+		CircuitType(circuitType) == NullifierReceiptCircuitType ||
 		CircuitType(circuitType) == CustomRingBaseCircuitType ||
 		CircuitType(circuitType) == CustomRingPolicyCircuitType
 

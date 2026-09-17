@@ -962,6 +962,7 @@ fn tx_size(args: Vec<String>) {
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
             cache_slot: None,
+            receipt_offset: None,
             expiry_unix_ts: 0,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
@@ -980,6 +981,7 @@ fn tx_size(args: Vec<String>) {
             user_record: Pubkey::new_unique(),
             data,
             cache: None,
+            receipt: None,
         }
         .instruction();
         let merge_ix_accounts = merge_ix.accounts.len();

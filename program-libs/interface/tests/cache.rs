@@ -24,6 +24,7 @@ fn create_data(nonce: u64) -> CreateCacheData {
 fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot,
+        receipt_offset: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [1u8; 32],
@@ -106,6 +107,7 @@ fn merge_transact_appends_the_cache_account_only_when_set() {
         user_record: Pubkey::new_unique(),
         data: merge_data(None),
         cache: None,
+        receipt: None,
     };
     let without_cache = builder.instruction();
     assert_eq!(without_cache.accounts.len(), 6 + 8);
@@ -117,6 +119,7 @@ fn merge_transact_appends_the_cache_account_only_when_set() {
     let with_cache = MergeTransact {
         data: merge_data(Some(4)),
         cache: Some(cache),
+        receipt: None,
         ..builder
     }
     .instruction();

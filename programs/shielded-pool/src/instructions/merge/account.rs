@@ -18,7 +18,8 @@ use zolana_user_registry_interface::{
 /// Validated accounts for `merge_transact`, in loader order: `input_tree` and
 /// `output_tree` (writable), `payer` (signer, pays fees), `user_record`
 /// (read-only), System Program, the program account (for the `emit_event`
-/// self-CPI), then one writable nullifier PDA per input and an optional writable cache.
+/// self-CPI), then one writable nullifier PDA per input, an optional writable
+/// cache and an optional read-only receipt.
 pub struct MergeTransactAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
@@ -26,6 +27,9 @@ pub struct MergeTransactAccounts<'a> {
     pub user_record: &'a AccountView,
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
     pub cache: Option<(&'a mut AccountView, u8)>,
+    /// The verified receipt a receipt-backed merge spends from, with the slot
+    /// offset of its nullifiers.
+    pub receipt: Option<(&'a AccountView, u16)>,
 }
 
 impl<'a> MergeTransactAccounts<'a> {
@@ -33,6 +37,7 @@ impl<'a> MergeTransactAccounts<'a> {
         accounts: &'a mut [AccountView],
         input_count: usize,
         cache_slot: Option<u8>,
+        receipt_offset: Option<u16>,
     ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let input_tree = iter.next_mut("input_tree")?;
@@ -56,11 +61,18 @@ impl<'a> MergeTransactAccounts<'a> {
         let cache = cache_slot
             .map(|slot| iter.next_mut("cache").map(|account| (account, slot)))
             .transpose()?;
+        let receipt = receipt_offset
+            .map(|offset| {
+                iter.next_account("receipt")
+                    .map(|account| (&*account, offset))
+            })
+            .transpose()?;
         if !iter.remaining_unchecked_mut()?.is_empty() {
             return Err(ShieldedPoolError::InvalidMergeShape.into());
         }
         Ok(Self {
             cache,
+            receipt,
             input_tree,
             output_tree,
             payer,

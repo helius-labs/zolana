@@ -189,6 +189,32 @@ pub enum ShieldedPoolError {
     NonCanonicalCacheOwnerIdentity = 7079,
     #[error("cache expiry must be in the future")]
     CacheExpiryNotInFuture = 7080,
+    #[error("invalid receipt account")]
+    InvalidReceipt = 7081,
+    #[error("receipt exists with a different configuration")]
+    ReceiptConfigMismatch = 7082,
+    #[error("receipt is already verified")]
+    ReceiptAlreadyVerified = 7083,
+    #[error("receipt is not verified")]
+    ReceiptNotVerified = 7084,
+    #[error("receipt upload is not the next contiguous slice")]
+    ReceiptUploadOutOfOrder = 7085,
+    #[error("receipt has unfilled live slots or nonzero padding")]
+    ReceiptIncomplete = 7086,
+    #[error("receipt belongs to another tree")]
+    ReceiptTreeMismatch = 7087,
+    #[error("receipt root is not the referenced nullifier root")]
+    ReceiptRootMismatch = 7088,
+    #[error("merge nullifiers differ from the receipt slice")]
+    ReceiptSliceMismatch = 7089,
+    #[error("receipt-backed merges require an eddsa owner")]
+    ReceiptUnsupportedOwner = 7090,
+    #[error("receipt sponsor mismatch")]
+    InvalidReceiptSponsor = 7091,
+    #[error("receipt nullifier is not a canonical field element")]
+    NonCanonicalReceiptNullifier = 7092,
+    #[error("unsupported receipt capacity")]
+    UnsupportedReceiptCapacity = 7093,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -316,6 +342,19 @@ mod tests {
                 CacheNotExpired => 7078,
                 NonCanonicalCacheOwnerIdentity => 7079,
                 CacheExpiryNotInFuture => 7080,
+                InvalidReceipt => 7081,
+                ReceiptConfigMismatch => 7082,
+                ReceiptAlreadyVerified => 7083,
+                ReceiptNotVerified => 7084,
+                ReceiptUploadOutOfOrder => 7085,
+                ReceiptIncomplete => 7086,
+                ReceiptTreeMismatch => 7087,
+                ReceiptRootMismatch => 7088,
+                ReceiptSliceMismatch => 7089,
+                ReceiptUnsupportedOwner => 7090,
+                InvalidReceiptSponsor => 7091,
+                NonCanonicalReceiptNullifier => 7092,
+                UnsupportedReceiptCapacity => 7093,
             }
         }
 
@@ -403,6 +442,19 @@ mod tests {
             CacheNotExpired,
             NonCanonicalCacheOwnerIdentity,
             CacheExpiryNotInFuture,
+            InvalidReceipt,
+            ReceiptConfigMismatch,
+            ReceiptAlreadyVerified,
+            ReceiptNotVerified,
+            ReceiptUploadOutOfOrder,
+            ReceiptIncomplete,
+            ReceiptTreeMismatch,
+            ReceiptRootMismatch,
+            ReceiptSliceMismatch,
+            ReceiptUnsupportedOwner,
+            InvalidReceiptSponsor,
+            NonCanonicalReceiptNullifier,
+            UnsupportedReceiptCapacity,
         ];
         for (variant, code) in variants.into_iter().zip(7000_u32..) {
             assert_eq!(
@@ -413,7 +465,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 81, "variant count drifted");
+        assert_eq!(variants.len(), 94, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

@@ -95,6 +95,13 @@ type Transaction struct {
 
 	Public        CommonPublicInputs
 	RingProgramID frontend.Variable
+
+	// SkipNonInclusion selects the receipt-backed variant: the circuit proves
+	// membership, ownership and nullifier derivation but not non-inclusion,
+	// which the program checks against a verified nullifier receipt covering
+	// the same nullifiers at the published nullifier root. Inputs carry no
+	// nullifier-tree witness. The public input is unchanged.
+	SkipNonInclusion bool
 }
 
 // Derived contains the owner identity a wrapper may bind into its
@@ -105,10 +112,19 @@ type Derived struct {
 
 // NewInputs allocates n merge input slots and their Merkle paths.
 func NewInputs(n int) []Input {
+	inputs := NewReceiptInputs(n)
+	for i := range inputs {
+		inputs[i].NullifierLowPathElements = make([]frontend.Variable, transaction.NullifierTreeHeight)
+	}
+	return inputs
+}
+
+// NewReceiptInputs allocates n merge input slots with state paths only, for
+// the receipt-backed variant that proves no non-inclusion.
+func NewReceiptInputs(n int) []Input {
 	inputs := make([]Input, n)
 	for i := range inputs {
 		inputs[i].StatePathElements = make([]frontend.Variable, transaction.StateTreeHeight)
-		inputs[i].NullifierLowPathElements = make([]frontend.Variable, transaction.NullifierTreeHeight)
 	}
 	return inputs
 }
@@ -174,12 +190,16 @@ func (t Transaction) ValidateLayout(numInputs int) error {
 				transaction.StateTreeHeight,
 			)
 		}
-		if got := len(t.Inputs[i].NullifierLowPathElements); got != transaction.NullifierTreeHeight {
+		want := transaction.NullifierTreeHeight
+		if t.SkipNonInclusion {
+			want = 0
+		}
+		if got := len(t.Inputs[i].NullifierLowPathElements); got != want {
 			return fmt.Errorf(
 				"merge: input %d nullifier path height: got %d want %d",
 				i,
 				got,
-				transaction.NullifierTreeHeight,
+				want,
 			)
 		}
 	}
@@ -212,11 +232,12 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
 	ctx := mergeInputContext{
-		OwnerHash:       userOwnerHash,
-		NullifierSecret: t.UserNullifierSecret,
-		Asset:           t.Asset,
-		RingProgramID:   t.RingProgramID,
-		FirstNullifier:  frontend.Variable(0),
+		OwnerHash:        userOwnerHash,
+		NullifierSecret:  t.UserNullifierSecret,
+		Asset:            t.Asset,
+		RingProgramID:    t.RingProgramID,
+		FirstNullifier:   frontend.Variable(0),
+		SkipNonInclusion: t.SkipNonInclusion,
 	}
 	for i := range t.Inputs {
 		tree := transaction.SelectTreeSlot(api, t.Inputs[i].TreeSlot, t.Public.TreeSlots)

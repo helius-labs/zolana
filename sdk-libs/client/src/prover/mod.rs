@@ -5,6 +5,7 @@ mod json;
 pub mod merge;
 pub mod merge_ring;
 mod proof;
+pub mod receipt;
 pub mod ring_authority;
 pub mod transact;
 mod verify;
@@ -17,9 +18,10 @@ pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
     TransferP256Inputs, TreeSlotFields,
 };
-pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
+pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver, MergeReceiptTarget};
 pub use merge_ring::{MergeRingCacheTarget, MergeRingProver, MergeRingWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
+pub use receipt::{ReceiptInputs, ReceiptProver, ReceiptWitness};
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness};
 pub use transact::{
     assign_spend_output_blindings, input_utxos, PublicInputs, PublicTransfers,

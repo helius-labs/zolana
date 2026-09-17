@@ -14,9 +14,9 @@ go build -o light-prover .
 (cd "$repo_root" && cargo build -q -p xtask)
 xtask="$repo_root/target/debug/xtask"
 
-keys="$(find "$keys_dir" -maxdepth 1 -type f \( -name 'transfer_*.key' -o -name 'merge_*.key' \) | sort)"
+keys="$(find "$keys_dir" -maxdepth 1 -type f \( -name 'transfer_*.key' -o -name 'merge_*.key' -o -name 'nullifier_receipt_*.key' \) | sort)"
 if [ -z "$keys" ]; then
-    echo "no transfer or merge proving keys in $keys_dir"
+    echo "no transfer, merge or receipt proving keys in $keys_dir"
     exit 1
 fi
 

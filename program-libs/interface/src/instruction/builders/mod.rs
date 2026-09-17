@@ -9,6 +9,7 @@ mod deposit;
 mod merge_ring;
 mod merge_transact;
 mod protocol_config;
+mod receipt;
 mod ring_authority_transact;
 mod ring_config;
 mod ring_deposit;
@@ -28,6 +29,7 @@ pub use merge_transact::MergeTransact;
 pub use protocol_config::{
     ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };
+pub use receipt::{CloseReceipt, CreateReceipt, UploadReceipt, VerifyReceipt};
 pub use ring_authority_transact::RingAuthorityTransact;
 pub use ring_config::{
     CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner,

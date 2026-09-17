@@ -294,3 +294,13 @@ path = "tests/dispatch/validation.rs"
 [[test]]
 name = "cache"
 path = "tests/cache/contract.rs"
+
+[[test]]
+name = "receipt"
+path = "tests/receipt/contract.rs"
+
+# Proof-backed (real `nullifier-receipt` and `merge-receipt` proofs).
+[[test]]
+name = "receipt_functional"
+path = "tests/receipt/functional.rs"
+required-features = ["proofs"]

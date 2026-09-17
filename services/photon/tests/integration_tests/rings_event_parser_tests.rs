@@ -2241,6 +2241,7 @@ fn ring_transact_transaction_info(
 fn merge_transaction_info() -> TransactionInfo {
     let merge = MergeTransactIxData {
         cache_slot: None,
+        receipt_offset: None,
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0x66; 32],

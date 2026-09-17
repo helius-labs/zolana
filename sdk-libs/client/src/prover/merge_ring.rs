@@ -91,6 +91,7 @@ impl MergeRingProver {
                 address: target.address,
                 slot: target.slot,
             }),
+            receipt: None,
         }
         .common(zolana_interface::instruction::tag::RING_MERGE_TRANSACT)?;
 

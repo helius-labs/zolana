@@ -16,6 +16,7 @@ import (
 	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/extractor"
 	mergeprover "zolana/prover/prover/merge"
+	receiptprover "zolana/prover/prover/nullifier_receipt"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 	"zolana/prover/server"
@@ -143,7 +144,7 @@ func runCli() {
 				Name: "setup-merge",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-					&cli.StringFlag{Name: "circuit", Usage: "Merge circuit (\"merge\" default / \"merge-ring\")", Required: false},
+					&cli.StringFlag{Name: "circuit", Usage: "Merge circuit (\"merge\" default / \"merge-ring\" / \"merge-receipt\")", Required: false},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 				},
 				Action: func(context *cli.Context) error {
@@ -156,6 +157,8 @@ func runCli() {
 						ps, err = mergeprover.SetupMerge(nInputs)
 					case "merge-ring":
 						ps, err = mergeprover.SetupMergeRing(nInputs)
+					case "merge-receipt":
+						ps, err = mergeprover.SetupMergeReceipt(nInputs)
 					default:
 						return fmt.Errorf("unknown merge circuit %q", context.String("circuit"))
 					}
@@ -182,6 +185,36 @@ func runCli() {
 						Int64("bytes_written", written).
 						Str("output", path).
 						Msg("Merge proving system written")
+					return nil
+				},
+			},
+			{
+				Name: "setup-receipt",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+					&cli.StringFlag{Name: "output-vkey", Usage: "Optional raw binary verifying key"},
+					&cli.UintFlag{Name: "n-inputs", Usage: "Receipt slots (8 or 512)", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					ps, err := receiptprover.Setup(uint32(context.Uint("n-inputs")))
+					if err != nil {
+						return err
+					}
+					file, err := os.Create(context.String("output"))
+					if err != nil {
+						return err
+					}
+					defer file.Close()
+					if _, err = ps.WriteTo(file); err != nil {
+						return err
+					}
+					if path := context.String("output-vkey"); path != "" {
+						var buffer bytes.Buffer
+						if _, err := ps.VerifyingKey.WriteRawTo(&buffer); err != nil {
+							return err
+						}
+						return os.WriteFile(path, buffer.Bytes(), 0600)
+					}
 					return nil
 				},
 			},

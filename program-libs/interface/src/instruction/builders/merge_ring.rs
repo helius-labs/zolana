@@ -94,6 +94,7 @@ mod tests {
     fn data() -> MergeTransactIxData {
         MergeTransactIxData {
             cache_slot: None,
+            receipt_offset: None,
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],

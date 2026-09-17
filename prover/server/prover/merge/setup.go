@@ -66,6 +66,24 @@ func SetupMergeRing(nInputs uint32) (*common.TransferProofSystem, error) {
 	return mergeSystem(common.MergeRingCircuitType, nInputs, pk, vk, ccs), nil
 }
 
+// SetupMergeReceipt runs trusted setup for the receipt-backed default merge
+// circuit at nInputs inputs.
+func SetupMergeReceipt(nInputs uint32) (*common.TransferProofSystem, error) {
+	if !IsSupportedNInputs(nInputs) {
+		return nil, fmt.Errorf("merge-receipt: unsupported input count %d, want one of %v", nInputs, SupportedNInputs())
+	}
+	fmt.Println("Setting up merge-receipt: nInputs", nInputs, "nOutputs", MergeNOutputs)
+	ccs, err := R1CSMergeReceipt(int(nInputs))
+	if err != nil {
+		return nil, err
+	}
+	pk, vk, err := groth16.Setup(ccs)
+	if err != nil {
+		return nil, err
+	}
+	return mergeSystem(common.MergeReceiptCircuitType, nInputs, pk, vk, ccs), nil
+}
+
 func mergeSystem(circuitType common.CircuitType, nInputs uint32, pk groth16.ProvingKey, vk groth16.VerifyingKey, ccs constraint.ConstraintSystem) *common.TransferProofSystem {
 	return &common.TransferProofSystem{
 		CircuitType:      circuitType,

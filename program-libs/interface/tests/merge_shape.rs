@@ -6,6 +6,7 @@ use zolana_interface::instruction::instruction_data::merge_transact::{
 fn data_with(input_count: usize) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
+        receipt_offset: None,
         expiry_unix_ts: 42,
         proof: MergeProof {
             a: [1u8; 32],
@@ -27,7 +28,7 @@ fn every_supported_shape_has_the_contracted_encoded_length() {
         let bytes = data_with(input_count)
             .serialize()
             .expect("serialize merge instruction");
-        assert_eq!(bytes.len(), 271 + 32 * input_count);
+        assert_eq!(bytes.len(), 272 + 32 * input_count);
         MergeTransactIxDataRef::from_bytes(&bytes).expect("a supported shape must parse back");
     }
 }
@@ -60,7 +61,7 @@ fn cache_slot_round_trips_in_both_merge_rails() {
         let mut data = data_with(8);
         data.cache_slot = cache_slot;
         let bytes = data.serialize().unwrap();
-        assert_eq!(bytes.len(), 527 + usize::from(cache_slot.is_some()));
+        assert_eq!(bytes.len(), 528 + usize::from(cache_slot.is_some()));
         assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes)
                 .unwrap()

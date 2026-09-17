@@ -2,9 +2,12 @@ use num_bigint::BigUint;
 use serde::Serialize;
 use zolana_transaction::ProofInputUtxo;
 
-use crate::prover::inputs::{
-    BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs, TreeSlotFields,
+use crate::prover::{
+    inputs::{
+        BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+        TransferP256Inputs, TreeSlotFields,
+    },
+    receipt::ReceiptInputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -390,6 +393,20 @@ pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
     merge_params_json(inputs, "merge")
 }
 
+/// Serialize the receipt-backed merge witness (`"merge-receipt"`): the circuit
+/// proves no non-inclusion, so the nullifier-tree witness is blanked; the
+/// prover rejects a non-empty one.
+pub(crate) fn to_json_merge_receipt(inputs: &MergeInputs) -> String {
+    let mut stripped = inputs.clone();
+    for input in &mut stripped.inputs {
+        input.nullifier_low_value = BigUint::ZERO;
+        input.nullifier_next_value = BigUint::ZERO;
+        input.nullifier_low_path_elements = Vec::new();
+        input.nullifier_low_path_index = BigUint::ZERO;
+    }
+    merge_params_json(&stripped, "merge-receipt")
+}
+
 /// Serialize the policy-ring merge witness; the prover server routes `"merge-ring"`
 /// to the merge-ring circuit and reads the top-level `ringProgramId`.
 pub(crate) fn to_json_merge_ring(inputs: &MergeInputs) -> String {
@@ -456,6 +473,52 @@ pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) ->
         new_element_proofs: proof_strings(&inputs.new_element_proofs),
         tree_height: inputs.tree_height,
         batch_size: inputs.batch_size,
+    };
+    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ReceiptWitnessJson {
+    low: String,
+    next: String,
+    index: String,
+    path: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReceiptParametersJson {
+    circuit_type: String,
+    n_inputs: usize,
+    tree_id: String,
+    root: String,
+    count: String,
+    nullifiers: Vec<String>,
+    witnesses: Vec<ReceiptWitnessJson>,
+    public_input_hash: String,
+}
+
+/// Serialize a nullifier receipt witness; the prover server routes
+/// `"nullifier-receipt"` by the padded slot count.
+pub(crate) fn to_json_receipt(inputs: &ReceiptInputs) -> String {
+    let json = ReceiptParametersJson {
+        circuit_type: "nullifier-receipt".to_string(),
+        n_inputs: inputs.nullifiers.len(),
+        tree_id: big_uint_to_string(&inputs.tree_id),
+        root: big_uint_to_string(&inputs.root),
+        count: big_uint_to_string(&BigUint::from(inputs.count)),
+        nullifiers: inputs.nullifiers.iter().map(big_uint_to_string).collect(),
+        witnesses: inputs
+            .witnesses
+            .iter()
+            .map(|witness| ReceiptWitnessJson {
+                low: big_uint_to_string(&witness.low),
+                next: big_uint_to_string(&witness.next),
+                index: big_uint_to_string(&witness.index),
+                path: witness.path.iter().map(big_uint_to_string).collect(),
+            })
+            .collect(),
+        public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }

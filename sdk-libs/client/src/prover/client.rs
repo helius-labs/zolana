@@ -17,10 +17,12 @@ use crate::{
     prover::{
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
-            to_json_p256_ring, to_json_ring, to_json_ring_authority,
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_receipt,
+            to_json_merge_ring, to_json_p256_ring, to_json_receipt, to_json_ring,
+            to_json_ring_authority,
         },
         proof::{proof_from_gnark_json, Proof},
+        receipt::ReceiptInputs,
     },
 };
 
@@ -229,6 +231,12 @@ impl ProverClient {
         self.send(to_json_merge(inputs), self.delivery)
     }
 
+    /// Prove a receipt-backed merge (`merge-receipt`): same witness as
+    /// [`Self::prove_merge`] minus the nullifier-tree paths.
+    pub fn prove_merge_receipt(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge_receipt(inputs), self.delivery)
+    }
+
     /// Prove a ring-authority transfer (anonymous, no signature), returning the
     /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
     /// call [`Proof::compress`] for the wire format.
@@ -258,6 +266,14 @@ impl ProverClient {
 
     pub fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
         self.send(request.body()?, request.delivery())
+    }
+
+    /// Prove a nullifier receipt (`nullifier-receipt`), returning the
+    /// uncompressed negated proof with its BSB22 commitment. Call
+    /// [`ProofCompressed::try_from`] and [`ReceiptInputs::verify_data`] for the
+    /// `verify_receipt` wire format.
+    pub fn prove_receipt(&self, inputs: &ReceiptInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_receipt(inputs), Delivery::Queued)
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the

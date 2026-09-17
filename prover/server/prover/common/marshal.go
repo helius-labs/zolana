@@ -316,6 +316,21 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			return nil, err
 		}
 		return ps, nil
+	} else if strings.Contains(lowerPath, "nullifier_receipt") {
+		// nullifier_receipt_<n>_0.key: the batch non-inclusion receipt, a
+		// generic Groth16 holder with one BSB22 commitment and no outputs.
+		ps := new(TransferProofSystem)
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		ps.CircuitType = NullifierReceiptCircuitType
+		return ps, nil
 	} else if strings.Contains(lowerPath, "transfer") {
 		ps := new(TransferProofSystem)
 		file, err := os.Open(path)
@@ -363,9 +378,12 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		// merge_ring_8_1.key is the policy-ring variant; the default merge file is
 		// merge_8_1.key.
-		if strings.Contains(strings.ToLower(path), "ring") {
+		switch lower := strings.ToLower(path); {
+		case strings.Contains(lower, "receipt"):
+			ps.CircuitType = MergeReceiptCircuitType
+		case strings.Contains(lower, "ring"):
 			ps.CircuitType = MergeRingCircuitType
-		} else {
+		default:
 			ps.CircuitType = MergeCircuitType
 		}
 		return ps, nil

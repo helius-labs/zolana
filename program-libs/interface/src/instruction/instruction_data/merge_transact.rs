@@ -58,6 +58,11 @@ pub struct MergeTransactIxData {
     /// When set, requires one trailing writable cache account. Both merge
     /// instructions now reject extra accounts, including when this is `None`.
     pub cache_slot: Option<u8>,
+    /// When set, the proof is the receipt-backed merge circuit and one trailing
+    /// read-only receipt account follows the cache: its verified nullifiers at
+    /// this slot offset must equal `nullifiers`, and its root must be the
+    /// tree's nullifier root at `nullifier_tree_root_index`.
+    pub receipt_offset: Option<u16>,
 }
 
 impl MergeTransactIxData {
@@ -93,6 +98,7 @@ pub struct MergeTransactIxDataRef<'a> {
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
     pub cache_slot: Option<u8>,
+    pub receipt_offset: Option<u16>,
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
@@ -159,6 +165,7 @@ mod tests {
             nullifier_tree_root_index: 10,
             private_tx_hash: [3u8; 32],
             eddsa_owner: false,
+            receipt_offset: None,
         }
     }
 
@@ -186,7 +193,7 @@ mod tests {
     fn fixed_shape_wire_length_matches_the_protocol_contract() {
         let bytes = data().serialize().expect("serialize merge instruction");
 
-        assert_eq!(bytes.len(), 271 + 32 * MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(bytes.len(), 272 + 32 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]

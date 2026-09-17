@@ -7,6 +7,7 @@ pub mod deposit;
 pub mod merge_ring;
 pub mod merge_transact;
 pub mod protocol_config;
+pub mod receipt;
 pub mod ring_config;
 #[cfg(feature = "tree")]
 pub mod set_tree_fees;
@@ -29,6 +30,7 @@ pub use merge_transact::{
     MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
+pub use receipt::{CreateReceiptData, UploadReceiptData, VerifyReceiptData, RECEIPT_DOMAIN};
 pub use ring_config::{CreateRingConfigData, SetRingActivationData, UpdateRingConfigData};
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;

@@ -65,6 +65,7 @@ pub fn transact_ix(
 pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
+        receipt_offset: None,
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash,

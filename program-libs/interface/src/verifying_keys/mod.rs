@@ -10,9 +10,15 @@ pub mod merge_36_1;
 #[cfg(feature = "verifying-keys")]
 pub mod merge_8_1;
 #[cfg(feature = "verifying-keys")]
+pub mod merge_receipt_36_1;
+#[cfg(feature = "verifying-keys")]
+pub mod merge_receipt_8_1;
+#[cfg(feature = "verifying-keys")]
 pub mod merge_ring_36_1;
 #[cfg(feature = "verifying-keys")]
 pub mod merge_ring_8_1;
+#[cfg(feature = "verifying-keys")]
+pub mod nullifier_receipt_8_0;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_1_1;
 #[cfg(feature = "verifying-keys")]

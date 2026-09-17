@@ -43,6 +43,13 @@ pub const RING_AUTHORITY_TRANSACT: u8 = 21;
 pub const CREATE_CACHE: u8 = 22;
 pub const CLOSE_CACHE: u8 = 23;
 
+// Nullifier receipts: batch non-inclusion verified once, consumed by
+// receipt-backed merges.
+pub const CREATE_RECEIPT: u8 = 24;
+pub const UPLOAD_RECEIPT: u8 = 25;
+pub const VERIFY_RECEIPT: u8 = 26;
+pub const CLOSE_RECEIPT: u8 = 27;
+
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -71,6 +78,10 @@ pub enum InstructionTag {
     RingAuthorityTransact = RING_AUTHORITY_TRANSACT,
     CreateCache = CREATE_CACHE,
     CloseCache = CLOSE_CACHE,
+    CreateReceipt = CREATE_RECEIPT,
+    UploadReceipt = UPLOAD_RECEIPT,
+    VerifyReceipt = VERIFY_RECEIPT,
+    CloseReceipt = CLOSE_RECEIPT,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -102,6 +113,10 @@ impl TryFrom<u8> for InstructionTag {
             RING_AUTHORITY_TRANSACT => Ok(Self::RingAuthorityTransact),
             CREATE_CACHE => Ok(Self::CreateCache),
             CLOSE_CACHE => Ok(Self::CloseCache),
+            CREATE_RECEIPT => Ok(Self::CreateReceipt),
+            UPLOAD_RECEIPT => Ok(Self::UploadReceipt),
+            VERIFY_RECEIPT => Ok(Self::VerifyReceipt),
+            CLOSE_RECEIPT => Ok(Self::CloseReceipt),
             _ => Err(()),
         }
     }

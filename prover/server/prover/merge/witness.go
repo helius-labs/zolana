@@ -23,8 +23,14 @@ func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
 	return p.createDefaultWitness()
 }
 
+// createDefaultWitness assigns onto the default merge circuit, or onto its
+// receipt-backed variant for MergeReceiptCircuitType, whose inputs carry no
+// nullifier-tree witness.
 func (p *MergeParameters) createDefaultWitness() (*mergecircuit.Circuit, error) {
 	circuit := mergecircuit.NewMergeCircuit(len(p.Inputs))
+	if p.CircuitType == common.MergeReceiptCircuitType {
+		circuit = mergecircuit.NewReceiptMergeCircuit(len(p.Inputs))
+	}
 
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
@@ -110,9 +116,13 @@ func (p *MergeParameters) inputAt(i int) mergecircuit.Input {
 	for j := range in.StatePathElements {
 		statePath[j] = in.StatePathElements[j]
 	}
-	nullifierPath := make([]frontend.Variable, len(in.NullifierLowPathElements))
-	for j := range in.NullifierLowPathElements {
-		nullifierPath[j] = in.NullifierLowPathElements[j]
+	// Nil for the receipt variant, which has no nullifier-tree witness.
+	var nullifierPath []frontend.Variable
+	if len(in.NullifierLowPathElements) != 0 {
+		nullifierPath = make([]frontend.Variable, len(in.NullifierLowPathElements))
+		for j := range in.NullifierLowPathElements {
+			nullifierPath[j] = in.NullifierLowPathElements[j]
+		}
 	}
 	return mergecircuit.Input{
 		Domain:                   in.Domain,

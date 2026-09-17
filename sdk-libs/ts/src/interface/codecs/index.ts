@@ -293,13 +293,14 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
   writer
     .u16(value.utxoTreeRootIndex, "utxoTreeRootIndex")
     .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex")
-    .u8(0, "cacheSlot");
+    .u8(0, "cacheSlot")
+    .u8(0, "receiptOffset");
 }
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, 527);
+  return encoded(value, writeMergeData, 528);
 }
 
 export function mergeExternalDataHash(

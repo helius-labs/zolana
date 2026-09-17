@@ -299,6 +299,7 @@ impl RingHarness {
                 nullifier_key: keypair.nullifier_key.clone(),
                 output_tree_id: tree_id,
                 cache: None,
+                receipt: None,
             }
             .build()?;
             let proof = ProverClient::local().prove_merge(&result.inputs)?;

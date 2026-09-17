@@ -6,17 +6,18 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::{MergeCacheTarget, MergeRingCacheTarget},
-    MergeProver, MergeRingProver, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
-    ProverClient, SpendProof, TransferSpendInput, STATE_TREE_HEIGHT,
+    prover::{MergeCacheTarget, MergeReceiptTarget, MergeRingCacheTarget},
+    MergeProver, MergeRingProver, MerkleContext, MerkleProof, NonInclusionProof, Proof,
+    ProofCompressed, ProverClient, SpendProof, TransferSpendInput, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeRing, MergeRingIxData,
-        MergeTransact, MergeTransactIxData,
+        instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, CreateReceipt,
+        CreateReceiptData, MergeRing, MergeRingIxData, MergeTransact, MergeTransactIxData,
     },
-    verifying_keys::{merge_36_1, merge_8_1},
+    state::receipt::RECEIPT_CAPACITIES,
+    verifying_keys::{merge_36_1, merge_8_1, merge_receipt_36_1, merge_receipt_8_1},
 };
 use zolana_keypair::{
     hash::owner_hash, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait,
@@ -37,6 +38,7 @@ use zolana_user_registry_interface::{
 };
 
 use super::fixtures::Pool;
+use super::receipt::{prove_receipt, RealReceipt};
 use super::transact::{current_tree_roots, tree_progress};
 
 pub fn merge_verifying_key(input_count: usize) -> &'static Groth16Verifyingkey<'static> {
@@ -44,6 +46,14 @@ pub fn merge_verifying_key(input_count: usize) -> &'static Groth16Verifyingkey<'
         8 => &merge_8_1::VERIFYINGKEY,
         36 => &merge_36_1::VERIFYINGKEY,
         other => panic!("no committed verifying key for a {other}-input merge"),
+    }
+}
+
+pub fn merge_receipt_verifying_key(input_count: usize) -> &'static Groth16Verifyingkey<'static> {
+    match input_count {
+        8 => &merge_receipt_8_1::VERIFYINGKEY,
+        36 => &merge_receipt_36_1::VERIFYINGKEY,
+        other => panic!("no committed verifying key for a {other}-input receipt-backed merge"),
     }
 }
 
@@ -195,6 +205,7 @@ pub struct RealMerge {
     pub nullifiers: Vec<[u8; 32]>,
     pub user_record: Pubkey,
     pub cache: Option<Pubkey>,
+    pub receipt: Option<Pubkey>,
 }
 
 impl RealMerge {
@@ -206,6 +217,7 @@ impl RealMerge {
             user_record: self.user_record,
             data: self.data.clone(),
             cache: self.cache,
+            receipt: self.receipt,
         }
         .instruction()
     }
@@ -314,6 +326,24 @@ pub struct RealMergeProof {
     pub real_input_count: usize,
 }
 
+/// Deposits and the padded spend set a real merge proof is built from.
+struct MergeSetup {
+    input_count: usize,
+    tree_id: u16,
+    user_record: Pubkey,
+    deposits: RealDeposits,
+    spends: Vec<TransferSpendInput>,
+    output: SppProofOutputUtxo,
+    owner_public_key: PublicKey,
+    nullifier_key: NullifierKey,
+}
+
+/// A receipt-backed merge with the receipt it spends from.
+pub struct ReceiptBackedMerge {
+    pub merge: RealMerge,
+    pub receipt: RealReceipt,
+}
+
 impl RealMergeProof {
     pub fn build(self, pool: &mut Pool) -> RealMerge {
         self.build_with_cache(pool, None)
@@ -323,7 +353,7 @@ impl RealMergeProof {
         self.build_with_cache(pool, Some(cache))
     }
 
-    fn build_with_cache(self, pool: &mut Pool, cache: Option<MergeCacheTarget>) -> RealMerge {
+    fn setup(self, pool: &mut Pool) -> MergeSetup {
         let RealMergeProof {
             input_count,
             real_input_count,
@@ -358,15 +388,30 @@ impl RealMergeProof {
 
         let PaddedMerge { spends, output } =
             PaddedMerge::assemble(&deposits, &keypair, tree, tree_id, input_count);
-
-        let result = MergeProver {
-            inputs: spends,
+        MergeSetup {
+            input_count,
+            tree_id,
+            user_record,
+            deposits,
+            spends,
             output,
-            expiry_unix_ts: u64::MAX,
-            signing_pubkey: owner_public_key,
+            owner_public_key,
             nullifier_key,
-            output_tree_id: tree_id,
+        }
+    }
+
+    fn build_with_cache(self, pool: &mut Pool, cache: Option<MergeCacheTarget>) -> RealMerge {
+        let setup = self.setup(pool);
+        let input_count = setup.input_count;
+        let result = MergeProver {
+            inputs: setup.spends,
+            output: setup.output,
+            expiry_unix_ts: u64::MAX,
+            signing_pubkey: setup.owner_public_key,
+            nullifier_key: setup.nullifier_key,
+            output_tree_id: setup.tree_id,
             cache,
+            receipt: None,
         }
         .build()
         .expect("build merge witness");
@@ -379,18 +424,11 @@ impl RealMergeProof {
         let proof = ProverClient::local()
             .prove_merge(&result.inputs)
             .expect("prove merge");
-        {
-            let public_inputs = [result.public_input_hash];
-            let mut verifier = Groth16Verifier::new(
-                &proof.a,
-                &proof.b,
-                &proof.c,
-                &public_inputs,
-                merge_verifying_key(input_count),
-            )
-            .expect("construct merge verifier");
-            verifier.verify().expect("merge proof verifies locally");
-        }
+        verify_merge_locally(
+            &proof,
+            result.public_input_hash,
+            merge_verifying_key(input_count),
+        );
         let merge_proof = ProofCompressed::try_from(proof)
             .expect("compress merge proof")
             .to_merge_proof()
@@ -399,10 +437,89 @@ impl RealMergeProof {
         RealMerge {
             data: result.instruction_data(merge_proof),
             nullifiers: result.nullifiers.clone(),
-            user_record,
+            user_record: setup.user_record,
             cache: cache.map(|target| target.address),
+            receipt: None,
         }
     }
+
+    /// Build a receipt-backed merge: a receipt over the merge's nullifiers is
+    /// proven (`nullifier-receipt`) and the merge itself is membership-only
+    /// (`merge-receipt`). The receipt is not published; see
+    /// [`RealReceipt::publish`].
+    pub fn build_receipt_backed(self, pool: &mut Pool, nonce: u64) -> ReceiptBackedMerge {
+        let setup = self.setup(pool);
+        let input_count = setup.input_count;
+        let capacity = *RECEIPT_CAPACITIES
+            .iter()
+            .find(|capacity| usize::from(**capacity) >= input_count)
+            .expect("a receipt capacity fits the merge shape");
+        let address = CreateReceipt {
+            payer: pool.rpc.payer.pubkey(),
+            tree: pool.tree,
+            data: CreateReceiptData { nonce, capacity },
+        }
+        .receipt();
+
+        let result = MergeProver {
+            inputs: setup.spends,
+            output: setup.output,
+            expiry_unix_ts: u64::MAX,
+            signing_pubkey: setup.owner_public_key,
+            nullifier_key: setup.nullifier_key,
+            output_tree_id: setup.tree_id,
+            cache: None,
+            receipt: Some(MergeReceiptTarget { address, offset: 0 }),
+        }
+        .build()
+        .expect("build merge witness");
+        assert_eq!(result.nullifiers.len(), input_count);
+
+        let receipt = prove_receipt(
+            pool,
+            &setup.deposits.nullifier_tree,
+            &result.nullifiers,
+            usize::from(capacity),
+            nonce,
+        );
+        assert_eq!(receipt.address, address);
+
+        let proof = ProverClient::local()
+            .prove_merge_receipt(&result.inputs)
+            .expect("prove receipt-backed merge");
+        verify_merge_locally(
+            &proof,
+            result.public_input_hash,
+            merge_receipt_verifying_key(input_count),
+        );
+        let merge_proof = ProofCompressed::try_from(proof)
+            .expect("compress merge proof")
+            .to_merge_proof()
+            .expect("merge rail proof");
+
+        ReceiptBackedMerge {
+            merge: RealMerge {
+                data: result.instruction_data(merge_proof),
+                nullifiers: result.nullifiers.clone(),
+                user_record: setup.user_record,
+                cache: None,
+                receipt: Some(address),
+            },
+            receipt,
+        }
+    }
+}
+
+fn verify_merge_locally(
+    proof: &Proof,
+    public_input_hash: [u8; 32],
+    verifying_key: &Groth16Verifyingkey<'static>,
+) {
+    let public_inputs = [public_input_hash];
+    let mut verifier =
+        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
+            .expect("construct merge verifier");
+    verifier.verify().expect("merge proof verifies locally");
 }
 
 pub fn activate_ring_test_program(pool: &mut Pool) -> Pubkey {

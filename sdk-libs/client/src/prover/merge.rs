@@ -59,12 +59,24 @@ pub struct MergeProver {
     /// Raw id of the tree the merged output is appended to.
     pub output_tree_id: u16,
     pub cache: Option<MergeCacheTarget>,
+    /// Receipt-backed merge: the proof skips nullifier non-inclusion and the
+    /// program checks `nullifiers` against this verified receipt slice. Each
+    /// input's `SpendProof::nullifier` then only needs `root` and
+    /// `root_index` (the receipt's root); the witness fields are unused.
+    pub receipt: Option<MergeReceiptTarget>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MergeCacheTarget {
     pub address: Address,
     pub slot: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MergeReceiptTarget {
+    pub address: Address,
+    /// Slot offset of this merge's first nullifier in the receipt.
+    pub offset: u16,
 }
 
 /// The built merge witness and the instruction-data ingredients, produced by
@@ -91,6 +103,8 @@ pub struct MergeProofResult {
     /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
     pub eddsa_owner: bool,
     pub cache_slot: Option<u8>,
+    /// Set for receipt-backed merges: the slot offset in the receipt.
+    pub receipt_offset: Option<u16>,
 }
 
 impl MergeProofResult {
@@ -101,6 +115,7 @@ impl MergeProofResult {
     pub fn instruction_data(&self, proof: MergeProof) -> MergeTransactIxData {
         MergeTransactIxData {
             cache_slot: self.cache_slot,
+            receipt_offset: self.receipt_offset,
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
@@ -187,6 +202,7 @@ pub(crate) struct CommonMerge {
     pub user_nullifier_pk: [u8; 32],
     user_nullifier_secret: [u8; 32],
     cache_slot: Option<u8>,
+    receipt_offset: Option<u16>,
 }
 
 impl MergeProver {
@@ -317,6 +333,7 @@ impl MergeProver {
             user_nullifier_pk,
             user_nullifier_secret,
             cache_slot: self.cache.as_ref().map(|target| target.slot),
+            receipt_offset: self.receipt.as_ref().map(|target| target.offset),
         })
     }
 }
@@ -363,6 +380,7 @@ impl CommonMerge {
             expiry_unix_ts: self.expiry_unix_ts,
             eddsa_owner: self.eddsa_owner,
             cache_slot: self.cache_slot,
+            receipt_offset: self.receipt_offset,
         }
     }
 }
@@ -411,6 +429,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             nullifier_key,
             output_tree_id,
             cache: None,
+            receipt: None,
         })
     }
 }

@@ -22,6 +22,16 @@ func R1CSMerge(nInputs int) (constraint.ConstraintSystem, error) {
 	)
 }
 
+// R1CSMergeReceipt compiles the receipt-backed default merge circuit.
+func R1CSMergeReceipt(nInputs int) (constraint.ConstraintSystem, error) {
+	return frontend.Compile(
+		ecc.BN254.ScalarField(),
+		r1cs.NewBuilder,
+		mergecircuit.NewReceiptMergeCircuit(nInputs),
+		frontend.WithCompressThreshold(300),
+	)
+}
+
 // R1CSMergeRing compiles the policy-ring merge circuit (merge_ring). It mirrors
 // R1CSMerge with the ring binding added, so the same compression threshold and
 // BSB22 commitment apply.

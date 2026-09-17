@@ -33,6 +33,9 @@ const (
 // pk_field in addition to the common merge public-input-hash preimage.
 type Circuit struct {
 	NumInputs int `gnark:"-"`
+	// Receipt selects the receipt-backed variant (see
+	// shared.Transaction.SkipNonInclusion). It has its own verifying key.
+	Receipt bool `gnark:"-"`
 
 	Inputs []Input
 	Output Output
@@ -60,6 +63,18 @@ func NewMergeCircuit(n int) *Circuit {
 	}
 }
 
+// NewReceiptMergeCircuit allocates the default-rail merge circuit that leaves
+// nullifier non-inclusion to a program-verified receipt. Same statement, no
+// nullifier-tree witness, separate proving system.
+func NewReceiptMergeCircuit(n int) *Circuit {
+	return &Circuit{
+		NumInputs:          n,
+		Receipt:            true,
+		Inputs:             mergeshared.NewReceiptInputs(n),
+		CommonPublicInputs: mergeshared.NewCommonPublicInputs(n),
+	}
+}
+
 func (c *Circuit) transaction() mergeshared.Transaction {
 	return mergeshared.Transaction{
 		Inputs:              c.Inputs,
@@ -70,6 +85,7 @@ func (c *Circuit) transaction() mergeshared.Transaction {
 		UserNullifierSecret: c.UserNullifierSecret,
 		Public:              c.CommonPublicInputs,
 		RingProgramID:       frontend.Variable(0),
+		SkipNonInclusion:    c.Receipt,
 	}
 }
 

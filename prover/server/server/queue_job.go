@@ -12,6 +12,7 @@ import (
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
 	mergeprover "zolana/prover/prover/merge"
+	receiptprover "zolana/prover/prover/nullifier_receipt"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 )
@@ -636,6 +637,10 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
 	case common.MergeRingCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
+	case common.MergeReceiptCircuitType:
+		proof, proofError = w.processMergeProof(job.Payload, common.MergeReceiptCircuitType)
+	case common.NullifierReceiptCircuitType:
+		proof, proofError = w.processReceiptProof(job.Payload)
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
 		proof, proofError = w.processCustomRingProof(job.Payload, proofRequestMeta.CircuitType)
 	default:
@@ -704,6 +709,21 @@ func (w *BaseQueueWorker) processTransferP256Proof(payload json.RawMessage) (*co
 		return nil, fmt.Errorf("transfer-p256: %w", err)
 	}
 	return transfereddsaonly.ProveP256Transfer(ps, &params)
+}
+
+func (w *BaseQueueWorker) processReceiptProof(payload json.RawMessage) (*common.Proof, error) {
+	var params receiptprover.Parameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal receipt params: %w", err)
+	}
+	if err := params.ValidateShape(); err != nil {
+		return nil, err
+	}
+	ps, err := w.keyManager.GetTransferSystem(common.NullifierReceiptCircuitType, uint32(len(params.Nullifiers)), 0)
+	if err != nil {
+		return nil, err
+	}
+	return receiptprover.Prove(ps, &params)
 }
 
 func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {

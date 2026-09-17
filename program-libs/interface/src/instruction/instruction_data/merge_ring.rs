@@ -51,6 +51,7 @@ mod tests {
             output_ring_data_hash: [8u8; 32],
             merge: MergeTransactIxData {
                 cache_slot: None,
+                receipt_offset: None,
                 expiry_unix_ts: 42,
                 proof: MergeProof {
                     a: [1u8; 32],

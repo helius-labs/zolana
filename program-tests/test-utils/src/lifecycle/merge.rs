@@ -208,6 +208,7 @@ impl LifecycleHarness {
             nullifier_key: keypair.nullifier_key.clone(),
             output_tree_id: tree_id,
             cache: None,
+            receipt: None,
         }
         .build()?;
 
@@ -228,6 +229,7 @@ impl LifecycleHarness {
             user_record,
             data,
             cache: None,
+            receipt: None,
         }
         .instruction();
         let sync_ix = execute_sync_ix(

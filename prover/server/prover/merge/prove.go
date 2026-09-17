@@ -30,8 +30,12 @@ func (p *MergeParameters) ValidateShape() error {
 		if got := len(p.Inputs[i].StatePathElements); got != transaction.StateTreeHeight {
 			return fmt.Errorf("merge: input %d state path length: got %d, expected %d", i, got, transaction.StateTreeHeight)
 		}
-		if got := len(p.Inputs[i].NullifierLowPathElements); got != transaction.NullifierTreeHeight {
-			return fmt.Errorf("merge: input %d nullifier path length: got %d, expected %d", i, got, transaction.NullifierTreeHeight)
+		wantNullifierPath := transaction.NullifierTreeHeight
+		if p.CircuitType == common.MergeReceiptCircuitType {
+			wantNullifierPath = 0
+		}
+		if got := len(p.Inputs[i].NullifierLowPathElements); got != wantNullifierPath {
+			return fmt.Errorf("merge: input %d nullifier path length: got %d, expected %d", i, got, wantNullifierPath)
 		}
 		inputSlots[i] = p.Inputs[i].TreeSlot
 	}

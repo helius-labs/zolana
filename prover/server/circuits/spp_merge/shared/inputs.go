@@ -17,6 +17,9 @@ type mergeInputContext struct {
 	Asset           frontend.Variable
 	RingProgramID   frontend.Variable
 	FirstNullifier  frontend.Variable
+	// SkipNonInclusion leaves nullifier non-inclusion to a receipt the program
+	// verifies separately; the input then carries no nullifier-tree witness.
+	SkipNonInclusion bool
 }
 
 // Checks:
@@ -82,23 +85,31 @@ func constrainInput(
 		nullifier,
 	)
 
-	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
-	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
-	lowLeafHash := gadget.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
-	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, transaction.NullifierTreeHeight)
-	nfRoot := abstractor.Call(api, gadget.MerkleRootGadget{
-		Hash:   lowLeafHash,
-		Index:  nfPathIndices,
-		Path:   in.NullifierLowPathElements,
-		Height: transaction.NullifierTreeHeight,
-	})
+	if ctx.SkipNonInclusion {
+		// The receipt variant carries no nullifier-tree witness; pin the unused
+		// fields so the assignment has one canonical form.
+		api.AssertIsEqual(in.NullifierLowValue, 0)
+		api.AssertIsEqual(in.NullifierNextValue, 0)
+		api.AssertIsEqual(in.NullifierLowPathIndex, 0)
+	} else {
+		// Non-inclusion: the low leaf is in the nullifier tree and brackets the
+		// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
+		lowLeafHash := gadget.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
+		nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, transaction.NullifierTreeHeight)
+		nfRoot := abstractor.Call(api, gadget.MerkleRootGadget{
+			Hash:   lowLeafHash,
+			Index:  nfPathIndices,
+			Path:   in.NullifierLowPathElements,
+			Height: transaction.NullifierTreeHeight,
+		})
 
-	api.AssertIsEqual(nfRoot, tree.NullifierRoot)
-	abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
-		Lo:  in.NullifierLowValue,
-		Mid: nullifier,
-		Hi:  in.NullifierNextValue,
-	})
+		api.AssertIsEqual(nfRoot, tree.NullifierRoot)
+		abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
+			Lo:  in.NullifierLowValue,
+			Mid: nullifier,
+			Hi:  in.NullifierNextValue,
+		})
+	}
 
 	return api.Select(isDummy, frontend.Variable(0), utxoHash), nullifier
 }

@@ -4,6 +4,7 @@
 //! - [`fixtures`]: initialized pool environments and builders.
 //! - [`transact`]: transact fixtures and tree helpers.
 //! - [`merge`]: real merge proofs at every supported shape.
+//! - [`receipt`]: real nullifier receipts and their on-chain lifecycle.
 //! - [`ring`]: real ring transact proofs on both policy-ring rails.
 //! - [`localnet`]: Solana RPC and indexing helpers.
 //! - [`mollusk`]: Mollusk snapshot fixtures.
@@ -12,6 +13,7 @@
 pub mod fixtures;
 pub mod merge;
 pub mod mollusk;
+pub mod receipt;
 pub mod ring;
 pub mod runtime;
 pub mod transact;

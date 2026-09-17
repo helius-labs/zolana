@@ -311,6 +311,13 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 		return m.mergeKeyPath("merge", nInputs, nOutputs)
 	case MergeRingCircuitType:
 		return m.mergeKeyPath("merge_ring", nInputs, nOutputs)
+	case MergeReceiptCircuitType:
+		return m.mergeKeyPath("merge_receipt", nInputs, nOutputs)
+	case NullifierReceiptCircuitType:
+		if nOutputs == 0 && (nInputs == 8 || nInputs == 512) {
+			return m.keyPath(fmt.Sprintf("nullifier_receipt_%d_0.key", nInputs))
+		}
+		return ""
 	default:
 		return ""
 	}

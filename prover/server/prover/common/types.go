@@ -28,6 +28,16 @@ const (
 	// to the default merge.
 	MergeRingCircuitType CircuitType = "merge-ring"
 
+	// MergeReceiptCircuitType is the default merge without in-circuit nullifier
+	// non-inclusion: the program checks the nullifiers against a verified
+	// nullifier receipt instead. Same public input, separate proving system.
+	MergeReceiptCircuitType CircuitType = "merge-receipt"
+
+	// NullifierReceiptCircuitType proves batch non-inclusion of published
+	// nullifiers against a nullifier tree root, with GKR-batched hashing and one
+	// BSB22 commitment. Shapes 144 and 512, no outputs.
+	NullifierReceiptCircuitType CircuitType = "nullifier-receipt"
+
 	// CustomRingBaseCircuitType proves the custom ring's audit statement only.
 	CustomRingBaseCircuitType CircuitType = "custom-ring-base"
 

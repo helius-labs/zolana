@@ -32,6 +32,10 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     let merge = &ix.merge;
     validate_field_elements(merge)?;
+    // Receipt-backed merges exist on the default rail only.
+    if merge.receipt_offset.is_some() {
+        return Err(ShieldedPoolError::ReceiptUnsupportedOwner.into());
+    }
     check_field_element(
         ix.output_ring_data_hash,
         "output ring data hash",
@@ -83,6 +87,7 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
             output_tree: merge_accounts.output_tree,
             payer: merge_accounts.payer,
             nullifier_pdas: merge_accounts.nullifier_pdas,
+            receipt: None,
         },
         merge,
         external_data_hash,

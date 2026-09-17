@@ -12,6 +12,7 @@ import (
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
 	mergeprover "zolana/prover/prover/merge"
+	receiptprover "zolana/prover/prover/nullifier_receipt"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
@@ -848,6 +849,8 @@ func servedCircuits() []common.CircuitType {
 		common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType,
 		common.MergeRingCircuitType,
+		common.MergeReceiptCircuitType,
+		common.NullifierReceiptCircuitType,
 		common.CustomRingBaseCircuitType,
 		common.CustomRingPolicyCircuitType,
 	}
@@ -1103,7 +1106,9 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.TransferP256RingCircuitType,
 		common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType,
-		common.MergeRingCircuitType:
+		common.MergeRingCircuitType,
+		common.MergeReceiptCircuitType,
+		common.NullifierReceiptCircuitType:
 		return "zk_transfer_queue"
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
 		return "zk_custom_ring_queue"
@@ -1135,9 +1140,11 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 		return 10
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
-	case common.MergeCircuitType, common.MergeRingCircuitType:
+	case common.MergeCircuitType, common.MergeRingCircuitType, common.MergeReceiptCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
 		return 60
+	case common.NullifierReceiptCircuitType:
+		return 120
 	default:
 		return 1
 	}
@@ -1175,6 +1182,10 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
+	case common.MergeReceiptCircuitType:
+		return handler.mergeVariantProof(buf, common.MergeReceiptCircuitType)
+	case common.NullifierReceiptCircuitType:
+		return handler.receiptProof(buf)
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
 		return handler.customRingProof(buf, proofRequestMeta.CircuitType)
 	default:
@@ -1204,6 +1215,49 @@ func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
 	proof, err := mergeprover.ProveMerge(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+// mergeVariantProof proves a merge onto the proving system of circuitType; the
+// request's own circuitType field must agree, since it selects the witness.
+func (handler proveHandler) mergeVariantProof(buf []byte, circuitType common.CircuitType) (*common.Proof, *Error) {
+	var params mergeprover.MergeParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	if params.CircuitType != circuitType {
+		return nil, malformedBodyError(fmt.Errorf("merge: circuit type %s does not match %s", params.CircuitType, circuitType))
+	}
+	if err := params.ValidateShape(); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetTransferSystem(circuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("%s: %w", circuitType, err))
+	}
+	proof, err := mergeprover.ProveMerge(ps, &params)
+	if err != nil {
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) receiptProof(buf []byte) (*common.Proof, *Error) {
+	var params receiptprover.Parameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	if err := params.ValidateShape(); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetTransferSystem(common.NullifierReceiptCircuitType, uint32(len(params.Nullifiers)), 0)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("nullifier-receipt: %w", err))
+	}
+	proof, err := receiptprover.Prove(ps, &params)
+	if err != nil {
 		return nil, provingError(err)
 	}
 	return proof, nil
