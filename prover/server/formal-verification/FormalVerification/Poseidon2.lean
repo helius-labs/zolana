@@ -29,21 +29,21 @@ def Poseidon2Permutation_2_uniqueAssignment (S : List.Vector F 2):
   iterate 3 refine UniqueAssignment.compose (Poseidon2ExternalRound_2_2_uniqueAssignment _ _) fun _ => ?_
   exact UniqueAssignment.constant' _ _ _ rfl
 
-/-- `perm(l, r)[1] + r`. -/
-def Poseidon2Compress_uniqueAssignment (l r : F):
-    UniqueAssignment (ZolanaProver.Poseidon2Compress l r) id := by
+/-- `perm(l, r)[1] + r`, over the vector so that `nullifierHash` below is a
+plain projection and no lemma has to unfold the composition. -/
+def Poseidon2Compress_uniqueAssignment (v : List.Vector F 2):
+    UniqueAssignment (ZolanaProver.Poseidon2Compress v.head v.tail.head) id := by
   unfold ZolanaProver.Poseidon2Compress
   refine UniqueAssignment.compose (Poseidon2Permutation_2_uniqueAssignment _) fun _ => ?_
   simp only [exists_eq_left]
   exact UniqueAssignment.constant' _ _ _ rfl
 
 /-- The nullifier tree hash: nodes `H(left, right)` and leaves `H(lo, hi)`. -/
-def nullifierHash : Hash F 2 := fun a => (Poseidon2Compress_uniqueAssignment a[0] a[1]).val
+def nullifierHash : Hash F 2 := fun v => (Poseidon2Compress_uniqueAssignment v).val
 
 @[simp]
 lemma Poseidon2Compress_iff_uniqueAssignment {l r : F} {k : F -> Prop}:
     ZolanaProver.Poseidon2Compress l r k ↔ k (nullifierHash vec![l, r]) := by
-  unfold nullifierHash
-  apply Iff.of_eq
-  rw [(Poseidon2Compress_uniqueAssignment _ _).equiv]
-  rfl
+  have h := (Poseidon2Compress_uniqueAssignment vec![l, r]).equiv k
+  simp only [List.Vector.head_cons, List.Vector.tail_cons, id_eq] at h
+  exact Iff.of_eq h
