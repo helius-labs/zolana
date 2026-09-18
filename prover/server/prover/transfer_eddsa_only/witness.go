@@ -125,6 +125,18 @@ func buildWitnessCore(
 // CreateWitness assigns the pre-computed parameters onto the Solana-only
 // spp_transaction circuit variant selected by Variant. This rail has no P256
 // witness at all. No hashing.
+// cachedInputs is the selection the owner-signed rails bind. A request that
+// omits it decodes to zero, which the circuit reads as an ordinary spend; the
+// hash chain is still the client's, because its value for an empty selection
+// depends on the input count.
+func (p *TransferParameters) cachedInputs() txcircuit.CachedInputs {
+	return txcircuit.CachedInputs{
+		InputBitmap:    orZero(p.CacheInputBitmap),
+		TreeID:         orZero(p.CacheTreeID),
+		InputHashChain: orZero(p.CacheInputHashChain),
+	}
+}
+
 func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	core, err := buildWitnessCore(p.Inputs, p.Outputs, p.TreeSlots, p.PublicAssets, p.PublicAmounts)
 	if err != nil {
@@ -169,7 +181,8 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
 		return &defaultring.DefaultRingEddsaOnlyCircuit{
-			Shape: shape,
+			CachedInputs: p.cachedInputs(),
+			Shape:        shape,
 			Public: defaultring.DefaultRingEddsaOnlyPublic{
 				Nullifiers:          core.nullifiers,
 				OutputHashes:        core.outputHashes,
@@ -224,7 +237,8 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
 		return &customring.CustomRingEddsaOnlyCircuit{
-			Shape: shape,
+			CachedInputs: p.cachedInputs(),
+			Shape:        shape,
 			Public: customring.CustomRingEddsaOnlyPublic{
 				Nullifiers:                   core.nullifiers,
 				OutputHashes:                 core.outputHashes,

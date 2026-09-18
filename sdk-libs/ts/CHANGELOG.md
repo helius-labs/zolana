@@ -269,6 +269,11 @@ Breaking
   (unchanged for every shape this package builds) → run a program and prover
   from this release, a proof or public-input hash produced by an earlier
   release no longer verifies.
+- `TransferInputs` carries `cacheInputBitmap`, `cacheTreeId` and
+  `cacheInputHashChain`, which every transfer public-input hash now ends with
+  and which this release always fills with the selection of a spend that draws
+  no input from a cache account → run a program and prover from this release,
+  and set the three fields on a hand-built `TransferInputs`.
 - `InputUtxo` is only the `nullifierHash`, and `TransactInstructionData` and
   `MergeTransactInstructionData` carry one `utxoTreeRootIndex` and
   `nullifierTreeRootIndex` pair after the inputs (was one pair per input, and

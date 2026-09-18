@@ -516,6 +516,11 @@ pub struct PublicInputs<'a> {
     /// Appended by owner-signed rails. The default rail publishes every slot;
     /// custom-ring rails publish only confidential-encryption-marked slots.
     pub output_owner_pk_hashes: Option<&'a [[u8; 32]]>,
+    /// The cache selection published right after the output owners, by exactly
+    /// the rails that publish them. A spend that draws no input from a cache
+    /// carries the empty selection rather than omitting it, so the preimage
+    /// length never depends on whether a cache was used.
+    pub cached_inputs: [[u8; 32]; 3],
 }
 
 impl PublicInputs<'_> {
@@ -546,6 +551,7 @@ impl PublicInputs<'_> {
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             elements.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
+            elements.extend(self.cached_inputs);
         }
         Ok(create_hash_chain_4_from_slice(&elements)?)
     }

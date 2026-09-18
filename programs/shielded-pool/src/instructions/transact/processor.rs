@@ -59,15 +59,20 @@ pub fn process_transact_ix(
     let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
     let mut owner_hashes = Box::new(OwnerHashCache::new());
     // 5. Check accounts.
-    let mut transact_accounts = match ix.circuit {
-        CircuitId::ConfidentialEddsa(..) | CircuitId::ConfidentialEddsaCached(..) => {
-            TransactAccounts::validate_and_parse(accounts, &ix)?
-        }
+    let mut transact_accounts = match ix.circuit.uncached() {
+        CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
         CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
             let (transact_accounts, ring_program_id) =
                 RingTransactAccounts::validate_and_parse(accounts, &ix, ix.circuit.is_authority())?;
             proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
             transact_accounts
+        }
+        // `uncached` resolves every cached twin to its rail, so these cannot be
+        // reached; reject rather than pick a parser for an unhandled selector.
+        CircuitId::ConfidentialEddsaCached(..)
+        | CircuitId::RingEddsaCached(..)
+        | CircuitId::RingP256Cached(..) => {
+            return Err(ShieldedPoolError::MismatchedCircuitType.into())
         }
     };
     // 6. Hash all signers before output owners: cache hits deduplicate signers.
@@ -155,13 +160,12 @@ pub fn validate_circuit_type(
 ) -> ProgramResult {
     // 1. Circuit is allowed for the instruction type.
     let circuit_matches = match instruction_tag {
-        InstructionTag::Transact => matches!(
-            ix.circuit,
-            CircuitId::ConfidentialEddsa(..) | CircuitId::ConfidentialEddsaCached(..)
-        ),
+        InstructionTag::Transact => {
+            matches!(ix.circuit.uncached(), CircuitId::ConfidentialEddsa(..))
+        }
         InstructionTag::RingTransact => {
             matches!(
-                ix.circuit,
+                ix.circuit.uncached(),
                 CircuitId::RingEddsa(..) | CircuitId::RingP256(..)
             )
         }

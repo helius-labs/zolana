@@ -8,7 +8,7 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
 use zolana_hasher::{
     hash_chain::{create_hash_chain_4, create_hash_chain_4_from_slice},
-    primitives::{hash_bytes, p256_owner_identity, right_align, solana_owner_identity},
+    primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
     sha256::Sha256,
     Hasher, Poseidon,
 };
@@ -19,7 +19,7 @@ use zolana_interface::{
         TransactIxDataRef,
     },
     shape::Shape,
-    state::cache::{CacheAccount, CACHE_CAPACITY},
+    state::cache::{cached_input_fields, empty_cached_input_fields, CacheAccount, CACHE_CAPACITY},
     tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot},
     verifying_keys::OutputOwnerMode,
     INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
@@ -110,11 +110,13 @@ const ASSIGNED_RING_PROGRAM: u8 = 1 << 5;
 const ASSIGNED_OUTPUT_TREE: u8 = 1 << 6;
 const ASSIGNED_CACHED_INPUTS: u8 = 1 << 7;
 const CACHED_INPUT_FIELDS: usize = 3;
-const PUBLIC_INPUT_FIELDS_CAPACITY: usize = 20;
-// Fixed prefix, external hash, asset/amount pairs, ring/signer/flags, output
-// owners, and the largest variant suffix (cached: 3; P256: 2, mutually exclusive).
+const PUBLIC_INPUT_FIELDS_CAPACITY: usize = 21;
+// The widest preimage, which is P256's: fixed prefix, the P256 suffix, external
+// hash, asset/amount pairs, ring/signer/flags, output owners, and the cache
+// selection. The P256 suffix and the cache selection are not alternatives --
+// every owner-signed rail publishes a selection, P256 included.
 const _: () = assert!(
-    5 + 1 + 2 * N_PUBLIC_SLOTS + 3 + 1 + CACHED_INPUT_FIELDS <= PUBLIC_INPUT_FIELDS_CAPACITY
+    5 + 2 + 1 + 2 * N_PUBLIC_SLOTS + 3 + 1 + CACHED_INPUT_FIELDS <= PUBLIC_INPUT_FIELDS_CAPACITY
 );
 const ALL_ASSIGNMENTS: u8 = ASSIGNED_OUTPUT_OWNERS
     | ASSIGNED_OWNER_SIGNERS
@@ -157,10 +159,7 @@ impl TransactProofInputs {
         if circuit.cached_inputs().is_none() {
             assignments |= ASSIGNED_CACHED_INPUTS;
         }
-        if matches!(
-            circuit,
-            CircuitId::ConfidentialEddsa(..) | CircuitId::ConfidentialEddsaCached(..)
-        ) {
+        if matches!(circuit.uncached(), CircuitId::ConfidentialEddsa(..)) {
             assignments |= ASSIGNED_RING_PROGRAM;
         }
         Self {
@@ -237,11 +236,11 @@ impl TransactProofInputs {
                 }
             }
         }
-        self.cached_inputs = Some([
-            right_align(&selection.input_bitmap.to_be_bytes()),
-            tree_id,
-            create_hash_chain_4(commitments.iter().take(ix.inputs.len()))?,
-        ]);
+        self.cached_inputs = Some(cached_input_fields(
+            selection.input_bitmap,
+            u16::from_le_bytes(cache_account.tree_id),
+            commitments.iter().take(ix.inputs.len()),
+        )?);
         self.assignments |= ASSIGNED_CACHED_INPUTS;
         Ok(())
     }
@@ -517,9 +516,13 @@ impl<'a> TransactProof<'a> {
         ]);
         if self.ix.circuit.output_owner_mode() != OutputOwnerMode::None {
             fields.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
-        }
-        if let Some(cached_inputs) = &self.derived.cached_inputs {
-            fields.extend_from_slice(cached_inputs);
+            // Every owner-signed circuit hashes the cache selection, so a spend
+            // that uses no cache publishes an empty one rather than omitting it.
+            // Ring authority binds none and never reaches here.
+            fields.extend_from_slice(&match &self.derived.cached_inputs {
+                Some(cached_inputs) => *cached_inputs,
+                None => empty_cached_input_fields(n_in)?,
+            });
         }
         create_hash_chain_4_from_slice(fields.as_slice()).map_err(Into::into)
     }

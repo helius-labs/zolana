@@ -87,36 +87,3 @@ pub mod transfer_ring_authority_2_2;
 pub mod transfer_ring_authority_3_3;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_authority_4_4;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_1_1;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_1_2;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_1_8;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_2_2;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_2_3;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_3_3;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_4_3;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_4_4;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_5_3;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_5_4;
-
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_confidential_cached_36_2;

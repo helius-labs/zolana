@@ -1,6 +1,7 @@
 use num_bigint::BigUint;
 use zolana_interface::{
-    instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
+    instruction::instruction_data::transact::TreeContext, state::cache::empty_cached_input_fields,
+    tree_slot::pack_input_flags,
 };
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers},
@@ -82,6 +83,8 @@ impl TransferProver {
             &private_tx_blinding,
         )
         .hash()?;
+        let cached_inputs = empty_cached_input_fields(assembled_inputs.nullifiers.len())?;
+        let [cache_input_bitmap, cache_tree_id, cache_input_hash_chain] = cached_inputs;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
@@ -94,6 +97,7 @@ impl TransferProver {
             input_flags: &input_flags,
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&assembled_outputs.output_owner_pk_hashes),
+            cached_inputs,
         }
         .hash()?;
 
@@ -115,6 +119,9 @@ impl TransferProver {
                 .iter()
                 .map(be)
                 .collect(),
+            cache_input_bitmap: be(&cache_input_bitmap),
+            cache_tree_id: be(&cache_tree_id),
+            cache_input_hash_chain: be(&cache_input_hash_chain),
             public_input_hash: be(&public_input),
         };
 

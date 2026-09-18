@@ -1,4 +1,5 @@
 use shielded_pool_tests::support::{
+    cache::CachedSpendFixture,
     fixtures::Pool,
     merge::{ring_cache_identity, RealMergeProof, RealRingMergeProof},
     transact::{proof_env, tree_progress},
@@ -15,8 +16,10 @@ use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::{merge_transact::MERGE_DEFAULT_INPUT_COUNT, CreateCacheData},
-        CreateCache,
+        instruction_data::{
+            merge_transact::MERGE_DEFAULT_INPUT_COUNT, transact::TransactIxData, CreateCacheData,
+        },
+        tag, CreateCache,
     },
     pda,
     state::{
@@ -420,4 +423,158 @@ fn cross_rail_caches_are_mutually_unwritable() {
         confidential_cache.holding(SLOT, ring_merge.data.merge.output_utxo_hash),
         "only the cache's bound identity separates the rejection from acceptance"
     );
+}
+
+/// The cache stands in for state inclusion, and nothing else: the spend proves
+/// ownership and nullifier non-inclusion as usual, publishes no UTXO root, and
+/// freezes the cache so no later merge can seat another commitment in it.
+#[test]
+fn transact_spends_cached_commitments_and_freezes_the_cache() {
+    let mut pool = proof_env();
+    let tree = pool.tree;
+    let tree_id = pool.tree_id;
+
+    let spend = CachedSpendFixture {
+        n_inputs: 2,
+        n_outputs: 2,
+        cache_nonce: 9,
+    }
+    .build(&mut pool.rpc, tree, tree_id);
+
+    assert_eq!(
+        cache_state(&pool.rpc, &spend.cache).frozen,
+        0,
+        "a cache is open until the first spend"
+    );
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
+
+    pool.rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            std::slice::from_ref(&spend.instruction),
+            &[],
+            ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        )
+        .expect("spend the cached commitments");
+
+    let state = cache_state(&pool.rpc, &spend.cache);
+    assert_eq!(state.frozen, 1, "the first spend freezes the cache");
+    assert_eq!(
+        state.commitments.get(..spend.commitments.len()),
+        Some(spend.commitments.as_slice()),
+        "freezing leaves the seated commitments in place"
+    );
+    assert_eq!(
+        tree_progress(&pool.rpc, &tree),
+        (
+            utxo_next_before + 2,
+            nullifier_next_before + spend.nullifiers.len() as u64
+        ),
+        "a cached spend appends its outputs and queues one nullifier per input"
+    );
+
+    // The nullifiers are spent, so the same instruction cannot run twice even
+    // though the cache still holds the commitments.
+    pool.rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            std::slice::from_ref(&spend.instruction),
+            &[],
+            ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        )
+        .expect_err("a cached spend cannot be replayed");
+}
+
+/// Each way a cached spend can be malformed, checked against one proven
+/// instruction so the rejection is the binding and not the proof. Every one of
+/// these is refused before the proof is verified, and a refused spend leaves the
+/// cache open.
+#[test]
+fn a_cached_spend_rejects_every_broken_cache_binding() {
+    let mut pool = proof_env();
+    let tree = pool.tree;
+    let tree_id = pool.tree_id;
+    let spend = CachedSpendFixture {
+        n_inputs: 2,
+        n_outputs: 2,
+        cache_nonce: 11,
+    }
+    .build(&mut pool.rpc, tree, tree_id);
+
+    // A cached selector expects the cache as its final account.
+    let mut without_cache = spend.instruction.clone();
+    without_cache.accounts.pop();
+    expect_transact_rejection(
+        &mut pool,
+        without_cache,
+        ShieldedPoolError::InvalidSettlementAccounts,
+    );
+
+    // A fully cached group proves against no UTXO root, so the only canonical
+    // encoding of its root index is zero.
+    let mut wrong_root_index = spend.instruction.clone();
+    let mut data = TransactIxData::deserialize(
+        wrong_root_index
+            .data
+            .get(1..)
+            .expect("tagged transact data"),
+    )
+    .expect("transact instruction data");
+    if let Some(context) = data.tree_contexts.first_mut() {
+        context.utxo_tree_root_index = 1;
+    }
+    wrong_root_index.data = std::iter::once(tag::TRANSACT)
+        .chain(data.serialize().expect("reserialize").into_iter())
+        .collect();
+    expect_transact_rejection(
+        &mut pool,
+        wrong_root_index,
+        ShieldedPoolError::InvalidCacheRootIndex,
+    );
+
+    // An empty slot carries nothing to spend, and zero must never be spendable.
+    let seated = cache_state(&pool.rpc, &spend.cache);
+    let mut emptied = seated;
+    if let Some(slot) = emptied.commitments.first_mut() {
+        *slot = [0u8; 32];
+    }
+    store_cache(&mut pool.rpc, spend.cache, emptied);
+    expect_transact_rejection(
+        &mut pool,
+        spend.instruction.clone(),
+        ShieldedPoolError::CacheSlotEmpty,
+    );
+
+    // One cache belongs to one tree, and a commitment is hashed under its tree.
+    let mut other_tree = seated;
+    other_tree.tree_id = tree_id.wrapping_add(1).to_le_bytes();
+    store_cache(&mut pool.rpc, spend.cache, other_tree);
+    expect_transact_rejection(
+        &mut pool,
+        spend.instruction.clone(),
+        ShieldedPoolError::CacheTreeMismatch,
+    );
+
+    store_cache(&mut pool.rpc, spend.cache, seated);
+    assert_eq!(
+        cache_state(&pool.rpc, &spend.cache).frozen,
+        0,
+        "no refused spend freezes the cache"
+    );
+}
+
+fn store_cache(rpc: &mut ZolanaProgramTest, cache: Pubkey, state: CacheAccount) {
+    let mut account = rpc.svm.get_account(&cache).expect("cache account");
+    account.data = bytemuck::bytes_of(&state).to_vec();
+    rpc.svm.set_account(cache, account).expect("store cache");
+}
+
+fn expect_transact_rejection(pool: &mut Pool, ix: Instruction, error: ShieldedPoolError) {
+    let failure = pool
+        .rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            std::slice::from_ref(&ix),
+            &[],
+            ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        )
+        .expect_err("the cached spend must be rejected");
+    Rejection::pool(error).assert_litesvm(failure);
 }

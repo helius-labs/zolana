@@ -122,6 +122,12 @@ pub(crate) struct TransferInputsJson {
     pub input_flags: String,
     #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
+    #[serde(rename = "cacheInputBitmap")]
+    pub cache_input_bitmap: String,
+    #[serde(rename = "cacheTreeId")]
+    pub cache_tree_id: String,
+    #[serde(rename = "cacheInputHashChain")]
+    pub cache_input_hash_chain: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -174,6 +180,12 @@ pub(crate) struct TransferP256InputsJson {
     pub input_flags: String,
     #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
+    #[serde(rename = "cacheInputBitmap")]
+    pub cache_input_bitmap: String,
+    #[serde(rename = "cacheTreeId")]
+    pub cache_tree_id: String,
+    #[serde(rename = "cacheInputHashChain")]
+    pub cache_input_hash_chain: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -491,6 +503,9 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
             .iter()
             .map(big_uint_to_string)
             .collect(),
+        cache_input_bitmap: big_uint_to_string(&inputs.cache_input_bitmap),
+        cache_tree_id: big_uint_to_string(&inputs.cache_tree_id),
+        cache_input_hash_chain: big_uint_to_string(&inputs.cache_input_hash_chain),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -556,6 +571,9 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
             .iter()
             .map(big_uint_to_string)
             .collect(),
+        cache_input_bitmap: big_uint_to_string(&inputs.cache_input_bitmap),
+        cache_tree_id: big_uint_to_string(&inputs.cache_tree_id),
+        cache_input_hash_chain: big_uint_to_string(&inputs.cache_input_hash_chain),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -667,6 +685,9 @@ mod merge_tests {
             signer_pk_hashes: vec![BigUint::from(10u8), BigUint::from(12u8)],
             input_flags: BigUint::from(1u8),
             published_output_owner_pk_hashes: vec![BigUint::from(14u8)],
+            cache_input_bitmap: BigUint::ZERO,
+            cache_tree_id: BigUint::ZERO,
+            cache_input_hash_chain: BigUint::from(21u8),
             public_input_hash: BigUint::from(11u8),
         };
 
@@ -798,6 +819,9 @@ mod merge_tests {
             signer_pk_hashes: vec![BigUint::from(8u8)],
             input_flags: BigUint::from(1u8),
             published_output_owner_pk_hashes: Vec::new(),
+            cache_input_bitmap: BigUint::ZERO,
+            cache_tree_id: BigUint::ZERO,
+            cache_input_hash_chain: BigUint::ZERO,
             public_input_hash: BigUint::from(9u8),
         };
 

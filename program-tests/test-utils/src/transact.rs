@@ -29,7 +29,7 @@ use zolana_interface::{
     },
     pda,
     shape::Shape,
-    state::read_tree_id,
+    state::{cache::empty_cached_input_fields, read_tree_id},
     tree_slot::{pack_input_flags, TreeSlot},
     verifying_keys::transfer_confidential_2_3,
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
@@ -461,6 +461,10 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         .iter()
         .map(|output| output.owner_pk_hash.clone())
         .collect();
+    // Every helper here spends from the state tree, so the rail publishes the
+    // empty cache selection; a cached spend builds its own.
+    let [cache_input_bitmap, cache_tree_id, cache_input_hash_chain] =
+        empty_cached_input_fields(args.inputs.len()).expect("cache selection");
     TransferInputs {
         tree_slots: TreeSlotFields::encode_all(&args.tree_slots),
         output_tree_id: BigUint::from(args.output_tree_id),
@@ -475,6 +479,9 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         signer_pk_hashes,
         input_flags: be(&input_flags),
         published_output_owner_pk_hashes,
+        cache_input_bitmap: be(&cache_input_bitmap),
+        cache_tree_id: be(&cache_tree_id),
+        cache_input_hash_chain: be(&cache_input_hash_chain),
         public_input_hash: be(&args.public_input_hash),
     }
 }
@@ -639,6 +646,71 @@ pub fn dummy_input_with_proof(
         nullifier: be(&nullifier),
         owner_pk_hash: be(&zero),
         nullifier_secret: be(&zero),
+    })
+}
+
+/// A real spend the cache proves the existence of, so the state tree does not:
+/// its state path is absent and its commitment must sit in the cache slot the
+/// selector's bitmap picks for this input's position.
+pub struct CachedSpend {
+    pub input: TransferInput,
+    pub nullifier: [u8; 32],
+    /// The UTXO hash a merge wrote into the cache, hashed under `tree_id`.
+    pub commitment: [u8; 32],
+}
+
+/// Build one cached spend of a zero-amount SOL UTXO owned by `owner`.
+///
+/// The UTXO is never appended to the state tree: that is the point of the
+/// cache, so the input carries an all-zero state path and its tree group must
+/// publish no UTXO root. The nullifier proof is unchanged -- the cache replaces
+/// inclusion, never authority.
+pub fn cached_spend_input(
+    owner: PublicKey,
+    nullifier_key: &NullifierKey,
+    blinding: &[u8; 31],
+    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+    tree_id: u16,
+) -> Result<CachedSpend> {
+    let zero = [0u8; 32];
+    let nullifier_pk = nullifier_key.pubkey()?;
+    let utxo = Utxo {
+        owner,
+        asset: SOL_MINT,
+        amount: 0,
+        blinding: expand_blinding(blinding),
+        ring_program_id: None,
+        data: Default::default(),
+    };
+    let owner_field = owner_hash(&owner, &nullifier_pk)?;
+    // Hash the same projection the input carries, so the commitment seated in
+    // the cache is by construction the one the circuit derives for this input.
+    let commitment = ProofInputUtxo::new(
+        owner_field,
+        &utxo.asset,
+        utxo.amount,
+        &utxo.blinding,
+        tree_id,
+    )?
+    .with_ring(zero, &utxo.ring_program_id)?
+    .hash()?;
+    let nullifier = nullifier_key.nullifier(&commitment, &utxo.blinding)?;
+    let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
+    let input = spend_input(SpendInputArgs {
+        utxo: &utxo,
+        owner_field: &owner_field,
+        state_path: &vec![zero; STATE_TREE_HEIGHT],
+        state_path_index: 0,
+        non_inclusion: &non_inclusion,
+        tree_id,
+        nullifier: &nullifier,
+        owner_pk_hash: &owner.owner_proof_input_hash()?,
+        nullifier_key,
+    })?;
+    Ok(CachedSpend {
+        input,
+        nullifier,
+        commitment,
     })
 }
 
@@ -872,6 +944,8 @@ pub fn build_spl_withdrawal(
     let signer_hashes = [payer_hash, zero, zero];
     let (public_slot_assets, public_slot_amounts) =
         spl_public_slots(public_spl_field, &mint_bytes).expect("public SPL slots");
+    // Two inputs, spending no cache: the rail still publishes a selection.
+    let cached_inputs = empty_cached_input_fields(2).expect("cache selection");
     let public_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
         output_hashes: &output_hashes,
@@ -887,6 +961,7 @@ pub fn build_spl_withdrawal(
         input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_hashes),
+        cached_inputs,
     }
     .hash()
     .expect("public input hash");

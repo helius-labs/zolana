@@ -187,6 +187,12 @@ pub struct TransferInputs {
     /// `zolana_interface::tree_slot::pack_input_flags`.
     pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
+    /// The cache selection this spend publishes: which inputs are drawn from a
+    /// cache, the cache's tree, and the chain over the selected commitments.
+    /// A spend that uses no cache still publishes the empty selection.
+    pub cache_input_bitmap: BigUint,
+    pub cache_tree_id: BigUint,
+    pub cache_input_hash_chain: BigUint,
     pub public_input_hash: BigUint,
 }
 
@@ -225,5 +231,11 @@ pub struct TransferP256Inputs {
     /// `zolana_interface::tree_slot::pack_input_flags`.
     pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
+    /// The cache selection this spend publishes: which inputs are drawn from a
+    /// cache, the cache's tree, and the chain over the selected commitments.
+    /// A spend that uses no cache still publishes the empty selection.
+    pub cache_input_bitmap: BigUint,
+    pub cache_tree_id: BigUint,
+    pub cache_input_hash_chain: BigUint,
     pub public_input_hash: BigUint,
 }

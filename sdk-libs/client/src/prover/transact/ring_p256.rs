@@ -8,7 +8,8 @@ use p256::{
 use solana_address::Address;
 use zolana_hasher::primitives::{hash_bytes, p256_owner_identity};
 use zolana_interface::{
-    instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
+    instruction::instruction_data::transact::TreeContext, state::cache::empty_cached_input_fields,
+    tree_slot::pack_input_flags,
 };
 use zolana_keypair::{hash::sha256, Curve};
 use zolana_transaction::{
@@ -130,6 +131,8 @@ impl RingTransferP256Prover {
 
         let ring_program_id = program_id_proof_input_hash(&self.ring_program_id)?;
         let message_proof_input_hash = hash_bytes(&message_digest)?;
+        let cached_inputs = empty_cached_input_fields(assembled_inputs.nullifiers.len())?;
+        let [cache_input_bitmap, cache_tree_id, cache_input_hash_chain] = cached_inputs;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
@@ -142,6 +145,7 @@ impl RingTransferP256Prover {
             input_flags: &input_flags,
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&published_output_owner_pk_hashes),
+            cached_inputs,
         }
         .hash_with_after_private_tx(&[message_proof_input_hash, default_p256_owner_pk_hash])?;
 
@@ -169,6 +173,9 @@ impl RingTransferP256Prover {
                 .iter()
                 .map(be)
                 .collect(),
+            cache_input_bitmap: be(&cache_input_bitmap),
+            cache_tree_id: be(&cache_tree_id),
+            cache_input_hash_chain: be(&cache_input_hash_chain),
             public_input_hash: be(&public_input),
         };
 

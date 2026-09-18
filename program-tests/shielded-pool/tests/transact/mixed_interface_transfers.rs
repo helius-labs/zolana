@@ -1,6 +1,7 @@
 //! Real-proof coverage for transactions with multiple ordered interface transfers.
 
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
+use zolana_interface::state::cache::empty_cached_input_fields;
 
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -367,6 +368,7 @@ fn prove_spend(
         input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(2).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

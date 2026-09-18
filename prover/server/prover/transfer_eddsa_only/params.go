@@ -91,6 +91,15 @@ type TransferParameters struct {
 	InputFlags                   *big.Int
 	PublishedOutputOwnerPkHashes []*big.Int
 
+	// The cache selection every owner-signed rail publishes, mirroring
+	// txcircuit.CachedInputs. A zero CacheInputBitmap is an ordinary spend that
+	// proves every input against the state tree; its CacheInputHashChain is
+	// then the chain over NInputs empty slots, not zero. Ring authority binds
+	// no selection and ignores these.
+	CacheInputBitmap    *big.Int
+	CacheTreeID         *big.Int
+	CacheInputHashChain *big.Int
+
 	// Variant selects the Solana-only instantiation: confidential default-ring,
 	// confidential custom-ring, or ring-authority (anonymous, input owners
 	// private, no signature).

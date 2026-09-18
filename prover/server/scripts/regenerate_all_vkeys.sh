@@ -40,12 +40,6 @@ for key in $keys; do
     fi
 done
 
-# Preserve committed cached key modules, which have no matching .key artifacts.
-for cached_module in "$vkey_dir"/transfer_confidential_cached_*.rs; do
-    [ -f "$cached_module" ] || continue
-    modules="${modules}$(basename "$cached_module" .rs)"$'\n'
-done
-
 {
     echo '//! Committed Groth16 verifying keys.'
     echo '//!'

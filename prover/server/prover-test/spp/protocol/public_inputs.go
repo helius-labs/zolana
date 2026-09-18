@@ -25,11 +25,16 @@ var publicInputNames = [...]string{
 	"signer_pk_hashes",
 	"input_flags",
 	"output_owner_pk_hashes",
+	"cache_input_bitmap",
+	"cache_tree_id",
+	"cache_input_hash_chain",
 }
 
 // PublicInputNames returns the PublicInputHash preimage order. Variant-specific
 // elements inserted after private_tx_hash (PreimageAfterPrivateTxHash) are not
-// listed; they exist only on the P256 rail.
+// listed; they exist only on the P256 rail. The three trailing cache elements
+// are the PreimageTail every owner-signed rail publishes, empty or not; ring
+// authority binds neither them nor the output owner tags.
 func PublicInputNames() []string {
 	out := make([]string, len(publicInputNames))
 	copy(out, publicInputNames[:])

@@ -150,24 +150,47 @@ ticked. The counts below include them.
 Merge-cache identity sync (2026-09-16): the cache keys on one opaque
 `owner_identity` that each merge rail proves rather than signs, its PDA belongs
 to the signing rent sponsor, and an immutable `expires_at` is the sole close
-condition; INV-MERGE-20..28 added (9: 6 covered, 3 untested pending the
-`merge_ring` proving-key rotation). The counts below include them.
+condition; INV-MERGE-20..28 added (9). The counts below include them.
+
+Cached-spend circuit merge (2026-09-17): the standalone cached transfer circuit
+is gone. Every owner-signed transact circuit now folds a cache selection into its
+public input hash whether or not a cache is supplied, so a cached spend verifies
+against its rail's ordinary key, the eleven `transfer_confidential_cached_*`
+verifying keys were deleted, and `CircuitId` gained one cached twin per rail
+(`ConfidentialEddsaCached`, `RingEddsaCached`, `RingP256Cached`, each resolving
+through `CircuitId::uncached`); `RingAuthority` binds no selection. Cached spends
+therefore work on the ring rails too. No invariant was added or renumbered, but
+two moved from partial to covered: INV-MERGE-21 and INV-MERGE-22 lost the
+`#[ignore]`s that waited on a `merge_ring` key rotation. INV-MERGE-24, already
+covered, gains a direct leg from the first end-to-end cached spend with a real
+proof,
+`program-tests/shielded-pool/tests/cache/functional.rs`
+`transact_spends_cached_commitments_and_freezes_the_cache` (built on the new
+`CachedSpendFixture` in `program-tests/shielded-pool/src/support/cache.rs`).
+INV-MERGE-23 moves to covered: the positive spend path, the selector legs and
+the spend-path rejections are all pinned, the last by
+`a_cached_spend_rejects_every_broken_cache_binding` (one proven instruction with
+each binding broken in turn: a dropped cache account, a nonzero
+`utxo_tree_root_index`, an emptied slot, and a cache retagged to another tree).
+Selector coverage grew with `transact/validate_circuit.rs`
+`a_cached_selector_is_accepted_exactly_where_its_rail_is`, and
+`tests/bench/cu.rs` now measures cached spends at the 5x4 and 36x2 shapes.
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 265 / 295
+- Covered: 268 / 295
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
-- Partial: 22 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(265 + 2 + 22 + 1 + 5 = 295. The per-file partial+untested column sums to 24
+(268 + 2 + 19 + 1 + 5 = 295. The per-file partial+untested column sums to 20
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 29/9/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 32/6/0/4, tree 50/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
@@ -201,7 +224,7 @@ closed this pass by `spp-test-validator/tests/lifecycle.rs`
 submitted with owner B's `user_record` fails with 7008, leaving the tree and the
 fixture's spendable set unchanged.
 
-21 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
+19 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
 count/delta assertion or the full-batch/localnet leg is missing. The notable ones:
 INV-MERGE-12/13/14 (real localnet merges pass but do not assert the exact +8/+1
 tree deltas or the event field-by-field), INV-BATCH-NULL-04/05/06 (the

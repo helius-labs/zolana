@@ -14,7 +14,7 @@ use zolana_client::{
 use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput, TransactProof},
-    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    state::{cache::empty_cached_input_fields, discriminator::TREE_ACCOUNT_DISCRIMINATOR},
     tree_slot::{pack_input_flags, tree_id_field, TreeSlot},
     ADDRESS_DOMAIN, INPUT_TREES, SHIELDED_POOL_PROGRAM_ID, SOL_ASSET_FIELD, UTXO_DOMAIN,
 };
@@ -201,6 +201,9 @@ impl EntryWitness<'_> {
         let public_transfers = PublicTransfers::default();
         // One real input in tree slot 0, dummy inputs allowed.
         let input_flags = pack_input_flags(true, [0u8]).map_err(|_| EntryProofError::Hashing)?;
+        // One input, spending no cache: the rail still publishes a selection.
+        let cached_inputs = empty_cached_input_fields(1).map_err(|_| EntryProofError::Hashing)?;
+        let [cache_input_bitmap, cache_tree_id, cache_input_hash_chain] = cached_inputs;
         let public_hash = PublicInputs {
             nullifiers: &[slot.nullifier],
             output_hashes: &[output_hash],
@@ -213,6 +216,7 @@ impl EntryWitness<'_> {
             input_flags: &input_flags,
             signer_pk_hashes: &signer_hashes,
             output_owner_pk_hashes: Some(&output_owner_hashes),
+            cached_inputs,
         }
         .hash()
         .map_err(|_| EntryProofError::Hashing)?;
@@ -256,6 +260,9 @@ impl EntryWitness<'_> {
             blinding_seed: be(&blinding_seed),
             external_data_hash: be(&external_hash),
             private_tx_hash: be(&private_tx),
+            cache_input_bitmap: be(&cache_input_bitmap),
+            cache_tree_id: be(&cache_tree_id),
+            cache_input_hash_chain: be(&cache_input_hash_chain),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             ring_program_id: BigUint::ZERO,
