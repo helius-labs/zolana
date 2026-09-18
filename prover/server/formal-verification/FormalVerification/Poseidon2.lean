@@ -30,8 +30,14 @@ def Poseidon2Permutation_2_uniqueAssignment (S : List.Vector F 2):
   exact UniqueAssignment.constant' _ _ _ rfl
 
 /-- `perm(l, r)[1] + r`, over the vector so that `nullifierHash` below is a
-plain projection and no lemma has to unfold the composition. -/
-def Poseidon2Compress_uniqueAssignment (v : List.Vector F 2):
+plain projection.
+
+`opaque`: the kernel ignores reducibility attributes, and a definitional
+check that does not close on arguments makes it evaluate the composition
+symbolically, five-fold per round. Every proof uses only `equiv`, and
+`native_decide` compiles the value, so nothing needs the kernel to see the
+body. -/
+opaque Poseidon2Compress_uniqueAssignment (v : List.Vector F 2):
     UniqueAssignment (ZolanaProver.Poseidon2Compress v.head v.tail.head) id := by
   unfold ZolanaProver.Poseidon2Compress
   refine UniqueAssignment.compose (Poseidon2Permutation_2_uniqueAssignment _) fun _ => ?_
@@ -43,10 +49,6 @@ def nullifierHash : Hash F 2 := fun v => (Poseidon2Compress_uniqueAssignment v).
 
 theorem nullifierHash_def (v : List.Vector F 2) :
     nullifierHash v = (Poseidon2Compress_uniqueAssignment v).val := rfl
-
-/-- Unfolding `nullifierHash` evaluates the 56-round composition symbolically;
-every proof treats the hash as opaque, so the unifier must not try. -/
-attribute [irreducible] nullifierHash
 
 @[simp]
 lemma Poseidon2Compress_iff_uniqueAssignment {l r : F} {k : F -> Prop}:
