@@ -1,0 +1,6374 @@
+[
+  {
+    "mode": "direct_zero_rtt",
+    "workers": 1,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 126.27,
+        "fetch_ms": 0,
+        "proof_http_ms": 126.27,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 138.723,
+        "fetch_ms": 0,
+        "proof_http_ms": 138.723,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 127.67,
+        "fetch_ms": 0,
+        "proof_http_ms": 127.67,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 129.472,
+        "fetch_ms": 0,
+        "proof_http_ms": 129.472,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 128.172,
+        "fetch_ms": 0,
+        "proof_http_ms": 128.172,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 133.632,
+        "fetch_ms": 0,
+        "proof_http_ms": 133.632,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 131.672,
+        "fetch_ms": 0,
+        "proof_http_ms": 131.671,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 131.463,
+        "fetch_ms": 0,
+        "proof_http_ms": 131.463,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 143.284,
+        "fetch_ms": 0,
+        "proof_http_ms": 143.283,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 146.237,
+        "fetch_ms": 0,
+        "proof_http_ms": 146.237,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 145.388,
+        "fetch_ms": 0,
+        "proof_http_ms": 145.388,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 146.508,
+        "fetch_ms": 0,
+        "proof_http_ms": 146.507,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 157.971,
+        "fetch_ms": 0,
+        "proof_http_ms": 157.971,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 134.8,
+        "fetch_ms": 0,
+        "proof_http_ms": 134.8,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 145.343,
+        "fetch_ms": 0,
+        "proof_http_ms": 145.343,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 152.092,
+        "fetch_ms": 0,
+        "proof_http_ms": 152.091,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 145.909,
+        "fetch_ms": 0,
+        "proof_http_ms": 145.908,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 151.596,
+        "fetch_ms": 0,
+        "proof_http_ms": 151.596,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 149.873,
+        "fetch_ms": 0,
+        "proof_http_ms": 149.872,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 142.794,
+        "fetch_ms": 0,
+        "proof_http_ms": 142.794,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 142.081,
+        "fetch_ms": 0,
+        "proof_http_ms": 142.081,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 154.56,
+        "fetch_ms": 0,
+        "proof_http_ms": 154.56,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 160.925,
+        "fetch_ms": 0,
+        "proof_http_ms": 160.925,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 158.165,
+        "fetch_ms": 0,
+        "proof_http_ms": 158.164,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 154.792,
+        "fetch_ms": 0,
+        "proof_http_ms": 154.791,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 156.488,
+        "fetch_ms": 0,
+        "proof_http_ms": 156.487,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 154.722,
+        "fetch_ms": 0,
+        "proof_http_ms": 154.722,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 167.805,
+        "fetch_ms": 0,
+        "proof_http_ms": 167.804,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 150.416,
+        "fetch_ms": 0,
+        "proof_http_ms": 150.416,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 158.896,
+        "fetch_ms": 0,
+        "proof_http_ms": 158.896,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 159.443,
+        "fetch_ms": 0,
+        "proof_http_ms": 159.442,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 150.543,
+        "fetch_ms": 0,
+        "proof_http_ms": 150.543,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.6835334589999995,
+    "proofs_per_second": 6.832448253040227,
+    "p50_ms": 146.508,
+    "p95_ms": 160.925,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 1,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 275.201,
+        "fetch_ms": 74.574,
+        "proof_http_ms": 200.627,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 281.095,
+        "fetch_ms": 76.297,
+        "proof_http_ms": 204.797,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 287.938,
+        "fetch_ms": 74.133,
+        "proof_http_ms": 213.805,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 278.975,
+        "fetch_ms": 76.842,
+        "proof_http_ms": 202.133,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 270.198,
+        "fetch_ms": 74.069,
+        "proof_http_ms": 196.127,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 270.717,
+        "fetch_ms": 73.498,
+        "proof_http_ms": 197.219,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 289.152,
+        "fetch_ms": 76.791,
+        "proof_http_ms": 212.36,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 309.239,
+        "fetch_ms": 75.445,
+        "proof_http_ms": 233.794,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 317.032,
+        "fetch_ms": 75.977,
+        "proof_http_ms": 241.055,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 326.028,
+        "fetch_ms": 77.74,
+        "proof_http_ms": 248.287,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 312.211,
+        "fetch_ms": 77.825,
+        "proof_http_ms": 234.385,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 308.694,
+        "fetch_ms": 75.951,
+        "proof_http_ms": 232.742,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 307.813,
+        "fetch_ms": 75.047,
+        "proof_http_ms": 232.766,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 302.205,
+        "fetch_ms": 77.723,
+        "proof_http_ms": 224.482,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.265,
+        "fetch_ms": 74.844,
+        "proof_http_ms": 204.421,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 269.302,
+        "fetch_ms": 73.65,
+        "proof_http_ms": 195.651,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 285.06,
+        "fetch_ms": 75.941,
+        "proof_http_ms": 209.118,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 277.699,
+        "fetch_ms": 75.985,
+        "proof_http_ms": 201.714,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 272.572,
+        "fetch_ms": 75.379,
+        "proof_http_ms": 197.192,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 289.663,
+        "fetch_ms": 77.458,
+        "proof_http_ms": 212.204,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 276.824,
+        "fetch_ms": 74.518,
+        "proof_http_ms": 202.306,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 277.377,
+        "fetch_ms": 74.585,
+        "proof_http_ms": 202.791,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 274.725,
+        "fetch_ms": 76.56,
+        "proof_http_ms": 198.165,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.563,
+        "fetch_ms": 75.714,
+        "proof_http_ms": 203.848,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 270.898,
+        "fetch_ms": 76.759,
+        "proof_http_ms": 194.139,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 278.57,
+        "fetch_ms": 74.881,
+        "proof_http_ms": 203.688,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 278.733,
+        "fetch_ms": 75.171,
+        "proof_http_ms": 203.561,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 275.772,
+        "fetch_ms": 75.358,
+        "proof_http_ms": 200.413,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 280.156,
+        "fetch_ms": 74.33,
+        "proof_http_ms": 205.825,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 277.63,
+        "fetch_ms": 77.327,
+        "proof_http_ms": 200.302,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 284.658,
+        "fetch_ms": 77.331,
+        "proof_http_ms": 207.326,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 285.754,
+        "fetch_ms": 75.372,
+        "proof_http_ms": 210.381,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 9.156555417,
+    "proofs_per_second": 3.494763974298568,
+    "p50_ms": 279.563,
+    "p95_ms": 317.032,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 1,
+    "clients": 2,
+    "samples": [
+      {
+        "total_ms": 288,
+        "fetch_ms": 77.235,
+        "proof_http_ms": 210.765,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 424.976,
+        "fetch_ms": 77.244,
+        "proof_http_ms": 347.731,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 296.822,
+        "fetch_ms": 102.774,
+        "proof_http_ms": 194.048,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 313.69,
+        "fetch_ms": 106.503,
+        "proof_http_ms": 207.185,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 346.385,
+        "fetch_ms": 128.713,
+        "proof_http_ms": 217.672,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 312.668,
+        "fetch_ms": 106.123,
+        "proof_http_ms": 206.544,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 305.592,
+        "fetch_ms": 96.454,
+        "proof_http_ms": 209.137,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 341.282,
+        "fetch_ms": 119.755,
+        "proof_http_ms": 221.526,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 324.054,
+        "fetch_ms": 106.696,
+        "proof_http_ms": 217.357,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 308.397,
+        "fetch_ms": 104.53,
+        "proof_http_ms": 203.867,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 338.162,
+        "fetch_ms": 131.635,
+        "proof_http_ms": 206.527,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 352.883,
+        "fetch_ms": 124.61,
+        "proof_http_ms": 228.272,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 334.1,
+        "fetch_ms": 121.113,
+        "proof_http_ms": 212.987,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 347.655,
+        "fetch_ms": 115.098,
+        "proof_http_ms": 232.556,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 355.076,
+        "fetch_ms": 145.361,
+        "proof_http_ms": 209.714,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 346.741,
+        "fetch_ms": 138.579,
+        "proof_http_ms": 208.161,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 329.597,
+        "fetch_ms": 114.467,
+        "proof_http_ms": 215.13,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 324.377,
+        "fetch_ms": 105.13,
+        "proof_http_ms": 219.247,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 339.786,
+        "fetch_ms": 116.715,
+        "proof_http_ms": 223.07,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 329.749,
+        "fetch_ms": 81.9,
+        "proof_http_ms": 247.849,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 338.4,
+        "fetch_ms": 122.508,
+        "proof_http_ms": 215.892,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 339.935,
+        "fetch_ms": 92.273,
+        "proof_http_ms": 247.661,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 306.321,
+        "fetch_ms": 87.792,
+        "proof_http_ms": 218.528,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 327.799,
+        "fetch_ms": 117.563,
+        "proof_http_ms": 210.235,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 333.58,
+        "fetch_ms": 115.685,
+        "proof_http_ms": 217.895,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 326.106,
+        "fetch_ms": 98.287,
+        "proof_http_ms": 227.818,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 317.469,
+        "fetch_ms": 95.984,
+        "proof_http_ms": 221.484,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 303.462,
+        "fetch_ms": 94.514,
+        "proof_http_ms": 208.946,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 313.327,
+        "fetch_ms": 97.396,
+        "proof_http_ms": 215.93,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 321.861,
+        "fetch_ms": 104.234,
+        "proof_http_ms": 217.627,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 345.874,
+        "fetch_ms": 134.614,
+        "proof_http_ms": 211.259,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 338.196,
+        "fetch_ms": 121.937,
+        "proof_http_ms": 216.258,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 5.362762208,
+    "proofs_per_second": 5.967074197745222,
+    "p50_ms": 329.749,
+    "p95_ms": 355.076,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 1,
+    "clients": 4,
+    "samples": [
+      {
+        "total_ms": 714.102,
+        "fetch_ms": 76.832,
+        "proof_http_ms": 637.27,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 283.837,
+        "fetch_ms": 76.792,
+        "proof_http_ms": 207.045,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 430.191,
+        "fetch_ms": 76.749,
+        "proof_http_ms": 353.441,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 570.756,
+        "fetch_ms": 76.89,
+        "proof_http_ms": 493.866,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 583.827,
+        "fetch_ms": 92.016,
+        "proof_http_ms": 491.81,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 584.777,
+        "fetch_ms": 113.402,
+        "proof_http_ms": 471.374,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 597.553,
+        "fetch_ms": 92.53,
+        "proof_http_ms": 505.022,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 603.266,
+        "fetch_ms": 116.205,
+        "proof_http_ms": 487.06,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 598.402,
+        "fetch_ms": 95.685,
+        "proof_http_ms": 502.716,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 599.754,
+        "fetch_ms": 92.633,
+        "proof_http_ms": 507.121,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 599.883,
+        "fetch_ms": 100.642,
+        "proof_http_ms": 499.24,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 608.433,
+        "fetch_ms": 127.343,
+        "proof_http_ms": 481.09,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 603.62,
+        "fetch_ms": 104.567,
+        "proof_http_ms": 499.052,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 603.969,
+        "fetch_ms": 117.323,
+        "proof_http_ms": 486.645,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 599.541,
+        "fetch_ms": 128.089,
+        "proof_http_ms": 471.452,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 588.043,
+        "fetch_ms": 101.477,
+        "proof_http_ms": 486.565,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 582.297,
+        "fetch_ms": 103.503,
+        "proof_http_ms": 478.793,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 579.653,
+        "fetch_ms": 118.377,
+        "proof_http_ms": 461.276,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 585.85,
+        "fetch_ms": 113.699,
+        "proof_http_ms": 472.15,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 593.606,
+        "fetch_ms": 127.064,
+        "proof_http_ms": 466.541,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 610.349,
+        "fetch_ms": 88.871,
+        "proof_http_ms": 521.478,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 604.546,
+        "fetch_ms": 100.529,
+        "proof_http_ms": 504.016,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 594.077,
+        "fetch_ms": 128.159,
+        "proof_http_ms": 465.917,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 584.179,
+        "fetch_ms": 96.037,
+        "proof_http_ms": 488.141,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 581.479,
+        "fetch_ms": 129.965,
+        "proof_http_ms": 451.514,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 590.062,
+        "fetch_ms": 88.745,
+        "proof_http_ms": 501.316,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 598.794,
+        "fetch_ms": 95.809,
+        "proof_http_ms": 502.984,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 598.489,
+        "fetch_ms": 120.64,
+        "proof_http_ms": 477.849,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 591.913,
+        "fetch_ms": 97.67,
+        "proof_http_ms": 494.242,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 589.34,
+        "fetch_ms": 137.911,
+        "proof_http_ms": 451.428,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 588.939,
+        "fetch_ms": 121.814,
+        "proof_http_ms": 467.124,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 595.185,
+        "fetch_ms": 93.879,
+        "proof_http_ms": 501.305,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.887099083,
+    "proofs_per_second": 6.54785169208324,
+    "p50_ms": 594.077,
+    "p95_ms": 610.349,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 1,
+    "clients": 8,
+    "samples": [
+      {
+        "total_ms": 151.164,
+        "fetch_ms": 78.252,
+        "proof_http_ms": 72.911,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 577.507,
+        "fetch_ms": 78.47,
+        "proof_http_ms": 499.036,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 423.936,
+        "fetch_ms": 78.41,
+        "proof_http_ms": 345.526,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 151.093,
+        "fetch_ms": 78.319,
+        "proof_http_ms": 72.774,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 284.821,
+        "fetch_ms": 78.288,
+        "proof_http_ms": 206.533,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 749.863,
+        "fetch_ms": 78.383,
+        "proof_http_ms": 671.479,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 905.424,
+        "fetch_ms": 78.181,
+        "proof_http_ms": 827.243,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 151.047,
+        "fetch_ms": 78.324,
+        "proof_http_ms": 72.722,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 223.92,
+        "fetch_ms": 106.178,
+        "proof_http_ms": 117.741,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 899.115,
+        "fetch_ms": 112.916,
+        "proof_http_ms": 786.198,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 223.278,
+        "fetch_ms": 106.156,
+        "proof_http_ms": 117.121,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 919.739,
+        "fetch_ms": 94.142,
+        "proof_http_ms": 825.596,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 242.848,
+        "fetch_ms": 149.16,
+        "proof_http_ms": 93.687,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 1006.739,
+        "fetch_ms": 141.518,
+        "proof_http_ms": 865.22,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 248.022,
+        "fetch_ms": 116.466,
+        "proof_http_ms": 131.555,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 1011.75,
+        "fetch_ms": 125.928,
+        "proof_http_ms": 885.821,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 176.428,
+        "fetch_ms": 93.809,
+        "proof_http_ms": 82.618,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 173.588,
+        "fetch_ms": 74.598,
+        "proof_http_ms": 98.989,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 1001.14,
+        "fetch_ms": 126.378,
+        "proof_http_ms": 874.761,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 185.924,
+        "fetch_ms": 90.53,
+        "proof_http_ms": 95.393,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 1067.771,
+        "fetch_ms": 137.943,
+        "proof_http_ms": 929.827,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 219.834,
+        "fetch_ms": 115.748,
+        "proof_http_ms": 104.085,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 190.127,
+        "fetch_ms": 80.569,
+        "proof_http_ms": 109.556,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 1016.988,
+        "fetch_ms": 105.335,
+        "proof_http_ms": 911.651,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 236.381,
+        "fetch_ms": 154.055,
+        "proof_http_ms": 82.325,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 1042.162,
+        "fetch_ms": 146.552,
+        "proof_http_ms": 895.61,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 255.884,
+        "fetch_ms": 118.514,
+        "proof_http_ms": 137.369,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 1003.225,
+        "fetch_ms": 167.089,
+        "proof_http_ms": 836.136,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 262.581,
+        "fetch_ms": 154.876,
+        "proof_http_ms": 107.705,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 202.161,
+        "fetch_ms": 113.191,
+        "proof_http_ms": 88.97,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 921.566,
+        "fetch_ms": 114.718,
+        "proof_http_ms": 806.847,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.741,
+        "fetch_ms": 95.608,
+        "proof_http_ms": 115.132,
+        "status": 429,
+        "verified": false
+      }
+    ],
+    "seconds": 2.511643333,
+    "proofs_per_second": 5.97218554199869,
+    "p50_ms": 921.566,
+    "p95_ms": 1067.771,
+    "failures": 17
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 1,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 209.858,
+        "fetch_ms": 0,
+        "proof_http_ms": 209.858,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 220.57,
+        "fetch_ms": 0,
+        "proof_http_ms": 220.57,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 204.769,
+        "fetch_ms": 0,
+        "proof_http_ms": 204.769,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 199.947,
+        "fetch_ms": 0,
+        "proof_http_ms": 199.947,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 211.567,
+        "fetch_ms": 0,
+        "proof_http_ms": 211.567,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 222.394,
+        "fetch_ms": 0,
+        "proof_http_ms": 222.393,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 215.007,
+        "fetch_ms": 0,
+        "proof_http_ms": 215.007,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 221.055,
+        "fetch_ms": 0,
+        "proof_http_ms": 221.054,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 213.915,
+        "fetch_ms": 0,
+        "proof_http_ms": 213.914,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 220.157,
+        "fetch_ms": 0,
+        "proof_http_ms": 220.156,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 216.055,
+        "fetch_ms": 0,
+        "proof_http_ms": 216.055,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 207.772,
+        "fetch_ms": 0,
+        "proof_http_ms": 207.771,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 212.705,
+        "fetch_ms": 0,
+        "proof_http_ms": 212.705,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 198.163,
+        "fetch_ms": 0,
+        "proof_http_ms": 198.163,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 211.759,
+        "fetch_ms": 0,
+        "proof_http_ms": 211.759,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 204.579,
+        "fetch_ms": 0,
+        "proof_http_ms": 204.578,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 198.293,
+        "fetch_ms": 0,
+        "proof_http_ms": 198.292,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 204.324,
+        "fetch_ms": 0,
+        "proof_http_ms": 204.324,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 203.948,
+        "fetch_ms": 0,
+        "proof_http_ms": 203.948,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 227.515,
+        "fetch_ms": 0,
+        "proof_http_ms": 227.515,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 224.325,
+        "fetch_ms": 0,
+        "proof_http_ms": 224.325,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 206.504,
+        "fetch_ms": 0,
+        "proof_http_ms": 206.504,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 216.604,
+        "fetch_ms": 0,
+        "proof_http_ms": 216.604,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 215.093,
+        "fetch_ms": 0,
+        "proof_http_ms": 215.093,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 218.201,
+        "fetch_ms": 0,
+        "proof_http_ms": 218.2,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 207.126,
+        "fetch_ms": 0,
+        "proof_http_ms": 207.126,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 208.503,
+        "fetch_ms": 0,
+        "proof_http_ms": 208.502,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 211.959,
+        "fetch_ms": 0,
+        "proof_http_ms": 211.959,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 201.053,
+        "fetch_ms": 0,
+        "proof_http_ms": 201.052,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 214.522,
+        "fetch_ms": 0,
+        "proof_http_ms": 214.521,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 207.284,
+        "fetch_ms": 0,
+        "proof_http_ms": 207.283,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 223.56,
+        "fetch_ms": 0,
+        "proof_http_ms": 223.559,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 6.785002667,
+    "proofs_per_second": 4.7162840709904765,
+    "p50_ms": 211.959,
+    "p95_ms": 224.325,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 1,
+    "clients": 2,
+    "samples": [
+      {
+        "total_ms": 357.813,
+        "fetch_ms": 0,
+        "proof_http_ms": 357.812,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 218.048,
+        "fetch_ms": 0,
+        "proof_http_ms": 218.048,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 282.326,
+        "fetch_ms": 0,
+        "proof_http_ms": 282.325,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.589,
+        "fetch_ms": 0,
+        "proof_http_ms": 279.589,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 285.78,
+        "fetch_ms": 0,
+        "proof_http_ms": 285.78,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 287.942,
+        "fetch_ms": 0,
+        "proof_http_ms": 287.941,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 284.679,
+        "fetch_ms": 0,
+        "proof_http_ms": 284.679,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 303.784,
+        "fetch_ms": 0,
+        "proof_http_ms": 303.784,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 310.702,
+        "fetch_ms": 0,
+        "proof_http_ms": 310.702,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 308.458,
+        "fetch_ms": 0,
+        "proof_http_ms": 308.457,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 311.908,
+        "fetch_ms": 0,
+        "proof_http_ms": 311.908,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 311.451,
+        "fetch_ms": 0,
+        "proof_http_ms": 311.451,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 315.726,
+        "fetch_ms": 0,
+        "proof_http_ms": 315.726,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 305.135,
+        "fetch_ms": 0,
+        "proof_http_ms": 305.134,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 292.184,
+        "fetch_ms": 0,
+        "proof_http_ms": 292.184,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 295.183,
+        "fetch_ms": 0,
+        "proof_http_ms": 295.183,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 298.986,
+        "fetch_ms": 0,
+        "proof_http_ms": 298.986,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 302.655,
+        "fetch_ms": 0,
+        "proof_http_ms": 302.655,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 301.133,
+        "fetch_ms": 0,
+        "proof_http_ms": 301.132,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 315.992,
+        "fetch_ms": 0,
+        "proof_http_ms": 315.992,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 331.284,
+        "fetch_ms": 0,
+        "proof_http_ms": 331.284,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 313.117,
+        "fetch_ms": 0,
+        "proof_http_ms": 313.116,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 300.314,
+        "fetch_ms": 0,
+        "proof_http_ms": 300.313,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 306.295,
+        "fetch_ms": 0,
+        "proof_http_ms": 306.295,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 312.315,
+        "fetch_ms": 0,
+        "proof_http_ms": 312.314,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 301.99,
+        "fetch_ms": 0,
+        "proof_http_ms": 301.99,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.709,
+        "fetch_ms": 0,
+        "proof_http_ms": 279.709,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 276.252,
+        "fetch_ms": 0,
+        "proof_http_ms": 276.251,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 300.009,
+        "fetch_ms": 0,
+        "proof_http_ms": 300.008,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 318.805,
+        "fetch_ms": 0,
+        "proof_http_ms": 318.805,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 305.979,
+        "fetch_ms": 0,
+        "proof_http_ms": 305.979,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 298.86,
+        "fetch_ms": 0,
+        "proof_http_ms": 298.86,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.886634083,
+    "proofs_per_second": 6.5484747694377345,
+    "p50_ms": 302.655,
+    "p95_ms": 331.284,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 1,
+    "clients": 4,
+    "samples": [
+      {
+        "total_ms": 225.576,
+        "fetch_ms": 0,
+        "proof_http_ms": 225.576,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 673.665,
+        "fetch_ms": 0,
+        "proof_http_ms": 673.664,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 522.117,
+        "fetch_ms": 0,
+        "proof_http_ms": 522.117,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 380.023,
+        "fetch_ms": 0,
+        "proof_http_ms": 380.023,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 601.371,
+        "fetch_ms": 0,
+        "proof_http_ms": 601.371,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 586.49,
+        "fetch_ms": 0,
+        "proof_http_ms": 586.489,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 588.662,
+        "fetch_ms": 0,
+        "proof_http_ms": 588.661,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 577.26,
+        "fetch_ms": 0,
+        "proof_http_ms": 577.259,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 581.068,
+        "fetch_ms": 0,
+        "proof_http_ms": 581.067,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 582.615,
+        "fetch_ms": 0,
+        "proof_http_ms": 582.614,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 583.755,
+        "fetch_ms": 0,
+        "proof_http_ms": 583.755,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 586.897,
+        "fetch_ms": 0,
+        "proof_http_ms": 586.896,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 569.473,
+        "fetch_ms": 0,
+        "proof_http_ms": 569.472,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 572.8,
+        "fetch_ms": 0,
+        "proof_http_ms": 572.8,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 572.631,
+        "fetch_ms": 0,
+        "proof_http_ms": 572.63,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 572.506,
+        "fetch_ms": 0,
+        "proof_http_ms": 572.505,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 573.209,
+        "fetch_ms": 0,
+        "proof_http_ms": 573.209,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 579.998,
+        "fetch_ms": 0,
+        "proof_http_ms": 579.998,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 583.188,
+        "fetch_ms": 0,
+        "proof_http_ms": 583.188,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 586.969,
+        "fetch_ms": 0,
+        "proof_http_ms": 586.969,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 592.624,
+        "fetch_ms": 0,
+        "proof_http_ms": 592.624,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 579.638,
+        "fetch_ms": 0,
+        "proof_http_ms": 579.638,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 575.961,
+        "fetch_ms": 0,
+        "proof_http_ms": 575.961,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 576.223,
+        "fetch_ms": 0,
+        "proof_http_ms": 576.222,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 576.087,
+        "fetch_ms": 0,
+        "proof_http_ms": 576.087,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 585.905,
+        "fetch_ms": 0,
+        "proof_http_ms": 585.904,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 597.883,
+        "fetch_ms": 0,
+        "proof_http_ms": 597.883,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 614.021,
+        "fetch_ms": 0,
+        "proof_http_ms": 614.02,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 606.139,
+        "fetch_ms": 0,
+        "proof_http_ms": 606.139,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 600.358,
+        "fetch_ms": 0,
+        "proof_http_ms": 600.357,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 587.082,
+        "fetch_ms": 0,
+        "proof_http_ms": 587.081,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 579.071,
+        "fetch_ms": 0,
+        "proof_http_ms": 579.07,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.768516041,
+    "proofs_per_second": 6.710683098234753,
+    "p50_ms": 582.615,
+    "p95_ms": 614.021,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 1,
+    "clients": 8,
+    "samples": [
+      {
+        "total_ms": 75.384,
+        "fetch_ms": 0,
+        "proof_http_ms": 75.384,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 723.069,
+        "fetch_ms": 0,
+        "proof_http_ms": 723.068,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 939.375,
+        "fetch_ms": 0,
+        "proof_http_ms": 939.375,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 563.093,
+        "fetch_ms": 0,
+        "proof_http_ms": 563.092,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 228.961,
+        "fetch_ms": 0,
+        "proof_http_ms": 228.961,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 75.228,
+        "fetch_ms": 0,
+        "proof_http_ms": 75.227,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 74.991,
+        "fetch_ms": 0,
+        "proof_http_ms": 74.991,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 397.427,
+        "fetch_ms": 0,
+        "proof_http_ms": 397.427,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 118.181,
+        "fetch_ms": 0,
+        "proof_http_ms": 118.181,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 125.882,
+        "fetch_ms": 0,
+        "proof_http_ms": 125.882,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 127.326,
+        "fetch_ms": 0,
+        "proof_http_ms": 127.326,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 925.682,
+        "fetch_ms": 0,
+        "proof_http_ms": 925.682,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 99.492,
+        "fetch_ms": 0,
+        "proof_http_ms": 99.491,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 118.083,
+        "fetch_ms": 0,
+        "proof_http_ms": 118.082,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 99.255,
+        "fetch_ms": 0,
+        "proof_http_ms": 99.255,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 95.314,
+        "fetch_ms": 0,
+        "proof_http_ms": 95.313,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 965.805,
+        "fetch_ms": 0,
+        "proof_http_ms": 965.805,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 84.43,
+        "fetch_ms": 0,
+        "proof_http_ms": 84.43,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 139.004,
+        "fetch_ms": 0,
+        "proof_http_ms": 139.004,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 138.11,
+        "fetch_ms": 0,
+        "proof_http_ms": 138.11,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 137.567,
+        "fetch_ms": 0,
+        "proof_http_ms": 137.567,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 929.864,
+        "fetch_ms": 0,
+        "proof_http_ms": 929.863,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 129.841,
+        "fetch_ms": 0,
+        "proof_http_ms": 129.841,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 117.851,
+        "fetch_ms": 0,
+        "proof_http_ms": 117.851,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 144.176,
+        "fetch_ms": 0,
+        "proof_http_ms": 144.176,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 964.796,
+        "fetch_ms": 0,
+        "proof_http_ms": 964.796,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 85.424,
+        "fetch_ms": 0,
+        "proof_http_ms": 85.423,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 103.033,
+        "fetch_ms": 0,
+        "proof_http_ms": 103.033,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 155.793,
+        "fetch_ms": 0,
+        "proof_http_ms": 155.792,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 119.072,
+        "fetch_ms": 0,
+        "proof_http_ms": 119.072,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 103.546,
+        "fetch_ms": 0,
+        "proof_http_ms": 103.544,
+        "status": 429,
+        "verified": false
+      },
+      {
+        "total_ms": 911.005,
+        "fetch_ms": 0,
+        "proof_http_ms": 911.005,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 1.78534025,
+    "proofs_per_second": 5.601173221743027,
+    "p50_ms": 925.682,
+    "p95_ms": 965.805,
+    "failures": 22
+  },
+  {
+    "mode": "direct_zero_rtt",
+    "workers": 2,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 122.449,
+        "fetch_ms": 0,
+        "proof_http_ms": 122.449,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 129.687,
+        "fetch_ms": 0,
+        "proof_http_ms": 129.687,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 131.264,
+        "fetch_ms": 0,
+        "proof_http_ms": 131.263,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 136.871,
+        "fetch_ms": 0,
+        "proof_http_ms": 136.871,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 143.778,
+        "fetch_ms": 0,
+        "proof_http_ms": 143.778,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 144.823,
+        "fetch_ms": 0,
+        "proof_http_ms": 144.823,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 148.741,
+        "fetch_ms": 0,
+        "proof_http_ms": 148.74,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 149.277,
+        "fetch_ms": 0,
+        "proof_http_ms": 149.276,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 134.758,
+        "fetch_ms": 0,
+        "proof_http_ms": 134.758,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 145.902,
+        "fetch_ms": 0,
+        "proof_http_ms": 145.902,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 150.602,
+        "fetch_ms": 0,
+        "proof_http_ms": 150.602,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 156.765,
+        "fetch_ms": 0,
+        "proof_http_ms": 156.764,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 151.349,
+        "fetch_ms": 0,
+        "proof_http_ms": 151.349,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 138.371,
+        "fetch_ms": 0,
+        "proof_http_ms": 138.371,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 137.431,
+        "fetch_ms": 0,
+        "proof_http_ms": 137.431,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 146.062,
+        "fetch_ms": 0,
+        "proof_http_ms": 146.061,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 139.876,
+        "fetch_ms": 0,
+        "proof_http_ms": 139.875,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 147.29,
+        "fetch_ms": 0,
+        "proof_http_ms": 147.29,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 154.326,
+        "fetch_ms": 0,
+        "proof_http_ms": 154.325,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 138.029,
+        "fetch_ms": 0,
+        "proof_http_ms": 138.029,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 136.077,
+        "fetch_ms": 0,
+        "proof_http_ms": 136.077,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 141.47,
+        "fetch_ms": 0,
+        "proof_http_ms": 141.469,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 140.388,
+        "fetch_ms": 0,
+        "proof_http_ms": 140.388,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 148.785,
+        "fetch_ms": 0,
+        "proof_http_ms": 148.785,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 144.427,
+        "fetch_ms": 0,
+        "proof_http_ms": 144.426,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 145.751,
+        "fetch_ms": 0,
+        "proof_http_ms": 145.751,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 131.604,
+        "fetch_ms": 0,
+        "proof_http_ms": 131.603,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 145.156,
+        "fetch_ms": 0,
+        "proof_http_ms": 145.156,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 141.36,
+        "fetch_ms": 0,
+        "proof_http_ms": 141.36,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 147.115,
+        "fetch_ms": 0,
+        "proof_http_ms": 147.114,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 151.75,
+        "fetch_ms": 0,
+        "proof_http_ms": 151.75,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 148.759,
+        "fetch_ms": 0,
+        "proof_http_ms": 148.759,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.576081875,
+    "proofs_per_second": 6.9928818745184715,
+    "p50_ms": 144.823,
+    "p95_ms": 154.326,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 2,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 288.963,
+        "fetch_ms": 76.606,
+        "proof_http_ms": 212.356,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 270.502,
+        "fetch_ms": 76.026,
+        "proof_http_ms": 194.475,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 278.222,
+        "fetch_ms": 74.196,
+        "proof_http_ms": 204.025,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.185,
+        "fetch_ms": 75.35,
+        "proof_http_ms": 203.834,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 280.873,
+        "fetch_ms": 76.046,
+        "proof_http_ms": 204.826,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 276.494,
+        "fetch_ms": 75.525,
+        "proof_http_ms": 200.968,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 274.698,
+        "fetch_ms": 74.405,
+        "proof_http_ms": 200.292,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.601,
+        "fetch_ms": 75.074,
+        "proof_http_ms": 204.526,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 277.468,
+        "fetch_ms": 75.261,
+        "proof_http_ms": 202.207,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.175,
+        "fetch_ms": 74.02,
+        "proof_http_ms": 205.154,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 274.134,
+        "fetch_ms": 73.875,
+        "proof_http_ms": 200.259,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 284.551,
+        "fetch_ms": 76.729,
+        "proof_http_ms": 207.822,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 275.512,
+        "fetch_ms": 74.408,
+        "proof_http_ms": 201.104,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 272.027,
+        "fetch_ms": 75.604,
+        "proof_http_ms": 196.422,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 271.953,
+        "fetch_ms": 75.244,
+        "proof_http_ms": 196.708,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 273.607,
+        "fetch_ms": 74.323,
+        "proof_http_ms": 199.283,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 271.887,
+        "fetch_ms": 76.449,
+        "proof_http_ms": 195.437,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 301.799,
+        "fetch_ms": 76.855,
+        "proof_http_ms": 224.944,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.817,
+        "fetch_ms": 75.546,
+        "proof_http_ms": 204.27,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 277.795,
+        "fetch_ms": 76.006,
+        "proof_http_ms": 201.789,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 275.474,
+        "fetch_ms": 77.443,
+        "proof_http_ms": 198.03,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 275.451,
+        "fetch_ms": 75.137,
+        "proof_http_ms": 200.313,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 278.038,
+        "fetch_ms": 76.419,
+        "proof_http_ms": 201.618,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 272.887,
+        "fetch_ms": 74.353,
+        "proof_http_ms": 198.533,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 278.328,
+        "fetch_ms": 75.857,
+        "proof_http_ms": 202.471,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 286.11,
+        "fetch_ms": 74.913,
+        "proof_http_ms": 211.196,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 273.561,
+        "fetch_ms": 74.908,
+        "proof_http_ms": 198.652,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 281.058,
+        "fetch_ms": 73.532,
+        "proof_http_ms": 207.525,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 276.162,
+        "fetch_ms": 75.53,
+        "proof_http_ms": 200.631,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 285.321,
+        "fetch_ms": 74.116,
+        "proof_http_ms": 211.205,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 281.741,
+        "fetch_ms": 76.515,
+        "proof_http_ms": 205.226,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 280.379,
+        "fetch_ms": 74.81,
+        "proof_http_ms": 205.568,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 8.918663792,
+    "proofs_per_second": 3.5879814225875237,
+    "p50_ms": 278.038,
+    "p95_ms": 288.963,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 2,
+    "clients": 2,
+    "samples": [
+      {
+        "total_ms": 360.665,
+        "fetch_ms": 75.443,
+        "proof_http_ms": 285.221,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 367.326,
+        "fetch_ms": 75.412,
+        "proof_http_ms": 291.913,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 370.75,
+        "fetch_ms": 77.595,
+        "proof_http_ms": 293.154,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 353.562,
+        "fetch_ms": 74.577,
+        "proof_http_ms": 278.984,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 322.545,
+        "fetch_ms": 77.183,
+        "proof_http_ms": 245.362,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 370.214,
+        "fetch_ms": 75.664,
+        "proof_http_ms": 294.549,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 315.522,
+        "fetch_ms": 78.891,
+        "proof_http_ms": 236.631,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 306.402,
+        "fetch_ms": 76.195,
+        "proof_http_ms": 230.206,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 289.455,
+        "fetch_ms": 75.489,
+        "proof_http_ms": 213.966,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 323.434,
+        "fetch_ms": 75.314,
+        "proof_http_ms": 248.119,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 273.301,
+        "fetch_ms": 76.813,
+        "proof_http_ms": 196.487,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 341.758,
+        "fetch_ms": 142.763,
+        "proof_http_ms": 198.994,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 327.33,
+        "fetch_ms": 125.863,
+        "proof_http_ms": 201.466,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 317.229,
+        "fetch_ms": 114.728,
+        "proof_http_ms": 202.5,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 295.383,
+        "fetch_ms": 98.633,
+        "proof_http_ms": 196.749,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 299.645,
+        "fetch_ms": 100.469,
+        "proof_http_ms": 199.175,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 320.534,
+        "fetch_ms": 124.294,
+        "proof_http_ms": 196.239,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 319.16,
+        "fetch_ms": 119.049,
+        "proof_http_ms": 200.11,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 328.654,
+        "fetch_ms": 118.949,
+        "proof_http_ms": 209.704,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 329.049,
+        "fetch_ms": 120.952,
+        "proof_http_ms": 208.096,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 327.246,
+        "fetch_ms": 130.009,
+        "proof_http_ms": 197.236,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 330.031,
+        "fetch_ms": 125.283,
+        "proof_http_ms": 204.747,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 306.504,
+        "fetch_ms": 101.068,
+        "proof_http_ms": 205.435,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 334.936,
+        "fetch_ms": 132.689,
+        "proof_http_ms": 202.247,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 329.547,
+        "fetch_ms": 122.122,
+        "proof_http_ms": 207.424,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 295.134,
+        "fetch_ms": 94.73,
+        "proof_http_ms": 200.404,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 339.056,
+        "fetch_ms": 127.477,
+        "proof_http_ms": 211.578,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 304.765,
+        "fetch_ms": 93.291,
+        "proof_http_ms": 211.473,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 286.815,
+        "fetch_ms": 87.444,
+        "proof_http_ms": 199.371,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 326.605,
+        "fetch_ms": 126.436,
+        "proof_http_ms": 200.167,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 336.519,
+        "fetch_ms": 115.57,
+        "proof_http_ms": 220.948,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 324.073,
+        "fetch_ms": 128.122,
+        "proof_http_ms": 195.949,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 5.256730709,
+    "proofs_per_second": 6.0874337628163255,
+    "p50_ms": 326.605,
+    "p95_ms": 370.214,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 2,
+    "clients": 4,
+    "samples": [
+      {
+        "total_ms": 371.402,
+        "fetch_ms": 76.873,
+        "proof_http_ms": 294.529,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 516.15,
+        "fetch_ms": 76.882,
+        "proof_http_ms": 439.267,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 594.969,
+        "fetch_ms": 76.849,
+        "proof_http_ms": 518.119,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 358.113,
+        "fetch_ms": 76.824,
+        "proof_http_ms": 281.289,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 516.845,
+        "fetch_ms": 175.872,
+        "proof_http_ms": 340.973,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 415.331,
+        "fetch_ms": 158.81,
+        "proof_http_ms": 256.52,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 452.839,
+        "fetch_ms": 79.904,
+        "proof_http_ms": 372.934,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 493.355,
+        "fetch_ms": 191.11,
+        "proof_http_ms": 302.244,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 455.174,
+        "fetch_ms": 126.238,
+        "proof_http_ms": 328.935,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 459.004,
+        "fetch_ms": 104.007,
+        "proof_http_ms": 354.997,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 466.518,
+        "fetch_ms": 147.885,
+        "proof_http_ms": 318.632,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 490.546,
+        "fetch_ms": 115.623,
+        "proof_http_ms": 374.922,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 438.593,
+        "fetch_ms": 91.449,
+        "proof_http_ms": 347.143,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 495.539,
+        "fetch_ms": 154.581,
+        "proof_http_ms": 340.957,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 495.937,
+        "fetch_ms": 131.394,
+        "proof_http_ms": 364.542,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 453.787,
+        "fetch_ms": 84.913,
+        "proof_http_ms": 368.872,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 499.582,
+        "fetch_ms": 98.727,
+        "proof_http_ms": 400.855,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 479.566,
+        "fetch_ms": 105.59,
+        "proof_http_ms": 373.975,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 447.418,
+        "fetch_ms": 133.934,
+        "proof_http_ms": 313.483,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 526.165,
+        "fetch_ms": 109.08,
+        "proof_http_ms": 417.084,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 497.851,
+        "fetch_ms": 150.741,
+        "proof_http_ms": 347.109,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 489.597,
+        "fetch_ms": 119.724,
+        "proof_http_ms": 369.872,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 526.428,
+        "fetch_ms": 83.843,
+        "proof_http_ms": 442.584,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 448.531,
+        "fetch_ms": 130.51,
+        "proof_http_ms": 318.02,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 516.828,
+        "fetch_ms": 165.223,
+        "proof_http_ms": 351.604,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 465.696,
+        "fetch_ms": 122.538,
+        "proof_http_ms": 343.157,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 506.041,
+        "fetch_ms": 186.843,
+        "proof_http_ms": 319.197,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 518.182,
+        "fetch_ms": 159.511,
+        "proof_http_ms": 358.67,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 472.137,
+        "fetch_ms": 143.15,
+        "proof_http_ms": 328.986,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 500.342,
+        "fetch_ms": 125.909,
+        "proof_http_ms": 374.432,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 495.813,
+        "fetch_ms": 173.933,
+        "proof_http_ms": 321.879,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 470.154,
+        "fetch_ms": 109.44,
+        "proof_http_ms": 360.714,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 3.997521708,
+    "proofs_per_second": 8.004959656869486,
+    "p50_ms": 490.546,
+    "p95_ms": 526.428,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 2,
+    "clients": 8,
+    "samples": [
+      {
+        "total_ms": 1001.389,
+        "fetch_ms": 77.617,
+        "proof_http_ms": 923.771,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 384.589,
+        "fetch_ms": 77.658,
+        "proof_http_ms": 306.931,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1105.829,
+        "fetch_ms": 77.57,
+        "proof_http_ms": 1028.258,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 915.396,
+        "fetch_ms": 77.63,
+        "proof_http_ms": 837.766,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 763.811,
+        "fetch_ms": 77.642,
+        "proof_http_ms": 686.168,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 687.734,
+        "fetch_ms": 77.608,
+        "proof_http_ms": 610.125,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 589.195,
+        "fetch_ms": 77.472,
+        "proof_http_ms": 511.723,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 404.299,
+        "fetch_ms": 77.573,
+        "proof_http_ms": 326.725,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 860.87,
+        "fetch_ms": 116.976,
+        "proof_http_ms": 743.894,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 954.658,
+        "fetch_ms": 169.424,
+        "proof_http_ms": 785.234,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 869.693,
+        "fetch_ms": 126.415,
+        "proof_http_ms": 743.277,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 889.766,
+        "fetch_ms": 123.111,
+        "proof_http_ms": 766.655,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 981.405,
+        "fetch_ms": 100.427,
+        "proof_http_ms": 880.976,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 934.094,
+        "fetch_ms": 187.597,
+        "proof_http_ms": 746.496,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 950.056,
+        "fetch_ms": 117.702,
+        "proof_http_ms": 832.354,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 996.933,
+        "fetch_ms": 114.546,
+        "proof_http_ms": 882.386,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 948.727,
+        "fetch_ms": 154.568,
+        "proof_http_ms": 794.158,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 927.21,
+        "fetch_ms": 128.65,
+        "proof_http_ms": 798.559,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 952.083,
+        "fetch_ms": 129.222,
+        "proof_http_ms": 822.86,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 994.047,
+        "fetch_ms": 141.86,
+        "proof_http_ms": 852.186,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 944.534,
+        "fetch_ms": 120.506,
+        "proof_http_ms": 824.027,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 952.666,
+        "fetch_ms": 106.06,
+        "proof_http_ms": 846.605,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 947.722,
+        "fetch_ms": 155.046,
+        "proof_http_ms": 792.676,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 949.479,
+        "fetch_ms": 139.153,
+        "proof_http_ms": 810.325,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 984.112,
+        "fetch_ms": 107.297,
+        "proof_http_ms": 876.814,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1045.188,
+        "fetch_ms": 104.121,
+        "proof_http_ms": 941.066,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1056.458,
+        "fetch_ms": 122.747,
+        "proof_http_ms": 933.71,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1067.81,
+        "fetch_ms": 120.103,
+        "proof_http_ms": 947.706,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1077.332,
+        "fetch_ms": 137.961,
+        "proof_http_ms": 939.37,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1108.709,
+        "fetch_ms": 149.359,
+        "proof_http_ms": 959.349,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1191.571,
+        "fetch_ms": 148.188,
+        "proof_http_ms": 1043.382,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1154.338,
+        "fetch_ms": 189.841,
+        "proof_http_ms": 964.497,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.208620292,
+    "proofs_per_second": 7.6034419310355785,
+    "p50_ms": 952.083,
+    "p95_ms": 1154.338,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 2,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 209.115,
+        "fetch_ms": 0,
+        "proof_http_ms": 209.114,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.032,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.032,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 201.764,
+        "fetch_ms": 0,
+        "proof_http_ms": 201.764,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 213.902,
+        "fetch_ms": 0,
+        "proof_http_ms": 213.902,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 212.343,
+        "fetch_ms": 0,
+        "proof_http_ms": 212.342,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 216.665,
+        "fetch_ms": 0,
+        "proof_http_ms": 216.664,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 203.148,
+        "fetch_ms": 0,
+        "proof_http_ms": 203.148,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 205.037,
+        "fetch_ms": 0,
+        "proof_http_ms": 205.037,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.616,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.615,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 213.794,
+        "fetch_ms": 0,
+        "proof_http_ms": 213.794,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 226.122,
+        "fetch_ms": 0,
+        "proof_http_ms": 226.121,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 206.326,
+        "fetch_ms": 0,
+        "proof_http_ms": 206.326,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 214.24,
+        "fetch_ms": 0,
+        "proof_http_ms": 214.24,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 213.763,
+        "fetch_ms": 0,
+        "proof_http_ms": 213.763,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.759,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.759,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 217.547,
+        "fetch_ms": 0,
+        "proof_http_ms": 217.547,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.166,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.165,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 200.894,
+        "fetch_ms": 0,
+        "proof_http_ms": 200.893,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.588,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.588,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.57,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.57,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 211.214,
+        "fetch_ms": 0,
+        "proof_http_ms": 211.213,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 207.566,
+        "fetch_ms": 0,
+        "proof_http_ms": 207.566,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 207.592,
+        "fetch_ms": 0,
+        "proof_http_ms": 207.592,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 203.636,
+        "fetch_ms": 0,
+        "proof_http_ms": 203.636,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 212.476,
+        "fetch_ms": 0,
+        "proof_http_ms": 212.476,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.347,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.347,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 211.092,
+        "fetch_ms": 0,
+        "proof_http_ms": 211.092,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 215.519,
+        "fetch_ms": 0,
+        "proof_http_ms": 215.519,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 201.253,
+        "fetch_ms": 0,
+        "proof_http_ms": 201.253,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 208.717,
+        "fetch_ms": 0,
+        "proof_http_ms": 208.716,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 201.754,
+        "fetch_ms": 0,
+        "proof_http_ms": 201.754,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 200.025,
+        "fetch_ms": 0,
+        "proof_http_ms": 200.025,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 6.714392209,
+    "proofs_per_second": 4.765881855562006,
+    "p50_ms": 210.57,
+    "p95_ms": 217.547,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 2,
+    "clients": 2,
+    "samples": [
+      {
+        "total_ms": 296.233,
+        "fetch_ms": 0,
+        "proof_http_ms": 296.233,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 303.37,
+        "fetch_ms": 0,
+        "proof_http_ms": 303.37,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 253.639,
+        "fetch_ms": 0,
+        "proof_http_ms": 253.639,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 316.712,
+        "fetch_ms": 0,
+        "proof_http_ms": 316.712,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 226.964,
+        "fetch_ms": 0,
+        "proof_http_ms": 226.963,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 290.908,
+        "fetch_ms": 0,
+        "proof_http_ms": 290.907,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 261.563,
+        "fetch_ms": 0,
+        "proof_http_ms": 261.563,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 251.656,
+        "fetch_ms": 0,
+        "proof_http_ms": 251.655,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 338.338,
+        "fetch_ms": 0,
+        "proof_http_ms": 338.337,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 269.416,
+        "fetch_ms": 0,
+        "proof_http_ms": 269.415,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 263.632,
+        "fetch_ms": 0,
+        "proof_http_ms": 263.632,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 301.608,
+        "fetch_ms": 0,
+        "proof_http_ms": 301.608,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 240.287,
+        "fetch_ms": 0,
+        "proof_http_ms": 240.286,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 258.021,
+        "fetch_ms": 0,
+        "proof_http_ms": 258.02,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 281.505,
+        "fetch_ms": 0,
+        "proof_http_ms": 281.505,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 276.901,
+        "fetch_ms": 0,
+        "proof_http_ms": 276.9,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 238.635,
+        "fetch_ms": 0,
+        "proof_http_ms": 238.635,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 280.899,
+        "fetch_ms": 0,
+        "proof_http_ms": 280.898,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 281.455,
+        "fetch_ms": 0,
+        "proof_http_ms": 281.454,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 308.609,
+        "fetch_ms": 0,
+        "proof_http_ms": 308.608,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 250.767,
+        "fetch_ms": 0,
+        "proof_http_ms": 250.767,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 258.168,
+        "fetch_ms": 0,
+        "proof_http_ms": 258.167,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 391.014,
+        "fetch_ms": 0,
+        "proof_http_ms": 391.014,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 365.77,
+        "fetch_ms": 0,
+        "proof_http_ms": 365.769,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 463.355,
+        "fetch_ms": 0,
+        "proof_http_ms": 463.354,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 351.826,
+        "fetch_ms": 0,
+        "proof_http_ms": 351.825,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 393.16,
+        "fetch_ms": 0,
+        "proof_http_ms": 393.159,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 367.507,
+        "fetch_ms": 0,
+        "proof_http_ms": 367.507,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 346.796,
+        "fetch_ms": 0,
+        "proof_http_ms": 346.795,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 405.287,
+        "fetch_ms": 0,
+        "proof_http_ms": 405.286,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 326.951,
+        "fetch_ms": 0,
+        "proof_http_ms": 326.95,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 383.579,
+        "fetch_ms": 0,
+        "proof_http_ms": 383.579,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.994390292,
+    "proofs_per_second": 6.407188491307439,
+    "p50_ms": 296.233,
+    "p95_ms": 405.287,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 2,
+    "clients": 4,
+    "samples": [
+      {
+        "total_ms": 307.311,
+        "fetch_ms": 0,
+        "proof_http_ms": 307.31,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 560.619,
+        "fetch_ms": 0,
+        "proof_http_ms": 560.618,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 328.068,
+        "fetch_ms": 0,
+        "proof_http_ms": 328.068,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 490.545,
+        "fetch_ms": 0,
+        "proof_http_ms": 490.545,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 498.662,
+        "fetch_ms": 0,
+        "proof_http_ms": 498.661,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 361.97,
+        "fetch_ms": 0,
+        "proof_http_ms": 361.97,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 439.204,
+        "fetch_ms": 0,
+        "proof_http_ms": 439.204,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 493.302,
+        "fetch_ms": 0,
+        "proof_http_ms": 493.302,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 521.309,
+        "fetch_ms": 0,
+        "proof_http_ms": 521.309,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 494.103,
+        "fetch_ms": 0,
+        "proof_http_ms": 494.102,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 502.426,
+        "fetch_ms": 0,
+        "proof_http_ms": 502.426,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 501.494,
+        "fetch_ms": 0,
+        "proof_http_ms": 501.493,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 427.947,
+        "fetch_ms": 0,
+        "proof_http_ms": 427.946,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 499.253,
+        "fetch_ms": 0,
+        "proof_http_ms": 499.252,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 454.172,
+        "fetch_ms": 0,
+        "proof_http_ms": 454.171,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 466.801,
+        "fetch_ms": 0,
+        "proof_http_ms": 466.801,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 499.553,
+        "fetch_ms": 0,
+        "proof_http_ms": 499.553,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 482.939,
+        "fetch_ms": 0,
+        "proof_http_ms": 482.938,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 474.273,
+        "fetch_ms": 0,
+        "proof_http_ms": 474.273,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 481.828,
+        "fetch_ms": 0,
+        "proof_http_ms": 481.828,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 517.206,
+        "fetch_ms": 0,
+        "proof_http_ms": 517.206,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 485.909,
+        "fetch_ms": 0,
+        "proof_http_ms": 485.909,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 525.866,
+        "fetch_ms": 0,
+        "proof_http_ms": 525.865,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 517.722,
+        "fetch_ms": 0,
+        "proof_http_ms": 517.721,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 430.465,
+        "fetch_ms": 0,
+        "proof_http_ms": 430.465,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 452.818,
+        "fetch_ms": 0,
+        "proof_http_ms": 452.818,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 481.155,
+        "fetch_ms": 0,
+        "proof_http_ms": 481.155,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 431.458,
+        "fetch_ms": 0,
+        "proof_http_ms": 431.457,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 491.666,
+        "fetch_ms": 0,
+        "proof_http_ms": 491.666,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 484.823,
+        "fetch_ms": 0,
+        "proof_http_ms": 484.822,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 421.919,
+        "fetch_ms": 0,
+        "proof_http_ms": 421.918,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 455.644,
+        "fetch_ms": 0,
+        "proof_http_ms": 455.643,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 3.910976041,
+    "proofs_per_second": 8.182100750435152,
+    "p50_ms": 484.823,
+    "p95_ms": 525.866,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 2,
+    "clients": 8,
+    "samples": [
+      {
+        "total_ms": 773.429,
+        "fetch_ms": 0,
+        "proof_http_ms": 773.429,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1136.411,
+        "fetch_ms": 0,
+        "proof_http_ms": 1136.41,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 299.015,
+        "fetch_ms": 0,
+        "proof_http_ms": 299.015,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 568.108,
+        "fetch_ms": 0,
+        "proof_http_ms": 568.108,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 506.486,
+        "fetch_ms": 0,
+        "proof_http_ms": 506.485,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 963.627,
+        "fetch_ms": 0,
+        "proof_http_ms": 963.627,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 861.786,
+        "fetch_ms": 0,
+        "proof_http_ms": 861.786,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 350.2,
+        "fetch_ms": 0,
+        "proof_http_ms": 350.199,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 967.597,
+        "fetch_ms": 0,
+        "proof_http_ms": 967.597,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 964.316,
+        "fetch_ms": 0,
+        "proof_http_ms": 964.316,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 948.737,
+        "fetch_ms": 0,
+        "proof_http_ms": 948.736,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 996.75,
+        "fetch_ms": 0,
+        "proof_http_ms": 996.75,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 944.894,
+        "fetch_ms": 0,
+        "proof_http_ms": 944.893,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 977.784,
+        "fetch_ms": 0,
+        "proof_http_ms": 977.782,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 971.8,
+        "fetch_ms": 0,
+        "proof_http_ms": 971.799,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 932.03,
+        "fetch_ms": 0,
+        "proof_http_ms": 932.029,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 898.511,
+        "fetch_ms": 0,
+        "proof_http_ms": 898.51,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 990.413,
+        "fetch_ms": 0,
+        "proof_http_ms": 990.412,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1018.914,
+        "fetch_ms": 0,
+        "proof_http_ms": 1018.914,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 971.487,
+        "fetch_ms": 0,
+        "proof_http_ms": 971.487,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 937.496,
+        "fetch_ms": 0,
+        "proof_http_ms": 937.495,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 941.537,
+        "fetch_ms": 0,
+        "proof_http_ms": 941.536,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 970.997,
+        "fetch_ms": 0,
+        "proof_http_ms": 970.997,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 937.952,
+        "fetch_ms": 0,
+        "proof_http_ms": 937.951,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1006.609,
+        "fetch_ms": 0,
+        "proof_http_ms": 1006.609,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1013.204,
+        "fetch_ms": 0,
+        "proof_http_ms": 1013.204,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 964.59,
+        "fetch_ms": 0,
+        "proof_http_ms": 964.589,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 998.323,
+        "fetch_ms": 0,
+        "proof_http_ms": 998.322,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1038.101,
+        "fetch_ms": 0,
+        "proof_http_ms": 1038.101,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1064.277,
+        "fetch_ms": 0,
+        "proof_http_ms": 1064.276,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1022.591,
+        "fetch_ms": 0,
+        "proof_http_ms": 1022.59,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1011.6,
+        "fetch_ms": 0,
+        "proof_http_ms": 1011.599,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.019127167,
+    "proofs_per_second": 7.961927719715767,
+    "p50_ms": 967.597,
+    "p95_ms": 1064.277,
+    "failures": 0
+  },
+  {
+    "mode": "direct_zero_rtt",
+    "workers": 4,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 147.911,
+        "fetch_ms": 0,
+        "proof_http_ms": 147.911,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 152.836,
+        "fetch_ms": 0,
+        "proof_http_ms": 152.836,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 152.119,
+        "fetch_ms": 0,
+        "proof_http_ms": 152.118,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 156.591,
+        "fetch_ms": 0,
+        "proof_http_ms": 156.59,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 155.461,
+        "fetch_ms": 0,
+        "proof_http_ms": 155.461,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 168.776,
+        "fetch_ms": 0,
+        "proof_http_ms": 168.776,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 155.128,
+        "fetch_ms": 0,
+        "proof_http_ms": 155.127,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 140.314,
+        "fetch_ms": 0,
+        "proof_http_ms": 140.314,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 138.366,
+        "fetch_ms": 0,
+        "proof_http_ms": 138.366,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 142.604,
+        "fetch_ms": 0,
+        "proof_http_ms": 142.604,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 142.244,
+        "fetch_ms": 0,
+        "proof_http_ms": 142.244,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 136.852,
+        "fetch_ms": 0,
+        "proof_http_ms": 136.852,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 142.033,
+        "fetch_ms": 0,
+        "proof_http_ms": 142.033,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 140.744,
+        "fetch_ms": 0,
+        "proof_http_ms": 140.744,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 149.759,
+        "fetch_ms": 0,
+        "proof_http_ms": 149.758,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 148.503,
+        "fetch_ms": 0,
+        "proof_http_ms": 148.503,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 135.08,
+        "fetch_ms": 0,
+        "proof_http_ms": 135.08,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 140.425,
+        "fetch_ms": 0,
+        "proof_http_ms": 140.425,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 146.471,
+        "fetch_ms": 0,
+        "proof_http_ms": 146.471,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 137.731,
+        "fetch_ms": 0,
+        "proof_http_ms": 137.731,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 144.901,
+        "fetch_ms": 0,
+        "proof_http_ms": 144.901,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 143.63,
+        "fetch_ms": 0,
+        "proof_http_ms": 143.629,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 140.52,
+        "fetch_ms": 0,
+        "proof_http_ms": 140.52,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 147.775,
+        "fetch_ms": 0,
+        "proof_http_ms": 147.775,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 145.651,
+        "fetch_ms": 0,
+        "proof_http_ms": 145.651,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 142.956,
+        "fetch_ms": 0,
+        "proof_http_ms": 142.956,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 142.214,
+        "fetch_ms": 0,
+        "proof_http_ms": 142.214,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 149.534,
+        "fetch_ms": 0,
+        "proof_http_ms": 149.534,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 143.054,
+        "fetch_ms": 0,
+        "proof_http_ms": 143.054,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 137.025,
+        "fetch_ms": 0,
+        "proof_http_ms": 137.025,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 143.277,
+        "fetch_ms": 0,
+        "proof_http_ms": 143.277,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 150.929,
+        "fetch_ms": 0,
+        "proof_http_ms": 150.929,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.667286084,
+    "proofs_per_second": 6.856232813690108,
+    "p50_ms": 143.63,
+    "p95_ms": 156.591,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 4,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 282.977,
+        "fetch_ms": 74.868,
+        "proof_http_ms": 208.109,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 288.515,
+        "fetch_ms": 76.974,
+        "proof_http_ms": 211.54,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 273.005,
+        "fetch_ms": 74.056,
+        "proof_http_ms": 198.948,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 275.457,
+        "fetch_ms": 77.033,
+        "proof_http_ms": 198.424,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 273.192,
+        "fetch_ms": 74.093,
+        "proof_http_ms": 199.098,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 283.735,
+        "fetch_ms": 76.647,
+        "proof_http_ms": 207.087,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 278.877,
+        "fetch_ms": 76.056,
+        "proof_http_ms": 202.82,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 277.43,
+        "fetch_ms": 76.076,
+        "proof_http_ms": 201.353,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.27,
+        "fetch_ms": 75.912,
+        "proof_http_ms": 203.358,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 273.232,
+        "fetch_ms": 76.907,
+        "proof_http_ms": 196.324,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 280.597,
+        "fetch_ms": 77.034,
+        "proof_http_ms": 203.562,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 311.138,
+        "fetch_ms": 75.845,
+        "proof_http_ms": 235.292,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 275.908,
+        "fetch_ms": 74.135,
+        "proof_http_ms": 201.772,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 281.106,
+        "fetch_ms": 76.782,
+        "proof_http_ms": 204.323,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 280.931,
+        "fetch_ms": 77.364,
+        "proof_http_ms": 203.566,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 274.646,
+        "fetch_ms": 74.074,
+        "proof_http_ms": 200.572,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 277.902,
+        "fetch_ms": 75.536,
+        "proof_http_ms": 202.366,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 274.478,
+        "fetch_ms": 75.925,
+        "proof_http_ms": 198.552,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 273.15,
+        "fetch_ms": 75.753,
+        "proof_http_ms": 197.396,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 280.798,
+        "fetch_ms": 75.446,
+        "proof_http_ms": 205.351,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 286.001,
+        "fetch_ms": 77.078,
+        "proof_http_ms": 208.923,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 278.164,
+        "fetch_ms": 77.338,
+        "proof_http_ms": 200.825,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 285.453,
+        "fetch_ms": 76.965,
+        "proof_http_ms": 208.487,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 268.476,
+        "fetch_ms": 74.596,
+        "proof_http_ms": 193.88,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 277.861,
+        "fetch_ms": 75.053,
+        "proof_http_ms": 202.807,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 271.894,
+        "fetch_ms": 74.066,
+        "proof_http_ms": 197.827,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.158,
+        "fetch_ms": 75.219,
+        "proof_http_ms": 203.938,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 270.431,
+        "fetch_ms": 76.624,
+        "proof_http_ms": 193.806,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 272.128,
+        "fetch_ms": 75.331,
+        "proof_http_ms": 196.796,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 280.435,
+        "fetch_ms": 77.285,
+        "proof_http_ms": 203.15,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 286.532,
+        "fetch_ms": 75.501,
+        "proof_http_ms": 211.03,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 273.962,
+        "fetch_ms": 75.949,
+        "proof_http_ms": 198.012,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 8.932700416,
+    "proofs_per_second": 3.58234335752294,
+    "p50_ms": 278.164,
+    "p95_ms": 288.515,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 4,
+    "clients": 2,
+    "samples": [
+      {
+        "total_ms": 377.684,
+        "fetch_ms": 76.826,
+        "proof_http_ms": 300.857,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 359.546,
+        "fetch_ms": 76.845,
+        "proof_http_ms": 282.7,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 314.496,
+        "fetch_ms": 74.61,
+        "proof_http_ms": 239.885,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 338.365,
+        "fetch_ms": 74.402,
+        "proof_http_ms": 263.963,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 307.775,
+        "fetch_ms": 77.393,
+        "proof_http_ms": 230.381,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 327.543,
+        "fetch_ms": 74.048,
+        "proof_http_ms": 253.495,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 309.404,
+        "fetch_ms": 81.225,
+        "proof_http_ms": 228.178,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 322.014,
+        "fetch_ms": 75.816,
+        "proof_http_ms": 246.197,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.163,
+        "fetch_ms": 76.74,
+        "proof_http_ms": 202.423,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 301.278,
+        "fetch_ms": 75.346,
+        "proof_http_ms": 225.931,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 276.562,
+        "fetch_ms": 76.726,
+        "proof_http_ms": 199.835,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 323.095,
+        "fetch_ms": 95.277,
+        "proof_http_ms": 227.818,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 295.806,
+        "fetch_ms": 85.318,
+        "proof_http_ms": 210.487,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 308.651,
+        "fetch_ms": 105.911,
+        "proof_http_ms": 202.739,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 302.559,
+        "fetch_ms": 95.005,
+        "proof_http_ms": 207.554,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 294.459,
+        "fetch_ms": 100.221,
+        "proof_http_ms": 194.237,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 310.326,
+        "fetch_ms": 113.214,
+        "proof_http_ms": 197.111,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 295.071,
+        "fetch_ms": 104.305,
+        "proof_http_ms": 190.765,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 284.527,
+        "fetch_ms": 91.247,
+        "proof_http_ms": 193.28,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 308.541,
+        "fetch_ms": 114.869,
+        "proof_http_ms": 193.67,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 306.332,
+        "fetch_ms": 101.255,
+        "proof_http_ms": 205.076,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 312.386,
+        "fetch_ms": 107.55,
+        "proof_http_ms": 204.835,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 296.233,
+        "fetch_ms": 95.051,
+        "proof_http_ms": 201.181,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 341.669,
+        "fetch_ms": 129.746,
+        "proof_http_ms": 211.923,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 294.648,
+        "fetch_ms": 86.829,
+        "proof_http_ms": 207.818,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 282.182,
+        "fetch_ms": 85.663,
+        "proof_http_ms": 196.518,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 339.464,
+        "fetch_ms": 101.855,
+        "proof_http_ms": 237.609,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 321.633,
+        "fetch_ms": 123.586,
+        "proof_http_ms": 198.046,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 320.95,
+        "fetch_ms": 118.686,
+        "proof_http_ms": 202.264,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 301.258,
+        "fetch_ms": 100.634,
+        "proof_http_ms": 200.623,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 315.889,
+        "fetch_ms": 118.305,
+        "proof_http_ms": 197.583,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 325.047,
+        "fetch_ms": 118.469,
+        "proof_http_ms": 206.578,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 5.083704958,
+    "proofs_per_second": 6.294621789496856,
+    "p50_ms": 309.404,
+    "p95_ms": 359.546,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 4,
+    "clients": 4,
+    "samples": [
+      {
+        "total_ms": 574.04,
+        "fetch_ms": 75.719,
+        "proof_http_ms": 498.32,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 514.081,
+        "fetch_ms": 75.728,
+        "proof_http_ms": 438.353,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 578.032,
+        "fetch_ms": 75.847,
+        "proof_http_ms": 502.184,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 574.017,
+        "fetch_ms": 75.833,
+        "proof_http_ms": 498.183,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 320.233,
+        "fetch_ms": 75.727,
+        "proof_http_ms": 244.506,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 555.719,
+        "fetch_ms": 74.929,
+        "proof_http_ms": 480.79,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 556.066,
+        "fetch_ms": 74.964,
+        "proof_http_ms": 481.102,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 515.962,
+        "fetch_ms": 74.158,
+        "proof_http_ms": 441.804,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 403.425,
+        "fetch_ms": 135.33,
+        "proof_http_ms": 268.095,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 357.235,
+        "fetch_ms": 92.674,
+        "proof_http_ms": 264.56,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 536.959,
+        "fetch_ms": 92.619,
+        "proof_http_ms": 444.339,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 429.05,
+        "fetch_ms": 92.371,
+        "proof_http_ms": 336.679,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 499.919,
+        "fetch_ms": 128.618,
+        "proof_http_ms": 371.3,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 442.252,
+        "fetch_ms": 202.065,
+        "proof_http_ms": 240.186,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 460.305,
+        "fetch_ms": 133.251,
+        "proof_http_ms": 327.054,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 502.943,
+        "fetch_ms": 74.101,
+        "proof_http_ms": 428.842,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 512.452,
+        "fetch_ms": 143.492,
+        "proof_http_ms": 368.959,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 516.841,
+        "fetch_ms": 131.904,
+        "proof_http_ms": 384.936,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 498.958,
+        "fetch_ms": 100.192,
+        "proof_http_ms": 398.765,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 477.246,
+        "fetch_ms": 126.249,
+        "proof_http_ms": 350.996,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 514.128,
+        "fetch_ms": 120.298,
+        "proof_http_ms": 393.83,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 501.062,
+        "fetch_ms": 94.481,
+        "proof_http_ms": 406.58,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 483.128,
+        "fetch_ms": 117.24,
+        "proof_http_ms": 365.887,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 495.084,
+        "fetch_ms": 129.043,
+        "proof_http_ms": 366.04,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 456.745,
+        "fetch_ms": 119.727,
+        "proof_http_ms": 337.017,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 434.013,
+        "fetch_ms": 132.196,
+        "proof_http_ms": 301.816,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 480.918,
+        "fetch_ms": 149.027,
+        "proof_http_ms": 331.89,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 541.588,
+        "fetch_ms": 130.894,
+        "proof_http_ms": 410.693,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 560.134,
+        "fetch_ms": 141.968,
+        "proof_http_ms": 418.166,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 509.574,
+        "fetch_ms": 92.526,
+        "proof_http_ms": 417.048,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 501.68,
+        "fetch_ms": 182.967,
+        "proof_http_ms": 318.712,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 388.666,
+        "fetch_ms": 103.575,
+        "proof_http_ms": 285.09,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.074735959,
+    "proofs_per_second": 7.853269591449373,
+    "p50_ms": 501.68,
+    "p95_ms": 574.04,
+    "failures": 0
+  },
+  {
+    "mode": "client_fetch_70ms",
+    "workers": 4,
+    "clients": 8,
+    "samples": [
+      {
+        "total_ms": 1009.888,
+        "fetch_ms": 76.826,
+        "proof_http_ms": 933.061,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 578.076,
+        "fetch_ms": 76.995,
+        "proof_http_ms": 501.081,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 824.102,
+        "fetch_ms": 76.992,
+        "proof_http_ms": 747.109,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1012.367,
+        "fetch_ms": 76.942,
+        "proof_http_ms": 935.425,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 910.333,
+        "fetch_ms": 76.886,
+        "proof_http_ms": 833.447,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 823.669,
+        "fetch_ms": 76.871,
+        "proof_http_ms": 746.797,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1093.831,
+        "fetch_ms": 76.877,
+        "proof_http_ms": 1016.953,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 584.153,
+        "fetch_ms": 76.701,
+        "proof_http_ms": 507.451,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 868.073,
+        "fetch_ms": 161.068,
+        "proof_http_ms": 707.004,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 679.456,
+        "fetch_ms": 141.255,
+        "proof_http_ms": 538.199,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1065.845,
+        "fetch_ms": 105.877,
+        "proof_http_ms": 959.967,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 700.683,
+        "fetch_ms": 100.288,
+        "proof_http_ms": 600.393,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 963.879,
+        "fetch_ms": 182.082,
+        "proof_http_ms": 781.797,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1154.119,
+        "fetch_ms": 331.376,
+        "proof_http_ms": 822.743,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 877.865,
+        "fetch_ms": 260.503,
+        "proof_http_ms": 617.361,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 838.726,
+        "fetch_ms": 254.442,
+        "proof_http_ms": 584.283,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1017.317,
+        "fetch_ms": 272.58,
+        "proof_http_ms": 744.737,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1294.749,
+        "fetch_ms": 137.922,
+        "proof_http_ms": 1156.827,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1283.669,
+        "fetch_ms": 259.823,
+        "proof_http_ms": 1023.846,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1356.459,
+        "fetch_ms": 179.337,
+        "proof_http_ms": 1177.122,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 879.074,
+        "fetch_ms": 163.284,
+        "proof_http_ms": 715.79,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 996.305,
+        "fetch_ms": 156.744,
+        "proof_http_ms": 839.56,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 678.651,
+        "fetch_ms": 119.353,
+        "proof_http_ms": 559.298,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1130.173,
+        "fetch_ms": 117.575,
+        "proof_http_ms": 1012.597,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 952.431,
+        "fetch_ms": 182.003,
+        "proof_http_ms": 770.426,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 830.024,
+        "fetch_ms": 110.815,
+        "proof_http_ms": 719.207,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 978.62,
+        "fetch_ms": 318.492,
+        "proof_http_ms": 660.127,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 951.496,
+        "fetch_ms": 355.162,
+        "proof_http_ms": 596.333,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1092.754,
+        "fetch_ms": 123.366,
+        "proof_http_ms": 969.387,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 977.89,
+        "fetch_ms": 309.703,
+        "proof_http_ms": 668.186,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 826.645,
+        "fetch_ms": 310.8,
+        "proof_http_ms": 515.844,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 746.422,
+        "fetch_ms": 280.936,
+        "proof_http_ms": 465.485,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.060821458,
+    "proofs_per_second": 7.8801790058901915,
+    "p50_ms": 952.431,
+    "p95_ms": 1294.749,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 4,
+    "clients": 1,
+    "samples": [
+      {
+        "total_ms": 199.758,
+        "fetch_ms": 0,
+        "proof_http_ms": 199.758,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 198.717,
+        "fetch_ms": 0,
+        "proof_http_ms": 198.717,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 216.093,
+        "fetch_ms": 0,
+        "proof_http_ms": 216.093,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 224.436,
+        "fetch_ms": 0,
+        "proof_http_ms": 224.436,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.939,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.939,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 214.658,
+        "fetch_ms": 0,
+        "proof_http_ms": 214.658,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 215.965,
+        "fetch_ms": 0,
+        "proof_http_ms": 215.965,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 213.876,
+        "fetch_ms": 0,
+        "proof_http_ms": 213.876,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 216.12,
+        "fetch_ms": 0,
+        "proof_http_ms": 216.12,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 207.032,
+        "fetch_ms": 0,
+        "proof_http_ms": 207.031,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 211.736,
+        "fetch_ms": 0,
+        "proof_http_ms": 211.736,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 197.107,
+        "fetch_ms": 0,
+        "proof_http_ms": 197.107,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 204.224,
+        "fetch_ms": 0,
+        "proof_http_ms": 204.224,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 202.216,
+        "fetch_ms": 0,
+        "proof_http_ms": 202.216,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 201.614,
+        "fetch_ms": 0,
+        "proof_http_ms": 201.614,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 203.33,
+        "fetch_ms": 0,
+        "proof_http_ms": 203.33,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 203.943,
+        "fetch_ms": 0,
+        "proof_http_ms": 203.943,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 204.325,
+        "fetch_ms": 0,
+        "proof_http_ms": 204.325,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 201.548,
+        "fetch_ms": 0,
+        "proof_http_ms": 201.547,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 202.624,
+        "fetch_ms": 0,
+        "proof_http_ms": 202.624,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 200.48,
+        "fetch_ms": 0,
+        "proof_http_ms": 200.48,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 200.024,
+        "fetch_ms": 0,
+        "proof_http_ms": 200.023,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 212.101,
+        "fetch_ms": 0,
+        "proof_http_ms": 212.1,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 212.516,
+        "fetch_ms": 0,
+        "proof_http_ms": 212.515,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 205.703,
+        "fetch_ms": 0,
+        "proof_http_ms": 205.702,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 201.028,
+        "fetch_ms": 0,
+        "proof_http_ms": 201.027,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 214.091,
+        "fetch_ms": 0,
+        "proof_http_ms": 214.091,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 212.353,
+        "fetch_ms": 0,
+        "proof_http_ms": 212.353,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 210.816,
+        "fetch_ms": 0,
+        "proof_http_ms": 210.815,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 224.931,
+        "fetch_ms": 0,
+        "proof_http_ms": 224.931,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 201.722,
+        "fetch_ms": 0,
+        "proof_http_ms": 201.722,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 204.511,
+        "fetch_ms": 0,
+        "proof_http_ms": 204.511,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 6.656220458,
+    "proofs_per_second": 4.8075330740495135,
+    "p50_ms": 205.703,
+    "p95_ms": 224.436,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 4,
+    "clients": 2,
+    "samples": [
+      {
+        "total_ms": 316.376,
+        "fetch_ms": 0,
+        "proof_http_ms": 316.376,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 316.046,
+        "fetch_ms": 0,
+        "proof_http_ms": 316.046,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 313.007,
+        "fetch_ms": 0,
+        "proof_http_ms": 313.006,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 302.204,
+        "fetch_ms": 0,
+        "proof_http_ms": 302.203,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 223.208,
+        "fetch_ms": 0,
+        "proof_http_ms": 223.208,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 316.319,
+        "fetch_ms": 0,
+        "proof_http_ms": 316.318,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 237.804,
+        "fetch_ms": 0,
+        "proof_http_ms": 237.803,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 270.208,
+        "fetch_ms": 0,
+        "proof_http_ms": 270.208,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.867,
+        "fetch_ms": 0,
+        "proof_http_ms": 279.867,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 283.653,
+        "fetch_ms": 0,
+        "proof_http_ms": 283.653,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 276.116,
+        "fetch_ms": 0,
+        "proof_http_ms": 276.115,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 239.947,
+        "fetch_ms": 0,
+        "proof_http_ms": 239.946,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 263.401,
+        "fetch_ms": 0,
+        "proof_http_ms": 263.4,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 326.127,
+        "fetch_ms": 0,
+        "proof_http_ms": 326.126,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 265.305,
+        "fetch_ms": 0,
+        "proof_http_ms": 265.304,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 248.568,
+        "fetch_ms": 0,
+        "proof_http_ms": 248.568,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 279.601,
+        "fetch_ms": 0,
+        "proof_http_ms": 279.6,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 240.521,
+        "fetch_ms": 0,
+        "proof_http_ms": 240.52,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 230.08,
+        "fetch_ms": 0,
+        "proof_http_ms": 230.079,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 287.91,
+        "fetch_ms": 0,
+        "proof_http_ms": 287.91,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 276.633,
+        "fetch_ms": 0,
+        "proof_http_ms": 276.632,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 262.53,
+        "fetch_ms": 0,
+        "proof_http_ms": 262.529,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 245.676,
+        "fetch_ms": 0,
+        "proof_http_ms": 245.675,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 242.413,
+        "fetch_ms": 0,
+        "proof_http_ms": 242.413,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 265.232,
+        "fetch_ms": 0,
+        "proof_http_ms": 265.232,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 293.618,
+        "fetch_ms": 0,
+        "proof_http_ms": 293.617,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 335.922,
+        "fetch_ms": 0,
+        "proof_http_ms": 335.922,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 252.894,
+        "fetch_ms": 0,
+        "proof_http_ms": 252.894,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 244.344,
+        "fetch_ms": 0,
+        "proof_http_ms": 244.344,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 285.103,
+        "fetch_ms": 0,
+        "proof_http_ms": 285.103,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 254.866,
+        "fetch_ms": 0,
+        "proof_http_ms": 254.865,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 307.183,
+        "fetch_ms": 0,
+        "proof_http_ms": 307.183,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 4.489812416,
+    "proofs_per_second": 7.127246538399701,
+    "p50_ms": 276.116,
+    "p95_ms": 326.127,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 4,
+    "clients": 4,
+    "samples": [
+      {
+        "total_ms": 527.373,
+        "fetch_ms": 0,
+        "proof_http_ms": 527.372,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 540.401,
+        "fetch_ms": 0,
+        "proof_http_ms": 540.401,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 546.277,
+        "fetch_ms": 0,
+        "proof_http_ms": 546.276,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 540.256,
+        "fetch_ms": 0,
+        "proof_http_ms": 540.256,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 313.955,
+        "fetch_ms": 0,
+        "proof_http_ms": 313.955,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 480.946,
+        "fetch_ms": 0,
+        "proof_http_ms": 480.945,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 353.43,
+        "fetch_ms": 0,
+        "proof_http_ms": 353.43,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 581.11,
+        "fetch_ms": 0,
+        "proof_http_ms": 581.109,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 413.816,
+        "fetch_ms": 0,
+        "proof_http_ms": 413.815,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 481.015,
+        "fetch_ms": 0,
+        "proof_http_ms": 481.014,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 453.62,
+        "fetch_ms": 0,
+        "proof_http_ms": 453.62,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 508.837,
+        "fetch_ms": 0,
+        "proof_http_ms": 508.836,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 538.486,
+        "fetch_ms": 0,
+        "proof_http_ms": 538.486,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 478.857,
+        "fetch_ms": 0,
+        "proof_http_ms": 478.857,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 460.395,
+        "fetch_ms": 0,
+        "proof_http_ms": 460.394,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 430.051,
+        "fetch_ms": 0,
+        "proof_http_ms": 430.05,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 504.429,
+        "fetch_ms": 0,
+        "proof_http_ms": 504.429,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 480.296,
+        "fetch_ms": 0,
+        "proof_http_ms": 480.295,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 524.48,
+        "fetch_ms": 0,
+        "proof_http_ms": 524.478,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 474.064,
+        "fetch_ms": 0,
+        "proof_http_ms": 474.063,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 375.475,
+        "fetch_ms": 0,
+        "proof_http_ms": 375.474,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 589.098,
+        "fetch_ms": 0,
+        "proof_http_ms": 589.098,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 555.173,
+        "fetch_ms": 0,
+        "proof_http_ms": 555.172,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 482.366,
+        "fetch_ms": 0,
+        "proof_http_ms": 482.366,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 517.807,
+        "fetch_ms": 0,
+        "proof_http_ms": 517.807,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 341.292,
+        "fetch_ms": 0,
+        "proof_http_ms": 341.291,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 542.615,
+        "fetch_ms": 0,
+        "proof_http_ms": 542.614,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 385.732,
+        "fetch_ms": 0,
+        "proof_http_ms": 385.732,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 434.091,
+        "fetch_ms": 0,
+        "proof_http_ms": 434.091,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 594.816,
+        "fetch_ms": 0,
+        "proof_http_ms": 594.815,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 451.079,
+        "fetch_ms": 0,
+        "proof_http_ms": 451.079,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 384.089,
+        "fetch_ms": 0,
+        "proof_http_ms": 384.088,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 3.947325208,
+    "proofs_per_second": 8.106755413804253,
+    "p50_ms": 481.015,
+    "p95_ms": 589.098,
+    "failures": 0
+  },
+  {
+    "mode": "prover_fetch_70ms",
+    "workers": 4,
+    "clients": 8,
+    "samples": [
+      {
+        "total_ms": 836.351,
+        "fetch_ms": 0,
+        "proof_http_ms": 836.35,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 519.268,
+        "fetch_ms": 0,
+        "proof_http_ms": 519.267,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1004.708,
+        "fetch_ms": 0,
+        "proof_http_ms": 1004.707,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 604.21,
+        "fetch_ms": 0,
+        "proof_http_ms": 604.209,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 538.104,
+        "fetch_ms": 0,
+        "proof_http_ms": 538.104,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 543.548,
+        "fetch_ms": 0,
+        "proof_http_ms": 543.548,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 976.705,
+        "fetch_ms": 0,
+        "proof_http_ms": 976.704,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 995.345,
+        "fetch_ms": 0,
+        "proof_http_ms": 995.345,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1003.4,
+        "fetch_ms": 0,
+        "proof_http_ms": 1003.399,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 987.792,
+        "fetch_ms": 0,
+        "proof_http_ms": 987.792,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 867.608,
+        "fetch_ms": 0,
+        "proof_http_ms": 867.607,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 904.885,
+        "fetch_ms": 0,
+        "proof_http_ms": 904.884,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1135.71,
+        "fetch_ms": 0,
+        "proof_http_ms": 1135.71,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1046.038,
+        "fetch_ms": 0,
+        "proof_http_ms": 1046.037,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1060.147,
+        "fetch_ms": 0,
+        "proof_http_ms": 1060.146,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 992.193,
+        "fetch_ms": 0,
+        "proof_http_ms": 992.193,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 617.87,
+        "fetch_ms": 0,
+        "proof_http_ms": 617.869,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 879.747,
+        "fetch_ms": 0,
+        "proof_http_ms": 879.746,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 966.213,
+        "fetch_ms": 0,
+        "proof_http_ms": 966.213,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 862.906,
+        "fetch_ms": 0,
+        "proof_http_ms": 862.906,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 642.263,
+        "fetch_ms": 0,
+        "proof_http_ms": 642.262,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 776.722,
+        "fetch_ms": 0,
+        "proof_http_ms": 776.722,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1308.421,
+        "fetch_ms": 0,
+        "proof_http_ms": 1308.421,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 799.555,
+        "fetch_ms": 0,
+        "proof_http_ms": 799.554,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1219.417,
+        "fetch_ms": 0,
+        "proof_http_ms": 1219.417,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1093.097,
+        "fetch_ms": 0,
+        "proof_http_ms": 1093.097,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 1082.883,
+        "fetch_ms": 0,
+        "proof_http_ms": 1082.883,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 923.329,
+        "fetch_ms": 0,
+        "proof_http_ms": 923.329,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 857.418,
+        "fetch_ms": 0,
+        "proof_http_ms": 857.417,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 940.869,
+        "fetch_ms": 0,
+        "proof_http_ms": 940.83,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 790.312,
+        "fetch_ms": 0,
+        "proof_http_ms": 790.311,
+        "status": 200,
+        "verified": true
+      },
+      {
+        "total_ms": 532.867,
+        "fetch_ms": 0,
+        "proof_http_ms": 532.866,
+        "status": 200,
+        "verified": true
+      }
+    ],
+    "seconds": 3.809170291,
+    "proofs_per_second": 8.400779580689006,
+    "p50_ms": 923.329,
+    "p95_ms": 1219.417,
+    "failures": 0
+  }
+]

@@ -1,0 +1,129 @@
+{
+  "captured_at_utc": "2026-09-18T10:59:13.258609+00:00",
+  "revision": "2987df443fa18246d7714da4e87c90c87b146a8b",
+  "machine": "Apple M4 Max",
+  "logical_cpus": 16,
+  "memory_bytes": 137438953472,
+  "os": "macOS-26.4.1-arm64-arm-64bit",
+  "go": "go version go1.25.6 darwin/arm64",
+  "nominal_rtt_ms": 70,
+  "one_way_delay_ms": 35,
+  "indexer": "local fixed valid Merkle fixture HTTP server",
+  "proof_shape": "transfer-confidential_2_3",
+  "attempts_per_row": 32,
+  "warmup_rounds": 3,
+  "workers": [
+    1,
+    2,
+    4
+  ],
+  "clients": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "verification": "every successful proof after timed batch",
+  "queue": "disabled, no retry on 429",
+  "background_load": "Existing Solana validator, Photon services, idle prover servers and desktop applications remained running",
+  "calibration": [
+    {
+      "run": 1,
+      "workers": 1,
+      "samples_ms": [
+        74.365,
+        73.942,
+        73.534,
+        73.998,
+        71.925,
+        72.064,
+        73.717,
+        74.092,
+        72.71,
+        74.198
+      ]
+    },
+    {
+      "run": 1,
+      "workers": 2,
+      "samples_ms": [
+        70.919,
+        73.684,
+        73.633,
+        74.355,
+        73.508,
+        71.674,
+        72.794,
+        74.274,
+        72.598,
+        72.058
+      ]
+    },
+    {
+      "run": 1,
+      "workers": 4,
+      "samples_ms": [
+        71.899,
+        72.022,
+        71.299,
+        72.62,
+        73.547,
+        72.577,
+        71.325,
+        73.068,
+        74.164,
+        73.373
+      ]
+    },
+    {
+      "run": 2,
+      "workers": 1,
+      "samples_ms": [
+        71.297,
+        73.288,
+        72.647,
+        71.584,
+        73.8,
+        73.588,
+        73.568,
+        72.585,
+        73.419,
+        73.617
+      ]
+    },
+    {
+      "run": 2,
+      "workers": 2,
+      "samples_ms": [
+        71.163,
+        71.27,
+        71.769,
+        71.597,
+        72.42,
+        73.239,
+        73.869,
+        72.819,
+        72.441,
+        73.903
+      ]
+    },
+    {
+      "run": 2,
+      "workers": 4,
+      "samples_ms": [
+        74.036,
+        73.093,
+        74.51,
+        73.259,
+        71.143,
+        73.1,
+        71.168,
+        74.081,
+        74.476,
+        71.279
+      ]
+    }
+  ],
+  "go_flags": "",
+  "go_arm64": "v8.0"
+}
