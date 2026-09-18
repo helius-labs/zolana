@@ -2,13 +2,16 @@
 
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
+use zolana_hasher::hash_chain::create_right_hash_chain_4_from_slice;
 use zolana_interface::{
     instruction::{
         instruction_data::merge_transact::MergeProof, tag, CloseCache, CreateCache,
         CreateCacheData, MergeRing, MergeTransact, MergeTransactIxData,
     },
     pda,
-    state::cache::{cached_input_fields, empty_cached_input_fields, CACHE_SEED},
+    state::cache::{
+        cached_input_fields, empty_cached_input_fields, CACHE_SEED, ZERO_SUFFIX_CHAINS,
+    },
     MAX_TRANSACT_INPUTS, PROGRAM_ID_PUBKEY,
 };
 
@@ -35,6 +38,20 @@ fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
     }
 }
 
+/// Regenerates `ZERO_SUFFIX_CHAINS` in `state/cache.rs`. Only needed if
+/// `MAX_TRANSACT_INPUTS` grows; run with `--ignored --nocapture` and paste.
+#[test]
+#[ignore = "prints the zero-suffix table for state/cache.rs"]
+fn print_zero_suffix_chains() {
+    let zero = [0u8; 32];
+    for groups in 0..=(MAX_TRANSACT_INPUTS - 1).div_ceil(3) {
+        let suffix = vec![zero; 1 + 3 * groups];
+        let value = create_right_hash_chain_4_from_slice(&suffix).unwrap();
+        let bytes: Vec<String> = value.iter().map(|byte| format!("0x{byte:02x}")).collect();
+        println!("    [{}],", bytes.join(", "));
+    }
+}
+
 /// A spend that uses no cache publishes a selection that depends on nothing but
 /// its input count, so the program reads it from a table instead of folding
 /// zeros on chain. Every entry must hold what the general construction
@@ -45,9 +62,99 @@ fn the_empty_selection_matches_the_general_one_for_every_input_count() {
     for input_count in 0..=MAX_TRANSACT_INPUTS {
         assert_eq!(
             empty_cached_input_fields(input_count).unwrap(),
-            cached_input_fields(0, 0, empty.iter().take(input_count)).unwrap(),
+            cached_input_fields(
+                0,
+                0,
+                empty
+                    .get(..input_count)
+                    .expect("count fits the widest shape")
+            )
+            .unwrap(),
             "input count {input_count}"
         );
+    }
+}
+
+/// The table is the fold over zeros, recomputed here from the primitive rather
+/// than from the table itself, so a transcription slip cannot pass.
+#[test]
+fn the_zero_suffix_table_is_the_fold_over_zeros() {
+    let zero = [0u8; 32];
+    for (groups, entry) in ZERO_SUFFIX_CHAINS.iter().enumerate() {
+        let suffix = vec![zero; 1 + 3 * groups];
+        assert_eq!(
+            *entry,
+            create_right_hash_chain_4_from_slice(&suffix).unwrap(),
+            "Z({groups})"
+        );
+    }
+    assert_eq!(
+        ZERO_SUFFIX_CHAINS.len(),
+        (MAX_TRANSACT_INPUTS - 1).div_ceil(3) + 1,
+        "the table must reach the widest shape's group count"
+    );
+}
+
+/// The seeded skip must reach the same digest as folding the whole vector, for
+/// every selection shape a cached spend can publish: none selected, all
+/// selected, a populated prefix with an unselected tail, and a sparse
+/// selection whose zeros sit between populated slots.
+#[test]
+fn the_skip_path_matches_the_plain_fold_for_every_selection() {
+    let zero = [0u8; 32];
+    let commitment = |slot: usize| {
+        let mut out = [0u8; 32];
+        // Stay well inside the field and never collide with the empty sentinel.
+        out[31] = u8::try_from(slot % 251 + 1).expect("fits a byte");
+        out[30] = 1;
+        out
+    };
+    for input_count in 0..=MAX_TRANSACT_INPUTS {
+        let mut selections: Vec<Vec<[u8; 32]>> = Vec::new();
+        selections.push(vec![zero; input_count]);
+        selections.push((0..input_count).map(commitment).collect());
+        for populated in 0..=input_count {
+            selections.push(
+                (0..input_count)
+                    .map(|slot| {
+                        if slot < populated {
+                            commitment(slot)
+                        } else {
+                            zero
+                        }
+                    })
+                    .collect(),
+            );
+        }
+        selections.push(
+            (0..input_count)
+                .map(|slot| {
+                    if slot % 3 == 0 {
+                        commitment(slot)
+                    } else {
+                        zero
+                    }
+                })
+                .collect(),
+        );
+        selections.push(
+            (0..input_count)
+                .map(|slot| {
+                    if slot % 2 == 1 && slot + 4 < input_count {
+                        commitment(slot)
+                    } else {
+                        zero
+                    }
+                })
+                .collect(),
+        );
+        for commitments in selections {
+            assert_eq!(
+                cached_input_fields(0, 0, &commitments).unwrap()[2],
+                create_right_hash_chain_4_from_slice(&commitments).unwrap(),
+                "input count {input_count}, commitments {commitments:?}"
+            );
+        }
     }
 }
 

@@ -408,7 +408,7 @@ func emptyCacheSelection(nInputs int) ([]*big.Int, error) {
 	for i := range slots {
 		slots[i] = big.NewInt(0)
 	}
-	chain, err := protocol.HashChain4(slots)
+	chain, err := protocol.RightHashChain4(slots)
 	if err != nil {
 		return nil, err
 	}

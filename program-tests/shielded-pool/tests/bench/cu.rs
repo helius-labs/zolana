@@ -255,8 +255,21 @@ fn bench_cu_deposit() {
     // Cached spends at two supported shapes, both also measured uncached above
     // so the cache's cost shows up as a direct difference: the widest
     // non-consolidation shape, and the consolidation the cache exists for.
-    for (n_inputs, n_outputs) in [(5, 4), (36, 2)] {
-        bench_cached_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, &mut bench);
+    //
+    // The last entry draws a single input from the widest cache. Selecting
+    // every slot leaves the commitment chain with no zero tail, so the fold
+    // runs its full group count; selecting one leaves the longest tail a
+    // supported shape can have. The pair brackets what the cache selection
+    // costs to reconstruct on chain.
+    for (n_inputs, n_outputs, cached_slots) in [(5, 4, 5), (36, 2, 36), (36, 2, 1)] {
+        bench_cached_transfer_shape(
+            &mollusk,
+            &program_id,
+            n_inputs,
+            n_outputs,
+            cached_slots,
+            &mut bench,
+        );
     }
     bench_withdrawal_sol(&mut mollusk, &program_id, &mut bench);
     bench_withdrawal_spl(
@@ -673,6 +686,7 @@ fn bench_cached_transfer_shape(
     program_id: &Pubkey,
     n_inputs: usize,
     n_outputs: usize,
+    cached_slots: usize,
     bench: &mut CuBenchmark,
 ) {
     let (mut pt, _authority, tree, tree_id) = bench_setup();
@@ -680,6 +694,7 @@ fn bench_cached_transfer_shape(
         n_inputs,
         n_outputs,
         cache_nonce: 7,
+        cached_slots,
     }
     .build(&mut pt, tree, tree_id);
 
@@ -688,7 +703,11 @@ fn bench_cached_transfer_shape(
     mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
-    let name = format!("transfer eddsa cached {n_inputs}x{n_outputs}");
+    let name = if cached_slots == n_inputs {
+        format!("transfer eddsa cached {n_inputs}x{n_outputs}")
+    } else {
+        format!("transfer eddsa cached {cached_slots} of {n_inputs}x{n_outputs}")
+    };
     assert!(!entries.is_empty(), "no profiling entries for '{name}'");
     bench.add_from_entries(&name, entries);
 }

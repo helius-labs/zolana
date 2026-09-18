@@ -44,6 +44,7 @@ import {
   inputFlags,
   poseidon,
   rightHashChain,
+  rightHashChain4,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import { RING_INPUT_SLOTS, RING_OUTPUT_SLOTS } from "./types.js";
@@ -517,7 +518,7 @@ export function emptyCachedInputs(inputCount: number): CachedInputs {
   return Object.freeze({
     cacheInputBitmap: 0n,
     cacheTreeId: 0n,
-    cacheInputHashChain: hashChain4(Array.from({ length: inputCount }, () => 0n)),
+    cacheInputHashChain: rightHashChain4(Array.from({ length: inputCount }, () => 0n)),
   });
 }
 

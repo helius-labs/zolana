@@ -142,6 +142,30 @@ export function rightHashChain(values: readonly Bytes32[]): Bytes32 {
   return hash;
 }
 
+/**
+ * Folds three elements per Poseidon call from the right: the chain starts at
+ * the last element and every group of up to three preceding elements, in
+ * order, folds as `Poseidon(g0, g1, g2, h)`. The short group is the leftmost
+ * one and its elements stay left-aligned, so an all-zero suffix folds to a
+ * value that depends on its length alone. Mirrors Rust
+ * `create_right_hash_chain_4_from_slice`.
+ */
+export function rightHashChain4(values: readonly Bytes32[]): Bytes32 {
+  const last = values.at(-1);
+  if (!last) return copy(ZERO_32);
+  let hash = copy(last);
+  for (let end = values.length - 1; end > 0; ) {
+    const start = Math.max(end - 3, 0);
+    const group: Bytes32[] = [ZERO_32, ZERO_32, ZERO_32, hash];
+    for (let index = start; index < end; index += 1) {
+      group[index - start] = values[index] as Bytes32;
+    }
+    hash = poseidon(group);
+    end = start;
+  }
+  return hash;
+}
+
 export function sha256Bytes(bytes: Uint8Array): Bytes32 {
   return sha256(bytes) as Bytes32;
 }

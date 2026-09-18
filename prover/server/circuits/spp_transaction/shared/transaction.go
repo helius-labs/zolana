@@ -95,34 +95,8 @@ type Transaction struct {
 	// instead; it stays nil for a variant that proves every input against the
 	// state tree.
 	//
-	// Every element must already be constrained to a bit. The core multiplies
-	// by it and selects on it, so a value outside {0,1} would forge a state
-	// root and disable an inclusion check at once.
+	// Every element must already be constrained to a bit by CachedInputs.prepare.
 	skipInclusion []frontend.Variable
-}
-
-func (t Transaction) skip(i int) frontend.Variable {
-	if t.skipInclusion == nil {
-		return nil
-	}
-	return t.skipInclusion[i]
-}
-
-// spendableSlots replaces the state root of every slot a skipped input could
-// select with a placeholder, so SelectTreeSlot keeps rejecting an unused slot
-// by its nullifier root while no longer demanding a state root the input
-// proves nothing against. The placeholder reaches no other constraint: the
-// public-input hash commits to the published slots, not to these.
-func (t Transaction) spendableSlots(api frontend.API, i int) []TreeSlot {
-	if t.skipInclusion == nil {
-		return t.TreeSlots
-	}
-	out := make([]TreeSlot, len(t.TreeSlots))
-	for k, slot := range t.TreeSlots {
-		out[k] = slot
-		out[k].UtxoRoot = api.Select(t.skipInclusion[i], 1, slot.UtxoRoot)
-	}
-	return out
 }
 
 // LengthCheck is one witness slice length a variant adds to the core's.
@@ -192,10 +166,12 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			api.FromBinary(flagBits[1+TreeIndexBits*i:1+TreeIndexBits*(i+1)]...),
 		)
 		signals := PublicInputUtxoInputs{
-			Nullifier:     t.Nullifiers[i],
-			SignerPk:      signers[i],
-			Tree:          SelectTreeSlot(api, in.TreeSlot, t.spendableSlots(api, i)),
-			SkipInclusion: t.skip(i),
+			Nullifier: t.Nullifiers[i],
+			SignerPk:  signers[i],
+			Tree:      SelectTreeSlot(api, in.TreeSlot, t.TreeSlots),
+		}
+		if t.skipInclusion != nil {
+			signals.SkipInclusion = t.skipInclusion[i]
 		}
 		inputHashes[i], addressNullifiers[i] = constrainInput(api, in, signals)
 		inputTreeIDs[i] = signals.Tree.ID

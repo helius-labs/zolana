@@ -62,7 +62,7 @@ func cacheFields(t testing.TB, a *testAssignment, bitmap uint64) CachedInputs {
 			hashes[i] = testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), a.inputTreeID(i))
 		}
 	}
-	chain, err := protocol.HashChain4(hashes)
+	chain, err := protocol.RightHashChain4(hashes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +125,9 @@ func TestCacheConstraints(t *testing.T) {
 			c.Public.TreeSlots[0].UtxoRoot = 0
 		}},
 		{"mixed inclusion", 1, true, nil},
+		{"cached requires nullifier root", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCircuit) {
+			c.Public.TreeSlots[0].NullifierRoot = 0
+		}},
 		{"unmarked bad state path", 1, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCircuit) {
 			c.Private.Inputs[1].StatePathElements[0] = 999
 		}},
@@ -143,7 +146,7 @@ func TestCacheConstraints(t *testing.T) {
 		}},
 		{"swapped cache slots", 3, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCircuit) {
 			hashes := []*big.Int{testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[1].Utxo), c.CachedInputs.TreeID), testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[0].Utxo), c.CachedInputs.TreeID)}
-			h, err := protocol.HashChain4(hashes)
+			h, err := protocol.RightHashChain4(hashes)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -151,7 +154,7 @@ func TestCacheConstraints(t *testing.T) {
 		}},
 		{"unmasked unselected slot", 1, false, func(t *testing.T, c *defaultring.DefaultRingEddsaOnlyCircuit) {
 			hashes := []*big.Int{testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[0].Utxo), c.CachedInputs.TreeID), testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[1].Utxo), c.CachedInputs.TreeID)}
-			h, err := protocol.HashChain4(hashes)
+			h, err := protocol.RightHashChain4(hashes)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -344,4 +347,63 @@ func TestCustomRingOptionalCache(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Every selection shape a cached spend can publish must solve, at a width wide
+// enough for an unselected tail to span a whole fold group: that tail is what
+// the on-chain reconstruction seeds past instead of hashing. The last case
+// selects only the final slot, where the fold has no zero suffix at all.
+func TestCacheSelectionShapesSolve(t *testing.T) {
+	shape := protocol.Shape{NInputs: 5, NOutputs: 3}
+	ccs := compileCached(t, Shape(shape))
+	for _, tc := range []struct {
+		name   string
+		bitmap uint64
+	}{
+		{"none selected", 0b00000},
+		{"all selected", 0b11111},
+		{"one-slot prefix, four unselected", 0b00001},
+		{"two-slot prefix, three unselected", 0b00011},
+		{"sparse selection", 0b10101},
+		{"last slot only", 0b10000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := buildDefaultRingEddsaOnlyAssignment(t, shape)
+			c := cachedAssignment(t, a, tc.bitmap)
+			clearStatePaths(c, tc.bitmap)
+			checkCachedWitness(t, ccs, c, true)
+		})
+	}
+}
+
+// The binding moved from the left fold to the right one, so a chain built the
+// old way must be rejected. Five slots is the smallest width here where the two
+// folds differ: over four elements both are the same single Poseidon call.
+func TestCacheChainRejectsTheLeftFold(t *testing.T) {
+	shape := protocol.Shape{NInputs: 5, NOutputs: 3}
+	ccs := compileCached(t, Shape(shape))
+	const bitmap = 0b11111
+	a := buildDefaultRingEddsaOnlyAssignment(t, shape)
+	c := cachedAssignment(t, a, bitmap)
+	clearStatePaths(c, bitmap)
+	checkCachedWitness(t, ccs, c, true)
+
+	hashes := make([]*big.Int, len(c.Private.Inputs))
+	for i := range c.Private.Inputs {
+		hashes[i] = testUtxoHash(t, circuitFieldsToUtxo(c.Private.Inputs[i].Utxo), c.CachedInputs.TreeID)
+	}
+	left, err := protocol.HashChain4(hashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := protocol.RightHashChain4(hashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left.Cmp(right) == 0 {
+		t.Fatal("the two folds must differ at this width for the test to mean anything")
+	}
+	c.CachedInputs.InputHashChain = left
+	refreshCachedHash(t, c)
+	checkCachedWitness(t, ccs, c, false)
 }

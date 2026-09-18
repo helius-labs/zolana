@@ -35,7 +35,7 @@ use zolana_test_utils::{
     prover::spawn_workspace_prover,
     transact::{
         build_transfer_prover_inputs, cached_spend_input, derive_test_transfer_output_blindings,
-        dummy_transfer_output, external_data_hash, fe, inline_outputs, input_utxo,
+        dummy_input, dummy_transfer_output, external_data_hash, fe, inline_outputs, input_utxo,
         new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, pack_transact_proof,
         real_output, set_output_owner_tags, single_tree_slots, sol_public_slots,
         test_private_tx_blinding, transfer_output, TransferProverInputsArgs, TEST_BLINDING_SEED,
@@ -54,13 +54,31 @@ pub struct CachedSpend {
     pub nullifiers: Vec<[u8; 32]>,
 }
 
-/// Builds a `transact` that spends `n_inputs` cached UTXOs into one real
-/// zero-amount output plus dummies.
+/// Builds a `transact` that spends cached UTXOs into one real zero-amount
+/// output plus dummies.
 pub struct CachedSpendFixture {
     pub n_inputs: usize,
     pub n_outputs: usize,
     /// Distinguishes the cache PDA from any other this test creates.
     pub cache_nonce: u64,
+    /// How many leading inputs are drawn from the cache; the rest are padding.
+    /// A selection shorter than `n_inputs` leaves the commitment chain with a
+    /// zero tail, which is the case the right fold seeds past instead of
+    /// hashing, so it is what makes the saving measurable.
+    pub cached_slots: usize,
+}
+
+impl CachedSpendFixture {
+    /// Every input drawn from the cache: the chain has no zero tail and the
+    /// fold does its full group count.
+    pub fn all_cached(n_inputs: usize, n_outputs: usize, cache_nonce: u64) -> Self {
+        Self {
+            n_inputs,
+            n_outputs,
+            cache_nonce,
+            cached_slots: n_inputs,
+        }
+    }
 }
 
 impl CachedSpendFixture {
@@ -70,6 +88,10 @@ impl CachedSpendFixture {
             "a cache holds at most one slot per input"
         );
         assert!(self.n_outputs >= 1, "a spend needs one real output");
+        assert!(
+            (1..=self.n_inputs).contains(&self.cached_slots),
+            "a cached spend draws between one input and all of them from the cache"
+        );
         spawn_workspace_prover();
 
         let payer = rpc.payer.insecure_clone();
@@ -77,10 +99,18 @@ impl CachedSpendFixture {
         let zero = [0u8; 32];
         let owner = PublicKey::from_ed25519(&payer_bytes);
         let owner_identity = solana_owner_identity(&payer_bytes).expect("owner identity");
-        let (_, nullifier_root) = tree_roots(rpc, &tree, 0);
-        // Every input is cached, so the slot publishes no UTXO root; the
-        // nullifier root is still resolved and proven against.
-        let tree_slots = single_tree_slots(tree_id, zero, nullifier_root);
+        let (utxo_root, nullifier_root) = tree_roots(rpc, &tree, 0);
+        // A cached input skips state inclusion, so a spend that draws every
+        // input from the cache publishes no UTXO root. Every uncached slot
+        // requires one even when it is only padding, so a partial selection
+        // publishes the tree's real root; the padding proves nothing against
+        // it. The nullifier root is resolved and proven against either way.
+        let published_utxo_root = if self.cached_slots == self.n_inputs {
+            zero
+        } else {
+            utxo_root
+        };
+        let tree_slots = single_tree_slots(tree_id, published_utxo_root, nullifier_root);
 
         let nf_tree = nullifier_tree().expect("indexed nullifier tree");
         assert_eq!(
@@ -91,19 +121,29 @@ impl CachedSpendFixture {
         let nullifier_key = NullifierKey::from_secret([21u8; 31]);
         let mut inputs = Vec::with_capacity(self.n_inputs);
         let mut nullifiers = Vec::with_capacity(self.n_inputs);
+        // Unselected slots stay zero: that is what the circuit masks them to
+        // and what the program reconstructs, so this vector is the chain's
+        // preimage as well as what the cache holds.
         let mut commitments = vec![zero; self.n_inputs];
         for (index, commitment) in commitments.iter_mut().enumerate() {
-            let spend = cached_spend_input(
-                owner,
-                &nullifier_key,
-                &[index as u8 + 41; 31],
-                &nf_tree,
-                tree_id,
-            )
-            .expect("cached spend input");
-            *commitment = spend.commitment;
-            nullifiers.push(spend.nullifier);
-            inputs.push(spend.input);
+            if index < self.cached_slots {
+                let spend = cached_spend_input(
+                    owner,
+                    &nullifier_key,
+                    &[index as u8 + 41; 31],
+                    &nf_tree,
+                    tree_id,
+                )
+                .expect("cached spend input");
+                *commitment = spend.commitment;
+                nullifiers.push(spend.nullifier);
+                inputs.push(spend.input);
+            } else {
+                let (input, nullifier) =
+                    dummy_input(&[index as u8 + 41; 31], &nf_tree, tree_id).expect("dummy input");
+                nullifiers.push(nullifier);
+                inputs.push(input);
+            }
         }
 
         let cache = self.seat_cache(rpc, owner_identity, tree_id, &commitments);
@@ -129,8 +169,8 @@ impl CachedSpendFixture {
             Vec::new(),
             inline_outputs(&output_hashes, &view_tags),
         );
-        // Bit i draws input i from cache slot i; this spend selects every input.
-        let input_bitmap = full_bitmap(self.n_inputs);
+        // Bit i draws input i from cache slot i.
+        let input_bitmap = full_bitmap(self.cached_slots);
         ix_data.circuit = CircuitId::ConfidentialEddsaCached(
             self.n_inputs as u8,
             self.n_outputs as u8,
@@ -146,8 +186,9 @@ impl CachedSpendFixture {
         let external_data_hash = external_data_hash(&ix_data, &[]).expect("external data hash");
         let mut private_outputs = vec![*output_hashes.first().expect("one real output")];
         private_outputs.extend(std::iter::repeat_n(zero, self.n_outputs - 1));
-        // Every input is real, so the private transaction hash binds their
-        // commitments; a dummy slot would contribute zero.
+        // The private transaction hash binds the real inputs' commitments; a
+        // padding slot contributes zero, which is already what `commitments`
+        // holds for it.
         let private_tx = PrivateTxHash::new(
             &commitments,
             &private_outputs,
@@ -162,8 +203,8 @@ impl CachedSpendFixture {
         if let Some(first) = signer_pk_hashes.first_mut() {
             *first = owner_identity;
         }
-        let cached_inputs = cached_input_fields(input_bitmap, tree_id, commitments.iter())
-            .expect("cache selection");
+        let cached_inputs =
+            cached_input_fields(input_bitmap, tree_id, &commitments).expect("cache selection");
         let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
         let public_input_hash = PublicInputs {
             nullifiers: &nullifiers,

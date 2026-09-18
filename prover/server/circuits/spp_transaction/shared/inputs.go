@@ -112,10 +112,15 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// UTXO checks:
 	// 1. UTXO hash must exist in state Merkle tree, unless the variant proves
 	//    this commitment exists without it.
+	// Uncached inputs, including dummies and addresses, require a state root.
 	{
 		requireInclusion := isUtxo
 		if signals.SkipInclusion != nil {
-			requireInclusion = api.Mul(isUtxo, api.Sub(1, signals.SkipInclusion))
+			requireStateRoot := api.Sub(1, signals.SkipInclusion)
+			assertZeroWhen(api, requireStateRoot, api.IsZero(signals.Tree.UtxoRoot))
+			requireInclusion = api.Mul(isUtxo, requireStateRoot)
+		} else {
+			api.AssertIsDifferent(signals.Tree.UtxoRoot, 0)
 		}
 		AssertWhen(api, requireInclusion, in.checkInclusion(api, utxoHash, signals.Tree.UtxoRoot))
 	}

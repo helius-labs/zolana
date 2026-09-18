@@ -13,8 +13,10 @@ import (
 const CacheCapacity = 36
 
 // CachedInputs binds selected cached UTXOs to transaction inputs.
-// Bit i selects cache slot i for input i. InputHashChain is HashChain4 over
-// NInputs commitments in slot order, with every unselected slot replaced by 0.
+// Bit i selects cache slot i for input i. InputHashChain is RightHashChain4
+// over NInputs commitments in slot order, with every unselected slot replaced
+// by 0. The fold runs right to left so an unselected tail folds to a constant
+// of its length alone and SPP seeds from it instead of hashing those groups.
 // A zero bitmap uses ordinary state inclusion; its chain hashes NInputs zeros.
 // The program must reconstruct these fields from a program-owned cache;
 // the circuit proves commitment contents, not the cache's existence.
@@ -57,5 +59,5 @@ func (c CachedInputs) constrain(
 		AssertWhen(api, isSelected, api.Sub(1, api.IsZero(inputHashes[i])))
 		commitments[i] = api.Mul(isSelected, inputHashes[i])
 	}
-	api.AssertIsEqual(gadget.HashChain4(api, commitments), c.InputHashChain)
+	api.AssertIsEqual(gadget.RightHashChain4(api, commitments), c.InputHashChain)
 }

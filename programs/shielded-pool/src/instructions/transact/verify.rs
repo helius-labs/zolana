@@ -240,7 +240,9 @@ impl TransactProofInputs {
         self.cached_inputs = Some(cached_input_fields(
             selection.input_bitmap,
             u16::from_le_bytes(cache_account.tree_id),
-            commitments.iter().take(ix.inputs.len()),
+            commitments
+                .get(..ix.inputs.len())
+                .ok_or(ShieldedPoolError::InvalidTransactShape)?,
         )?);
         self.assignments |= ASSIGNED_CACHED_INPUTS;
         Ok(())

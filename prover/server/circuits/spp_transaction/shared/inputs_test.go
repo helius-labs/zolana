@@ -300,6 +300,16 @@ func TestDummyInputSlotSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(buildDummyInputShield(t, 125)), test.WithCurves(ecc.BN254))
 }
 
+func TestDummyInputRequiresStateRoot(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	assignment := buildDummyInputShield(t, 125)
+	assignment.TreeSlots[0].UtxoRoot = 0
+	refreshPublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
 func TestCustomRingEddsaOnlyRejectsDummyInputThirdPartyTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

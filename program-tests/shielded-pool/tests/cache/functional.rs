@@ -434,12 +434,7 @@ fn transact_spends_cached_commitments_and_freezes_the_cache() {
     let tree = pool.tree;
     let tree_id = pool.tree_id;
 
-    let spend = CachedSpendFixture {
-        n_inputs: 2,
-        n_outputs: 2,
-        cache_nonce: 9,
-    }
-    .build(&mut pool.rpc, tree, tree_id);
+    let spend = CachedSpendFixture::all_cached(2, 2, 9).build(&mut pool.rpc, tree, tree_id);
 
     assert_eq!(
         cache_state(&pool.rpc, &spend.cache).frozen,
@@ -492,12 +487,7 @@ fn a_cached_spend_rejects_every_broken_cache_binding() {
     let mut pool = proof_env();
     let tree = pool.tree;
     let tree_id = pool.tree_id;
-    let spend = CachedSpendFixture {
-        n_inputs: 2,
-        n_outputs: 2,
-        cache_nonce: 11,
-    }
-    .build(&mut pool.rpc, tree, tree_id);
+    let spend = CachedSpendFixture::all_cached(2, 2, 11).build(&mut pool.rpc, tree, tree_id);
 
     // A cached selector expects the cache as its final account.
     let mut without_cache = spend.instruction.clone();

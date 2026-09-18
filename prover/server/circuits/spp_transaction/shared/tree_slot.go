@@ -42,7 +42,8 @@ func TreeSlotsHashChain(api frontend.API, slots []TreeSlot) frontend.Variable {
 
 // SelectTreeSlot returns slots[slot] for a private slot index. It asserts that
 // the index names one of the slots, rejecting an out-of-range index, and that
-// the selected slot publishes both roots, rejecting an unused slot.
+// the selected slot publishes a nullifier root, rejecting an unused slot.
+// Input constraints decide whether a state root is also required.
 func SelectTreeSlot(api frontend.API, slot frontend.Variable, slots []TreeSlot) TreeSlot {
 	var hits frontend.Variable = 0
 	selected := TreeSlot{ID: 0, UtxoRoot: 0, NullifierRoot: 0}
@@ -54,7 +55,6 @@ func SelectTreeSlot(api frontend.API, slot frontend.Variable, slots []TreeSlot) 
 		selected.NullifierRoot = api.Add(selected.NullifierRoot, api.Mul(sel, candidate.NullifierRoot))
 	}
 	api.AssertIsEqual(hits, 1)
-	api.AssertIsDifferent(selected.UtxoRoot, 0)
 	api.AssertIsDifferent(selected.NullifierRoot, 0)
 	return selected
 }
