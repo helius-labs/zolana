@@ -41,9 +41,17 @@ def Poseidon2Compress_uniqueAssignment (v : List.Vector F 2):
 /-- The nullifier tree hash: nodes `H(left, right)` and leaves `H(lo, hi)`. -/
 def nullifierHash : Hash F 2 := fun v => (Poseidon2Compress_uniqueAssignment v).val
 
+theorem nullifierHash_def (v : List.Vector F 2) :
+    nullifierHash v = (Poseidon2Compress_uniqueAssignment v).val := rfl
+
+/-- Unfolding `nullifierHash` evaluates the 56-round composition symbolically;
+every proof treats the hash as opaque, so the unifier must not try. -/
+attribute [irreducible] nullifierHash
+
 @[simp]
 lemma Poseidon2Compress_iff_uniqueAssignment {l r : F} {k : F -> Prop}:
     ZolanaProver.Poseidon2Compress l r k ↔ k (nullifierHash vec![l, r]) := by
   have h := (Poseidon2Compress_uniqueAssignment vec![l, r]).equiv k
   simp only [List.Vector.head_cons, List.Vector.tail_cons, id_eq] at h
+  rw [nullifierHash_def]
   exact Iff.of_eq h
