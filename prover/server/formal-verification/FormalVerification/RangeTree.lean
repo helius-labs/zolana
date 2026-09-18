@@ -1,5 +1,5 @@
 import ProvenZk
-import FormalVerification.Poseidon
+import FormalVerification.Poseidon2
 import FormalVerification.Circuit
 import FormalVerification.Lemmas
 

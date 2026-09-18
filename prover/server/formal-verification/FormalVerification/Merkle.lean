@@ -3,6 +3,7 @@ import FormalVerification.Circuit
 import FormalVerification.Lemmas
 import FormalVerification.FullField
 import FormalVerification.Poseidon
+import FormalVerification.Poseidon2
 import FormalVerification.RangeTree
 import Mathlib
 

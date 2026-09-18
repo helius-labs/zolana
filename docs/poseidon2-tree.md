@@ -113,7 +113,7 @@ orders).
 
 - Formal verification is updated but has not been compiled here: the
   mathlib cache is not reachable from this environment. `Circuit.lean` is
-  the current extraction (CI diffs it). `Poseidon.lean` proves the Poseidon2
+  the current extraction (CI diffs it). `Poseidon2.lean` proves the Poseidon2
   round gadgets, the permutation and the compression have a unique
   assignment and defines `nullifierHash`; `Merkle.lean` and
   `RangeTree.lean` state the nullifier tree lemmas over `nullifierHash`
