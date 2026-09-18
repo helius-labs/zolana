@@ -76,6 +76,17 @@ One definition per language:
   indexers, benches) and by photon, where `RingsTreeKind::parent_hash` /
   `zero_hash` pick the hash per tree and `MerkleProofWithContext` carries
   the tree kind.
+- Lean (`prover/server/formal-verification`): `Circuit.lean` is the current
+  extraction (CI diffs it against the circuits). `Poseidon2.lean` proves the
+  extracted round gadgets, the permutation and the compression each have a
+  unique assignment and defines `nullifierHash` as that value. `Merkle.lean`
+  and `RangeTree.lean` state the nullifier tree lemmas over `nullifierHash`
+  (`hashLevel` takes the hash as a parameter; the state tree and the hash
+  chains stay over `poseidon₂`). `Main.lean` pins the `(1, 2)` vector from
+  `test-vectors/tree_hash.json` with `native_decide` and axiomatizes
+  collision resistance and no zero preimage for `nullifierHash`, so
+  `NonInclusionCircuit.sound_and_complete` depends on exactly those two
+  axioms about the hash.
 
 `light-prover tree-hash-constants` regenerates from the Go definition: the
 Rust round keys (`ark_ff::MontFp!` constants, no conversion at run time),
@@ -109,20 +120,32 @@ batches through the forester's reference `IndexedMerkleTree<Poseidon2>` ->
 Go batch-append prover -> on-chain verification, in random submission
 orders).
 
+### Formal verification
+
+`cd prover/server/formal-verification && lake exe cache get && lake build`
+passes (also the `formal-verification` workflow). Two build notes:
+
+- The compression's unique assignment is `opaque`. The kernel ignores
+  reducibility attributes, and a definitional check on `nullifierHash` that
+  did not close on its arguments made it evaluate the 56-round composition
+  symbolically; `Merkle.lean` ran out of memory at 40 GB. Proofs only use
+  the `equiv` field and `native_decide` compiles the value, so the kernel
+  never needs the body. With `opaque`, the library builds in about a minute.
+- On macOS 26, dyld refuses the binaries the toolchain's bundled linker
+  produces (`__DATA_CONST` without `SG_READ_ONLY`), so build in a Linux
+  container, with `git` installed or lake re-clones the packages:
+
+  ```
+  docker run --rm -it -v "$PWD/prover/server/formal-verification:/fv" \
+    -v zolana-elan:/root/.elan -w /fv ubuntu:24.04 bash -c '
+    apt-get update -qq && apt-get install -y -qq git curl >/dev/null
+    export PATH=/root/.elan/bin:$PATH
+    command -v lake >/dev/null || curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+    lake exe cache get && lake build'
+  ```
+
 ## Not done here
 
-- Formal verification is updated but has not been compiled here: the
-  mathlib cache is not reachable from this environment. `Circuit.lean` is
-  the current extraction (CI diffs it). `Poseidon2.lean` proves the Poseidon2
-  round gadgets, the permutation and the compression have a unique
-  assignment and defines `nullifierHash`; `Merkle.lean` and
-  `RangeTree.lean` state the nullifier tree lemmas over `nullifierHash`
-  (`hashLevel` takes the hash as a parameter); `Main.lean` pins the
-  `(1, 2)` test vector and axiomatizes collision resistance and no zero
-  preimage for `nullifierHash` (the state tree and hash chains keep the
-  Poseidon axiom). To check:
-  `cd prover/server/formal-verification && lake exe cache get && lake build`,
-  or the `formal-verification` workflow.
 - Keys are on the Mac that rotated them and in the lockfile, not in S3.
 - The Go `IndexedMerkleTree.Init` sentinel is `2^248 - 1` while the protocol
   nullifier tree uses `p - 1`; pre-existing, unchanged.
