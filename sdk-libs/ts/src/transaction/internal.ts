@@ -154,7 +154,7 @@ export function rightHashChain4(values: readonly Bytes32[]): Bytes32 {
   const last = values.at(-1);
   if (!last) return copy(ZERO_32);
   let hash = copy(last);
-  for (let end = values.length - 1; end > 0; ) {
+  for (let end = values.length - 1; end > 0;) {
     const start = Math.max(end - 3, 0);
     const group: Bytes32[] = [ZERO_32, ZERO_32, ZERO_32, hash];
     for (let index = start; index < end; index += 1) {

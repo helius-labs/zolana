@@ -227,7 +227,7 @@ export function rightHashChain4(values: readonly bigint[]): bigint {
   const last = values.at(-1);
   if (last === undefined) return 0n;
   let result = last;
-  for (let end = values.length - 1; end > 0; ) {
+  for (let end = values.length - 1; end > 0;) {
     const start = Math.max(end - 3, 0);
     const group = [0n, 0n, 0n, result];
     for (let index = start; index < end; index += 1) {
