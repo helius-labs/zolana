@@ -203,6 +203,7 @@ pub(crate) fn apply_output_tree(
 
 /// Load once, bind the cached inputs, and freeze further merge insertions.
 /// Proof or settlement failure rolls back the flag along with tree mutations.
+#[profile]
 pub(crate) fn apply_cached_inputs(
     account: &mut AccountView,
     ix: &TransactIxDataRef<'_>,

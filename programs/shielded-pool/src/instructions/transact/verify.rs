@@ -204,6 +204,7 @@ impl TransactProofInputs {
         self.assignments |= ASSIGNED_EXTERNAL_DATA;
     }
 
+    #[profile]
     pub(crate) fn assign_cached_inputs(
         &mut self,
         ix: &TransactIxDataRef<'_>,
