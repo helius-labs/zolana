@@ -92,6 +92,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 
     let cache = CacheSlot::load_and_validate_optional(
         merge_accounts.cache,
+        merge_accounts.payer,
         Some(&signing_pk_field),
         clock.unix_timestamp,
     )?;
@@ -115,7 +116,10 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         },
         &ix,
         external_data_hash,
-        MergeOwnerBinding::Registry { signing_pk_field },
+        MergeOwnerBinding::Registry {
+            signing_pk_field,
+            nullifier_pk: pk_fields.nullifier_pk,
+        },
         cache,
         output_view_tag,
         clock.slot,

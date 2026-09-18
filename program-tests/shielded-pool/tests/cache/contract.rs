@@ -30,6 +30,7 @@ fn create(
         payer,
         data: CreateCacheData {
             owner_identity,
+            write_authority: payer,
             nonce,
             tree_id,
             expires_at,
@@ -105,6 +106,7 @@ fn create_is_idempotent_and_close_refunds_sponsor() {
             expires_at: expires_at.to_le_bytes(),
             owner_identity,
             rent_sponsor: payer.to_bytes(),
+            write_authority: payer,
             commitments: [[0; 32]; 36],
         }
     );
@@ -151,6 +153,24 @@ fn create_and_close_reject_unauthorized_configuration() {
     rpc.create_and_send_default_payer_transaction(&[ix], &[])
         .expect("create the cache");
     let before = state(&rpc, &cache);
+
+    let changed_authority = CreateCache {
+        payer,
+        data: CreateCacheData {
+            owner_identity,
+            write_authority: Keypair::new().pubkey(),
+            nonce: 2,
+            tree_id,
+            expires_at,
+        },
+    }
+    .instruction();
+    reject(
+        &mut rpc,
+        changed_authority,
+        ShieldedPoolError::CacheConfigMismatch,
+    );
+    assert_eq!(state(&rpc, &cache), before);
 
     let (_, _, wrong_tree) = create(payer, owner_identity, 2, tree_id + 1, expires_at);
     reject(&mut rpc, wrong_tree, ShieldedPoolError::CacheConfigMismatch);
@@ -324,6 +344,7 @@ fn create_is_permissionless_and_scoped_to_the_signing_sponsor() {
         expires_at: expires_at.to_le_bytes(),
         owner_identity,
         rent_sponsor: payer.to_bytes(),
+        write_authority: payer,
         commitments: [[0; 32]; 36],
     };
     assert_eq!(state(&rpc, &cache), expected);
@@ -341,6 +362,7 @@ fn create_is_permissionless_and_scoped_to_the_signing_sponsor() {
         CacheAccount {
             bump: second_bump,
             rent_sponsor: sponsor.pubkey().to_bytes(),
+            write_authority: sponsor.pubkey(),
             ..expected
         }
     );

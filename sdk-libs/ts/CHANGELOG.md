@@ -23,7 +23,10 @@ answer without releasing long-lived secrets.
 
 Breaking
 
-- Merge instructions and proofs use the updated pool format and reject extra trailing accounts → rebuild pending merges before submitting them.
+- Merge instructions and proofs use the updated pool format, bind the registered
+  nullifier key, and reject extra trailing accounts → rebuild pending merges
+  before submitting them. A cache write requires its stored `write_authority`
+  as the signing payer; this key is configured separately from the rent sponsor.
 
 - `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
   `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
@@ -465,6 +468,9 @@ Changed
   into the tree it spends from.
 
 Fixed
+
+- Ring settlement decoding locates SOL and SPL legs before the optional
+  trailing cache account, including cached EdDSA and P256 transactions.
 
 - `decryptTransactions` rejects malformed key-holder batches with
   `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and

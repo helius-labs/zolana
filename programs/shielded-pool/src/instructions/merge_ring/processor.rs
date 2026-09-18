@@ -43,8 +43,12 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
 
     let merge_accounts =
         MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len(), merge.cache_slot)?;
-    let cache =
-        CacheSlot::load_and_validate_optional(merge_accounts.cache, None, clock.unix_timestamp)?;
+    let cache = CacheSlot::load_and_validate_optional(
+        merge_accounts.cache,
+        merge_accounts.payer,
+        None,
+        clock.unix_timestamp,
+    )?;
 
     let external_data_hash = MergeExternalDataHash {
         cache: cache.as_ref().map(CacheSlot::destination),

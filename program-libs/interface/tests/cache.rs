@@ -18,6 +18,7 @@ use zolana_interface::{
 fn create_data(nonce: u64) -> CreateCacheData {
     CreateCacheData {
         owner_identity: [9u8; 32],
+        write_authority: Pubkey::new_from_array([8u8; 32]),
         nonce,
         tree_id: 3,
         expires_at: 1_800_000_000,

@@ -17,6 +17,7 @@ use zolana_event_parser::{
     InstructionGroup, ParsedInstruction,
 };
 use zolana_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
+use zolana_interface::verifying_keys::{CachedInputs, CircuitId};
 
 const OWNER_ACCOUNT_INDEX: u8 = 6;
 /// The second declared input tree of a multi-tree spend.
@@ -266,34 +267,43 @@ fn spl_legs_take_their_mint_from_the_settlement_group() {
             InterfaceTransfer::SolDeposit { amount: 3 },
         ],
     );
-    let src = transact_source(spp, tag::TRANSACT, accounts, &ix, 1);
+    for cached in [false, true] {
+        let mut ix = ix.clone();
+        let mut accounts = accounts.clone();
+        if cached {
+            ix.circuit =
+                CircuitId::ConfidentialEddsaCached(1, 0, 3, CachedInputs { input_bitmap: 1 });
+            accounts.push(Pubkey::new_unique());
+        }
+        let src = transact_source(spp, tag::TRANSACT, accounts, &ix, 1);
 
-    let event = reconstruct_general_event(
-        &src,
-        &emit_event_data(EventKind::Transact, &transfer_event()),
-    )
-    .expect("reconstruct transact");
+        let event = reconstruct_general_event(
+            &src,
+            &emit_event_data(EventKind::Transact, &transfer_event()),
+        )
+        .expect("reconstruct transact");
 
-    assert_eq!(
-        event.spl_transfers,
-        vec![
-            SplTransfer {
-                is_deposit: true,
-                amount: 1,
-                asset: Some(deposit_mint.to_bytes()),
-            },
-            SplTransfer {
-                is_deposit: false,
-                amount: 2,
-                asset: Some(withdrawal_mint.to_bytes()),
-            },
-            SplTransfer {
-                is_deposit: true,
-                amount: 3,
-                asset: None,
-            },
-        ]
-    );
+        assert_eq!(
+            event.spl_transfers,
+            vec![
+                SplTransfer {
+                    is_deposit: true,
+                    amount: 1,
+                    asset: Some(deposit_mint.to_bytes()),
+                },
+                SplTransfer {
+                    is_deposit: false,
+                    amount: 2,
+                    asset: Some(withdrawal_mint.to_bytes()),
+                },
+                SplTransfer {
+                    is_deposit: true,
+                    amount: 3,
+                    asset: None,
+                },
+            ]
+        );
+    }
 }
 
 #[test]

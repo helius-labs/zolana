@@ -1,6 +1,7 @@
 use super::{init::CacheInitParams, loader::load_cache};
 use crate::instructions::shared::{check_field_element, verify_pda, CreatePdaAccount};
 use pinocchio::{
+    address::address_eq,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
@@ -60,6 +61,7 @@ pub fn process_create_cache(accounts: &mut [AccountView], data: &[u8]) -> Progra
     if cache.owned_by(&crate::ID) {
         let current = load_cache(cache)?;
         if current.owner_identity != ix.owner_identity
+            || !address_eq(&current.write_authority, &ix.write_authority)
             || current.tree_id != ix.tree_id.to_le_bytes()
             || current.expires_at != ix.expires_at.to_le_bytes()
             || current.rent_sponsor != rent_sponsor
@@ -88,6 +90,7 @@ pub fn process_create_cache(accounts: &mut [AccountView], data: &[u8]) -> Progra
         expires_at: ix.expires_at,
         owner_identity: ix.owner_identity,
         rent_sponsor,
+        write_authority: ix.write_authority,
     }
     .init(cache)
 }

@@ -120,10 +120,10 @@ nullifiers.
   - Severity: Critical
   - Suggested test: negative both errors; harness: mollusk unit
 
-- [ ] **INV-MERGE-12: registry public-input shape is the 7-element prefix plus the owner key**
+- [ ] **INV-MERGE-12: registry public-input shape is the 7-element prefix plus both owner keys**
   - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion)
   - Kind: state
-  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, utxo-root chain, nullifier-root chain, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds exactly one owner-identity element, `signing_pk_field` from the registry record.
+  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds `signing_pk_field` and `nullifier_pk` from the registry record.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: property (compare against client-side computation in `sdk-libs/keypair`); harness: `cargo test -p`
@@ -329,7 +329,7 @@ than by entries of their own.
 - [x] **INV-MERGE-20: a confidential merge writes only a cache bound to the proof's signing key**
   - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `merge_rejects_overwrites_frozen_caches_and_foreign_owners` (perturbed `owner_identity` -> 7074), `program-tests/shielded-pool/tests/cache/functional.rs` `confidential_merge_cannot_write_a_cache_bound_to_another_identity` (real proof; the cache is byte-identical afterwards)
   - Kind: precondition
-  - Statement: `merge_transact` returns Err unless the cache account's `owner_identity` equals exactly the `signing_pk_field` derived from the registry record, which is the owner element its proof already publishes (INV-MERGE-12). No owner signature is consulted, at create or at merge.
+  - Statement: `merge_transact` returns Err unless the cache account's `owner_identity` equals exactly the `signing_pk_field` derived from the registry record, which is the owner element its proof already publishes (INV-MERGE-12). The proof also binds the registered nullifier public key, preventing merges funded under the same signer but an attacker-controlled nullifier key. Every cache insertion requires the signing payer to match the stored `write_authority`; the rent sponsor alone cannot authorize it.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_transact_ix`), `merge/cache.rs` (`fn CacheSlot::load_and_validate_optional`)
   - Error: `ShieldedPoolError::CacheOwnerMismatch = 7074`
   - Severity: Critical (cache takeover)
@@ -356,7 +356,7 @@ than by entries of their own.
 - [x] **INV-MERGE-23: the cache substitutes for the inclusion proof, never for authority**
   - Covered by: `program-tests/shielded-pool/tests/cache/functional.rs` `transact_spends_cached_commitments_and_freezes_the_cache` (end-to-end cached spend with a real proof: the cache is open before and frozen after, the seated commitments survive freezing, the outputs are appended with one nullifier queued per input, and the same instruction cannot be replayed) and `a_cached_spend_rejects_every_broken_cache_binding` (one proven instruction, each binding broken in turn: a dropped trailing cache account, a nonzero `utxo_tree_root_index` on a fully cached group -> 7075, an emptied selected slot -> 7070, and a cache retagged to another tree -> 7073, with no refused spend freezing the cache); plus `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `cached_input_bitmap_must_select_only_declared_inputs` (7072 on both the confidential and ring twins) and `a_cached_selector_is_accepted_exactly_where_its_rail_is` (each cached twin is accepted by its own instruction tag and by no other, 7035)
   - Kind: state
-  - Statement: identity authorizes insertion only, because a merge output has no nullifier yet and nothing else could authorize placing it in a slot. Spending is authorized by nullification instead: the selected commitments are chained into the transact public-input hash and the circuit independently requires a valid nullifier for each selected input, so referencing another party's cache forces you to spend their UTXO. That argument is the same on every owner-signed rail, which is why each of them binds the selection and none of them needs a cached circuit of its own. The spend path consequently checks no identity and no expiry; its two checks are deliberately not ownership checks -- `CacheTreeMismatch` because the commitments stand in for that tree's inclusion, `CacheSlotEmpty` because the bitmap selected a slot no merge ever wrote.
+  - Statement: The write-authority signature and owner binding authorize insertion only, because a merge output has no nullifier yet and nothing else could authorize placing it in a slot. Spending is authorized by nullification instead: the selected commitments are chained into the transact public-input hash and the circuit independently requires a valid nullifier for each selected input, so referencing another party's cache forces you to spend their UTXO. That argument is the same on every owner-signed rail, which is why each of them binds the selection and none of them needs a cached circuit of its own. The spend path consequently checks no identity and no expiry; its two checks are deliberately not ownership checks -- `CacheTreeMismatch` because the commitments stand in for that tree's inclusion, `CacheSlotEmpty` because the bitmap selected a slot no merge ever wrote.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn assign_cached_inputs`), `transact/tree.rs` (`fn resolve_input_tree_slot`, `fn apply_cached_inputs`)
   - Error: `ShieldedPoolError::CacheTreeMismatch = 7073`, `CacheSlotEmpty = 7070`
   - Severity: Critical (double-spend boundary)
@@ -382,10 +382,10 @@ than by entries of their own.
   - Severity: High (availability)
   - Suggested test: positive + negative; harness: litesvm
 
-- [x] **INV-MERGE-26: `owner_identity`, `tree_id`, `expires_at` and `rent_sponsor` are immutable**
-  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `create_and_close_reject_unauthorized_configuration` (`tree_id`, `owner_identity` and `expires_at` mismatches -> 7067)
+- [x] **INV-MERGE-26: `owner_identity`, `tree_id`, `expires_at`, `rent_sponsor` and `write_authority` are immutable**
+  - Covered by: `program-tests/shielded-pool/tests/cache/contract.rs` `create_and_close_reject_unauthorized_configuration` (`tree_id`, `owner_identity`, `expires_at` and `write_authority` mismatches -> 7067)
   - Kind: state
-  - Statement: a repeated `create_cache` on an existing account compares those four fields plus the bump and returns Err on any difference, and it never compares or resets `commitments` or `frozen`. A re-send can therefore neither extend the timeout nor clear the cache.
+  - Statement: a repeated `create_cache` on an existing account compares those five fields plus the bump and returns Err on any difference, and it never compares or resets `commitments` or `frozen`. A re-send can therefore neither extend the timeout nor clear the cache.
   - Location: `programs/shielded-pool/src/instructions/cache/create.rs` (`fn process_create_cache`)
   - Error: `ShieldedPoolError::CacheConfigMismatch = 7067`
   - Severity: High

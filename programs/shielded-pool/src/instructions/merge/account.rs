@@ -80,6 +80,7 @@ impl<'a> MergeTransactAccounts<'a> {
 /// P256 owner, or the full ed25519 key. Rail-selected like `signing_pk_field`.
 pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
+    pub nullifier_pk: [u8; 32],
     pub signing_view_tag: [u8; 32],
     pub merging_enabled: bool,
 }
@@ -127,6 +128,7 @@ pub fn load_user_record(
     };
     Ok(UserPkFields {
         signing_pk_field,
+        nullifier_pk: record.nullifier_pubkey,
         signing_view_tag,
         merging_enabled,
     })

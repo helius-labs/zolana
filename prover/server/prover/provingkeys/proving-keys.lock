@@ -19,12 +19,12 @@
       "source": "release"
     },
     "merge_36_1.key": {
-      "sha256": "60c357e8513b9e5d354900929980d1e8d3e132d6db67c50f68b5616630cf58a0",
-      "size": 240902581
+      "sha256": "60444a2b76befff6207050ae292f7265dbfa57cf8289725e0b1a4949648927d4",
+      "size": 240903008
     },
     "merge_8_1.key": {
-      "sha256": "3df1cc825e4c949aaa605c283fd232f7a2d2901b73d480f36289c96207a39277",
-      "size": 55581866
+      "sha256": "6658a6d76fe21dd44ae027c35ed5d05b6a53ed869937bb3e110cb311ec673329",
+      "size": 55582621
     },
     "merge_ring_36_1.key": {
       "sha256": "b57d70430413dd5dec7dc975d97257da634ca4dced0069225587a248b56442db",
@@ -183,5 +183,5 @@
       "size": 30333212
     }
   },
-  "prefix": "proving-keys/29f0d5f316beaaec"
+  "prefix": "proving-keys/9c6dc1e4ebf37e66"
 }

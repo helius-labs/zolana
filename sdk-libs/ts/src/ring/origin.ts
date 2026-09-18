@@ -92,17 +92,18 @@ export function ringInvokedIn(groups: readonly OriginInstructionGroup[], ring: A
 
 /**
  * Mirrors Rust `ring_withdrawals_of`. One settlement account group per interface
- * transfer sits at the tail of the account list, in transfer order.
+ * transfer sits before the optional trailing cache, in transfer order.
  */
 export function ringWithdrawalsOf(
   instructions: readonly OriginInstruction[],
 ): readonly RingWithdrawal[] {
   const withdrawals: RingWithdrawal[] = [];
   for (const instruction of instructions) {
-    const transfers = interfaceTransfersOf(instruction);
-    if (transfers === undefined) continue;
+    const settlement = settlementDataOf(instruction);
+    if (settlement === undefined) continue;
+    const { transfers, hasCache } = settlement;
     const total = transfers.reduce((sum, transfer) => sum + settlementWidth(transfer), 0);
-    let at = instruction.accounts.length - total;
+    let at = instruction.accounts.length - Number(hasCache) - total;
     if (at < 0) throw invalid("settlementAccounts");
     for (const transfer of transfers) {
       const width = settlementWidth(transfer);
@@ -265,24 +266,64 @@ function withdrawalLeg(
   return undefined;
 }
 
-/** Mirrors Rust `interface_transfers`, `undefined` for a pool instruction that is not a `ring_transact`. */
-function interfaceTransfersOf(
+/** Only the transfer list and cache presence are returned from the wire data. */
+function settlementDataOf(
   instruction: OriginInstruction,
-): readonly InterfaceTransfer[] | undefined {
+): { transfers: readonly InterfaceTransfer[]; hasCache: boolean } | undefined {
   if (instruction.data[0] !== InstructionTag.ringTransact) return undefined;
   try {
-    return readInterfaceTransfers(new Reader(instruction.data.slice(1)));
+    return readSettlementData(new Reader(instruction.data.slice(1)));
   } catch (cause) {
     throw new RingError("RING_ORIGIN_DECODE", { details: { path: "ringTransact" }, cause });
   }
 }
 
-function readInterfaceTransfers(reader: Reader): readonly InterfaceTransfer[] {
+function readSettlementData(reader: Reader): {
+  transfers: readonly InterfaceTransfer[];
+  hasCache: boolean;
+} {
   reader.u64("expiryUnixTs");
   reader.bytes(33, "txViewingPk");
   reader.bytes(16, "salt");
   const count = reader.u8("interfaceTransfers.length");
-  return Array.from({ length: count }, () => readInterfaceTransfer(reader));
+  const transfers = Array.from({ length: count }, () => readInterfaceTransfer(reader));
+  reader.option("dataHash", (input) => input.bytes(32, "dataHash"));
+  reader.option("ringDataHash", (input) => input.bytes(32, "ringDataHash"));
+  const outputs = reader.u8("outputs.length");
+  for (let index = 0; index < outputs; index += 1) {
+    reader.bytes(32, "output.utxoHash");
+    const ownerKind = reader.u8("output.ownerTag.kind");
+    if (ownerKind !== 0 && ownerKind !== 1) throw invalid("output.ownerTag.kind");
+    reader.bytes(ownerKind === 0 ? 32 : 1, "output.ownerTag");
+    reader.option("output.data", (input) =>
+      input.bytes(input.u16("output.data.length"), "output.data"),
+    );
+  }
+  const messages = reader.u8("messages.length");
+  for (let index = 0; index < messages; index += 1) {
+    reader.bytes(32, "message.viewTag");
+    reader.bytes(reader.u16("message.data.length"), "message.data");
+  }
+  reader.bytes(32, "privateTxHash");
+  // CircuitId's u16 tags and payloads match the Rust wire format.
+  const circuit = reader.u16("circuit.kind");
+  if (circuit !== 1 && circuit !== 3 && circuit !== 5 && circuit !== 6) {
+    throw invalid("circuit.kind");
+  }
+  reader.bytes(3, "circuit.shape");
+  if (circuit === 3 || circuit === 6) {
+    reader.bytes(64, "circuit.bsb22Commitment");
+    const present = reader.bool("circuit.defaultOwnerTag.present");
+    const tag = reader.bytes(32, "circuit.defaultOwnerTag");
+    if (!present && tag.some((byte) => byte !== 0)) throw invalid("circuit.defaultOwnerTag");
+  }
+  const hasCache = circuit === 5 || circuit === 6;
+  if (hasCache) reader.u64("circuit.cachedInputs");
+  reader.bytes(192, "proof");
+  reader.bytes(reader.u8("inputs.length") * 33, "inputs");
+  reader.bytes(reader.u8("treeContexts.length") * 4, "treeContexts");
+  reader.done();
+  return { transfers, hasCache };
 }
 
 function readInterfaceTransfer(reader: Reader): InterfaceTransfer {

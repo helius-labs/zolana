@@ -1,10 +1,11 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use shielded_pool_tests::support::{
     cache::CachedSpendFixture,
     fixtures::Pool,
     merge::{ring_cache_identity, RealMergeProof, RealRingMergeProof},
     transact::{proof_env, tree_progress},
 };
-use solana_instruction::Instruction;
+use solana_instruction::{error::InstructionError, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -29,6 +30,7 @@ use zolana_interface::{
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{test_blinding, Rejection, ZolanaProgramTest};
+use zolana_user_registry_interface::state::UserRecord;
 
 const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
@@ -38,7 +40,8 @@ struct CacheFixture {
     owner_identity: [u8; 32],
     tree_id: u16,
     expires_at: i64,
-    rent_sponsor: Pubkey,
+    rent_sponsor: Keypair,
+    write_authority: Pubkey,
 }
 
 impl CacheFixture {
@@ -50,7 +53,8 @@ impl CacheFixture {
             tree_id: self.tree_id.to_le_bytes(),
             expires_at: self.expires_at.to_le_bytes(),
             owner_identity: self.owner_identity,
-            rent_sponsor: self.rent_sponsor.to_bytes(),
+            rent_sponsor: self.rent_sponsor.pubkey().to_bytes(),
+            write_authority: self.write_authority,
             commitments,
         }
     }
@@ -93,20 +97,25 @@ fn create_cache(
     nonce: u64,
     tree_id: u16,
 ) -> CacheFixture {
-    let rent_sponsor = pool.rpc.payer.pubkey();
+    let rent_sponsor = Keypair::new();
+    pool.rpc
+        .airdrop(&rent_sponsor.pubkey(), 1_000_000_000)
+        .expect("fund rent sponsor");
+    let write_authority = pool.rpc.payer.pubkey();
     let expires_at = now(&pool.rpc) + 1_000;
     let builder = CreateCache {
-        payer: rent_sponsor,
+        payer: rent_sponsor.pubkey(),
         data: CreateCacheData {
             owner_identity,
+            write_authority,
             nonce,
             tree_id,
             expires_at,
         },
     };
-    let (address, bump) = pda::cache(&rent_sponsor, nonce);
+    let (address, bump) = pda::cache(&rent_sponsor.pubkey(), nonce);
     pool.rpc
-        .create_and_send_default_payer_transaction(&[builder.instruction()], &[])
+        .create_and_send_default_payer_transaction(&[builder.instruction()], &[&rent_sponsor])
         .expect("create the cache");
     CacheFixture {
         address,
@@ -115,6 +124,7 @@ fn create_cache(
         tree_id,
         expires_at,
         rent_sponsor,
+        write_authority,
     }
 }
 
@@ -169,6 +179,50 @@ fn merge_writes_the_bound_slot() {
         },
     );
     let ix = merge.instruction(&pool);
+
+    reject_cache_sponsor_write(&mut pool, &cache, ix.clone());
+
+    let record_account = pool
+        .rpc
+        .svm
+        .get_account(&merge.user_record)
+        .expect("user record");
+    let mut mismatched_record = record_account.clone();
+    let mut record =
+        UserRecord::deserialize(&mut record_account.data.get(1..).expect("record payload"))
+            .expect("decode user record");
+    record.nullifier_pubkey = test_blinding(99);
+    mismatched_record.data = vec![UserRecord::DISCRIMINATOR];
+    record
+        .serialize(&mut mismatched_record.data)
+        .expect("encode user record");
+    mismatched_record.data.resize(UserRecord::SIZE, 0);
+    pool.rpc
+        .svm
+        .set_account(merge.user_record, mismatched_record)
+        .expect("replace registry key");
+    let tree_before = pool.rpc.svm.get_account(&tree).expect("tree account");
+    expect_rejection(
+        &mut pool,
+        ix.clone(),
+        ShieldedPoolError::TransactProofVerificationFailed,
+    );
+    assert_eq!(cache_state(&pool.rpc, &cache.address), cache.empty());
+    assert_eq!(
+        pool.rpc.svm.get_account(&tree).expect("tree account"),
+        tree_before
+    );
+    for nullifier in &merge.nullifiers {
+        assert!(pool
+            .rpc
+            .svm
+            .get_account(&pda::nullifier_pda(&tree, nullifier).0)
+            .is_none());
+    }
+    pool.rpc
+        .svm
+        .set_account(merge.user_record, record_account)
+        .expect("restore registry key");
 
     let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
     send_merge(&mut pool, ix, "cached merge with a valid proof");
@@ -263,6 +317,8 @@ fn ring_merge_writes_the_bound_slot() {
     );
     let ix = merge.instruction(&pool);
 
+    reject_cache_sponsor_write(&mut pool, &cache, ix.clone());
+
     let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
     send_merge(&mut pool, ix, "cached ring merge with a valid proof");
 
@@ -278,6 +334,41 @@ fn ring_merge_writes_the_bound_slot() {
         ),
         "a cached ring merge still appends its output and queues one nullifier per input"
     );
+}
+
+// The rent sponsor cannot write. Both rails subsequently accept the same
+// proof with the independent write authority as payer.
+fn reject_cache_sponsor_write(pool: &mut Pool, cache: &CacheFixture, mut ix: Instruction) {
+    let sponsor = &cache.rent_sponsor;
+    let payer = ix
+        .accounts
+        .iter_mut()
+        .find(|meta| meta.is_signer && meta.pubkey == cache.write_authority)
+        .expect("merge payer");
+    payer.pubkey = sponsor.pubkey();
+    let accounts_before: Vec<_> = ix
+        .accounts
+        .iter()
+        .filter(|meta| meta.is_writable && meta.pubkey != sponsor.pubkey())
+        .map(|meta| (meta.pubkey, pool.rpc.svm.get_account(&meta.pubkey)))
+        .collect();
+    let failure = pool
+        .rpc
+        .create_and_send_transaction_with_budget(
+            &[ix],
+            &sponsor.pubkey(),
+            &[sponsor],
+            ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        )
+        .expect_err("rent sponsor cannot authorize cache writes");
+    Rejection::new(InstructionError::MissingRequiredSignature).assert_litesvm(failure);
+    for (address, before) in accounts_before {
+        assert_eq!(
+            pool.rpc.svm.get_account(&address),
+            before,
+            "unchanged account {address}"
+        );
+    }
 }
 
 #[test]

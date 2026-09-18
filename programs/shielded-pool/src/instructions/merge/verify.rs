@@ -16,9 +16,12 @@ use crate::instructions::verifier;
 /// the registry's signing identity. The variant also selects the verifying key.
 pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
-    /// registry record -- the tagged owner identity of the registered key.
+    /// registry record -- both the signing identity and nullifier public key.
     /// Verified against `merge_<n_inputs>_1`.
-    Registry { signing_pk_field: [u8; 32] },
+    Registry {
+        signing_pk_field: [u8; 32],
+        nullifier_pk: [u8; 32],
+    },
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the output `ring_data_hash` the ring program
     /// selected; the proof asserts it against the output's
@@ -96,12 +99,12 @@ impl<'a> MergeProof<'a> {
     /// Both variants share the same 7 leading elements (nullifier chain, output
     /// hash, tree slot chain, output tree id, private tx hash, external data
     /// hash, dummy-input policy); the default merge then appends the owner's
-    /// signing identity (bound from the user registry), while the policy-ring
-    /// merge omits that identity (no registry to bind it against) and appends
+    /// signing identity and nullifier public key (from the registry), while the
+    /// policy-ring merge omits that identity (no registry to bind it against) and appends
     /// the output `ring_data_hash`, `ring_program_id` and the cache owner
     /// commitment. The 7-element prefix is 1 + 3 + 3, so it ends on a complete
     /// HashChain4 group without padding. Continuing from its hash with the
-    /// owner-binding tail is therefore equivalent to folding all 8 or 10
+    /// owner-binding tail is therefore equivalent to folding all 9 or 10
     /// elements together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
@@ -126,9 +129,10 @@ impl<'a> MergeProof<'a> {
                 *ring_program_id,
                 *cache_owner_commitment,
             ]),
-            MergeOwnerBinding::Registry { signing_pk_field } => {
-                create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field])
-            }
+            MergeOwnerBinding::Registry {
+                signing_pk_field,
+                nullifier_pk,
+            } => create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field, *nullifier_pk]),
         }
         .map_err(Into::into)
     }

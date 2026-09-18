@@ -91,7 +91,7 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_p256_ring_2_3":      {constraints: 200616, public: 2},
 	"custom_ring_policy":          {constraints: 483954, public: 2},
 	"custom_ring_base":            {constraints: 213042, public: 2},
-	"merge_8_1":                   {constraints: 177739, public: 2},
+	"merge_8_1":                   {constraints: 177742, public: 2},
 	"merge_ring_8_1":              {constraints: 178018, public: 2},
 	"batch_address-append_40_10":  {constraints: 421991, public: 2},
 }

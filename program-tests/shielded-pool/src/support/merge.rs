@@ -32,7 +32,7 @@ use zolana_transaction::{
     Data, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 use zolana_user_registry_interface::{
-    state::{UserRecord, NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN},
+    state::{UserRecord, P256_PUBKEY_LEN},
     user_record_pda, USER_REGISTRY_PROGRAM_ID,
 };
 
@@ -62,7 +62,11 @@ pub fn write_user_record(
         owner,
         bump,
         owner_p256,
-        nullifier_pubkey: [11u8; NULLIFIER_PUBKEY_LEN],
+        nullifier_pubkey: ShieldedKeypair::from_keypair(&rpc.payer)
+            .expect("fixture keypair")
+            .nullifier_key()
+            .pubkey()
+            .expect("fixture nullifier public key"),
         viewing_pubkey,
         merging_enabled,
     };

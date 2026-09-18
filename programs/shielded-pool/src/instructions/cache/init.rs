@@ -1,5 +1,5 @@
 use crate::instructions::shared::caused_by;
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::{
     error::ShieldedPoolError,
     state::{cache::CACHE_CAPACITY, discriminator::CACHE, CacheAccount},
@@ -11,6 +11,7 @@ pub struct CacheInitParams {
     pub expires_at: i64,
     pub owner_identity: [u8; 32],
     pub rent_sponsor: [u8; 32],
+    pub write_authority: Address,
 }
 
 impl CacheInitParams {
@@ -30,6 +31,7 @@ impl CacheInitParams {
             expires_at: self.expires_at.to_le_bytes(),
             owner_identity: self.owner_identity,
             rent_sponsor: self.rent_sponsor,
+            write_authority: self.write_authority,
             commitments: [[0; 32]; CACHE_CAPACITY],
         };
         Ok(())

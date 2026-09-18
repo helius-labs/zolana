@@ -81,7 +81,18 @@ pub fn transact_general_event(
     }
     let ix = TransactIxDataRef::from_bytes(ix_bytes)
         .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-    let spl_transfers = settlement_transfers(&ix.interface_transfers, &source.accounts)?;
+    let settlement_end = source
+        .accounts
+        .len()
+        .checked_sub(usize::from(ix.circuit.cached_inputs().is_some()))
+        .ok_or(EventDecodeError::MissingSettlementAccount)?;
+    let spl_transfers = settlement_transfers(
+        &ix.interface_transfers,
+        source
+            .accounts
+            .get(..settlement_end)
+            .ok_or(EventDecodeError::MissingSettlementAccount)?,
+    )?;
 
     let inputs = inputs_from_tree_indexes(&event.input_trees, &ix.inputs)?;
 
@@ -131,9 +142,8 @@ pub fn transact_general_event(
 
 /// One [`SplTransfer`] per interface transfer, in leg order. `is_deposit` and
 /// `amount` come from the transfer; the mint comes from the leg's settlement
-/// group. The groups are the last accounts of the instruction, in leg order, and
-/// the program rejects any account after them, so they are located from the end
-/// of the account list; the owner signers before them need no counting.
+/// group. The groups are the last accounts after removing the optional cache,
+/// in leg order; the owner signers before them need no counting.
 fn settlement_transfers(
     transfers: &[InterfaceTransfer],
     accounts: &[Pubkey],

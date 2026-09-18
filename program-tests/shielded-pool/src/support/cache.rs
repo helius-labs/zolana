@@ -288,6 +288,7 @@ impl CachedSpendFixture {
                 payer: sponsor,
                 data: CreateCacheData {
                     owner_identity,
+                    write_authority: sponsor,
                     nonce: self.cache_nonce,
                     tree_id,
                     expires_at,

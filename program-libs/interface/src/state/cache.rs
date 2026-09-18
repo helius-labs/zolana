@@ -1,4 +1,5 @@
 use bytemuck::{Pod, Zeroable};
+use solana_address::Address;
 use zolana_hasher::{
     hash_chain::create_right_hash_chain_4_from_seed, primitives::right_align, HasherError,
 };
@@ -20,6 +21,8 @@ pub struct CacheAccount {
     pub expires_at: [u8; 8],
     pub owner_identity: [u8; 32], // TODO: user Address, rename to utxo owner
     pub rent_sponsor: [u8; 32],
+    /// Must sign as the payer of every merge writing this cache.
+    pub write_authority: Address,
     /// Zero marks an empty slot; a verified merge's Poseidon output collides
     /// with this sentinel only with negligible probability.
     pub commitments: [[u8; 32]; CACHE_CAPACITY], // TODO: rename to UTXO hashes
@@ -37,7 +40,7 @@ impl CacheAccount {
     }
 }
 
-const _: () = assert!(CacheAccount::SIZE == 1229);
+const _: () = assert!(CacheAccount::SIZE == 1261);
 const _: () = assert!(core::mem::align_of::<CacheAccount>() == 1);
 
 /// The three elements every owner-signed transfer appends to its public-input

@@ -132,11 +132,11 @@ impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
         let merge = self.common(zolana_interface::instruction::tag::MERGE_TRANSACT)?;
 
-        // Owner identity public input: SPP checks the signing pk_field against
-        // the owner's registry record; the owner recombines it with their
-        // nullifier_pk to get user_owner_hash.
+        // Bind both halves of the UTXO owner to the registry, so another
+        // nullifier key cannot manufacture a merge for this signing identity.
         let mut elements = merge.head.to_vec();
         elements.push(merge.user_signing_pk_hash);
+        elements.push(merge.user_nullifier_pk);
         let public_input = create_hash_chain_4_from_slice(&elements)?;
 
         // Default merge is non-ring; the merge-ring builder sets the ring binding.

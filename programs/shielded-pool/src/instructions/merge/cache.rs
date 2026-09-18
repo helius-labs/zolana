@@ -1,5 +1,7 @@
 use crate::instructions::cache::loader::load_cache_mut;
-use pinocchio::{account::RefMut, error::ProgramError, AccountView, ProgramResult};
+use pinocchio::{
+    account::RefMut, address::address_eq, error::ProgramError, AccountView, ProgramResult,
+};
 use zolana_interface::{error::ShieldedPoolError, state::CacheAccount, tree_slot::tree_id_field};
 
 pub(crate) struct CacheSlot<'a> {
@@ -11,6 +13,7 @@ pub(crate) struct CacheSlot<'a> {
 impl<'a> CacheSlot<'a> {
     pub fn load_and_validate_optional(
         cache: Option<(&'a mut AccountView, u8)>,
+        payer: &AccountView,
         expected_identity: Option<&[u8; 32]>,
         now: i64,
     ) -> Result<Option<Self>, ProgramError> {
@@ -19,6 +22,9 @@ impl<'a> CacheSlot<'a> {
         };
         let address = account.address().to_bytes();
         let state = load_cache_mut(account)?;
+        if !payer.is_signer() || !address_eq(payer.address(), &state.write_authority) {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
         if let Some(expected) = expected_identity {
             if state.owner_identity != *expected {
                 return Err(ShieldedPoolError::CacheOwnerMismatch.into());
