@@ -5,7 +5,7 @@ use shielded_pool_tests::support::{
     merge::{ring_cache_identity, RealMergeProof, RealRingMergeProof},
     transact::{proof_env, tree_progress},
 };
-use solana_instruction::{error::InstructionError, Instruction};
+use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -361,7 +361,7 @@ fn reject_cache_sponsor_write(pool: &mut Pool, cache: &CacheFixture, mut ix: Ins
             ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
         )
         .expect_err("rent sponsor cannot authorize cache writes");
-    Rejection::new(InstructionError::MissingRequiredSignature).assert_litesvm(failure);
+    Rejection::pool(ShieldedPoolError::CacheWriteAuthorityMismatch).assert_litesvm(failure);
     for (address, before) in accounts_before {
         assert_eq!(
             pool.rpc.svm.get_account(&address),

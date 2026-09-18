@@ -331,7 +331,7 @@ than by entries of their own.
   - Kind: precondition
   - Statement: `merge_transact` returns Err unless the cache account's `owner_identity` equals exactly the `signing_pk_field` derived from the registry record, which is the owner element its proof already publishes (INV-MERGE-12). The proof also binds the registered nullifier public key, preventing merges funded under the same signer but an attacker-controlled nullifier key. Every cache insertion requires the signing payer to match the stored `write_authority`; the rent sponsor alone cannot authorize it.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_transact_ix`), `merge/cache.rs` (`fn CacheSlot::load_and_validate_optional`)
-  - Error: `ShieldedPoolError::CacheOwnerMismatch = 7074`
+  - Error: `ShieldedPoolError::CacheOwnerMismatch = 7074`, `CacheWriteAuthorityMismatch = 7081`
   - Severity: Critical (cache takeover)
   - Suggested test: negative; harness: litesvm + program-tests integration (`cargo test-sbf`)
 

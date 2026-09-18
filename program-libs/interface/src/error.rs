@@ -189,6 +189,8 @@ pub enum ShieldedPoolError {
     NonCanonicalCacheOwnerIdentity = 7079,
     #[error("cache expiry must be in the future")]
     CacheExpiryNotInFuture = 7080,
+    #[error("cache write authority must sign as the payer")]
+    CacheWriteAuthorityMismatch = 7081,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -316,6 +318,7 @@ mod tests {
                 CacheNotExpired => 7078,
                 NonCanonicalCacheOwnerIdentity => 7079,
                 CacheExpiryNotInFuture => 7080,
+                CacheWriteAuthorityMismatch => 7081,
             }
         }
 
@@ -403,6 +406,7 @@ mod tests {
             CacheNotExpired,
             NonCanonicalCacheOwnerIdentity,
             CacheExpiryNotInFuture,
+            CacheWriteAuthorityMismatch,
         ];
         for (variant, code) in variants.into_iter().zip(7000_u32..) {
             assert_eq!(
@@ -413,7 +417,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 81, "variant count drifted");
+        assert_eq!(variants.len(), 82, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

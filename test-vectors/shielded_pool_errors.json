@@ -79,5 +79,6 @@
   "CacheExpired": 7077,
   "CacheNotExpired": 7078,
   "NonCanonicalCacheOwnerIdentity": 7079,
-  "CacheExpiryNotInFuture": 7080
+  "CacheExpiryNotInFuture": 7080,
+  "CacheWriteAuthorityMismatch": 7081
 }

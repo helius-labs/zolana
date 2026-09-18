@@ -22,8 +22,11 @@ impl<'a> CacheSlot<'a> {
         };
         let address = account.address().to_bytes();
         let state = load_cache_mut(account)?;
-        if !payer.is_signer() || !address_eq(payer.address(), &state.write_authority) {
+        if !payer.is_signer() {
             return Err(ProgramError::MissingRequiredSignature);
+        }
+        if !address_eq(payer.address(), &state.write_authority) {
+            return Err(ShieldedPoolError::CacheWriteAuthorityMismatch.into());
         }
         if let Some(expected) = expected_identity {
             if state.owner_identity != *expected {
