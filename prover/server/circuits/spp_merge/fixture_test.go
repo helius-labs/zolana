@@ -38,14 +38,15 @@ const (
 const defaultFixtureInputs = 8
 
 type mergeFixtureOptions struct {
-	rail              mergeFixtureRail
-	eddsa             bool
-	asset             *big.Int
-	ringProgramID     *big.Int
-	inputRingData     []*big.Int
-	outputRingData    *big.Int
-	userSigningPkHash *big.Int
-	allowDummyInputs  *big.Int
+	rail               mergeFixtureRail
+	eddsa              bool
+	asset              *big.Int
+	ringProgramID      *big.Int
+	inputRingData      []*big.Int
+	outputRingData     *big.Int
+	userSigningPkHash  *big.Int
+	allowDummyInputs   *big.Int
+	cacheOwnerBlinding *big.Int
 	// duplicateFirstInput fills input slot 1 with an exact copy of slot 0
 	// (same UTXO, same paths, same nullifier); only the distinctness
 	// constraint can reject the resulting witness.
@@ -112,7 +113,10 @@ type mergeWitnessFixture struct {
 	userSigningPkHash   *big.Int
 	outputRingDataHash  *big.Int
 	ringProgramID       *big.Int
-	publicInputHash     *big.Int
+
+	cacheOwnerBlinding *big.Int
+
+	publicInputHash *big.Int
 }
 
 func buildDefaultWitness(t *testing.T, options mergeFixtureOptions) *merge.Circuit {
@@ -123,12 +127,19 @@ func buildDefaultWitness(t *testing.T, options mergeFixtureOptions) *merge.Circu
 
 func buildRingWitness(t *testing.T, ringProgramID *big.Int) *merge.RingCircuit {
 	t.Helper()
-	return buildMergeFixture(t, mergeFixtureOptions{
-		rail:           ringFixtureRail,
-		ringProgramID:  ringProgramID,
-		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
-		outputRingData: big.NewInt(0xD2),
-	}).ringCircuit()
+	return buildRingWitnessWithOptions(t, mergeFixtureOptions{ringProgramID: ringProgramID})
+}
+
+func buildRingWitnessWithOptions(t *testing.T, options mergeFixtureOptions) *merge.RingCircuit {
+	t.Helper()
+	options.rail = ringFixtureRail
+	if options.inputRingData == nil {
+		options.inputRingData = []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)}
+	}
+	if options.outputRingData == nil {
+		options.outputRingData = big.NewInt(0xD2)
+	}
+	return buildMergeFixture(t, options).ringCircuit()
 }
 
 func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessFixture {
@@ -380,6 +391,18 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	if options.allowDummyInputs != nil {
 		allowDummyInputs = options.allowDummyInputs
 	}
+	cacheOwnerBlinding := big.NewInt(0)
+	if options.cacheOwnerBlinding != nil {
+		cacheOwnerBlinding = options.cacheOwnerBlinding
+	}
+	cacheOwnerCommitment := big.NewInt(0)
+	if cacheOwnerBlinding.Sign() != 0 {
+		cacheOwnerCommitment, err = poseidon.Hash([]*big.Int{userOwnerHash, cacheOwnerBlinding})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	outputTreeID := big.NewInt(fixtureOutputTreeID)
 	treeSlots := fixtureTreeSlots(treeIDs, slotRoots, slotNullifierRoots)
 	publicInputPreimage := []*big.Int{
@@ -396,12 +419,14 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		publicInputPreimage = append(
 			publicInputPreimage,
 			userSigningPkHash,
+			userNullifierPk,
 		)
 	case ringFixtureRail:
 		publicInputPreimage = append(
 			publicInputPreimage,
 			outputRingData,
 			ringProgramID,
+			cacheOwnerCommitment,
 		)
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
@@ -469,7 +494,10 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		userSigningPkHash:   userSigningPkHash,
 		outputRingDataHash:  outputRingData,
 		ringProgramID:       ringProgramID,
-		publicInputHash:     publicInputHash,
+
+		cacheOwnerBlinding: cacheOwnerBlinding,
+
+		publicInputHash: publicInputHash,
 	}
 }
 
@@ -498,6 +526,7 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment.CommonPublicInputs = f.public
 	assignment.OutputRingDataHash = f.outputRingDataHash
 	assignment.RingProgramID = f.ringProgramID
+	assignment.CacheOwnerBlinding = f.cacheOwnerBlinding
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }

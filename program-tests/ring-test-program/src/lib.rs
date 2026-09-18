@@ -31,6 +31,7 @@ pub fn process_instruction(
     };
     match *ix_tag {
         tag::CREATE_RING_CONFIG
+        | tag::CREATE_CACHE
         | tag::RING_DEPOSIT
         | tag::RING_TRANSACT
         | tag::RING_AUTHORITY_TRANSACT

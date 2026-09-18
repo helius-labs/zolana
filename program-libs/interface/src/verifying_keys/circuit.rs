@@ -5,6 +5,8 @@ use wincode::{
     ReadError, ReadResult, SchemaRead, SchemaWrite, TypeMeta, WriteResult,
 };
 
+use crate::state::cache::CACHE_CAPACITY;
+
 const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 
 /// The compressed BSB22 commitment carried by a committed Groth16 proof.
@@ -25,6 +27,33 @@ pub struct RingP256ProofData {
     /// address slots do not count. `None` keeps ring-only P256 ownership private.
     #[wincode(with = "FixedOptionOwnerTag")]
     pub default_owner_tag: Option<[u8; 32]>,
+}
+
+/// Carried by a cached circuit selector; input i selects cache slot i.
+/// The cache is the final account.
+///
+/// A cached selector names no circuit of its own: every owner-signed rail binds
+/// this selection into its public input hash whether or not a cache is used, so
+/// a cached spend verifies against its rail's ordinary key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct CachedInputs {
+    pub input_bitmap: u64,
+}
+
+impl CachedInputs {
+    pub fn valid_bitmap(self, input_count: usize) -> bool {
+        (1..=CACHE_CAPACITY).contains(&input_count)
+            && self.input_bitmap != 0
+            && self.input_bitmap >> input_count == 0
+    }
+
+    pub fn selects(self, input_index: usize) -> bool {
+        self.input_bitmap
+            .checked_shr(input_index as u32)
+            .unwrap_or(0)
+            & 1
+            != 0
+    }
 }
 
 /// Fixed-width wire adapter for the optional owner tag. Keeping the circuit
@@ -94,10 +123,19 @@ pub enum OutputOwnerMode {
 
 /// A supported `transact` circuit instantiation.
 ///
-/// The tuple fields are `(number of inputs, number of outputs, number of
-/// public asset slots)`. The selector is not a circuit public input: it selects
-/// the verifying key and is validated against the dispatched instruction and
-/// the instruction data before verification.
+/// The first three tuple fields are `(number of inputs, number of outputs,
+/// number of public asset slots)`, followed by any variant-specific payload.
+/// The enum tag selects the verifying key and is validated against the dispatched
+/// instruction and its data. The tag is not a circuit public input; payload fields
+/// such as `CachedInputs::input_bitmap` contribute to the proof's public input hash.
+///
+/// Each owner-signed rail has a cached twin carrying the same payload plus a
+/// [`CachedInputs`]. The twin is the same circuit and the same verifying key; it
+/// only declares that a cache account follows and which inputs it covers, so
+/// every rail accessor resolves it through [`CircuitId::uncached`]. Ring
+/// authority has no twin: its circuit binds no cache selection. The twins are
+/// appended last so no existing tag encoding moves, and a transact that uses no
+/// cache is byte-identical to one built before caches existed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u16")]
 pub enum CircuitId {
@@ -106,15 +144,46 @@ pub enum CircuitId {
     RingEddsa(u8, u8, u8),
     RingAuthority(u8, u8, u8),
     RingP256(u8, u8, u8, RingP256ProofData),
+    ConfidentialEddsaCached(u8, u8, u8, CachedInputs),
+    RingEddsaCached(u8, u8, u8, CachedInputs),
+    RingP256Cached(u8, u8, u8, RingP256ProofData, CachedInputs),
 }
 
 impl CircuitId {
+    pub const fn cached_inputs(self) -> Option<CachedInputs> {
+        match self {
+            Self::ConfidentialEddsaCached(_, _, _, selection)
+            | Self::RingEddsaCached(_, _, _, selection)
+            | Self::RingP256Cached(_, _, _, _, selection) => Some(selection),
+            _ => None,
+        }
+    }
+
+    /// The rail this selector names, with any cache selection dropped. A cached
+    /// selector differs from its rail only in the cache it declares, so every
+    /// shape, rail and key accessor answers through this.
+    pub const fn uncached(self) -> Self {
+        match self {
+            Self::ConfidentialEddsaCached(n_in, n_out, slots, _) => {
+                Self::ConfidentialEddsa(n_in, n_out, slots)
+            }
+            Self::RingEddsaCached(n_in, n_out, slots, _) => Self::RingEddsa(n_in, n_out, slots),
+            Self::RingP256Cached(n_in, n_out, slots, proof_data, _) => {
+                Self::RingP256(n_in, n_out, slots, proof_data)
+            }
+            other => other,
+        }
+    }
+
     pub const fn num_inputs(self) -> u8 {
         match self {
             Self::ConfidentialEddsa(n, _, _)
             | Self::RingEddsa(n, _, _)
             | Self::RingAuthority(n, _, _)
-            | Self::RingP256(n, _, _, _) => n,
+            | Self::RingP256(n, _, _, _)
+            | Self::ConfidentialEddsaCached(n, _, _, _)
+            | Self::RingEddsaCached(n, _, _, _)
+            | Self::RingP256Cached(n, _, _, _, _) => n,
         }
     }
 
@@ -123,7 +192,10 @@ impl CircuitId {
             Self::ConfidentialEddsa(_, n, _)
             | Self::RingEddsa(_, n, _)
             | Self::RingAuthority(_, n, _)
-            | Self::RingP256(_, n, _, _) => n,
+            | Self::RingP256(_, n, _, _)
+            | Self::ConfidentialEddsaCached(_, n, _, _)
+            | Self::RingEddsaCached(_, n, _, _)
+            | Self::RingP256Cached(_, n, _, _, _) => n,
         }
     }
 
@@ -132,7 +204,10 @@ impl CircuitId {
             Self::ConfidentialEddsa(_, _, n)
             | Self::RingEddsa(_, _, n)
             | Self::RingAuthority(_, _, n)
-            | Self::RingP256(_, _, n, _) => n,
+            | Self::RingP256(_, _, n, _)
+            | Self::ConfidentialEddsaCached(_, _, n, _)
+            | Self::RingEddsaCached(_, _, n, _)
+            | Self::RingP256Cached(_, _, n, _, _) => n,
         }
     }
 
@@ -146,14 +221,14 @@ impl CircuitId {
 
     pub const fn is_confidential(self) -> bool {
         matches!(
-            self,
+            self.uncached(),
             Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingP256(..)
         )
     }
 
     pub const fn is_ring(self) -> bool {
         matches!(
-            self,
+            self.uncached(),
             Self::RingEddsa(..) | Self::RingAuthority(..) | Self::RingP256(..)
         )
     }
@@ -163,19 +238,23 @@ impl CircuitId {
     }
 
     pub const fn is_p256(self) -> bool {
-        matches!(self, Self::RingP256(..))
+        matches!(self.uncached(), Self::RingP256(..))
     }
 
     pub const fn bsb22_commitment(&self) -> Option<&Bsb22Commitment> {
         match self {
-            Self::RingP256(_, _, _, proof_data) => Some(&proof_data.bsb22_commitment),
+            Self::RingP256(_, _, _, proof_data) | Self::RingP256Cached(_, _, _, proof_data, _) => {
+                Some(&proof_data.bsb22_commitment)
+            }
             _ => None,
         }
     }
 
     pub const fn default_p256_owner_tag(&self) -> Option<&[u8; 32]> {
         match self {
-            Self::RingP256(_, _, _, proof_data) => proof_data.default_owner_tag.as_ref(),
+            Self::RingP256(_, _, _, proof_data) | Self::RingP256Cached(_, _, _, proof_data, _) => {
+                proof_data.default_owner_tag.as_ref()
+            }
             _ => None,
         }
     }
@@ -186,8 +265,11 @@ impl CircuitId {
 
     pub const fn output_owner_mode(self) -> OutputOwnerMode {
         match self {
-            Self::ConfidentialEddsa(..) => OutputOwnerMode::All,
-            Self::RingEddsa(..) | Self::RingP256(..) => OutputOwnerMode::ConfidentialMarked,
+            Self::ConfidentialEddsa(..) | Self::ConfidentialEddsaCached(..) => OutputOwnerMode::All,
+            Self::RingEddsa(..)
+            | Self::RingP256(..)
+            | Self::RingEddsaCached(..)
+            | Self::RingP256Cached(..) => OutputOwnerMode::ConfidentialMarked,
             Self::RingAuthority(..) => OutputOwnerMode::None,
         }
     }
@@ -199,7 +281,12 @@ impl CircuitId {
             return false;
         }
         match self {
-            Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingP256(..) => matches!(
+            Self::ConfidentialEddsa(..)
+            | Self::RingEddsa(..)
+            | Self::RingP256(..)
+            | Self::ConfidentialEddsaCached(..)
+            | Self::RingEddsaCached(..)
+            | Self::RingP256Cached(..) => matches!(
                 (n_inputs, n_outputs),
                 (1, 1)
                     | (1, 2)
@@ -225,7 +312,9 @@ impl CircuitId {
     ) -> Option<&'static groth16_solana::groth16::Groth16Verifyingkey<'static>> {
         use super::*;
 
-        let key = match self {
+        // A cached spend proves on its rail's own key: the cache adds published
+        // values, not a circuit.
+        let key = match self.uncached() {
             Self::ConfidentialEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
                 &transfer_confidential_1_1::VERIFYINGKEY
             }

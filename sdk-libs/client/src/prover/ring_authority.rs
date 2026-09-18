@@ -128,6 +128,8 @@ impl RingAuthorityProver {
             input_flags: &input_flags,
             signer_pk_hashes: &signer_pk_hashes,
             output_owner_pk_hashes: None,
+            // Ring authority binds no owner tags and no cache selection.
+            cached_inputs: [[0u8; 32]; 3],
         }
         .hash()?;
 
@@ -145,6 +147,11 @@ impl RingAuthorityProver {
             signer_pk_hashes: vec![be(&payer_pk_hash)],
             input_flags: be(&input_flags),
             published_output_owner_pk_hashes: Vec::new(),
+            // The ring authority circuit carries no cache selection; the prover
+            // ignores these for this rail.
+            cache_input_bitmap: BigUint::ZERO,
+            cache_tree_id: BigUint::ZERO,
+            cache_input_hash_chain: BigUint::ZERO,
             public_input_hash: be(&public_input),
         };
 

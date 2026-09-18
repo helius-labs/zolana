@@ -124,6 +124,9 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"signer_pk_hashes",
 		"input_flags",
 		"output_owner_pk_hashes",
+		"cache_input_bitmap",
+		"cache_tree_id",
+		"cache_input_hash_chain",
 	}
 
 	names := PublicInputNames()

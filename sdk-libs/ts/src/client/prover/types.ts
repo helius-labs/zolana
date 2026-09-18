@@ -77,6 +77,14 @@ export interface TransferInputs {
   /** Bit 0 is the dummy-input policy, then three bits of tree slot per input. */
   readonly inputFlags: Field;
   readonly publishedOutputOwnerPublicKeyHashes: readonly Field[];
+  /**
+   * The cache selection published right after the output owners. A spend that
+   * draws no input from a cache publishes the empty selection rather than
+   * omitting it, so the proof statement never reveals whether a cache was used.
+   */
+  readonly cacheInputBitmap: Field;
+  readonly cacheTreeId: Field;
+  readonly cacheInputHashChain: Field;
   readonly publicInputHash: Field;
 }
 

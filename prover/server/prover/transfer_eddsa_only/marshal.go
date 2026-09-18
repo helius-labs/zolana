@@ -59,6 +59,9 @@ type TransferParametersJSON struct {
 	SignerPkHashes               []string                    `json:"signerPkHashes"`
 	InputFlags                   string                      `json:"inputFlags"`
 	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
+	CacheInputBitmap             string                      `json:"cacheInputBitmap"`
+	CacheTreeID                  string                      `json:"cacheTreeId"`
+	CacheInputHashChain          string                      `json:"cacheInputHashChain"`
 	PublicInputHash              string                      `json:"publicInputHash"`
 }
 
@@ -91,6 +94,9 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		SignerPkHashes:               common.FeHexSlice(p.SignerPkHashes),
 		InputFlags:                   common.FeHex(p.InputFlags),
 		PublishedOutputOwnerPkHashes: common.FeHexSlice(p.PublishedOutputOwnerPkHashes),
+		CacheInputBitmap:             common.FeHex(p.CacheInputBitmap),
+		CacheTreeID:                  common.FeHex(p.CacheTreeID),
+		CacheInputHashChain:          common.FeHex(p.CacheInputHashChain),
 		PublicInputHash:              common.FeHex(p.PublicInputHash),
 	}
 
@@ -179,6 +185,15 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 		return err
 	}
 	if p.PublishedOutputOwnerPkHashes, err = common.FeFromHexSlice(params.PublishedOutputOwnerPkHashes); err != nil {
+		return err
+	}
+	if p.CacheInputBitmap, err = common.FeFromHex(params.CacheInputBitmap); err != nil {
+		return err
+	}
+	if p.CacheTreeID, err = common.FeFromHex(params.CacheTreeID); err != nil {
+		return err
+	}
+	if p.CacheInputHashChain, err = common.FeFromHex(params.CacheInputHashChain); err != nil {
 		return err
 	}
 	if p.PublicInputHash, err = common.FeFromHex(params.PublicInputHash); err != nil {

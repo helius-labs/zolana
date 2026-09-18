@@ -85,6 +85,8 @@ type MergeParameters struct {
 	// default rail.
 	OutputRingDataHash *big.Int
 
+	CacheOwnerBlinding *big.Int
+
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
 	AllowDummyInputs *big.Int

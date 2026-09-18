@@ -2,19 +2,19 @@ use borsh::BorshSerialize;
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use num_bigint::BigUint;
 use solana_account::Account;
-use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    MergeProver, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProverClient,
-    SpendProof, TransferSpendInput, STATE_TREE_HEIGHT,
+    prover::{MergeCacheTarget, MergeRingCacheTarget},
+    MergeProver, MergeRingProver, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
+    ProverClient, SpendProof, TransferSpendInput, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeTransact,
-        MergeTransactIxData,
+        instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeRing, MergeRingIxData,
+        MergeTransact, MergeTransactIxData,
     },
     verifying_keys::{merge_36_1, merge_8_1},
 };
@@ -25,14 +25,14 @@ use zolana_merkle_tree::indexed::{
     IndexedMerkleTree, NonInclusionProof as IndexedNonInclusionProof,
 };
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::{test_blinding, ZolanaProgramTest};
+use zolana_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{
     instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
     Data, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 use zolana_user_registry_interface::{
-    state::{UserRecord, NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN},
+    state::{UserRecord, P256_PUBKEY_LEN},
     user_record_pda, USER_REGISTRY_PROGRAM_ID,
 };
 
@@ -59,10 +59,14 @@ pub fn write_user_record(
     }
     let (address, bump) = user_record_pda(&owner);
     let record = UserRecord {
-        owner: Address::new_from_array(owner.to_bytes()),
+        owner,
         bump,
         owner_p256,
-        nullifier_pubkey: [11u8; NULLIFIER_PUBKEY_LEN],
+        nullifier_pubkey: ShieldedKeypair::from_keypair(&rpc.payer)
+            .expect("fixture keypair")
+            .nullifier_key()
+            .pubkey()
+            .expect("fixture nullifier public key"),
         viewing_pubkey,
         merging_enabled,
     };
@@ -194,6 +198,7 @@ pub struct RealMerge {
     pub data: MergeTransactIxData,
     pub nullifiers: Vec<[u8; 32]>,
     pub user_record: Pubkey,
+    pub cache: Option<Pubkey>,
 }
 
 impl RealMerge {
@@ -204,54 +209,28 @@ impl RealMerge {
             payer: pool.rpc.payer.pubkey(),
             user_record: self.user_record,
             data: self.data.clone(),
+            cache: self.cache,
         }
         .instruction()
     }
 }
 
-pub struct RealMergeProof {
-    pub input_count: usize,
-    pub real_input_count: usize,
+pub struct PaddedMerge {
+    pub spends: Vec<TransferSpendInput>,
+    pub output: SppProofOutputUtxo,
 }
 
-impl RealMergeProof {
-    pub fn build(self, pool: &mut Pool) -> RealMerge {
-        let RealMergeProof {
-            input_count,
-            real_input_count,
-        } = self;
-        assert!(
-            MERGE_SUPPORTED_INPUT_COUNTS.contains(&input_count),
-            "{input_count} is not a supported merge input count"
-        );
-        assert!(
-            (1..=input_count).contains(&real_input_count),
-            "{real_input_count} real inputs do not fit a {input_count}-input merge"
-        );
-
-        let payer = pool.rpc.payer.insecure_clone();
-        let tree = pool.tree;
-        let tree_id = pool.tree_id;
-        let keypair = ShieldedKeypair::from_keypair(&payer).expect("shielded keypair");
-        let user_record = write_user_record(&mut pool.rpc, payer.pubkey(), None, true);
+impl PaddedMerge {
+    pub fn assemble(
+        deposits: &RealDeposits,
+        keypair: &ShieldedKeypair,
+        tree: Pubkey,
+        tree_id: u16,
+        input_count: usize,
+    ) -> Self {
         let nullifier_key = keypair.nullifier_key();
-        let owner_public_key = keypair.signing_pubkey();
-
-        let deposits = ZeroDeposits {
-            rpc: &mut pool.rpc,
-            tree,
-            depositor: &payer,
-            owner: owner_public_key,
-            nullifier_key: &nullifier_key,
-            tree_id,
-            count: real_input_count,
-        }
-        .deposit();
         let nullifier_root = deposits.nullifier_root;
-        let merkle_context = MerkleContext {
-            tree_type: 0,
-            tree: Address::new_from_array(tree.to_bytes()),
-        };
+        let merkle_context = MerkleContext { tree_type: 0, tree };
         let to_non_inclusion =
             |leaf: [u8; 32], proof: &IndexedNonInclusionProof| NonInclusionProof {
                 leaf,
@@ -295,7 +274,7 @@ impl RealMergeProof {
                 nullifier_proof: None,
             })
             .collect();
-        for slot in real_input_count..input_count {
+        for slot in deposits.deposits.len()..input_count {
             let slot_tag = u8::try_from(slot).expect("merge slot fits a byte");
             let dummy_nullifier = merge_dummy_nullifier(&nullifier_key, &first_nullifier, slot_tag)
                 .expect("dummy nullifier");
@@ -330,6 +309,60 @@ impl RealMergeProof {
         output.blinding =
             merge_output_blinding(&nullifier_key, &first_nullifier).expect("output blinding");
 
+        Self { spends, output }
+    }
+}
+
+pub struct RealMergeProof {
+    pub input_count: usize,
+    pub real_input_count: usize,
+}
+
+impl RealMergeProof {
+    pub fn build(self, pool: &mut Pool) -> RealMerge {
+        self.build_with_cache(pool, None)
+    }
+
+    pub fn build_cached(self, pool: &mut Pool, cache: MergeCacheTarget) -> RealMerge {
+        self.build_with_cache(pool, Some(cache))
+    }
+
+    fn build_with_cache(self, pool: &mut Pool, cache: Option<MergeCacheTarget>) -> RealMerge {
+        let RealMergeProof {
+            input_count,
+            real_input_count,
+        } = self;
+        assert!(
+            MERGE_SUPPORTED_INPUT_COUNTS.contains(&input_count),
+            "{input_count} is not a supported merge input count"
+        );
+        assert!(
+            (1..=input_count).contains(&real_input_count),
+            "{real_input_count} real inputs do not fit a {input_count}-input merge"
+        );
+
+        let payer = pool.rpc.payer.insecure_clone();
+        let tree = pool.tree;
+        let tree_id = pool.tree_id;
+        let keypair = ShieldedKeypair::from_keypair(&payer).expect("shielded keypair");
+        let user_record = write_user_record(&mut pool.rpc, payer.pubkey(), None, true);
+        let nullifier_key = keypair.nullifier_key();
+        let owner_public_key = keypair.signing_pubkey();
+
+        let deposits = ZeroDeposits {
+            rpc: &mut pool.rpc,
+            tree,
+            depositor: &payer,
+            owner: owner_public_key,
+            nullifier_key: &nullifier_key,
+            tree_id,
+            count: real_input_count,
+        }
+        .deposit();
+
+        let PaddedMerge { spends, output } =
+            PaddedMerge::assemble(&deposits, &keypair, tree, tree_id, input_count);
+
         let result = MergeProver {
             inputs: spends,
             output,
@@ -337,6 +370,7 @@ impl RealMergeProof {
             signing_pubkey: owner_public_key,
             nullifier_key,
             output_tree_id: tree_id,
+            cache,
         }
         .build()
         .expect("build merge witness");
@@ -370,6 +404,230 @@ impl RealMergeProof {
             data: result.instruction_data(merge_proof),
             nullifiers: result.nullifiers.clone(),
             user_record,
+            cache: cache.map(|target| target.address),
+        }
+    }
+}
+
+pub fn activate_ring_test_program(pool: &mut Pool) -> Pubkey {
+    pool.rpc
+        .load_ring_test_program()
+        .expect("load the ring test program");
+    let authority = pool.authority.insecure_clone();
+    pool.rpc
+        .create_activated_ring_config(&authority, &authority.pubkey(), &authority, true)
+        .expect("create an activated ring config");
+    Pubkey::new_from_array(RING_TEST_PROGRAM_ID)
+}
+
+pub fn ring_cache_identity(keypair: &ShieldedKeypair, owner_blinding: &[u8; 32]) -> [u8; 32] {
+    let nullifier_pk = keypair.nullifier_key().pubkey().expect("nullifier pubkey");
+    let user_owner_hash =
+        owner_hash(&keypair.signing_pubkey(), &nullifier_pk).expect("user owner hash");
+    Poseidon::hashv(&[&user_owner_hash, owner_blinding]).expect("ring cache identity")
+}
+
+pub struct RingZeroDeposits<'a> {
+    pub rpc: &'a mut ZolanaProgramTest,
+    pub tree: Pubkey,
+    pub depositor: &'a Keypair,
+    pub ring_program_id: Pubkey,
+    pub owner: PublicKey,
+    pub nullifier_key: &'a NullifierKey,
+    pub tree_id: u16,
+    pub count: usize,
+}
+
+impl RingZeroDeposits<'_> {
+    pub fn deposit(self) -> RealDeposits {
+        assert!(self.count > 0, "at least one real deposit is required");
+        let (utxo_next, _) = tree_progress(self.rpc, &self.tree);
+        assert_eq!(utxo_next, 0, "the pool's UTXO tree must still be empty");
+
+        let zero = [0u8; 32];
+        let ring = self.ring_program_id;
+        let nullifier_pk = self.nullifier_key.pubkey().expect("nullifier pubkey");
+        let owner_field = owner_hash(&self.owner, &nullifier_pk).expect("owner field");
+        let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+        let mut utxos = Vec::with_capacity(self.count);
+        for index in 0..self.count {
+            let tag = u8::try_from(index)
+                .ok()
+                .and_then(|index| index.checked_add(50))
+                .expect("ring deposit blinding tag");
+            let blinding = test_blinding(tag);
+            let data = self.rpc.ring_sol_shield_data(0, owner_field, blinding);
+            let event = self
+                .rpc
+                .ring_deposit(&self.tree, self.depositor, &data)
+                .expect("proofless zero ring deposit");
+            let utxo = Utxo {
+                owner: self.owner,
+                asset: SOL_MINT,
+                amount: 0,
+                blinding,
+                ring_program_id: Some(ring),
+                data: Data::default(),
+            };
+            let utxo_hash = utxo
+                .hash(&nullifier_pk, &zero, &zero, self.tree_id)
+                .expect("utxo hash");
+            assert_eq!(utxo_hash, event.utxo_hash, "ring deposit leaf");
+            state_tree.append(&utxo_hash).expect("append state leaf");
+            utxos.push((utxo, utxo_hash));
+        }
+
+        let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(self.rpc, &self.tree);
+        assert_eq!(state_tree.root(), utxo_root, "state root gate");
+        let nullifier_tree = nullifier_tree().expect("indexed nullifier tree");
+        assert_eq!(nullifier_tree.root(), nullifier_root, "nullifier root gate");
+
+        let deposits = utxos
+            .into_iter()
+            .enumerate()
+            .map(|(leaf_index, (utxo, utxo_hash))| {
+                let state_path = state_tree
+                    .get_proof_of_leaf(leaf_index, true)
+                    .expect("state proof")
+                    .to_vec();
+                let nullifier = self
+                    .nullifier_key
+                    .nullifier(&utxo_hash, &utxo.blinding)
+                    .expect("nullifier");
+                let non_inclusion = nullifier_tree
+                    .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+                    .expect("non-inclusion proof");
+                RealDeposit {
+                    utxo,
+                    utxo_hash,
+                    leaf_index: leaf_index as u64,
+                    state_path,
+                    nullifier,
+                    non_inclusion,
+                }
+            })
+            .collect();
+
+        RealDeposits {
+            owner_field,
+            utxo_root,
+            utxo_root_index,
+            nullifier_root,
+            nullifier_tree,
+            deposits,
+        }
+    }
+}
+
+pub struct RealRingMerge {
+    pub data: MergeRingIxData,
+    pub nullifiers: Vec<[u8; 32]>,
+    pub ring_program_id: Pubkey,
+    pub cache: Option<Pubkey>,
+}
+
+impl RealRingMerge {
+    pub fn instruction(&self, pool: &Pool) -> solana_instruction::Instruction {
+        MergeRing {
+            input_tree: pool.tree,
+            output_tree: pool.tree,
+            ring_program_id: self.ring_program_id,
+            payer: pool.rpc.payer.pubkey(),
+            data: self.data.merge.clone(),
+            output_ring_data_hash: self.data.output_ring_data_hash,
+            cache: self.cache,
+        }
+        .instruction()
+    }
+}
+
+pub struct RealRingMergeProof {
+    pub input_count: usize,
+    pub real_input_count: usize,
+}
+
+impl RealRingMergeProof {
+    pub fn build(self, pool: &mut Pool) -> RealRingMerge {
+        self.build_with_cache(pool, None)
+    }
+
+    pub fn build_cached(self, pool: &mut Pool, cache: MergeRingCacheTarget) -> RealRingMerge {
+        self.build_with_cache(pool, Some(cache))
+    }
+
+    fn build_with_cache(
+        self,
+        pool: &mut Pool,
+        cache: Option<MergeRingCacheTarget>,
+    ) -> RealRingMerge {
+        let RealRingMergeProof {
+            input_count,
+            real_input_count,
+        } = self;
+        assert!(
+            MERGE_SUPPORTED_INPUT_COUNTS.contains(&input_count),
+            "{input_count} is not a supported merge input count"
+        );
+        assert!(
+            (1..=input_count).contains(&real_input_count),
+            "{real_input_count} real inputs do not fit a {input_count}-input merge"
+        );
+
+        let ring_program_id = activate_ring_test_program(pool);
+        let payer = pool.rpc.payer.insecure_clone();
+        let depositor = pool.funded_signer(5_000_000_000);
+        let tree = pool.tree;
+        let tree_id = pool.tree_id;
+        let keypair = ShieldedKeypair::from_keypair(&payer).expect("shielded keypair");
+        let nullifier_key = keypair.nullifier_key();
+        let owner_public_key = keypair.signing_pubkey();
+
+        let deposits = RingZeroDeposits {
+            rpc: &mut pool.rpc,
+            tree,
+            depositor: &depositor,
+            ring_program_id,
+            owner: owner_public_key,
+            nullifier_key: &nullifier_key,
+            tree_id,
+            count: real_input_count,
+        }
+        .deposit();
+
+        let PaddedMerge { spends, output } =
+            PaddedMerge::assemble(&deposits, &keypair, tree, tree_id, input_count);
+
+        let result = MergeRingProver {
+            inputs: spends,
+            output,
+            expiry_unix_ts: u64::MAX,
+            signing_pubkey: owner_public_key,
+            nullifier_key,
+            output_tree_id: tree_id,
+            ring_program_id,
+            cache,
+        }
+        .build()
+        .expect("build ring merge witness");
+        assert_eq!(
+            result.nullifiers.len(),
+            input_count,
+            "the built ring merge must keep the requested shape"
+        );
+
+        let proof = ProverClient::local()
+            .prove_merge_ring(&result.inputs)
+            .expect("prove ring merge");
+        let merge_proof = ProofCompressed::try_from(proof)
+            .expect("compress ring merge proof")
+            .to_merge_proof()
+            .expect("merge rail proof");
+
+        RealRingMerge {
+            data: result.ring_instruction_data(merge_proof, [0u8; 32]),
+            nullifiers: result.nullifiers.clone(),
+            ring_program_id,
+            cache: cache.map(|target| target.address),
         }
     }
 }

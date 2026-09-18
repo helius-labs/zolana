@@ -58,8 +58,16 @@ func testPublicInputHash(
 	inputs protocol.PublicInputs,
 	treeSlots []TreeSlot,
 	outputTreeID frontend.Variable,
+	cache ...CachedInputs,
 ) *big.Int {
 	t.Helper()
+	if inputs.BindOutputOwnerTags {
+		fields := emptyCache(t, len(inputs.Nullifiers))
+		if len(cache) != 0 {
+			fields = cache[0]
+		}
+		inputs.PreimageTail = spptest.ToBigInts([]frontend.Variable{fields.InputBitmap, fields.TreeID, fields.InputHashChain})
+	}
 	inputs.TreeSlots = treeSlotsToProtocol(treeSlots)
 	inputs.OutputTreeID = spptest.AsBigInt(outputTreeID)
 	hash, err := protocol.PublicInputHash(inputs)

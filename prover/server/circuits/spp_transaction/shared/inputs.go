@@ -31,6 +31,9 @@ type PublicInputUtxoInputs struct {
 	Nullifier frontend.Variable
 	SignerPk  frontend.Variable
 	Tree      TreeSlot
+	// SkipInclusion is nil for circuits that always require state-tree
+	// inclusion; see Transaction.skipInclusion.
+	SkipInclusion frontend.Variable
 }
 
 func NewInputs(n int) []Input {
@@ -107,9 +110,19 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	}
 
 	// UTXO checks:
-	// 1. UTXO hash must exist in state Merkle tree.
+	// 1. UTXO hash must exist in state Merkle tree, unless the variant proves
+	//    this commitment exists without it.
+	// Uncached inputs, including dummies and addresses, require a state root.
 	{
-		AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.Tree.UtxoRoot))
+		requireInclusion := isUtxo
+		if signals.SkipInclusion != nil {
+			requireStateRoot := api.Sub(1, signals.SkipInclusion)
+			assertZeroWhen(api, requireStateRoot, api.IsZero(signals.Tree.UtxoRoot))
+			requireInclusion = api.Mul(isUtxo, requireStateRoot)
+		} else {
+			api.AssertIsDifferent(signals.Tree.UtxoRoot, 0)
+		}
+		AssertWhen(api, requireInclusion, in.checkInclusion(api, utxoHash, signals.Tree.UtxoRoot))
 	}
 	// Dummy checks:
 	// 1. All UTXO fields and nullifier secret 0, except the blinding.

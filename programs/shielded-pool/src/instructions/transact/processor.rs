@@ -23,7 +23,7 @@ use super::{
     account::{RingTransactAccounts, TransactAccounts},
     event::{build_transact_event, resolve_outputs},
     interface_transfer::settle_interface_transfers,
-    tree::{apply_input_trees, apply_output_tree},
+    tree::{apply_cached_inputs, apply_input_trees, apply_output_tree},
 };
 use crate::instructions::{
     event::emit_event,
@@ -59,14 +59,13 @@ pub fn process_transact_ix(
     let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
     let mut owner_hashes = Box::new(OwnerHashCache::new());
     // 5. Check accounts.
-    let mut transact_accounts = match ix.circuit {
-        CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
-        CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
-            let (transact_accounts, ring_program_id) =
-                RingTransactAccounts::validate_and_parse(accounts, &ix, ix.circuit.is_authority())?;
-            proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
-            transact_accounts
-        }
+    let mut transact_accounts = if ix.circuit.is_ring() {
+        let (transact_accounts, ring_program_id) =
+            RingTransactAccounts::validate_and_parse(accounts, &ix, ix.circuit.is_authority())?;
+        proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
+        transact_accounts
+    } else {
+        TransactAccounts::validate_and_parse(accounts, &ix)?
     };
     // 6. Hash all signers before output owners: cache hits deduplicate signers.
     proof_inputs.fill_owner_signer_hashes(
@@ -89,6 +88,9 @@ pub fn process_transact_ix(
     )?;
     // 9. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
     let input_tree_sequences = apply_input_trees(&mut transact_accounts, &ix, &mut proof_inputs)?;
+    if let Some(cache_account) = transact_accounts.cache.as_deref_mut() {
+        apply_cached_inputs(cache_account, &ix, &mut proof_inputs)?;
+    }
     // 10. Append new utxo hashes.
     let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
@@ -143,16 +145,19 @@ pub fn hash_external_data<'a>(
 /// 3. Circuit variant exists with in out public params is supported.
 /// 4. Nullifiers, output utxo hashes, and the private tx hash are canonical
 ///    field elements.
+/// 5. Cached UTXO proving selects a nonempty subset of the declared inputs.
 pub fn validate_circuit_type(
     ix: &TransactIxDataRef<'_>,
     instruction_tag: InstructionTag,
 ) -> ProgramResult {
     // 1. Circuit is allowed for the instruction type.
     let circuit_matches = match instruction_tag {
-        InstructionTag::Transact => matches!(ix.circuit, CircuitId::ConfidentialEddsa(..)),
+        InstructionTag::Transact => {
+            matches!(ix.circuit.uncached(), CircuitId::ConfidentialEddsa(..))
+        }
         InstructionTag::RingTransact => {
             matches!(
-                ix.circuit,
+                ix.circuit.uncached(),
                 CircuitId::RingEddsa(..) | CircuitId::RingP256(..)
             )
         }
@@ -185,5 +190,10 @@ pub fn validate_circuit_type(
         "private tx hash",
         None,
         ShieldedPoolError::NonCanonicalPrivateTxHash,
-    )
+    )?;
+    let selection = ix.circuit.cached_inputs();
+    if selection.is_some_and(|s| !s.valid_bitmap(ix.inputs.len())) {
+        return Err(ShieldedPoolError::InvalidCacheBitmap.into());
+    }
+    Ok(())
 }

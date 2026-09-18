@@ -15,6 +15,7 @@ use zolana_interface::{
 use super::account::MergeRingAccounts;
 use crate::instructions::{
     merge::{
+        cache::CacheSlot,
         processor::{process_merge_core, validate_field_elements, MergeCoreAccounts},
         verify::MergeOwnerBinding,
     },
@@ -40,9 +41,17 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len())?;
+    let merge_accounts =
+        MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len(), merge.cache_slot)?;
+    let cache = CacheSlot::load_and_validate_optional(
+        merge_accounts.cache,
+        merge_accounts.payer,
+        None,
+        clock.unix_timestamp,
+    )?;
 
     let external_data_hash = MergeExternalDataHash {
+        cache: cache.as_ref().map(CacheSlot::destination),
         spp_instruction_discriminator: RING_MERGE_TRANSACT,
         expiry_unix_ts: merge.expiry_unix_ts,
         output_utxo_hash: merge.output_utxo_hash,
@@ -55,13 +64,18 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // The ring merge proof binds `ring_program_id` from the signing `ring_config`
     // and the output `ring_data_hash` the ring program selected, and is verified
     // against the `merge_ring_<n_inputs>_1` key. A policy ring has no
-    // `user_record` registry, so the `Ring` binding omits owner identity entirely
-    // (see `MergeProof::public_input_hash`); the binding and the declared input
+    // `user_record` registry, so the owner identity is bound as a commitment the
+    // proof must open (see `MergeProof::public_input_hash`), taken from the cache
+    // account and never from instruction data; the binding and the declared input
     // count select the verifying key.
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,
         output_ring_data_hash: *ix.output_ring_data_hash,
+        cache_owner_commitment: cache
+            .as_ref()
+            .map(CacheSlot::owner_identity)
+            .unwrap_or([0u8; 32]),
     };
 
     // The merged output is indexed by the first input nullifier. The indexer
@@ -77,6 +91,7 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         merge,
         external_data_hash,
         owner_binding,
+        cache,
         *merge
             .nullifiers
             .first()

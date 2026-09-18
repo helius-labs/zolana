@@ -37,6 +37,7 @@ func MustNewCustomRingP256Circuit(shape Shape) *customring.CustomRingP256Circuit
 
 func asCustomRingP256(a *testAssignment, authorization p256Authorization) frontend.Circuit {
 	return &customring.CustomRingP256Circuit{
+		CachedInputs: a.CachedInputs,
 		Public: customring.CustomRingP256Public{
 			Nullifiers:                   a.InputNullifiers(),
 			OutputHashes:                 a.OutputHashes(),
@@ -181,7 +182,7 @@ func refreshCustomRingP256PublicInputHashWithOwner(
 		inputs.PublicAmounts[i] = spptest.AsBigInt(assignment.PublicAmounts[i])
 	}
 	assignment.PublicInputHash = testPublicInputHash(
-		t, inputs, assignment.TreeSlots, assignment.OutputTreeID,
+		t, inputs, assignment.TreeSlots, assignment.OutputTreeID, assignment.CachedInputs,
 	)
 }
 

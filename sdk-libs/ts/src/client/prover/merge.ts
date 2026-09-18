@@ -261,6 +261,7 @@ function assembleMergeUnchecked(
       bytesToBigInt(externalDataHash),
       1n,
       ownerPublicKeyHash,
+      bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
     ]),
   ) as Bytes32;
   const proverInputs: MergeInputs = Object.freeze({

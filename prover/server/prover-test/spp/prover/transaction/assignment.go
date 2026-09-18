@@ -204,6 +204,11 @@ func customRingWitness(
 		publicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
 	return &customring.CustomRingEddsaOnlyCircuit{
+		CachedInputs: txcircuit.CachedInputs{
+			InputBitmap:    publicInputs.PreimageTail[0],
+			TreeID:         publicInputs.PreimageTail[1],
+			InputHashChain: publicInputs.PreimageTail[2],
+		},
 		Public: customring.CustomRingEddsaOnlyPublic{
 			Nullifiers:                   fieldVariables(publicInputs.Nullifiers),
 			OutputHashes:                 fieldVariables(publicInputs.OutputUtxoHashes),
@@ -371,7 +376,14 @@ func buildPublicInputs(
 	if err != nil {
 		return protocol.PublicInputs{}, err
 	}
+	// This package proves no cached spends, but every owner-signed circuit binds
+	// a selection, so it publishes the empty one rather than omitting it.
+	cacheSelection, err := emptyCacheSelection(len(inputs.nullifiers))
+	if err != nil {
+		return protocol.PublicInputs{}, err
+	}
 	return protocol.PublicInputs{
+		PreimageTail:        cacheSelection,
 		Nullifiers:          inputs.nullifiers,
 		OutputUtxoHashes:    outputs.hashes,
 		TreeSlots:           trees.slots,
@@ -386,6 +398,21 @@ func buildPublicInputs(
 		BindOutputOwnerTags: true,
 		OutputOwnerPkHashes: outputs.outputOwnerPkHashes,
 	}, nil
+}
+
+// emptyCacheSelection is the [bitmap, tree id, commitment chain] a spend that
+// draws no input from a cache publishes: the chain still runs over one empty
+// slot per input, so its value depends on the input count.
+func emptyCacheSelection(nInputs int) ([]*big.Int, error) {
+	slots := make([]*big.Int, nInputs)
+	for i := range slots {
+		slots[i] = big.NewInt(0)
+	}
+	chain, err := protocol.RightHashChain4(slots)
+	if err != nil {
+		return nil, err
+	}
+	return []*big.Int{big.NewInt(0), big.NewInt(0), chain}, nil
 }
 
 func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int, width int) ([]*big.Int, error) {

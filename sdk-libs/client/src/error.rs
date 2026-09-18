@@ -147,6 +147,9 @@ pub enum ClientError {
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },
 
+    #[error("cache owner blinding must be nonzero for a cached ring merge")]
+    ZeroCacheOwnerBlinding,
+
     #[error("owner {owner} has not enabled the merge service on its user-registry record")]
     MergeDisabled { owner: Pubkey },
 

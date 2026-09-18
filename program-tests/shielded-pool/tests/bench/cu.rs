@@ -15,6 +15,7 @@ use solana_signer::Signer;
 use zolana_client::{ProverClient, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::Poseidon;
+use zolana_interface::state::cache::empty_cached_input_fields;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::InterfaceTransfer, Deposit, Transact,
@@ -29,6 +30,7 @@ use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
 
 use shielded_pool_tests::support::{
+    cache::CachedSpendFixture,
     fixtures::Pool,
     merge::RealMergeProof,
     mollusk,
@@ -249,6 +251,25 @@ fn bench_cu_deposit() {
     }
     for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
         bench_merge_shape(&mut mollusk, &program_id, input_count, &mut bench);
+    }
+    // Cached spends at two supported shapes, both also measured uncached above
+    // so the cache's cost shows up as a direct difference: the widest
+    // non-consolidation shape, and the consolidation the cache exists for.
+    //
+    // The last entry draws a single input from the widest cache. Selecting
+    // every slot leaves the commitment chain with no zero tail, so the fold
+    // runs its full group count; selecting one leaves the longest tail a
+    // supported shape can have. The pair brackets what the cache selection
+    // costs to reconstruct on chain.
+    for (n_inputs, n_outputs, cached_slots) in [(5, 4, 5), (36, 2, 36), (36, 2, 1)] {
+        bench_cached_transfer_shape(
+            &mollusk,
+            &program_id,
+            n_inputs,
+            n_outputs,
+            cached_slots,
+            &mut bench,
+        );
     }
     bench_withdrawal_sol(&mut mollusk, &program_id, &mut bench);
     bench_withdrawal_spl(
@@ -613,6 +634,7 @@ fn bench_transfer_shape(
         input_flags: &fe(1),
         signer_pk_hashes: &signer_pk_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");
@@ -651,6 +673,41 @@ fn bench_transfer_shape(
 
     let entries = take_profiling_entries();
     let name = format!("transfer eddsa {n_inputs}x{n_outputs}");
+    assert!(!entries.is_empty(), "no profiling entries for '{name}'");
+    bench.add_from_entries(&name, entries);
+}
+
+/// A transact whose every input is drawn from a cache instead of the state
+/// tree. The cache replaces the inclusion proof, so the group publishes no UTXO
+/// root; what the program pays for instead is loading the cache, freezing it
+/// and folding the selected commitments into the public input hash.
+fn bench_cached_transfer_shape(
+    mollusk: &Mollusk,
+    program_id: &Pubkey,
+    n_inputs: usize,
+    n_outputs: usize,
+    cached_slots: usize,
+    bench: &mut CuBenchmark,
+) {
+    let (mut pt, _authority, tree, tree_id) = bench_setup();
+    let spend = CachedSpendFixture {
+        n_inputs,
+        n_outputs,
+        cache_nonce: 7,
+        cached_slots,
+    }
+    .build(&mut pt, tree, tree_id);
+
+    let accounts = transact_accounts(&pt, &spend.instruction, program_id, None);
+    let mollusk_ix = to_mollusk_instruction(&spend.instruction);
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    let name = if cached_slots == n_inputs {
+        format!("transfer eddsa cached {n_inputs}x{n_outputs}")
+    } else {
+        format!("transfer eddsa cached {cached_slots} of {n_inputs}x{n_outputs}")
+    };
     assert!(!entries.is_empty(), "no profiling entries for '{name}'");
     bench.add_from_entries(&name, entries);
 }
@@ -857,6 +914,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
         input_flags: &fe(1),
         signer_pk_hashes: &signer_pk_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(2).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

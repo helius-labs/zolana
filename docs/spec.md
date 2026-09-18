@@ -1320,7 +1320,7 @@ The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `
 
 **Public Inputs**
 
-The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 8 (default merge) or 9 (policy-ring merge) elements below: a shared 7-element prefix followed by the variant tail, hashed as a single chain, never as a prefix hash extended by the tail (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
+The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 9 (default merge) or 10 (policy-ring merge) elements below: a shared 7-element prefix followed by the variant tail. The prefix ends on a complete HashChain4 group, so extending its hash with the tail is equivalent to hashing the full chain (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
 
 | Element | Source |
 | --- | --- |
@@ -1331,8 +1331,8 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | derived by SPP from `input_tree` as in [Input slots](#input-slots); when false every slot must be real |
-| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)` | registry signing identity: `owner` when `eddsa_owner` is true, otherwise `owner_p256`; must equal the witnessed `owner_pk_hash` |
-| variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id` | `ring_program_id` comes from the signing `ring_config` account; `output_ring_data_hash` is the ring data the calling ring program selected. The circuit asserts it against the output UTXO's `ring_data_hash`. |
+| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry signing identity (`owner` when `eddsa_owner` is true, otherwise `owner_p256`) and registered nullifier public key; must equal the witnessed signing identity and nullifier key |
+| variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id`, `cache_owner_commitment` | `ring_program_id` comes from the signing `ring_config` account; `output_ring_data_hash` is the ring data the calling ring program selected. The circuit asserts it against the output UTXO's `ring_data_hash`. The commitment is the cache account's owner identity, or zero when no cache is written. |
 
 **Private Inputs (per input slot)**
 
@@ -1351,6 +1351,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `owner_pk_hash` | `owner_proof_input_hash(signing_pk)`. The default circuit requires it to equal the registry identity; the ring circuit has no registry check. Neither verifies an owner signature. |
 | `user_nullifier_pk` | shared owner's nullifier commitment; constrained to `Poseidon(nullifier_secret)` |
 | `nullifier_secret` | owner's symmetric nullifier secret; also seeds the output blinding and dummy nullifiers |
+| `cache_owner_blinding` (policy-ring only) | Private nonzero field-element salt when writing a cache; zero when writing no cache. The circuit derives `cache_owner_commitment = Poseidon(userOwnerHash, cache_owner_blinding)` for a nonzero salt and zero otherwise. |
 | `asset` | the single merged asset, shared by every real input and the output |
 
 **Checks**
@@ -1371,7 +1372,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Input/output ring fields | for `merge_transact`: real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`: `ring_program_id != 0`, every real input shares it with the CPI caller, and the output's `ring_data_hash` equals the instruction's `output_ring_data_hash`. |
 | Deterministic output | the output blinding is `merge_output_blinding(nullifier_secret, first_nullifier)`; the recomputed output hash, with `output_tree_id`, equals the public `output_utxo_hash`, with `owner = userOwnerHash` and `data_hash = 0`. |
 | Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
-| Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, so the proof verifies only against the registry-record owner identity SPP folds in. |
+| Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, and the witnessed nullifier public key is included in the public-input hash, so the proof verifies only against both keys from the registry record. |
 
 **Circuit shape**
 
@@ -2917,3 +2918,60 @@ The ring program and transaction accounts are public.
 4. Withdrawal - Public: EdDSA sender or relayer, amount, asset, recipient. Private: relayed P256 sender, shielded balance.
 5. Default to ring - Public: default-ring sender. Private: ring recipient, amount, asset.
 6. Ring to default - Public: EdDSA sender or relayer, default-ring recipient. Private: relayed P256 sender, amount, asset.
+
+
+**UTXO Cache accounts:**
+
+1. Scenario, a user has hundreds of UTXOs and wants to spend her complete balance in a single transfer.
+2. Problem, we can spend at most 36 UTXOs in a single transaction, therefore need to send multiple merge transactions and a transfer with the merged UTXOs. If we do that in sequence it will be slow.
+3. We can perform up to 36 merges in parallel, with GPU proving we should be able to perform up to 36 merges in 1-2 seconds.
+4. A naive implementation needs to wait for the indexer and prover once all merge transactions are confirmed because the UTXOs need to be inserted into the tree and concurrent traffic makes the root unpredictable.
+5. Idea, we know the merged UTXOs before their proofs are computed, thus if we can compute a proof without a dependency on the utxo merkle tree we can compute the transfer proof in parallel with the merge proofs. If we cache merge output utxos in a SPP pda and prove inclusion by existence in the cache we do not need to wait for the indexer and can send the transfer instruction as soon as the cache pda is filled.
+
+**Optimized Merge flow:**
+1. detect too many UTXOs
+2. Proof Input
+  1. build merge proof inputs (up to 36)
+  2. build tranfer proof inputs (uses new merge output utxos)
+3. Proof generation (merge and transfer proof)
+4. Subscribe to cache pda account change
+5. Send merge transactions concurrently (not blocked by transfer proof)
+  1. idempotent cache account creation
+  2. specifies into which cache account slot UTXO is inserted
+6. Send transfer transaction (once 2.2 and 4 are finished)
+
+**Cache Pda:**
+1. has rent sponsor
+2. has lifetime, once lifetime expired rentsponsor can reclaim rent
+3. Stores up to MAX INPUT UTXOs utxo hashes
+4. Once at least one UTXO is spent from the cache no UTXO hashes can be inserted
+5. Only UTXOs owned by the owner can be inserted into the cache
+6. locks in a tree ID, cache is associated with a tree account in which the UTXOs will be nullified in
+7. Only merge instruction can insert into cache
+
+**Create Cache PDA:**
+1. domain separated by rent sponsor and u64 nonce
+2. rent sponsor needs to sign
+
+**Merge with Cache:**
+1. in addition to regular merge
+2. insert value into cache account in specified slot
+3. cannot overwrite slot
+4. only insert UTXO of owner that matches cache owner
+5. cache tree ID and merge output tree ID match
+6. Merge circuit checks for anonymous custom ring transactions that owner is equal to owner hash.
+7. The signing merge payer must equal the cache's immutable `write_authority`, supplied in `CreateCacheData`. This field is independent of `rent_sponsor`, which funds creation and receives the refund.
+
+**Transact with Cache:**
+1. We skip inclusion proofs in zk proof for elements that are read from cache
+2. nullification is unchanged
+3. we have a new circuit ID
+4. set cache state to frozen
+5. Only default ring allows.
+
+
+
+**Close Cache PDA:**
+1. Owner can close once frozen
+2. Anyone can close after time expired
+3. Rent is always returned to the rent sponsor

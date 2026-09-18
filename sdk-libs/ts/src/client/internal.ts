@@ -214,6 +214,31 @@ export function rightHashChain(values: readonly bigint[]): bigint {
   return result;
 }
 
+/**
+ * Folds three elements per Poseidon call from the right: the chain starts at
+ * the last element and every group of up to three preceding elements, in
+ * order, folds as `Poseidon(g0, g1, g2, h)`. The short group is the leftmost
+ * one and its elements stay left-aligned, so an all-zero suffix folds to a
+ * value that depends on its length alone and SPP can seed the fold from that
+ * constant. Mirrors Rust `create_right_hash_chain_4_from_slice`; the
+ * cached-commitment chain uses it.
+ */
+export function rightHashChain4(values: readonly bigint[]): bigint {
+  const last = values.at(-1);
+  if (last === undefined) return 0n;
+  let result = last;
+  for (let end = values.length - 1; end > 0;) {
+    const start = Math.max(end - 3, 0);
+    const group = [0n, 0n, 0n, result];
+    for (let index = start; index < end; index += 1) {
+      group[index - start] = values[index] as bigint;
+    }
+    result = poseidon(group);
+    end = start;
+  }
+  return result;
+}
+
 export function hashBytesBigInt(bytes: Uint8Array): bigint {
   if (bytes.length !== 32) {
     throw new ClientError("CLIENT_INVALID_LENGTH", {

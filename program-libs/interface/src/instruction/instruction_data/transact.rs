@@ -6,7 +6,7 @@ pub use zolana_event::{
 };
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData};
+pub use crate::verifying_keys::{Bsb22Commitment, CachedInputs, CircuitId, RingP256ProofData};
 use crate::{error::ShieldedPoolError, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
 
 /// The Groth16 proof carried by a `transact` instruction: `a` and `c` are
@@ -89,9 +89,10 @@ impl InterfaceTransfer {
         matches!(self, Self::SolDeposit { .. } | Self::SplDeposit { .. })
     }
 
-    /// Accounts in this leg's settlement group. Settlement groups are the last
-    /// accounts of a `transact` instruction, in leg order; the program's account
-    /// parser and the event parser both size them with this.
+    /// Accounts in this leg's settlement group. Settlement groups terminate a
+    /// `transact` account list, in leg order, except for the optional cache
+    /// account a cached selector appends after them; the program's account
+    /// parser and every reader locate them with [`settlement_accounts`].
     pub const fn settlement_account_count(self) -> usize {
         match self {
             // sol_interface, recipient
@@ -112,6 +113,28 @@ impl InterfaceTransfer {
             Self::SplWithdrawal { .. } => Some(1),
         }
     }
+}
+
+/// The settlement account groups of a `transact` account list, in leg order and
+/// sized by [`InterfaceTransfer::settlement_account_count`]. They terminate the
+/// list, except that a cached selector appends the cache account after them, so
+/// the window ends one account earlier for a cached `circuit`. `None` when the
+/// list is shorter than the declared legs require. Every reader that recovers
+/// settlements from a confirmed instruction must go through this: locating them
+/// from the end of the account list alone silently reads each group one account
+/// late once a cache is present.
+pub fn settlement_accounts<'a, T>(
+    transfers: &[InterfaceTransfer],
+    circuit: CircuitId,
+    accounts: &'a [T],
+) -> Option<&'a [T]> {
+    let total = transfers.iter().try_fold(0usize, |total, transfer| {
+        total.checked_add(transfer.settlement_account_count())
+    })?;
+    let end = accounts
+        .len()
+        .checked_sub(usize::from(circuit.cached_inputs().is_some()))?;
+    accounts.get(end.checked_sub(total)?..end)
 }
 
 pub fn validate_interface_transfers(

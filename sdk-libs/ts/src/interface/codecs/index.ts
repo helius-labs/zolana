@@ -292,13 +292,14 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
   for (const nullifier of value.nullifiers) writer.bytes(nullifier, 32, "nullifier");
   writer
     .u16(value.utxoTreeRootIndex, "utxoTreeRootIndex")
-    .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex");
+    .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex")
+    .u8(0, "cacheSlot");
 }
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, 526);
+  return encoded(value, writeMergeData, 527);
 }
 
 export function mergeExternalDataHash(
@@ -316,7 +317,8 @@ export function mergeExternalDataHash(
         Number((expiry >> BigInt((7 - index) * 8)) & 255n),
       ),
     )
-    .bytes(input.outputUtxoHash, 32, "outputUtxoHash");
+    .bytes(input.outputUtxoHash, 32, "outputUtxoHash")
+    .u8(0, "cacheMode");
   const digest = sha256(writer.finish());
   digest[0] = 0;
   return digest as Bytes32;

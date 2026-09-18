@@ -12,7 +12,7 @@ import (
 // Properties:
 // 1. Confidentiality - Input and output UTXO owner pubkeys are public inputs.
 // 2. Dummy public inputs are indistinguishable from UTXO public inputs.
-// 3. No signatures are enforced in the program or circuit.
+// 3. No owner signature is enforced; cache insertion requires its write authority to sign.
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
 // 6. 1/many UTXOs to one UTXO
@@ -30,7 +30,7 @@ const (
 )
 
 // Circuit is the default-ring merge rail. It publishes the owner's signing
-// pk_field in addition to the common merge public-input-hash preimage.
+// pk_field and nullifier public key in addition to the common preimage.
 type Circuit struct {
 	NumInputs int `gnark:"-"`
 
@@ -86,7 +86,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.UserSigningPkHash, c.OwnerPkHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.UserSigningPkHash)
+	fields = append(fields, c.UserSigningPkHash, c.UserNullifierPk)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }

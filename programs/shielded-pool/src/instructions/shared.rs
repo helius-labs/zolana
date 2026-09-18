@@ -256,6 +256,25 @@ impl<const N: usize> CreatePdaAccount<'_, N> {
                     &[Signer::from(seeds.as_ref())],
                 )
             }
+            3 => {
+                let s0 = s.first().ok_or(ProgramError::InvalidArgument)?;
+                let s1 = s.get(1).ok_or(ProgramError::InvalidArgument)?;
+                let s2 = s.get(2).ok_or(ProgramError::InvalidArgument)?;
+                let seeds = [
+                    Seed::from(*s0),
+                    Seed::from(*s1),
+                    Seed::from(*s2),
+                    Seed::from(bump_seed.as_ref()),
+                ];
+                pinocchio_system::create_account_with_minimum_balance_signed(
+                    self.new_account,
+                    self.space,
+                    self.owner,
+                    self.fee_payer,
+                    None,
+                    &[Signer::from(seeds.as_ref())],
+                )
+            }
             _ => Err(ProgramError::InvalidArgument),
         }
     }

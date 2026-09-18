@@ -23,6 +23,11 @@ answer without releasing long-lived secrets.
 
 Breaking
 
+- Merge instructions and proofs use the updated pool format, bind the registered
+  nullifier key, and reject extra trailing accounts → rebuild pending merges
+  before submitting them. A cache write requires its stored `write_authority`
+  as the signing payer; this key is configured separately from the rent sponsor.
+
 - `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
   `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
   `WalletSyncMaterial` are removed → build
@@ -48,8 +53,13 @@ Breaking
   from it, while `InstructionTag` renumbers every tag → point at a deployment of
   the matching program and re-read any address or tag byte you cached.
 - `ShieldedPoolError` and `decodeShieldedPoolError` use consecutive codes
-  7000–7065 matching the program, remove retired names, and include tree-context
-  errors → replace hardcoded codes with the exported constants and use this SDK
+  7000–7080 matching the program, remove retired names, and include cache and tree-context
+  errors, with `CacheUnsupportedOwner` identifying P256 cache merges,
+  `CacheExpired` and `CacheNotExpired` reporting a cache written after its
+  expiry and a cache closed before it, and `NonCanonicalCacheOwnerIdentity`
+  and `CacheExpiryNotInFuture` rejecting a cache created with an out-of-range
+  owner identity or an expiry that has already passed → replace
+  hardcoded codes with the exported constants and use this SDK
   with the matching program version.
 - `MAX_INPUT_TREES` limits each transact to two input trees → split inputs from
   three or more trees across separate transactions.
@@ -262,6 +272,11 @@ Breaking
   (unchanged for every shape this package builds) → run a program and prover
   from this release, a proof or public-input hash produced by an earlier
   release no longer verifies.
+- `TransferInputs` carries `cacheInputBitmap`, `cacheTreeId` and
+  `cacheInputHashChain`, which every transfer public-input hash now ends with
+  and which this release always fills with the selection of a spend that draws
+  no input from a cache account → run a program and prover from this release,
+  and set the three fields on a hand-built `TransferInputs`.
 - `InputUtxo` is only the `nullifierHash`, and `TransactInstructionData` and
   `MergeTransactInstructionData` carry one `utxoTreeRootIndex` and
   `nullifierTreeRootIndex` pair after the inputs (was one pair per input, and
@@ -453,6 +468,9 @@ Changed
   into the tree it spends from.
 
 Fixed
+
+- Ring settlement decoding locates SOL and SPL legs before the optional
+  trailing cache account, including cached EdDSA and P256 transactions.
 
 - `decryptTransactions` rejects malformed key-holder batches with
   `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and

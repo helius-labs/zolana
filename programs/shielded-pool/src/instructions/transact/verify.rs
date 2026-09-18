@@ -19,6 +19,7 @@ use zolana_interface::{
         TransactIxDataRef,
     },
     shape::Shape,
+    state::cache::{cached_input_fields, empty_cached_input_fields, CacheAccount, CACHE_CAPACITY},
     tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot},
     verifying_keys::OutputOwnerMode,
     INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
@@ -107,13 +108,24 @@ const ASSIGNED_INPUT_TREES: u8 = 1 << 3;
 const ASSIGNED_EXTERNAL_DATA: u8 = 1 << 4;
 const ASSIGNED_RING_PROGRAM: u8 = 1 << 5;
 const ASSIGNED_OUTPUT_TREE: u8 = 1 << 6;
+const ASSIGNED_CACHED_INPUTS: u8 = 1 << 7;
+const CACHED_INPUT_FIELDS: usize = 3;
+const PUBLIC_INPUT_FIELDS_CAPACITY: usize = 21;
+// The widest preimage, which is P256's: fixed prefix, the P256 suffix, external
+// hash, asset/amount pairs, ring/signer/flags, output owners, and the cache
+// selection. The P256 suffix and the cache selection are not alternatives --
+// every owner-signed rail publishes a selection, P256 included.
+const _: () = assert!(
+    5 + 2 + 1 + 2 * N_PUBLIC_SLOTS + 3 + 1 + CACHED_INPUT_FIELDS <= PUBLIC_INPUT_FIELDS_CAPACITY
+);
 const ALL_ASSIGNMENTS: u8 = ASSIGNED_OUTPUT_OWNERS
     | ASSIGNED_OWNER_SIGNERS
     | ASSIGNED_PUBLIC_TRANSFERS
     | ASSIGNED_INPUT_TREES
     | ASSIGNED_EXTERNAL_DATA
     | ASSIGNED_RING_PROGRAM
-    | ASSIGNED_OUTPUT_TREE;
+    | ASSIGNED_OUTPUT_TREE
+    | ASSIGNED_CACHED_INPUTS;
 
 #[derive(Debug)]
 pub struct TransactProofInputs {
@@ -138,12 +150,16 @@ pub struct TransactProofInputs {
     /// exclusively through `fill_owner_signer_hashes`.
     pub unique_owner_signer_count: u8,
     assignments: u8,
+    cached_inputs: Option<[[u8; 32]; CACHED_INPUT_FIELDS]>,
 }
 
 impl TransactProofInputs {
     pub fn new(circuit: CircuitId) -> Self {
         let mut assignments = 0;
-        if matches!(circuit, CircuitId::ConfidentialEddsa(..)) {
+        if circuit.cached_inputs().is_none() {
+            assignments |= ASSIGNED_CACHED_INPUTS;
+        }
+        if matches!(circuit.uncached(), CircuitId::ConfidentialEddsa(..)) {
             assignments |= ASSIGNED_RING_PROGRAM;
         }
         Self {
@@ -158,6 +174,7 @@ impl TransactProofInputs {
             input_flags: [0u8; 32],
             unique_owner_signer_count: 0,
             assignments,
+            cached_inputs: None,
         }
     }
 
@@ -185,6 +202,50 @@ impl TransactProofInputs {
     pub(crate) fn assign_external_data_hash(&mut self, external_data_hash: [u8; 32]) {
         self.external_data_hash = external_data_hash;
         self.assignments |= ASSIGNED_EXTERNAL_DATA;
+    }
+
+    #[profile]
+    pub(crate) fn assign_cached_inputs(
+        &mut self,
+        ix: &TransactIxDataRef<'_>,
+        cache_account: &CacheAccount,
+    ) -> ProgramResult {
+        let selection = ix
+            .circuit
+            .cached_inputs()
+            .ok_or(ShieldedPoolError::InvalidCache)?;
+        let tree_id = tree_id_field(u16::from_le_bytes(cache_account.tree_id));
+        let mut commitments = [[0u8; 32]; CACHE_CAPACITY];
+        for (i, ((input, commitment), cached_commitment)) in ix
+            .inputs
+            .iter()
+            .zip(commitments.iter_mut())
+            .zip(cache_account.commitments.iter())
+            .enumerate()
+        {
+            if selection.selects(i) {
+                let tree = self
+                    .tree_slots
+                    .get(usize::from(input.tree_index))
+                    .ok_or(ShieldedPoolError::InputTreeIndexOutOfRange)?;
+                if tree.id != tree_id {
+                    return Err(ShieldedPoolError::CacheTreeMismatch.into());
+                }
+                *commitment = *cached_commitment;
+                if *commitment == [0; 32] {
+                    return Err(ShieldedPoolError::CacheSlotEmpty.into());
+                }
+            }
+        }
+        self.cached_inputs = Some(cached_input_fields(
+            selection.input_bitmap,
+            u16::from_le_bytes(cache_account.tree_id),
+            commitments
+                .get(..ix.inputs.len())
+                .ok_or(ShieldedPoolError::InvalidTransactShape)?,
+        )?);
+        self.assignments |= ASSIGNED_CACHED_INPUTS;
+        Ok(())
     }
 
     pub fn ensure_complete(&self) -> Result<(), ProgramError> {
@@ -423,7 +484,7 @@ impl<'a> TransactProof<'a> {
             create_hash_chain_4(self.ix.inputs.iter().map(|input| &input.nullifier_hash))?;
         let output_chain =
             create_hash_chain_4(self.ix.outputs.iter().map(|output| output.utxo_hash))?;
-        let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
+        let mut fields: ArrayVec<[[u8; 32]; PUBLIC_INPUT_FIELDS_CAPACITY]> = ArrayVec::new();
         // The circuit's `TreeSlotsHashChain` over the populated slots followed
         // by zeroed ones: each populated slot hash folded onto the precomputed
         // zero suffix of the unused remainder.
@@ -458,6 +519,13 @@ impl<'a> TransactProof<'a> {
         ]);
         if self.ix.circuit.output_owner_mode() != OutputOwnerMode::None {
             fields.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
+            // Every owner-signed circuit hashes the cache selection, so a spend
+            // that uses no cache publishes an empty one rather than omitting it.
+            // Ring authority binds none and never reaches here.
+            fields.extend_from_slice(&match &self.derived.cached_inputs {
+                Some(cached_inputs) => *cached_inputs,
+                None => empty_cached_input_fields(n_in)?,
+            });
         }
         create_hash_chain_4_from_slice(fields.as_slice()).map_err(Into::into)
     }

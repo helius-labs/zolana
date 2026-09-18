@@ -9,6 +9,10 @@ use zolana_interface::{
     instruction::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof, TreeContext},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
 };
+use zolana_interface::{
+    instruction::{InputUtxo, MessageData, OwnerTag, TransactOutput},
+    verifying_keys::{Bsb22Commitment, CachedInputs, RingP256ProofData},
+};
 use zolana_ring_client::{
     ring_invoked_in, ring_withdrawals_in, ConfirmedTransaction, OriginError, RingWithdrawal,
 };
@@ -148,6 +152,120 @@ fn withdrawals_read_from_instruction_groups_without_a_transaction() {
             amount: 77,
         }]
     );
+}
+
+#[test]
+fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
+    let selection = CachedInputs { input_bitmap: 1 };
+    let circuits = [
+        CircuitId::RingEddsaCached(1, 2, 1, selection),
+        CircuitId::RingP256Cached(
+            1,
+            2,
+            1,
+            RingP256ProofData {
+                bsb22_commitment: Bsb22Commitment {
+                    commitment: [17; 32],
+                    commitment_pok: [18; 32],
+                },
+                default_owner_tag: Some([19; 32]),
+            },
+            selection,
+        ),
+    ];
+    let vectors: Vec<_> = include_str!("../../../test-vectors/cached_ring_settlement.hex")
+        .lines()
+        .collect();
+    assert_eq!(vectors.len(), circuits.len());
+    for (circuit, encoded) in circuits.into_iter().zip(vectors) {
+        let data = TransactIxData {
+            expiry_unix_ts: 0,
+            private_tx_hash: [1; 32],
+            circuit,
+            tx_viewing_pk: [2; 33],
+            salt: [3; 16],
+            proof: TransactProof::zeroed(),
+            interface_transfers: vec![
+                InterfaceTransfer::SolWithdrawal { amount: 7 },
+                InterfaceTransfer::SplWithdrawal {
+                    amount: 9,
+                    spl_interface_bump: 254,
+                },
+            ],
+            data_hash: Some([4; 32]),
+            ring_data_hash: Some([5; 32]),
+            outputs: vec![
+                TransactOutput {
+                    utxo_hash: [6; 32],
+                    owner_tag: OwnerTag::Inline([7; 32]),
+                    data: Some(vec![8, 9]),
+                },
+                TransactOutput {
+                    utxo_hash: [10; 32],
+                    owner_tag: OwnerTag::Account(1),
+                    data: None,
+                },
+            ],
+            messages: vec![MessageData {
+                view_tag: [11; 32],
+                data: vec![12, 13, 14],
+            }],
+            inputs: vec![InputUtxo {
+                nullifier_hash: [20; 32],
+                tree_index: 0,
+            }],
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+            }],
+        };
+        let bytes = hex::decode(encoded).expect("pinned wire vector");
+        assert_eq!(data.serialize().expect("serialize"), bytes);
+        let mut answers = instruction(POOL, 2);
+        answers.data = [vec![tag::RING_TRANSACT], bytes].concat();
+        answers.accounts = vec![
+            OTHER,
+            SOL,
+            RECIPIENT,
+            CPI_AUTHORITY,
+            MINT,
+            OTHER,
+            TOKEN_ACCOUNT,
+            OTHER,
+            OTHER,
+        ];
+        let mut groups = [InstructionGroup {
+            outer: instruction(RING, 1),
+            inner: vec![answers],
+        }];
+        assert_eq!(
+            ring_withdrawals_in(&groups, RING).expect("cached settlement"),
+            vec![
+                RingWithdrawal {
+                    recipient: RECIPIENT,
+                    asset: SOL_MINT,
+                    amount: 7
+                },
+                RingWithdrawal {
+                    recipient: TOKEN_ACCOUNT,
+                    asset: MINT,
+                    amount: 9
+                },
+            ]
+        );
+        groups
+            .first_mut()
+            .expect("group")
+            .inner
+            .first_mut()
+            .expect("instruction")
+            .accounts
+            .truncate(7);
+        assert!(matches!(
+            ring_withdrawals_in(&groups, RING),
+            Err(OriginError::SettlementAccounts)
+        ));
+    }
 }
 
 #[test]

@@ -1,5 +1,6 @@
 #[cfg(feature = "tree")]
 pub mod batch_update_nullifier_tree;
+pub mod cache;
 #[cfg(feature = "tree")]
 pub mod create_tree;
 pub mod deposit;
@@ -13,6 +14,7 @@ pub mod transact;
 
 #[cfg(feature = "tree")]
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, NullifierTreeProof};
+pub use cache::CreateCacheData;
 #[cfg(feature = "tree")]
 pub use create_tree::CreateTreeData;
 pub use deposit::{
@@ -31,8 +33,8 @@ pub use ring_config::{CreateRingConfigData, SetRingActivationData, UpdateRingCon
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
-    fetch_tag, validate_input_tree_contexts, validate_interface_transfers, CircuitId,
-    ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OutputDataRef, OutputUtxo,
-    OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef,
-    TransactProof, TreeContext,
+    fetch_tag, settlement_accounts, validate_input_tree_contexts, validate_interface_transfers,
+    CachedInputs, CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData,
+    OutputDataRef, OutputUtxo, OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef,
+    TransactOutput, TransactOutputRef, TransactProof, TreeContext,
 };

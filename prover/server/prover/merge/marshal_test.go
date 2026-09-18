@@ -22,6 +22,7 @@ const defaultTestNInputs = 8
 // produces decodes back to identical parameters (shape, paths, and all fields).
 func TestMergeParametersJSONRoundTrip(t *testing.T) {
 	p := sampleParams()
+	p.CacheOwnerBlinding = big.NewInt(0x0FF1CE)
 	data, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -36,6 +37,9 @@ func TestMergeParametersJSONRoundTrip(t *testing.T) {
 	}
 	if got.PublicInputHash.Cmp(p.PublicInputHash) != 0 {
 		t.Fatalf("public input hash mismatch: got %s want %s", got.PublicInputHash, p.PublicInputHash)
+	}
+	if got.CacheOwnerBlinding.Cmp(p.CacheOwnerBlinding) != 0 {
+		t.Fatalf("cache owner blinding mismatch: got %s want %s", got.CacheOwnerBlinding, p.CacheOwnerBlinding)
 	}
 	if len(got.Inputs) != len(p.Inputs) {
 		t.Fatalf("input count mismatch: got %d want %d", len(got.Inputs), len(p.Inputs))
@@ -74,7 +78,11 @@ func TestMergeParametersJSONKeys(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatalf("unmarshal to map: %v", err)
 	}
-	for _, key := range []string{"treeSlots", "outputTreeId"} {
+	for _, key := range []string{
+		"treeSlots",
+		"outputTreeId",
+		"cacheOwnerBlinding",
+	} {
 		if _, ok := fields[key]; !ok {
 			t.Fatalf("missing top-level key %q in %s", key, data)
 		}
@@ -251,6 +259,8 @@ func sampleParams() *MergeParameters {
 		AllowDummyInputs:    big.NewInt(1),
 		PublicInputHash:     big.NewInt(0x8888),
 		RingProgramID:       big.NewInt(0),
+
+		CacheOwnerBlinding: big.NewInt(0),
 	}
 }
 

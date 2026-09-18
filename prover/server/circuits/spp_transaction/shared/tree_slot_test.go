@@ -76,7 +76,7 @@ func TestTreeSlotChainAndSelectionMatchHost(t *testing.T) {
 }
 
 // An all-zero slot is unused: selecting it fails even though the slot index is
-// in range, because both roots must be non-zero.
+// in range, because its nullifier root must be non-zero.
 func TestSelectTreeSlotRejectsUnusedSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	slots := pinTreeSlots(1)
@@ -84,18 +84,20 @@ func TestSelectTreeSlotRejectsUnusedSlot(t *testing.T) {
 	assert.SolvingFailed(newTreeSlotPinCircuit(), pinAssignment(t, slots, 1), test.WithCurves(ecc.BN254))
 }
 
-// A slot with one root zeroed is rejected regardless of which root it is.
-func TestSelectTreeSlotRejectsZeroRoot(t *testing.T) {
+// State-root validation belongs to the input constraints; slot selection only
+// requires the nullifier root, which cached inputs still prove against.
+func TestSelectTreeSlotRootRequirements(t *testing.T) {
 	assert := test.NewAssert(t)
 	for _, zeroField := range []string{"utxo_root", "nullifier_root"} {
 		t.Run(zeroField, func(t *testing.T) {
 			slots := pinTreeSlots(InputTrees)
 			if zeroField == "utxo_root" {
 				slots[2].UtxoRoot = 0
+				assert.SolvingSucceeded(newTreeSlotPinCircuit(), pinAssignment(t, slots, 2), test.WithCurves(ecc.BN254))
 			} else {
 				slots[2].NullifierRoot = 0
+				assert.SolvingFailed(newTreeSlotPinCircuit(), pinAssignment(t, slots, 2), test.WithCurves(ecc.BN254))
 			}
-			assert.SolvingFailed(newTreeSlotPinCircuit(), pinAssignment(t, slots, 2), test.WithCurves(ecc.BN254))
 		})
 	}
 }

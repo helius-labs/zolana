@@ -33,7 +33,9 @@ func (p *TransferParameters) ValidateShape() error {
 	// SelectTreeSlot, and a slot the packed InputFlags does not publish inside
 	// the flag decode, both as opaque proving errors; reject them as request
 	// errors.
-	if err := common.ValidateTreeSlots(p.TreeSlots, inputSlots, txcircuit.InputTrees); err != nil {
+	if err := common.ValidateTreeSlotsWithCache(
+		p.TreeSlots, inputSlots, txcircuit.InputTrees, p.CacheInputBitmap,
+	); err != nil {
 		return err
 	}
 	if err := common.ValidateInputFlags(p.InputFlags, inputSlots); err != nil {
@@ -41,6 +43,36 @@ func (p *TransferParameters) ValidateShape() error {
 	}
 	if p.OutputTreeID == nil {
 		return fmt.Errorf("spp: outputTreeId is required")
+	}
+	if err := validateCacheSelection(p.CacheInputBitmap, p.CacheTreeID, int(p.NInputs)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateCacheSelection rejects a selection the circuit would only fail inside
+// its bitmap decode or tree-id range check, both as opaque proving errors.
+// A nil or zero bitmap is an ordinary spend and constrains nothing.
+func validateCacheSelection(bitmap, treeID *big.Int, nInputs int) error {
+	if treeID != nil && treeID.BitLen() > 16 {
+		return fmt.Errorf("spp: cacheTreeId must fit a u16")
+	}
+	if bitmap == nil || bitmap.Sign() == 0 {
+		return nil
+	}
+	if bitmap.Sign() < 0 {
+		return fmt.Errorf("spp: cacheInputBitmap must not be negative")
+	}
+	if nInputs > txcircuit.CacheCapacity {
+		return fmt.Errorf(
+			"spp: cached UTXO proving supports at most %d inputs, got %d",
+			txcircuit.CacheCapacity, nInputs,
+		)
+	}
+	if bitmap.BitLen() > nInputs {
+		return fmt.Errorf(
+			"spp: cacheInputBitmap selects beyond the %d declared inputs", nInputs,
+		)
 	}
 	return nil
 }

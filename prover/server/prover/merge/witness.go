@@ -14,8 +14,8 @@ import (
 // performs no hashing — every signal is taken verbatim from the client params.
 // The merge-ring rail (CircuitType == MergeRingCircuitType) is assigned onto the
 // policy-ring circuit, which additionally carries the top-level
-// OutputRingDataHash and RingProgramID; every other rail uses the default merge
-// circuit.
+// OutputRingDataHash, RingProgramID and cache binding; every other rail uses
+// the default merge circuit.
 func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
 	if p.CircuitType == common.MergeRingCircuitType {
 		return p.createRingWitness()
@@ -67,6 +67,7 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OutputTreeID = p.OutputTreeID
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID
+	circuit.CacheOwnerBlinding = p.CacheOwnerBlinding
 	circuit.PublicInputHash = p.PublicInputHash
 
 	if err := p.assignTreeSlots(circuit.TreeSlots); err != nil {

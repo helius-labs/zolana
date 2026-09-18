@@ -28,6 +28,7 @@ use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 /// ciphertext-free (recovered from the first input and its nullifier).
 fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     MergeTransactIxData {
+        cache_slot: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
@@ -64,6 +65,7 @@ fn merge_instruction(
         payer: rpc.payer.pubkey(),
         user_record,
         data,
+        cache: None,
     }
     .instruction()
 }
@@ -248,6 +250,7 @@ fn merge_rejects_an_unsigned_payer() {
         payer: outsider,
         user_record: record,
         data: merge_ix_data(true),
+        cache: None,
     }
     .instruction();
     ix.accounts.get_mut(2).expect("payer meta").is_signer = false;
@@ -270,6 +273,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
         output_ring_data_hash: fe(99),
+        cache: None,
     }
     .cpi_instruction();
     // The `ring_config` signature IS the ring authorization; without the ring
@@ -463,6 +467,7 @@ fn merge_ring_cpi_instruction(
         payer: rpc.payer.pubkey(),
         data,
         output_ring_data_hash,
+        cache: None,
     }
     .cpi_instruction()
 }
@@ -554,6 +559,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
         payer: outsider,
         data: merge_ix_data(true),
         output_ring_data_hash: fe(92),
+        cache: None,
     }
     .cpi_instruction();
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config_signer.pubkey();
@@ -649,6 +655,7 @@ fn merge_ring_rejects_a_paused_tree() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
         output_ring_data_hash: fe(95),
+        cache: None,
     }
     .instruction();
     let error = rpc
@@ -680,6 +687,7 @@ mod program_unit {
         let error = match MergeTransactAccounts::validate_and_parse(
             &mut accounts,
             MERGE_DEFAULT_INPUT_COUNT,
+            None,
         ) {
             Ok(_) => panic!("invalid System Program must fail"),
             Err(error) => error,
@@ -707,6 +715,7 @@ mod program_unit {
         let error = match MergeTransactAccounts::validate_and_parse(
             &mut accounts,
             MERGE_DEFAULT_INPUT_COUNT,
+            None,
         ) {
             Ok(_) => panic!("a non-SPP program account must fail"),
             Err(error) => error,

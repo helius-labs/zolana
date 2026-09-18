@@ -41,6 +41,8 @@ import (
 // mirrors.
 type Transaction struct {
 	Shape Shape
+	// Nil on ring authority, which always proves state-tree inclusion.
+	CachedInputs *CachedInputs
 
 	Nullifiers   []frontend.Variable
 	OutputHashes []frontend.Variable
@@ -81,9 +83,20 @@ type Transaction struct {
 	//	owner-signed ring: masked output owner chain
 	//	ring authority:    owner tags stay private
 	//
+	// A variant that relays inclusion appends what it proves against.
+	//
 	// Constrain only chains these, never reads them: the count varies, so naming
 	// them as fields would need nil-means-omit branching in here instead.
 	PreimageTail []frontend.Variable
+
+	// skipInclusion[i] == 1 takes input i's existence away from the state tree:
+	// its inclusion check is not asserted and its tree slot needs no state
+	// root. CachedInputs.prepare sets it, and the cache proves the commitment
+	// instead; it stays nil for a variant that proves every input against the
+	// state tree.
+	//
+	// Every element must already be constrained to a bit by CachedInputs.prepare.
+	skipInclusion []frontend.Variable
 }
 
 // LengthCheck is one witness slice length a variant adds to the core's.
@@ -98,6 +111,9 @@ type LengthCheck struct {
 // run before anything indexes them, so a variant calls it before asserting its
 // ring rule or resolving its signers.
 func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
+	if t.CachedInputs != nil && t.Shape.NInputs > CacheCapacity {
+		return fmt.Errorf("spp: cached UTXO proving supports at most %d inputs, got %d", CacheCapacity, t.Shape.NInputs)
+	}
 	if err := validateInputs(t.Shape.NInputs, t.Inputs); err != nil {
 		return err
 	}
@@ -122,12 +138,16 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	if err := ValidateLength("output signed", len(outputSigned), t.Shape.NOutputs); err != nil {
 		return err
 	}
+	if t.CachedInputs != nil {
+		t.CachedInputs.prepare(api, &t)
+	}
 	// ToBinary over the shape's exact packed width both decomposes InputFlags
 	// and range-checks it, so no bit above the layout can carry a value.
 	flagBits := api.ToBinary(t.InputFlags, 1+TreeIndexBits*t.Shape.NInputs)
 	allowDummyInputs := flagBits[0]
 	// 1. check inputs
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
+	inputTreeIDs := make([]frontend.Variable, t.Shape.NInputs)
 	addressNullifiers := make([]frontend.Variable, t.Shape.NInputs)
 	for i, in := range t.Inputs {
 		// The dummy policy is SPP's nullifier-capacity gate: a spend consumes a
@@ -150,7 +170,14 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			SignerPk:  signers[i],
 			Tree:      SelectTreeSlot(api, in.TreeSlot, t.TreeSlots),
 		}
+		if t.skipInclusion != nil {
+			signals.SkipInclusion = t.skipInclusion[i]
+		}
 		inputHashes[i], addressNullifiers[i] = constrainInput(api, in, signals)
+		inputTreeIDs[i] = signals.Tree.ID
+	}
+	if t.CachedInputs != nil {
+		t.CachedInputs.constrain(api, t, inputHashes, inputTreeIDs)
 	}
 	AssertDistinctNullifiers(api, t.Nullifiers)
 

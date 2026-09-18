@@ -174,3 +174,67 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 3), Ok(()));
 }
+
+/// A cached selector rides the same instruction as its rail: the cache picks no
+/// circuit, so it cannot move a spend between the default and ring tags. Ring
+/// authority has no cached twin at all.
+#[test]
+fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
+    use zolana_interface::verifying_keys::CachedInputs;
+    const CACHE: CachedInputs = CachedInputs { input_bitmap: 3 };
+    let p256_proof_data = RingP256ProofData {
+        bsb22_commitment: Bsb22Commitment {
+            commitment: [1u8; 32],
+            commitment_pok: [2u8; 32],
+        },
+        default_owner_tag: None,
+    };
+    let cases = [
+        (
+            CircuitId::ConfidentialEddsaCached(2, 2, 3, CACHE),
+            InstructionTag::Transact,
+        ),
+        (
+            CircuitId::RingEddsaCached(2, 2, 3, CACHE),
+            InstructionTag::RingTransact,
+        ),
+        (
+            CircuitId::RingP256Cached(2, 2, 3, p256_proof_data, CACHE),
+            InstructionTag::RingTransact,
+        ),
+    ];
+    for (circuit, accepted_by) in cases {
+        assert_eq!(validate(circuit, accepted_by, 2, 2), Ok(()));
+        for instruction in [
+            InstructionTag::Transact,
+            InstructionTag::RingTransact,
+            InstructionTag::RingAuthorityTransact,
+        ] {
+            if instruction == accepted_by {
+                continue;
+            }
+            assert_eq!(
+                validate(circuit, instruction, 2, 2),
+                Err(ShieldedPoolError::MismatchedCircuitType.into()),
+                "{circuit:?} on {instruction:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cached_input_bitmap_must_select_only_declared_inputs() {
+    use zolana_interface::verifying_keys::CachedInputs;
+    for input_bitmap in [0, 4, 1 << 36] {
+        let circuit = CircuitId::ConfidentialEddsaCached(2, 2, 3, CachedInputs { input_bitmap });
+        assert_eq!(
+            validate(circuit, InstructionTag::Transact, 2, 2),
+            Err(ShieldedPoolError::InvalidCacheBitmap.into())
+        );
+        let ring = CircuitId::RingEddsaCached(2, 2, 3, CachedInputs { input_bitmap });
+        assert_eq!(
+            validate(ring, InstructionTag::RingTransact, 2, 2),
+            Err(ShieldedPoolError::InvalidCacheBitmap.into())
+        );
+    }
+}

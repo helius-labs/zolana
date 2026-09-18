@@ -7,8 +7,9 @@
 //! omitted from the public inputs (a policy ring has no registry to bind owner
 //! identity against).
 
+use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
     instructions::merge_ring::PreparedMergeRing, utxo::program_id_proof_input_hash,
@@ -19,7 +20,7 @@ use crate::{
     error::ClientError,
     prover::{
         field::be,
-        merge::{MergeProofResult, MergeProver},
+        merge::{MergeCacheTarget, MergeProofResult, MergeProver},
         transact::{
             assembly::TransferSpendInput,
             witness::{attach_input_proofs, SpendProof},
@@ -49,10 +50,26 @@ pub struct MergeRingProver {
     /// (`program_id_proof_input_hash(&Some(ring))` == on-chain `solana_pk_hash(ring)`) is the
     /// final public-input element and the value SPP binds from `ring_config`.
     pub ring_program_id: Address,
+    pub cache: Option<MergeRingCacheTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MergeRingCacheTarget {
+    pub address: Address,
+    pub slot: u8,
+    /// Nonzero field-element salt used with the UTXO owner hash to derive the
+    /// cache owner identity. Zero is reserved for merges without a cache.
+    pub owner_blinding: [u8; 32],
 }
 
 impl MergeRingProver {
     pub fn build(mut self) -> Result<MergeProofResult, ClientError> {
+        if self
+            .cache
+            .is_some_and(|target| target.owner_blinding == [0; 32])
+        {
+            return Err(ClientError::ZeroCacheOwnerBlinding);
+        }
         // Stamp the shared ring on every input UTXO and the output so the per-UTXO
         // ring_program_id field matches the public-input commitment below.
         for spend in &mut self.inputs {
@@ -70,6 +87,7 @@ impl MergeRingProver {
         // A ring merge is the default merge plus a ring binding: reuse its
         // shared computation under the `merge_ring` instruction tag.
         let ring_program_id = self.ring_program_id;
+        let cache = self.cache;
         let merge = MergeProver {
             inputs: self.inputs,
             output: self.output,
@@ -77,6 +95,10 @@ impl MergeRingProver {
             signing_pubkey: self.signing_pubkey,
             nullifier_key: self.nullifier_key,
             output_tree_id: self.output_tree_id,
+            cache: cache.map(|target| MergeCacheTarget {
+                address: target.address,
+                slot: target.slot,
+            }),
         }
         .common(zolana_interface::instruction::tag::RING_MERGE_TRANSACT)?;
 
@@ -86,14 +108,31 @@ impl MergeRingProver {
         // `ring_program_id_proof_input_hash` equals the on-chain `solana_pk_hash(ring)` the
         // program derives from the calling `ring_config`.
         let ring_program_id_proof_input_hash = program_id_proof_input_hash(&Some(ring_program_id))?;
+
+        let cache_owner_commitment = match cache {
+            Some(target) => {
+                let user_owner_hash =
+                    Poseidon::hashv(&[&merge.user_signing_pk_hash, &merge.user_nullifier_pk])?;
+                Poseidon::hashv(&[&user_owner_hash, &target.owner_blinding])?
+            }
+            None => [0u8; 32],
+        };
+
         let mut elements = merge.head.to_vec();
-        elements.extend([output_ring_data_hash, ring_program_id_proof_input_hash]);
+        elements.extend([
+            output_ring_data_hash,
+            ring_program_id_proof_input_hash,
+            cache_owner_commitment,
+        ]);
         let public_input = create_hash_chain_4_from_slice(&elements)?;
 
         Ok(merge.finish(
             public_input,
             be(&ring_program_id_proof_input_hash),
             be(&output_ring_data_hash),
+            cache
+                .map(|target| be(&target.owner_blinding))
+                .unwrap_or(BigUint::ZERO),
         ))
     }
 }
@@ -138,6 +177,7 @@ impl TryFrom<MergeRingWitness> for MergeRingProver {
             nullifier_key,
             output_tree_id,
             ring_program_id,
+            cache: None,
         })
     }
 }

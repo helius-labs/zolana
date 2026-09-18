@@ -189,6 +189,15 @@ impl Transact {
             data: instruction_data,
         }
     }
+
+    /// The same instruction with the cache account a cached selector expects as
+    /// its final account, after every settlement group. Which inputs the cache
+    /// covers comes from the selector's bitmap, not from this account.
+    pub fn instruction_with_cache(&self, cache: Pubkey) -> Instruction {
+        let mut instruction = self.instruction();
+        instruction.accounts.push(AccountMeta::new(cache, false));
+        instruction
+    }
 }
 
 #[cfg(test)]

@@ -38,7 +38,10 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     shape::Shape,
-    state::{discriminator::RING_CONFIG, read_tree_id, RingConfig, TreeFeeSchedule},
+    state::{
+        cache::empty_cached_input_fields, discriminator::RING_CONFIG, read_tree_id, RingConfig,
+        TreeFeeSchedule,
+    },
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     verifying_keys::RingP256ProofData,
     INPUT_TREES, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -252,6 +255,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");
@@ -517,6 +521,10 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
         chain.push(create_hash_chain_4_from_slice(&published_owners).expect("output owner chain"));
+        // The ring rail publishes a cache selection; this spend uses no cache.
+        chain.extend_from_slice(
+            &empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
+        );
     }
     let public_input_hash = create_hash_chain_4_from_slice(&chain).expect("ring public input hash");
 
@@ -1823,6 +1831,7 @@ fn build_two_tree_transact_ix(
         input_flags: &input_flags,
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

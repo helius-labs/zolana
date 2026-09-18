@@ -44,6 +44,14 @@ impl RingTransact {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
+    /// [`Self::cpi_instruction`] with the cache account a cached selector expects
+    /// as its final account, after every settlement group.
+    pub fn cpi_instruction_with_cache(&self, cache: Pubkey) -> Instruction {
+        let mut instruction = self.cpi_instruction();
+        instruction.accounts.push(AccountMeta::new(cache, false));
+        instruction
+    }
+
     fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
         let ring_config = pda::ring_auth(&self.ring_program_id).0;
 

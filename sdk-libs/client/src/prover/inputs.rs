@@ -135,6 +135,8 @@ pub struct MergeInputs {
     /// Policy-ring merge only: the ring program's `pk_field`, the merge-ring
     /// circuit's top-level public input. `0` for the default merge.
     pub ring_program_id: BigUint,
+    /// Policy-ring cache salt: nonzero when caching, zero otherwise.
+    pub cache_owner_blinding: BigUint,
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree
@@ -185,6 +187,12 @@ pub struct TransferInputs {
     /// `zolana_interface::tree_slot::pack_input_flags`.
     pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
+    /// The cache selection this spend publishes: which inputs are drawn from a
+    /// cache, the cache's tree, and the chain over the selected commitments.
+    /// A spend that uses no cache still publishes the empty selection.
+    pub cache_input_bitmap: BigUint,
+    pub cache_tree_id: BigUint,
+    pub cache_input_hash_chain: BigUint,
     pub public_input_hash: BigUint,
 }
 
@@ -223,5 +231,11 @@ pub struct TransferP256Inputs {
     /// `zolana_interface::tree_slot::pack_input_flags`.
     pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
+    /// The cache selection this spend publishes: which inputs are drawn from a
+    /// cache, the cache's tree, and the chain over the selected commitments.
+    /// A spend that uses no cache still publishes the empty selection.
+    pub cache_input_bitmap: BigUint,
+    pub cache_tree_id: BigUint,
+    pub cache_input_hash_chain: BigUint,
     pub public_input_hash: BigUint,
 }

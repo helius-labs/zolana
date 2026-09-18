@@ -64,5 +64,21 @@
   "InputTreeIndexOutOfRange": 7062,
   "InputsNotGroupedByTree": 7063,
   "UnreferencedTreeContext": 7064,
-  "DuplicateInputTree": 7065
+  "DuplicateInputTree": 7065,
+  "InvalidCache": 7066,
+  "CacheConfigMismatch": 7067,
+  "CacheFrozen": 7068,
+  "CacheSlotOccupied": 7069,
+  "CacheSlotEmpty": 7070,
+  "InvalidCacheSlot": 7071,
+  "InvalidCacheBitmap": 7072,
+  "CacheTreeMismatch": 7073,
+  "CacheOwnerMismatch": 7074,
+  "InvalidCacheRootIndex": 7075,
+  "CacheUnsupportedOwner": 7076,
+  "CacheExpired": 7077,
+  "CacheNotExpired": 7078,
+  "NonCanonicalCacheOwnerIdentity": 7079,
+  "CacheExpiryNotInFuture": 7080,
+  "CacheWriteAuthorityMismatch": 7081
 }

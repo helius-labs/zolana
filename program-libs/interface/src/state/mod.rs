@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod discriminator;
 pub mod nullifier_pda;
 pub mod protocol_config;
@@ -7,6 +8,7 @@ pub mod spl_asset_registry;
 #[cfg(feature = "tree")]
 pub mod tree;
 
+pub use cache::CacheAccount;
 pub use nullifier_pda::{NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE};
 pub use protocol_config::ProtocolConfig;
 pub use ring_config::RingConfig;

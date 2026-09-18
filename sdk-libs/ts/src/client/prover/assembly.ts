@@ -44,6 +44,7 @@ import {
   inputFlags,
   poseidon,
   rightHashChain,
+  rightHashChain4,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import { RING_INPUT_SLOTS, RING_OUTPUT_SLOTS } from "./types.js";
@@ -165,6 +166,7 @@ function assembleUnchecked(
   const ringProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
   const treeSlots = inputTreeSlots(inputTrees.map((tree) => tree.slot));
   const outputTreeIdField = bytesToBigInt(treeIdField(outputTreeId));
+  const cachedInputs = emptyCachedInputs(nullifiers.length);
   const publicInputHash = transferPublicInputHash({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHashes,
@@ -177,6 +179,7 @@ function assembleUnchecked(
     signerPublicKeyHashes,
     inputFlags: flags,
     publishedOutputOwnerPublicKeyHashes: outputOwnerFields,
+    ...cachedInputs,
   });
   const common: TransferInputs = Object.freeze({
     inputs: Object.freeze(transferInputs),
@@ -192,6 +195,9 @@ function assembleUnchecked(
     signerPublicKeyHashes: Object.freeze(signerPublicKeyHashes.map(asField)),
     inputFlags: asField(flags),
     publishedOutputOwnerPublicKeyHashes: Object.freeze(outputOwnerFields.map(asField)),
+    cacheInputBitmap: asField(cachedInputs.cacheInputBitmap),
+    cacheTreeId: asField(cachedInputs.cacheTreeId),
+    cacheInputHashChain: asField(cachedInputs.cacheInputHashChain),
     publicInputHash: asField(publicInputHash),
   });
   const proverInputs: ProverInputs = Object.freeze({
@@ -492,8 +498,35 @@ export function assembleSlots(
 }
 
 /**
+ * The cache selection a spend publishes: which inputs it draws from a cache
+ * account, the cache's tree, and the chain over one commitment per input.
+ * Mirrors Rust `cached_input_fields`.
+ */
+export interface CachedInputs {
+  readonly cacheInputBitmap: bigint;
+  readonly cacheTreeId: bigint;
+  readonly cacheInputHashChain: bigint;
+}
+
+/**
+ * The selection of a spend that draws no input from a cache, Rust
+ * `empty_cached_input_fields`. The chain runs over `inputCount` empty slots
+ * and is therefore not zero beyond a single input; publishing it keeps the
+ * preimage length independent of whether a cache was used.
+ */
+export function emptyCachedInputs(inputCount: number): CachedInputs {
+  return Object.freeze({
+    cacheInputBitmap: 0n,
+    cacheTreeId: 0n,
+    cacheInputHashChain: rightHashChain4(Array.from({ length: inputCount }, () => 0n)),
+  });
+}
+
+/**
  * Mirrors Rust `PublicInputs::hash`: the nullifier, output, owner and outer
  * chains fold three elements per call, the signer chain folds from the right.
+ * The cache selection closes the preimage, appended by the same rails that
+ * append the output-owner chain.
  */
 export function transferPublicInputHash(
   input: Readonly<{
@@ -509,7 +542,8 @@ export function transferPublicInputHash(
     /** The packed dummy policy and per-input tree indexes, `inputFlags`. */
     inputFlags: bigint;
     publishedOutputOwnerPublicKeyHashes: readonly bigint[];
-  }>,
+  }> &
+    CachedInputs,
 ): bigint {
   return hashChain4([
     hashChain4(input.nullifiers),
@@ -523,6 +557,9 @@ export function transferPublicInputHash(
     rightHashChain(input.signerPublicKeyHashes),
     input.inputFlags,
     hashChain4(input.publishedOutputOwnerPublicKeyHashes),
+    input.cacheInputBitmap,
+    input.cacheTreeId,
+    input.cacheInputHashChain,
   ]);
 }
 

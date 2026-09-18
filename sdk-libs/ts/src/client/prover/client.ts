@@ -591,6 +591,9 @@ function proverRequest(inputs: ProverInputs, secret: SecretEncoder): ProverReque
     signerPkHashes: payload.signerPublicKeyHashes.map(hex),
     inputFlags: hex(payload.inputFlags),
     publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
+    cacheInputBitmap: hex(payload.cacheInputBitmap),
+    cacheTreeId: hex(payload.cacheTreeId),
+    cacheInputHashChain: hex(payload.cacheInputHashChain),
     publicInputHash: hex(payload.publicInputHash),
   });
 }

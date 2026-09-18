@@ -3,3 +3,4 @@ pub const PROTOCOL_CONFIG: u8 = 3;
 pub const RING_CONFIG: u8 = 4;
 pub const SPL_ASSET_REGISTRY: u8 = 5;
 pub const SPL_ASSET_COUNTER: u8 = 6;
+pub const CACHE: u8 = 7;

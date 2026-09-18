@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { address, getBase58Decoder, type Address, type Signature } from "@solana/kit";
 
 import { encodeTransactInstructionData } from "../src/interface/codecs/index.js";
@@ -22,6 +23,7 @@ import {
   confirmedInstructionGroups,
   confirmedRingWithdrawals,
   ringInvokedIn,
+  ringWithdrawalsOf,
   RpcTransactionOrigin,
   type OriginInstructionGroup,
   type TransactionOrigin,
@@ -209,6 +211,50 @@ const SETTLEMENT_KEYS: readonly Address[] = [
 
 const keyIndex = (account: Address) => SETTLEMENT_KEYS.indexOf(account);
 const zeros = (length: number) => new Uint8Array(length);
+
+// Rust pins both payloads to TransactIxData::serialize in client/tests/origin.rs.
+describe("cached ring settlement wire vectors", () => {
+  const vectors = readFileSync(
+    new URL("../../../test-vectors/cached_ring_settlement.hex", import.meta.url),
+    "utf8",
+  )
+    .trim()
+    .split("\n");
+  for (const [index, hex] of vectors.entries()) {
+    it(`decodes cached ring rail ${index} before the trailing cache`, () => {
+      expect(hex).toMatch(/^(?:[0-9a-f]{2})+$/u);
+      const data = Uint8Array.from([InstructionTag.ringTransact, ...Buffer.from(hex, "hex")]);
+      const instruction = {
+        programId: POOL,
+        accounts: [
+          PAYER,
+          SOL_INTERFACE,
+          RECIPIENT,
+          SHIELDED_POOL_CPI_AUTHORITY,
+          MINT,
+          SPL_INTERFACE,
+          TOKEN_ACCOUNT,
+          TOKEN_PROGRAM,
+          OTHER,
+        ],
+        data,
+      };
+      expect(ringWithdrawalsOf([instruction])).toEqual([
+        { recipient: RECIPIENT, asset: SOL_MINT, amount: 7n },
+        { recipient: TOKEN_ACCOUNT, asset: MINT, amount: 9n },
+      ]);
+      expect(() =>
+        ringWithdrawalsOf([{ ...instruction, accounts: instruction.accounts.slice(0, 7) }]),
+      ).toThrow(RingError);
+      expect(() => ringWithdrawalsOf([{ ...instruction, data: data.slice(0, -1) }])).toThrow(
+        RingError,
+      );
+      expect(() =>
+        ringWithdrawalsOf([{ ...instruction, data: Uint8Array.from([...data, 0]) }]),
+      ).toThrow(RingError);
+    });
+  }
+});
 
 /** A real `ring_transact` payload, so the tail is read against decoded transfers. */
 function transactData(transfers: readonly InterfaceTransfer[]): string {

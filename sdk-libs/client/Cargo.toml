@@ -79,6 +79,10 @@ path = "tests/ring_authority/main.rs"
 required-features = ["proofs"]
 
 [[test]]
+name = "merge_ring_validation"
+path = "tests/merge_ring/validation.rs"
+
+[[test]]
 name = "merge_ring_proving"
 path = "tests/merge_ring/main.rs"
 required-features = ["proofs"]

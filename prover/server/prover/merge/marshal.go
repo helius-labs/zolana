@@ -55,6 +55,8 @@ type MergeParametersJSON struct {
 	// (the ring program's pk_field). Emitted/consumed only on the merge-ring rail;
 	// the default merge rail leaves it zero.
 	RingProgramID string `json:"ringProgramId"`
+
+	CacheOwnerBlinding string `json:"cacheOwnerBlinding"`
 }
 
 func (p *MergeParameters) MarshalJSON() ([]byte, error) {
@@ -81,6 +83,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		Asset:               common.FeHex(p.Asset),
 		RingProgramID:       common.FeHex(p.RingProgramID),
 		OutputRingDataHash:  common.FeHex(p.OutputRingDataHash),
+		CacheOwnerBlinding:  common.FeHex(p.CacheOwnerBlinding),
 		OwnerPkHash:         common.FeHex(p.OwnerPkHash),
 		UserNullifierPk:     common.FeHex(p.UserNullifierPk),
 		UserNullifierSecret: common.FeHex(p.UserNullifierSecret),
@@ -132,6 +135,9 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return err
 	}
 	if p.OutputRingDataHash, err = common.FeFromHex(params.OutputRingDataHash); err != nil {
+		return err
+	}
+	if p.CacheOwnerBlinding, err = common.FeFromHex(params.CacheOwnerBlinding); err != nil {
 		return err
 	}
 	if p.OwnerPkHash, err = common.FeFromHex(params.OwnerPkHash); err != nil {

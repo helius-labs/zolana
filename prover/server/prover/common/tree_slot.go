@@ -60,15 +60,32 @@ func TreeSlotsFromJSON(slots []TreeSlotParamsJSON) ([]TreeSlotParams, error) {
 // (SelectTreeSlot), so failing here turns an opaque proving error into a
 // request error.
 func ValidateTreeSlots(slots []TreeSlotParams, inputSlots []*big.Int, inputTrees int) error {
+	return ValidateTreeSlotsWithCache(slots, inputSlots, inputTrees, nil)
+}
+
+// ValidateTreeSlotsWithCache is ValidateTreeSlots for a rail whose inputs may
+// come from a cache. Bit i of cacheInputBitmap takes input i's existence away
+// from the state tree, so the slot it selects publishes no UTXO root and a zero
+// there is the canonical encoding rather than an unused slot. The nullifier
+// root stays required: a cache replaces inclusion, never nullification.
+func ValidateTreeSlotsWithCache(
+	slots []TreeSlotParams,
+	inputSlots []*big.Int,
+	inputTrees int,
+	cacheInputBitmap *big.Int,
+) error {
 	if len(slots) != inputTrees {
 		return fmt.Errorf("spp: tree slot count mismatch: got %d want %d", len(slots), inputTrees)
+	}
+	cached := func(i int) bool {
+		return cacheInputBitmap != nil && cacheInputBitmap.Sign() > 0 && cacheInputBitmap.Bit(i) == 1
 	}
 	for i, slot := range inputSlots {
 		if slot == nil || slot.Sign() < 0 || slot.Cmp(big.NewInt(int64(inputTrees))) >= 0 {
 			return fmt.Errorf("spp: input %d tree slot %v out of range [0, %d)", i, slot, inputTrees)
 		}
 		selected := slots[slot.Int64()]
-		if isZero(selected.UtxoRoot) || isZero(selected.NullifierRoot) {
+		if isZero(selected.NullifierRoot) || (!cached(i) && isZero(selected.UtxoRoot)) {
 			return fmt.Errorf("spp: input %d selects unused tree slot %d", i, slot.Int64())
 		}
 	}

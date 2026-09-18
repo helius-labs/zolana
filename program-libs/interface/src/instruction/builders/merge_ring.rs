@@ -13,8 +13,10 @@ use crate::{
 /// program loader (`MergeRingAccounts::validate_and_parse`): `input_tree` and
 /// `output_tree` (writable), `ring_config` (the ring's `ring_auth` PDA), `payer`
 /// (signer), the System Program, the program account for the `emit_event`
-/// self-CPI, then one writable nullifier PDA per `nullifiers` entry.
-/// Instruction data is the output `ring_data_hash` followed by the
+/// self-CPI, one writable nullifier PDA per `nullifiers` entry, then the
+/// writable cache account when `data.cache_slot` is set. The program rejects
+/// any account beyond that, so `cache` and `data.cache_slot` must be set
+/// together. Instruction data is the output `ring_data_hash` followed by the
 /// `MergeTransactIxData` body.
 pub struct MergeRing {
     pub input_tree: Pubkey,
@@ -26,6 +28,7 @@ pub struct MergeRing {
     /// The output `ring_data_hash` the ring program selected; the merge proof
     /// binds it to `Output.Utxo.RingDataHash`.
     pub output_ring_data_hash: [u8; 32],
+    pub cache: Option<Pubkey>,
 }
 
 impl MergeRing {
@@ -67,6 +70,9 @@ impl MergeRing {
             &self.input_tree,
             self.data.nullifiers.iter(),
         ));
+        if let Some(cache) = self.cache {
+            accounts.push(AccountMeta::new(cache, false));
+        }
 
         Instruction {
             program_id,
@@ -87,6 +93,7 @@ mod tests {
 
     fn data() -> MergeTransactIxData {
         MergeTransactIxData {
+            cache_slot: None,
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
@@ -110,6 +117,7 @@ mod tests {
         expected.extend(builder.data.nullifiers.iter().map(|nullifier| {
             AccountMeta::new(pda::nullifier_pda(&builder.input_tree, nullifier).0, false)
         }));
+        expected.extend(builder.cache.map(|cache| AccountMeta::new(cache, false)));
         expected
     }
 
@@ -127,6 +135,7 @@ mod tests {
             payer: Pubkey::new_unique(),
             data: data(),
             output_ring_data_hash: [7u8; 32],
+            cache: None,
         };
 
         let ix = builder.instruction();
@@ -137,7 +146,7 @@ mod tests {
         // `.instruction()` targets the ring program, so the `ring_auth` PDA is not
         // a transaction-level signer.
         assert_eq!(ix.accounts, expected_accounts(&builder, false));
-        assert_eq!(ix.accounts.len(), 5 + 8 + 1);
+        assert_eq!(ix.accounts.len(), 6 + 8);
     }
 
     #[test]
@@ -150,11 +159,17 @@ mod tests {
             payer: Pubkey::new_unique(),
             data: data(),
             output_ring_data_hash: [0u8; 32],
+            cache: Some(Pubkey::new_unique()),
         };
 
         let ix = builder.cpi_instruction();
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(ix.accounts, expected_accounts(&builder, true));
-        assert!(ix.accounts[2].is_signer);
+        assert_eq!(ix.accounts.len(), 6 + 8 + 1);
+        assert_eq!(
+            ix.accounts.get(2).map(|meta| meta.is_signer),
+            Some(true),
+            "the ring_auth PDA signs the CPI instruction"
+        );
     }
 }

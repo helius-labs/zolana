@@ -10,14 +10,17 @@ use crate::{
 /// program loader (`MergeTransactAccounts::validate_and_parse`):
 /// `input_tree` and `output_tree` (writable), `payer` (signer, writable),
 /// `user_record` (read-only), the System Program, the program account for the
-/// `emit_event` self-CPI, then one writable nullifier PDA per `nullifiers`
-/// entry.
+/// `emit_event` self-CPI, one writable nullifier PDA per `nullifiers` entry,
+/// then the writable cache account when `data.cache_slot` is set. The program
+/// rejects any account beyond that, so `cache` and `data.cache_slot` must be
+/// set together.
 pub struct MergeTransact {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
     pub payer: Pubkey,
     pub user_record: Pubkey,
     pub data: MergeTransactIxData,
+    pub cache: Option<Pubkey>,
 }
 
 impl MergeTransact {
@@ -42,6 +45,9 @@ impl MergeTransact {
             &self.input_tree,
             self.data.nullifiers.iter(),
         ));
+        if let Some(cache) = self.cache {
+            accounts.push(AccountMeta::new(cache, false));
+        }
 
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,

@@ -119,6 +119,22 @@ func TestMergeCircuitProvesEddsaOwner(t *testing.T) {
 	}
 }
 
+// A sender can fund the same signer under a different nullifier key. Such a
+// witness must not verify against the recipient's registered nullifier key.
+func TestMergePublicInputHashBindsRegisteredNullifierKey(t *testing.T) {
+	f := buildMergeFixture(t, mergeFixtureOptions{})
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("baseline witness does not solve: %v", err)
+	}
+	original := f.userNullifierPk
+	f.userNullifierPk = big.NewInt(42)
+	refreshDefaultPublicInputHash(t, f)
+	f.userNullifierPk = original
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("accepted a public input hash computed from another registered nullifier key")
+	}
+}
+
 func TestMergeCircuitRejectsDummyInputsWhenPolicyDisabled(t *testing.T) {
 	assignment := buildDefaultWitness(t, mergeFixtureOptions{
 		allowDummyInputs: big.NewInt(0),

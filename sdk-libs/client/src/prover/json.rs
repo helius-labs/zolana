@@ -122,6 +122,12 @@ pub(crate) struct TransferInputsJson {
     pub input_flags: String,
     #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
+    #[serde(rename = "cacheInputBitmap")]
+    pub cache_input_bitmap: String,
+    #[serde(rename = "cacheTreeId")]
+    pub cache_tree_id: String,
+    #[serde(rename = "cacheInputHashChain")]
+    pub cache_input_hash_chain: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -174,6 +180,12 @@ pub(crate) struct TransferP256InputsJson {
     pub input_flags: String,
     #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
+    #[serde(rename = "cacheInputBitmap")]
+    pub cache_input_bitmap: String,
+    #[serde(rename = "cacheTreeId")]
+    pub cache_tree_id: String,
+    #[serde(rename = "cacheInputHashChain")]
+    pub cache_input_hash_chain: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -318,6 +330,8 @@ pub(crate) struct MergeParametersJson {
     /// the ring's pk_field for merge-ring (the circuit's top-level public input).
     #[serde(rename = "ringProgramId")]
     pub ring_program_id: String,
+    #[serde(rename = "cacheOwnerBlinding")]
+    pub cache_owner_blinding: String,
 }
 
 /// Serialize a merge witness under the given circuit type. The default merge and
@@ -372,6 +386,7 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
         ring_program_id: big_uint_to_string(&inputs.ring_program_id),
+        cache_owner_blinding: big_uint_to_string(&inputs.cache_owner_blinding),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
@@ -488,6 +503,9 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
             .iter()
             .map(big_uint_to_string)
             .collect(),
+        cache_input_bitmap: big_uint_to_string(&inputs.cache_input_bitmap),
+        cache_tree_id: big_uint_to_string(&inputs.cache_tree_id),
+        cache_input_hash_chain: big_uint_to_string(&inputs.cache_input_hash_chain),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -553,6 +571,9 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
             .iter()
             .map(big_uint_to_string)
             .collect(),
+        cache_input_bitmap: big_uint_to_string(&inputs.cache_input_bitmap),
+        cache_tree_id: big_uint_to_string(&inputs.cache_tree_id),
+        cache_input_hash_chain: big_uint_to_string(&inputs.cache_input_hash_chain),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -664,6 +685,9 @@ mod merge_tests {
             signer_pk_hashes: vec![BigUint::from(10u8), BigUint::from(12u8)],
             input_flags: BigUint::from(1u8),
             published_output_owner_pk_hashes: vec![BigUint::from(14u8)],
+            cache_input_bitmap: BigUint::ZERO,
+            cache_tree_id: BigUint::ZERO,
+            cache_input_hash_chain: BigUint::from(21u8),
             public_input_hash: BigUint::from(11u8),
         };
 
@@ -712,6 +736,7 @@ mod merge_tests {
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
             ring_program_id: BigUint::ZERO,
+            cache_owner_blinding: BigUint::ZERO,
         };
 
         let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
@@ -731,6 +756,7 @@ mod merge_tests {
             "publicInputHash",
             "outputRingDataHash",
             "ringProgramId",
+            "cacheOwnerBlinding",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
@@ -793,6 +819,9 @@ mod merge_tests {
             signer_pk_hashes: vec![BigUint::from(8u8)],
             input_flags: BigUint::from(1u8),
             published_output_owner_pk_hashes: Vec::new(),
+            cache_input_bitmap: BigUint::ZERO,
+            cache_tree_id: BigUint::ZERO,
+            cache_input_hash_chain: BigUint::ZERO,
             public_input_hash: BigUint::from(9u8),
         };
 
