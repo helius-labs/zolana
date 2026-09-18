@@ -236,10 +236,6 @@ func TestCacheRejectsNonUtxos(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	ccs := compileCached(t, shape)
 	checkCachedWitness(t, ccs, cachedAssignment(t, buildDefaultRingEddsaOnlyAssignment(t, protocol.Shape(shape)), 1), true)
-	ordinary, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, MustNewDefaultRingEddsaOnlyCircuit(shape))
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, domain := range []string{"dummy", "address"} {
 		t.Run(domain, func(t *testing.T) {
 			a := buildDummyInputShield(t, 50)
@@ -248,7 +244,8 @@ func TestCacheRejectsNonUtxos(t *testing.T) {
 				finalizeAddressAssignment(t, a, false, true)
 			}
 			makeDefaultRing(t, a)
-			checkCachedWitness(t, ordinary, asDefaultRingEddsaOnly(a), true)
+			// The same circuit accepts the slot when no cache selects it.
+			checkCachedWitness(t, ccs, asDefaultRingEddsaOnly(a), true)
 			checkCachedWitness(t, ccs, cachedAssignment(t, a, 1), false)
 		})
 	}

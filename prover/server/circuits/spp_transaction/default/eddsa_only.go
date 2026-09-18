@@ -113,10 +113,7 @@ func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 }
 
 func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
-	return c.define(api, c.newTransaction(api))
-}
-
-func (c *DefaultRingEddsaOnlyCircuit) define(api frontend.API, tx shared.Transaction) error {
+	tx := c.newTransaction(api)
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},

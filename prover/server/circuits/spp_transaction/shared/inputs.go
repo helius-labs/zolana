@@ -32,7 +32,7 @@ type PublicInputUtxoInputs struct {
 	SignerPk  frontend.Variable
 	Tree      TreeSlot
 	// SkipInclusion is nil for circuits that always require state-tree
-	// inclusion; see InclusionRelay.
+	// inclusion; see Transaction.skipInclusion.
 	SkipInclusion frontend.Variable
 }
 

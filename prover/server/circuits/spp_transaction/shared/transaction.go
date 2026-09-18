@@ -41,9 +41,6 @@ import (
 // mirrors.
 type Transaction struct {
 	Shape Shape
-	// Inclusion is nil for variants that prove every input against the state
-	// tree, and set by variants that prove some inputs exist another way.
-	Inclusion *InclusionRelay
 	// Nil on ring authority, which always proves state-tree inclusion.
 	CachedInputs *CachedInputs
 
@@ -91,53 +88,24 @@ type Transaction struct {
 	// Constrain only chains these, never reads them: the count varies, so naming
 	// them as fields would need nil-means-omit branching in here instead.
 	PreimageTail []frontend.Variable
+
+	// skipInclusion[i] == 1 takes input i's existence away from the state tree:
+	// its inclusion check is not asserted and its tree slot needs no state
+	// root. CachedInputs.prepare sets it, and the cache proves the commitment
+	// instead; it stays nil for a variant that proves every input against the
+	// state tree.
+	//
+	// Every element must already be constrained to a bit. The core multiplies
+	// by it and selects on it, so a value outside {0,1} would forge a state
+	// root and disable an inclusion check at once.
+	skipInclusion []frontend.Variable
 }
 
-// InclusionRelay hands a variant's inclusion policy into Constrain and the
-// per-input values Constrain derived back out.
-//
-// Skip[i] == 1 takes input i's existence away from the state tree: its
-// inclusion check is not asserted and its tree slot needs no state root. The
-// variant owns the replacement proof, and binds it with Hashes and TreeIDs —
-// the commitment the core actually spent and the raw u16 id of the tree it
-// spent it from — so it never has to recompute either and cannot drift from
-// what the rest of the transaction constrains.
-//
-// The relay carries no policy of its own: every rule about which inputs may
-// skip, and what stands in for inclusion, belongs to the variant.
-//
-// Every Skip element must already be constrained to a bit. The core multiplies
-// by it and selects on it, so a value outside {0,1} would forge a state root
-// and disable an inclusion check at once.
-//
-// Hashes and TreeIDs are filled by Constrain and are nil until it has run.
-type InclusionRelay struct {
-	Skip []frontend.Variable
-
-	Hashes  []frontend.Variable
-	TreeIDs []frontend.Variable
-}
-
-func (r *InclusionRelay) init(nInputs int) {
-	if r == nil {
-		return
-	}
-	r.Hashes = make([]frontend.Variable, nInputs)
-	r.TreeIDs = make([]frontend.Variable, nInputs)
-}
-
-func (r *InclusionRelay) skip(i int) frontend.Variable {
-	if r == nil {
+func (t Transaction) skip(i int) frontend.Variable {
+	if t.skipInclusion == nil {
 		return nil
 	}
-	return r.Skip[i]
-}
-
-func (r *InclusionRelay) record(i int, hash, treeID frontend.Variable) {
-	if r == nil {
-		return
-	}
-	r.Hashes[i], r.TreeIDs[i] = hash, treeID
+	return t.skipInclusion[i]
 }
 
 // spendableSlots replaces the state root of every slot a skipped input could
@@ -145,14 +113,14 @@ func (r *InclusionRelay) record(i int, hash, treeID frontend.Variable) {
 // by its nullifier root while no longer demanding a state root the input
 // proves nothing against. The placeholder reaches no other constraint: the
 // public-input hash commits to the published slots, not to these.
-func (r *InclusionRelay) spendableSlots(api frontend.API, i int, slots []TreeSlot) []TreeSlot {
-	if r == nil {
-		return slots
+func (t Transaction) spendableSlots(api frontend.API, i int) []TreeSlot {
+	if t.skipInclusion == nil {
+		return t.TreeSlots
 	}
-	out := make([]TreeSlot, len(slots))
-	for k, slot := range slots {
+	out := make([]TreeSlot, len(t.TreeSlots))
+	for k, slot := range t.TreeSlots {
 		out[k] = slot
-		out[k].UtxoRoot = api.Select(r.Skip[i], 1, slot.UtxoRoot)
+		out[k].UtxoRoot = api.Select(t.skipInclusion[i], 1, slot.UtxoRoot)
 	}
 	return out
 }
@@ -181,9 +149,6 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 		{"tree slot", len(t.TreeSlots), InputTrees},
 		{"output", len(t.Outputs), t.Shape.NOutputs},
 	}
-	if t.Inclusion != nil {
-		checks = append(checks, LengthCheck{"inclusion skip", len(t.Inclusion.Skip), t.Shape.NInputs})
-	}
 	for _, check := range append(checks, extra...) {
 		if err := ValidateLength(check.Name, check.Got, check.Want); err != nil {
 			return err
@@ -206,9 +171,9 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	// and range-checks it, so no bit above the layout can carry a value.
 	flagBits := api.ToBinary(t.InputFlags, 1+TreeIndexBits*t.Shape.NInputs)
 	allowDummyInputs := flagBits[0]
-	t.Inclusion.init(t.Shape.NInputs)
 	// 1. check inputs
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
+	inputTreeIDs := make([]frontend.Variable, t.Shape.NInputs)
 	addressNullifiers := make([]frontend.Variable, t.Shape.NInputs)
 	for i, in := range t.Inputs {
 		// The dummy policy is SPP's nullifier-capacity gate: a spend consumes a
@@ -229,14 +194,14 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		signals := PublicInputUtxoInputs{
 			Nullifier:     t.Nullifiers[i],
 			SignerPk:      signers[i],
-			Tree:          SelectTreeSlot(api, in.TreeSlot, t.Inclusion.spendableSlots(api, i, t.TreeSlots)),
-			SkipInclusion: t.Inclusion.skip(i),
+			Tree:          SelectTreeSlot(api, in.TreeSlot, t.spendableSlots(api, i)),
+			SkipInclusion: t.skip(i),
 		}
 		inputHashes[i], addressNullifiers[i] = constrainInput(api, in, signals)
-		t.Inclusion.record(i, inputHashes[i], signals.Tree.ID)
+		inputTreeIDs[i] = signals.Tree.ID
 	}
 	if t.CachedInputs != nil {
-		t.CachedInputs.constrain(api, t.Inputs, t.Inclusion)
+		t.CachedInputs.constrain(api, t, inputHashes, inputTreeIDs)
 	}
 	AssertDistinctNullifiers(api, t.Nullifiers)
 

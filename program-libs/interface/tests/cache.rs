@@ -8,8 +8,8 @@ use zolana_interface::{
         CreateCacheData, MergeRing, MergeTransact, MergeTransactIxData,
     },
     pda,
-    state::cache::CACHE_SEED,
-    PROGRAM_ID_PUBKEY,
+    state::cache::{cached_input_fields, empty_cached_input_fields, CACHE_SEED},
+    MAX_TRANSACT_INPUTS, PROGRAM_ID_PUBKEY,
 };
 
 fn create_data(nonce: u64) -> CreateCacheData {
@@ -32,6 +32,22 @@ fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
         nullifier_tree_root_index: 0,
         private_tx_hash: [0u8; 32],
         eddsa_owner: true,
+    }
+}
+
+/// A spend that uses no cache publishes a selection that depends on nothing but
+/// its input count, so the program reads it from a table instead of folding
+/// zeros on chain. Every entry must hold what the general construction
+/// produces, for every count a transact can declare.
+#[test]
+fn the_empty_selection_matches_the_general_one_for_every_input_count() {
+    let empty = [[0u8; 32]; MAX_TRANSACT_INPUTS];
+    for input_count in 0..=MAX_TRANSACT_INPUTS {
+        assert_eq!(
+            empty_cached_input_fields(input_count).unwrap(),
+            cached_input_fields(0, 0, empty.iter().take(input_count)).unwrap(),
+            "input count {input_count}"
+        );
     }
 }
 
