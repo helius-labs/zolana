@@ -55,8 +55,8 @@ use zolana_test_utils::transact::{
     dummy_input, dummy_transfer_output, external_data_hash_for_discriminator, fe, inline_outputs,
     input_utxo, input_utxo_in_tree, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
     pack_transact_proof, real_output, set_output_owner_tags, single_tree_slots, sol_public_slots,
-    spend_input, test_private_tx_blinding, transact_input_flags, transfer_output, tree_contexts,
-    SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
+    test_private_tx_blinding, transact_input_flags, transfer_input, transfer_output, tree_contexts,
+    TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -101,7 +101,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         .indexed_deposit_utxo(&event, owner_public_key)
         .expect("indexed deposit UTXO");
     let blinding = utxo.blinding;
-    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
+    assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, 0));
 
     let tree_id = env.tree_id;
     let utxo_hash = utxo
@@ -136,7 +136,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         dummy_inputs.push(input);
         dummy_nullifiers.push(dummy_nullifier);
     }
-    let real_input = spend_input(SpendInputArgs {
+    let real_input = transfer_input(TransferInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
@@ -366,7 +366,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
     let utxo = Utxo {
         owner: owner_public_key,
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: 0,
         blinding,
         ring_program_id: Some(ring),
@@ -399,7 +399,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .expect("non-inclusion proof");
 
     let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
-    let real_input = spend_input(SpendInputArgs {
+    let real_input = transfer_input(TransferInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
@@ -1687,7 +1687,7 @@ fn build_two_tree_transact_ix(
                 .rpc
                 .indexed_deposit_utxo(&deposit, owner_public_key)
                 .expect("indexed deposit UTXO");
-            assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, amount));
+            assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, amount));
             let hash = utxo
                 .hash(&nullifier_pk, &zero, &zero, input_tree_id)
                 .expect("input UTXO hash");
@@ -1709,7 +1709,7 @@ fn build_two_tree_transact_ix(
             let non_inclusion = nf_tree
                 .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
                 .expect("nullifier non-inclusion proof");
-            let input = spend_input(SpendInputArgs {
+            let input = transfer_input(TransferInputArgs {
                 utxo: &utxo,
                 owner_field: &owner_field,
                 state_path: &state_path,
@@ -1752,7 +1752,7 @@ fn build_two_tree_transact_ix(
     let change = real_output(
         owner_public_key,
         change_nullifier_pk,
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         output_amount,
         [1u8; 31],
     );
@@ -1925,7 +1925,7 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
         .map(|input| input.nullifier_hash)
         .collect();
     let [first_nullifier, second_nullifier] = nullifiers.as_slice() else {
-        panic!("the two-tree fixture spends exactly two inputs");
+        panic!("the two-tree fixture input_utxos exactly two inputs");
     };
 
     let (first_utxo_next_before, first_nullifier_next_before) =
@@ -2080,6 +2080,6 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
     );
     assert!(
         event.spl_transfers.is_empty(),
-        "the spend has no public funding"
+        "the input_utxo has no public funding"
     );
 }

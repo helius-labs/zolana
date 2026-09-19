@@ -3,9 +3,9 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::AssetDeposit;
+use zolana_interface::{instruction::AssetDeposit, state::read_tree_id};
 use zolana_program_test::DepositOutput;
-use zolana_transaction::{SyncWalletAuthority, Wallet};
+use zolana_wallet::{SyncWalletAuthority, Wallet};
 
 use super::{
     assert_indexed_deposit_utxo, expected_deposit_view, fetch_account, state_root_from, to_address,
@@ -69,7 +69,16 @@ pub fn assert_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     );
 
     crate::wallet_discovery::assert_wallet_discovers(
-        recipient, authority, event, signature, &data.memo, None, "deposit",
+        recipient,
+        authority,
+        crate::wallet_discovery::DiscoveredDeposit {
+            event,
+            signature,
+            tree_id: read_tree_id(&tree_before.data).expect("tree id"),
+            memo: &data.memo,
+            expected_mint: None,
+            label: "deposit",
+        },
     );
     Ok(())
 }

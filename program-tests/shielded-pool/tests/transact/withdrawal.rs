@@ -44,9 +44,9 @@ use zolana_test_utils::transact::{
     derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output, external_data_hash,
     fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
     prove_and_verify_transfer, public_sol_field, real_output, set_output_owner_tags,
-    single_tree_slots, sol_leg, sol_public_slots, spend_input, spl_leg, spl_public_slots,
-    test_private_tx_blinding, transfer_output, SpendInputArgs, TransferProverInputsArgs,
-    TEST_BLINDING_SEED,
+    single_tree_slots, sol_leg, sol_public_slots, spl_leg, spl_public_slots,
+    test_private_tx_blinding, transfer_input, transfer_output, TransferInputArgs,
+    TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -148,7 +148,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         .indexed_deposit_utxo(&event, owner)
         .expect("indexed deposit UTXO");
     let blinding = utxo.blinding;
-    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, AMOUNT));
+    assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, AMOUNT));
 
     let tree_id = env.tree_id;
     let utxo_hash = utxo
@@ -191,11 +191,11 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         .expect("non inclusion proof");
 
     let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
-    let (dummy_spend_input, dummy_nullifier) =
+    let (dummy_input_utxo, dummy_nullifier) =
         dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
 
     // The real input spending the shielded UTXO (is_dummy = 0).
-    let payer_spend_input = spend_input(SpendInputArgs {
+    let payer_input_utxo = transfer_input(TransferInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
@@ -308,7 +308,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     .expect("public input hash");
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![payer_spend_input, dummy_spend_input],
+        inputs: vec![payer_input_utxo, dummy_input_utxo],
         outputs,
         tree_slots,
         output_tree_id: tree_id,
@@ -426,7 +426,13 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     let nullifier_key = NullifierKey::from_secret([21u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_public_key = PublicKey::from_ed25519(&payer_bytes);
-    let shielded_output = real_output(owner_public_key, nullifier_pk, SOL_MINT, AMOUNT, [23u8; 31]);
+    let shielded_output = real_output(
+        owner_public_key,
+        nullifier_pk,
+        zolana_transaction::Mint::SOL,
+        AMOUNT,
+        [23u8; 31],
+    );
     let (dummy_output_a, _) = dummy_transfer_output(&[1u8; 31], tree_id).expect("dummy output");
     let (dummy_output_b, _) = dummy_transfer_output(&[2u8; 31], tree_id).expect("dummy output");
     let mut outputs = vec![
@@ -630,7 +636,16 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         dummy_input(&[42u8; 31], &nf_tree, tree_id).expect("dummy input 1");
     let nullifiers = [nullifier_0, nullifier_1];
 
-    let asset = solana_address::Address::new_from_array(mint.to_bytes());
+    let registry_data = env
+        .rpc
+        .account_data(&zolana_interface::pda::spl_asset_registry(&mint))
+        .expect("asset registry");
+    let asset = zolana_transaction::Mint::new(
+        mint,
+        zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
+            .expect("asset registry")
+            .asset_id,
+    );
     let shielded_output = real_output(owner, nullifier_pk, asset, SPL_AMOUNT, [27u8; 31]);
     let (dummy_a, _) = dummy_transfer_output(&[1u8; 31], tree_id).expect("dummy output");
     let (dummy_b, _) = dummy_transfer_output(&[2u8; 31], tree_id).expect("dummy output");
@@ -785,7 +800,7 @@ struct ShieldedPayer {
     nullifier_pk: [u8; 32],
     utxo_hash: [u8; 32],
     nullifier: [u8; 32],
-    spend_input: TransferInput,
+    input_utxo: TransferInput,
     state_tree: MerkleTree<Poseidon>,
     nf_tree: IndexedMerkleTree<Poseidon, usize>,
     utxo_root_index: u16,
@@ -843,7 +858,10 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
         .indexed_deposit_utxo(&event, payer_owner)
         .expect("indexed deposit UTXO");
     let payer_blinding = payer_utxo.blinding;
-    assert_eq!((payer_utxo.asset, payer_utxo.amount), (SOL_MINT, AMOUNT));
+    assert_eq!(
+        (payer_utxo.asset.asset, payer_utxo.amount),
+        (SOL_MINT, AMOUNT)
+    );
     let payer_utxo_hash = payer_utxo
         .hash(&payer_nullifier_pk, &zero, &zero, env.tree_id)
         .expect("payer utxo hash");
@@ -870,7 +888,7 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
         .get_proof_of_leaf(0, true)
         .expect("payer state proof")
         .to_vec();
-    let payer_spend_input = spend_input(SpendInputArgs {
+    let payer_input_utxo = transfer_input(TransferInputArgs {
         utxo: &payer_utxo,
         owner_field: &payer_owner_field,
         state_path: &payer_state_path,
@@ -888,7 +906,7 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
         nullifier_pk: payer_nullifier_pk,
         utxo_hash: payer_utxo_hash,
         nullifier: payer_nullifier,
-        spend_input: payer_spend_input,
+        input_utxo: payer_input_utxo,
         state_tree,
         nf_tree,
         utxo_root_index: shield_utxo_root_index,
@@ -912,7 +930,7 @@ fn phase_transfer_to_recipient(
         nullifier_pk: payer_nullifier_pk,
         utxo_hash: payer_utxo_hash,
         nullifier: payer_nullifier,
-        spend_input: payer_spend_input,
+        input_utxo: payer_input_utxo,
         mut state_tree,
         nf_tree,
         utxo_root_index: shield_utxo_root_index,
@@ -934,14 +952,14 @@ fn phase_transfer_to_recipient(
     let mut change_output = real_output(
         payer_utxo.owner,
         payer_nullifier_pk,
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         CHANGE_AMOUNT,
         [13u8; 31],
     );
     let mut recipient_output = real_output(
         recipient_public_key,
         recipient_nullifier_pk,
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         TRANSFER_AMOUNT,
         [17u8; 31],
     );
@@ -1027,7 +1045,7 @@ fn phase_transfer_to_recipient(
     .hash()
     .expect("public input hash");
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![payer_spend_input, transfer_dummy_input],
+        inputs: vec![payer_input_utxo, transfer_dummy_input],
         outputs: transfer_outputs,
         tree_slots: transfer_tree_slots,
         output_tree_id: tree_id,
@@ -1117,7 +1135,7 @@ fn phase_withdraw_recipient_utxo(
 
     let recipient_utxo = Utxo {
         owner: recipient_public_key,
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
         ring_program_id: None,
@@ -1143,7 +1161,7 @@ fn phase_withdraw_recipient_utxo(
         .get_proof_of_leaf(2, true)
         .expect("recipient state proof")
         .to_vec();
-    let recipient_spend_input = spend_input(SpendInputArgs {
+    let recipient_input_utxo = transfer_input(TransferInputArgs {
         utxo: &recipient_utxo,
         owner_field: &recipient_owner_field,
         state_path: &recipient_state_path,
@@ -1249,7 +1267,7 @@ fn phase_withdraw_recipient_utxo(
     .hash()
     .expect("public input hash");
     let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![recipient_spend_input, withdraw_dummy_input],
+        inputs: vec![recipient_input_utxo, withdraw_dummy_input],
         outputs: withdraw_outputs,
         tree_slots: withdraw_tree_slots,
         output_tree_id: tree_id,

@@ -13,7 +13,8 @@ use timelock_escrow_program::{
 };
 use timelock_escrow_prover::{CircuitId, EscrowProofInputs, EscrowTermsProofInput};
 use timelock_escrow_sdk::state::DataHash;
-use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
+use zolana_client::ProofInputUtxo;
+use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
 
 mod shared;
 use shared::escrow_utxo_owner_hash;

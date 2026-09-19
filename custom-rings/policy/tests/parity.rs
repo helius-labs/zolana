@@ -1,6 +1,7 @@
 //! Pins the entry math to the canonical UTXO types.
 
 use solana_address::address;
+use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{tree_slot::tree_id_field, ADDRESS_DOMAIN};
 use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
@@ -8,7 +9,7 @@ use zolana_ring_policy::{
     entry_nullifier, entry_seed, mutation_private_tx_hash, EntryState, ListEntry, ListId,
     ListNamespace, Member,
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, ProofInputUtxo, SOL_MINT};
+use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
 
 const TEST_PDA: solana_address::Address = address!("6ZKEgsScJbL6JVDpbHLCFCUiPEVgmMSt1j6NudNLqEvh");
 const TREE_ID: u16 = 5;

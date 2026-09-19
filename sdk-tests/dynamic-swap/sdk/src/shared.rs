@@ -14,7 +14,7 @@ pub(crate) fn check_output_utxo(
     let owner = output
         .owner_address
         .ok_or_else(|| err(format!("{label} owner address missing")))?;
-    if &output.asset != mint {
+    if &output.asset.asset != mint {
         return Err(err(format!("{label} asset mismatch")));
     }
     if output.amount != amount {

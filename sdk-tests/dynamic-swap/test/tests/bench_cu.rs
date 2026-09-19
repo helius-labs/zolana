@@ -1,4 +1,8 @@
 use std::time::{Duration, Instant};
+use zolana_test_utils::utxo::{
+    assign_output_blindings, encrypt_transaction_data, get_transaction_viewing_key,
+};
+use zolana_transaction::utxo::SppProofInputUtxo;
 
 use dynamic_swap_program::{
     instructions::create_escrow::EscrowOpenProof,
@@ -52,14 +56,8 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
-    instructions::{
-        transact::{
-            assign_output_blindings, encrypt_transaction_data, first_nullifier,
-            get_transaction_viewing_key,
-            spp_proof_inputs::{asset_field, BN254_MODULUS_DEC},
-            ExternalData, SppProofInputs, SppProofOutputUtxo,
-        },
-        types::SppProofInputUtxo,
+    instructions::transact::{
+        asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo, BN254_MODULUS_DEC,
     },
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
@@ -208,7 +206,7 @@ fn build_spend_proofs(
     tree: &Pubkey,
     state_tree: &MerkleTree<Poseidon>,
     nf_tree: &IndexedMerkleTree<Poseidon, usize>,
-    commitments: &[zolana_transaction::instructions::types::InputUtxoContext],
+    commitments: &[&SppProofInputUtxo],
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
     root_index: u16,
@@ -298,13 +296,25 @@ fn prove_transact_timed(
     proof_inputs: SppProofInputs,
     spend_proofs: &[SpendProof],
     prover: &ProverClient,
+    keys: &[&zolana_keypair::NullifierKey],
 ) -> (TransactIxData, Duration) {
+    let dummy_proofs = zolana_test_utils::utxo::dummy_proofs(&proof_inputs);
     prover
-        .prove_transact(proof_inputs.clone(), spend_proofs, &[])
+        .prove_transact(
+            proof_inputs.clone(),
+            spend_proofs,
+            &dummy_proofs,
+            &zolana_test_utils::utxo::ProofKeys(keys),
+        )
         .expect("warm prove transact");
     let start = Instant::now();
     let transact = prover
-        .prove_transact(proof_inputs, spend_proofs, &[])
+        .prove_transact(
+            proof_inputs,
+            spend_proofs,
+            &dummy_proofs,
+            &zolana_test_utils::utxo::ProofKeys(keys),
+        )
         .expect("prove transact");
     (transact, start.elapsed())
 }
@@ -539,29 +549,46 @@ fn bench_create_escrow(
     let escrow_owner =
         ShieldedPda::from_viewing_key(escrow_authority_pda(&pair), &authority_keypair.viewing_key)
             .expect("escrow authority identity");
-    let tree = Keypair::new().pubkey();
+    let tree = zolana_interface::pda::tree(BENCH_TREE_ID);
 
     let source_utxo = Utxo {
         owner: user_keypair.signing_pubkey(),
-        asset: source_asset,
+        asset: zolana_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
         amount: ORDER_AMOUNT,
         blinding: random_blinding(),
         ring_program_id: None,
         data: Data::default(),
     };
-    let source_in = SppProofInputUtxo::new(source_utxo, &user_keypair).in_tree(BENCH_TREE_ID);
+    let source_in: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
+        source_utxo,
+        &user_keypair.nullifier_key,
+        BENCH_TREE_ID,
+        0,
+        None,
+        None,
+    )
+    .expect("indexed input")
+    .into();
 
     // The maker funds the reservation from its own destination-asset UTXO.
     let maker_funding_utxo = Utxo {
         owner: authority_keypair.signing_pubkey(),
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: FUNDING_AMOUNT,
         blinding: random_blinding(),
         ring_program_id: None,
         data: Data::default(),
     };
-    let maker_funding =
-        SppProofInputUtxo::new(maker_funding_utxo, &authority_keypair).in_tree(BENCH_TREE_ID);
+    let maker_funding: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
+        maker_funding_utxo,
+        &authority_keypair.nullifier_key,
+        BENCH_TREE_ID,
+        1,
+        None,
+        None,
+    )
+    .expect("indexed input")
+    .into();
 
     let recipient_owner_hash = user_keypair.owner_hash().expect("user owner hash");
     let escrow_terms = EscrowTerms {
@@ -572,7 +599,7 @@ fn bench_create_escrow(
     // The circuit derives the seed and the private transaction blinding from
     // this root seed, so both must come from it here too.
     let blinding_seed = random_blinding();
-    let first_nullifier = first_nullifier(&input_utxos).expect("first nullifier");
+    let first_nullifier = input_utxos.first().expect("first input").nullifier;
     let output_blinding_seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed)
         .expect("output blinding seed");
     let private_tx_blinding =
@@ -584,7 +611,7 @@ fn bench_create_escrow(
     let escrow_utxo = EscrowUtxo {
         terms: escrow_terms,
         created_at: CREATED_AT,
-        asset: source_asset,
+        asset: zolana_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
         order_amount: ORDER_AMOUNT,
         blinding: random_blinding(),
     };
@@ -598,7 +625,7 @@ fn bench_create_escrow(
 
     let reserved = ORDER_AMOUNT * MAX_PRICE;
     let reservation = Reservation {
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: reserved,
         blinding: reservation_blinding,
     };
@@ -609,9 +636,12 @@ fn bench_create_escrow(
     let authority_address = authority_keypair
         .shielded_address()
         .expect("authority shielded address");
-    let mut maker_change =
-        SppProofOutputUtxo::new(SOL_MINT, FUNDING_AMOUNT - reserved, authority_address)
-            .expect("maker_change");
+    let mut maker_change = SppProofOutputUtxo::new(
+        zolana_transaction::Mint::SOL,
+        FUNDING_AMOUNT - reserved,
+        authority_address,
+    )
+    .expect("maker_change");
     maker_change.blinding =
         derive_transact_output_blinding(&first_nullifier, &output_blinding_seed, 2)
             .expect("maker change blinding");
@@ -631,7 +661,6 @@ fn bench_create_escrow(
             reservation_out.clone(),
             maker_change.clone(),
         ],
-        &assets,
         &viewing_key,
         BENCH_TREE_ID,
     )
@@ -649,14 +678,14 @@ fn bench_create_escrow(
         vec![],
     );
     let external_data_hash = external_data.hash().expect("external data hash");
-    let spp_proof_inputs = SppProofInputs::new(
+    let spp_proof_inputs = SppProofInputs {
         input_utxos,
-        encoded.output_utxos,
+        output_utxos: encoded.output_utxos,
         external_data,
-        authority_solana.pubkey(),
-    )
-    .with_blinding_seed(blinding_seed)
-    .with_output_tree_id(BENCH_TREE_ID);
+        payer: authority_solana.pubkey(),
+        blinding_seed,
+        output_tree_id: BENCH_TREE_ID,
+    };
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -678,7 +707,15 @@ fn bench_create_escrow(
     );
 
     let prover = ProverClient::local();
-    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(
+        spp_proof_inputs,
+        &spend_proofs,
+        &prover,
+        &[
+            &user_keypair.nullifier_key,
+            &authority_keypair.nullifier_key,
+        ],
+    );
 
     let escrow_authority_owner_hash = escrow_owner
         .shielded_address()
@@ -813,7 +850,7 @@ fn bench_settle(
     let escrow_owner =
         ShieldedPda::from_viewing_key(escrow_authority_pda(&pair), &authority_keypair.viewing_key)
             .expect("escrow authority identity");
-    let tree = Keypair::new().pubkey();
+    let tree = zolana_interface::pda::tree(BENCH_TREE_ID);
 
     let escrow_terms = EscrowTerms {
         recipient_owner_hash,
@@ -822,14 +859,13 @@ fn bench_settle(
     let escrow_utxo = EscrowUtxo {
         terms: escrow_terms,
         created_at: CREATED_AT,
-        asset: source_asset,
+        asset: zolana_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
         order_amount: ORDER_AMOUNT,
         blinding: random_blinding(),
     };
     let order_in = escrow_utxo
-        .to_input_utxo(&escrow_owner)
-        .expect("order_in")
-        .in_tree(BENCH_TREE_ID);
+        .to_input_utxo(&escrow_owner, BENCH_TREE_ID, 0)
+        .expect("order_in");
     let order_in_hash = ProofInputUtxo::try_from(&order_in)
         .expect("order_in proof utxo")
         .hash()
@@ -837,14 +873,13 @@ fn bench_settle(
 
     let reserved = ORDER_AMOUNT * MAX_PRICE;
     let reservation = Reservation {
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: reserved,
         blinding: random_blinding(),
     };
     let reservation_in = reservation
-        .to_input_utxo(&escrow_owner, order_in_hash)
-        .expect("reservation_in")
-        .in_tree(BENCH_TREE_ID);
+        .to_input_utxo(&escrow_owner, order_in_hash, BENCH_TREE_ID, 1)
+        .expect("reservation_in");
     let reservation_in_hash = ProofInputUtxo::try_from(&reservation_in)
         .expect("reservation_in proof utxo")
         .hash()
@@ -857,21 +892,26 @@ fn bench_settle(
         .shielded_address()
         .expect("authority shielded address");
     let recipient_out = SppProofOutputUtxo::new(
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         owed,
         user_keypair.shielded_address().expect("user address"),
     )
     .expect("recipient_out");
     let maker_counter =
-        SppProofOutputUtxo::new(SOL_MINT, remainder, authority_address).expect("maker_counter");
-    let maker_source = SppProofOutputUtxo::new(source_asset, ORDER_AMOUNT, authority_address)
-        .expect("maker_source");
+        SppProofOutputUtxo::new(zolana_transaction::Mint::SOL, remainder, authority_address)
+            .expect("maker_counter");
+    let maker_source = SppProofOutputUtxo::new(
+        zolana_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
+        ORDER_AMOUNT,
+        authority_address,
+    )
+    .expect("maker_source");
 
     let input_utxos = vec![order_in.clone(), reservation_in.clone()];
     let blinding_seed =
         settle_blinding_seed(&order_in.utxo.blinding, &reservation_in.utxo.blinding)
             .expect("settlement blinding seed");
-    let settle_first_nullifier = first_nullifier(&input_utxos).expect("first nullifier");
+    let settle_first_nullifier = input_utxos.first().expect("first input").nullifier;
     let output_blinding_seed = derive_output_blinding_seed(&settle_first_nullifier, &blinding_seed)
         .expect("output blinding seed");
     let private_tx_blinding = derive_private_tx_blinding(&settle_first_nullifier, &blinding_seed)
@@ -902,7 +942,6 @@ fn bench_settle(
             maker_counter.clone(),
             maker_source.clone(),
         ],
-        &assets,
         &viewing_key,
         BENCH_TREE_ID,
     )
@@ -920,14 +959,14 @@ fn bench_settle(
         vec![],
     );
     let external_data_hash = external_data.hash().expect("external data hash");
-    let spp_proof_inputs = SppProofInputs::new(
+    let spp_proof_inputs = SppProofInputs {
         input_utxos,
-        encoded.output_utxos,
+        output_utxos: encoded.output_utxos,
         external_data,
-        authority_solana.pubkey(),
-    )
-    .with_blinding_seed(blinding_seed)
-    .with_output_tree_id(BENCH_TREE_ID);
+        payer: authority_solana.pubkey(),
+        blinding_seed,
+        output_tree_id: BENCH_TREE_ID,
+    };
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -949,7 +988,12 @@ fn bench_settle(
     );
 
     let prover = ProverClient::local();
-    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(
+        spp_proof_inputs,
+        &spend_proofs,
+        &prover,
+        &[escrow_owner.as_ref()],
+    );
 
     let proof_inputs = SettleProofInputParams {
         order_in: order_in.clone(),

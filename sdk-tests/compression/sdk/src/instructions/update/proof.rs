@@ -2,13 +2,12 @@ use anyhow::{anyhow, Result};
 use compression_example_program::state::{blinding_seed, output_blinding};
 use solana_address::Address;
 use zolana_transaction::{
-    instructions::{transact::SppProofInputs, types::SppProofInputUtxo},
-    Utxo, WalletUtxo,
+    instructions::transact::SppProofInputs, utxo::SppProofInputUtxo, Utxo, WalletUtxo,
 };
 
 use crate::{
     account_pda, err,
-    shared::{external_data, zero_nullifier_key, DEFAULT_TREE_ID},
+    shared::external_data,
     state::{decode_state, AccountState, AccountUtxo},
 };
 
@@ -44,8 +43,7 @@ impl UpdateProofInputParams {
             .version
             .checked_add(1)
             .ok_or_else(|| anyhow!("account version overflow"))?;
-        // TODO(tree-id): resolve the tree id from the tree account.
-        let tree_id = DEFAULT_TREE_ID;
+        let tree_id = self.current.tree_id();
         // The spent UTXO's nullifier is the transaction's first nullifier, and
         // the new version is the deterministic blinding seed: the program
         // recomputes both derived blindings from them, so the account output
@@ -65,17 +63,18 @@ impl UpdateProofInputParams {
         let payload = account_utxo.output_data()?;
         let output_hash = output.hash(tree_id)?;
         let external = external_data(output_hash, &pda, payload);
-        let input = SppProofInputUtxo::new(self.current.utxo.clone(), zero_nullifier_key())
-            .with_data_hash(
-                self.current
-                    .data_hash
-                    .ok_or_else(|| anyhow!("missing current data hash"))?,
-            )
-            .in_tree(tree_id);
-        let spp_proof_inputs =
-            SppProofInputs::new(vec![input], vec![output], external, self.authority)
-                .with_blinding_seed(blinding_seed(version))
-                .with_output_tree_id(tree_id);
+        self.current
+            .data_hash
+            .ok_or_else(|| anyhow!("missing current data hash"))?;
+        let input = SppProofInputUtxo::from(&self.current);
+        let spp_proof_inputs = SppProofInputs {
+            input_utxos: vec![input],
+            output_utxos: vec![output],
+            external_data: external,
+            payer: self.authority,
+            blinding_seed: blinding_seed(version),
+            output_tree_id: tree_id,
+        };
         Ok(UpdateCompressedAccount {
             spp_proof_inputs,
             old_value: current_state.value,

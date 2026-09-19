@@ -16,15 +16,14 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     instructions::{
-        merge::{Merge, PreparedMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
-        transact::{
-            auto_shapes, ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
-            SettlementTarget, SppProofInputs,
-        },
-        types::SppProofInputUtxo,
+        merge::{MergeProofInputs, MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
+        transact::{auto_shapes, ConfidentialTransaction, SettlementTarget, SppProofInputs},
     },
-    Address, AssetRegistry, TransactionError, Utxo, Wallet, WalletUtxo, SOL_MINT,
+    keys::LocalShieldedKeys,
+    Address, TransactionError, WalletUtxo, SOL_MINT,
 };
+
+use crate::wallet::Wallet;
 
 use solana_message::VersionedMessage;
 use solana_signer::Signer;
@@ -96,7 +95,7 @@ pub struct CreatedWithdrawal {
 pub struct UnsignedPrivateTransaction {
     payer: Address,
     tree: Address,
-    inputs: Vec<UnsignedSpendInput>,
+    inputs: Vec<WalletUtxo>,
     action: PrivateTransactionAction,
     settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     approval_summary: String,
@@ -118,18 +117,6 @@ impl UnsignedPrivateTransaction {
     pub fn settlement_transfers(&self) -> &[TransactInterfaceTransferAccounts] {
         &self.settlement_transfers
     }
-}
-
-#[derive(Clone)]
-struct UnsignedSpendInput {
-    utxo: Utxo,
-    utxo_hash: [u8; 32],
-    nullifier: [u8; 32],
-    data_hash: Option<[u8; 32]>,
-    ring_data_hash: Option<[u8; 32]>,
-    /// Raw id of the tree this UTXO is spent from; it is hashed into the
-    /// commitment, so it must match the id the wallet observed.
-    tree_id: u16,
 }
 
 #[derive(Clone)]
@@ -360,11 +347,11 @@ pub struct SplitParams<'a> {
 pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientError> {
     // A split re-mints into 2..=8 equal utxos. Reject an out-of-range arity up
     // front so a direct SDK caller gets a clear error before utxo selection;
-    // `ConfidentialSplit::new` re-checks the same bound at sign time.
     let max_parts = Shape::IN1_OUT8.n_outputs() as u8;
     if !(2..=max_parts).contains(&request.parts) {
-        return Err(TransactionError::SplitInvalidPartCount {
-            num_outputs: request.parts,
+        return Err(TransactionError::UnsupportedShape {
+            n_in: 1,
+            n_out: usize::from(request.parts),
         }
         .into());
     }
@@ -410,24 +397,21 @@ fn select_split_utxo(
     asset: Address,
     parts: u8,
     input: Option<[u8; 32]>,
-) -> Result<(UnsignedSpendInput, u64), ClientError> {
+) -> Result<(WalletUtxo, u64), ClientError> {
     let parts_u64 = u64::from(parts);
     let candidate = match input {
         Some(hash) => {
             let entry = wallet
-                .utxos
-                .iter()
-                .find(|entry| {
-                    !entry.spent && entry.utxo.asset == asset && entry.output_context.hash == hash
-                })
+                .unspent()
+                .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
                 .ok_or(ClientError::InputUtxoUnavailable { hash })?;
             // The utxo exists but lives on another tree: report the mismatch
             // rather than "unavailable", which the owner can see is untrue in
             // their own `wallet utxos` listing.
-            if entry.output_context.tree != tree {
+            if pda::tree(entry.tree_id()) != tree {
                 return Err(ClientError::InputUtxoTreeMismatch {
                     hash,
-                    utxo_tree: entry.output_context.tree,
+                    utxo_tree: pda::tree(entry.tree_id()),
                     spend_tree: tree,
                 });
             }
@@ -440,10 +424,9 @@ fn select_split_utxo(
             // problem, not a misleading "no balance".
             let mut largest_plain: Option<&WalletUtxo> = None;
             let mut largest_divisible: Option<&WalletUtxo> = None;
-            for entry in wallet.utxos.iter().filter(|entry| {
-                !entry.spent
-                    && entry.utxo.asset == asset
-                    && entry.output_context.tree == tree
+            for entry in wallet.unspent().filter(|entry| {
+                entry.utxo.asset.asset == asset
+                    && pda::tree(entry.tree_id()) == tree
                     // Apply the full eligibility predicate before picking the
                     // largest, so a large ring-bound or data-carrying utxo never
                     // shadows a smaller plain candidate that could actually split.
@@ -477,7 +460,7 @@ fn select_split_utxo(
         }
     };
 
-    let hash = candidate.output_context.hash;
+    let hash = candidate.utxo_hash;
     if candidate.utxo.ring_program_id.is_some() {
         return Err(ClientError::SplitInputRingMismatch { hash });
     }
@@ -490,24 +473,14 @@ fn select_split_utxo(
         return Err(ClientError::SplitNotDivisible { amount, parts });
     }
 
-    Ok((
-        UnsignedSpendInput {
-            utxo: candidate.utxo.clone(),
-            utxo_hash: hash,
-            nullifier: candidate.nullifier,
-            data_hash: candidate.data_hash,
-            ring_data_hash: candidate.ring_data_hash,
-            tree_id: candidate.tree_id,
-        },
-        amount / parts_u64,
-    ))
+    Ok((candidate.clone(), amount / parts_u64))
 }
 
 /// A prepared merge plus what a caller needs to report the outcome: how many real
 /// utxos are consolidated, their summed amount, and the single spend tree the
 /// merge binds.
 pub struct CreatedMerge {
-    pub prepared: PreparedMerge,
+    pub prepared: MergeProofInputs,
     pub num_inputs: usize,
     pub merged_amount: u64,
     pub tree: Address,
@@ -531,26 +504,18 @@ pub struct MergeParams<'a> {
 /// authority signing step; the keypair is threaded straight to submission.
 pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientError> {
     // Explicitly named inputs bind the spend to the first named utxo's tree
-    // (the rest must match it), so `Merge::new` can report precise per-input
+    // (the rest must match it), so `MergeTransaction::new` can report precise per-input
     // reasons; auto-sweep resolves the tree over the eligible (plain) utxos.
     let tree = match request.inputs.as_ref().and_then(|hashes| hashes.first()) {
         Some(&hash) => named_input_tree(request.wallet, request.asset, hash)?,
         None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
     };
-    let inputs = select_merge_inputs(
-        request.wallet,
-        tree,
-        request.asset,
-        request.keypair,
-        request.inputs,
-    )?;
+    let inputs = select_merge_inputs(request.wallet, tree, request.asset, request.inputs)?;
     let num_inputs = inputs.len();
-    // `Merge::new` re-validates every input against the keypair (owner, nullifier
-    // key, rail, asset), rejects ring-bound or data-carrying utxos, and sums the
-    // inputs into the single output amount (same overflow error).
-    let prepared = Merge::new(request.keypair, inputs)?.prepare();
+    // Finalize the output and padding before fetching proofs.
+    let prepared = MergeTransaction::new(inputs)?.encrypt(request.keypair)?;
     Ok(CreatedMerge {
-        merged_amount: prepared.output.amount,
+        merged_amount: prepared.output_utxo.amount,
         prepared,
         num_inputs,
         tree,
@@ -566,39 +531,39 @@ pub struct SpendInputParams<'a> {
 /// Inputs are grouped by tree in first-use order. `trees` contains exactly those
 /// trees, in the same order as the input groups.
 pub struct SelectedSpendInputs {
-    pub inputs: Vec<SppProofInputUtxo>,
+    pub inputs: Vec<WalletUtxo>,
     pub trees: Vec<Address>,
 }
 
 /// Default-ring notes only, a ring entry spends them through
 /// `CustomRingTransfer`.
-pub async fn select_spend_inputs<A: WalletAuthority + ?Sized>(
+pub async fn select_input_utxos<A: WalletAuthority + ?Sized>(
     request: SpendInputParams<'_>,
     authority: &A,
 ) -> Result<SelectedSpendInputs, ClientError> {
-    let (trees, inputs) = unsigned_spend_inputs(request)?;
+    let (trees, inputs) = unsigned_input_utxos(request)?;
     let nullifier_key = authority.spend_nullifier_key().await?;
     Ok(SelectedSpendInputs {
-        inputs: spend_proof_inputs(inputs, nullifier_key),
+        inputs: validate_input_keys(inputs, nullifier_key)?,
         trees,
     })
 }
 
-pub fn select_spend_inputs_sync<A: SyncWalletAuthority + ?Sized>(
+pub fn select_input_utxos_sync<A: SyncWalletAuthority + ?Sized>(
     request: SpendInputParams<'_>,
     authority: &A,
 ) -> Result<SelectedSpendInputs, ClientError> {
-    let (trees, inputs) = unsigned_spend_inputs(request)?;
+    let (trees, inputs) = unsigned_input_utxos(request)?;
     let nullifier_key = authority.spend_nullifier_key()?;
     Ok(SelectedSpendInputs {
-        inputs: spend_proof_inputs(inputs, nullifier_key),
+        inputs: validate_input_keys(inputs, nullifier_key)?,
         trees,
     })
 }
 
-fn unsigned_spend_inputs(
+fn unsigned_input_utxos(
     request: SpendInputParams<'_>,
-) -> Result<(Vec<Address>, Vec<UnsignedSpendInput>), ClientError> {
+) -> Result<(Vec<Address>, Vec<WalletUtxo>), ClientError> {
     // Mirrors the TS eligibility, a default note carrying ring data proves on
     // no rail.
     let eligible =
@@ -607,8 +572,8 @@ fn unsigned_spend_inputs(
         select_bounded_inputs(request.wallet, request.asset, request.amount, eligible)?;
     let mut trees = Vec::new();
     for entry in &selected {
-        if !trees.contains(&entry.output_context.tree) {
-            trees.push(entry.output_context.tree);
+        if !trees.contains(&pda::tree(entry.tree_id())) {
+            trees.push(pda::tree(entry.tree_id()));
         }
     }
     if trees.len() > MAX_INPUT_TREES {
@@ -620,19 +585,9 @@ fn unsigned_spend_inputs(
     selected.sort_by_key(|entry| {
         trees
             .iter()
-            .position(|tree| *tree == entry.output_context.tree)
+            .position(|tree| *tree == pda::tree(entry.tree_id()))
     });
-    let inputs = selected
-        .into_iter()
-        .map(|entry| UnsignedSpendInput {
-            utxo: entry.utxo.clone(),
-            utxo_hash: entry.output_context.hash,
-            nullifier: entry.nullifier,
-            data_hash: entry.data_hash,
-            ring_data_hash: entry.ring_data_hash,
-            tree_id: entry.tree_id,
-        })
-        .collect();
+    let inputs = selected.into_iter().cloned().collect();
     Ok((trees, inputs))
 }
 
@@ -654,9 +609,8 @@ fn select_bounded_inputs(
         .max()
         .unwrap_or(0);
     let mut candidates: Vec<&WalletUtxo> = wallet
-        .utxos
-        .iter()
-        .filter(|entry| !entry.spent && entry.utxo.asset == asset && eligible(entry))
+        .unspent()
+        .filter(|entry| entry.utxo.asset.asset == asset && eligible(entry))
         .collect();
     candidates.sort_by_key(|entry| std::cmp::Reverse(entry.utxo.amount));
     let mut total = 0u64;
@@ -686,20 +640,19 @@ fn select_bounded_inputs(
     })
 }
 
-fn spend_proof_inputs(
-    inputs: Vec<UnsignedSpendInput>,
+fn validate_input_keys(
+    inputs: Vec<WalletUtxo>,
     nullifier_key: NullifierKey,
-) -> Vec<SppProofInputUtxo> {
-    inputs
-        .into_iter()
-        .map(|input| SppProofInputUtxo {
-            utxo: input.utxo,
-            nullifier_key: nullifier_key.clone(),
-            data_hash: input.data_hash,
-            ring_data_hash: input.ring_data_hash,
-            tree_id: input.tree_id,
-        })
-        .collect()
+) -> Result<Vec<WalletUtxo>, ClientError> {
+    let public_key = nullifier_key.pubkey()?;
+    for (index, input) in inputs.iter().enumerate() {
+        if input.nullifier_pubkey != public_key
+            || nullifier_key.nullifier(&input.utxo_hash, &input.utxo.blinding)? != input.nullifier
+        {
+            return Err(ClientError::InputNullifierMismatch { index });
+        }
+    }
+    Ok(inputs)
 }
 
 /// A ring-bound utxo's commitment covers its ring, the default-ring circuit
@@ -721,43 +674,26 @@ pub fn is_plain_utxo(entry: &WalletUtxo) -> bool {
         && entry.utxo.data.is_empty()
 }
 
-/// Build the spend input for a wallet utxo, preserving any committed data hashes
-/// so `Merge::new` can reject a non-plain utxo by hash rather than silently
-/// mismatching the tree commitment.
-fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofInputUtxo {
-    let mut spend = SppProofInputUtxo::new(entry.utxo.clone(), keypair).in_tree(entry.tree_id);
-    if let Some(data_hash) = entry.data_hash {
-        spend = spend.with_data_hash(data_hash);
-    }
-    if let Some(ring_data_hash) = entry.ring_data_hash {
-        spend = spend.with_ring_data_hash(ring_data_hash);
-    }
-    spend
-}
-
 /// Select the utxos a merge consolidates on `tree`. `None` auto-sweeps up to
 /// [`MERGE_DEFAULT_INPUT_COUNT`] of the smallest plain utxos of `asset`
 /// (ascending, dust first), so a sweep never pays for the wide shape on its
 /// own. `Some(hashes)` takes exactly the named utxos: 2..=[`MAX_MERGE_INPUTS`]
-/// distinct, unspent utxos of `asset` on `tree`, and `Merge::new` pads them to
+/// distinct, unspent utxos of `asset` on `tree`, and `MergeTransaction::new` pads them to
 /// the smallest supported shape; a non-plain named utxo is left for
-/// `Merge::new` to reject with a precise reason.
+/// `MergeTransaction::new` to reject with a precise reason.
 fn select_merge_inputs(
     wallet: &Wallet,
     tree: Address,
     asset: Address,
-    keypair: &ShieldedKeypair,
     inputs: Option<Vec<[u8; 32]>>,
-) -> Result<Vec<SppProofInputUtxo>, ClientError> {
+) -> Result<Vec<WalletUtxo>, ClientError> {
     match inputs {
         None => {
             let mut candidates: Vec<&WalletUtxo> = wallet
-                .utxos
-                .iter()
+                .unspent()
                 .filter(|entry| {
-                    !entry.spent
-                        && entry.utxo.asset == asset
-                        && entry.output_context.tree == tree
+                    entry.utxo.asset.asset == asset
+                        && pda::tree(entry.tree_id()) == tree
                         && is_plain_utxo(entry)
                 })
                 .collect();
@@ -767,10 +703,10 @@ fn select_merge_inputs(
             if candidates.len() < 2 {
                 return Err(ClientError::NothingToMerge { asset });
             }
-            Ok(candidates
+            candidates
                 .into_iter()
-                .map(|entry| merge_spend_input(entry, keypair))
-                .collect())
+                .map(|entry| Ok(entry.clone()))
+                .collect()
         }
         Some(hashes) => {
             if hashes.len() > MAX_MERGE_INPUTS {
@@ -789,24 +725,19 @@ fn select_merge_inputs(
                     return Err(ClientError::DuplicateInputUtxo { hash });
                 }
                 let entry = wallet
-                    .utxos
-                    .iter()
-                    .find(|entry| {
-                        !entry.spent
-                            && entry.utxo.asset == asset
-                            && entry.output_context.hash == hash
-                    })
+                    .unspent()
+                    .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
                     .ok_or(ClientError::InputUtxoUnavailable { hash })?;
                 // Distinguish a wrong-tree utxo from an unknown one; the owner
                 // can see the hash in their own `wallet utxos` listing.
-                if entry.output_context.tree != tree {
+                if pda::tree(entry.tree_id()) != tree {
                     return Err(ClientError::InputUtxoTreeMismatch {
                         hash,
-                        utxo_tree: entry.output_context.tree,
+                        utxo_tree: pda::tree(entry.tree_id()),
                         spend_tree: tree,
                     });
                 }
-                selected.push(merge_spend_input(entry, keypair));
+                selected.push(entry.clone());
             }
             Ok(selected)
         }
@@ -823,9 +754,10 @@ pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>
     fee_payer: Pubkey,
 ) -> Result<VersionedMessage, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
+    let nullifier_key = authority.spend_nullifier_key().await?;
     let (blockhash, _) = client.rpc().get_latest_blockhash().await?;
     client
-        .finish_submission_unsigned(&shielded, fee_payer, blockhash)
+        .finish_submission_unsigned(&shielded, fee_payer, blockhash, &nullifier_key)
         .await
 }
 
@@ -852,8 +784,9 @@ pub async fn sign_private_transaction_with_signers<A: WalletAuthority + ?Sized, 
 ) -> Result<VersionedTransaction, ClientError> {
     let blockhash = client.rpc().get_latest_blockhash().await?.0;
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
+    let nullifier_key = authority.spend_nullifier_key().await?;
     let message = client
-        .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash)
+        .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash, &nullifier_key)
         .await?;
     sign_transaction(
         message,
@@ -871,7 +804,8 @@ pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + 
     fee_payer: Pubkey,
 ) -> Result<VersionedMessage, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
-    client.finish_submission_unsigned_sync(&shielded, fee_payer)
+    let nullifier_key = authority.spend_nullifier_key()?;
+    client.finish_submission_unsigned_sync(&shielded, fee_payer, &nullifier_key)
 }
 
 pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + Sync>(
@@ -909,9 +843,10 @@ pub fn sign_private_transaction_sync_with_signers<
     };
     // The message carries its own blockhash, fetched after proving, so there is
     // no separate one here to keep in step with it.
+    let nullifier_key = authority.spend_nullifier_key()?;
     let message = {
         let _t = timing::Phase::start("finish_submission", 0);
-        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey())?
+        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey(), &nullifier_key)?
     };
     sign_transaction(
         message,
@@ -938,66 +873,50 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
     let address = authority.shielded_address().await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
-    let inputs = spend_proof_inputs(transaction.inputs, nullifier_key);
-    let signed = match transaction.action {
+    let inputs = validate_input_keys(transaction.inputs, nullifier_key)?;
+    let mut tx = ConfidentialTransaction::new(inputs, transaction.payer)?;
+    match transaction.action {
         PrivateTransactionAction::Transfer {
             recipient,
             asset,
             amount,
         } => {
-            let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
-            tx.send(&recipient, asset, amount)?;
-            let prepared = tx.prepare()?;
-            sign_prepared(
-                prepared,
-                authority,
-                &wallet.registry,
-                transaction.approval_summary,
-            )
-            .await?
+            if asset == SOL_MINT {
+                tx.transfer_sol(&recipient, amount)?;
+            } else {
+                tx.transfer(&recipient, asset, amount)?;
+            }
         }
         PrivateTransactionAction::Withdrawal { legs } => {
-            let mut tx = ConfidentialTransfer::new(address, inputs, transaction.payer);
             for leg in legs {
-                tx.withdraw(leg.asset, leg.amount, leg.target)?;
+                match leg.target {
+                    SettlementTarget::Sol { user_sol_account } => {
+                        tx.withdraw_sol(leg.amount, user_sol_account)?;
+                    }
+                    SettlementTarget::Spl { user_spl_token } => {
+                        tx.withdraw(leg.asset, leg.amount, user_spl_token)?;
+                    }
+                }
             }
-            let prepared = tx.prepare()?;
-            sign_prepared(
-                prepared,
-                authority,
-                &wallet.registry,
-                transaction.approval_summary,
-            )
-            .await?
         }
         PrivateTransactionAction::Split {
             asset,
             num_outputs,
             per_output_amount,
         } => {
-            let input = inputs.into_iter().next().ok_or(ClientError::NoInputs)?;
-            let split = ConfidentialSplit::new(
-                address,
-                input,
-                asset,
-                num_outputs,
-                per_output_amount,
-                transaction.payer,
-            )?;
-            let prepared = split.prepare()?;
-            sign_prepared_split(
-                prepared,
-                authority,
-                &wallet.registry,
-                transaction.approval_summary,
-            )
-            .await?
+            for _ in 0..num_outputs {
+                if asset == SOL_MINT {
+                    tx.transfer_sol(&address, per_output_amount)?;
+                } else {
+                    tx.transfer(&address, asset, per_output_amount)?;
+                }
+            }
         }
-    };
+    }
+    let signed = encrypt_transaction(tx, authority, transaction.approval_summary).await?;
     Ok(SignedPrivateTransaction {
         transaction: signed,
         settlement_transfers: transaction.settlement_transfers,
-        input_tree: transaction.tree,
     })
 }
 
@@ -1010,46 +929,28 @@ pub fn sign_shielded_transaction_sync<A: SyncWalletAuthority + ?Sized>(
     futures::executor::block_on(sign_shielded_transaction(transaction, wallet, authority))
 }
 
-async fn sign_prepared<A: WalletAuthority + ?Sized>(
-    prepared: PreparedTransfer,
+/// Resolves the smallest shape that fits the real inputs and `n_outputs`, pads
+/// the input slots up to it, and opens the transaction on it. The shape is fixed
+/// before the inputs are, because the supported set is not a product set.
+async fn encrypt_transaction<A: WalletAuthority + ?Sized>(
+    transaction: ConfidentialTransaction,
     authority: &A,
-    assets: &AssetRegistry,
     approval_summary: String,
 ) -> Result<SppProofInputs, ClientError> {
-    let encrypted = authority
-        .encrypt_confidential_transfer(&prepared.first_nullifier, &prepared.outputs, assets)
-        .await?;
+    // The per-transaction viewing key is taken through the key port, so the
+    // encryption reads no long-lived secret of its own.
+    let keys = LocalShieldedKeys::new(
+        authority.shielded_address().await?,
+        authority.viewing_keys().await?,
+        authority.spend_nullifier_key().await?,
+    )?;
     authority
         .request_user_approval(ApprovalRequest {
             solana_pubkey: authority.solana_pubkey(),
             summary: approval_summary,
         })
         .await?;
-    let proof_inputs =
-        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
-    Ok(proof_inputs)
-}
-
-async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
-    prepared: PreparedSplit,
-    authority: &A,
-    assets: &AssetRegistry,
-    approval_summary: String,
-) -> Result<SppProofInputs, ClientError> {
-    let bundle = prepared.bundle_plaintext(assets)?;
-    let view_tag = prepared.owner_view_tag()?;
-    let encrypted = authority
-        .encrypt_split(&prepared.first_nullifier, view_tag, &bundle)
-        .await?;
-    authority
-        .request_user_approval(ApprovalRequest {
-            solana_pubkey: authority.solana_pubkey(),
-            summary: approval_summary,
-        })
-        .await?;
-    let proof_inputs =
-        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
-    Ok(proof_inputs)
+    Ok(transaction.encrypt(&keys)?)
 }
 
 fn withdrawal_target(
@@ -1122,7 +1023,7 @@ fn aggregate_withdrawal_amounts(
 fn select_withdrawal_inputs(
     wallet: &Wallet,
     required: &[(Address, u64)],
-) -> Result<(Address, Vec<UnsignedSpendInput>), ClientError> {
+) -> Result<(Address, Vec<WalletUtxo>), ClientError> {
     let (first_asset, _) = required
         .first()
         .copied()
@@ -1134,15 +1035,13 @@ fn select_withdrawal_inputs(
         let asset_tree = resolve_spend_tree(wallet, *asset, is_default_ring_spendable)?;
         if asset_tree != tree {
             let hash = wallet
-                .utxos
-                .iter()
+                .unspent()
                 .find(|entry| {
-                    !entry.spent
-                        && entry.utxo.asset == *asset
-                        && entry.output_context.tree == asset_tree
+                    entry.utxo.asset.asset == *asset
+                        && pda::tree(entry.tree_id()) == asset_tree
                         && is_default_ring_spendable(entry)
                 })
-                .map(|entry| entry.output_context.hash)
+                .map(|entry| entry.utxo_hash)
                 .ok_or(ClientError::InsufficientBalance {
                     requested: *amount,
                     available: 0,
@@ -1174,12 +1073,9 @@ fn named_input_tree(
     hash: [u8; 32],
 ) -> Result<Address, ClientError> {
     wallet
-        .utxos
-        .iter()
-        .find(|entry| {
-            !entry.spent && entry.utxo.asset == asset && entry.output_context.hash == hash
-        })
-        .map(|entry| entry.output_context.tree)
+        .unspent()
+        .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
+        .map(|entry| pda::tree(entry.tree_id()))
         .ok_or(ClientError::InputUtxoUnavailable { hash })
 }
 
@@ -1193,10 +1089,9 @@ fn resolve_spend_trees(
     eligible: impl Fn(&WalletUtxo) -> bool,
 ) -> Result<Vec<Address>, ClientError> {
     let trees: BTreeSet<Address> = wallet
-        .utxos
-        .iter()
-        .filter(|entry| !entry.spent && entry.utxo.asset == asset && eligible(entry))
-        .map(|entry| entry.output_context.tree)
+        .unspent()
+        .filter(|entry| entry.utxo.asset.asset == asset && eligible(entry))
+        .map(|entry| pda::tree(entry.tree_id()))
         .collect();
 
     if trees.is_empty() {
@@ -1237,23 +1132,15 @@ fn select_inputs(
     asset: Address,
     amount: u64,
     eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<Vec<UnsignedSpendInput>, ClientError> {
+) -> Result<Vec<WalletUtxo>, ClientError> {
     let mut selected = Vec::new();
     let mut available = 0u64;
-    for entry in wallet.utxos.iter().filter(|entry| {
-        !entry.spent
-            && entry.utxo.asset == asset
-            && trees.contains(&entry.output_context.tree)
+    for entry in wallet.unspent().filter(|entry| {
+        entry.utxo.asset.asset == asset
+            && trees.contains(&pda::tree(entry.tree_id()))
             && eligible(entry)
     }) {
-        selected.push(UnsignedSpendInput {
-            utxo: entry.utxo.clone(),
-            utxo_hash: entry.output_context.hash,
-            nullifier: entry.nullifier,
-            data_hash: entry.data_hash,
-            ring_data_hash: entry.ring_data_hash,
-            tree_id: entry.tree_id,
-        });
+        selected.push(entry.clone());
         available = available
             .checked_add(entry.utxo.amount)
             .ok_or(ClientError::SelectedBalanceOverflow)?;
@@ -1271,13 +1158,12 @@ fn select_inputs(
 fn validate_unsigned_inputs(
     wallet: &Wallet,
     tree: Address,
-    inputs: &[UnsignedSpendInput],
+    inputs: &[WalletUtxo],
 ) -> Result<(), ClientError> {
     for (index, input) in inputs.iter().enumerate() {
-        let available = wallet.utxos.iter().any(|entry| {
-            !entry.spent
-                && entry.output_context.tree == tree
-                && entry.output_context.hash == input.utxo_hash
+        let available = wallet.unspent().any(|entry| {
+            pda::tree(entry.tree_id()) == tree
+                && entry.utxo_hash == input.utxo_hash
                 && entry.nullifier == input.nullifier
                 && entry.data_hash == input.data_hash
                 && entry.ring_data_hash == input.ring_data_hash
@@ -1294,10 +1180,12 @@ fn validate_unsigned_inputs(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
+    use solana_signature::Signature;
     use zolana_keypair::{ShieldedKeypair, SigningKey};
     use zolana_transaction::{
-        instructions::transact::SettlementTransfer, Data, DataRecord, Utxo, WalletUtxo,
+        instructions::transact::SettlementTransfer, AssetRegistry, Data, DataRecord, Utxo,
     };
+
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;
@@ -1336,6 +1224,38 @@ mod tests {
     /// Test fixtures live in the first localnet tree.
     // TODO(tree-id): resolve the tree id from the tree account.
     const TEST_TREE_ID: u16 = 0;
+    /// A second pool tree, for the cases about a balance that straddles one.
+    const SECOND_TREE_ID: u16 = 9;
+    const RING_TREE_ID: u16 = 9;
+
+    /// The tree every seeded fixture UTXO is hashed under. Derived from the id,
+    /// so it is the address sync would resolve back to that same id.
+    fn test_tree() -> Address {
+        pda::tree(TEST_TREE_ID)
+    }
+
+    /// Move a seeded UTXO into another tree.
+    fn place_in_tree(wallet: &mut Wallet, hash: [u8; 32], tree_id: u16) {
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.utxo_hash == hash)
+            .expect("seeded utxo")
+            .tree_id = tree_id;
+    }
+
+    /// Record a spend of the seeded UTXO at `hash`. The wallet derives `spent`
+    /// from its nullifier set, so a test spends a note by publishing its
+    /// nullifier, exactly as a sync would.
+    fn mark_spent(wallet: &mut Wallet, hash: [u8; 32]) {
+        let nullifier = wallet
+            .utxos
+            .iter()
+            .find(|entry| entry.utxo_hash == hash)
+            .expect("seeded utxo")
+            .nullifier;
+        wallet.nullifiers.insert(nullifier);
+    }
 
     fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))
@@ -1357,7 +1277,10 @@ mod tests {
         blinding[0] = 0;
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
-            asset,
+            asset: zolana_transaction::Mint {
+                asset,
+                asset_id: if asset == SOL_MINT { 1 } else { 2 },
+            },
             amount,
             blinding,
             ring_program_id: None,
@@ -1372,16 +1295,17 @@ mod tests {
             .expect("nullifier");
         wallet.utxos.push(WalletUtxo {
             utxo,
-            output_context: zolana_transaction::instructions::transact::types::OutputContext {
-                hash,
-                tree: Address::default(),
-                leaf_index: 0,
-            },
+            nullifier_pubkey: nullifier_pk,
+            utxo_hash: hash,
             nullifier,
             data_hash: None,
             ring_data_hash: None,
             tree_id: TEST_TREE_ID,
-            spent: false,
+            leaf_index: 0,
+
+            slot: 0,
+            tx_signature: Signature::default(),
+            slot_index: 0,
         });
         wallet
     }
@@ -1875,13 +1799,13 @@ mod tests {
         let asset = Address::new_from_array(mint.to_bytes());
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         wallet.registry.insert(2, asset).expect("register SPL mint");
-        let second_tree = Address::new_from_array([9u8; 32]);
+        let second_tree = pda::tree(SECOND_TREE_ID);
         let mut spl_input = wallet_with_asset(sender, asset, 10)
             .utxos
             .into_iter()
             .next()
             .expect("SPL input");
-        spl_input.output_context.tree = second_tree;
+        spl_input.tree_id = SECOND_TREE_ID;
         wallet.utxos.push(spl_input);
 
         let error = withdrawal_error(create_withdrawal(WithdrawalParams {
@@ -1909,7 +1833,7 @@ mod tests {
                 utxo_tree,
                 spend_tree,
                 ..
-            } if utxo_tree == second_tree && spend_tree == Address::default()
+            } if utxo_tree == second_tree && spend_tree == test_tree()
         ));
     }
 
@@ -1931,9 +1855,8 @@ mod tests {
         })
         .expect("withdrawal")
         .transaction;
-        if let Some(entry) = wallet.utxos.first_mut() {
-            entry.spent = true;
-        }
+        let hash = wallet.utxos.first().expect("wallet utxo").utxo_hash;
+        mark_spent(&mut wallet, hash);
 
         let error = match sign_shielded_transaction_sync(unsigned, &wallet, &authority) {
             Err(error) => error,
@@ -1962,7 +1885,7 @@ mod tests {
         let nullifier = entry.utxo.nullifier(&hash, &sender.nullifier_key).unwrap();
         {
             let entry = wallet.utxos.first_mut().expect("wallet utxo");
-            entry.output_context.hash = hash;
+            entry.utxo_hash = hash;
             entry.nullifier = nullifier;
             entry.data_hash = Some(data_hash);
         }
@@ -1988,10 +1911,10 @@ mod tests {
     #[test]
     fn input_selection_keeps_every_input_on_one_tree() {
         let sender = ShieldedKeypair::new_p256().unwrap();
-        let second_tree = Address::new_from_array([9u8; 32]);
+        let second_tree = pda::tree(SECOND_TREE_ID);
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         if let Some(entry) = wallet.utxos.first_mut() {
-            entry.output_context.tree = second_tree;
+            entry.tree_id = SECOND_TREE_ID;
         }
 
         let created = create_withdrawal(WithdrawalParams {
@@ -2018,16 +1941,15 @@ mod tests {
         let tree =
             resolve_spend_tree(&wallet, SOL_MINT, is_default_ring_spendable).expect("infer tree");
 
-        assert_eq!(tree, Address::default());
+        assert_eq!(tree, test_tree());
     }
 
     #[test]
     fn resolve_spend_tree_errors_when_balance_spans_multiple_trees() {
         let sender = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = wallet_with_sol(sender.clone(), 4);
-        let second_tree = Address::new_from_array([9u8; 32]);
         let mut second = wallet_with_sol(sender, 10).utxos.remove(0);
-        second.output_context.tree = second_tree;
+        second.tree_id = SECOND_TREE_ID;
         wallet.utxos.push(second);
 
         let error = match resolve_spend_tree(&wallet, SOL_MINT, is_default_ring_spendable) {
@@ -2061,7 +1983,7 @@ mod tests {
         })
         .expect("withdrawal");
 
-        assert_eq!(created.transaction.tree(), Address::default());
+        assert_eq!(created.transaction.tree(), test_tree());
     }
 
     #[test]
@@ -2112,12 +2034,7 @@ mod tests {
     fn create_split_rejects_named_utxo_carrying_data() {
         let sender = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
-        let hash = wallet
-            .utxos
-            .first()
-            .expect("seeded utxo")
-            .output_context
-            .hash;
+        let hash = wallet.utxos.first().expect("seeded utxo").utxo_hash;
         if let Some(entry) = wallet.utxos.first_mut() {
             entry.utxo.data = Data::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
         }
@@ -2142,12 +2059,7 @@ mod tests {
     fn create_split_rejects_named_ring_bound_utxo() {
         let sender = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
-        let hash = wallet
-            .utxos
-            .first()
-            .expect("seeded utxo")
-            .output_context
-            .hash;
+        let hash = wallet.utxos.first().expect("seeded utxo").utxo_hash;
         if let Some(entry) = wallet.utxos.first_mut() {
             entry.utxo.ring_program_id = Some(Address::new_from_array([3u8; 32]));
         }
@@ -2210,7 +2122,7 @@ mod tests {
         canonical_blinding[1..].copy_from_slice(&blinding);
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
-            asset: SOL_MINT,
+            asset: zolana_transaction::Mint::SOL,
             amount,
             blinding: canonical_blinding,
             ring_program_id: None,
@@ -2225,22 +2137,26 @@ mod tests {
             .expect("nullifier");
         wallet.utxos.push(WalletUtxo {
             utxo,
-            output_context: zolana_transaction::instructions::transact::types::OutputContext {
-                hash,
-                tree: Address::default(),
-                leaf_index: 0,
-            },
+            nullifier_pubkey: nullifier_pk,
+            utxo_hash: hash,
             nullifier,
             data_hash: None,
             ring_data_hash: None,
             tree_id: TEST_TREE_ID,
-            spent: false,
+            leaf_index: 0,
+
+            slot: 0,
+            tx_signature: Signature::default(),
+            slot_index: 0,
         });
         hash
     }
 
-    fn amounts(selected: &[SppProofInputUtxo]) -> Vec<u64> {
-        selected.iter().map(|spend| spend.utxo.amount).collect()
+    fn amounts(selected: &[WalletUtxo]) -> Vec<u64> {
+        selected
+            .iter()
+            .map(|input_utxo| input_utxo.utxo.amount)
+            .collect()
     }
 
     #[test]
@@ -2251,8 +2167,7 @@ mod tests {
             push_utxo(&mut wallet, &keypair, amount, [index as u8 + 1; 31]);
         }
 
-        let selected =
-            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+        let selected = select_merge_inputs(&wallet, test_tree(), SOL_MINT, None).unwrap();
 
         assert_eq!(amounts(&selected), vec![10, 30, 50]);
     }
@@ -2265,8 +2180,7 @@ mod tests {
             push_utxo(&mut wallet, &keypair, step * 10, [step as u8; 31]);
         }
 
-        let selected =
-            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+        let selected = select_merge_inputs(&wallet, test_tree(), SOL_MINT, None).unwrap();
 
         assert_eq!(selected.len(), MERGE_DEFAULT_INPUT_COUNT);
         assert_eq!(amounts(&selected), vec![10, 20, 30, 40, 50, 60, 70, 80]);
@@ -2288,8 +2202,7 @@ mod tests {
             entry.data_hash = Some([7u8; 32]);
         }
 
-        let selected =
-            select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
+        let selected = select_merge_inputs(&wallet, test_tree(), SOL_MINT, None).unwrap();
 
         assert_eq!(amounts(&selected), vec![10, 20]);
     }
@@ -2300,8 +2213,7 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
-        let error = match select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None)
-        {
+        let error = match select_merge_inputs(&wallet, test_tree(), SOL_MINT, None) {
             Err(error) => error,
             Ok(_) => panic!("a single utxo cannot be merged"),
         };
@@ -2317,14 +2229,8 @@ mod tests {
         let b = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
         push_utxo(&mut wallet, &keypair, 30, [3u8; 31]);
 
-        let selected = select_merge_inputs(
-            &wallet,
-            Address::default(),
-            SOL_MINT,
-            &keypair,
-            Some(vec![a, b]),
-        )
-        .unwrap();
+        let selected =
+            select_merge_inputs(&wallet, test_tree(), SOL_MINT, Some(vec![a, b])).unwrap();
 
         assert_eq!(amounts(&selected), vec![10, 20]);
     }
@@ -2335,13 +2241,7 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
-        let error = match select_merge_inputs(
-            &wallet,
-            Address::default(),
-            SOL_MINT,
-            &keypair,
-            Some(vec![a, a]),
-        ) {
+        let error = match select_merge_inputs(&wallet, test_tree(), SOL_MINT, Some(vec![a, a])) {
             Err(error) => error,
             Ok(_) => panic!("a repeated utxo must be rejected"),
         };
@@ -2358,13 +2258,7 @@ mod tests {
             .map(|i| [u8::try_from(i).unwrap(); 32])
             .collect();
 
-        let error = match select_merge_inputs(
-            &wallet,
-            Address::default(),
-            SOL_MINT,
-            &keypair,
-            Some(hashes),
-        ) {
+        let error = match select_merge_inputs(&wallet, test_tree(), SOL_MINT, Some(hashes)) {
             Err(error) => error,
             Ok(_) => panic!("more inputs than the widest merge shape must be rejected"),
         };
@@ -2398,7 +2292,7 @@ mod tests {
         .expect("a named merge wider than the default shape pads to the wide shape");
 
         assert_eq!(created.num_inputs, MERGE_DEFAULT_INPUT_COUNT + 1);
-        assert_eq!(created.prepared.inputs.len(), MAX_MERGE_INPUTS);
+        assert_eq!(created.prepared.input_utxos.len(), MAX_MERGE_INPUTS);
         assert_eq!(created.merged_amount, 45);
     }
 
@@ -2408,13 +2302,7 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
-        let error = match select_merge_inputs(
-            &wallet,
-            Address::default(),
-            SOL_MINT,
-            &keypair,
-            Some(vec![a]),
-        ) {
+        let error = match select_merge_inputs(&wallet, test_tree(), SOL_MINT, Some(vec![a])) {
             Err(error) => error,
             Ok(_) => panic!("a single named utxo cannot be merged"),
         };
@@ -2429,16 +2317,11 @@ mod tests {
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let missing = [0xabu8; 32];
 
-        let error = match select_merge_inputs(
-            &wallet,
-            Address::default(),
-            SOL_MINT,
-            &keypair,
-            Some(vec![a, missing]),
-        ) {
-            Err(error) => error,
-            Ok(_) => panic!("an unknown utxo must be rejected"),
-        };
+        let error =
+            match select_merge_inputs(&wallet, test_tree(), SOL_MINT, Some(vec![a, missing])) {
+                Err(error) => error,
+                Ok(_) => panic!("an unknown utxo must be rejected"),
+            };
 
         assert!(matches!(error, ClientError::InputUtxoUnavailable { hash } if hash == missing));
     }
@@ -2452,22 +2335,10 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         let a = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let b = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
-        let other_tree = Address::new_from_array([9u8; 32]);
-        wallet
-            .utxos
-            .iter_mut()
-            .find(|entry| entry.output_context.hash == b)
-            .expect("pushed utxo")
-            .output_context
-            .tree = other_tree;
+        let other_tree = pda::tree(SECOND_TREE_ID);
+        place_in_tree(&mut wallet, b, SECOND_TREE_ID);
 
-        let error = match select_merge_inputs(
-            &wallet,
-            Address::default(),
-            SOL_MINT,
-            &keypair,
-            Some(vec![a, b]),
-        ) {
+        let error = match select_merge_inputs(&wallet, test_tree(), SOL_MINT, Some(vec![a, b])) {
             Err(error) => error,
             Ok(_) => panic!("a wrong-tree utxo must be rejected"),
         };
@@ -2475,7 +2346,7 @@ mod tests {
         assert!(matches!(
             error,
             ClientError::InputUtxoTreeMismatch { hash, utxo_tree, spend_tree }
-                if hash == b && utxo_tree == other_tree && spend_tree == Address::default()
+                if hash == b && utxo_tree == other_tree && spend_tree == test_tree()
         ));
     }
 
@@ -2489,7 +2360,7 @@ mod tests {
         push_utxo(&mut wallet, &keypair, 1001, [1u8; 31]);
         let divisible = push_utxo(&mut wallet, &keypair, 800, [2u8; 31]);
 
-        let (input, per_output) = select_split_utxo(&wallet, Address::default(), SOL_MINT, 2, None)
+        let (input, per_output) = select_split_utxo(&wallet, test_tree(), SOL_MINT, 2, None)
             .expect("select the divisible utxo");
 
         assert_eq!(input.utxo_hash, divisible);
@@ -2505,7 +2376,7 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 1000, [1u8; 31]);
 
-        let error = match select_split_utxo(&wallet, Address::default(), SOL_MINT, 3, None) {
+        let error = match select_split_utxo(&wallet, test_tree(), SOL_MINT, 3, None) {
             Err(error) => error,
             Ok(_) => panic!("an indivisible balance must be rejected"),
         };
@@ -2519,24 +2390,24 @@ mod tests {
         ));
     }
 
-    const RING_TREE: Address = Address::new_from_array([9u8; 32]);
     const TEST_RING: Address = Address::new_from_array([7u8; 32]);
 
-    fn bind_to_ring(wallet: &mut Wallet, hash: [u8; 32], tree: Address) {
-        let entry = wallet
+    fn bind_to_ring(wallet: &mut Wallet, hash: [u8; 32], tree_id: u16) {
+        place_in_tree(wallet, hash, tree_id);
+        wallet
             .utxos
             .iter_mut()
-            .find(|entry| entry.output_context.hash == hash)
-            .expect("pushed utxo");
-        entry.output_context.tree = tree;
-        entry.utxo.ring_program_id = Some(TEST_RING);
+            .find(|entry| entry.utxo_hash == hash)
+            .expect("pushed utxo")
+            .utxo
+            .ring_program_id = Some(TEST_RING);
     }
 
     fn wallet_with_ring_balance_on_another_tree(keypair: &ShieldedKeypair) -> Wallet {
         let mut wallet = sol_wallet(keypair);
         push_utxo(&mut wallet, keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, keypair, 100, [2u8; 31]);
-        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
         wallet
     }
 
@@ -2571,11 +2442,11 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
-        bind_to_ring(&mut wallet, ring_bound, Address::default());
+        bind_to_ring(&mut wallet, ring_bound, TEST_TREE_ID);
 
         let selected = select_inputs(
             &wallet,
-            &[Address::default()],
+            &[test_tree()],
             SOL_MINT,
             10,
             is_default_ring_spendable,
@@ -2589,7 +2460,7 @@ mod tests {
         assert!(matches!(
             select_inputs(
                 &wallet,
-                &[Address::default()],
+                &[test_tree()],
                 SOL_MINT,
                 50,
                 is_default_ring_spendable
@@ -2608,9 +2479,12 @@ mod tests {
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         push_utxo(&mut wallet, &keypair, 15, [3u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
-        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
+        for (index, note) in wallet.utxos.iter_mut().enumerate() {
+            note.leaf_index = 100 + index as u64;
+        }
 
-        let selected = select_spend_inputs_sync(
+        let selected = select_input_utxos_sync(
             SpendInputParams {
                 wallet: &wallet,
                 asset: SOL_MINT,
@@ -2620,21 +2494,24 @@ mod tests {
         )
         .expect("two plain utxos cover the amount");
 
-        assert_eq!(selected.trees, vec![Address::default()]);
-        assert_eq!(amounts(&selected.inputs), vec![15, 10]);
+        assert_eq!(selected.trees, vec![test_tree()]);
+        assert_eq!(
+            selected.inputs,
+            vec![wallet.utxos[1].clone(), wallet.utxos[0].clone()]
+        );
         assert!(selected
             .inputs
             .iter()
             .all(|input| input.utxo.ring_program_id.is_none() && input.ring_data_hash.is_none()));
 
         assert!(matches!(
-            select_spend_inputs_sync(
+            select_input_utxos_sync(
                 SpendInputParams {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: 50,
                 },
-                &keypair,
+                &keypair
             ),
             Err(ClientError::InsufficientBalance {
                 requested: 50,
@@ -2649,7 +2526,7 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
-        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
 
         let spendable = wallet.balances(true).expect("balances");
         assert_eq!(spendable.len(), 1);
@@ -2667,14 +2544,14 @@ mod tests {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let first = push_utxo(&mut wallet, &keypair, 40, [1u8; 31]);
-        bind_to_ring(&mut wallet, first, RING_TREE);
+        bind_to_ring(&mut wallet, first, RING_TREE_ID);
         let second = push_utxo(&mut wallet, &keypair, 60, [2u8; 31]);
-        bind_to_ring(&mut wallet, second, RING_TREE);
+        bind_to_ring(&mut wallet, second, RING_TREE_ID);
         let other_ring = Address::new_from_array([3u8; 32]);
         wallet
             .utxos
             .iter_mut()
-            .find(|entry| entry.output_context.hash == second)
+            .find(|entry| entry.utxo_hash == second)
             .expect("pushed utxo")
             .utxo
             .ring_program_id = Some(other_ring);
@@ -2689,27 +2566,28 @@ mod tests {
         );
     }
 
+    /// Both balance views answer from the ids sync already resolved, so a note
+    /// whose mint the registry does not name cannot break either of them. Asking
+    /// about that mint by name is the one thing that still errors, because there
+    /// is no note to read an id from.
     #[test]
-    fn ring_notes_of_an_unregistered_mint_leave_the_spendable_view_intact() {
+    fn a_mint_the_registry_does_not_name_is_only_an_error_when_asked_for_by_name() {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
-        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
-        wallet
-            .utxos
-            .iter_mut()
-            .find(|entry| entry.output_context.hash == ring_bound)
-            .expect("pushed utxo")
-            .utxo
-            .asset = Address::new_from_array([8u8; 32]);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
+        let unregistered = Address::new_from_array([8u8; 32]);
 
         let spendable = wallet.balances(true).expect("balances");
         assert_eq!(spendable.len(), 1);
         assert_eq!(spendable[0].amount, 10);
+        let rings = wallet.ring_balances(true).expect("ring balances");
+        assert_eq!(rings.len(), 1);
+        assert_eq!(rings[0].assets[0].amount, 100);
         assert!(matches!(
-            wallet.ring_balances(true),
-            Err(TransactionError::UnknownMint(mint)) if mint == Address::new_from_array([8u8; 32])
+            wallet.balance(unregistered, None),
+            Err(TransactionError::UnknownMint(mint)) if mint == unregistered
         ));
     }
 
@@ -2721,15 +2599,9 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let elsewhere = push_utxo(&mut wallet, &keypair, 10, [2u8; 31]);
-        wallet
-            .utxos
-            .iter_mut()
-            .find(|entry| entry.output_context.hash == elsewhere)
-            .expect("pushed utxo")
-            .output_context
-            .tree = RING_TREE;
+        place_in_tree(&mut wallet, elsewhere, RING_TREE_ID);
 
-        let selected = select_spend_inputs_sync(
+        let selected = select_input_utxos_sync(
             SpendInputParams {
                 wallet: &wallet,
                 asset: SOL_MINT,
@@ -2739,7 +2611,7 @@ mod tests {
         )
         .expect("both trees together cover the amount");
 
-        assert_eq!(selected.trees, vec![Address::default(), RING_TREE]);
+        assert_eq!(selected.trees, vec![test_tree(), pda::tree(RING_TREE_ID)]);
         assert_eq!(amounts(&selected.inputs), vec![10, 10]);
     }
 
@@ -2749,20 +2621,14 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         for (marker, amount, tree_id) in [(1, 40, 4), (2, 30, 1), (3, 20, 4), (4, 10, 2)] {
             let hash = push_utxo(&mut wallet, &keypair, amount, [marker; 31]);
-            let entry = wallet
-                .utxos
-                .iter_mut()
-                .find(|entry| entry.output_context.hash == hash)
-                .expect("pushed utxo");
-            entry.tree_id = tree_id;
-            entry.output_context.tree = Address::new_from_array([tree_id as u8; 32]);
+            place_in_tree(&mut wallet, hash, tree_id);
         }
 
         for (amount, expected_trees, expected_inputs) in [
             (40, vec![4], vec![(4, 40)]),
             (90, vec![4, 1], vec![(4, 40), (4, 20), (1, 30)]),
         ] {
-            let selected = select_spend_inputs_sync(
+            let selected = select_input_utxos_sync(
                 SpendInputParams {
                     wallet: &wallet,
                     asset: SOL_MINT,
@@ -2775,7 +2641,7 @@ mod tests {
                 selected.trees,
                 expected_trees
                     .into_iter()
-                    .map(|id| Address::new_from_array([id; 32]))
+                    .map(pda::tree)
                     .collect::<Vec<_>>()
             );
             assert_eq!(
@@ -2797,24 +2663,16 @@ mod tests {
         for index in 0..=MAX_INPUT_TREES {
             let marker = u8::try_from(index).expect("utxo marker");
             let hash = push_utxo(&mut wallet, &keypair, 10, [marker + 1; 31]);
-            wallet
-                .utxos
-                .iter_mut()
-                .find(|entry| entry.output_context.hash == hash)
-                .expect("pushed utxo")
-                .output_context
-                .tree = Address::new_from_array([marker + 1; 32]);
+            place_in_tree(&mut wallet, hash, u16::from(marker) + 1);
         }
 
         assert!(matches!(
-            select_spend_inputs_sync(
+            select_input_utxos_sync(
                 SpendInputParams {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: u64::try_from(MAX_INPUT_TREES).unwrap() * 10 + 1,
-                },
-                &keypair,
-            ),
+                }, &keypair),
             Err(ClientError::AmbiguousTree { tree_count, .. }) if tree_count == MAX_INPUT_TREES + 1
         ));
     }
@@ -2827,12 +2685,12 @@ mod tests {
         wallet
             .utxos
             .iter_mut()
-            .find(|entry| entry.output_context.hash == tainted)
+            .find(|entry| entry.utxo_hash == tainted)
             .expect("pushed utxo")
             .ring_data_hash = Some([5u8; 32]);
         push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
 
-        let selected = select_spend_inputs_sync(
+        let selected = select_input_utxos_sync(
             SpendInputParams {
                 wallet: &wallet,
                 asset: SOL_MINT,
@@ -2844,13 +2702,13 @@ mod tests {
         assert_eq!(amounts(&selected.inputs), vec![20]);
 
         assert!(matches!(
-            select_spend_inputs_sync(
+            select_input_utxos_sync(
                 SpendInputParams {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: 60,
                 },
-                &keypair,
+                &keypair
             ),
             Err(ClientError::InsufficientBalance {
                 requested: 60,
@@ -2864,16 +2722,11 @@ mod tests {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let spent = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
-        wallet
-            .utxos
-            .iter_mut()
-            .find(|entry| entry.output_context.hash == spent)
-            .expect("pushed utxo")
-            .spent = true;
+        mark_spent(&mut wallet, spent);
         push_utxo(&mut wallet, &keypair, 15, [2u8; 31]);
         push_utxo(&mut wallet, &keypair, 20, [3u8; 31]);
 
-        let selected = select_spend_inputs_sync(
+        let selected = select_input_utxos_sync(
             SpendInputParams {
                 wallet: &wallet,
                 asset: SOL_MINT,
@@ -2895,7 +2748,7 @@ mod tests {
         }
         push_utxo(&mut wallet, &keypair, 100, [10u8; 31]);
 
-        let selected = select_spend_inputs_sync(
+        let selected = select_input_utxos_sync(
             SpendInputParams {
                 wallet: &wallet,
                 asset: SOL_MINT,
@@ -2903,7 +2756,7 @@ mod tests {
             },
             &keypair,
         )
-        .expect("the covering note spends alone");
+        .expect("the covering note input_utxos alone");
         assert_eq!(amounts(&selected.inputs), vec![100]);
     }
 
@@ -2914,13 +2767,13 @@ mod tests {
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
 
         assert!(matches!(
-            select_spend_inputs_sync(
+            select_input_utxos_sync(
                 SpendInputParams {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: 0,
                 },
-                &keypair,
+                &keypair
             ),
             Err(ClientError::ZeroSpendAmount)
         ));
@@ -2935,13 +2788,13 @@ mod tests {
         }
 
         assert!(matches!(
-            select_spend_inputs_sync(
+            select_input_utxos_sync(
                 SpendInputParams {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: 30,
                 },
-                &keypair,
+                &keypair
             ),
             Err(ClientError::TooManyInputs { got: 6, max: 5 })
         ));
@@ -2956,12 +2809,12 @@ mod tests {
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         let ring_bound = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
-        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
 
         let tree = resolve_spend_tree(&wallet, SOL_MINT, is_plain_utxo)
-            .expect("the ring utxo on another tree must not block a plain spend");
+            .expect("the ring utxo on another tree must not block a plain input_utxo");
 
-        assert_eq!(tree, Address::default());
+        assert_eq!(tree, test_tree());
     }
 
     #[test]
@@ -2970,9 +2823,9 @@ mod tests {
         let wallet = wallet_with_ring_balance_on_another_tree(&keypair);
 
         let tree = resolve_spend_tree(&wallet, SOL_MINT, is_default_ring_spendable)
-            .expect("a ring balance on another tree must not make the spend ambiguous");
+            .expect("a ring balance on another tree must not make the input_utxo ambiguous");
 
-        assert_eq!(tree, Address::default());
+        assert_eq!(tree, test_tree());
     }
 
     #[test]
@@ -2992,7 +2845,7 @@ mod tests {
         })
         .expect("the plain tree covers the withdrawal");
 
-        assert_eq!(created.transaction.tree(), Address::default());
+        assert_eq!(created.transaction.tree(), test_tree());
         assert_eq!(created.transaction.input_count(), 1);
     }
 
@@ -3016,7 +2869,7 @@ mod tests {
             created.recipient,
             TransferRecipient::PublicWithdrawal { .. }
         ));
-        assert_eq!(created.transaction.tree(), Address::default());
+        assert_eq!(created.transaction.tree(), test_tree());
         assert_eq!(created.transaction.input_count(), 1);
     }
 
@@ -3042,7 +2895,7 @@ mod tests {
             created.recipient,
             TransferRecipient::Registered(resolved) if resolved.owner == owner
         ));
-        assert_eq!(created.transaction.tree(), Address::default());
+        assert_eq!(created.transaction.tree(), test_tree());
         assert_eq!(created.transaction.input_count(), 1);
     }
 
@@ -3051,7 +2904,7 @@ mod tests {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = sol_wallet(&keypair);
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [1u8; 31]);
-        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
 
         let error = withdrawal_error(create_withdrawal(WithdrawalParams {
             wallet: &wallet,
@@ -3088,8 +2941,11 @@ mod tests {
 
         assert_eq!(created.num_inputs, 3);
         assert_eq!(created.merged_amount, 60);
-        assert_eq!(created.tree, Address::default());
-        assert_eq!(created.prepared.inputs.len(), MERGE_DEFAULT_INPUT_COUNT);
-        assert_eq!(created.prepared.output.amount, 60);
+        assert_eq!(created.tree, test_tree());
+        assert_eq!(
+            created.prepared.input_utxos.len(),
+            MERGE_DEFAULT_INPUT_COUNT
+        );
+        assert_eq!(created.prepared.output_utxo.amount, 60);
     }
 }

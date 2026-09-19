@@ -1,3 +1,4 @@
+use zolana_test_utils::utxo::prepare_output_blindings;
 mod shared;
 
 use anyhow::{anyhow, bail, Result};
@@ -15,7 +16,7 @@ use shared::{send, send_from, setup, tree_root, Environment};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ProofCompressed, ProverClient};
+use zolana_client::{ProofCompressed, ProverClient, Rpc};
 use zolana_interface::{
     event::OutputDataEncoding,
     instruction::{
@@ -27,12 +28,11 @@ use zolana_keypair::ShieldedKeypair;
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_utxo, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
+use zolana_transaction::WalletUtxo;
 use zolana_transaction::{
-    instructions::transact::{
-        prepare_output_blindings, ExternalData, SppProofInputs, SppProofOutputUtxo,
-    },
-    instructions::types::SppProofInputUtxo,
-    Data, Utxo, WalletUtxo, SOL_MINT,
+    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
+    utxo::SppProofInputUtxo,
+    Data, Utxo, SOL_MINT,
 };
 
 const POISON_AMOUNT: u64 = 1_000_000;
@@ -44,7 +44,20 @@ fn assert_account(
     expected_authority: Address,
     expected_value: u64,
     expected_tree: Address,
+    indexer: &zolana_client::ZolanaIndexer,
 ) -> Result<()> {
+    assert!(
+        indexer
+            .get_shielded_transactions_by_nullifiers(
+                vec![wallet_utxo.nullifier],
+                None,
+                Some(1),
+                None
+            )?
+            .transactions
+            .is_empty(),
+        "account note is unspent"
+    );
     let state = decode_state(
         wallet_utxo
             .utxo
@@ -53,12 +66,11 @@ fn assert_account(
             .ok_or_else(|| anyhow!("state data missing"))?,
     )?;
     if wallet_utxo.utxo != *expected_output
-        || wallet_utxo.output_context.hash != expected_hash
-        || wallet_utxo.output_context.tree != expected_tree
+        || wallet_utxo.utxo_hash != expected_hash
+        || zolana_interface::pda::tree(wallet_utxo.tree_id) != expected_tree
         || state.authority != expected_authority.to_bytes()
         || state.value != expected_value
         || state.address == [0u8; 32]
-        || wallet_utxo.spent
     {
         bail!("discovered account does not match expected state");
     }
@@ -101,27 +113,29 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     .proofless_output()
     .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
 
-    let spend = SppProofInputUtxo::new(
+    let input_utxo: SppProofInputUtxo = zolana_test_utils::utxo::indexed(
         Utxo {
             owner: attacker.signing_pubkey(),
-            asset: Address::new_from_array(deposited.asset),
+            asset: zolana_transaction::Mint::SOL,
             amount: deposited.amount,
             blinding: deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         },
-        &attacker,
-    )
-    .in_tree(DEFAULT_TREE_ID);
+        &attacker.nullifier_key,
+        &env.indexer,
+        DEFAULT_TREE_ID,
+    )?
+    .into();
     assert_eq!(
-        (spend.utxo.asset, spend.utxo.amount),
+        (input_utxo.utxo.asset.asset, input_utxo.utxo.amount),
         (SOL_MINT, POISON_AMOUNT)
     );
-    wait_for_merkle_proof(&env.indexer, env.tree, spend.hash()?);
+    wait_for_merkle_proof(&env.indexer, env.tree, input_utxo.hash());
 
-    let spends = vec![spend];
+    let input_utxos = vec![input_utxo];
     let mut poison_outputs = vec![SppProofOutputUtxo {
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: POISON_AMOUNT,
         owner_address: Some(pda_shielded_address(&pda)?),
         owner_tag: Some(pda.to_bytes()),
@@ -130,7 +144,7 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     }];
     // The circuit recomputes every output blinding, so even a hand-built
     // attacker transfer has to take the derived value.
-    let blinding_seed = prepare_output_blindings(&spends, &mut poison_outputs)?;
+    let blinding_seed = prepare_output_blindings(&input_utxos, &mut poison_outputs)?;
     let poison_output = poison_outputs
         .pop()
         .ok_or_else(|| anyhow!("poison output"))?;
@@ -147,10 +161,15 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
         Vec::new(),
     );
     let transact = env.indexer.prove_transact(
-        env.tree,
-        SppProofInputs::new(spends, vec![poison_output], external, attacker.pubkey())
-            .with_blinding_seed(blinding_seed)
-            .with_output_tree_id(DEFAULT_TREE_ID),
+        SppProofInputs {
+            input_utxos,
+            output_utxos: vec![poison_output],
+            external_data: external,
+            payer: attacker.pubkey(),
+            blinding_seed,
+            output_tree_id: DEFAULT_TREE_ID,
+        },
+        &attacker,
     )?;
     let poison_ix = Transact {
         payer: attacker.pubkey(),
@@ -211,6 +230,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         env.authority.pubkey(),
         1,
         env.tree,
+        &env.indexer,
     )?;
     if current.version != 0 {
         bail!("created account version is not 0");
@@ -236,6 +256,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         env.authority.pubkey(),
         1,
         env.tree,
+        &env.indexer,
     )?;
     if after_poison.version != 0 {
         bail!("poisoned scan did not keep the created account");
@@ -259,7 +280,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     }
     .to_proof_inputs()?;
     if update_input_nullifier != current.utxo.nullifier {
-        bail!("update does not spend the discovered UTXO nullifier");
+        bail!("update does not input_utxo the discovered UTXO nullifier");
     }
     let update_ix = Update {
         payer: env.authority.pubkey(),
@@ -269,7 +290,10 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         version,
         old_blinding: current.utxo.utxo.blinding,
         new_value: 2,
-        spp_proof: env.indexer.prove_transact(env.tree, spp_proof_inputs)?,
+        spp_proof: env.indexer.prove_transact(
+            spp_proof_inputs,
+            &compression_example_sdk::shared::zero_nullifier_key(),
+        )?,
     }
     .instruction()?;
 
@@ -283,6 +307,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         env.authority.pubkey(),
         2,
         env.tree,
+        &env.indexer,
     )?;
     if updated.version != 1 {
         bail!("updated account version is not 1");

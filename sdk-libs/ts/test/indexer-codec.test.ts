@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   decodeEncryptedUtxosResponse,
   decodeShieldedTransactionsResponse,
+  decodeShieldedTransactionsBySignatureResponse,
   encodeRingsByTagsRequest,
 } from "../src/indexer/codec.js";
+import { treeAddress } from "../src/interface/pda/index.js";
 import { hash } from "../src/indexer/scalars.js";
 
 // base58 of 32 zero bytes.
@@ -59,5 +61,93 @@ describe("shielded transactions by tags response", () => {
         scannedThrough: "AQID",
       }),
     ).toEqual({ context: { blockTime: 1n, slot: 2n }, matches: [], scannedThrough: "AQID" });
+  });
+});
+
+describe("Photon tree metadata", () => {
+  const output = {
+    viewTag: TAG,
+    outputContext: { hash: TAG, tree: treeAddress(7), treeId: 7, leafIndex: 3 },
+    payload: "",
+  };
+  const match = { slot: 1, txSignature: "1".repeat(64), outputSlot: output };
+  const transaction = {
+    slot: 1,
+    txSignature: match.txSignature,
+    outputSlots: [output],
+    messages: [],
+    nullifiers: [],
+    proofless: false,
+  };
+  const context = { blockTime: 0, slot: 1 };
+
+  it("decodes tree identity and append suggestions on every response shape", () => {
+    const page = { context, matches: [match], outputTreeId: 9 };
+    const before = structuredClone(page);
+    const decoded = decodeEncryptedUtxosResponse(page);
+    expect(decoded.outputTreeId).toBe(9);
+    expect(decoded.matches[0]?.outputSlot.outputContext).toEqual({
+      hash: TAG,
+      tree: treeAddress(7),
+      treeId: 7,
+      leafIndex: 3n,
+    });
+    expect(page).toEqual(before);
+    expect(
+      decodeShieldedTransactionsResponse({ context, transactions: [transaction], outputTreeId: 0 })
+        .outputTreeId,
+    ).toBe(0);
+    expect(
+      decodeShieldedTransactionsBySignatureResponse({
+        context,
+        transactions: [{ eventIndex: 0, transaction }],
+        outputTreeId: 65535,
+      }).outputTreeId,
+    ).toBe(65535);
+    expect(
+      decodeEncryptedUtxosResponse({ context, matches: [], outputTreeId: null }).outputTreeId,
+    ).toBeUndefined();
+  });
+
+  it.each([-1, 65536, 1.5, "7"])("rejects malformed tree IDs: %s", (treeId) => {
+    const page = {
+      context,
+      matches: [
+        { ...match, outputSlot: { ...output, outputContext: { ...output.outputContext, treeId } } },
+      ],
+    };
+    const before = structuredClone(page);
+    expect(() => decodeEncryptedUtxosResponse(page)).toThrowError(
+      expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }),
+    );
+    expect(page).toEqual(before);
+    expect(() =>
+      decodeEncryptedUtxosResponse({ context, matches: [], outputTreeId: treeId }),
+    ).toThrowError(expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }));
+    expect(() =>
+      decodeShieldedTransactionsResponse({ context, transactions: [], outputTreeId: treeId }),
+    ).toThrowError(expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }));
+    expect(() =>
+      decodeShieldedTransactionsBySignatureResponse({
+        context,
+        transactions: [],
+        outputTreeId: treeId,
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }));
+  });
+
+  it("rejects missing IDs and tree addresses that disagree with their IDs", () => {
+    const missing = { hash: TAG, tree: treeAddress(7), leafIndex: 3 };
+    for (const { outputContext, code } of [
+      { outputContext: missing, code: "INDEXER_SCHEMA_INVALID_INTEGER" },
+      { outputContext: { ...missing, treeId: 8 }, code: "INDEXER_SCHEMA_INVALID_TREE" },
+    ]) {
+      const page = { context, matches: [{ ...match, outputSlot: { ...output, outputContext } }] };
+      const before = structuredClone(page);
+      expect(() => decodeEncryptedUtxosResponse(page)).toThrowError(
+        expect.objectContaining({ code }),
+      );
+      expect(page).toEqual(before);
+    }
   });
 });

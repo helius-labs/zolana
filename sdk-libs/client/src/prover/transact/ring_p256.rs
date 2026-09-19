@@ -7,31 +7,27 @@ use p256::{
 };
 use solana_address::Address;
 use zolana_hasher::primitives::{hash_bytes, p256_owner_identity};
-use zolana_interface::{
-    instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
-};
+use zolana_interface::instruction::instruction_data::transact::TreeContext;
 use zolana_keypair::{hash::sha256, Curve};
 use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, PublicTransfers},
-    utxo::{derive_output_blinding_seed, derive_private_tx_blinding, program_id_proof_input_hash},
-    ExternalData, P256Signature, SppProofOutputUtxo,
+    instructions::transact::PublicTransfers, utxo::program_id_proof_input_hash, ExternalData,
+    P256Signature, SppProofOutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
         field::be,
-        resolve_shape,
         transact::assembly::{
-            assemble_inputs, assemble_outputs, confidential_marked_output_owner_pk_hashes,
-            validate_output_blindings, OwnerMode, PublicInputs, TransferSpendInput,
+            assemble_transaction, confidential_marked_output_owner_pk_hashes, validate_shape,
+            AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
         },
         Shape, TransferP256Inputs, TreeSlotFields,
     },
 };
 
 pub struct RingTransferP256Prover {
-    pub inputs: Vec<TransferSpendInput>,
+    pub inputs: Vec<TransferInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     /// The transaction's private random root seed. See
     /// [`TransferProver::blinding_seed`](crate::prover::TransferProver).
@@ -44,7 +40,7 @@ pub struct RingTransferP256Prover {
     pub allow_dummy_inputs: bool,
     pub authorization: P256Signature,
     pub ring_program_id: Option<Address>,
-    pub shape: Option<Shape>,
+    pub shape: Shape,
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +62,8 @@ pub struct RingTransferP256ProofResult {
 
 impl RingTransferP256Prover {
     pub fn build(self) -> Result<RingTransferP256ProofResult, ClientError> {
-        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        let shape = self.shape;
+        validate_shape(shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.signer_width() {
             return Err(ClientError::WitnessInputCountMismatch {
                 got: self.signer_pk_hashes.len(),
@@ -74,30 +71,23 @@ impl RingTransferP256Prover {
             });
         }
 
-        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::RingP256)?;
-        let input_flags = pack_input_flags(
+        let AssembledTransaction {
+            inputs: assembled_inputs,
+            outputs: assembled_outputs,
+            external_data_hash,
+            private_tx_hash: private_tx,
+            input_flags,
+        } = assemble_transaction(
+            &self.inputs,
+            &self.outputs,
+            &self.blinding_seed,
+            self.output_tree_id,
+            &self.external_data,
+            &OwnerMode::RingP256,
             self.allow_dummy_inputs,
-            assembled_inputs.input_tree_indexes.iter().copied(),
         )?;
-        let first_nullifier = assembled_inputs
-            .nullifiers
-            .first()
-            .ok_or(ClientError::NoInputs)?;
-        let output_blinding_seed =
-            derive_output_blinding_seed(first_nullifier, &self.blinding_seed)?;
-        validate_output_blindings(&self.outputs, first_nullifier, &output_blinding_seed)?;
-        let assembled_outputs = assemble_outputs(&self.outputs, self.output_tree_id)?;
-        let external_data_hash = self.external_data.hash()?;
         let published_output_owner_pk_hashes =
             confidential_marked_output_owner_pk_hashes(&self.external_data)?;
-        let private_tx_blinding = derive_private_tx_blinding(first_nullifier, &self.blinding_seed)?;
-        let private_tx = PrivateTxHash::new(
-            &assembled_inputs.input_hashes,
-            &assembled_outputs.private_tx_output_hashes,
-            &external_data_hash,
-            &private_tx_blinding,
-        )
-        .hash()?;
         let message_digest = sha256(&private_tx);
         validate_authorization(&self.inputs, &self.authorization, &message_digest)?;
 
@@ -110,11 +100,11 @@ impl RingTransferP256Prover {
         // coexist with a default-ring spend and no published output owner may
         // name the identity while it happens.
         let p256_owner_pk_hash = p256_owner_identity(&pub_x)?;
-        let spends = p256_spend_rings(&self.inputs)?;
-        if spends.default_ring && spends.bound_ring {
+        let input_utxos = p256_spend_rings(&self.inputs)?;
+        if input_utxos.default_ring && input_utxos.bound_ring {
             return Err(ClientError::RingP256MixedDefaultAndRingSpend);
         }
-        if spends.bound_ring {
+        if input_utxos.bound_ring {
             if let Some(index) = published_output_owner_pk_hashes
                 .iter()
                 .position(|published| *published == p256_owner_pk_hash)
@@ -122,7 +112,7 @@ impl RingTransferP256Prover {
                 return Err(ClientError::RingP256PublishedOwnerLeaksIdentity { index });
             }
         }
-        let default_owner_tag = spends.default_ring.then_some(pub_x);
+        let default_owner_tag = input_utxos.default_ring.then_some(pub_x);
         let default_p256_owner_pk_hash = match default_owner_tag {
             Some(_) => p256_owner_pk_hash,
             None => [0u8; 32],
@@ -193,16 +183,16 @@ struct P256SpendRings {
     bound_ring: bool,
 }
 
-fn p256_spend_rings(inputs: &[TransferSpendInput]) -> Result<P256SpendRings, ClientError> {
+fn p256_spend_rings(inputs: &[TransferInputUtxo]) -> Result<P256SpendRings, ClientError> {
     let mut rings = P256SpendRings {
         default_ring: false,
         bound_ring: false,
     };
-    for spend in inputs {
-        if spend.proof.is_none() || spend.utxo.owner.curve()? != Curve::P256 {
+    for input_utxo in inputs {
+        if input_utxo.proof.is_none() || input_utxo.utxo.utxo.owner.curve()? != Curve::P256 {
             continue;
         }
-        if spend.utxo.ring_program_id.is_some() {
+        if input_utxo.utxo.utxo.ring_program_id.is_some() {
             rings.bound_ring = true;
         } else {
             rings.default_ring = true;
@@ -212,20 +202,20 @@ fn p256_spend_rings(inputs: &[TransferSpendInput]) -> Result<P256SpendRings, Cli
 }
 
 fn validate_authorization(
-    inputs: &[TransferSpendInput],
+    inputs: &[TransferInputUtxo],
     authorization: &P256Signature,
     message_digest: &[u8; 32],
 ) -> Result<(), ClientError> {
     let mut found_p256 = false;
-    for (index, spend) in inputs.iter().enumerate() {
-        if spend.proof.is_none() {
+    for (index, input_utxo) in inputs.iter().enumerate() {
+        if input_utxo.proof.is_none() {
             continue;
         }
-        if spend.utxo.owner.curve()? != Curve::P256 {
+        if input_utxo.utxo.utxo.owner.curve()? != Curve::P256 {
             continue;
         }
         found_p256 = true;
-        if spend.utxo.owner.as_p256()? != authorization.pubkey {
+        if input_utxo.utxo.utxo.owner.as_p256()? != authorization.pubkey {
             return Err(ClientError::P256AuthorizationOwnerMismatch { index });
         }
     }

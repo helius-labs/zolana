@@ -5,11 +5,10 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
-    assemble, ConfidentialTransfer, ProverClient, ProverInputs, SpendProof, SppProofInputUtxo,
-};
+use zolana_client::{assemble, ProofAuthority, ProverClient, SpendProof};
 use zolana_interface::instruction::Transact;
 use zolana_keypair::PublicKey;
+use zolana_transaction::instructions::transact::ConfidentialTransaction;
 use zolana_transaction::{
     serialization::confidential::Confidential, Data, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
@@ -17,9 +16,7 @@ use zolana_transaction::{
 
 use super::LifecycleHarness;
 use crate::{
-    localnet::{
-        send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
-    },
+    localnet::{send_transaction, ZERO},
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
@@ -46,7 +43,7 @@ impl LifecycleHarness {
                 let pos = actor
                     .spendable
                     .iter()
-                    .position(|u| u.asset == asset)
+                    .position(|u| u.asset.asset == asset)
                     .ok_or_else(|| anyhow!("{from} needs two spendable UTXOs of {asset}"))?;
                 taken.push(actor.spendable.remove(pos));
             }
@@ -73,13 +70,13 @@ impl LifecycleHarness {
             let spl_pos = actor
                 .spendable
                 .iter()
-                .position(|u| u.asset == spl_mint)
+                .position(|u| u.asset.asset == spl_mint)
                 .ok_or_else(|| anyhow!("{from} needs a spendable {spl_mint} UTXO"))?;
             let spl = actor.spendable.remove(spl_pos);
             let sol_pos = actor
                 .spendable
                 .iter()
-                .position(|u| u.asset == SOL_MINT)
+                .position(|u| u.asset.asset == SOL_MINT)
                 .ok_or_else(|| anyhow!("{from} needs a spendable SOL UTXO"))?;
             let sol = actor.spendable.remove(sol_pos);
             vec![spl, sol]
@@ -104,7 +101,7 @@ impl LifecycleHarness {
             let pos = actor
                 .spendable
                 .iter()
-                .position(|u| u.asset == asset && u.amount >= amount)
+                .position(|u| u.asset.asset == asset && u.amount >= amount)
                 .ok_or_else(|| {
                     anyhow!("{from} needs a spendable {asset} UTXO covering {amount}")
                 })?;
@@ -122,7 +119,7 @@ impl LifecycleHarness {
             let pos = actor
                 .spendable
                 .iter()
-                .position(|u| u.asset == asset)
+                .position(|u| u.asset.asset == asset)
                 .ok_or_else(|| anyhow!("{from} needs a spendable UTXO of {asset}"))?;
             actor.spendable.remove(pos)
         };
@@ -144,7 +141,7 @@ impl LifecycleHarness {
     ) -> Result<Signature> {
         let send_input: u64 = inputs
             .iter()
-            .filter(|u| u.asset == send_asset)
+            .filter(|u| u.asset.asset == send_asset)
             .map(|u| u.amount)
             .sum();
         if send_input < amount {
@@ -174,16 +171,40 @@ impl LifecycleHarness {
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        let spends: Vec<SppProofInputUtxo> = inputs
+        let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
+        let hashes = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair).in_tree(self.tree_id))
-            .collect();
-        let mut transfer =
-            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address);
+            .map(|utxo| utxo.hash(&nullifier_pk, &[0; 32], &[0; 32], self.tree_id))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let states = crate::test_validator_asserts::wait_for_merkle_proofs(
+            &self.indexer,
+            self.tree_address,
+            &hashes,
+        );
+        let indexed_inputs = inputs
+            .iter()
+            .zip(&states)
+            .map(|(utxo, state)| {
+                crate::utxo::wallet(
+                    utxo.clone(),
+                    &from_keypair.nullifier_key,
+                    self.tree_id,
+                    state.leaf_index,
+                    None,
+                    None,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut transfer = ConfidentialTransaction::new(indexed_inputs, payer_address)?;
         if let Some(addr) = &to_address {
-            transfer.send(addr, send_asset, amount)?;
+            if send_asset == SOL_MINT {
+                transfer.transfer_sol(addr, amount)?;
+            } else {
+                transfer.transfer(addr, send_asset, amount)?;
+            }
         }
-        let proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
+        let proof_inputs = transfer.encrypt(&from_keypair)?;
+        let finalized_outputs = proof_inputs.output_utxos.clone();
 
         let commitments = proof_inputs.input_utxo_hashes()?;
         let mut spend_proofs = Vec::new();
@@ -200,7 +221,7 @@ impl LifecycleHarness {
         // The circuit checks non-inclusion for every slot, so each padding dummy
         // needs a real low-element witness for its own nullifier.
         let dummy_proofs: Vec<_> = proof_inputs
-            .dummy_nullifiers()?
+            .dummy_nullifiers()
             .into_iter()
             .map(|nullifier| {
                 wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier)
@@ -209,9 +230,11 @@ impl LifecycleHarness {
 
         // All actors are eddsa-owned since the P256 rail was removed: the owner
         // authorizes the spend by signing the transaction.
-        let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
-        let ProverInputs::Eddsa(transfer_inputs) = &assembled.prover_inputs;
-        let proof = ProverClient::local().prove_transfer(transfer_inputs)?;
+        let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
+        let transfer_inputs = &mut assembled.prover_inputs;
+        let proof = from_keypair
+            .nullifier_key
+            .prove_transfer(&ProverClient::local(), transfer_inputs)?;
         let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
 
         let transfer_ix = Transact {
@@ -241,70 +264,51 @@ impl LifecycleHarness {
         // `Wallet::sync`) so `assert_utxos` is a real cross-check of the synced
         // wallet, not a comparison of sync to itself.
 
-        // Expected recipient UTXO (the recipient slot sits at output position 2).
-        if let (Some(to), Some(to_keypair)) = (to, &to_keypair) {
-            let recipient_utxo = self.build_expected(
-                to,
-                to_keypair.signing_pubkey(),
-                send_asset,
+        let mut expected = Vec::new();
+        if let (Some(to), Some(keypair)) = (to, &to_keypair) {
+            expected.push((to, keypair.signing_pubkey(), send_asset, amount));
+        }
+        let mut assets = Vec::new();
+        for input in &inputs {
+            if !assets.contains(&input.asset.asset) {
+                assets.push(input.asset.asset);
+            }
+        }
+        for asset in assets {
+            let total: u64 = inputs
+                .iter()
+                .filter(|input| input.asset.asset == asset)
+                .map(|input| input.amount)
+                .sum();
+            let change = total - if asset == send_asset { amount } else { 0 };
+            if change > 0 {
+                expected.push((from, from_keypair.signing_pubkey(), asset, change));
+            }
+        }
+        expected.resize(
+            finalized_outputs.len(),
+            (from, from_keypair.signing_pubkey(), SOL_MINT, 0),
+        );
+        assert_eq!(indexed.output_slots.len(), expected.len());
+        for (position, (actor, owner, asset, amount)) in expected.into_iter().enumerate() {
+            let output = &finalized_outputs[position];
+            assert_eq!(
+                (
+                    output.owner_address.unwrap().signing_pubkey,
+                    output.asset.asset,
+                    output.amount
+                ),
+                (owner, asset, amount)
+            );
+            let note = self.build_expected(
+                actor,
+                owner,
+                asset,
                 amount,
-                decode_output_blinding(
-                    &from_keypair.viewing_key,
-                    &indexed,
-                    RECIPIENT_POSITION_BASE as u32,
-                )?,
+                decode_output_blinding(&from_keypair.viewing_key, &indexed, position as u32)?,
                 &indexed,
             )?;
-            self.actor_mut(to).expected.push(recipient_utxo);
-        }
-
-        // Mark consumed inputs spent if they were decrypted (tracked) UTXOs.
-        let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
-        let tree_id = self.tree_id;
-        for input in &inputs {
-            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
-            if let Some(utxo) = self
-                .actor_mut(from)
-                .expected
-                .iter_mut()
-                .find(|n| n.output_context.hash == consumed_hash)
-            {
-                utxo.spent = true;
-            }
-        }
-
-        // Expected sender change per asset present in the inputs. Per spec the SPL
-        // change sits at output position 0 and the SOL change at position 1.
-        let spl_asset = inputs.iter().map(|u| u.asset).find(|a| *a != SOL_MINT);
-        for (change_asset, position) in [
-            (spl_asset, SPL_CHANGE_POSITION),
-            (Some(SOL_MINT), SOL_CHANGE_POSITION),
-        ] {
-            let Some(change_asset) = change_asset else {
-                continue;
-            };
-            let input_sum: u64 = inputs
-                .iter()
-                .filter(|u| u.asset == change_asset)
-                .map(|u| u.amount)
-                .sum();
-            let sent = if change_asset == send_asset {
-                amount
-            } else {
-                0
-            };
-            let change = input_sum - sent;
-            if change > 0 {
-                let change_utxo = self.build_expected(
-                    from,
-                    from_keypair.signing_pubkey(),
-                    change_asset,
-                    change,
-                    decode_output_blinding(&from_keypair.viewing_key, &indexed, position as u32)?,
-                    &indexed,
-                )?;
-                self.actor_mut(from).expected.push(change_utxo);
-            }
+            self.actor_mut(actor).expected.push(note);
         }
 
         self.indexed.push(indexed);
@@ -324,28 +328,32 @@ impl LifecycleHarness {
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
         let utxo = Utxo {
             owner,
-            asset,
+            asset: self.assets.mint(&asset)?,
             amount,
             blinding,
             ring_program_id: None,
             data: Data::default(),
         };
-        let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, self.tree_id)?;
-        let output_context = tx
+        let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, self.tree_id)?;
+        let (position, slot) = tx
             .output_slots
             .iter()
-            .find(|slot| slot.output_context.hash == hash)
-            .map(|slot| slot.output_context.clone())
+            .enumerate()
+            .find(|(_, slot)| slot.output_context.hash == utxo_hash)
             .ok_or_else(|| anyhow!("expected output not found in indexed tx"))?;
-        let nullifier = utxo.nullifier(&output_context.hash, &keypair.nullifier_key)?;
+        let nullifier = utxo.nullifier(&utxo_hash, &keypair.nullifier_key)?;
         Ok(WalletUtxo {
-            utxo,
-            output_context,
+            nullifier_pubkey: nullifier_pk,
+            utxo_hash,
             nullifier,
             data_hash: None,
             ring_data_hash: None,
             tree_id: self.tree_id,
-            spent: false,
+            leaf_index: slot.output_context.leaf_index,
+            slot: tx.slot,
+            tx_signature: tx.tx_signature,
+            slot_index: u32::try_from(position)?,
+            utxo,
         })
     }
 }

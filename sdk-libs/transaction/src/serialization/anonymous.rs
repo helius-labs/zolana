@@ -7,7 +7,7 @@ use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
-    AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SOL_MINT,
+    AssetRegistry, EncryptedScheme, Mint, P256PubkeySchema, PublicKeySchema,
 };
 
 /// Physical output slots the sender bundle describes.
@@ -120,7 +120,7 @@ impl AnonymousTransferSenderPlaintext {
         if self.sol_amount > 0 {
             utxos.push(Utxo {
                 owner: self.owner_pubkey,
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount: self.sol_amount,
                 blinding: derive_transact_output_blinding(
                     first_nullifier,
@@ -170,14 +170,14 @@ impl UtxoSerialization for AnonymousRecipient {
 
     fn from_utxos(
         utxos: &[Utxo],
-        owner: &OwnerCx,
+        _: &OwnerCx,
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
         Ok(AnonymousTransferRecipientPlaintext {
             owner_pubkey: first.owner,
             sender_pubkey: cx.sender_pubkey,
-            asset_id: owner.assets.asset_id(&first.asset)?,
+            asset_id: first.asset.asset_id,
             amount: first.amount,
             blinding: first.blinding,
             data: first.data.clone(),
@@ -234,7 +234,7 @@ impl UtxoSerialization for AnonymousSenderBundle {
 
     fn from_utxos(
         utxos: &[Utxo],
-        owner: &OwnerCx,
+        _: &OwnerCx,
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
@@ -245,11 +245,11 @@ impl UtxoSerialization for AnonymousSenderBundle {
         let mut sol_amount = 0u64;
         let mut sol_data = Data::default();
         for utxo in utxos {
-            if utxo.asset == SOL_MINT {
+            if utxo.asset.asset == Mint::SOL.asset {
                 sol_amount = utxo.amount;
                 sol_data = utxo.data.clone();
             } else {
-                spl_asset_id = owner.assets.asset_id(&utxo.asset)?;
+                spl_asset_id = utxo.asset.asset_id;
                 spl_amount = utxo.amount;
                 spl_data = utxo.data.clone();
             }
@@ -274,103 +274,5 @@ impl UtxoSerialization for AnonymousSenderBundle {
         Ok(cx
             .tx
             .encrypt_slot(&cx.self_pubkey, bytes, cx.salt, cx.slot_index)?)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use zolana_keypair::{PublicKey, ViewingKey};
-
-    use super::*;
-    use crate::{data::DataRecord, SOL_ASSET_ID};
-
-    fn plaintext(data: Data) -> AnonymousTransferRecipientPlaintext {
-        AnonymousTransferRecipientPlaintext {
-            owner_pubkey: PublicKey::zeroed(),
-            sender_pubkey: ViewingKey::new().pubkey(),
-            asset_id: SOL_ASSET_ID,
-            amount: 7,
-            blinding: [3u8; 32],
-            data,
-        }
-    }
-
-    #[test]
-    fn memo_only_recipient_is_accepted() {
-        let assets = AssetRegistry::default();
-        let utxo = plaintext(Data::new(vec![DataRecord::Memo(b"hello".to_vec())]))
-            .into_utxo(&assets, None)
-            .unwrap();
-        assert_eq!(utxo.data.memo(), Some(b"hello".as_slice()));
-    }
-
-    fn sender_plaintext() -> AnonymousTransferSenderPlaintext {
-        AnonymousTransferSenderPlaintext {
-            owner_pubkey: PublicKey::zeroed(),
-            spl_asset_id: 0,
-            spl_amount: 0,
-            sol_amount: 9,
-            blinding_seed: [5u8; 32],
-            recipient_viewing_pks: Vec::new(),
-            spl_data: Data::default(),
-            sol_data: Data::default(),
-        }
-    }
-
-    /// Decoding cannot derive a blinding without the transaction's first
-    /// nullifier, so a context that omits it is refused rather than falling back
-    /// to a value the circuit would never have accepted.
-    #[test]
-    fn sender_bundle_without_first_nullifier_is_rejected() {
-        let assets = AssetRegistry::default();
-        let owner_cx = OwnerCx {
-            owner: PublicKey::zeroed(),
-            assets: &assets,
-            ring_program_id: None,
-            first_nullifier: None,
-        };
-        assert_eq!(
-            AnonymousSenderBundle::into_utxos(sender_plaintext(), &owner_cx).unwrap_err(),
-            TransactionError::MissingFirstNullifier
-        );
-    }
-
-    /// Each change slot takes the blinding the circuit recomputes for its
-    /// physical output index.
-    #[test]
-    fn sender_change_takes_the_derived_blinding() {
-        let assets = AssetRegistry::default();
-        let first_nullifier = [7u8; 32];
-        let utxos = sender_plaintext()
-            .into_utxos(&first_nullifier, &assets, None)
-            .unwrap();
-        let expected = vec![Utxo {
-            owner: PublicKey::zeroed(),
-            asset: SOL_MINT,
-            amount: 9,
-            blinding: derive_transact_output_blinding(
-                &first_nullifier,
-                &[5u8; 32],
-                SOL_CHANGE_SLOT,
-            )
-            .unwrap(),
-            ring_program_id: None,
-            data: Data::default(),
-        }];
-        assert_eq!(utxos, expected, "decoded sender change");
-    }
-
-    #[test]
-    fn ring_or_utxo_data_recipient_is_rejected() {
-        let assets = AssetRegistry::default();
-        for data in [
-            Data::new(vec![DataRecord::UtxoData(vec![1])]),
-            Data::new(vec![DataRecord::RingData(vec![1])]),
-        ] {
-            assert_eq!(
-                plaintext(data).into_utxo(&assets, None).unwrap_err(),
-                TransactionError::UnsupportedOutputData
-            );
-        }
     }
 }

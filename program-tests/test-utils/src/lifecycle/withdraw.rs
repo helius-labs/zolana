@@ -11,17 +11,16 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
-    assemble, ConfidentialTransfer, ProverClient, ProverInputs, SpendProof, SppProofInputUtxo,
-};
+use zolana_client::{assemble, ProofAuthority, ProverClient, SpendProof};
 use zolana_interface::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_transaction::{instructions::transact::SettlementTarget, Utxo, SOL_MINT};
+use zolana_transaction::instructions::transact::ConfidentialTransaction;
+use zolana_transaction::{Utxo, SOL_MINT};
 
 use super::LifecycleHarness;
 use crate::{
-    localnet::{send_transaction, SOL_CHANGE_POSITION, ZERO},
+    localnet::send_transaction,
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
@@ -46,7 +45,7 @@ impl LifecycleHarness {
                 let pos = actor
                     .spendable
                     .iter()
-                    .position(|u| u.asset == SOL_MINT)
+                    .position(|u| u.asset.asset == SOL_MINT)
                     .ok_or_else(|| anyhow!("{from} needs two spendable SOL UTXOs"))?;
                 taken.push(actor.spendable.remove(pos));
             }
@@ -77,20 +76,34 @@ impl LifecycleHarness {
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        let spends: Vec<SppProofInputUtxo> = inputs
+        let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
+        let hashes = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair).in_tree(self.tree_id))
-            .collect();
-        let mut transfer =
-            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address);
-        transfer.withdraw(
-            SOL_MINT,
-            amount,
-            SettlementTarget::Sol {
-                user_sol_account: Address::new_from_array(recipient.pubkey().to_bytes()),
-            },
-        )?;
-        let proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
+            .map(|utxo| utxo.hash(&nullifier_pk, &[0; 32], &[0; 32], self.tree_id))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let states = crate::test_validator_asserts::wait_for_merkle_proofs(
+            &self.indexer,
+            self.tree_address,
+            &hashes,
+        );
+        let indexed_inputs = inputs
+            .iter()
+            .zip(&states)
+            .map(|(utxo, state)| {
+                crate::utxo::wallet(
+                    utxo.clone(),
+                    &from_keypair.nullifier_key,
+                    self.tree_id,
+                    state.leaf_index,
+                    None,
+                    None,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut transfer = ConfidentialTransaction::new(indexed_inputs, payer_address)?;
+        transfer.withdraw_sol(amount, recipient.pubkey())?;
+        let proof_inputs = transfer.encrypt(&from_keypair)?;
+        let finalized_outputs = proof_inputs.output_utxos.clone();
 
         let commitments = proof_inputs.input_utxo_hashes()?;
         let mut spend_proofs = Vec::new();
@@ -107,16 +120,18 @@ impl LifecycleHarness {
         // The circuit checks non-inclusion for every slot, so each padding dummy
         // needs a real low-element witness for its own nullifier.
         let dummy_proofs: Vec<_> = proof_inputs
-            .dummy_nullifiers()?
+            .dummy_nullifiers()
             .into_iter()
             .map(|nullifier| {
                 wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier)
             })
             .collect();
 
-        let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
-        let ProverInputs::Eddsa(transfer_inputs) = &assembled.prover_inputs;
-        let proof = ProverClient::local().prove_transfer(transfer_inputs)?;
+        let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
+        let transfer_inputs = &mut assembled.prover_inputs;
+        let proof = from_keypair
+            .nullifier_key
+            .prove_transfer(&ProverClient::local(), transfer_inputs)?;
         let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
 
         let withdraw_ix = Transact {
@@ -148,40 +163,28 @@ impl LifecycleHarness {
         // cross-check of the synced wallet.
         let indexed = wait_for_indexed_transaction(&self.indexer, sender_view_tag, sig);
 
-        // The only output is the sender's SOL change (= sum(inputs) - amount) at the
-        // fixed SOL change position. No recipient UTXO: the SOL left the pool.
-        let change = input_sum - amount;
-        if change > 0 {
-            let change_utxo = self.build_expected(
+        assert_eq!(indexed.output_slots.len(), finalized_outputs.len());
+        for (position, output) in finalized_outputs.iter().enumerate() {
+            let expected_amount = if position == 0 { input_sum - amount } else { 0 };
+            assert_eq!(
+                (output.asset.asset, output.amount),
+                (SOL_MINT, expected_amount)
+            );
+            let note = self.build_expected(
                 from,
                 from_keypair.signing_pubkey(),
                 SOL_MINT,
-                change,
+                expected_amount,
                 super::transfer::decode_output_blinding(
                     &from_keypair.viewing_key,
                     &indexed,
-                    SOL_CHANGE_POSITION as u32,
+                    position as u32,
                 )?,
                 &indexed,
             )?;
-            self.actor_mut(from).expected.push(change_utxo);
+            self.actor_mut(from).expected.push(note);
         }
         self.indexed.push(indexed);
-
-        // Mark consumed inputs spent if they were decrypted (tracked) UTXOs.
-        let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
-        let tree_id = self.tree_id;
-        for input in &inputs {
-            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
-            if let Some(utxo) = self
-                .actor_mut(from)
-                .expected
-                .iter_mut()
-                .find(|n| n.output_context.hash == consumed_hash)
-            {
-                utxo.spent = true;
-            }
-        }
 
         // The withdrawn SOL is custodied in `sol_interface` and drained to the
         // external recipient: its on-chain balance grows by exactly `amount`.

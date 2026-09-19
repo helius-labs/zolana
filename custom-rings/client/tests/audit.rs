@@ -39,7 +39,7 @@ use zolana_transaction::{
 const SALT: [u8; SALT_LEN] = [3u8; SALT_LEN];
 const TOKEN_ASSET_ID: u64 = 7;
 const TOKEN_MINT: Address = Address::new_from_array([9u8; 32]);
-const TREE: Address = Address::new_from_array([4u8; 32]);
+const TREE_ID: u16 = 4;
 
 fn registry() -> AssetRegistry {
     AssetRegistry::new([(TOKEN_ASSET_ID, TOKEN_MINT)]).expect("asset registry")
@@ -58,7 +58,7 @@ fn plaintext(asset_id: u64, amount: u64, blinding: u8) -> ConfidentialOutputPlai
 fn output_context(slot_index: u32) -> OutputContext {
     OutputContext {
         hash: [slot_index as u8; 32],
-        tree: TREE,
+        tree_id: TREE_ID,
         leaf_index: u64::from(slot_index),
     }
 }
@@ -578,6 +578,7 @@ impl Rpc for PagedIndexer {
             transactions,
             next_cursor,
             scanned_through: None,
+            output_tree_id: None,
         })
     }
 }

@@ -2,6 +2,7 @@ use anyhow::Result;
 use compression_example_program::state::{blinding_seed, output_blinding, private_tx_blinding};
 use num_bigint::BigUint;
 use solana_address::Address;
+use zolana_client::ProofInputUtxo;
 use zolana_client::{
     prover::field::be, NonInclusionProof, PublicInputs, PublicTransfers, TransferInput,
     TransferInputs, TransferOutput, STATE_TREE_HEIGHT,
@@ -12,7 +13,7 @@ use zolana_interface::{
     ADDRESS_DOMAIN, INPUT_TREES,
 };
 use zolana_keypair::{hash::owner_hash, PublicKey};
-use zolana_transaction::{instructions::transact::PrivateTxHash, ProofInputUtxo, Utxo};
+use zolana_transaction::{instructions::transact::PrivateTxHash, Utxo};
 
 use crate::{
     account_pda, err,
@@ -76,7 +77,9 @@ impl CreateProofInputParams {
             tree_slot: BigUint::ZERO,
             nullifier: be(&address_nullifier),
             owner_pk_hash: be(&owner_pk_hash),
-            nullifier_secret: BigUint::ZERO,
+            // An address slot nullifies under the zero secret, which is public,
+            // so the slot is complete as built.
+            nullifier_secret: Some(BigUint::ZERO),
         };
 
         // The address nullifier is the transaction's only, and therefore first,

@@ -2,10 +2,8 @@ use anyhow::{bail, Result};
 use dynamic_swap_program::instructions::create_escrow::EscrowOpenPublicInput;
 use dynamic_swap_prover::{EscrowOpenProofInputs, ProofInputUtxo};
 use zolana_keypair::hash::owner_hash;
-use zolana_transaction::instructions::{
-    transact::{spp_proof_inputs::asset_field, PrivateTxHash, SppProofOutputUtxo},
-    types::SppProofInputUtxo,
-};
+use zolana_transaction::instructions::transact::{asset_field, PrivateTxHash, SppProofOutputUtxo};
+use zolana_transaction::utxo::SppProofInputUtxo;
 
 use crate::{err, shared::check_output_utxo};
 
@@ -64,10 +62,11 @@ impl EscrowOpenProofInputParams {
         if self.source_in.utxo.amount != self.order_amount {
             bail!("source_in amount does not match order_amount (no change output supported)");
         }
-        if asset_field(&self.source_in.utxo.asset).map_err(err)? != self.source_asset {
+        if asset_field(&self.source_in.utxo.asset.asset).map_err(err)? != self.source_asset {
             bail!("source_in asset does not match the pair source asset");
         }
-        if asset_field(&self.maker_funding.utxo.asset).map_err(err)? != self.destination_asset {
+        if asset_field(&self.maker_funding.utxo.asset.asset).map_err(err)? != self.destination_asset
+        {
             bail!("maker_funding asset does not match the pair destination asset");
         }
         let order_owner = self
@@ -101,7 +100,7 @@ impl EscrowOpenProofInputParams {
         check_output_utxo(
             "maker_change",
             &self.maker_change,
-            &self.maker_funding.utxo.asset,
+            &self.maker_funding.utxo.asset.asset,
             expected_change,
         )?;
         let order_out_hash = order_out.hash().map_err(err)?;

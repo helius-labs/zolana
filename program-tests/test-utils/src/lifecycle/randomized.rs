@@ -340,7 +340,7 @@ impl LifecycleHarness {
         self.actor(name)
             .spendable
             .iter()
-            .filter(|utxo| utxo.asset == asset)
+            .filter(|utxo| utxo.asset.asset == asset)
             .count()
     }
 
@@ -351,7 +351,7 @@ impl LifecycleHarness {
             .actor(name)
             .spendable
             .iter()
-            .filter(|utxo| utxo.asset == asset)
+            .filter(|utxo| utxo.asset.asset == asset)
             .take(n)
             .map(|utxo| utxo.amount)
             .collect();

@@ -55,7 +55,7 @@ fn test_indexer_replays_transact_event_outputs_and_nullifiers() {
     indexer
         .record_state_change(&event)
         .expect("record transact event");
-    indexer.record_transaction(signature, &event, false);
+    indexer.record_transaction(signature, &event, false, 0);
 
     assert_eq!(indexer.utxos().len(), 2);
     assert_eq!(indexer.utxos()[0].leaf_index, 0);
@@ -201,6 +201,7 @@ fn indexed_emit_event_round_trip_through_index_events() {
 
     let spp = Pubkey::new_unique();
     let expected = sample_transact_event();
+    let output_tree = Address::new_from_array(expected.output_tree);
     let emit_data = encode_event_instruction(
         EventKind::Transact,
         &TransactEvent {
@@ -225,7 +226,36 @@ fn indexed_emit_event_round_trip_through_index_events() {
 
     let mut indexer = TestIndexer::new();
     let signature = Signature::from([0xAB; 64]);
-    index_events(&mut indexer, &events, signature, |_| Ok(None)).expect("index transact event");
+    let mut tree_data = vec![0; zolana_interface::state::tree_account_size()];
+    zolana_tree::TreeAccount::init(
+        &mut tree_data,
+        1,
+        STATE_HEIGHT as u8,
+        [7; 32],
+        7,
+        zolana_interface::state::nullifier_tree_params(),
+        zolana_interface::state::default_tree_fees(
+            zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        )
+        .expect("tree fees"),
+    )
+    .expect("tree account");
+    let account = solana_account::Account {
+        data: tree_data,
+        owner: Address::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID),
+        ..Default::default()
+    };
+    index_events(&mut indexer, &events, signature, |address| {
+        assert_eq!(address, output_tree);
+        Ok(Some(account.clone()))
+    })
+    .expect("index transact event");
     assert_eq!(indexer.utxos().len(), 2);
-    assert!(indexer.fetch_transaction_by_signature(&signature).is_some());
+    let transaction = indexer
+        .fetch_transaction_by_signature(&signature)
+        .expect("indexed transaction");
+    assert!(transaction
+        .output_slots
+        .iter()
+        .all(|slot| slot.output_context.tree_id == 7));
 }

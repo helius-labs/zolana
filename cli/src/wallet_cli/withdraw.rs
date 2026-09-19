@@ -28,7 +28,6 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         rpc,
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
-        Address::new_from_array(network.tree.to_bytes()),
     )?;
     let recipient = parse_pubkey(&opts.to)?;
 

@@ -17,8 +17,9 @@ use swap_sdk::{
     state::{OrderTerms, OrderUtxo},
 };
 use zolana_keypair::ShieldedKeypair;
+use zolana_test_utils::utxo::assign_output_blindings;
 use zolana_transaction::{
-    instructions::transact::{assign_output_blindings, PrivateTxHash},
+    instructions::transact::PrivateTxHash,
     utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
 };
 
@@ -67,16 +68,14 @@ fn sample_params() -> TakeProofInputParams {
             take_mode: TAKE_MODE_DERIVED,
         },
         blinding: fe(7),
-        source_mint: Address::new_from_array([1; 32]),
+        source_mint: zolana_transaction::Mint::new(Address::new_from_array([1; 32]), 3),
         source_amount: 1_000,
         destination_asset_id: 2,
     };
     let first_nullifier = order_utxo
-        .to_input_utxo()
+        .to_input_utxo(INPUT_TREE_ID, 0)
         .unwrap()
-        .in_tree(INPUT_TREE_ID)
-        .nullifier()
-        .unwrap();
+        .nullifier();
     let blinding_seed = take_blinding_seed(&order_utxo.blinding).unwrap();
     let seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed).unwrap();
     let mut outputs = [

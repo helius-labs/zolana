@@ -8,7 +8,7 @@ use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
-    AssetRegistry, EncryptedScheme, PublicKeySchema, SOL_MINT, TRANSFER_PLAINTEXT,
+    AssetRegistry, EncryptedScheme, Mint, PublicKeySchema, TRANSFER_PLAINTEXT,
 };
 
 /// Physical output slots the bundle describes. It names the two sender change
@@ -76,7 +76,7 @@ impl TransferPlaintextSender {
                 view_tag,
                 Utxo {
                     owner: self.owner_pubkey,
-                    asset: SOL_MINT,
+                    asset: Mint::SOL,
                     amount: sol_amount,
                     blinding: derive_transact_output_blinding(
                         first_nullifier,
@@ -229,7 +229,7 @@ impl UtxoSerialization for PlaintextTransfer {
 
     fn from_utxos(
         utxos: &[Utxo],
-        owner: &OwnerCx,
+        _: &OwnerCx,
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
         let mut sender_owner = None;
@@ -237,11 +237,12 @@ impl UtxoSerialization for PlaintextTransfer {
         let mut sol_amount = None;
         let mut spl_data = Data::default();
         let mut sol_data = Data::default();
-        let mut recipients: Vec<(u32, TransferPlaintextRecipient)> = Vec::new();
+        let mut recipient_slots = Vec::new();
+        let mut previous_position = None;
         // The blinding is the only record of which physical slot an output sat
         // in, and the derivation is not invertible, so recover the slot by
         // re-deriving every candidate a shape can hold.
-        for utxo in utxos {
+        for (index, utxo) in utxos.iter().enumerate() {
             let mut slot = None;
             for candidate in 0..MAX_OUTPUT_SLOTS {
                 let blinding = derive_transact_output_blinding(
@@ -255,12 +256,16 @@ impl UtxoSerialization for PlaintextTransfer {
                 }
             }
             let position = slot.ok_or(TransactionError::MissingOutput)?;
+            if previous_position.is_some_and(|previous| position <= previous) {
+                return Err(TransactionError::InvalidPlaintextOutputPosition { index, position });
+            }
+            previous_position = Some(position);
             match position {
                 SPL_CHANGE_SLOT => {
                     sender_owner = Some(utxo.owner);
                     spl = Some(TransferPlaintextSplChange {
                         amount: utxo.amount,
-                        asset_id: owner.assets.asset_id(&utxo.asset)?,
+                        asset_id: utxo.asset.asset_id,
                     });
                     spl_data = utxo.data.clone();
                 }
@@ -269,22 +274,26 @@ impl UtxoSerialization for PlaintextTransfer {
                     sol_amount = Some(utxo.amount);
                     sol_data = utxo.data.clone();
                 }
-                position => recipients.push((
-                    position,
-                    TransferPlaintextRecipient {
+                position => {
+                    let expected = u32::try_from(recipient_slots.len())
+                        .ok()
+                        .and_then(|count| count.checked_add(RECIPIENT_SLOT_BASE))
+                        .ok_or(TransactionError::TooManyOutputs)?;
+                    if position != expected {
+                        return Err(TransactionError::InvalidPlaintextOutputPosition {
+                            index,
+                            position,
+                        });
+                    }
+                    recipient_slots.push(TransferPlaintextRecipient {
                         owner_pubkey: utxo.owner,
-                        asset_id: owner.assets.asset_id(&utxo.asset)?,
+                        asset_id: utxo.asset.asset_id,
                         amount: utxo.amount,
                         data: utxo.data.clone(),
-                    },
-                )),
+                    });
+                }
             }
         }
-        recipients.sort_by_key(|(position, _)| *position);
-        let recipient_slots = recipients
-            .into_iter()
-            .map(|(_, recipient)| recipient)
-            .collect();
         let sender = sender_owner.map(|owner_pubkey| TransferPlaintextSender {
             owner_pubkey,
             spl,

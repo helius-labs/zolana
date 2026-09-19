@@ -36,9 +36,10 @@ use solana_signer::Signer;
 // trait method rather than an inherent one on SolanaRpc.
 use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{Address, AssetRegistry, KeypairWalletAuthority, Wallet};
+use zolana_transaction::{Address, AssetRegistry};
 use zolana_wallet::{
-    create_transfer_sync, sign_private_transaction_sync, sync_wallet, TransferParams,
+    create_transfer_sync, sign_private_transaction_sync, sync_wallet, KeypairWalletAuthority,
+    TransferParams, Wallet,
 };
 
 /// One completed transfer, broken into the phases that can each be slow for a
@@ -460,7 +461,6 @@ fn worker(
         SolanaRpc::new(options.rpc_url.clone()),
         options.indexer_url.clone(),
         options.prover_url.clone(),
-        tree,
     );
     // KeypairWalletAuthority is the canonical implementation of the signing and
     // viewing surface the sync and transfer paths need. The CLI wraps it in its
@@ -484,6 +484,9 @@ fn worker(
             classify(&error.to_string(), stats, &mut backoff);
             continue;
         }
+        wallet
+            .utxos
+            .retain(|note| zolana_interface::pda::tree(note.tree_id) == tree);
         timing.sync_ms = mark.elapsed().as_millis() as u64;
         if stats.warmup_sync_ms.is_none() {
             stats.warmup_sync_ms = Some(timing.sync_ms);
