@@ -151,19 +151,19 @@ fn a_claim_hashes_to_the_typescript_vector() {
 
 #[test]
 fn a_spend_hashes_to_the_typescript_vector() {
-    let spend = transition(Some(transition(None).entry));
+    let input_utxo = transition(Some(transition(None).entry));
     assert_eq!(
-        hex::encode(spend.entry.blinding),
+        hex::encode(input_utxo.entry.blinding),
         SPEND_BLINDING,
         "blinding"
     );
     assert_eq!(
-        hex::encode(spend.private_tx),
+        hex::encode(input_utxo.private_tx),
         SPEND_PRIVATE_TX_HASH,
         "private"
     );
     assert_eq!(
-        hex::encode(spend.public_input),
+        hex::encode(input_utxo.public_input),
         SPEND_PUBLIC_INPUT_HASH,
         "public"
     );

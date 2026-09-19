@@ -220,7 +220,7 @@ impl ProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs), self.delivery)
+        self.send(to_json(inputs)?, self.delivery)
     }
 
     /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
@@ -233,7 +233,7 @@ impl ProverClient {
     /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
     /// call [`Proof::compress`] for the wire format.
     pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs), self.delivery)
+        self.send(to_json_ring_authority(inputs)?, self.delivery)
     }
 
     /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
@@ -245,7 +245,7 @@ impl ProverClient {
 
     /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
     pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs), self.delivery)
+        self.send(to_json_ring(inputs)?, self.delivery)
     }
 
     /// Prove a custom-ring P256 transfer.
@@ -253,7 +253,7 @@ impl ProverClient {
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs), self.delivery)
+        self.send(to_json_p256_ring(inputs)?, self.delivery)
     }
 
     pub fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
@@ -309,7 +309,7 @@ impl ProverClient {
 
     fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
-        crate::timing::note(0, "prover_request_bytes", body.as_ref().len());
+        crate::prover::timing::note(0, "prover_request_bytes", body.as_ref().len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
         let mut delivery = delivery;
@@ -537,7 +537,7 @@ impl AsyncProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs), self.delivery).await
+        self.send(to_json(inputs)?, self.delivery).await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
@@ -548,7 +548,7 @@ impl AsyncProverClient {
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs), self.delivery)
+        self.send(to_json_ring_authority(inputs)?, self.delivery)
             .await
     }
 
@@ -557,14 +557,14 @@ impl AsyncProverClient {
     }
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs), self.delivery).await
+        self.send(to_json_ring(inputs)?, self.delivery).await
     }
 
     pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs), self.delivery).await
+        self.send(to_json_p256_ring(inputs)?, self.delivery).await
     }
 
     pub async fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {

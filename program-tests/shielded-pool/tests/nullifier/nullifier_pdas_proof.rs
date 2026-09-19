@@ -27,7 +27,7 @@ use zolana_test_utils::{
         derive_test_transfer_output_blindings, dummy_input, external_data_hash, fe, inline_outputs,
         input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
         prove_and_verify_transfer, set_output_owner_tags, single_tree_slots, sol_public_slots,
-        spend_input, test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs,
+        test_private_tx_blinding, transfer_input, TransferInputArgs, TransferProverInputsArgs,
         TEST_BLINDING_SEED,
     },
 };
@@ -72,7 +72,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         .indexed_deposit_utxo(&event, owner_public_key)
         .expect("indexed deposit UTXO");
     let blinding = utxo.blinding;
-    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
+    assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, 0));
 
     let tree_id = env.tree_id;
     let utxo_hash = utxo
@@ -97,7 +97,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
 
     let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
     let (dummy, dummy_nullifier) = dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
-    let real_input = spend_input(SpendInputArgs {
+    let real_input = transfer_input(TransferInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
@@ -322,7 +322,7 @@ fn transact_rejects_a_nullifier_queued_by_an_earlier_transaction() {
 
     env.rpc
         .create_and_send_default_payer_transaction(&[transact_instruction(&env, data.clone())], &[])
-        .expect("first spend");
+        .expect("first input_utxo");
     let tree_after_first = tree_account(&env);
 
     let error = env
@@ -341,7 +341,7 @@ fn transact_rejects_a_nullifier_queued_by_an_earlier_transaction() {
     );
     for (nullifier, offset) in nullifiers.iter().zip(0..) {
         assert_nullifier_pda(&env.rpc, &tree, nullifier, queue_next_before + offset)
-            .expect("first spend's nullifier PDA unchanged");
+            .expect("first input_utxo's nullifier PDA unchanged");
     }
 }
 

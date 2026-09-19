@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -23,10 +22,8 @@ use zolana_test_utils::{
     smart_account::{self, StandardSigners},
     test_validator_asserts::wait_for_indexed_utxo,
 };
-use zolana_transaction::{
-    instructions::types::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, Wallet, SOL_MINT,
-};
-use zolana_wallet::{Deposit, DepositParams};
+use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
+use zolana_wallet::{Deposit, DepositParams, Wallet};
 
 // The whole per-transaction budget: the escrow forwards an SPP transact.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -253,23 +250,29 @@ pub fn setup() -> Result<TestEnv> {
     // The escrow authority is a PDA holding no viewing key, but a proofless
     // deposit publishes its UTXO in the clear, so the depositor-chosen view tag
     // reads it back from the indexer.
-    let creator_deposited = wait_for_indexed_utxo(&indexer, creator_view_tag, creator_signature)
+    let indexed_deposit = wait_for_indexed_utxo(&indexer, creator_view_tag, creator_signature);
+    let creator_deposited = indexed_deposit
         .output_slot
         .proofless_output()
         .ok_or_else(|| anyhow!("indexed creator deposit is not a proofless UTXO"))?;
-    let creator_input = SppProofInputUtxo::new(
+    let creator_input: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
         Utxo {
             owner: escrow_authority_address.signing_pubkey,
-            asset: Address::new_from_array(creator_deposited.asset),
+            asset: zolana_transaction::Mint::SOL,
             amount: creator_deposited.amount,
             blinding: creator_deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         },
-        escrow_nullifier_key,
-    );
+        &escrow_nullifier_key,
+        tree_id,
+        indexed_deposit.output_slot.output_context.leaf_index,
+        None,
+        None,
+    )?
+    .into();
     assert_eq!(
-        (creator_input.utxo.asset, creator_input.utxo.amount),
+        (creator_input.utxo.asset.asset, creator_input.utxo.amount),
         (SOL_MINT, SHIELD_AMOUNT)
     );
 
@@ -286,7 +289,6 @@ pub fn setup() -> Result<TestEnv> {
         ProverClient::default(),
         AsyncZolanaIndexer::new(indexer_url),
         AsyncProverClient::default(),
-        Address::new_from_array(tree.to_bytes()),
     );
 
     Ok(TestEnv {

@@ -3,8 +3,7 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    assign_spend_output_blindings, InputUtxoContext, ProverClient, PublicTransfers,
-    RingTransferProver, Rpc, Shape, TransferSpendInput,
+    ProverClient, PublicTransfers, RingTransferProver, Rpc, Shape, TransferInputUtxo,
 };
 use zolana_interface::{
     instruction::{
@@ -17,9 +16,14 @@ use zolana_interface::{
         transfer_ring_4_4, transfer_ring_5_3, transfer_ring_5_4,
     },
 };
-use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
+use zolana_keypair::{random_blinding, NullifierKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    instructions::types::SppProofInputUtxo, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    utxo::SppProofInputUtxo, Data, ExternalData, Mint, SppProofOutputUtxo, Utxo,
+};
+
+use crate::{
+    authority_fixture::complete_inputs, input_fixture::wallet_utxo,
+    output_blindings::assign_output_blindings,
 };
 
 use crate::{
@@ -49,44 +53,46 @@ const TEST_TREE_ID: u16 = 0;
 
 /// One real zero-value Solana-owned ring input + dummy padding, dummy outputs. The
 /// real input balances at zero so the witness selects the eddsa (Solana-only) rail.
-fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
+fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let signer = eddsa_keypair();
-    let mut inputs = build_real_inputs(&mut indexer, &[(signer.clone(), 0)]);
+    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(signer.clone(), 0)]);
     for _ in 1..n_in {
         inputs.push(dummy_input());
     }
     let mut outputs: Vec<_> = (0..n_out).map(|_| dummy_output(&signer)).collect();
     let blinding_seed = [44u8; 32];
-    assign_spend_output_blindings(&inputs, &mut outputs, &blinding_seed)
-        .expect("derive output blindings");
+    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
     // The authorized signer vector must contain every real input's owner
     // pk-field (payer-first on-chain; any placement satisfies Contains).
     let shape = Shape::new(n_in, n_out);
     let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
     signer_pk_hashes.resize(shape.signer_width(), [0u8; 32]);
-    RingTransferProver {
-        inputs,
-        outputs,
-        blinding_seed,
-        output_tree_id: TEST_TREE_ID,
-        external_data: ring_external_data(n_out),
-        public_transfers: PublicTransfers::default(),
-        signer_pk_hashes,
-        allow_dummy_inputs: true,
-        ring_program_id: Some(ring_program()),
-        shape: Some(shape),
-    }
+    (
+        RingTransferProver {
+            inputs,
+            outputs,
+            blinding_seed,
+            output_tree_id: TEST_TREE_ID,
+            external_data: ring_external_data(n_out),
+            public_transfers: PublicTransfers::default(),
+            signer_pk_hashes,
+            allow_dummy_inputs: true,
+            ring_program_id: Some(ring_program()),
+            shape,
+        },
+        keys,
+    )
 }
 
 /// Shape 3x3: two real nonzero Solana-owned ring inputs (100 + 150) consolidated
 /// into one real ring-owned recipient output (250) plus dummy padding. Exercises
 /// multiple real inputs, a real recipient, and value conservation on the eddsa rail.
-fn eddsa_multi_real() -> RingTransferProver {
+fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let first_signer = eddsa_keypair();
     let second_signer = eddsa_keypair();
-    let mut inputs = build_real_inputs(
+    let (mut inputs, keys) = build_real_inputs(
         &mut indexer,
         &[(first_signer.clone(), 100), (second_signer.clone(), 150)],
     );
@@ -98,25 +104,27 @@ fn eddsa_multi_real() -> RingTransferProver {
         dummy_output(&first_signer),
     ];
     let blinding_seed = [45u8; 32];
-    assign_spend_output_blindings(&inputs, &mut outputs, &blinding_seed)
-        .expect("derive output blindings");
-    RingTransferProver {
-        inputs,
-        outputs,
-        blinding_seed,
-        output_tree_id: TEST_TREE_ID,
-        external_data: ring_external_data(3),
-        public_transfers: PublicTransfers::default(),
-        signer_pk_hashes: vec![
-            owner_pk_hash(&first_signer),
-            owner_pk_hash(&second_signer),
-            [0u8; 32],
-            [0u8; 32],
-        ],
-        allow_dummy_inputs: true,
-        ring_program_id: Some(ring_program()),
-        shape: Some(Shape::new(3, 3)),
-    }
+    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
+    (
+        RingTransferProver {
+            inputs,
+            outputs,
+            blinding_seed,
+            output_tree_id: TEST_TREE_ID,
+            external_data: ring_external_data(3),
+            public_transfers: PublicTransfers::default(),
+            signer_pk_hashes: vec![
+                owner_pk_hash(&first_signer),
+                owner_pk_hash(&second_signer),
+                [0u8; 32],
+                [0u8; 32],
+            ],
+            allow_dummy_inputs: true,
+            ring_program_id: Some(ring_program()),
+            shape: Shape::new(3, 3),
+        },
+        keys,
+    )
 }
 
 // ---- shared helpers -----------------------------------------------------------
@@ -130,8 +138,13 @@ fn owner_pk_hash(keypair: &ShieldedKeypair) -> [u8; 32] {
         .expect("owner pk hash")
 }
 
-fn prove_and_verify_eddsa(prover: RingTransferProver, n_in: usize, n_out: usize) {
-    let result = prover.build().expect("build ring-transfer witness");
+fn prove_and_verify_eddsa(
+    (prover, keys): (RingTransferProver, Vec<NullifierKey>),
+    n_in: usize,
+    n_out: usize,
+) {
+    let mut result = prover.build().expect("build ring-transfer witness");
+    complete_inputs(&mut result.inputs.inputs, &keys);
     let proof = ProverClient::local()
         .prove_transfer_ring(&result.inputs)
         .expect("prove ring-transfer");
@@ -155,53 +168,44 @@ fn prove_and_verify_eddsa(prover: RingTransferProver, n_in: usize, n_out: usize)
 fn build_real_inputs(
     indexer: &mut TestIndexer,
     specs: &[(ShieldedKeypair, u64)],
-) -> Vec<TransferSpendInput> {
-    let ring = ring_program();
-    let mut utxos = Vec::with_capacity(specs.len());
-    let mut keys = Vec::with_capacity(specs.len());
-    let mut commitments = Vec::with_capacity(specs.len());
-    for (index, (kp, amount)) in specs.iter().enumerate() {
-        let utxo = Utxo {
-            owner: kp.signing_pubkey(),
-            asset: SOL_MINT,
-            amount: *amount,
-            blinding: random_blinding(),
-            ring_program_id: Some(ring),
-            data: Data::default(),
-        };
-        let nullifier_pk = kp.nullifier_key.pubkey().expect("nullifier pubkey");
-        let utxo_hash = utxo
-            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
-            .expect("utxo hash");
-        let nullifier = utxo
-            .nullifier(&utxo_hash, &kp.nullifier_key)
-            .expect("nullifier");
-        indexer.add_utxo(utxo_hash);
-        commitments.push(InputUtxoContext {
-            index,
-            utxo_hash,
-            nullifier,
-        });
-        utxos.push(utxo);
-        keys.push(kp.nullifier_key.clone());
+) -> (Vec<TransferInputUtxo>, Vec<NullifierKey>) {
+    let mut utxos: Vec<SppProofInputUtxo> = Vec::new();
+    let keys = specs
+        .iter()
+        .map(|(owner, _)| owner.nullifier_key.clone())
+        .collect();
+    for (owner, amount) in specs {
+        let mut wallet = wallet_utxo(
+            Utxo {
+                owner: owner.signing_pubkey(),
+                asset: Mint::SOL,
+                amount: *amount,
+                blinding: random_blinding(),
+                ring_program_id: Some(ring_program()),
+                data: Data::default(),
+            },
+            &owner.nullifier_key,
+            TEST_TREE_ID,
+            0,
+            None,
+            None,
+        );
+        wallet.leaf_index = indexer.add_utxo(wallet.utxo_hash);
+        utxos.push(wallet.into());
     }
     let proofs = indexer
-        .get_input_merkle_proofs(&commitments, None)
-        .expect("merkle proofs");
-    utxos
+        .get_input_merkle_proofs(&utxos.iter().collect::<Vec<_>>(), None)
+        .unwrap();
+    let inputs = utxos
         .into_iter()
-        .zip(keys)
         .zip(proofs)
-        .map(|((utxo, nullifier_key), proof)| TransferSpendInput {
+        .map(|(utxo, proof)| TransferInputUtxo {
             utxo,
-            nullifier_key,
-            data_hash: None,
-            ring_data_hash: None,
-            tree_id: TEST_TREE_ID,
             proof: Some(proof),
             nullifier_proof: None,
         })
-        .collect()
+        .collect();
+    (inputs, keys)
 }
 
 /// A real ring-owned recipient output: the recipient owns it via its
@@ -210,7 +214,7 @@ fn build_real_inputs(
 fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
     SppProofOutputUtxo {
         owner_address: Some(recipient.shielded_address().expect("shielded address")),
-        asset: SOL_MINT,
+        asset: Mint::SOL,
         amount,
         blinding: random_blinding(),
         ring_program_id: Some(ring_program()),
@@ -239,28 +243,13 @@ fn dummy_output(signer: &ShieldedKeypair) -> SppProofOutputUtxo {
 /// tree slot 0 with the real inputs; the non-inclusion witness for its own
 /// nullifier comes from an equally empty nullifier tree, so it shares the one
 /// published nullifier root.
-fn dummy_input() -> TransferSpendInput {
-    let blinding = random_blinding();
-    let utxo = Utxo {
-        owner: PublicKey::zeroed(),
-        asset: SOL_MINT,
-        amount: 0,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let mut spend = SppProofInputUtxo::new_dummy().in_tree(TEST_TREE_ID);
-    spend.utxo.blinding = blinding;
-    let nullifier = spend.nullifier().expect("dummy nullifier");
-    let nullifier_proof = TestIndexer::new().dummy_nullifier_proof(nullifier);
-    TransferSpendInput {
+fn dummy_input() -> TransferInputUtxo {
+    let utxo = SppProofInputUtxo::dummy(TEST_TREE_ID).unwrap();
+    let nullifier_proof = Some(TestIndexer::new().dummy_nullifier_proof(utxo.nullifier));
+    TransferInputUtxo {
         utxo,
-        nullifier_key: NullifierKey::from_secret([0u8; 31]),
-        data_hash: None,
-        ring_data_hash: None,
-        tree_id: TEST_TREE_ID,
         proof: None,
-        nullifier_proof: Some(nullifier_proof),
+        nullifier_proof,
     }
 }
 

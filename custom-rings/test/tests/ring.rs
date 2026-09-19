@@ -83,16 +83,12 @@ use zolana_test_utils::{
     },
 };
 use zolana_transaction::{
-    decrypt_transactions,
-    instructions::{
-        transact::{ConfidentialTransfer, PreparedTransfer, SettlementTarget},
-        types::SppProofInputUtxo,
-    },
-    AssetRegistry, Data, KeypairWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_ASSET_ID,
-    SOL_MINT,
+    decrypt_spendable, instructions::transact::ConfidentialTransaction, AssetRegistry, Data, Utxo,
+    WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::user_registry_program_id;
+use zolana_wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Lamports moved by the two transaction-shape probes. Small enough that the
 /// payer's airdrop covers both plus fees.
@@ -120,8 +116,8 @@ const SECOND_HOP_AMOUNT: u64 = 400_000_000;
 /// Output slot layout this test publishes: the sender's change first, the
 /// recipient second. A slot's index is what its ciphertext is bound to, so these
 /// are also the `slot_index` values the auditor must report.
-const CHANGE_SLOT: u32 = 0;
-const RECIPIENT_SLOT: u32 = 1;
+const CHANGE_SLOT: u32 = 1;
+const RECIPIENT_SLOT: u32 = 0;
 
 /// Offset of the ciphertext inside the auditor message
 /// (`eph_pk_compressed(33) || ciphertext(32)`), i.e. the first byte the negative
@@ -201,14 +197,16 @@ fn localnet_bring_up_is_live() -> Result<()> {
     assert_eq!(
         env.assets
             .resolve(SOL_ASSET_ID)
-            .map_err(|e| anyhow!("SOL asset resolution failed {e:?}"))?,
+            .map_err(|e| anyhow!("SOL asset resolution failed {e:?}"))?
+            .asset,
         SOL_MINT,
         "asset id 1 is SOL"
     );
     assert_eq!(
         env.assets
             .resolve(USDC_ASSET_ID)
-            .map_err(|e| anyhow!("USDC asset resolution failed {e:?}"))?,
+            .map_err(|e| anyhow!("USDC asset resolution failed {e:?}"))?
+            .asset,
         env.usdc_mint,
         "the bring-up USDC mint sits at the first allocated id"
     );
@@ -656,42 +654,35 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     let sender_address = env.sender.keypair.pubkey();
     let inputs = spendable
         .into_iter()
-        .map(|utxo| SppProofInputUtxo::new(utxo, &env.sender.keypair))
-        .collect();
-    let mut transfer = ConfidentialTransfer::new(
-        env.sender.keypair.shielded_address()?,
-        inputs,
-        sender_address,
-    )
-    .with_compact_change()
-    .with_ring_program_id(ring_program);
-    transfer.send(
+        .map(|utxo| indexed_note(utxo, &env.sender.keypair, &env, env.tree))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut transfer =
+        ConfidentialTransaction::new_with_ring(inputs, sender_address, ring_program)?;
+    transfer.transfer_sol(
         &env.recipient.keypair.shielded_address()?,
-        SOL_MINT,
         RING_TRANSFER_AMOUNT,
     )?;
-    let prepared = transfer.prepare()?;
-    let change_output = prepared
-        .outputs
-        .iter()
-        .find(|output| output.amount == RING_CHANGE)
-        .cloned()
-        .ok_or_else(|| anyhow!("ring change output"))?;
-    let recipient_output = prepared
-        .outputs
-        .iter()
-        .find(|output| output.amount == RING_TRANSFER_AMOUNT)
-        .cloned()
-        .ok_or_else(|| anyhow!("ring recipient output"))?;
+    let prepared = {
+        transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                transfer.inputs().len(),
+                2,
+            )?,
+            &(env.sender.keypair.shielded_address()?),
+        )?;
+        transfer
+    };
+    let change_blinding = output_blinding(&prepared, CHANGE_SLOT)?;
+    let recipient_blinding = output_blinding(&prepared, RECIPIENT_SLOT)?;
 
     let prover = ProverClient::local();
     let proven = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.sender.keypair,
-        prepared,
+        nullifier_key: Some(&env.sender.keypair.nullifier_key),
+        transaction: prepared,
     })
     .with_tree(env.tree)
-    .with_assets(&env.assets)
     .prove(TransferProofEnvironment {
         indexer,
         rpc,
@@ -772,7 +763,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         Some(auditor_tag),
         "the auditor message is the last published message"
     );
-    assert_eq!(indexed.nullifiers.len(), 2, "both inputs spend");
+    assert_eq!(indexed.nullifiers.len(), 2, "both inputs input_utxo");
     assert_eq!(
         indexed.tx_viewing_pk,
         Some(tx_viewing_pk),
@@ -808,20 +799,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         audited.outputs,
         vec![
             AuditedOutput {
-                slot_index: CHANGE_SLOT,
-                recipient_viewing_pk: env.sender.keypair.viewing_pubkey(),
-                owner_tag: env
-                    .sender
-                    .keypair
-                    .signing_pubkey()
-                    .confidential_view_tag()
-                    .expect("sender owner tag"),
-                asset: SOL_MINT,
-                amount: RING_CHANGE,
-                blinding: Zeroizing::new(change_output.blinding),
-                ring_program_id: Some(ring_program),
-            },
-            AuditedOutput {
                 slot_index: RECIPIENT_SLOT,
                 recipient_viewing_pk: env.recipient.keypair.viewing_pubkey(),
                 owner_tag: env
@@ -832,7 +809,21 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
                     .expect("recipient owner tag"),
                 asset: SOL_MINT,
                 amount: RING_TRANSFER_AMOUNT,
-                blinding: Zeroizing::new(recipient_output.blinding),
+                blinding: Zeroizing::new(recipient_blinding),
+                ring_program_id: Some(ring_program),
+            },
+            AuditedOutput {
+                slot_index: CHANGE_SLOT,
+                recipient_viewing_pk: env.sender.keypair.viewing_pubkey(),
+                owner_tag: env
+                    .sender
+                    .keypair
+                    .signing_pubkey()
+                    .confidential_view_tag()
+                    .expect("sender owner tag"),
+                asset: SOL_MINT,
+                amount: RING_CHANGE,
+                blinding: Zeroizing::new(change_blinding),
                 ring_program_id: Some(ring_program),
             },
         ],
@@ -853,10 +844,14 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     let discovered: Vec<(Address, u64, Option<Address>)> = env
         .recipient
         .wallet
-        .utxos
-        .iter()
-        .filter(|held| !held.spent)
-        .map(|held| (held.utxo.asset, held.utxo.amount, held.utxo.ring_program_id))
+        .unspent()
+        .map(|held| {
+            (
+                held.utxo.asset.asset,
+                held.utxo.amount,
+                held.utxo.ring_program_id,
+            )
+        })
         .collect();
     assert_eq!(
         discovered,
@@ -867,28 +862,32 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     let received = env
         .recipient
         .wallet
-        .utxos
-        .iter()
-        .find(|held| !held.spent)
+        .unspent()
+        .next()
         .map(|held| held.utxo.clone())
         .ok_or_else(|| anyhow!("recipient note"))?;
-    let prepare_hop = || -> Result<PreparedTransfer> {
-        let mut hop_transfer = ConfidentialTransfer::new(
-            env.recipient.keypair.shielded_address()?,
-            vec![SppProofInputUtxo::new(
+    let prepare_hop = || -> Result<ConfidentialTransaction> {
+        let mut hop_transfer = ConfidentialTransaction::new_with_ring(
+            vec![indexed_note(
                 received.clone(),
                 &env.recipient.keypair,
-            )],
+                &env,
+                env.tree,
+            )?],
             env.recipient.keypair.pubkey(),
-        )
-        .with_compact_change()
-        .with_ring_program_id(ring_program);
-        hop_transfer.send(
-            &env.sender.keypair.shielded_address()?,
-            SOL_MINT,
-            SECOND_HOP_AMOUNT,
+            ring_program,
         )?;
-        Ok(hop_transfer.prepare()?)
+        hop_transfer.transfer_sol(&env.sender.keypair.shielded_address()?, SECOND_HOP_AMOUNT)?;
+        Ok({
+            hop_transfer.pad_utxos(
+                zolana_transaction::instructions::transact::canonical_shape(
+                    hop_transfer.inputs().len(),
+                    2,
+                )?,
+                &env.recipient.keypair.shielded_address()?,
+            )?;
+            hop_transfer
+        })
     };
 
     // 10. The second hop goes over BOTH transports, the policy statement holds
@@ -914,8 +913,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     assert_eq!(
         hop_outputs,
         vec![
-            (RING_TRANSFER_AMOUNT - SECOND_HOP_AMOUNT, Some(ring_program)),
             (SECOND_HOP_AMOUNT, Some(ring_program)),
+            (RING_TRANSFER_AMOUNT - SECOND_HOP_AMOUNT, Some(ring_program)),
         ],
         "second hop outputs"
     );
@@ -1000,30 +999,33 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     let sender_address = env.sender.keypair.pubkey();
     let inputs = spendable
         .into_iter()
-        .map(|utxo| SppProofInputUtxo::new(utxo, &env.sender.keypair))
-        .collect();
-    let mut transfer = ConfidentialTransfer::new(
-        env.sender.keypair.shielded_address()?,
-        inputs,
-        sender_address,
-    )
-    .with_compact_change()
-    .with_ring_program_id(ring_program);
-    transfer.send(
+        .map(|utxo| indexed_note(utxo, &env.sender.keypair, &env, env.tree))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut transfer =
+        ConfidentialTransaction::new_with_ring(inputs, sender_address, ring_program)?;
+    transfer.transfer_sol(
         &env.recipient.keypair.shielded_address()?,
-        SOL_MINT,
         RING_TRANSFER_AMOUNT,
     )?;
-    let prepared = transfer.prepare()?;
+    let prepared = {
+        transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                transfer.inputs().len(),
+                2,
+            )?,
+            &(env.sender.keypair.shielded_address()?),
+        )?;
+        transfer
+    };
 
     let prover = ProverClient::local();
     let proven = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.sender.keypair,
-        prepared,
+        nullifier_key: Some(&env.sender.keypair.nullifier_key),
+        transaction: prepared,
     })
     .with_tree(env.tree)
-    .with_assets(&env.assets)
     .prove(TransferProofEnvironment {
         indexer,
         rpc,
@@ -1044,7 +1046,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
 
     let auditor_tag = auditor_view_tag(&auditor_pk);
     let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
-    assert_eq!(indexed.nullifiers.len(), 2, "both inputs spend");
+    assert_eq!(indexed.nullifiers.len(), 2, "both inputs input_utxo");
     assert_eq!(
         indexed.tx_viewing_pk,
         Some(tx_viewing_pk),
@@ -1086,9 +1088,8 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     let received = env
         .recipient
         .wallet
-        .utxos
-        .iter()
-        .find(|held| !held.spent)
+        .unspent()
+        .next()
         .map(|held| held.utxo.clone())
         .ok_or_else(|| anyhow!("recipient note"))?;
     // The second hop goes over the ASYNC transport, with a blocking proof of
@@ -1096,26 +1097,31 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     // exists for a host that cannot link the blocking Solana client, and a
     // path only that host runs is a path nothing checks; proving the same
     // spend both ways and landing the async proof is what keeps the two
-    // honest. `PreparedTransfer` is not `Clone` and preparing draws fresh
+    // honest. `ConfidentialTransaction` is not `Clone` and preparing draws fresh
     // output blindings, so the two are prepared independently: equivalent,
     // not identical.
-    let prepare_hop = || -> Result<PreparedTransfer> {
-        let mut hop_transfer = ConfidentialTransfer::new(
-            env.recipient.keypair.shielded_address()?,
-            vec![SppProofInputUtxo::new(
+    let prepare_hop = || -> Result<ConfidentialTransaction> {
+        let mut hop_transfer = ConfidentialTransaction::new_with_ring(
+            vec![indexed_note(
                 received.clone(),
                 &env.recipient.keypair,
-            )],
+                &env,
+                env.tree,
+            )?],
             env.recipient.keypair.pubkey(),
-        )
-        .with_compact_change()
-        .with_ring_program_id(ring_program);
-        hop_transfer.send(
-            &env.sender.keypair.shielded_address()?,
-            SOL_MINT,
-            SECOND_HOP_AMOUNT,
+            ring_program,
         )?;
-        Ok(hop_transfer.prepare()?)
+        hop_transfer.transfer_sol(&env.sender.keypair.shielded_address()?, SECOND_HOP_AMOUNT)?;
+        Ok({
+            hop_transfer.pad_utxos(
+                zolana_transaction::instructions::transact::canonical_shape(
+                    hop_transfer.inputs().len(),
+                    2,
+                )?,
+                &env.recipient.keypair.shielded_address()?,
+            )?;
+            hop_transfer
+        })
     };
     let hop = AsyncHopParity {
         ring,
@@ -1138,8 +1144,8 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     assert_eq!(
         hop_outputs,
         vec![
-            (RING_TRANSFER_AMOUNT - SECOND_HOP_AMOUNT, Some(ring_program)),
             (SECOND_HOP_AMOUNT, Some(ring_program)),
+            (RING_TRANSFER_AMOUNT - SECOND_HOP_AMOUNT, Some(ring_program)),
         ],
         "second hop outputs"
     );
@@ -1180,14 +1186,21 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         amount: DEFAULT_DEPOSIT,
     }
     .send(rpc, indexer, &env.assets)?;
-    let entry_input = deposited.spend();
-    wait_for_merkle_proof(indexer, env.tree, entry_input.hash()?);
+    let entry_input = deposited.input_utxo(&env)?;
+    wait_for_merkle_proof(indexer, env.tree, entry_input.utxo_hash);
     let mut entry_transfer =
-        ConfidentialTransfer::new(sender_address, vec![entry_input], sender.pubkey())
-            .with_compact_change()
-            .with_ring_program_id(ring_program);
-    entry_transfer.send(&recipient_address, SOL_MINT, ENTRY_AMOUNT)?;
-    let prepared = entry_transfer.prepare()?;
+        ConfidentialTransaction::new_with_ring(vec![entry_input], sender.pubkey(), ring_program)?;
+    entry_transfer.transfer_sol(&recipient_address, ENTRY_AMOUNT)?;
+    let prepared = {
+        entry_transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                entry_transfer.inputs().len(),
+                2,
+            )?,
+            &(sender_address),
+        )?;
+        entry_transfer
+    };
     let sender_change = Note {
         owner: sender,
         asset: SOL_MINT,
@@ -1219,8 +1232,8 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         .run(&env)?
         .outputs,
         vec![
-            sender_change.audited(CHANGE_SLOT)?,
             recipient_ring_note.audited(RECIPIENT_SLOT)?,
+            sender_change.audited(CHANGE_SLOT)?
         ],
         "entry outputs"
     );
@@ -1238,12 +1251,27 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
 
     // 2. Exit, the ring-bound change is spent into a default-ring note for the
     //    recipient, the new change stays in the ring.
-    let mut exit_transfer =
-        ConfidentialTransfer::new(sender_address, vec![sender_change.spend()], sender.pubkey())
-            .with_compact_change()
-            .with_ring_program_id(ring_program);
-    exit_transfer.send_default_ring(&recipient_address, SOL_MINT, EXIT_AMOUNT)?;
-    let prepared = exit_transfer.prepare()?;
+    let mut exit_transfer = ConfidentialTransaction::new_with_ring(
+        vec![sender_change.input_utxo(&env)?],
+        sender.pubkey(),
+        ring_program,
+    )?;
+    exit_transfer.transfer_with_ring(
+        &recipient_address,
+        env.assets.mint(&SOL_MINT)?,
+        EXIT_AMOUNT,
+        None,
+    )?;
+    let prepared = {
+        exit_transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                exit_transfer.inputs().len(),
+                2,
+            )?,
+            &(sender_address),
+        )?;
+        exit_transfer
+    };
     let exit_change = Note {
         owner: sender,
         asset: SOL_MINT,
@@ -1275,8 +1303,8 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         .run(&env)?
         .outputs,
         vec![
-            exit_change.audited(CHANGE_SLOT)?,
             recipient_default_note.audited(RECIPIENT_SLOT)?,
+            exit_change.audited(CHANGE_SLOT)?
         ],
         "exit outputs"
     );
@@ -1298,31 +1326,36 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
     // 3. Refusal, a note of another ring, as the recipient output or as the
     //    input, is refused before the unreachable prover is asked.
     let unreachable = ProverClient::new("http://127.0.0.1:1".to_string());
-    let prove = |prepared: PreparedTransfer| {
+    let prove = |prepared: ConfidentialTransaction| {
         CustomRingTransfer::new(CustomRingTransferInput {
             ring,
             sender,
-            prepared,
+            nullifier_key: Some(&sender.nullifier_key),
+            transaction: prepared,
         })
         .with_tree(env.tree)
-        .with_assets(&env.assets)
         .prove(TransferProofEnvironment {
             indexer,
             rpc,
             prover: &unreachable,
         })
     };
-    let mut foreign_output =
-        ConfidentialTransfer::new(sender_address, vec![exit_change.spend()], sender.pubkey())
-            .with_compact_change()
-            .with_ring_program_id(ring_program);
-    foreign_output.send(&recipient_address, SOL_MINT, REFUSED_AMOUNT)?;
-    let mut prepared = foreign_output.prepare()?;
-    prepared
-        .outputs
-        .get_mut(RECIPIENT_SLOT as usize)
-        .ok_or_else(|| anyhow!("recipient slot"))?
-        .ring_program_id = Some(FOREIGN_RING);
+    let mut foreign_output = ConfidentialTransaction::new_with_ring(
+        vec![exit_change.input_utxo(&env)?],
+        sender.pubkey(),
+        ring_program,
+    )?;
+    foreign_output.transfer_with_ring(
+        &recipient_address,
+        zolana_transaction::Mint::SOL,
+        REFUSED_AMOUNT,
+        Some(FOREIGN_RING),
+    )?;
+    foreign_output.pad_utxos(
+        zolana_transaction::instructions::transact::Shape::IN1_OUT2,
+        &sender_address,
+    )?;
+    let prepared = foreign_output;
     expect_foreign_ring(prove(prepared), FOREIGN_RING)?;
 
     let foreign_note = Note {
@@ -1332,12 +1365,25 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         blinding: random_blinding(),
         ring_program_id: Some(FOREIGN_RING),
     };
-    let mut foreign_input =
-        ConfidentialTransfer::new(sender_address, vec![foreign_note.spend()], sender.pubkey())
-            .with_compact_change()
-            .with_ring_program_id(ring_program);
-    foreign_input.send(&recipient_address, SOL_MINT, REFUSED_AMOUNT)?;
-    expect_foreign_ring(prove(foreign_input.prepare()?), FOREIGN_RING)?;
+    let mut foreign_input = ConfidentialTransaction::new_with_ring(
+        vec![foreign_note.input_utxo(&env)?],
+        sender.pubkey(),
+        ring_program,
+    )?;
+    foreign_input.transfer_sol(&recipient_address, REFUSED_AMOUNT)?;
+    expect_foreign_ring(
+        prove({
+            foreign_input.pad_utxos(
+                zolana_transaction::instructions::transact::canonical_shape(
+                    foreign_input.inputs().len(),
+                    2,
+                )?,
+                &(sender_address),
+            )?;
+            foreign_input
+        }),
+        FOREIGN_RING,
+    )?;
 
     Ok(())
 }
@@ -1391,16 +1437,23 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         USDC_FUNDING - USDC_DEFAULT_DEPOSIT,
         "funding account after the default deposit"
     );
-    let entry_input = deposited.spend();
-    wait_for_merkle_proof(indexer, env.tree, entry_input.hash()?);
+    let entry_input = deposited.input_utxo(&env)?;
+    wait_for_merkle_proof(indexer, env.tree, entry_input.utxo_hash);
 
     // 2. Entry, the default USDC note is spent into ring-bound notes.
     let mut entry_transfer =
-        ConfidentialTransfer::new(sender_address, vec![entry_input], sender.pubkey())
-            .with_compact_change()
-            .with_ring_program_id(ring_program);
-    entry_transfer.send(&recipient_address, usdc, USDC_ENTRY_AMOUNT)?;
-    let prepared = entry_transfer.prepare()?;
+        ConfidentialTransaction::new_with_ring(vec![entry_input], sender.pubkey(), ring_program)?;
+    entry_transfer.transfer(&recipient_address, usdc, USDC_ENTRY_AMOUNT)?;
+    let prepared = {
+        entry_transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                entry_transfer.inputs().len(),
+                2,
+            )?,
+            &(sender_address),
+        )?;
+        entry_transfer
+    };
     let entry_change = Note {
         owner: sender,
         asset: usdc,
@@ -1432,8 +1485,8 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         .run(&env)?
         .outputs,
         vec![
-            entry_change.audited(CHANGE_SLOT)?,
             recipient_ring_note.audited(RECIPIENT_SLOT)?,
+            entry_change.audited(CHANGE_SLOT)?
         ],
         "entry outputs"
     );
@@ -1450,12 +1503,22 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
     );
 
     // 3. In-ring hop.
-    let mut hop_transfer =
-        ConfidentialTransfer::new(sender_address, vec![entry_change.spend()], sender.pubkey())
-            .with_compact_change()
-            .with_ring_program_id(ring_program);
-    hop_transfer.send(&recipient_address, usdc, USDC_HOP_AMOUNT)?;
-    let prepared = hop_transfer.prepare()?;
+    let mut hop_transfer = ConfidentialTransaction::new_with_ring(
+        vec![entry_change.input_utxo(&env)?],
+        sender.pubkey(),
+        ring_program,
+    )?;
+    hop_transfer.transfer(&recipient_address, usdc, USDC_HOP_AMOUNT)?;
+    let prepared = {
+        hop_transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                hop_transfer.inputs().len(),
+                2,
+            )?,
+            &(sender_address),
+        )?;
+        hop_transfer
+    };
     let hop_change = Note {
         owner: sender,
         asset: usdc,
@@ -1487,8 +1550,8 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         .run(&env)?
         .outputs,
         vec![
-            hop_change.audited(CHANGE_SLOT)?,
             recipient_hop_note.audited(RECIPIENT_SLOT)?,
+            hop_change.audited(CHANGE_SLOT)?
         ],
         "hop outputs"
     );
@@ -1522,20 +1585,32 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         USDC_FUNDING - USDC_DEFAULT_DEPOSIT - USDC_RING_DEPOSIT,
         "funding account after the ring deposit"
     );
-    let receipt_input = SppProofInputUtxo::new(receipt, sender);
-    wait_for_merkle_proof(indexer, env.tree, receipt_input.hash()?);
+    let receipt_input = indexed_note(receipt, sender, &env, env.tree)?;
+    wait_for_merkle_proof(indexer, env.tree, receipt_input.utxo_hash);
 
     // 5. Exit, the hop change and the ring-deposit receipt are spent together,
     //    the receipt spend proves the sdk receipt utxo matches the leaf.
-    let mut exit_transfer = ConfidentialTransfer::new(
-        sender_address,
-        vec![hop_change.spend(), receipt_input],
+    let mut exit_transfer = ConfidentialTransaction::new_with_ring(
+        vec![hop_change.input_utxo(&env)?, receipt_input],
         sender.pubkey(),
-    )
-    .with_compact_change()
-    .with_ring_program_id(ring_program);
-    exit_transfer.send_default_ring(&recipient_address, usdc, USDC_EXIT_AMOUNT)?;
-    let prepared = exit_transfer.prepare()?;
+        ring_program,
+    )?;
+    exit_transfer.transfer_with_ring(
+        &recipient_address,
+        env.assets.mint(&usdc)?,
+        USDC_EXIT_AMOUNT,
+        None,
+    )?;
+    let prepared = {
+        exit_transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                exit_transfer.inputs().len(),
+                2,
+            )?,
+            &(sender_address),
+        )?;
+        exit_transfer
+    };
     let exit_change = Note {
         owner: sender,
         asset: usdc,
@@ -1567,8 +1642,8 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         .run(&env)?
         .outputs,
         vec![
-            exit_change.audited(CHANGE_SLOT)?,
             recipient_default_note.audited(RECIPIENT_SLOT)?,
+            exit_change.audited(CHANGE_SLOT)?
         ],
         "exit outputs"
     );
@@ -1590,19 +1665,23 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
 
     // 6. A ring transact settles a public USDC withdrawal beside a ring send.
     let recipient_usdc = create_token_account(rpc, &env.payer, &usdc, &recipient.pubkey())?;
-    let mut withdraw_transfer =
-        ConfidentialTransfer::new(sender_address, vec![exit_change.spend()], sender.pubkey())
-            .with_compact_change()
-            .with_ring_program_id(ring_program);
-    withdraw_transfer.withdraw(
-        usdc,
-        USDC_WITHDRAW_AMOUNT,
-        SettlementTarget::Spl {
-            user_spl_token: recipient_usdc,
-        },
+    let mut withdraw_transfer = ConfidentialTransaction::new_with_ring(
+        vec![exit_change.input_utxo(&env)?],
+        sender.pubkey(),
+        ring_program,
     )?;
-    withdraw_transfer.send(&recipient_address, usdc, USDC_FINAL_SEND)?;
-    let prepared = withdraw_transfer.prepare()?;
+    withdraw_transfer.withdraw(usdc, USDC_WITHDRAW_AMOUNT, recipient_usdc)?;
+    withdraw_transfer.transfer(&recipient_address, usdc, USDC_FINAL_SEND)?;
+    let prepared = {
+        withdraw_transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                withdraw_transfer.inputs().len(),
+                2,
+            )?,
+            &(sender_address),
+        )?;
+        withdraw_transfer
+    };
     let final_change = Note {
         owner: sender,
         asset: usdc,
@@ -1651,8 +1730,8 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         .run(&env)?
         .outputs,
         vec![
-            final_change.audited(CHANGE_SLOT)?,
             recipient_final_note.audited(RECIPIENT_SLOT)?,
+            final_change.audited(CHANGE_SLOT)?
         ],
         "withdrawal outputs"
     );
@@ -1689,9 +1768,9 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     let prover = ProverClient::local();
 
-    // env.tree is the active tree and the ring's entries tree, the genesis
-    // default tree holds the stranded note.
-    let old_tree = env.register_default_tree()?;
+    // Spend from a separate input tree while the ring's entries stay in env.tree.
+    let old_tree = env.create_registered_tree()?;
+    assert_ne!(old_tree, env.tree);
     RegisterRing {
         ring,
         payer: &env.payer,
@@ -1714,26 +1793,33 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     wait_for_merkle_proof(
         indexer,
         old_tree,
-        SppProofInputUtxo::new(utxo.clone(), sender).hash()?,
+        indexed_note(utxo.clone(), sender, &env, old_tree)?.utxo_hash,
     );
 
-    let mut transfer = ConfidentialTransfer::new(
-        sender.shielded_address()?,
-        vec![SppProofInputUtxo::new(utxo, sender)],
+    let mut transfer = ConfidentialTransaction::new_with_ring(
+        vec![indexed_note(utxo, sender, &env, old_tree)?],
         sender.pubkey(),
-    )
-    .with_compact_change()
-    .with_ring_program_id(ring_program);
-    transfer.send(&recipient.shielded_address()?, SOL_MINT, ENTRY_AMOUNT)?;
-    let prepared = transfer.prepare()?;
+        ring_program,
+    )?;
+    transfer.transfer_sol(&recipient.shielded_address()?, ENTRY_AMOUNT)?;
+    let prepared = {
+        transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                transfer.inputs().len(),
+                2,
+            )?,
+            &(sender.shielded_address()?),
+        )?;
+        transfer
+    };
     let proven = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender,
-        prepared,
+        nullifier_key: Some(&sender.nullifier_key),
+        transaction: prepared,
     })
     .with_tree(old_tree)
     .with_output_tree(env.tree)
-    .with_assets(&env.assets)
     .prove(TransferProofEnvironment {
         indexer,
         rpc,
@@ -1758,9 +1844,8 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     let received = env
         .recipient
         .wallet
-        .utxos
-        .iter()
-        .find(|held| !held.spent)
+        .unspent()
+        .next()
         .map(|held| held.utxo.clone())
         .ok_or_else(|| anyhow!("migrated recipient note"))?;
     assert_eq!(
@@ -1768,15 +1853,19 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         "recipient holds the migrated amount in the active tree"
     );
 
-    let mut hop = ConfidentialTransfer::new(
-        recipient.shielded_address()?,
-        vec![SppProofInputUtxo::new(received, recipient)],
+    let mut hop = ConfidentialTransaction::new_with_ring(
+        vec![indexed_note(received, recipient, &env, env.tree)?],
         recipient.pubkey(),
-    )
-    .with_compact_change()
-    .with_ring_program_id(ring_program);
-    hop.send(&sender.shielded_address()?, SOL_MINT, SECOND_HOP_AMOUNT)?;
-    let hop_prepared = hop.prepare()?;
+        ring_program,
+    )?;
+    hop.transfer_sol(&sender.shielded_address()?, SECOND_HOP_AMOUNT)?;
+    let hop_prepared = {
+        hop.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(hop.inputs().len(), 2)?,
+            &(recipient.shielded_address()?),
+        )?;
+        hop
+    };
     let hop = RingTransfer {
         ring,
         sender: recipient,
@@ -1797,8 +1886,8 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     .collect();
     assert_eq!(
         hop_outputs,
-        vec![ENTRY_AMOUNT - SECOND_HOP_AMOUNT, SECOND_HOP_AMOUNT],
-        "the active-tree note spends in turn"
+        vec![SECOND_HOP_AMOUNT, ENTRY_AMOUNT - SECOND_HOP_AMOUNT],
+        "the active-tree note input_utxos in turn"
     );
     Ok(())
 }
@@ -1849,35 +1938,42 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
     wait_for_merkle_proof(
         indexer,
         input_tree,
-        SppProofInputUtxo::new(utxo.clone(), sender)
-            .in_tree(input_tree_id)
-            .hash()?,
+        indexed_note(utxo.clone(), sender, &env, input_tree)?.utxo_hash,
     );
 
-    let mut transfer = ConfidentialTransfer::new(
-        sender.shielded_address()?,
-        vec![SppProofInputUtxo::new(utxo, sender).in_tree(input_tree_id)],
+    let mut transfer = ConfidentialTransaction::new_with_ring(
+        vec![indexed_note(utxo, sender, &env, input_tree)?],
         sender.pubkey(),
-    )
-    .with_compact_change()
-    .with_ring_program_id(ring_program)
-    .with_output_tree_id(output_tree_id);
-    transfer.send(&recipient.shielded_address()?, SOL_MINT, ENTRY_AMOUNT)?;
-    let prepared = transfer.prepare()?;
-    let recipient_hash = prepared
-        .outputs
-        .iter()
-        .find(|output| output.amount == ENTRY_AMOUNT)
+        ring_program,
+    )?
+    .with_output_tree_id(output_tree_id)?;
+    transfer.transfer_sol(&recipient.shielded_address()?, ENTRY_AMOUNT)?;
+    let prepared = {
+        transfer.pad_utxos(
+            zolana_transaction::instructions::transact::canonical_shape(
+                transfer.inputs().len(),
+                2,
+            )?,
+            &(sender.shielded_address()?),
+        )?;
+        transfer
+    };
+    let mut recipient_output = prepared
+        .outputs()
+        .get(RECIPIENT_SLOT as usize)
         .ok_or_else(|| anyhow!("recipient output"))?
-        .hash(output_tree_id)?;
+        .clone();
+    assert_eq!(recipient_output.amount, ENTRY_AMOUNT);
+    recipient_output.blinding = output_blinding(&prepared, RECIPIENT_SLOT)?;
+    let recipient_hash = recipient_output.hash(output_tree_id)?;
     let proven = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender,
-        prepared,
+        nullifier_key: Some(&sender.nullifier_key),
+        transaction: prepared,
     })
     .with_tree(input_tree)
     .with_output_tree(output_tree)
-    .with_assets(&env.assets)
     .prove(TransferProofEnvironment {
         indexer,
         rpc,
@@ -1899,7 +1995,7 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         .find(|slot| slot.output_context.hash == recipient_hash)
         .ok_or_else(|| anyhow!("recipient output hashed under the output tree id"))?;
     assert_eq!(
-        recipient_slot.output_context.tree, output_tree,
+        recipient_slot.output_context.tree_id, output_tree_id,
         "recipient output tree"
     );
     wait_for_merkle_proof(indexer, output_tree, recipient_hash);
@@ -1930,18 +2026,26 @@ struct Note<'a> {
 }
 
 impl Note<'_> {
-    fn spend(self) -> SppProofInputUtxo {
-        SppProofInputUtxo::new(
-            Utxo {
-                owner: self.owner.signing_pubkey(),
-                asset: self.asset,
-                amount: self.amount,
-                blinding: self.blinding,
-                ring_program_id: self.ring_program_id,
-                data: Data::default(),
-            },
-            self.owner,
-        )
+    fn input_utxo(self, env: &TestEnv) -> Result<WalletUtxo> {
+        let utxo = Utxo {
+            owner: self.owner.signing_pubkey(),
+            asset: env.assets.mint(&self.asset)?,
+            amount: self.amount,
+            blinding: self.blinding,
+            ring_program_id: self.ring_program_id,
+            data: Data::default(),
+        };
+        if self.ring_program_id == Some(FOREIGN_RING) {
+            return zolana_test_utils::utxo::wallet(
+                utxo,
+                &self.owner.nullifier_key,
+                0,
+                0,
+                None,
+                None,
+            );
+        }
+        indexed_note(utxo, self.owner, env, env.tree)
     }
 
     fn audited(self, slot_index: u32) -> Result<AuditedOutput> {
@@ -1991,18 +2095,19 @@ impl<'a> DefaultRingDeposit<'a> {
         // from the indexer.
         let indexed = wait_for_indexed_transaction(indexer, view_tag, signature);
         let mint = self.asset.mint();
-        let balances = decrypt_transactions(self.depositor, std::slice::from_ref(&indexed), assets)
-            .map_err(|e| anyhow!("decrypt deposit {signature}: {e:?}"))?;
+        let balances = decrypt_spendable(self.depositor, std::slice::from_ref(&indexed), assets)
+            .map_err(|e| anyhow!("decrypt deposit {signature}: {e:?}"))?
+            .balances;
         let deposited = balances
             .get_balance(mint)
             .and_then(|balance| balance.utxos.first())
             .ok_or_else(|| anyhow!("deposit {signature} not indexed for {mint}"))?;
-        assert_eq!(deposited.amount, self.amount, "deposited amount");
+        assert_eq!(deposited.utxo.amount, self.amount, "deposited amount");
         Ok(Note {
             owner: self.depositor,
             asset: mint,
             amount: self.amount,
-            blinding: deposited.blinding,
+            blinding: deposited.utxo.blinding,
             ring_program_id: None,
         })
     }
@@ -2011,7 +2116,7 @@ impl<'a> DefaultRingDeposit<'a> {
 struct RingTransfer<'a> {
     ring: CustomRing,
     sender: &'a ShieldedKeypair,
-    prepared: PreparedTransfer,
+    prepared: ConfidentialTransaction,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     auditor_tag: [u8; 32],
 }
@@ -2028,10 +2133,10 @@ impl RingTransfer<'_> {
         let proven = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: self.sender,
-            prepared: self.prepared,
+            nullifier_key: Some(&self.sender.nullifier_key),
+            transaction: self.prepared,
         })
         .with_tree(env.tree)
-        .with_assets(&env.assets)
         .with_interface_transfer_accounts(self.interface_transfer_accounts)
         .prove(TransferProofEnvironment {
             indexer,
@@ -2064,8 +2169,8 @@ impl RingTransfer<'_> {
 struct AsyncHopParity<'a> {
     ring: CustomRing,
     sender: &'a ShieldedKeypair,
-    blocking: PreparedTransfer,
-    asynchronous: PreparedTransfer,
+    blocking: ConfidentialTransaction,
+    asynchronous: ConfidentialTransaction,
     auditor_tag: [u8; 32],
 }
 
@@ -2076,10 +2181,10 @@ impl AsyncHopParity<'_> {
         let blocking = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: self.sender,
-            prepared: self.blocking,
+            nullifier_key: Some(&self.sender.nullifier_key),
+            transaction: self.blocking,
         })
         .with_tree(env.tree)
-        .with_assets(&env.assets)
         .prove(TransferProofEnvironment {
             indexer,
             rpc,
@@ -2099,10 +2204,10 @@ impl AsyncHopParity<'_> {
             CustomRingTransfer::new(CustomRingTransferInput {
                 ring: self.ring,
                 sender: self.sender,
-                prepared: self.asynchronous,
+                nullifier_key: Some(&self.sender.nullifier_key),
+                transaction: self.asynchronous,
             })
             .with_tree(env.tree)
-            .with_assets(&env.assets)
             .prove_async(AsyncTransferProofEnvironment {
                 indexer: &async_indexer,
                 rpc: &async_rpc,
@@ -2184,20 +2289,32 @@ impl AuditLookup<'_> {
     }
 }
 
-fn output_blinding(prepared: &PreparedTransfer, slot: u32) -> Result<[u8; 32]> {
-    usize::try_from(slot)
-        .ok()
-        .and_then(|index| prepared.outputs.get(index))
-        .map(|output| output.blinding)
-        .ok_or_else(|| anyhow!("output slot {slot}"))
+fn output_blinding(prepared: &ConfidentialTransaction, slot: u32) -> Result<[u8; 32]> {
+    prepared
+        .outputs()
+        .get(usize::try_from(slot)?)
+        .ok_or_else(|| anyhow!("output slot {slot}"))?;
+    let seed = zolana_transaction::derive_output_blinding_seed(
+        prepared.first_nullifier(),
+        prepared.blinding_seed(),
+    )?;
+    Ok(zolana_transaction::utxo::derive_transact_output_blinding(
+        prepared.first_nullifier(),
+        &seed,
+        slot,
+    )?)
 }
 
 fn sorted_unspent_notes(wallet: &Wallet) -> Vec<(Address, u64, Option<Address>)> {
     let mut notes: Vec<_> = wallet
-        .utxos
-        .iter()
-        .filter(|held| !held.spent)
-        .map(|held| (held.utxo.asset, held.utxo.amount, held.utxo.ring_program_id))
+        .unspent()
+        .map(|held| {
+            (
+                held.utxo.asset.asset,
+                held.utxo.amount,
+                held.utxo.ring_program_id,
+            )
+        })
         .collect();
     notes.sort_unstable();
     notes
@@ -2211,4 +2328,23 @@ fn expect_foreign_ring(result: Result<ProvenTransfer, TransferError>, ring: Addr
             "expected ForeignRing({ring}), the transfer was proven"
         )),
     }
+}
+
+fn indexed_note(
+    utxo: Utxo,
+    owner: &ShieldedKeypair,
+    env: &TestEnv,
+    tree: Address,
+) -> Result<WalletUtxo> {
+    let tree_id = custom_ring_sdk::tree_id(env.client.rpc(), tree)?;
+    let hash = utxo.hash(&owner.nullifier_key.pubkey()?, &[0; 32], &[0; 32], tree_id)?;
+    let state = wait_for_merkle_proof(env.client.indexer(), tree, hash);
+    zolana_test_utils::utxo::wallet(
+        utxo,
+        &owner.nullifier_key,
+        tree_id,
+        state.leaf_index,
+        None,
+        None,
+    )
 }

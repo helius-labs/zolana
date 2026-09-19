@@ -279,7 +279,7 @@ fn field_bytes(value: &num_bigint::BigUint) -> [u8; 32] {
 /// parallel vector for them.
 pub struct SolTransferWitnessArgs {
     /// Witness inputs in slot order (real spend input first, then dummies).
-    pub spend_inputs: Vec<TransferInput>,
+    pub input_utxos: Vec<TransferInput>,
     /// UTXO-tree root index the eddsa input slots bind to.
     pub root_index: u16,
     /// The proof's public tree slots; SPP proves against one input tree, so
@@ -336,13 +336,13 @@ pub struct SolTransferWitness {
 /// `spend_inputs` were fetched.
 pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<SolTransferWitness> {
     let nullifiers: Vec<[u8; 32]> = args
-        .spend_inputs
+        .input_utxos
         .iter()
         .map(|input| field_bytes(&input.nullifier))
         .collect();
     let first_nullifier = nullifiers
         .first()
-        .ok_or_else(|| anyhow!("{} witness has no spend input", args.label))?;
+        .ok_or_else(|| anyhow!("{} witness has no input_utxo input", args.label))?;
     let output_hashes = derive_test_transfer_output_blindings(first_nullifier, &mut args.outputs)?;
     let output_blindings: Vec<[u8; 32]> = args
         .outputs
@@ -388,7 +388,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
     .hash()?;
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(args.public_sol_amount);
     let signer_hashes = [args.payer_pubkey_hash, [0u8; 32], [0u8; 32]];
-    let input_flags = transact_input_flags(&args.spend_inputs);
+    let input_flags = transact_input_flags(&args.input_utxos);
     let public_input = PublicInputs {
         nullifiers: &nullifiers,
         output_hashes: &output_hashes,
@@ -407,7 +407,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
     }
     .hash()?;
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: args.spend_inputs,
+        inputs: args.input_utxos,
         outputs: args.outputs,
         tree_slots: args.tree_slots,
         output_tree_id: args.output_tree_id,

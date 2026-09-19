@@ -1,10 +1,8 @@
 use anyhow::{bail, Result};
 use dynamic_swap_program::instructions::settle::SettlePublicInput;
 use dynamic_swap_prover::{EscrowSettleProofInputs, ProofInputUtxo};
-use zolana_transaction::instructions::{
-    transact::{PrivateTxHash, SppProofOutputUtxo},
-    types::SppProofInputUtxo,
-};
+use zolana_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
+use zolana_transaction::utxo::SppProofInputUtxo;
 use zolana_transaction::utxo::{
     derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
 };
@@ -63,7 +61,7 @@ pub struct SettleProofInputParams {
 
 impl SettleProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<EscrowSettleProofInputs> {
-        let first_nullifier = self.order_in.nullifier().map_err(err)?;
+        let first_nullifier = self.order_in.nullifier();
         let blinding_seed = settle_blinding_seed(
             &self.order_in.utxo.blinding,
             &self.reservation_in.utxo.blinding,
@@ -144,7 +142,7 @@ impl SettleProofInputParams {
         let recipient_owner = check_output_utxo(
             "recipient_out",
             &self.recipient_out,
-            &recipient_asset,
+            &recipient_asset.asset,
             recipient_amount,
         )?;
         if recipient_owner.owner_hash().map_err(err)? != self.recipient_owner_hash {
@@ -156,7 +154,7 @@ impl SettleProofInputParams {
         let maker_counter_owner = check_output_utxo(
             "maker_counter",
             &self.maker_counter,
-            &self.reservation_in.utxo.asset,
+            &self.reservation_in.utxo.asset.asset,
             remainder,
         )?;
         if maker_counter_owner.owner_hash().map_err(err)? != self.authority_owner_hash {
@@ -170,7 +168,7 @@ impl SettleProofInputParams {
         let maker_source_owner = check_output_utxo(
             "maker_source",
             &self.maker_source,
-            &self.order_in.utxo.asset,
+            &self.order_in.utxo.asset.asset,
             maker_source_amount,
         )?;
         if maker_source_owner.owner_hash().map_err(err)? != self.authority_owner_hash {

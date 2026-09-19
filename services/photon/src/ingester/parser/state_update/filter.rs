@@ -160,6 +160,8 @@ mod tests {
 
     async fn insert_test_tree_pubkey(db: &DatabaseConnection, tree_pk: Pubkey) -> Pubkey {
         let data = TreeAccountData {
+            tree_id: 0,
+            paused: false,
             queue_pubkey: tree_pk,
             root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
             input_queue_zkp_batch_size:

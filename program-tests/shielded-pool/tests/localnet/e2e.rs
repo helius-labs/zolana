@@ -29,7 +29,7 @@ use shielded_pool_tests::support::localnet::{
 
 use zolana_test_utils::transact::{
     change_and_dummy_outputs, dummy_input, dummy_transfer_output, nullifier_tree, public_sol_field,
-    real_output, single_tree_slots, sol_leg, spend_input, transfer_output, SpendInputArgs,
+    real_output, single_tree_slots, sol_leg, transfer_input, transfer_output, TransferInputArgs,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -177,9 +177,16 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     // with the indexed record.
     let payer_utxo = cycle
         .indexer
-        .deposit_utxo(&shield_view.utxo_hash, payer_owner)
+        .deposit_utxo(
+            &shield_view.utxo_hash,
+            payer_owner,
+            zolana_transaction::SOL_ASSET_ID,
+        )
         .map_err(|err| anyhow!("indexed deposit UTXO: {err:?}"))?;
-    assert_eq!((payer_utxo.asset, payer_utxo.amount), (SOL_MINT, AMOUNT));
+    assert_eq!(
+        (payer_utxo.asset.asset, payer_utxo.amount),
+        (SOL_MINT, AMOUNT)
+    );
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero, cycle.tree_id)?;
     assert_eq!(payer_utxo_hash, shield_view.utxo_hash);
 
@@ -223,7 +230,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         .nf_tree
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&payer_nullifier))?;
     let payer_state_path: Vec<[u8; 32]> = cycle.state_tree.get_proof_of_leaf(0, true)?.to_vec();
-    let payer_spend_input = spend_input(SpendInputArgs {
+    let payer_input_utxo = transfer_input(TransferInputArgs {
         utxo: &shielded.utxo,
         owner_field: &shielded.owner_field,
         state_path: &payer_state_path,
@@ -243,14 +250,14 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let change_output = real_output(
         shielded.utxo.owner,
         shielded.nullifier_pk,
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         CHANGE_AMOUNT,
         [13u8; 31],
     );
     let recipient_output = real_output(
         recipient_public_key,
         recipient_nullifier_pk,
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         TRANSFER_AMOUNT,
         [17u8; 31],
     );
@@ -273,7 +280,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         output_hashes: transfer_output_hashes,
         output_blindings: transfer_output_blindings,
     } = build_sol_transfer_witness(SolTransferWitnessArgs {
-        spend_inputs: vec![payer_spend_input, transfer_dummy_input],
+        input_utxos: vec![payer_input_utxo, transfer_dummy_input],
         root_index: shielded.utxo_root_index,
         tree_slots: transfer_tree_slots,
         output_tree_id: tree_id,
@@ -347,7 +354,7 @@ fn phase_unshield(
 
     let recipient_utxo = Utxo {
         owner: transferred.public_key,
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: TRANSFER_AMOUNT,
         blinding: transferred.blinding,
         ring_program_id: None,
@@ -366,7 +373,7 @@ fn phase_unshield(
         .nf_tree
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&recipient_nullifier))?;
     let recipient_state_path: Vec<[u8; 32]> = cycle.state_tree.get_proof_of_leaf(2, true)?.to_vec();
-    let recipient_spend_input = spend_input(SpendInputArgs {
+    let recipient_input_utxo = transfer_input(TransferInputArgs {
         utxo: &recipient_utxo,
         owner_field: &recipient_owner_field,
         state_path: &recipient_state_path,
@@ -408,7 +415,7 @@ fn phase_unshield(
         ix_data: withdraw_ix_data,
         ..
     } = build_sol_transfer_witness(SolTransferWitnessArgs {
-        spend_inputs: vec![recipient_spend_input, withdraw_dummy_input],
+        input_utxos: vec![recipient_input_utxo, withdraw_dummy_input],
         root_index: transferred.utxo_root_index,
         tree_slots: withdraw_tree_slots,
         output_tree_id: tree_id,

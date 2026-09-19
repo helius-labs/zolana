@@ -20,8 +20,9 @@ use zolana_program_test::{
 };
 use zolana_transaction::{
     derive_output_blinding_seed, utxo::derive_transact_output_blinding, AssetRegistry,
-    KeypairWalletAuthority, ShieldedTransaction, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+    ShieldedTransaction,
 };
+use zolana_wallet::{KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use shielded_pool_tests::support::localnet::{
     initialize_indexed_pool, print_signature, send_indexed, LocalnetPool,
@@ -48,7 +49,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         payer,
         authority,
         tree,
-        tree_id: _tree_id,
+        tree_id,
     } = initialize_indexed_pool(&mut rpc, &mut indexer, program_id)?;
     let depositor = Keypair::new();
     print_signature(
@@ -85,7 +86,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_wallet_discovers(
         &mut direct_recipient,
         &KeypairWalletAuthority::new(Pubkey::default(), &direct_keypair),
-        direct_view.to_shielded_transaction(Signature::default()),
+        direct_view.to_shielded_transaction(Signature::default(), tree_id),
         direct_view.utxo_hash,
     )?;
 
@@ -182,7 +183,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_wallet_discovers(
         &mut ring_recipient,
         &KeypairWalletAuthority::new(Pubkey::default(), &ring_keypair),
-        ring_view.to_shielded_transaction(Signature::default()),
+        ring_view.to_shielded_transaction(Signature::default(), tree_id),
         ring_view.utxo_hash,
     )?;
 
@@ -198,9 +199,6 @@ fn assert_wallet_discovers<A: SyncWalletAuthority + ?Sized>(
 ) -> TestResult {
     wallet.sync(authority, &[transaction], 0, DEFAULT_TAG_WINDOW)?;
     assert_eq!(wallet.utxos.len(), 1);
-    assert_eq!(
-        wallet.utxos.first().expect("one utxo").output_context.hash,
-        utxo_hash
-    );
+    assert_eq!(wallet.utxos.first().expect("one utxo").utxo_hash, utxo_hash);
     Ok(())
 }

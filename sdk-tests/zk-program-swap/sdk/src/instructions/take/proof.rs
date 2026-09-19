@@ -1,12 +1,12 @@
 use anyhow::{bail, Result};
 use swap_program::instructions::take::TakePublicInput;
 use swap_prover::{OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
+use zolana_client::ProofInputUtxo;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
-    ProofInputUtxo,
 };
 
 use super::take_blinding_seed;
@@ -39,7 +39,7 @@ impl TakeProofInputParams {
         let source_owner = check_output_utxo(
             "source_output",
             &self.source_output,
-            &self.order_utxo.source_mint,
+            &self.order_utxo.source_mint.asset,
             self.order_utxo.source_amount,
         )?;
         if source_owner != taker {
@@ -58,8 +58,14 @@ impl TakeProofInputParams {
             bail!("order take_mode does not authorize the derived take");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
-        let order_input = self.order_utxo.to_input_utxo()?.in_tree(self.input_tree_id);
-        let first_nullifier = order_input.nullifier().map_err(err)?;
+        let order_output = self
+            .order_utxo
+            .output_utxo(terms.destination.viewing_pubkey)?;
+        let order_utxo =
+            ProofInputUtxo::try_from((&order_output, self.input_tree_id)).map_err(err)?;
+        let first_nullifier = zolana_keypair::NullifierKey::from_secret([0; 31])
+            .nullifier(&order_utxo.hash().map_err(err)?, &self.order_utxo.blinding)
+            .map_err(err)?;
         let blinding_seed = take_blinding_seed(&self.order_utxo.blinding)?;
         let seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed).map_err(err)?;
         if self.private_tx_blinding
@@ -78,7 +84,6 @@ impl TakeProofInputParams {
                 bail!("take output {index} blinding must derive from the order opening");
             }
         }
-        let order_utxo = ProofInputUtxo::try_from(&order_input).map_err(err)?;
         let taker_in =
             ProofInputUtxo::try_from((&self.taker_in, self.input_tree_id)).map_err(err)?;
         let source_output =

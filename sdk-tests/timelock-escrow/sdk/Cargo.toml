@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+zolana-client = { workspace = true }
 anyhow = { workspace = true }
 timelock-escrow-program = { path = "../program" }
 timelock-escrow-prover = { path = "../prover" }

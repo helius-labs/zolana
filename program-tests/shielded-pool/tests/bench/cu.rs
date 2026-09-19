@@ -48,8 +48,8 @@ use zolana_test_utils::{
         external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree,
         output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, public_sol_field,
         real_output, set_output_owner_tags, single_tree_slots, sol_leg, sol_public_slots,
-        spend_input, test_private_tx_blinding, transfer_output, SpendInputArgs,
-        TransferProverInputsArgs, TEST_BLINDING_SEED,
+        test_private_tx_blinding, transfer_output, TransferInputArgs, TransferProverInputsArgs,
+        TEST_BLINDING_SEED,
     },
 };
 
@@ -775,9 +775,9 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
         .expect("non inclusion proof");
 
     let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
-    let (dummy_spend_input, dummy_nullifier) =
+    let (dummy_input_utxo, dummy_nullifier) =
         dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
-    let payer_spend_input = spend_input(SpendInputArgs {
+    let payer_input_utxo = transfer_input(TransferInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
@@ -861,7 +861,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
     .hash()
     .expect("public input hash");
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![payer_spend_input, dummy_spend_input],
+        inputs: vec![payer_input_utxo, dummy_input_utxo],
         outputs,
         tree_slots,
         output_tree_id: tree_id,

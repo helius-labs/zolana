@@ -441,14 +441,34 @@ fn len_exceeds_page_limit(len: usize) -> bool {
     u64::try_from(len).map_or(true, |len| len > PAGE_LIMIT)
 }
 
+/// The tree id as the metadata join reports it.
+///
+/// `filter_by_known_trees` refuses to persist an output whose tree has no
+/// `tree_metadata` row, so a NULL here can only be a row written before the
+/// column existed; the startup metadata sync fills it in. Serving a named error
+/// beats serving a guessed id, and beats dropping the note, which is what an
+/// inner join would do.
+fn tree_id_from_column(tree_id: Option<i32>) -> Result<u16, PhotonApiError> {
+    let tree_id = tree_id.ok_or_else(|| {
+        PhotonApiError::UnexpectedError(
+            "Output tree has no tree id in DB; metadata has not been synced".to_string(),
+        )
+    })?;
+
+    u16::try_from(tree_id)
+        .map_err(|_| PhotonApiError::UnexpectedError(format!("Invalid tree id in DB: {}", tree_id)))
+}
+
 fn rings_output_context_from_parts(
     hash: Vec<u8>,
     tree: Vec<u8>,
+    tree_id: Option<i32>,
     leaf_index: i64,
 ) -> Result<RingsOutputContext, PhotonApiError> {
     Ok(RingsOutputContext {
         hash: hash_from_vec(hash)?,
         tree: pubkey_from_vec(tree)?,
+        tree_id: tree_id_from_column(tree_id)?,
         leaf_index: u64_from_i64(leaf_index, "leaf index")?,
     })
 }
@@ -457,12 +477,13 @@ pub(super) fn rings_output_slot_from_parts(
     view_tag: Vec<u8>,
     hash: Vec<u8>,
     tree: Vec<u8>,
+    tree_id: Option<i32>,
     leaf_index: i64,
     payload: Vec<u8>,
 ) -> Result<RingsOutputSlot, PhotonApiError> {
     Ok(RingsOutputSlot {
         view_tag: hash_from_vec(view_tag)?,
-        output_context: rings_output_context_from_parts(hash, tree, leaf_index)?,
+        output_context: rings_output_context_from_parts(hash, tree, tree_id, leaf_index)?,
         payload: Base64String(payload),
     })
 }
@@ -514,6 +535,8 @@ mod tests {
     fn tree_info_with(root_history_capacity: u64) -> TreeInfo {
         TreeInfo {
             tree: Default::default(),
+            tree_id: 0,
+            paused: false,
             queue: Default::default(),
             height: 0,
             root_history_capacity,

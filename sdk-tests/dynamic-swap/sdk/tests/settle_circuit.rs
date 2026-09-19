@@ -9,14 +9,11 @@ use dynamic_swap_sdk::{
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
-    instructions::{
-        transact::{assign_output_blindings, PrivateTxHash, SppProofOutputUtxo},
-        types::SppProofInputUtxo,
-    },
+    instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
-    Address, Data, Utxo, SOL_MINT,
+    Address, Data, Mint, Utxo,
 };
 
 const INPUT_TREE_ID: u16 = 3;
@@ -35,7 +32,7 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
         .shielded_address()
         .unwrap();
     let authority = operator.shielded_address().unwrap();
-    let source_asset = Address::new_from_array([1; 32]);
+    let source_asset = Mint::new(Address::new_from_array([1; 32]), 2);
     let order_amount = 10;
     let max_price = 5;
     let created_at = 123;
@@ -43,7 +40,7 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
         recipient_owner_hash: recipient.owner_hash().unwrap(),
         max_price,
     };
-    let order_in = SppProofInputUtxo::new(
+    let order_in = zolana_test_utils::utxo::wallet(
         Utxo {
             owner: operator.signing_pubkey(),
             asset: source_asset,
@@ -52,25 +49,33 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
             ring_program_id: None,
             data: Data::default(),
         },
-        &operator,
+        &operator.nullifier_key,
+        INPUT_TREE_ID,
+        0,
+        Some(terms.data_hash(created_at).unwrap()),
+        None,
     )
-    .in_tree(INPUT_TREE_ID)
-    .with_data_hash(terms.data_hash(created_at).unwrap());
-    let escrow_utxo_hash = order_in.hash().unwrap();
-    let reservation_in = SppProofInputUtxo::new(
+    .unwrap();
+    let order_in: zolana_transaction::utxo::SppProofInputUtxo = order_in.into();
+    let escrow_utxo_hash = order_in.hash();
+    let reservation_in = zolana_test_utils::utxo::wallet(
         Utxo {
             owner: operator.signing_pubkey(),
-            asset: SOL_MINT,
+            asset: Mint::SOL,
             amount: order_amount * max_price,
             blinding: fe(13),
             ring_program_id: None,
             data: Data::default(),
         },
-        &operator,
+        &operator.nullifier_key,
+        INPUT_TREE_ID,
+        1,
+        Some(escrow_utxo_hash),
+        None,
     )
-    .in_tree(INPUT_TREE_ID)
-    .with_data_hash(escrow_utxo_hash);
-    let reservation_utxo_hash = reservation_in.hash().unwrap();
+    .unwrap();
+    let reservation_in: zolana_transaction::utxo::SppProofInputUtxo = reservation_in.into();
+    let reservation_utxo_hash = reservation_in.hash();
     let is_settle = execution_price <= max_price;
     let owed = if is_settle {
         order_amount * execution_price
@@ -79,12 +84,12 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
     };
     let mut outputs = [
         SppProofOutputUtxo::new(
-            if is_settle { SOL_MINT } else { source_asset },
+            if is_settle { Mint::SOL } else { source_asset },
             if is_settle { owed } else { order_amount },
             recipient,
         )
         .unwrap(),
-        SppProofOutputUtxo::new(SOL_MINT, order_amount * max_price - owed, authority).unwrap(),
+        SppProofOutputUtxo::new(Mint::SOL, order_amount * max_price - owed, authority).unwrap(),
         SppProofOutputUtxo::new(
             source_asset,
             if is_settle { order_amount } else { 0 },
@@ -92,11 +97,14 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
         )
         .unwrap(),
     ];
-    let first_nullifier = order_in.nullifier().unwrap();
+    let first_nullifier = order_in.nullifier();
     let blinding_seed =
         settle_blinding_seed(&order_in.utxo.blinding, &reservation_in.utxo.blinding).unwrap();
     let seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed).unwrap();
-    assign_output_blindings(&mut outputs, &first_nullifier, &seed).unwrap();
+    for (index, output) in outputs.iter_mut().enumerate() {
+        output.blinding =
+            derive_transact_output_blinding(&first_nullifier, &seed, index as u32).unwrap();
+    }
     let [recipient_out, maker_counter, maker_source] = outputs;
     SettleProofInputParams {
         order_in,

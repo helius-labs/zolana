@@ -8,9 +8,9 @@ use zolana_client::Rpc;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{
     serialization::confidential::Confidential, utxo::Blinding, DecodeCx, ShieldedTransaction,
-    UtxoSerialization, Wallet,
+    UtxoSerialization,
 };
-use zolana_wallet::resolve_registered_address;
+use zolana_wallet::{resolve_registered_address, Wallet};
 
 use super::{
     poll::{collect_tagged, index_until},
@@ -31,7 +31,7 @@ pub struct TakerOrder {
 
 pub struct TakerOrderCandidate {
     pub source_amount: u64,
-    pub source_mint: Address,
+    pub source_mint: zolana_transaction::Mint,
     pub destination_mint: Address,
     pub order_utxo_blinding: Blinding,
     pub order_data: PlainTextData,
@@ -69,7 +69,7 @@ pub fn scan_taker(
     Ok(Some(TakerOrderCandidate {
         source_amount: order_utxo_plaintext.amount,
         source_mint: resolve_mint(&wallet.registry, order_utxo_plaintext.asset_id)?,
-        destination_mint: resolve_mint(&wallet.registry, order_data.destination_asset_id)?,
+        destination_mint: resolve_mint(&wallet.registry, order_data.destination_asset_id)?.asset,
         order_utxo_blinding: order_utxo_plaintext.blinding,
         order_data,
         maker_pubkey: Pubkey::new_from_array(marker.maker_pubkey),

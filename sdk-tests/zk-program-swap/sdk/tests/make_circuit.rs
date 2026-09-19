@@ -13,9 +13,10 @@ use swap_program::{
 };
 use swap_prover::{CircuitId, MakeProofInputs, OrderTermsProofInput, TAKE_MODE_DERIVED};
 use swap_sdk::state::DataHash;
+use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::ViewingKey;
-use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
+use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
 
 mod shared;
 use shared::order_utxo_owner_hash;

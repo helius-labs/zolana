@@ -5,8 +5,9 @@ use zolana_client::Rpc;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
-    AssetRegistry, ShieldedTransaction, Wallet,
+    AssetRegistry, ShieldedTransaction,
 };
+use zolana_wallet::Wallet;
 
 use super::{
     poll::{collect_tagged, index_until},
@@ -92,7 +93,7 @@ fn maker_order_candidate(
     Some(MakerOrder {
         order_utxo: OrderUtxo {
             terms: OrderTerms {
-                destination_mint,
+                destination_mint: destination_mint.asset,
                 destination_amount: order_data.destination_amount,
                 destination: maker_address,
                 taker: order_data.taker,

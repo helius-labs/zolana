@@ -8,11 +8,11 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SolanaRpc, SppProofInputUtxo};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{pda, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::{KeypairError, ShieldedKeypair};
-use zolana_transaction::{AssetRegistry, TransactionError, Wallet, WalletUtxo, SOL_MINT};
-use zolana_wallet::sync_wallet;
+use zolana_transaction::{AssetRegistry, TransactionError, WalletUtxo, SOL_MINT};
+use zolana_wallet::{sync_wallet, Wallet};
 
 use crate::{
     file::{self, FileError},
@@ -63,6 +63,8 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     let indexer = ctx.indexer();
     let mint = args.mint.unwrap_or(SOL_MINT);
     let registry = asset_registry(&ctx.rpc, mint)?;
+    // Tree 0 to start with; `sync_wallet` backfills the registry from chain if a
+    // note turns up in a tree this one does not name.
     let mut wallet = Wallet::new(sender.shielded_address()?, registry)?;
 
     println!("syncing the sender wallet");
@@ -75,11 +77,11 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         },
     )?;
     let input_count = selected.len();
-    let inputs = selected
-        .into_iter()
-        .map(|entry| SppProofInputUtxo::new(entry.utxo.clone(), &sender).in_tree(entry.tree_id))
-        .collect();
-    let prepared = CustomRingMerge::new(ctx.ring, &sender, inputs, None)?.prepare();
+    let output_tree_id = selected.first().expect("selected merge group").tree_id;
+    let inputs = selected.into_iter().cloned().collect();
+    let prepared = CustomRingMerge::new(ctx.ring, inputs, None)?
+        .with_output_tree_id(output_tree_id)
+        .encrypt(&sender)?;
     let proven = prepared.prove(
         sender.nullifier_key.clone(),
         tree,
@@ -100,11 +102,7 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
 
     wait_for_indexed_transaction(&indexer, signature)?;
     sync_wallet(&mut wallet, &sender, &indexer)?;
-    if !wallet
-        .utxos
-        .iter()
-        .any(|entry| !entry.spent && entry.output_context.hash == output_hash)
-    {
+    if !wallet.unspent().any(|entry| entry.utxo_hash == output_hash) {
         return Err(MergeError::OutputNotFound(output_hash));
     }
 
@@ -146,9 +144,8 @@ fn candidate_groups(
     mint: Address,
 ) -> BTreeMap<Address, Vec<&WalletUtxo>> {
     let mut groups: BTreeMap<Address, Vec<&WalletUtxo>> = BTreeMap::new();
-    for entry in &wallet.utxos {
-        if entry.spent
-            || entry.utxo.asset != mint
+    for entry in wallet.unspent() {
+        if entry.utxo.asset.asset != mint
             || entry.utxo.ring_program_id != Some(ring.program_id())
             || entry.data_hash.is_some()
             // Ring deposits publish the protocol's all-zero "no data" hash as
@@ -169,12 +166,12 @@ fn candidate_groups(
             continue;
         }
         groups
-            .entry(entry.output_context.tree)
+            .entry(pda::tree(entry.tree_id))
             .or_default()
             .push(entry);
     }
     for entries in groups.values_mut() {
-        entries.sort_by_key(|entry| (entry.utxo.amount, entry.output_context.leaf_index));
+        entries.sort_by_key(|entry| (entry.utxo.amount, entry.leaf_index));
     }
     groups
 }
@@ -205,38 +202,39 @@ fn select_candidates(
 
 #[cfg(test)]
 mod tests {
+    use solana_signature::Signature;
     use zolana_interface::pda;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{Data, DataRecord, OutputContext, Utxo, WalletUtxo};
+    use zolana_transaction::{Data, DataRecord, Mint, Utxo};
 
     use super::*;
 
     fn note(
         owner: &ShieldedKeypair,
         ring: CustomRing,
-        tree: Address,
+        tree_id: u16,
         amount: u64,
         leaf_index: u64,
     ) -> WalletUtxo {
         WalletUtxo {
-            tree_id: 0,
             utxo: Utxo {
                 owner: owner.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount,
                 blinding: [amount as u8; 32],
                 ring_program_id: Some(ring.program_id()),
                 data: Data::default(),
             },
-            output_context: OutputContext {
-                hash: [leaf_index as u8; 32],
-                tree,
-                leaf_index,
-            },
+            nullifier_pubkey: [0u8; 32],
+            utxo_hash: [leaf_index as u8; 32],
             nullifier: [leaf_index as u8; 32],
             data_hash: None,
             ring_data_hash: None,
-            spent: false,
+            tree_id,
+            leaf_index,
+            slot: leaf_index,
+            tx_signature: Signature::default(),
+            slot_index: 0,
         }
     }
 
@@ -244,25 +242,24 @@ mod tests {
     fn selection_uses_one_tree_and_the_smallest_clean_notes() {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
         let ring = CustomRing::new(Address::new_from_array([9; 32]));
-        let tree = Address::new_from_array([1; 32]);
-        let other_tree = Address::new_from_array([2; 32]);
+        let tree = pda::tree(1);
         let mut wallet = Wallet::new(
             owner.shielded_address().expect("address"),
             Default::default(),
         )
         .expect("wallet");
         wallet.utxos.extend([
-            note(&owner, ring, tree, 30, 1),
+            note(&owner, ring, 1, 30, 1),
             {
-                let mut deposited = note(&owner, ring, tree, 10, 2);
+                let mut deposited = note(&owner, ring, 1, 10, 2);
                 deposited.ring_data_hash = Some([0; 32]);
                 deposited.utxo.data = Data::new(vec![DataRecord::RingData(Vec::new())]);
                 deposited
             },
-            note(&owner, ring, tree, 20, 3),
-            note(&owner, ring, other_tree, 1, 4),
+            note(&owner, ring, 1, 20, 3),
+            note(&owner, ring, 2, 1, 4),
         ]);
-        let mut dirty = note(&owner, ring, tree, 2, 5);
+        let mut dirty = note(&owner, ring, 1, 2, 5);
         dirty.ring_data_hash = Some([1; 32]);
         wallet.utxos.push(dirty);
 
@@ -288,7 +285,7 @@ mod tests {
             Default::default(),
         )
         .expect("wallet");
-        wallet.utxos.push(note(&owner, ring, pda::tree(0), 10, 1));
+        wallet.utxos.push(note(&owner, ring, 0, 10, 1));
 
         assert!(select_candidates(&wallet, ring, SOL_MINT, MAX_MERGE_INPUTS).is_none());
         assert_eq!(largest_candidate_group(&wallet, ring, SOL_MINT), 1);

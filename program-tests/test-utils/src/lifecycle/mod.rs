@@ -224,6 +224,25 @@ impl Deposit<'_> {
             .ok_or_else(|| {
                 ClientError::Rpc(format!("no indexed deposit output for {signature}"))
             })?;
+        let asset = if asset == SOL_MINT {
+            zolana_transaction::Mint::SOL
+        } else {
+            let address = zolana_interface::pda::spl_asset_registry(&asset);
+            let account = rpc
+                .get_account(address)?
+                .ok_or(ClientError::AccountNotFound {
+                    address: address.to_bytes(),
+                })?;
+            let registry =
+                zolana_interface::state::SplAssetRegistry::from_account_bytes(&account.data)
+                    .map_err(|error| {
+                        ClientError::Rpc(format!("invalid asset registry: {error:?}"))
+                    })?;
+            if registry.mint != asset {
+                return Err(ClientError::Rpc("asset registry mint mismatch".into()));
+            }
+            zolana_transaction::Mint::new(asset, registry.asset_id)
+        };
         let utxo = Utxo {
             owner: self.recipient.signing_pubkey,
             asset,

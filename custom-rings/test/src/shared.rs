@@ -36,8 +36,9 @@ use zolana_test_utils::{
     smart_account::{self, StandardSigners},
     spl::{create_mint, RegisterSplAsset},
 };
-use zolana_transaction::{AssetRegistry, Wallet};
+use zolana_transaction::AssetRegistry;
 use zolana_user_registry_interface::user_registry_program_id;
+use zolana_wallet::Wallet;
 
 /// Funds the fee payer for the whole bootstrap (smart accounts, protocol
 /// config, tree allocation) plus every deposit a test drives through it.
@@ -464,7 +465,6 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         ProverClient::default(),
         AsyncZolanaIndexer::new(indexer_url.clone()),
         AsyncProverClient::default(),
-        tree,
     );
 
     Ok(TestEnv {

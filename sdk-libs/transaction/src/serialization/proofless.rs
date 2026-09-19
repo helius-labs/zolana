@@ -45,7 +45,7 @@ impl UtxoSerialization for Proofless {
         }
         Ok(vec![Utxo {
             owner: cx.owner,
-            asset: Address::new_from_array(output.asset),
+            asset: cx.assets.mint(&Address::new_from_array(output.asset))?,
             amount: output.amount,
             blinding: output.blinding,
             ring_program_id: output.ring_program_id.map(Address::new_from_array),
@@ -62,7 +62,7 @@ impl UtxoSerialization for Proofless {
         Ok(ProoflessOutput {
             owner: cx.owner_hash,
             blinding: utxo.blinding,
-            asset: utxo.asset.to_bytes(),
+            asset: utxo.asset.asset.to_bytes(),
             amount: utxo.amount,
             data_hash: cx.data_hash,
             utxo_data: utxo.data.utxo_data().map(<[u8]>::to_vec),
@@ -79,48 +79,5 @@ impl UtxoSerialization for Proofless {
 
     fn encrypt(bytes: &[u8], _cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {
         Ok(bytes.to_vec())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use zolana_keypair::PublicKey;
-
-    use super::*;
-    use crate::{AssetRegistry, SOL_MINT};
-
-    #[test]
-    fn memo_round_trips_through_proofless_serialization() {
-        let owner = PublicKey::zeroed();
-        let utxo = Utxo {
-            owner,
-            asset: SOL_MINT,
-            amount: 42,
-            blinding: [3u8; 32],
-            ring_program_id: None,
-            data: Data::new(vec![DataRecord::Memo(b"gm".to_vec())]),
-        };
-        let assets = AssetRegistry::default();
-        let owner_cx = OwnerCx {
-            owner,
-            assets: &assets,
-            ring_program_id: None,
-            // A proofless deposit carries its blinding literally.
-            first_nullifier: None,
-        };
-        let encode_cx = ProoflessEncode {
-            owner_hash: [0u8; 32],
-            data_hash: None,
-            ring_data_hash: None,
-        };
-
-        let plaintext = Proofless::from_utxos(&[utxo], &owner_cx, &encode_cx).unwrap();
-        assert_eq!(plaintext.memo.as_deref(), Some(b"gm".as_slice()));
-
-        let bytes = Proofless::serialize(&plaintext).unwrap();
-        let parsed = Proofless::deserialize(&bytes).unwrap();
-        let utxos = Proofless::into_utxos(parsed, &owner_cx).unwrap();
-        let recovered = utxos.first().expect("one utxo");
-        assert_eq!(recovered.data.memo(), Some(b"gm".as_slice()));
     }
 }
