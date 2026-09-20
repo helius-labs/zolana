@@ -7,8 +7,8 @@ RUN go mod download && go mod verify
 
 COPY . .
 
-ARG GOAMD64=v1
-ARG PROVER_PGO=off
+ARG GOAMD64
+ARG PROVER_PGO
 RUN GOAMD64="$GOAMD64" PROVER_PGO="$PROVER_PGO" sh ./build-release.sh /usr/local/bin/light-prover
 
 FROM gcr.io/distroless/base-debian11:nonroot

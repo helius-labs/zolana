@@ -22,6 +22,11 @@ JSON-RPC requests to that configured URL only. `PROVER_INDEXER_API_KEY` sets
 its `api-key` query parameter. `PROVER_INDEXER_CONCURRENCY` bounds preparation requests.
 Both delivery paths resolve proofs before acquiring a transfer execution slot.
 
+Select `proofDataSource: "prover"` in the TypeScript client, or
+`with_proof_data_source(ProofDataSource::Prover)` in Rust. Reuse the client
+between requests. Keep the prover and indexer in the same availability zone
+and use the private indexer endpoint to avoid another remote round trip.
+
 The request contains `circuitType`, `prepared`, `trees`, `inputs`,
 `publicInputs`, and optional `minContextSlot`. `prepared` uses the selected
 circuit's JSON fields with paths, tree slots, and public input hash omitted.
@@ -52,6 +57,10 @@ that script and enables `--require-optimized-build`, which rejects debug
 compiler flags, race instrumentation, and `purego` or `noasm` builds.
 `GOAMD64=v1` is portable. Select `v3` only for a fleet that supports it.
 `PROVER_PGO` can name a representative Go CPU profile at build time.
+Published images take these settings from `release-build.env`. Commit a
+selected profile and its metadata with the settings change. Local build
+and compose overrides are available for experiments. Follow the
+[latency experiment guide](benchmarks/TUNING.md) before selecting defaults.
 
 Use `/health` for liveness and `/ready` for load balancer readiness.
 `/ready` returns `503` until configured preloads succeed. Proof requests
@@ -77,6 +86,12 @@ delivery modes. HTTP duration includes indexer preparation and admission.
 A queued `202` measures acceptance only. Use queue delay and generation
 duration to assess queued work. Network RTT and client polling need client
 measurements.
+
+`prover_sync_admission_wait_seconds` separates permit waiting by `admitted`
+and `rejected` outcome. `prover_system_memory_bytes` is sampled during each
+metrics scrape. The per-proof `prover_proof_memory_usage_bytes` and
+`prover_proof_peak_memory_bytes` metrics are removed. Concurrent allocations
+cannot be attributed to one proof. Use process memory gauges for capacity.
 
 Load `monitoring/alerts.yml` into Prometheus. Set the throughput target and
 latency thresholds to the deployment SLO. The example throughput target is

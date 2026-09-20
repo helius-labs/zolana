@@ -312,11 +312,21 @@ jobs:
               exit "$status"
             fi
           done <<< "$IMAGE_TAGS"
+      - name: Read prover build settings
+        if: steps.plan.outputs.service == 'prover'
+        id: prover-build
+        run: |
+          source prover/server/release-build.env
+          echo "goamd64=$PROVER_RELEASE_GOAMD64" >> "$GITHUB_OUTPUT"
+          echo "pgo=$PROVER_RELEASE_PGO" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ steps.plan.outputs.context }}
           file: ${{ steps.plan.outputs.file }}
           platforms: linux/amd64
+          build-args: |
+            GOAMD64=${{ steps.prover-build.outputs.goamd64 }}
+            PROVER_PGO=${{ steps.prover-build.outputs.pgo }}
           load: true
           push: false
           tags: ${{ steps.metadata.outputs.tags }}
