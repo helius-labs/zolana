@@ -15,6 +15,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/pprof"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -52,15 +54,22 @@ type latencySample struct {
 }
 
 type latencyResult struct {
-	Mode     string          `json:"mode"`
-	Workers  int             `json:"workers"`
-	Clients  int             `json:"clients"`
-	Samples  []latencySample `json:"samples"`
-	Seconds  float64         `json:"seconds"`
-	TPS      float64         `json:"proofs_per_second"`
-	P50      float64         `json:"p50_ms"`
-	P95      float64         `json:"p95_ms"`
-	Failures int             `json:"failures"`
+	RTTMS       int              `json:"rtt_ms"`
+	Repeat      int              `json:"repeat"`
+	Calibration []float64        `json:"calibration_ms"`
+	Environment benchEnvironment `json:"environment"`
+	Profile     string           `json:"cpu_profile,omitempty"`
+	CPUSeconds  float64          `json:"cpu_seconds"`
+	PeakRSS     uint64           `json:"process_peak_rss_bytes"`
+	Mode        string           `json:"mode"`
+	Workers     int              `json:"workers"`
+	Clients     int              `json:"clients"`
+	Samples     []latencySample  `json:"samples"`
+	Seconds     float64          `json:"seconds"`
+	TPS         float64          `json:"proofs_per_second"`
+	P50         float64          `json:"p50_ms"`
+	P95         float64          `json:"p95_ms"`
+	Failures    int              `json:"failures"`
 }
 
 func benchField(value frontend.Variable) *big.Int {
@@ -227,12 +236,19 @@ func TestProofNetworkBenchmark(t *testing.T) {
 	if os.Getenv("PROVER_NETWORK_BENCH") != "1" {
 		t.Skip("explicit benchmark opt in required")
 	}
-	keys := os.Getenv("PROVER_BENCH_KEYS")
-	out := os.Getenv("PROVER_BENCH_OUTPUT")
-	if keys == "" || out == "" {
-		t.Fatal("benchmark paths required")
+	options := readBenchOptions(t)
+	var results []latencyResult
+	for repeat := 1; repeat <= options.repeats; repeat++ {
+		for _, rtt := range options.rtts {
+			t.Run(fmt.Sprintf("repeat_%d_rtt_%d", repeat, rtt), func(t *testing.T) {
+				runNetworkBenchmark(t, options, repeat, rtt, &results)
+			})
+		}
 	}
-	fixtures := make([]latencyFixture, 32)
+}
+
+func runNetworkBenchmark(t *testing.T, options benchOptions, repeat, rtt int, results *[]latencyResult) {
+	fixtures := make([]latencyFixture, max(options.requests, options.maxClients()))
 	state := map[string]any{}
 	nullifiers := map[string]any{}
 	for i := range fixtures {
@@ -272,7 +288,7 @@ func TestProofNetworkBenchmark(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": query.ID, "result": map[string]any{"context": map[string]any{"slot": 100}, "proofs": proofs}})
 	}))
 	defer indexer.Close()
-	remoteIndexer := delayedEndpoint(indexer.URL, 70*time.Millisecond)
+	remoteIndexer := delayedEndpoint(indexer.URL, time.Duration(rtt)*time.Millisecond)
 	defer remoteIndexer.Close()
 	clientResolver, err := indexed.NewResolver(indexed.Config{URL: remoteIndexer.URL, Concurrency: 64})
 	if err != nil {
@@ -282,7 +298,7 @@ func TestProofNetworkBenchmark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	keyManager := common.NewLazyKeyManager(keys, common.DefaultDownloadConfig())
+	keyManager := common.NewLazyKeyManager(options.keys, common.DefaultDownloadConfig())
 	ps, err := keyManager.GetTransferSystem(common.TransferConfidentialCircuitType, 2, 3)
 	if err != nil {
 		t.Fatal(err)
@@ -308,12 +324,14 @@ func TestProofNetworkBenchmark(t *testing.T) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConnsPerHost = 64
 	client := &http.Client{Transport: transport, Timeout: 60 * time.Second}
-	var results []latencyResult
-	for _, workers := range []int{1, 2, 4} {
+	defer transport.CloseIdleConnections()
+	for _, workers := range options.workers {
 		t.Setenv("PROVER_TRANSFER_CONCURRENCY", fmt.Sprint(workers))
 		t.Setenv("PROVER_API_KEY", "")
 		address := unusedAddress(t)
 		job := server.Run(&server.Config{ProverAddress: address, MetricsAddress: unusedAddress(t), Indexer: serverResolver, TransferExecution: server.NewTransferExecution()}, keyManager)
+		stop := sync.OnceFunc(func() { job.RequestStop(); job.AwaitStop() })
+		t.Cleanup(stop)
 		target := "http://" + address
 		for attempt := 0; attempt < 100; attempt++ {
 			response, err := client.Get(target + "/health")
@@ -323,7 +341,8 @@ func TestProofNetworkBenchmark(t *testing.T) {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		remote := delayedEndpoint(target, 70*time.Millisecond)
+		remote := delayedEndpoint(target, time.Duration(rtt)*time.Millisecond)
+		t.Cleanup(remote.Close)
 		var calibration []float64
 		for count := 0; count < 10; count++ {
 			start := time.Now()
@@ -336,9 +355,9 @@ func TestProofNetworkBenchmark(t *testing.T) {
 			calibration = append(calibration, float64(time.Since(start).Microseconds())/1000)
 		}
 		t.Logf("RTT_CALIBRATION workers=%d samples_ms=%v", workers, calibration)
-		for _, mode := range []string{"direct_zero_rtt", "client_fetch_70ms", "prover_fetch_70ms"} {
-			for _, clients := range []int{1, 2, 4, 8} {
-				if mode == "direct_zero_rtt" && clients != 1 {
+		for _, mode := range options.modes {
+			for _, clients := range options.clients {
+				if mode == "direct" && rtt != options.rtts[0] {
 					continue
 				}
 				run := func(index int) latencySample {
@@ -356,7 +375,7 @@ func TestProofNetworkBenchmark(t *testing.T) {
 					start := time.Now()
 					fetchMS := 0.0
 					endpoint := remote.URL + "/prove"
-					if mode == "client_fetch_70ms" {
+					if mode == "client_fetch" {
 						resolved, err := clientResolver.Resolve(context.Background(), request)
 						if err != nil {
 							t.Error(err)
@@ -365,11 +384,11 @@ func TestProofNetworkBenchmark(t *testing.T) {
 						payload = resolved.Payload
 						fetchMS = float64(time.Since(start).Microseconds()) / 1000
 					}
-					if mode == "prover_fetch_70ms" {
+					if mode == "prover_fetch" {
 						endpoint = remote.URL + "/prove/indexed"
 						payload = request
 					}
-					if mode == "direct_zero_rtt" {
+					if mode == "direct" {
 						endpoint = target + "/prove"
 					}
 					proofStart := time.Now()
@@ -438,7 +457,21 @@ func TestProofNetworkBenchmark(t *testing.T) {
 						t.Fatal("warm proofs failed")
 					}
 				}
-				samples := make([]latencySample, 32)
+				samples := make([]latencySample, options.requests)
+				profilePath := ""
+				var profile *os.File
+				if options.profileDir != "" {
+					profilePath = filepath.Join(options.profileDir, fmt.Sprintf("r%d_rtt%d_w%d_c%d_%s.pprof", repeat, rtt, workers, clients, mode))
+					profile, err = os.Create(profilePath)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := pprof.StartCPUProfile(profile); err != nil {
+						profile.Close()
+						t.Fatal(err)
+					}
+				}
+				usageBefore := benchUsage(t)
 				var next atomic.Int64
 				var group sync.WaitGroup
 				start := time.Now()
@@ -457,10 +490,26 @@ func TestProofNetworkBenchmark(t *testing.T) {
 				}
 				group.Wait()
 				elapsed := time.Since(start).Seconds()
+				usageAfter := benchUsage(t)
+				if profile != nil {
+					pprof.StopCPUProfile()
+					if err := profile.Close(); err != nil {
+						t.Fatal(err)
+					}
+				}
 				for index := range samples {
 					verify(index, &samples[index])
 				}
-				result := latencyResult{Mode: mode, Workers: workers, Clients: clients, Samples: samples, Seconds: elapsed}
+				actualRTT := rtt
+				calibrated := calibration
+				if mode == "direct" {
+					actualRTT = 0
+					calibrated = nil
+				}
+				result := latencyResult{Mode: mode, Workers: workers, Clients: clients, Samples: samples, Seconds: elapsed,
+					RTTMS: actualRTT, Repeat: repeat, Calibration: calibrated, Profile: profilePath,
+					CPUSeconds: usageAfter.cpuSeconds - usageBefore.cpuSeconds, PeakRSS: usageAfter.peakRSS,
+					Environment: benchEnvironment{BuildSettings: benchBuildSettings(), GoVersion: runtime.Version(), OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), MaxProcs: runtime.GOMAXPROCS(0), GOGC: os.Getenv("GOGC"), MemoryLimit: os.Getenv("GOMEMLIMIT")}}
 				var durations []float64
 				for _, sample := range samples {
 					if !sample.Verified {
@@ -475,18 +524,17 @@ func TestProofNetworkBenchmark(t *testing.T) {
 					result.P95 = durations[int(math.Ceil(float64(len(durations))*0.95))-1]
 				}
 				result.TPS = float64(len(durations)) / result.Seconds
-				results = append(results, result)
+				*results = append(*results, result)
 				t.Logf("RESULT mode=%s workers=%d clients=%d p50=%.1fms p95=%.1fms tps=%.2f failures=%d", mode, workers, clients, result.P50, result.P95, result.TPS, result.Failures)
-				if err := os.MkdirAll(filepath.Dir(out), 0755); err != nil {
+				if err := os.MkdirAll(filepath.Dir(options.output), 0755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(out, benchEncode(t, results), 0644); err != nil {
+				if err := os.WriteFile(options.output, benchEncode(t, *results), 0644); err != nil {
 					t.Fatal(err)
 				}
 			}
 		}
 		remote.Close()
-		job.RequestStop()
-		job.AwaitStop()
+		stop()
 	}
 }
