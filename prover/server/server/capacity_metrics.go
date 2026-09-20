@@ -20,6 +20,11 @@ var ProofHTTPDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Buckets: prometheus.ExponentialBuckets(0.025, 2, 15),
 }, []string{"route", "status"})
 
+var SyncAdmissionWait = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name: "prover_sync_admission_wait_seconds", Help: "Time spent acquiring a synchronous proof permit",
+	Buckets: prometheus.ExponentialBuckets(0.001, 2, 15),
+}, []string{"outcome"})
+
 func capacityMetrics(execution *TransferExecution, readiness *Readiness) http.Handler {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
