@@ -785,6 +785,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	}
 
 	corsHandler := handlers.CORS(
+		handlers.MaxAge(600),
 		handlers.AllowedHeaders([]string{
 			"X-Requested-With",
 			"Content-Type",
