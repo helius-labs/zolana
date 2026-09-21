@@ -47,16 +47,16 @@ class Deployment:
             raise RuntimeError("Deployment state belongs to another stack")
         self.state.update(stack=STACK, account=ACCOUNT, region=REGION)
 
-    def aws(self, service, operation, *, extra=(), **payload):
+    def aws(self, namespace, operation, *, extra=(), **payload):
         with tempfile.NamedTemporaryFile(mode="w", dir=STATE_DIR, suffix=".json") as request:
             json.dump(payload, request)
             request.flush()
-            command = self.command + [service, operation, "--output", "json"]
+            command = self.command + [namespace, operation, "--output", "json"]
             if payload:
                 command += ["--cli-input-json", "file://" + request.name]
             result = subprocess.run(command + list(extra), capture_output=True, text=True, timeout=20)
         if result.returncode:
-            raise AwsError(f"{service} {operation} failed\n{result.stderr.strip()}")
+            raise AwsError(f"{namespace} {operation} failed\n{result.stderr.strip()}")
         return json.loads(result.stdout) if result.stdout.strip() else {}
 
     def save(self):
@@ -97,6 +97,11 @@ class Deployment:
 
     def owned_bucket(self):
         self.owned(self.aws("s3api", "get-bucket-tagging", Bucket=self.state["bucket"])["TagSet"])
+
+    def configure_target(self):
+        self.owned(self.aws("elbv2", "describe-tags", ResourceArns=[self.state["target"]])["TagDescriptions"][0]["Tags"])
+        self.aws("elbv2", "modify-target-group-attributes", TargetGroupArn=self.state["target"],
+                 Attributes=[{"Key": "deregistration_delay.timeout_seconds", "Value": "5"}])
 
     @staticmethod
     def owned(tags):
@@ -194,6 +199,7 @@ class Deployment:
         self.once("target", lambda: self.aws("elbv2", "create-target-group", Name=STACK, Protocol="HTTP", Port=3001, VpcId=VPC,
             TargetType="ip", HealthCheckProtocol="HTTP", HealthCheckPath="/ready", HealthCheckIntervalSeconds=15,
             HealthCheckTimeoutSeconds=5, HealthyThresholdCount=2, UnhealthyThresholdCount=3, Matcher={"HttpCode": "200"}, Tags=TAG_LIST)["TargetGroups"][0]["TargetGroupArn"])
+        self.configure_target()
         self.owned_alb()
         self.aws("elbv2", "modify-load-balancer-attributes", LoadBalancerArn=self.state["alb"]["LoadBalancerArn"],
                  Attributes=[{"Key": "idle_timeout.timeout_seconds", "Value": "300"}])
@@ -294,6 +300,7 @@ class Deployment:
 
     def deploy(self, selectors):
         self.owned_cluster()
+        self.configure_target()
         image = self.state.get("image")
         if not image:
             raise RuntimeError("Build an image from the committed archive first")
@@ -322,7 +329,7 @@ class Deployment:
                  "portMappings": [{"containerPort": 3001, "protocol": "tcp"}, {"containerPort": 9998, "protocol": "tcp"}],
                  "secrets": [{"name": "PROVER_API_KEY", "valueFrom": self.state["secret"]}],
                  "environment": [{"name": key, "value": value} for key, value in {"PROVER_INDEXER_URL": PHOTON, "PROVER_INDEXER_CONCURRENCY": "1", "PROVER_REQUEST_TIMING": "true",
-                    "PROVER_TRANSFER_CONCURRENCY": "4", "CUSTOM_RING_WORKER_CONCURRENCY": "1", "REDIS_URL": "redis://127.0.0.1:6379", "SERVICE": STACK}.items()],
+                    "PROVER_TRANSFER_CONCURRENCY": "4", "PROVER_MAX_CONCURRENCY": "4", "CUSTOM_RING_WORKER_CONCURRENCY": "1", "REDIS_URL": "redis://127.0.0.1:6379", "SERVICE": STACK}.items()],
                  "logConfiguration": logs("prover"), "stopTimeout": 120},
                 {"name": "cloudwatch-agent", "image": "public.ecr.aws/cloudwatch-agent/cloudwatch-agent:latest", "essential": False, "memory": 256,
                  "environment": [{"name": "CW_CONFIG_CONTENT", "value": json.dumps(metrics)}, {"name": "PROMETHEUS_CONFIG_CONTENT", "value": "global:\n  scrape_interval: 60s\n  scrape_timeout: 10s\nscrape_configs:\n  - job_name: prover\n    static_configs:\n      - targets: ['localhost:9998']\n"}], "logConfiguration": logs("metrics")},
