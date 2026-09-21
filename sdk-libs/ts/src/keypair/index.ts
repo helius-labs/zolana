@@ -49,6 +49,7 @@ export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from ".
 export {
   auditorMessageData,
   auditorViewTag,
+  customRingPublicInputHash,
   policyPublicInputHash,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,

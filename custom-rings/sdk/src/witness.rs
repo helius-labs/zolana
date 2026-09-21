@@ -691,6 +691,8 @@ fn output_opening(
     let Some(address) = output.owner_address.as_ref() else {
         return Ok(CustomRingOpening {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
+            tree_id: tree_id_field(tree_id),
+            blinding: output.blinding,
             ..CustomRingOpening::default()
         });
     };
@@ -825,6 +827,25 @@ mod tests {
     const BLOCK: RuleTable = RuleTable::builder()
         .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
         .build();
+
+    #[test]
+    fn dummy_output_opening_preserves_its_tree_and_blinding() {
+        let output = SppProofOutputUtxo {
+            blinding: [0x5a; 32],
+            ..SppProofOutputUtxo::default()
+        };
+        let opening = output_opening(&output, 27).expect("dummy opening");
+        assert_eq!(opening.domain, right_align(&DUMMY_DOMAIN.to_be_bytes()));
+        assert_eq!(opening.tree_id, tree_id_field(27));
+        assert_eq!(opening.blinding, output.blinding);
+        assert_eq!(opening.owner_pk_hash, [0u8; 32]);
+        assert_eq!(opening.nullifier_pk, [0u8; 32]);
+        assert_eq!(opening.asset, [0u8; 32]);
+        assert_eq!(opening.amount, [0u8; 32]);
+        assert_eq!(opening.data_hash, [0u8; 32]);
+        assert_eq!(opening.ring_data_hash, [0u8; 32]);
+        assert_eq!(opening.ring_program_id, [0u8; 32]);
+    }
 
     /// An approval overrides a block.
     const MIXED: RuleTable = RuleTable::builder()

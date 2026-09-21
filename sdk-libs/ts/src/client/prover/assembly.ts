@@ -760,10 +760,7 @@ export interface RingOpenings {
   readonly outputs: readonly CustomRingOpening[];
 }
 
-/**
- * Mirrors Rust `CustomRingWitnessInput`, a dummy slot is the DUMMY-domain
- * all-zero opening and a slot past the shape stays fully zero.
- */
+/** A dummy output retains the tree and blinding bound by its SPP commitment and auditor disclosure. */
 export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -809,10 +806,16 @@ function inputOpening(input: ProofInputUtxo, treeId: Bytes32): CustomRingOpening
   });
 }
 
-/** Rust keys a dummy output on its absent owner address, never on the owner tag. */
+/** Owner address presence determines the dummy domain independently of the public owner tag. */
 function outputOpening(output: ProofOutputUtxo, treeId: Bytes32): CustomRingOpening {
   const owner = output.ownerAddress;
-  if (owner === undefined) return zeroOpening(DUMMY_DOMAIN);
+  if (owner === undefined) {
+    return Object.freeze({
+      ...zeroOpening(DUMMY_DOMAIN),
+      treeId,
+      blinding: output.blinding,
+    });
+  }
   const utxo = outputCircuitUtxo(output);
   return Object.freeze({
     domain: openingField(BigInt(UTXO_DOMAIN)),

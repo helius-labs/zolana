@@ -1,6 +1,13 @@
-use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+use core::mem::MaybeUninit;
+use wincode::{
+    config::ConfigCore,
+    containers,
+    io::{Reader, Writer},
+    len::{FixIntLen, SeqLen},
+    ReadError, ReadResult, SchemaRead, SchemaWrite, WriteResult,
+};
 use zolana_interface::instruction::TransactIxData;
-use zolana_ring_policy::VelocityRow;
+use zolana_ring_policy::{VelocityRow, ANSWER_SLOTS};
 
 use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 
@@ -157,8 +164,57 @@ pub struct CustomRingTransactIxData {
     pub approval_required: u8,
     /// Required only on the windowed member rail.
     pub head_transition: Option<HeadMapTransition>,
-    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
+    /// Canonical target prefix with a zero suffix in the policy public input.
+    #[wincode(with = "CompactRevocationTargets")]
+    pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
     pub transact: TransactIxData,
+}
+
+struct CompactRevocationTargets;
+
+unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for CompactRevocationTargets {
+    type Dst = [[u8; 32]; ANSWER_SLOTS];
+
+    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self::Dst>) -> ReadResult<()> {
+        let len = <FixIntLen<u8> as SeqLen<C>>::read(reader.by_ref())?;
+        if len > ANSWER_SLOTS {
+            return Err(ReadError::InvalidValue("too many revocation targets"));
+        }
+        let mut targets = [[0u8; 32]; ANSWER_SLOTS];
+        for target in targets.iter_mut().take(len) {
+            *target = <[u8; 32] as SchemaRead<'de, C>>::get(reader.by_ref())?;
+        }
+        if len != 0 && targets[len - 1] == [0u8; 32] {
+            return Err(ReadError::InvalidValue("noncanonical revocation targets"));
+        }
+        dst.write(targets);
+        Ok(())
+    }
+}
+
+unsafe impl<C: ConfigCore> SchemaWrite<C> for CompactRevocationTargets {
+    type Src = [[u8; 32]; ANSWER_SLOTS];
+
+    fn size_of(src: &Self::Src) -> WriteResult<usize> {
+        let len = revocation_target_prefix_len(src);
+        Ok(1 + len * 32)
+    }
+
+    fn write(mut writer: impl Writer, src: &Self::Src) -> WriteResult<()> {
+        let len = revocation_target_prefix_len(src);
+        <FixIntLen<u8> as SeqLen<C>>::write(writer.by_ref(), len)?;
+        for target in &src[..len] {
+            <[u8; 32] as SchemaWrite<C>>::write(writer.by_ref(), target)?;
+        }
+        Ok(())
+    }
+}
+
+fn revocation_target_prefix_len(targets: &[[u8; 32]; ANSWER_SLOTS]) -> usize {
+    targets
+        .iter()
+        .rposition(|target| *target != [0u8; 32])
+        .map_or(0, |index| index + 1)
 }
 
 /// Covers one v2 hash pin plus up to eight curator config loads.
@@ -298,4 +354,42 @@ pub struct UpdateEntryIxData {
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
     pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+    struct TargetWire {
+        #[wincode(with = "CompactRevocationTargets")]
+        targets: [[u8; 32]; ANSWER_SLOTS],
+    }
+
+    #[test]
+    fn revocation_target_wire_preserves_slots_and_omits_the_zero_suffix() {
+        let mut targets = [[0u8; 32]; ANSWER_SLOTS];
+        targets[0] = [1u8; 32];
+        targets[2] = [3u8; 32];
+        let encoded = wincode::serialize(&TargetWire { targets }).expect("serialize targets");
+        assert_eq!(encoded.len(), 1 + 3 * 32);
+        assert_eq!(encoded[0], 3);
+        assert_eq!(
+            wincode::deserialize_exact::<TargetWire>(&encoded).expect("deserialize targets"),
+            TargetWire { targets }
+        );
+    }
+
+    #[test]
+    fn revocation_target_wire_rejects_noncanonical_or_overlong_prefixes() {
+        let trailing_zero = [vec![1], vec![0; 32]].concat();
+        assert!(wincode::deserialize_exact::<TargetWire>(&trailing_zero).is_err());
+
+        let overlong = [
+            vec![(ANSWER_SLOTS + 1) as u8],
+            vec![1; (ANSWER_SLOTS + 1) * 32],
+        ]
+        .concat();
+        assert!(wincode::deserialize_exact::<TargetWire>(&overlong).is_err());
+    }
 }

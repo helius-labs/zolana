@@ -37,7 +37,8 @@ export async function ringDepositInstruction(
     deposits: readonly RingAssetDeposit[];
     proof?: Uint8Array;
     cosigner?: SignerAccount;
-    hasPolicy: boolean;
+    /** Omit only for an audit-only ring. */
+    hasPolicy?: boolean;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
@@ -62,7 +63,7 @@ export async function ringDepositInstruction(
     ringConfigAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
     ringDepositAuditAddress(input.ringProgramId),
-    input.hasPolicy ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
+    input.hasPolicy === true ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
     ringSpendWindowMetas(input.ringProgramId, [
       ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
       ...layout.splGroups.map((spl) => spl.mint),

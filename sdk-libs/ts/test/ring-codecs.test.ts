@@ -219,7 +219,6 @@ describe("ring deposit", () => {
       ringProgramId: RING,
       tree: TREE,
       depositor: PAYER,
-      hasPolicy: false,
       deposits: [
         {
           asset: DepositAsset.sol(),
@@ -1572,13 +1571,12 @@ describe("ring transact", () => {
       [TREE, AccountRole.WRITABLE],
     ]);
     const encoded = Buffer.from(instruction.data ?? []).toString("hex");
-    const targetOffset = (1 + 192 + 6) * 2;
+    const targetCountOffset = (1 + 192 + 6) * 2;
+    expect(encoded.slice(targetCountOffset, targetCountOffset + 2)).toBe("01");
+    const targetOffset = targetCountOffset + 2;
     expect(encoded.slice(targetOffset, targetOffset + 32 * 2)).toBe("42".repeat(32));
-    expect(encoded.slice(targetOffset + 32 * 2, targetOffset + 10 * 32 * 2)).toBe(
-      "00".repeat(9 * 32),
-    );
     const withoutRevocationTargets =
-      encoded.slice(0, targetOffset) + encoded.slice(targetOffset + 10 * 32 * 2);
+      encoded.slice(0, targetCountOffset) + encoded.slice(targetOffset + 32 * 2);
     expect(withoutRevocationTargets).toBe(
       "03333333333333333333333333333333333333333333333333333333333333333334343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434353535353535353535353535353535353535353535353535353535353535353536363636363636363636363636363636363636363636363636363636363636363737373737373737373737373737373737373737373737373737373737373737000000000000ffffffffffffffff0303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000000292929292929292929292929292929292929292929292929292929292929292901000203032b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000100000000",
     );

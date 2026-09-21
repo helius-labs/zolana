@@ -825,7 +825,7 @@ describe("ring openings", () => {
       ringDataHash: scalar(0),
       ringProgramId: hashBytes(new Uint8Array(getAddressEncoder().encode(RING))),
     });
-    // A dummy slot is the DUMMY-domain all-zero opening, its blinding included.
+    // Dummy inputs do not enter the output disclosure.
     expect(openings.inputs[1]).toEqual(zeroOpening(1));
     expect(openings.inputs.slice(2)).toEqual([zeroOpening(0), zeroOpening(0), zeroOpening(0)]);
 
@@ -858,7 +858,11 @@ describe("ring openings", () => {
       outputTreeId: proofInputs.outputTreeId,
     });
     // Never the `solanaOwnerIdentity(ownerTag)` fallback the SPP owner field publishes.
-    expect(ringOpenings(swapped).outputs[2]).toEqual(zeroOpening(1));
+    expect(ringOpenings(swapped).outputs[2]).toEqual({
+      ...zeroOpening(1),
+      treeId: scalar(proofInputs.outputTreeId),
+      blinding: scalar(9),
+    });
   });
 
   it("refuses a transfer wider than the ring slots", async () => {

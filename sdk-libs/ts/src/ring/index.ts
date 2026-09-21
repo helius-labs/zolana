@@ -2,6 +2,7 @@ export {
   auditorMessageData,
   auditorViewTag,
   auditPublicInputHash,
+  customRingPublicInputHash,
   policyPublicInputHash,
   auditSharedSecret,
   AUDIT_ENC_INFO,
@@ -11,7 +12,12 @@ export {
   openAuditOutputDisclosure,
   parseAuditorMessage,
 } from "../keypair/audit.js";
-export type { AuditOutputOpening, AuditorEncryption, AuditorMessage } from "../keypair/audit.js";
+export type {
+  AuditOutputOpening,
+  AuditorEncryption,
+  AuditorMessage,
+  CustomRingBasePublicInput,
+} from "../keypair/audit.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
 export {
   ringHeadMapRootAddress,

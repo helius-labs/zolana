@@ -362,6 +362,8 @@ export function policyPublicInputHash(
   ]);
 }
 
+export const customRingPublicInputHash = policyPublicInputHash;
+
 function checkedRevocationTargets(targets: readonly Bytes32[] | undefined): readonly Bytes32[] {
   const values = targets ?? Array.from({ length: 10 }, () => new Uint8Array(32) as Bytes32);
   if (values.length !== 10) throw new RangeError("revocation targets must hold 10 entries");

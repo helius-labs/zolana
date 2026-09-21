@@ -55,9 +55,10 @@ type transactionContext struct {
 func auditOutputs(api frontend.API, outputs [NOutputs]UtxoWires) [base.AuditOutputSlots]base.AuditOutputWires {
 	var disclosed [base.AuditOutputSlots]base.AuditOutputWires
 	for i, output := range outputs {
+		ownerHash := gadget.PoseidonHash(api, []frontend.Variable{output.OwnerPkHash, output.NullifierPk})
 		disclosed[i] = base.AuditOutputWires{
 			Domain: output.Domain, TreeID: output.TreeID,
-			OwnerHash: gadget.PoseidonHash(api, []frontend.Variable{output.OwnerPkHash, output.NullifierPk}),
+			OwnerHash: api.Mul(output.isDomain(api, shared.UtxoDomain), ownerHash),
 			Asset:     output.Asset, Amount: output.Amount, Blinding: output.Blinding,
 			DataHash: output.DataHash, RingDataHash: output.RingDataHash,
 			RingProgramID: output.RingProgramID,

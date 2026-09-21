@@ -2,7 +2,10 @@
 export {
   MAX_INPUT_TREES,
   ShieldedPoolError,
+  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
+  UTXO_ROOT_HISTORY_LEN_OFFSET,
   decodeShieldedPoolError,
+  ringDepositInstruction as interfaceRingDepositInstruction,
 } from "@heliuslabs/zolana/interface";
 export type {
   AuthorizedPrivateTransaction,
@@ -64,7 +67,12 @@ export type {
   WalletStateStore,
 } from "@heliuslabs/zolana/wallet";
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
-export type { RingAuditReader, RingRpcOptions, RingTransferClient } from "@heliuslabs/zolana/ring";
+export type {
+  CustomRingBasePublicInput,
+  RingAuditReader,
+  RingRpcOptions,
+  RingTransferClient,
+} from "@heliuslabs/zolana/ring";
 export {
   buildRingDelegateTransferTransaction,
   createRingDelegateSubmission,
@@ -108,6 +116,7 @@ export {
   openRingDepositOpening,
   ringDepositContextHash,
   ringDepositPublicInputHash,
+  customRingPublicInputHash,
 } from "@heliuslabs/zolana/ring";
 export type {
   RingDelegateTransferClient,

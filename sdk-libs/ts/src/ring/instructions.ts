@@ -298,8 +298,11 @@ function transactData(
       details: { revocationTargets: targets.length },
     });
   }
-  for (let index = 0; index < 10; index++) {
-    prefix.bytes(targets[index] ?? new Uint8Array(32), 32, "revocationTarget");
+  let targetCount = targets.length;
+  while (targetCount > 0 && targets[targetCount - 1]?.every((byte) => byte === 0)) targetCount--;
+  prefix.u8(targetCount, "revocationTargetCount");
+  for (let index = 0; index < targetCount; index++) {
+    prefix.bytes(targets[index]!, 32, "revocationTarget");
   }
   const prefixBytes = prefix.finish();
   const transact = encodeTransactInstructionData(input.data);
