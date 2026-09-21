@@ -216,13 +216,19 @@ The ring keys must match `prover/server/prover/provingkeys/proving-keys.lock`.
 Local mode verifies these files and fetches no custom-rings release.
 
 ```sh
-cargo build -p photon-indexer --bin photon --features surfpool-fixture
+cargo build -p photon-indexer --bin photon --features surfpool-fixture,ring-projection
 export ZOLANA_RING_WORKSPACE=/absolute/path/to/zolana
 export ZOLANA_PROCESS_SCOPE_DIR="$(mktemp -d)"
 export SURFPOOL_BIN=/absolute/path/to/pinned/surfpool
 export ZOLANA_RING_SURFPOOL_FIXTURE=1
 "$ZOLANA_RING_WORKSPACE/target/debug/zolana-ring" dev
 ```
+
+The `ring-projection` feature compiles the custom ring worker and RPC methods.
+Photon requires `--enable-ring-projection` to start the worker and expose those
+methods. `zolana-ring dev` passes the opt-in through the localnet CLI. Direct
+`zolana dev start` calls need `--photon-ring-projection`. Plain Photon builds
+have no custom ring projection dependencies.
 
 The fixture feature repairs Surfpool's synthetic parent block hashes on
 loopback RPC only, opted in with `ZOLANA_RING_SURFPOOL_FIXTURE=1`. Production

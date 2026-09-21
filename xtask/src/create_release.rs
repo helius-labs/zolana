@@ -502,11 +502,19 @@ fn build_rust_binary(repo: &Path, package: &str, bin: &str, out: &Path, host: bo
     }
 }
 
+fn binary_features(bin: &str) -> &'static [&'static str] {
+    match bin {
+        "photon" => &["--features", "ring-projection"],
+        _ => &[],
+    }
+}
+
 fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
     println!("building {bin} (host)");
     let status = Command::new("cargo")
         .current_dir(repo)
         .args(["build", "--release", "-p", package, "--bin", bin])
+        .args(binary_features(bin))
         .status()
         .with_context(|| format!("failed to run cargo build for {bin}"))?;
     if !status.success() {
@@ -520,8 +528,9 @@ fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> 
 fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
     println!("building {bin} linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
     let mount = format!("{}:/work", path_str(repo)?);
+    let features = binary_features(bin).join(" ");
     let build = format!(
-        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
+        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} {features} --target-dir /work/target-linux-x64"
     );
     let status = Command::new("docker")
         .args([

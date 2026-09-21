@@ -237,7 +237,7 @@ fn bring_up_workspace(workspace: Workspace, run: WorkspaceRun<'_>) -> Result<(),
         let snapshots = workspace.account_snapshots()?;
         let mut command = workspace.command()?;
         command
-            .args(["dev", "start", "--local"])
+            .args(["dev", "start", "--local", "--photon-ring-projection"])
             .args(["--rpc-port", &ports.rpc.to_string()])
             .args(["--photon-port", &ports.photon.to_string()])
             .args(["--prover-port", &ports.prover.to_string()])
@@ -353,7 +353,7 @@ fn start_validator(ports: Ports) -> Result<(), LocalnetError> {
     line("validator", "zolana dev start");
     ZOLANA.named("zolana dev start").run(
         Command::new("zolana")
-            .args(["dev", "start"])
+            .args(["dev", "start", "--photon-ring-projection"])
             .args(["--rpc-port", &ports.rpc.to_string()])
             .args(["--photon-port", &ports.photon.to_string()])
             .args(["--prover-port", &ports.prover.to_string()])

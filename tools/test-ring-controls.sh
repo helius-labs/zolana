@@ -15,6 +15,7 @@ export SURFPOOL_BIN="${SURFPOOL_BIN:-$repo_root/target/tools/surfpool}"
 export ZOLANA_PROCESS_SCOPE_DIR
 ZOLANA_PROCESS_SCOPE_DIR="$(mktemp -d -t zolana-ring-tests.XXXXXX)"
 export ZOLANA_RING_SURFPOOL_FIXTURE=1
+export ZOLANA_PHOTON_RING_PROJECTION=true
 export ZOLANA_CLI_BIN="$repo_root/target/debug/zolana"
 export ZOLANA_PHOTON_BIN="$repo_root/target/debug/photon"
 export PROVER_BIN="$repo_root/target/prover-server"
@@ -82,7 +83,7 @@ if [[ -n "${ZOLANA_PREBUILT:-}" ]]; then
   done
   tools/ci/nextest-suite.sh -p custom-ring-test-validator --test "$suite" --no-capture "$@"
 else
-  cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture
+  cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection
   cargo build --locked -p custom-ring-cli
   cargo test --locked -p custom-ring-test-validator --test "$suite" "$@" -- --test-threads=1 --nocapture
 fi

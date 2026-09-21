@@ -4889,6 +4889,7 @@ dependencies = [
  "zolana-indexer-api",
  "zolana-interface",
  "zolana-ring-head-map",
+ "zolana-ring-indexer",
  "zolana-ring-policy",
  "zolana-tree",
 ]
@@ -11357,6 +11358,24 @@ dependencies = [
  "thiserror 2.0.20",
  "zolana-hasher",
  "zolana-merkle-tree",
+]
+
+[[package]]
+name = "zolana-ring-indexer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "custom-ring-interface",
+ "serde",
+ "solana-pubkey 4.2.1",
+ "wincode",
+ "zolana-event",
+ "zolana-hasher",
+ "zolana-indexer-api",
+ "zolana-interface",
+ "zolana-ring-head-map",
+ "zolana-ring-policy",
 ]
 
 [[package]]

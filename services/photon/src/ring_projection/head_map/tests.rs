@@ -18,6 +18,7 @@ use crate::{
 use custom_ring_interface::{instruction::tag, PlainGroth16Proof, RegisterSpendIxData};
 use sea_orm::TransactionTrait;
 use solana_signature::Signature;
+use zolana_indexer_api::RingHeadRecord;
 use zolana_indexer_api::ShieldedTransaction;
 use zolana_ring_head_map::{HeadMap as ReferenceHeadMap, HeadTransfer};
 use zolana_ring_policy::{

@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "services/photon/**"
+      - "custom-rings/indexer/**"
       - "program-libs/**"
       - "programs/shielded-pool/**"
       - "program-tests/ring-test-program/**"
@@ -20,6 +21,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "services/photon/**"
+      - "custom-rings/indexer/**"
       - "program-libs/**"
       - "programs/shielded-pool/**"
       - "program-tests/ring-test-program/**"
@@ -121,3 +123,4 @@ jobs:
         run: |
           cargo test --locked -p zolana-indexer-api
           cargo test --locked -p photon-indexer --all-targets
+          cargo test --locked -p photon-indexer --all-targets --features ring-projection

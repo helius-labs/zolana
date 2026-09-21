@@ -23,6 +23,7 @@ use photon_indexer::migration::{
 };
 
 use photon_indexer::monitor::continuously_monitor_photon;
+#[cfg(feature = "ring-projection")]
 use photon_indexer::ring_projection::{Projector, StartSlot};
 use photon_indexer::rpc::{BlockHeaders, RpcClient};
 use photon_indexer::snapshot::{
@@ -85,8 +86,13 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
 
-    /// First projected ring slot, the network start by default.
+    #[cfg(feature = "ring-projection")]
     #[arg(long)]
+    enable_ring_projection: bool,
+
+    /// First projected ring slot, the network start by default.
+    #[cfg(feature = "ring-projection")]
+    #[arg(long, requires = "enable_ring_projection")]
     ring_projection_start_slot: Option<u64>,
 
     /// Metrics endpoint in the format `host:port`
@@ -120,19 +126,26 @@ struct Args {
     gcs_prefix: String,
 }
 
-async fn start_api_server(
-    db: Arc<DatabaseConnection>,
-    rpc_client: Arc<RpcClient>,
-    api_port: u16,
+struct ApiServer {
+    api: PhotonApi,
+    port: u16,
     max_http_connections: u32,
-) -> Result<ServerHandle> {
-    let api = PhotonApi::new(db, rpc_client);
-    // Before the server accepts anything, so the first proof request finds a
-    // populated ring rather than paying for it.
-    api.spawn_root_index_refresher();
-    api::rpc_server::run_server(api, api_port, max_http_connections)
-        .await
-        .context("Failed to start API server")
+}
+
+impl ApiServer {
+    async fn start(self) -> Result<ServerHandle> {
+        let Self {
+            api,
+            port,
+            max_http_connections,
+        } = self;
+        // Before the server accepts anything, so the first proof request finds a
+        // populated ring rather than paying for it.
+        api.spawn_root_index_refresher();
+        api::rpc_server::run_server(api, port, max_http_connections)
+            .await
+            .context("Failed to start API server")
+    }
 }
 
 async fn setup_temporary_sqlite_database_pool(max_connections: u32) -> Result<SqlitePool> {
@@ -405,18 +418,27 @@ async fn main() -> Result<()> {
             },
         };
 
-        // Blocks before an explicit index start are not linkable.
-        let projection_start = match args.ring_projection_start_slot {
-            Some(slot) => StartSlot::Explicit(slot.saturating_sub(1)),
-            None if args.start_slot.is_some() => StartSlot::Derived(last_indexed_slot),
-            None => StartSlot::Derived(get_network_start_slot(&rpc_client).await),
+        #[cfg(feature = "ring-projection")]
+        let projector_handle = if args.enable_ring_projection {
+            // Blocks before an explicit index start are not linkable.
+            let projection_start = match args.ring_projection_start_slot {
+                Some(slot) => StartSlot::Explicit(slot.saturating_sub(1)),
+                None if args.start_slot.is_some() => StartSlot::Derived(last_indexed_slot),
+                None => StartSlot::Derived(get_network_start_slot(&rpc_client).await),
+            };
+            Some(
+                Projector {
+                    db: db_conn.clone(),
+                    rpc: rpc_client.clone(),
+                    start: projection_start,
+                }
+                .spawn(),
+            )
+        } else {
+            None
         };
-        let projector_handle = Projector {
-            db: db_conn.clone(),
-            rpc: rpc_client.clone(),
-            start: projection_start,
-        }
-        .spawn();
+        #[cfg(not(feature = "ring-projection"))]
+        let projector_handle: Option<tokio::task::JoinHandle<()>> = None;
 
         info!("Starting indexer...");
 
@@ -455,7 +477,7 @@ async fn main() -> Result<()> {
         };
 
         (
-            Some(projector_handle),
+            projector_handle,
             Some(continuously_index_new_blocks(
                 block_stream_config,
                 db_conn.clone(),
@@ -476,13 +498,20 @@ async fn main() -> Result<()> {
     let api_handler = if args.disable_api {
         None
     } else {
+        let api = PhotonApi::new(db_conn.clone(), rpc_client.clone());
+        #[cfg(feature = "ring-projection")]
+        let api = if args.enable_ring_projection {
+            api.with_ring_projection()
+        } else {
+            api
+        };
         Some(
-            start_api_server(
-                db_conn.clone(),
-                rpc_client.clone(),
-                args.port,
-                args.max_http_connections,
-            )
+            ApiServer {
+                api,
+                port: args.port,
+                max_http_connections: args.max_http_connections,
+            }
+            .start()
             .await?,
         )
     };

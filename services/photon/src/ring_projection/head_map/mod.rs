@@ -2,115 +2,29 @@ pub(super) mod parser;
 
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    pda, HeadMapLeaf, HeadMapRoot, HEAD_MAP_ROOT,
+    pda, HeadMapRoot, HEAD_MAP_ROOT,
 };
 use sea_orm::{DatabaseConnection, DatabaseTransaction};
-use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
-use zolana_hasher::HasherError;
 use zolana_indexer_api::{
-    GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse, Hash, RingHeadRecord,
+    GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse, Hash,
     RingMemberProofRequest,
 };
-use zolana_ring_head_map::FIELD_MAX;
 
 use super::{
     api::{self, Insertion, MemberPath},
     append, fault,
     storage::{LeafWrite, MemberRestore, RingRoot, RingStore, Undo},
-    Append, BlockEnv, Invocation, Leaf, OnChainRoot, ProjectError, Projection, ProjectionKind,
-    Step,
+    BlockEnv, Invocation, Leaf, ProjectError, Projection, ProjectionKind, Step,
 };
 use crate::{api::error::PhotonApiError, rpc::RpcClient};
-pub(crate) use parser::{Registration, Transfer, Transition};
+#[cfg(test)]
+use parser::Registration;
+pub(crate) use parser::{Transfer, Transition};
 
 pub(crate) struct HeadMap;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) enum HeadLeaf {
-    Sentinel { next: [u8; 32] },
-    Member(Box<MemberHead>),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct MemberHead {
-    pub member: [u8; 32],
-    pub index: u64,
-    pub next: [u8; 32],
-    pub nullifier: [u8; 32],
-    pub record: RingHeadRecord,
-}
-
-impl HeadLeaf {
-    pub fn nullifier(&self) -> [u8; 32] {
-        match self {
-            Self::Sentinel { .. } => [0; 32],
-            Self::Member(head) => head.nullifier,
-        }
-    }
-}
-
-impl Leaf for HeadLeaf {
-    fn sentinel() -> Self {
-        Self::Sentinel { next: FIELD_MAX }
-    }
-
-    fn member(&self) -> [u8; 32] {
-        match self {
-            Self::Sentinel { .. } => [0; 32],
-            Self::Member(head) => head.member,
-        }
-    }
-
-    fn index(&self) -> u64 {
-        match self {
-            Self::Sentinel { .. } => 0,
-            Self::Member(head) => head.index,
-        }
-    }
-
-    fn next(&self) -> [u8; 32] {
-        match self {
-            Self::Sentinel { next } => *next,
-            Self::Member(head) => head.next,
-        }
-    }
-
-    fn set_next(&mut self, next: [u8; 32]) {
-        match self {
-            Self::Sentinel { next: current } => *current = next,
-            Self::Member(head) => head.next = next,
-        }
-    }
-
-    fn hash(&self) -> Result<[u8; 32], HasherError> {
-        let (member, next, nullifier) = (self.member(), self.next(), self.nullifier());
-        HeadMapLeaf {
-            member: &member,
-            next: &next,
-            nullifier: &nullifier,
-        }
-        .hash()
-    }
-}
-
-impl OnChainRoot for HeadMapRoot {
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn root(&self) -> [u8; 32] {
-        self.root
-    }
-
-    fn next_index(&self) -> u64 {
-        HeadMapRoot::next_index(self)
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
+pub(crate) use zolana_ring_indexer::head_map::{HeadLeaf, MemberHead};
 
 impl Projection for HeadMap {
     const KIND: ProjectionKind = ProjectionKind::HeadMap;
@@ -173,31 +87,6 @@ impl Projection for HeadMap {
     }
 }
 
-impl Registration {
-    fn append(self) -> Append<HeadLeaf> {
-        let Self {
-            old_root,
-            new_root,
-            next_index,
-            member,
-            nullifier,
-            record,
-        } = self;
-        Append {
-            old_root,
-            new_root,
-            next_index,
-            leaf: HeadLeaf::Member(Box::new(MemberHead {
-                member,
-                index: next_index,
-                next: [0; 32],
-                nullifier,
-                record,
-            })),
-        }
-    }
-}
-
 async fn replace(
     store: &RingStore<'_, DatabaseTransaction, HeadMap>,
     step: Step<'_, Transfer>,
@@ -211,9 +100,7 @@ async fn replace(
         old_root,
         new_root,
         member,
-        nullifiers,
-        nullifier,
-        record,
+        ..
     } = transition;
     if old_root != root.root {
         return Err(fault("old root mismatch"));
@@ -222,12 +109,9 @@ async fn replace(
         .member(&member)
         .await?
         .ok_or_else(|| fault("transfer member is unregistered"))?;
-    let HeadLeaf::Member(mut head) = current.clone() else {
-        return Err(fault("the sentinel cannot transfer"));
-    };
-    if !nullifiers.contains(&head.nullifier) {
-        return Err(fault("transfer did not consume the member's head"));
-    }
+    let leaf = transition
+        .replace(current.clone())
+        .map_err(|error| fault(error.to_string()))?;
     let undo = Undo {
         program: root.program,
         before: Some(root.clone()),
@@ -236,13 +120,10 @@ async fn replace(
             before: Some(current.clone()),
         }],
         leaves: vec![LeafWrite {
-            index: head.index,
+            index: current.index(),
             hash: current.hash()?,
         }],
     };
-    head.nullifier = nullifier;
-    head.record = record;
-    let leaf = HeadLeaf::Member(head);
     let computed = store
         .write_leaves(
             &root.address,

@@ -1,6 +1,17 @@
 use std::sync::Arc;
+#[cfg(feature = "ring-projection")]
+use zolana_indexer_api::{
+    method::{
+        GetRingHeadRegisterProof, GetRingHeadTransferProof, GetRingKeyRegistryEntry,
+        GetRingKeyRegistryRegisterProof,
+    },
+    GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
+    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
+    RingMemberProofRequest,
+};
 
 use crate::api::root_index_cache::RootIndexCache;
+#[cfg(feature = "ring-projection")]
 use crate::ring_projection::{head_map, key_registry};
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
@@ -9,18 +20,14 @@ use utoipa::PartialSchema;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetRingHeadRegisterProof, GetRingHeadTransferProof, GetRingKeyRegistryEntry,
-        GetRingKeyRegistryRegisterProof, GetShieldedTransactionsByNullifiers,
-        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
+        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
+        GetShieldedTransactionsByTags,
     },
     GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetMerkleProofsResponse,
     GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingHeadRegisterProofResponse,
-    GetRingHeadTransferProofResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
-    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    RingMemberProofRequest, RpcMethod,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, RpcMethod,
 };
 
 use super::{
@@ -36,6 +43,8 @@ use super::{
     },
 };
 pub struct PhotonApi {
+    #[cfg(feature = "ring-projection")]
+    ring_projection: bool,
     db_conn: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
     root_index_cache: Arc<RootIndexCache>,
@@ -63,10 +72,24 @@ where
 impl PhotonApi {
     pub fn new(db_conn: Arc<DatabaseConnection>, rpc_client: Arc<RpcClient>) -> Self {
         Self {
+            #[cfg(feature = "ring-projection")]
+            ring_projection: false,
             db_conn,
             rpc_client,
             root_index_cache: Arc::new(RootIndexCache::new()),
         }
+    }
+
+    #[cfg(feature = "ring-projection")]
+    #[must_use]
+    pub fn with_ring_projection(mut self) -> Self {
+        self.ring_projection = true;
+        self
+    }
+
+    #[cfg(feature = "ring-projection")]
+    pub(crate) fn ring_projection_enabled(&self) -> bool {
+        self.ring_projection
     }
 
     /// Start the task that keeps the root-index ring current.
@@ -160,6 +183,7 @@ impl PhotonApi {
         get_nullifier_queue_elements(self.db_conn.as_ref(), request).await
     }
 
+    #[cfg(feature = "ring-projection")]
     pub async fn get_ring_head_register_proof(
         &self,
         request: RingMemberProofRequest,
@@ -167,6 +191,7 @@ impl PhotonApi {
         head_map::register(&self.db_conn, &self.rpc_client, request).await
     }
 
+    #[cfg(feature = "ring-projection")]
     pub async fn get_ring_head_transfer_proof(
         &self,
         request: RingMemberProofRequest,
@@ -174,6 +199,7 @@ impl PhotonApi {
         head_map::transfer(&self.db_conn, &self.rpc_client, request).await
     }
 
+    #[cfg(feature = "ring-projection")]
     pub async fn get_ring_key_registry_entry(
         &self,
         request: RingMemberProofRequest,
@@ -181,6 +207,7 @@ impl PhotonApi {
         key_registry::lookup(&self.db_conn, &self.rpc_client, request).await
     }
 
+    #[cfg(feature = "ring-projection")]
     pub async fn get_ring_key_registry_register_proof(
         &self,
         request: RingMemberProofRequest,
@@ -197,9 +224,13 @@ impl PhotonApi {
             method_api_spec::<GetMerkleProofs>(),
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
+            #[cfg(feature = "ring-projection")]
             method_api_spec::<GetRingHeadRegisterProof>(),
+            #[cfg(feature = "ring-projection")]
             method_api_spec::<GetRingKeyRegistryEntry>(),
+            #[cfg(feature = "ring-projection")]
             method_api_spec::<GetRingKeyRegistryRegisterProof>(),
+            #[cfg(feature = "ring-projection")]
             method_api_spec::<GetRingHeadTransferProof>(),
         ]
     }

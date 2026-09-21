@@ -4,9 +4,7 @@ use crate::{
     ingester::typedefs::block_info::{BlockMetadata, InstructionGroup, TransactionInfo},
     migration::{MigratorTrait, RingsMigrator},
 };
-use custom_ring_interface::HEAD_MAP_HEIGHT;
 use key_registry::KeyRegistry;
-use proof::{LeafPath, PathOverlay};
 use sea_orm::Database;
 use solana_signature::Signature;
 use zolana_indexer_api::{Hash, RingMemberProofRequest};
@@ -125,32 +123,6 @@ async fn block_batches_cross_skipped_pages_without_skipping_live_blocks() {
     assert_eq!(second.scanned_slot, 5100);
     handle.stop().unwrap();
     handle.stopped().await;
-}
-
-#[test]
-fn path_indices_cannot_alias_above_the_circuit_height() {
-    let path = LeafPath {
-        leaf: [0; 32],
-        siblings: vec![[0; 32]; HEAD_MAP_HEIGHT],
-    };
-    assert!(path.root(HEAD_MAP_CAPACITY).is_err());
-    assert!(LeafPath {
-        leaf: [0; 32],
-        siblings: vec![[0; 32]; HEAD_MAP_HEIGHT + 1],
-    }
-    .root(0)
-    .is_err());
-    let mut target = LeafPath {
-        leaf: [0; 32],
-        siblings: vec![[0; 32]; HEAD_MAP_HEIGHT],
-    };
-    assert!(PathOverlay {
-        updated_index: HEAD_MAP_CAPACITY,
-        updated_leaf: [0; 32],
-        updated_path: &[[0; 32]; HEAD_MAP_HEIGHT],
-    }
-    .apply(1, &mut target)
-    .is_err());
 }
 
 #[tokio::test]

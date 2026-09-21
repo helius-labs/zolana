@@ -4,16 +4,16 @@ use jsonrpsee::types::{ErrorCode, ErrorObjectOwned};
 use log::error;
 use solana_pubkey::ParsePubkeyError;
 use thiserror::Error;
-use zolana_indexer_api::{
-    error_code::{
-        RING_HEAD_MAP_OUT_OF_SYNC, RING_HEAD_MEMBER_ALREADY_REGISTERED,
-        RING_HEAD_MEMBER_UNREGISTERED, RING_HEAD_ROOT_CHANGED,
-        RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
-        RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED,
-    },
-    ParseHashError,
+#[cfg(feature = "ring-projection")]
+use zolana_indexer_api::error_code::{
+    RING_HEAD_MAP_OUT_OF_SYNC, RING_HEAD_MEMBER_ALREADY_REGISTERED, RING_HEAD_MEMBER_UNREGISTERED,
+    RING_HEAD_ROOT_CHANGED, RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED,
+    RING_KEY_REGISTRY_MEMBER_UNREGISTERED, RING_KEY_REGISTRY_OUT_OF_SYNC,
+    RING_KEY_REGISTRY_ROOT_CHANGED,
 };
+use zolana_indexer_api::ParseHashError;
 
+#[cfg(feature = "ring-projection")]
 use crate::ring_projection::ProjectionKind;
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -34,10 +34,12 @@ pub enum PhotonApiError {
     /// cannot provide the history entry a client must quote. Retryable.
     #[error("Stale Root: {0}")]
     StaleRoot(String),
+    #[cfg(feature = "ring-projection")]
     #[error(transparent)]
     RingProjection(#[from] RingProjectionError),
 }
 
+#[cfg(feature = "ring-projection")]
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum RingProjectionError {
     #[error("{kind} is out of sync ({reason})")]
@@ -53,12 +55,14 @@ pub enum RingProjectionError {
     MemberAlreadyRegistered(ProjectionKind),
 }
 
+#[cfg(feature = "ring-projection")]
 const HEAD_MAP_CODES: [i32; 4] = [
     wire_code(RING_HEAD_MAP_OUT_OF_SYNC),
     wire_code(RING_HEAD_ROOT_CHANGED),
     wire_code(RING_HEAD_MEMBER_UNREGISTERED),
     wire_code(RING_HEAD_MEMBER_ALREADY_REGISTERED),
 ];
+#[cfg(feature = "ring-projection")]
 const KEY_REGISTRY_CODES: [i32; 4] = [
     wire_code(RING_KEY_REGISTRY_OUT_OF_SYNC),
     wire_code(RING_KEY_REGISTRY_ROOT_CHANGED),
@@ -66,11 +70,13 @@ const KEY_REGISTRY_CODES: [i32; 4] = [
     wire_code(RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED),
 ];
 
+#[cfg(feature = "ring-projection")]
 const fn wire_code(code: i64) -> i32 {
     assert!(code >= i32::MIN as i64 && code <= i32::MAX as i64);
     code as i32
 }
 
+#[cfg(feature = "ring-projection")]
 impl RingProjectionError {
     pub fn code(&self) -> i32 {
         let (kind, cause) = match self {
@@ -89,6 +95,7 @@ impl RingProjectionError {
 impl From<PhotonApiError> for ErrorObjectOwned {
     fn from(val: PhotonApiError) -> Self {
         match val {
+            #[cfg(feature = "ring-projection")]
             PhotonApiError::RingProjection(ref error) => {
                 ErrorObjectOwned::owned(error.code(), val.to_string(), None::<()>)
             }

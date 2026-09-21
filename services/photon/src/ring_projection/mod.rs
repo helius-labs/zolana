@@ -14,13 +14,13 @@ use anyhow::{bail, Context, Result};
 use custom_ring_interface::{PolicyConfig, HEAD_MAP_CAPACITY, POLICY_CONFIG};
 use futures::{stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
-use serde::{de::DeserializeOwned, Serialize};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
 use thiserror::Error;
 use zolana_hasher::HasherError;
 use zolana_interface::state::{discriminator::RING_CONFIG, RingConfig};
+pub(crate) use zolana_ring_indexer::{Append, Leaf, OnChainRoot};
 
 use crate::{
     common::rings_tree::RingsTreeKind,
@@ -443,6 +443,14 @@ impl Scope {
     }
 }
 
+fn instruction_view(instruction: &Instruction) -> zolana_ring_indexer::InstructionView<'_> {
+    zolana_ring_indexer::InstructionView {
+        program_id: &instruction.program_id,
+        accounts: &instruction.accounts,
+        data: &instruction.data,
+    }
+}
+
 pub(crate) trait Projection: Sized + Send + Sync + 'static {
     const KIND: ProjectionKind;
     const INIT_TAG: u8;
@@ -468,36 +476,10 @@ pub(crate) trait Projection: Sized + Send + Sync + 'static {
     ) -> impl Future<Output = Result<Undo<Self::Leaf>, ProjectError>> + Send;
 }
 
-pub(crate) trait OnChainRoot: bytemuck::Pod {
-    fn discriminator(&self) -> u8;
-    fn root(&self) -> [u8; 32];
-    fn next_index(&self) -> u64;
-    fn bump(&self) -> u8;
-}
-
-pub(crate) trait Leaf:
-    Clone + fmt::Debug + Serialize + DeserializeOwned + Send + Sync + 'static
-{
-    fn sentinel() -> Self;
-    fn member(&self) -> [u8; 32];
-    fn index(&self) -> u64;
-    fn next(&self) -> [u8; 32];
-    fn set_next(&mut self, next: [u8; 32]);
-    fn hash(&self) -> Result<[u8; 32], HasherError>;
-}
-
 pub(crate) struct Step<'a, T> {
     pub root: &'a RingRoot,
     pub transition: T,
     pub revision: u64,
-}
-
-/// `leaf.next` is assigned from the predecessor.
-pub(crate) struct Append<L> {
-    pub old_root: [u8; 32],
-    pub new_root: [u8; 32],
-    pub next_index: u64,
-    pub leaf: L,
 }
 
 #[derive(Debug, Error)]
@@ -866,7 +848,7 @@ pub(crate) async fn append<P: Projection>(
         old_root,
         new_root,
         next_index,
-        leaf,
+        ref leaf,
     } = transition;
     // 1. Require the current root, append cursor and an absent member.
     if next_index != root.next_index || next_index >= HEAD_MAP_CAPACITY {
@@ -908,10 +890,12 @@ pub(crate) async fn append<P: Projection>(
             },
         ],
     };
-    let mut added = leaf;
-    added.set_next(low.next());
-    let mut spliced = low;
-    spliced.set_next(member);
+    let zolana_ring_indexer::Spliced {
+        predecessor: spliced,
+        added,
+    } = transition
+        .splice(low)
+        .map_err(|error| fault(error.to_string()))?;
     let computed = store
         .write_leaves(
             &root.address,
