@@ -425,6 +425,11 @@ func (m *LazyKeyManager) PreloadCircuits(circuits []string) error {
 		if err != nil {
 			return err
 		}
+		if !matched {
+			if path := m.determineRingKeyPath(CircuitType(circuit)); path != "" {
+				paths, matched = []string{path}, true
+			}
+		}
 		if matched {
 			for _, path := range paths {
 				if !seen[path] {

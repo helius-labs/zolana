@@ -2,8 +2,24 @@ package common
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestRingPreloadRequiresSelectedKey(t *testing.T) {
+	for _, circuit := range []CircuitType{CustomRingBaseCircuitType, CustomRingPolicyCircuitType} {
+		t.Run(string(circuit), func(t *testing.T) {
+			manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: false})
+			err := manager.PreloadCircuits([]string{string(circuit)})
+			if err == nil || !strings.Contains(err.Error(), manager.determineRingKeyPath(circuit)) {
+				t.Fatalf("selected ring key was not required: %v", err)
+			}
+			if err := manager.PreloadCircuits([]string{string(circuit) + ":1:1"}); err == nil {
+				t.Fatal("ring preload accepted a shape")
+			}
+		})
+	}
+}
 
 func TestTransferPreloadSelection(t *testing.T) {
 	manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: false})
