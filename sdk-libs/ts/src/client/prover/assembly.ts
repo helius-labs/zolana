@@ -74,6 +74,14 @@ const ZERO_PROOF = Object.freeze({
   c: new Uint8Array(32),
 }) as TransactProof;
 
+let lastResolvedHash:
+  | Readonly<{
+      fields: readonly bigint[];
+      trees: readonly TreeSlot[];
+      hash: bigint;
+    }>
+  | undefined;
+
 /** Unique non-payer Ed25519 input owners in first-input order, mirrors Rust `owner_signer_pubkeys`. */
 export function ownerSignerAddresses(
   inputs: readonly ProofInputUtxo[],
@@ -600,11 +608,45 @@ export function resolvedPublicInputHash(
   publicInputs: readonly bigint[],
   trees: readonly TreeSlot[],
 ): bigint {
-  return hashChain4([
-    ...publicInputs.slice(0, 2),
-    bytesToBigInt(treeSlotsHashChain(trees)),
-    ...publicInputs.slice(2),
+  // 1. Cache equality and hashing must use the same copied public statement.
+  const fields = Array.from(publicInputs);
+  if (fields.some((value) => typeof value !== "bigint")) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  const slots = Array.from(trees, (tree) => ({
+    id: tree.id,
+    utxoRoot: checkedBytes(tree.utxoRoot, 32, "utxo root"),
+    nullifierRoot: checkedBytes(tree.nullifierRoot, 32, "nullifier root"),
+  }));
+  if (slots.some((slot) => slot.utxoRoot.length !== 32 || slot.nullifierRoot.length !== 32)) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  const previous = lastResolvedHash;
+  if (
+    previous !== undefined &&
+    fields.length === previous.fields.length &&
+    fields.every((field, index) => field === previous.fields[index]) &&
+    slots.length === previous.trees.length &&
+    slots.every((slot, index) => {
+      const old = previous.trees[index];
+      return (
+        old !== undefined &&
+        slot.id === old.id &&
+        slot.utxoRoot.length === old.utxoRoot.length &&
+        slot.nullifierRoot.length === old.nullifierRoot.length &&
+        slot.utxoRoot.every((byte, offset) => byte === old.utxoRoot[offset]) &&
+        slot.nullifierRoot.every((byte, offset) => byte === old.nullifierRoot[offset])
+      );
+    })
+  )
+    return previous.hash;
+  const hash = hashChain4([
+    ...fields.slice(0, 2),
+    bytesToBigInt(treeSlotsHashChain(slots)),
+    ...fields.slice(2),
   ]);
+  lastResolvedHash = { fields, trees: slots, hash };
+  return hash;
 }
 
 export function transferPublicInputHash(
