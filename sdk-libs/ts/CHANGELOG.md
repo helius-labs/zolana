@@ -7,7 +7,7 @@ encryption alone and a policy ring proves its rule table over a dedicated
 entries tree, and a ring transfer can land its outputs in a tree other than
 the one it spends from. Wallet replay keeps merge outputs when their inputs
 arrive in the same sync, and selection and approval text use UTXO terminology
-without changing version 3 snapshot keys.
+with saved pending transactions across restarts.
 A tree derives from its id instead of one fixed address, holds its own fee
 schedule, and takes four instructions in one transaction to create. Every
 spent nullifier gets its own account, and the transact, merge, and ring
@@ -26,6 +26,9 @@ and transfer submissions settle their broadcast before releasing the notes
 they spend.
 
 Breaking
+
+- `serializeWallet` writes version 4 snapshots → upgrade snapshot readers before saving, while versions 2 and 3 remain readable.
+- `proveRingTransact` accepts `RingProvingConfig` → put indexer settings under `indexer` and supply `outputTree` when the destination differs from the client tree.
 
 - `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
   `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
@@ -328,6 +331,9 @@ Breaking
   produced by an earlier release no longer matches its proof.
 
 Added
+
+- `RingTransactionSubmission.sendPersisted` saves signed attempts before broadcast, and `reconcileRingSubmissions` resolves saved signatures after restart without sending another payment.
+- `savePersistedWallet` saves wallet state on the same queue as wallet sync.
 
 - `GetByTagsRequest.ringProgramId` scopes a scan to one ring, including
   deposits whose recipient tags do not identify a known member.
@@ -654,6 +660,9 @@ Changed
   into the tree it spends from.
 
 Fixed
+
+- Ring transfer builders bind output commitments to the selected destination tree on clients with nonzero tree IDs.
+- Ring submissions retain selected notes during proof generation, signing, pending confirmation and wallet sync, and retry verified blockhash expiry within the attempt limit.
 
 - `recoverRingMemberNotes` follows successive merges, batches large histories,
   recovers disclosed deposits, accepts `resolveOutputHashes` for committed data

@@ -112,6 +112,8 @@ import {
   type RingSubmissionBuildState,
 } from "./submission.js";
 import { equalBytes } from "../wallet/internal.js";
+import { resolveRingOutputTree } from "./trees.js";
+import { treeAddress } from "../interface/pda/index.js";
 
 /** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
 export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
@@ -445,10 +447,11 @@ async function buildRingSpend<R>(
     await initializePoseidon();
     const asset = params.asset ?? SOL_MINT;
     const address = params.keys.address();
-    const [resolved, ringConfigs, coSigner] = await Promise.all([
+    const [resolved, ringConfigs, coSigner, outputTree] = await Promise.all([
       strategy.resolve(),
       fetchRingConfigs(params.client, params.ringProgramId, context),
       fetchRingCoSigner(params.client, params.ringProgramId, context),
+      resolveRingOutputTree(params.client, params.outputTree, context),
     ]);
     // A windowed ring appends the spend record as the last input slot.
     const maxInputs =
@@ -465,11 +468,13 @@ async function buildRingSpend<R>(
         tree: params.client.tree,
         maxInputs,
       });
-    reservation = retry.reservation ?? reserveEntries(params.wallet, selected);
+    reservation = retry.reservation ?? reserveEntries(params.wallet, selected, retry.lifetime);
     retry.entries = selected;
     retry.reservation = reservation;
     const inputs = selected.map((entry) => ringProofInput(entry, address, params.client));
-    const transfer = new ConfidentialTransfer(address, inputs, params.feePayer).withCompactChange();
+    const transfer = new ConfidentialTransfer(address, inputs, params.feePayer)
+      .withOutputTreeId(outputTree.treeId)
+      .withCompactChange();
     if (strategy.changeRing === "ring") {
       transfer.withRingProgramId(params.ringProgramId);
     }
@@ -658,6 +663,12 @@ async function proveRingTransferStatement(
       details: { tree: input.tree, clientTree: flow.client.tree },
     });
   }
+  const outputTree: TreeContext = {
+    tree: input.outputTree ?? input.tree,
+    treeId: input.prepared.outputTreeId,
+  };
+  if (treeAddress(outputTree.treeId) !== outputTree.tree)
+    throw new RingError("RING_TREE_MISMATCH", { details: { tree: outputTree.tree } });
   const configs = await fetchRingConfigs(flow.client, input.ringProgramId, context);
   // 1. Pin the ring tier and policy before extending the transaction statement.
   const config = configs.config;
@@ -828,6 +839,7 @@ async function proveRingTransferStatement(
             input.ringProgramId,
             flow.spender.proofs,
             context,
+            outputTree,
           )
         : await flow.client.proveRingTransact(
             proofInputs,
@@ -835,7 +847,7 @@ async function proveRingTransferStatement(
             plan === undefined
               ? flow.keys
               : withRecordSlotSecret(flow.keys, plan.recordInput.nullifier()),
-            undefined,
+            { outputTree },
             context,
           );
     // The audit statement rehashes the auditor message SPP already folded into privateTxHash.

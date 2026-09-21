@@ -18,13 +18,14 @@ import type {
   RingSubmissionTransport,
   SlotReader,
 } from "../client/ports.js";
-import { extendReservation } from "../flows/reserve.js";
+import { savePersistedWallet, type WalletPersistence } from "../wallet/persisted.js";
 import type { Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import {
   hex,
   type UtxoReservation,
   type Wallet,
   type WalletUtxo,
+  type PendingWalletSubmission,
 } from "../transaction/wallet/state.js";
 import { equalBytes } from "../wallet/internal.js";
 import { RingError, RingProgramError } from "./error.js";
@@ -51,6 +52,7 @@ export type RingSubmissionResult =
 
 /** @internal Retains the same notes and intent across proof rebuilds. */
 export interface RingSubmissionBuildState {
+  lifetime?: "submission";
   entries?: readonly WalletUtxo[];
   reservation?: UtxoReservation;
   intent?: Bytes32;
@@ -78,6 +80,11 @@ export class RingTransactionSubmission {
   readonly #build: RingSubmissionBuild;
   readonly #reservation: ReservationHold;
   readonly #windowChanged: RingSubmissionWindowChanged;
+  readonly #wallet: Wallet | undefined;
+  readonly #id: string;
+  readonly #utxoHashes: readonly Bytes32[];
+  #persistence: WalletPersistence | undefined;
+  #persistedSignature: Signature | undefined;
   #attempt: RingSubmissionAttempt;
   #pending: Signature | undefined;
   #attempts = 0;
@@ -90,6 +97,9 @@ export class RingTransactionSubmission {
       build: RingSubmissionBuild;
       windowChanged: RingSubmissionWindowChanged;
       reservation?: ReservationHold;
+      wallet?: Wallet;
+      reservationId?: string;
+      utxoHashes?: readonly Bytes32[];
     }>,
   ) {
     this.#attempt = input.first;
@@ -97,6 +107,9 @@ export class RingTransactionSubmission {
     this.#build = input.build;
     this.#reservation = input.reservation ?? NO_RESERVATION;
     this.#windowChanged = input.windowChanged;
+    this.#wallet = input.wallet;
+    this.#id = input.reservationId ?? hex(crypto.getRandomValues(new Uint8Array(16)));
+    this.#utxoHashes = (input.utxoHashes ?? []).map((hash) => new Uint8Array(hash) as Bytes32);
   }
 
   /** @internal The reservation `build` records outlives every attempt. */
@@ -111,11 +124,25 @@ export class RingTransactionSubmission {
     }>,
     context?: RequestContext,
   ): Promise<RingTransactionSubmission> {
-    const retry: RingSubmissionBuildState = {};
+    const retry: RingSubmissionBuildState = { lifetime: "submission" };
     const build: RingSubmissionBuild = (context) => input.build(retry, context);
+    let first: RingSubmissionAttempt;
+    try {
+      first = await build(context);
+    } catch (cause) {
+      if (retry.reservation !== undefined) input.wallet._releaseReservation(retry.reservation.id);
+      throw cause;
+    }
     return new RingTransactionSubmission({
-      first: await build(context),
+      first,
       build,
+      wallet: input.wallet,
+      ...(retry.reservation === undefined
+        ? {}
+        : {
+            reservationId: retry.reservation.id,
+            utxoHashes: retry.reservation.utxoHashes,
+          }),
       windowChanged: input.windowChanged,
       reservation: {
         release: () => {
@@ -124,11 +151,48 @@ export class RingTransactionSubmission {
           }
         },
         extend: () => {
-          if (retry.reservation !== undefined)
-            extendReservation(input.wallet, retry.reservation.id);
+          if (retry.entries !== undefined) checkRetainedEntries(input.wallet, retry.entries);
         },
       },
     });
+  }
+
+  async sendPersisted(
+    input: WalletPersistence & Readonly<{ transport: RingSubmissionTransport }>,
+    context?: RequestContext,
+  ): Promise<RingSubmissionResult> {
+    if (
+      this.#busy ||
+      (this.#wallet !== undefined && this.#wallet !== input.wallet) ||
+      (this.#persistence !== undefined &&
+        (this.#persistence.wallet !== input.wallet ||
+          this.#persistence.store !== input.store ||
+          this.#persistence.cipher !== input.cipher))
+    )
+      throw new RingError("RING_SUBMISSION_PENDING");
+    this.#persistence = input;
+    return this.send(input.transport, context);
+  }
+
+  async #checkpoint(signature: Signature): Promise<void> {
+    const wallet = this.#wallet ?? this.#persistence?.wallet;
+    wallet?._setPendingSubmission({
+      id: this.#id,
+      intentHash: this.#intent,
+      utxoHashes: this.#utxoHashes,
+      attempts: this.#attempts,
+      signature,
+      lastValidBlockHeight: this.#attempt.lastValidBlockHeight,
+    });
+    if (this.#persistence !== undefined) {
+      await savePersistedWallet(this.#persistence);
+      this.#persistedSignature = signature;
+    }
+  }
+
+  async #settleFailed(): Promise<void> {
+    (this.#wallet ?? this.#persistence?.wallet)?._removePendingSubmission(this.#id);
+    if (this.#persistence !== undefined) await savePersistedWallet(this.#persistence);
   }
 
   cancel(): void {
@@ -145,10 +209,15 @@ export class RingTransactionSubmission {
     if (this.#busy || this.#terminal) throw new RingError("RING_SUBMISSION_PENDING");
     this.#busy = true;
     try {
+      if (
+        this.#pending !== undefined &&
+        this.#persistence !== undefined &&
+        this.#persistedSignature !== this.#pending
+      )
+        await this.#checkpoint(this.#pending);
       for (;;) {
         let status: RingSubmissionStatus | undefined;
         if (this.#pending === undefined) {
-          // 1. Bind the signed message to the retained intent before broadcast.
           if (!equalBytes(this.#intent, this.#attempt.intentHash))
             throw new RingError("RING_INTENT_MISMATCH");
           this.#reservation.extend();
@@ -157,8 +226,10 @@ export class RingTransactionSubmission {
           if (!equalBytes(new Uint8Array(signed.messageBytes), approvedMessage))
             throw new RingError("RING_INTENT_MISMATCH");
           assertIsFullySignedTransaction(signed);
-          this.#pending = getSignatureFromTransaction(signed);
+          const signature = getSignatureFromTransaction(signed);
           this.#attempts += 1;
+          await this.#checkpoint(signature);
+          this.#pending = signature;
           try {
             status = await transport.send(signed, context);
           } catch (cause) {
@@ -166,7 +237,6 @@ export class RingTransactionSubmission {
             if (isClientError(cause) && cause.code === "CLIENT_ABORTED") throw cause;
           }
         }
-        // 2. Resolve the signature before another attempt spends its notes.
         const signature = this.#pending;
         if (status === undefined) {
           try {
@@ -179,22 +249,25 @@ export class RingTransactionSubmission {
           }
         }
         if (status.kind === "unknown") {
-          this.#reservation.extend();
           return { kind: "unknown", signature, attempts: this.#attempts };
         }
-        this.#pending = undefined;
         if (status.kind === "confirmed") {
           this.#terminal = true;
-          this.#reservation.release();
           return { kind: "confirmed", signature, slot: status.slot, attempts: this.#attempts };
         }
-        // 3. Rebuild only a settled refusal attributable to the ring statement.
-        const ringFailure = status.instructionIndex === this.#attempt.ringInstructionIndex;
+        this.#pending = undefined;
+        await this.#settleFailed();
+        const ringFailure =
+          status.kind === "failed" &&
+          status.instructionIndex === this.#attempt.ringInstructionIndex;
         let retry =
-          ringFailure &&
-          (status.customCode === RingProgramError.staleHeadMapRoot ||
-            status.customCode === RingProgramError.staleKeyRegistryRoot);
+          status.kind === "expired" ||
+          (status.kind === "failed" &&
+            ringFailure &&
+            (status.customCode === RingProgramError.staleHeadMapRoot ||
+              status.customCode === RingProgramError.staleKeyRegistryRoot));
         if (
+          status.kind === "failed" &&
           ringFailure &&
           status.customCode === RingProgramError.proofVerificationFailed &&
           this.#attempt.window !== undefined
@@ -207,16 +280,19 @@ export class RingTransactionSubmission {
             kind: "failed",
             signature,
             attempts: this.#attempts,
-            ...(status.instructionIndex === undefined
+            ...(status.kind !== "failed" || status.instructionIndex === undefined
               ? {}
               : { instructionIndex: status.instructionIndex }),
-            ...(status.customCode === undefined ? {} : { customCode: status.customCode }),
+            ...(status.kind !== "failed" || status.customCode === undefined
+              ? {}
+              : { customCode: status.customCode }),
           };
         }
         this.#attempt = await this.#build(context);
       }
     } catch (cause) {
       if (this.#pending === undefined) {
+        (this.#wallet ?? this.#persistence?.wallet)?._removePendingSubmission(this.#id);
         this.#terminal = true;
         this.#reservation.release();
       }
@@ -225,6 +301,63 @@ export class RingTransactionSubmission {
       this.#busy = false;
     }
   }
+}
+
+export async function reconcileRingSubmissions(
+  input: WalletPersistence & Readonly<{ transport: Pick<RingSubmissionTransport, "status"> }>,
+  context?: RequestContext,
+): Promise<readonly RingSubmissionResult[]> {
+  const results: RingSubmissionResult[] = [];
+  for (const pending of input.wallet.pendingSubmissions()) {
+    const status = await input.transport.status(pending, context);
+    const current = input.wallet.pendingSubmissions().find((entry) => entry.id === pending.id);
+    if (current?.signature !== pending.signature) continue;
+    if (status.kind === "unknown") {
+      results.push({ kind: "unknown", signature: pending.signature, attempts: pending.attempts });
+      continue;
+    }
+    if (status.kind === "confirmed") {
+      const unspent = new Set(
+        input.wallet
+          .utxos()
+          .filter((entry) => !entry.spent)
+          .map((entry) => hex(entry.outputContext.hash)),
+      );
+      if (!pending.utxoHashes.some((hash) => unspent.has(hex(hash)))) {
+        input.wallet._releaseReservation(pending.id);
+        input.wallet._removePendingSubmission(pending.id);
+      }
+      results.push({
+        kind: "confirmed",
+        signature: pending.signature,
+        attempts: pending.attempts,
+        slot: status.slot,
+      });
+    } else {
+      input.wallet._releaseReservation(pending.id);
+      input.wallet._removePendingSubmission(pending.id);
+      results.push(failedSubmission(pending, status));
+    }
+  }
+  await savePersistedWallet(input);
+  return results;
+}
+
+function failedSubmission(
+  pending: PendingWalletSubmission,
+  status: Extract<RingSubmissionStatus, { kind: "failed" | "expired" }>,
+): RingSubmissionResult {
+  return {
+    kind: "failed",
+    signature: pending.signature,
+    attempts: pending.attempts,
+    ...(status.kind !== "failed" || status.instructionIndex === undefined
+      ? {}
+      : { instructionIndex: status.instructionIndex }),
+    ...(status.kind !== "failed" || status.customCode === undefined
+      ? {}
+      : { customCode: status.customCode }),
+  };
 }
 
 /** @internal A rejected policy proof is rebuilt only once the slot clock left its window. */
@@ -282,7 +415,7 @@ export function createKitRingSubmissionTransport(
       // Expiry cannot settle an absence observed before the last valid block.
       return (
         (await readSignatureStatus(client, pending.signature, context)) ?? {
-          kind: "failed",
+          kind: "expired",
         }
       );
     },

@@ -135,7 +135,7 @@ describe("persisted wallet sync", () => {
     expect(store.save).toHaveBeenCalledTimes(1);
     expect(store.saved).toBe(snapshot);
     expect(snapshot).toBe(serializeWallet(wallet));
-    expect((JSON.parse(snapshot) as { version: number }).version).toBe(3);
+    expect((JSON.parse(snapshot) as { version: number }).version).toBe(4);
     expect(wallet.lastSynced).toBeGreaterThan(0n);
     expect(report.storedUtxos).toBe(0);
   });
@@ -338,7 +338,7 @@ describe("persisted wallet sync", () => {
       version: number;
       syncCursors: { transactions: readonly unknown[] };
     };
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(4);
     expect(saved.syncCursors.transactions).not.toHaveLength(0);
   });
 });

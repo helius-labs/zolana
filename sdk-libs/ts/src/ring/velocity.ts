@@ -241,25 +241,8 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
   const sameWindow = facts.live.record.window === facts.windowIndex;
   const previous = sameWindow ? facts.counters : undefined;
 
-  const rows: CustomRingVelocityRow[] = [];
-  const spent: bigint[] = [];
-  let approvalRequired = false;
-  for (const row of facts.rows) {
-    const outflow = senderOutflow(movement, row.asset);
-    const before = previous === undefined ? 0n : spendCountersSpent(previous, row.asset);
-    const charged = before + outflow;
-    if (charged > U64_MAX) {
-      throw new RingError("RING_VELOCITY_OVERFLOW", { details: { asset: row.asset } });
-    }
-    if (row.cap !== 0n && charged > row.cap) {
-      throw new RingError("RING_VELOCITY_CAP_EXCEEDED", {
-        details: { asset: row.asset, cap: row.cap, spent: charged },
-      });
-    }
-    if (row.cosignAbove !== 0n && outflow > row.cosignAbove) approvalRequired = true;
-    rows.push(row);
-    spent.push(charged);
-  }
+  const rows = facts.rows;
+  const { spent, approvalRequired } = chargeVelocityRows({ movement, rows, previous });
 
   // 2. Bind successor counters to fresh salt and the SPP output blinding.
   const nextSalt = randomBlinding();
@@ -362,24 +345,38 @@ export function chargeRows(
     namespaceOwnerHash: Bytes32;
   }>,
 ): CustomRingVelocityProofInput {
-  let approvalRequired = false;
-  const kept: CustomRingVelocityRow[] = [];
-  for (const row of input.rows) {
-    const outflow = senderOutflow(input.movement, row.asset);
-    if (row.cap !== 0n && outflow > row.cap) {
-      throw new RingError("RING_VELOCITY_CAP_EXCEEDED", {
-        details: { asset: row.asset, cap: row.cap, spent: outflow },
-      });
-    }
-    if (row.cosignAbove !== 0n && outflow > row.cosignAbove) approvalRequired = true;
-    kept.push(Object.freeze({ ...row }));
-  }
+  const { approvalRequired } = chargeVelocityRows(input);
   return Object.freeze({
     ...velocityProofInputOff({
       ringId: hashBytes(decodeAddress(input.movement.ringProgramId)) as Bytes32,
       namespaceOwnerHash: input.namespaceOwnerHash,
     }),
-    rows: Object.freeze(kept),
+    rows: Object.freeze(input.rows.map((row) => Object.freeze({ ...row }))),
     approvalRequired,
   });
+}
+
+function chargeVelocityRows(
+  input: Readonly<{
+    movement: RingMovement;
+    rows: readonly CustomRingVelocityRow[];
+    previous?: SpendCounters | undefined;
+  }>,
+): Readonly<{ spent: readonly bigint[]; approvalRequired: boolean }> {
+  let approvalRequired = false;
+  const spent = input.rows.map((row) => {
+    const outflow = senderOutflow(input.movement, row.asset);
+    const before =
+      input.previous === undefined ? 0n : spendCountersSpent(input.previous, row.asset);
+    const charged = before + outflow;
+    if (charged > U64_MAX)
+      throw new RingError("RING_VELOCITY_OVERFLOW", { details: { asset: row.asset } });
+    if (row.cap !== 0n && charged > row.cap)
+      throw new RingError("RING_VELOCITY_CAP_EXCEEDED", {
+        details: { asset: row.asset, cap: row.cap, spent: charged },
+      });
+    if (row.cosignAbove !== 0n && outflow > row.cosignAbove) approvalRequired = true;
+    return charged;
+  });
+  return { spent, approvalRequired };
 }

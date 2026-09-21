@@ -87,10 +87,10 @@ describe("ring submission ownership", () => {
     });
     expect(confirmed.kind).toBe("confirmed");
     expect(f.send).toHaveBeenCalledTimes(1);
-    expect(f.release).toHaveBeenCalledTimes(1);
+    expect(f.release).not.toHaveBeenCalled();
   });
 
-  it("extends the reservation before signing and on every unknown poll", async () => {
+  it("checks the reservation before signing and polls without changing its lifetime", async () => {
     const f = await fixture();
     const transport: RingSubmissionTransport = {
       sign: f.sign,
@@ -98,9 +98,9 @@ describe("ring submission ownership", () => {
       status: async () => ({ kind: "unknown" }),
     };
     await f.submission.send(transport);
-    expect(f.extend).toHaveBeenCalledTimes(2);
+    expect(f.extend).toHaveBeenCalledTimes(1);
     await f.submission.send(transport);
-    expect(f.extend).toHaveBeenCalledTimes(3);
+    expect(f.extend).toHaveBeenCalledTimes(1);
   });
 
   it("rebuilds and re-signs only after a confirmed stale-head failure, at most three times", async () => {
@@ -252,7 +252,7 @@ describe("ring submission ownership", () => {
     const confirmed = await f.submission.send(transport);
     expect(confirmed).toEqual({ ...pending, kind: "confirmed", slot: 99n });
     expect(f.send).toHaveBeenCalledTimes(1);
-    expect(f.release).toHaveBeenCalledTimes(1);
+    expect(f.release).not.toHaveBeenCalled();
     expect(height).not.toHaveBeenCalled();
   });
 
@@ -300,13 +300,13 @@ describe("ring submission ownership", () => {
     expect(f.release).not.toHaveBeenCalled();
     expect(() => f.submission.cancel()).toThrow("RING_SUBMISSION_PENDING");
     restored = true;
-    expect(await f.submission.send(transport)).toEqual({
-      ...pending,
+    expect(await f.submission.send(transport)).toMatchObject({
+      attempts: 3,
       kind: "failed",
     });
-    expect(height).toHaveBeenCalledTimes(1);
-    expect(history).toHaveBeenCalledTimes(4);
-    expect(f.send).toHaveBeenCalledTimes(1);
+    expect(height).toHaveBeenCalledTimes(3);
+    expect(history).toHaveBeenCalledTimes(8);
+    expect(f.send).toHaveBeenCalledTimes(3);
     expect(f.release).toHaveBeenCalledTimes(1);
   });
 
@@ -361,7 +361,7 @@ describe("ring submission ownership", () => {
       expect(f.sign).toHaveBeenCalledTimes(1);
       expect(f.send).toHaveBeenCalledTimes(1);
       expect(f.build).toHaveBeenCalledTimes(1);
-      expect(f.release).toHaveBeenCalledTimes(1);
+      expect(f.release).toHaveBeenCalledTimes(outcome === "confirmed" ? 0 : 1);
     },
   );
 
@@ -422,7 +422,7 @@ describe("ring submission ownership", () => {
       expect(f.sign).toHaveBeenCalledTimes(1);
       expect(f.send).toHaveBeenCalledTimes(1);
       expect(f.build).toHaveBeenCalledTimes(1);
-      expect(f.release).toHaveBeenCalledTimes(1);
+      expect(f.release).not.toHaveBeenCalled();
       expect(height).toHaveBeenCalledTimes(1);
     },
   );

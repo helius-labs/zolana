@@ -15,11 +15,15 @@ export function reservedUtxoKeys(wallet: Wallet): ReadonlySet<string> {
 }
 
 /** @internal */
-export function reserveEntries(wallet: Wallet, entries: readonly WalletUtxo[]): UtxoReservation {
+export function reserveEntries(
+  wallet: Wallet,
+  entries: readonly WalletUtxo[],
+  lifetime: "lease" | "submission" = "lease",
+): UtxoReservation {
   return wallet._reserveUtxos({
     utxoHashes: entries.map((entry) => entry.outputContext.hash),
     nowMs: BigInt(Date.now()),
-    ttlMs: DEFAULT_RESERVATION_TTL_MS,
+    ttlMs: lifetime === "submission" ? null : DEFAULT_RESERVATION_TTL_MS,
   });
 }
 

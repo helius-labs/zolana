@@ -366,6 +366,10 @@ export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAc
   );
 }
 
+export function decodeTreeId(bytes: Uint8Array): number {
+  return treeAccountReader(bytes, 2, 4).u16("treeId");
+}
+
 /**
  * Reads the fee schedule and accrued fee balance from a full tree account.
  * The tree header is `discriminator, state, tree_id, padding[4], fees, fee_balance`.

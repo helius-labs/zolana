@@ -168,3 +168,5 @@ export {
 
 export { VIEW_TAG_LENGTH as VIEW_TAG_LEN } from "../keypair/constants.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
+
+export type { PendingWalletSubmission } from "./wallet/state.js";

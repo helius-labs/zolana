@@ -52,6 +52,7 @@ import {
   type TransactionAssembler,
   type TransactionConfirmer,
   type TreeContext,
+  type RingProvingConfig,
   type RingMemberProofRequest,
   type RingHeadRegisterProof,
   type RingHeadTransferProof,
@@ -685,7 +686,7 @@ export class ZolanaClient
     proofInputs: SppProofInputs,
     ringProgramId: Address,
     keys: ProofAuthority,
-    config?: IndexerRpcConfig,
+    config?: RingProvingConfig,
     context?: RequestContext,
   ): Promise<ProvenRingTransact> {
     checkedAddress(ringProgramId, "ringProgramId");
@@ -693,8 +694,9 @@ export class ZolanaClient
       proofInputs,
       { kind: "ring", ring: ringProgramId },
       keys,
-      config,
+      config?.indexer,
       context,
+      config?.outputTree,
     );
   }
 
@@ -775,6 +777,7 @@ export class ZolanaClient
     ringProgramId: Address,
     keys: ProofAuthority,
     context?: RequestContext,
+    outputTree?: TreeContext,
   ): Promise<ProvenRingTransact> {
     checkedAddress(ringProgramId, "ringProgramId");
     return this.#proveTransfer(
@@ -783,6 +786,7 @@ export class ZolanaClient
       keys,
       undefined,
       context,
+      outputTree,
     );
   }
 
@@ -829,16 +833,20 @@ export class ZolanaClient
     keys: ProofAuthority,
     config: IndexerRpcConfig | undefined,
     context: RequestContext | undefined,
+    outputTree: TreeContext = this,
   ): Promise<ProvenRingTransact> {
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
     checkProofAuthority(keys);
-    // The proof inputs hashed their outputs under one tree; proving them for
-    // another would produce commitments the instruction's output tree rejects.
-    if (proofInputs.outputTreeId !== this.treeId) {
+    if (treeAddress(outputTree.treeId) !== outputTree.tree)
+      throw new ClientError("CLIENT_TREE_MISMATCH", {
+        details: { transactionTree: outputTree.tree, clientTree: treeAddress(outputTree.treeId) },
+      });
+    // Output commitments bind the destination tree.
+    if (proofInputs.outputTreeId !== outputTree.treeId) {
       throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
-        details: { expected: this.treeId, actual: proofInputs.outputTreeId },
+        details: { expected: outputTree.treeId, actual: proofInputs.outputTreeId },
       });
     }
     try {

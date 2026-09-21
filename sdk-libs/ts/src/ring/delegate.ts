@@ -263,7 +263,7 @@ async function buildDelegateTransaction(
     }
     if (retry.entries !== undefined) checkRetainedEntries(wallet, retry.entries);
     const selected = retry.entries ?? selectSourceNotes(move, wallet, owner, amounts);
-    reservation = retry.reservation ?? reserveEntries(wallet, selected);
+    reservation = retry.reservation ?? reserveEntries(wallet, selected, retry.lifetime);
     retry.entries = selected;
     retry.reservation = reservation;
     const spends = selected.map((entry) => ringProofInput(entry, owner, move.client));

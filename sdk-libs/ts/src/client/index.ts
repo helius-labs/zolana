@@ -115,3 +115,5 @@ export type {
   SpendProof,
 } from "./rpc.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
+
+export type { RingProvingConfig } from "./ports.js";

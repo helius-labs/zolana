@@ -153,7 +153,8 @@ export interface RingKeyRegistryReader {
 export type RingSubmissionStatus =
   | Readonly<{ kind: "unknown" }>
   | Readonly<{ kind: "confirmed"; slot: bigint }>
-  | Readonly<{ kind: "failed"; instructionIndex?: number; customCode?: number }>;
+  | Readonly<{ kind: "failed"; instructionIndex?: number; customCode?: number }>
+  | Readonly<{ kind: "expired" }>;
 
 /** Identifies a broadcast awaiting confirmation or expiry. */
 export interface RingSubmissionPending {
@@ -243,6 +244,11 @@ export interface ProofAuthority {
  */
 export type WalletKeys = ShieldedKeys & ProofAuthority;
 
+export interface RingProvingConfig {
+  readonly indexer?: IndexerRpcConfig;
+  readonly outputTree?: TreeContext;
+}
+
 export interface Prover {
   proveCustomRingDeposit(
     inputs: CustomRingDepositProofRequest,
@@ -253,6 +259,7 @@ export interface Prover {
     ringProgramId: Address,
     keys: ProofAuthority,
     context?: RequestContext,
+    outputTree?: TreeContext,
   ): Promise<ProvenRingTransact>;
   proveCustomRingDelegatePolicy(
     inputs: CustomRingPolicyProofRequest,
@@ -280,7 +287,7 @@ export interface Prover {
     proofInputs: SppProofInputs,
     ringProgramId: Address,
     keys: ProofAuthority,
-    config?: IndexerRpcConfig,
+    config?: RingProvingConfig,
     context?: RequestContext,
   ): Promise<ProvenRingTransact>;
   proveCustomRingPolicy(

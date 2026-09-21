@@ -88,7 +88,11 @@ export {
   createRingExitSubmission,
   createRingWithdrawalSubmission,
 } from "./transfer.js";
-export { RingTransactionSubmission, createKitRingSubmissionTransport } from "./submission.js";
+export {
+  RingTransactionSubmission,
+  createKitRingSubmissionTransport,
+  reconcileRingSubmissions,
+} from "./submission.js";
 export type {
   ReservationHold,
   RingSubmissionAttempt,
