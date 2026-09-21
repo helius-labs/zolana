@@ -1,0 +1,294 @@
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { performance } from "node:perf_hooks";
+import { setTimeout as delay } from "node:timers/promises";
+import { TimedTransport } from "./transport.mjs";
+import { writeReports } from "./report.mjs";
+
+export const FAMILIES = Object.freeze([
+  "transfer-confidential",
+  "transfer-ring",
+  "transfer-ring-authority",
+  "transfer-p256-ring",
+  "merge",
+  "merge-ring",
+  "custom-ring-base",
+  "custom-ring-policy",
+]);
+
+export function matrix() {
+  const pair = (family, repetition) =>
+    ["baseline", "candidate"].map((deployment) => ({
+      family,
+      deployment,
+      repetition,
+      source: deployment === "candidate" && !family.startsWith("custom-ring") ? "prover" : "client",
+    }));
+  return [
+    ...FAMILIES.flatMap((family) => pair(family, 1)),
+    ...FAMILIES.slice(0, 6).flatMap((family) => pair(family, 2)),
+    ...["transfer-confidential", "merge"].map((family) => ({
+      family,
+      deployment: "candidate",
+      repetition: 3,
+      source: "client",
+    })),
+  ];
+}
+
+export class Budget {
+  static async acquire(directory) {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const lock = join(directory, "sweep.lock");
+    await mkdir(lock);
+    try {
+      const path = join(directory, "budget.json");
+      let state;
+      try {
+        state = JSON.parse(await readFile(path, "utf8"));
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        state = { attempts: 0, startedAt: Date.now(), lastCompletedAt: 0, stopped: null };
+      }
+      if (
+        !Number.isInteger(state.attempts) ||
+        state.attempts < 0 ||
+        state.attempts > 30 ||
+        !Number.isFinite(state.startedAt) ||
+        !Number.isFinite(state.lastCompletedAt)
+      ) {
+        throw new Error("Invalid sweep budget");
+      }
+      const budget = new Budget(path, lock, state);
+      await budget.persist();
+      return budget;
+    } catch (error) {
+      await rm(lock, { recursive: true });
+      throw error;
+    }
+  }
+
+  constructor(path, lock, state) {
+    this.path = path;
+    this.lock = lock;
+    this.state = state;
+  }
+  remainingMs() {
+    return Math.max(0, this.state.startedAt + 600_000 - Date.now());
+  }
+  async persist() {
+    const temporary = `${this.path}.tmp`;
+    const file = await open(temporary, "w", 0o600);
+    try {
+      await file.writeFile(JSON.stringify(this.state));
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, this.path);
+  }
+  async claim() {
+    if (this.state.stopped || this.state.attempts >= 30 || !this.remainingMs())
+      throw new Error("Sweep budget exhausted");
+    this.state.attempts++;
+    // 1. Save the attempt before any proof request can leave the process.
+    await this.persist();
+    return this.state.attempts;
+  }
+  async stop(reason) {
+    this.state.stopped = reason;
+    await this.persist();
+  }
+  async complete() {
+    this.state.lastCompletedAt = Date.now();
+    await this.persist();
+  }
+  async close() {
+    await rm(this.lock, { recursive: true });
+  }
+}
+
+export async function sweep({ directory, deployments, indexer, fixtures, metadata = {} }) {
+  const budget = await Budget.acquire(directory);
+  const transport = new TimedTransport();
+  const results = [];
+  try {
+    if (budget.state.attempts) throw new Error("Existing sweep cannot be resumed");
+    for (const entry of matrix()) {
+      const fixture = fixtures[entry.family];
+      const blocked = fixture?.blocked ?? fixture?.blockedDeployments?.[entry.deployment];
+      if (!fixture || blocked) {
+        results.push({
+          ...entry,
+          status: "blocked",
+          reason: blocked ?? "fixture_unavailable",
+        });
+        continue;
+      }
+      if (typeof fixture.verify !== "function") throw new Error("A proof verifier is required");
+      if (!budget.remainingMs() || budget.state.stopped) break;
+      await delay(Math.max(0, budget.state.lastCompletedAt + 1000 - Date.now()));
+      if (!budget.remainingMs()) break;
+      const attempt = await budget.claim();
+      const origin = performance.now();
+      const abort = new AbortController();
+      const signal = AbortSignal.any([
+        abort.signal,
+        AbortSignal.timeout(Math.min(60_000, budget.remainingMs())),
+      ]);
+      const result = {
+        ...entry,
+        attempt,
+        submitted: false,
+        shape: fixture.shape,
+        status: "running",
+        spans: [],
+        requests: [],
+        startedAt: new Date().toISOString(),
+      };
+      results.push(result);
+      let submitted = false;
+      const wire = [];
+      const span = async (name, action) => {
+        const row = { name, startMs: performance.now() - origin };
+        result.spans.push(row);
+        try {
+          return await action();
+        } finally {
+          row.endMs = performance.now() - origin;
+          row.durationMs = row.endMs - row.startMs;
+        }
+      };
+      const fetch = async (input, init = {}) => {
+        signal.throwIfAborted();
+        const url = new URL(String(input));
+        const prover = new URL(deployments[entry.deployment]);
+        const photon = new URL(indexer);
+        const isProver = url.origin === prover.origin;
+        if (!isProver && url.origin !== photon.origin)
+          throw new Error("Request destination is outside the sweep");
+        const proof = isProver && init.method?.toUpperCase() === "POST";
+        const headers = new Headers(init.headers);
+        if (proof) {
+          if (submitted) {
+            abort.abort();
+            throw new Error("Proof retries are disabled");
+          }
+          submitted = true;
+          result.submitted = true;
+          headers.delete("x-async");
+          headers.set("x-sync", "true");
+          if (entry.deployment === "candidate") headers.set("x-prover-timing", "true");
+        }
+        let rpc;
+        if (!isProver) {
+          try {
+            rpc = JSON.parse(String(init.body)).method;
+          } catch {
+            rpc = "unknown";
+          }
+        }
+        try {
+          let requestRow;
+          const response = await transport.request({
+            url,
+            init: { ...init, headers },
+            signal: AbortSignal.any([signal, ...(init.signal ? [init.signal] : [])]),
+            origin,
+            record: (row) => {
+              requestRow = Object.assign(row, {
+                lane: isProver ? "prover" : "indexer",
+                operation: isProver ? url.pathname : rpc,
+              });
+              result.requests.push(requestRow);
+            },
+          });
+          if (!response.ok) {
+            abort.abort();
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const text = await response.clone().text();
+          let value;
+          try {
+            value = JSON.parse(text);
+          } catch {
+            throw new Error("Invalid JSON response");
+          }
+          if (!isProver && value.error !== undefined) {
+            requestRow.rpcError = true;
+            abort.abort();
+            throw new Error("Indexer RPC failed");
+          }
+          if (!isProver && value.result?.context?.slot !== undefined)
+            requestRow.contextSlot = value.result.context.slot;
+          if (proof) wire.push({ request: JSON.parse(String(init.body)), response: value });
+          if (isProver && !proof && value.status === "completed") {
+            wire.at(-1).response = value.result ?? value;
+          }
+          return response;
+        } catch (error) {
+          abort.abort();
+          throw error;
+        }
+      };
+      try {
+        const proof = await bounded(signal, () =>
+          fixture.prove({
+            ...entry,
+            url: deployments[entry.deployment],
+            indexer,
+            fetch,
+            signal,
+            span,
+          }),
+        );
+        if (!submitted) throw new Error("No proof request was sent");
+        result.sdkReadyMs = performance.now() - origin;
+        result.proofReceivedMs = result.requests.findLast(
+          (request) => request.lane === "prover",
+        ).endMs;
+        const verified = await span("verification", () =>
+          bounded(signal, () => fixture.verify({ proof, wire, entry, signal })),
+        );
+        if (verified !== true) throw new Error("Proof verification failed");
+        result.verified = true;
+        result.status = "ok";
+      } catch {
+        result.status = signal.aborted ? "stopped" : "failed";
+        result.error = signal.aborted ? "request_aborted" : "preparation_or_verification_failed";
+        await budget.stop(result.error);
+      } finally {
+        result.totalMs = performance.now() - origin;
+        await budget.complete();
+        await writeReports({ directory, metadata, results, budget: budget.state });
+      }
+      if (budget.state.stopped) break;
+    }
+    await writeReports({ directory, metadata, results, budget: budget.state });
+    return results;
+  } finally {
+    transport.close();
+    await budget.close();
+  }
+}
+
+function bounded(signal, action) {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    Promise.resolve()
+      .then(action)
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const [adapterPath, output] = process.argv.slice(2);
+  if (!adapterPath || !output) throw new Error("Usage node sweep.mjs ADAPTER.mjs OUTPUT_DIRECTORY");
+  const adapter = await import(pathToFileURL(resolve(adapterPath)).href);
+  const config = await adapter.prepare();
+  await sweep({ ...config, directory: resolve(output) });
+}
