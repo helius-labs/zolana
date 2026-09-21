@@ -24,6 +24,21 @@ const COUNTER_SLOT_LEN: usize = 32 + 8;
 /// The private half a sender keeps.
 pub const SPEND_COUNTERS_LEN: usize = 32 + MAX_VELOCITY_ASSETS * COUNTER_SLOT_LEN;
 
+pub const SPEND_COUNTERS_BODY_LEN: usize = 33 + SPEND_COUNTERS_LEN;
+const COUNTERS_DISCLOSURE_DOMAIN: &[u8] = b"CRING/spend-counters/v1";
+
+pub fn spend_counters_disclosure_hash(
+    salt: &[u8; 16],
+    body: &[u8; SPEND_COUNTERS_BODY_LEN],
+) -> Result<[u8; 32], HasherError> {
+    let mut bytes = [0u8; COUNTERS_DISCLOSURE_DOMAIN.len() + 16 + SPEND_COUNTERS_BODY_LEN];
+    let (domain, rest) = bytes.split_at_mut(COUNTERS_DISCLOSURE_DOMAIN.len());
+    domain.copy_from_slice(COUNTERS_DISCLOSURE_DOMAIN);
+    rest[..16].copy_from_slice(salt);
+    rest[16..].copy_from_slice(body);
+    hash_bytes(&bytes)
+}
+
 /// Apart from the counters message, tagged by the bare namespace.
 pub fn spend_record_message_tag(namespace: &[u8; 32]) -> Result<[u8; 32], HasherError> {
     Sha256::hashv(&[b"zolana:spend-record:v1", namespace])

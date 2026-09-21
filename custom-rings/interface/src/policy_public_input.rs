@@ -55,6 +55,7 @@ impl CustomRingPolicyPublicInput<'_> {
 /// Extends policy verification with the current and successor spend-history
 /// roots.
 pub struct CompressedPolicyPublicInput<'a> {
+    pub counters_disclosure_hash: &'a [u8; 32],
     pub policy: CustomRingPolicyPublicInput<'a>,
     /// The head-map root the transition reads, checked equal to the on-chain root.
     pub head_old_root: &'a [u8; 32],
@@ -66,10 +67,11 @@ impl CompressedPolicyPublicInput<'_> {
     /// Root order must match the compressed policy circuit.
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         let policy = self.policy.elements()?;
-        let mut chain = [[0u8; 32]; 18];
+        let mut chain = [[0u8; 32]; 19];
         chain[..16].copy_from_slice(&policy);
         chain[16] = *self.head_old_root;
         chain[17] = *self.head_new_root;
+        chain[18] = *self.counters_disclosure_hash;
         create_hash_chain_from_slice(&chain)
     }
 }

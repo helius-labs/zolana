@@ -1,3 +1,4 @@
+import { initializePoseidon } from "../src/hasher/index.js";
 import { describe, expect, it } from "vitest";
 import { address, type Signature } from "@solana/kit";
 
@@ -16,7 +17,13 @@ import {
   parseAuditorMessage,
 } from "../src/keypair/audit.js";
 import { auditRingTransaction } from "../src/ring/audit.js";
-import { encodeSpendRecord, memberOfIdentity, spendRecordMessageTag } from "../src/ring/policy.js";
+import {
+  encodeSpendRecord,
+  encodeSpendCounters,
+  spendCountersCommitment,
+  memberOfIdentity,
+  spendRecordMessageTag,
+} from "../src/ring/policy.js";
 import { AssetRegistry, SOL_ASSET_ID } from "../src/transaction/asset.js";
 import { Data } from "../src/transaction/data.js";
 import {
@@ -153,16 +160,23 @@ describe("ring audit encryption", () => {
   });
 });
 
+await initializePoseidon();
+
 describe("ring audit spend records", () => {
   const auditor = ViewingKey.generate();
   const tx = ViewingKey.generate();
   const viewTag = new Uint8Array(32).fill(0x77) as Bytes32;
   const member = memberOfIdentity(new Uint8Array(32).fill(0x11) as Bytes32);
+  const counters = {
+    salt: new Uint8Array(32) as Bytes32,
+    assets: Array.from({ length: 8 }, () => new Uint8Array(32) as Bytes32),
+    spent: Array<bigint>(8).fill(0n),
+  };
   const record = {
     member,
     version: 3n,
     window: 4n,
-    countersCommitment: new Uint8Array(32).fill(5) as Bytes32,
+    countersCommitment: spendCountersCommitment(counters),
     blinding: new Uint8Array(32).fill(6) as Bytes32,
   };
 
@@ -206,6 +220,18 @@ describe("ring audit spend records", () => {
         ...(input.recordMessage === undefined
           ? []
           : [{ viewTag: spendRecordMessageTag(viewTag), data: input.recordMessage }]),
+        {
+          viewTag,
+          data: new Uint8Array([
+            ...tx.publicKey().toBytes(),
+            ...tx.encryptSlot(
+              tx.publicKey(),
+              encodeSpendCounters(counters),
+              new Uint8Array(16) as Bytes16,
+              0xffff_ffff,
+            ),
+          ]),
+        },
         message,
       ],
       nullifiers: [],
@@ -222,6 +248,37 @@ describe("ring audit spend records", () => {
     expect(audited.spendRecords[0]?.record.member).toEqual(member);
     expect(audited.undecryptableSlots).toHaveLength(0);
     expect(audited.invalidSpendRecordSlots).toHaveLength(0);
+  });
+
+  it("rejects missing, duplicate, truncated, foreign recipient and corrupted counters", () => {
+    const valid = transaction({ amount: 0n, recordMessage: encodeSpendRecord(record) });
+    const countersMessage = valid.messages[1];
+    if (countersMessage === undefined) throw new Error("missing counter fixture");
+    for (const messages of [
+      valid.messages.filter((_, index) => index !== 1),
+      [countersMessage, ...valid.messages],
+      valid.messages.map((message, index) =>
+        index === 1 ? { ...message, data: message.data.slice(1) } : message,
+      ),
+      valid.messages.map((message, index) =>
+        index === 1
+          ? {
+              ...message,
+              data: new Uint8Array([
+                ...auditor.publicKey().toBytes(),
+                ...message.data.subarray(33),
+              ]),
+            }
+          : message,
+      ),
+      valid.messages.map((message, index) => {
+        if (index !== 1) return message;
+        const data = message.data.slice();
+        data[data.length - 1] = (data[data.length - 1] ?? 0) ^ 1;
+        return { ...message, data };
+      }),
+    ])
+      expect(() => audit({ ...valid, messages })).toThrow("RING_SPEND_COUNTERS_UNKNOWN");
   });
 
   it("reports a crafted record message and still counts the slot's money", () => {

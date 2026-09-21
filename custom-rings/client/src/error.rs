@@ -34,6 +34,8 @@ pub enum AuditError {
     SlotIndexOverflow(usize),
     #[error("the public spend record message is malformed or does not match its carrier")]
     InvalidSpendRecordMessage,
+    #[error("invalid spend counters disclosure")]
+    InvalidSpendCountersDisclosure,
     #[error("decrypted output references unknown asset id {asset_id}")]
     UnknownAsset {
         asset_id: u64,

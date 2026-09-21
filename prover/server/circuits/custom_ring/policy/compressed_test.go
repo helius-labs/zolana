@@ -34,11 +34,17 @@ func compressedAssignment(t *testing.T, change func(member, spent, successor *bi
 	heads := spptest.NewHeadMap(t, HeadMapHeight)
 	transition := heads.Transfer(t, heads.Register(t, member, spent).NewIndex, successor)
 
+	var secret [32]byte
+	for i, b := range c.TxViewingSk {
+		secret[i] = byte(spptest.AsBigInt(b).Uint64())
+	}
 	elements := s.keys.ChainElements(t, s.privateTxHash)
 	c.PublicInputHash = spptest.MustHashChain(t, append(elements,
 		s.policyHash, s.stateRoot, s.nullifierRoot, big.NewInt(entriesTreeID),
 		s.ringID, s.ownOwnerHash, new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval),
-		transition.OldRoot, transition.NewRoot,
+		transition.OldRoot, transition.NewRoot, spptest.CounterDisclosure{
+			Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent,
+		}.Hash(t),
 	))
 
 	assignment := &CompressedPolicyCircuit{
@@ -47,6 +53,9 @@ func compressedAssignment(t *testing.T, change func(member, spent, successor *bi
 		HeadNewRoot: transition.NewRoot,
 		HeadNext:    transition.Leaf.Next,
 		HeadIndex:   transition.Index,
+	}
+	for i := range assignment.TransactionSalt {
+		assignment.TransactionSalt[i] = 0
 	}
 	for i := range assignment.HeadProof {
 		assignment.HeadProof[i] = transition.Proof[i]

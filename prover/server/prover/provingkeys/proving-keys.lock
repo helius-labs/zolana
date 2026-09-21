@@ -14,8 +14,8 @@
       "source": "release"
     },
     "custom_ring_compressed_policy.key": {
-      "sha256": "85f71a00bcef55b772347fbf21286aeac592204e21f8bb7ed750fea59f5b6950",
-      "size": 175676455,
+      "sha256": "1f1aa6e515f315f5aad4d96245d8f42fafbd86a96937d0887a5c86cfd8d3ff78",
+      "size": 508367383,
       "source": "release"
     },
     "custom_ring_compressed_register.key": {

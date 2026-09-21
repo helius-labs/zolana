@@ -76,7 +76,7 @@ func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
 	verifyInstalledProof(t, ps, proof, assignment)
 
 	decoded.Base.WindowIndex = decoded.Base.Record.Window
-	bindRulesFreeStatement(t, &decoded.Base, decoded.HeadOldRoot, decoded.HeadNewRoot)
+	bindRulesFreeStatement(t, &decoded.Base, decoded.HeadOldRoot, decoded.HeadNewRoot, compressedDisclosure(t, &decoded))
 	staleWindow, err := decoded.CreateWitness()
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 	for i := range transfer.HeadProof {
 		transfer.HeadProof[i] = &transition.Proof[i]
 	}
-	bindRulesFreeStatement(t, &transfer.Base, transfer.HeadOldRoot, transfer.HeadNewRoot)
+	bindRulesFreeStatement(t, &transfer.Base, transfer.HeadOldRoot, transfer.HeadNewRoot, compressedDisclosure(t, transfer))
 	return compressedFixture{register: register, transfer: transfer}
 }
 
@@ -238,4 +238,10 @@ func proofCounters(t *testing.T, salt, asset, spent *big.Int) *big.Int {
 		elements = append(elements, big.NewInt(0), big.NewInt(0))
 	}
 	return spptest.MustHashChain(t, elements)
+}
+
+func compressedDisclosure(t *testing.T, p *CompressedPolicyParameters) *big.Int {
+	return (spptest.CounterDisclosure{Secret: p.Base.TxViewingSk, TransactionSalt: p.TransactionSalt,
+		CounterSalt: p.Base.Record.NextSalt, Assets: []*big.Int{p.Base.Velocity[0].Asset},
+		Spent: []uint64{p.Base.Inputs[0].Amount.Uint64()}}).Hash(t)
 }

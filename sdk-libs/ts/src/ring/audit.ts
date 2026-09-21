@@ -34,17 +34,12 @@ import {
   readOutputData,
 } from "../transaction/serialization/codecs.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
-import { openSealedMessage } from "../transaction/wallet/encrypt-rails.js";
 
 import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 
 import { RingError } from "./error.js";
 import { spendRecordFromSlot, type SpendCounters, type SpendRecord } from "./policy.js";
-import {
-  checkedSpendCounters,
-  findSpendCountersMessage,
-  RING_SPEND_COUNTERS_SLOT_INDEX,
-} from "./counters.js";
+import { openSpendCountersWithKey, findSpendCountersMessage } from "./counters.js";
 import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
 
 /** Mirrors Rust `AuditedOutput`. */
@@ -317,7 +312,6 @@ function carriedRecord(
   return { kind: "record", record };
 }
 
-/** `undefined` when the counters do not reproduce the record's commitment. */
 function openRecordCounters(
   txKey: ViewingKey,
   input: Readonly<{
@@ -327,20 +321,14 @@ function openRecordCounters(
     record: SpendRecord;
   }>,
 ): SpendCounters | undefined {
+  if (input.record.version === 0n) return undefined;
   const message = findSpendCountersMessage(input.messages, input.viewTag);
-  if (message === undefined) return undefined;
-  try {
-    return checkedSpendCounters(
-      openSealedMessage(txKey, {
-        salt: input.salt,
-        slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX,
-        data: message.data,
-      }),
-      input.record.countersCommitment,
-    );
-  } catch {
-    return undefined;
-  }
+  if (message === undefined) throw new RingError("RING_SPEND_COUNTERS_UNKNOWN");
+  return openSpendCountersWithKey(txKey, {
+    salt: input.salt,
+    data: message.data,
+    commitment: input.record.countersCommitment,
+  });
 }
 
 /** `undefined` for a slot this audit cannot open, Rust `OutputAudit::run`. */

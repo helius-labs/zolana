@@ -27,6 +27,7 @@ they spend.
 
 Breaking
 
+- Windowed ring transfers require the new counter proof and keys → deploy matching programs and prover keys, pass `transactionSalt` in low level compressed proof requests, and provide `countersDisclosureHash` when hashing a head transition.
 - Custom deposit codecs and `ringDepositInstruction` move from `/interface` to `/ring` → update imports and pass `customRingDepositPayload` as the wallet sync `depositPayloadDecoder`.
 - `serializeWallet` writes version 4 snapshots → upgrade snapshot readers before saving, while versions 2 and 3 remain readable.
 - `proveRingTransact` accepts `RingProvingConfig` → put indexer settings under `indexer` and supply `outputTree` when the destination differs from the client tree.
@@ -663,6 +664,7 @@ Changed
 
 Fixed
 
+- Ring audit readers reject missing, duplicate, malformed, or foreign recipient successor counters instead of reporting an incomplete record.
 - Ring transfer builders bind output commitments to the selected destination tree on clients with nonzero tree IDs.
 - Ring submissions retain selected notes during proof generation, signing, pending confirmation and wallet sync, and retry verified blockhash expiry within the attempt limit.
 

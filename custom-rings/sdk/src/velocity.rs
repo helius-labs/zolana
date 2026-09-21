@@ -86,6 +86,7 @@ impl VelocityContext<'_> {
             SpendCounters::EMPTY
         } else {
             let message = find_counters_message(&live.origin.messages, self.namespace.as_array())
+                .map_err(|_| TransferError::SpendCountersUnknown)?
                 .ok_or(TransferError::SpendCountersUnknown)?;
             let salt = live
                 .origin

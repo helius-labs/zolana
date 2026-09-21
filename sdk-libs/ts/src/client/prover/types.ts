@@ -1,6 +1,7 @@
 export const RING_DEPOSIT_AUDIT_SLOTS = 8;
 import type {
   Address,
+  Bytes16,
   Bytes32,
   Bytes64,
   Bytes128,
@@ -315,6 +316,7 @@ export interface CustomRingDepositProofRequest {
 
 /** Proves policy satisfaction with the member's compressed head update. */
 export interface CustomRingCompressedPolicyProofRequest {
+  readonly transactionSalt: Bytes16;
   readonly policy: CustomRingPolicyProofRequest;
   readonly headOldRoot: Bytes32;
   readonly headNewRoot: Bytes32;

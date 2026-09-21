@@ -1,31 +1,35 @@
 package custom_ring
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"zolana/prover/circuits/custom_ring/policy"
 	"zolana/prover/prover/common"
 )
 
 type CompressedPolicyParameters struct {
-	Base        PolicyParameters
-	HeadOldRoot *big.Int
-	HeadNewRoot *big.Int
-	HeadNext    *big.Int
-	HeadIndex   *big.Int
-	HeadProof   [policy.HeadMapHeight]*big.Int
+	Base            PolicyParameters
+	TransactionSalt [16]byte
+	HeadOldRoot     *big.Int
+	HeadNewRoot     *big.Int
+	HeadNext        *big.Int
+	HeadIndex       *big.Int
+	HeadProof       [policy.HeadMapHeight]*big.Int
 }
 
 type compressedPolicyParametersJSON struct {
-	CircuitType string          `json:"circuitType"`
-	Policy      json.RawMessage `json:"policy"`
-	HeadOldRoot string          `json:"headOldRoot"`
-	HeadNewRoot string          `json:"headNewRoot"`
-	HeadNext    string          `json:"headNext"`
-	HeadIndex   string          `json:"headIndex"`
-	HeadProof   []string        `json:"headProof"`
+	CircuitType     string          `json:"circuitType"`
+	Policy          json.RawMessage `json:"policy"`
+	TransactionSalt string          `json:"transactionSalt"`
+	HeadOldRoot     string          `json:"headOldRoot"`
+	HeadNewRoot     string          `json:"headNewRoot"`
+	HeadNext        string          `json:"headNext"`
+	HeadIndex       string          `json:"headIndex"`
+	HeadProof       []string        `json:"headProof"`
 }
 
 func (p *CompressedPolicyParameters) MarshalJSON() ([]byte, error) {
@@ -34,13 +38,14 @@ func (p *CompressedPolicyParameters) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(compressedPolicyParametersJSON{
-		CircuitType: string(common.CustomRingCompressedPolicyCircuitType),
-		Policy:      base,
-		HeadOldRoot: common.ToHex(p.HeadOldRoot),
-		HeadNewRoot: common.ToHex(p.HeadNewRoot),
-		HeadNext:    common.ToHex(p.HeadNext),
-		HeadIndex:   common.ToHex(p.HeadIndex),
-		HeadProof:   writePath(p.HeadProof[:]),
+		CircuitType:     string(common.CustomRingCompressedPolicyCircuitType),
+		Policy:          base,
+		TransactionSalt: "0x" + hex.EncodeToString(p.TransactionSalt[:]),
+		HeadOldRoot:     common.ToHex(p.HeadOldRoot),
+		HeadNewRoot:     common.ToHex(p.HeadNewRoot),
+		HeadNext:        common.ToHex(p.HeadNext),
+		HeadIndex:       common.ToHex(p.HeadIndex),
+		HeadProof:       writePath(p.HeadProof[:]),
 	})
 }
 
@@ -61,7 +66,11 @@ func (p *CompressedPolicyParameters) UnmarshalJSON(data []byte) error {
 			len(raw.HeadProof), policy.HeadMapHeight,
 		)
 	}
-	var err error
+	salt, err := hex.DecodeString(strings.TrimPrefix(raw.TransactionSalt, "0x"))
+	if err != nil || len(salt) != len(p.TransactionSalt) {
+		return fmt.Errorf("invalid transaction salt")
+	}
+	copy(p.TransactionSalt[:], salt)
 	if p.HeadOldRoot, err = fieldFromHex(raw.HeadOldRoot, "headOldRoot"); err != nil {
 		return err
 	}
@@ -99,6 +108,9 @@ func (p *CompressedPolicyParameters) CreateWitness() (*policy.CompressedPolicyCi
 		HeadNewRoot: p.HeadNewRoot,
 		HeadNext:    p.HeadNext,
 		HeadIndex:   p.HeadIndex,
+	}
+	for i := range circuit.TransactionSalt {
+		circuit.TransactionSalt[i] = p.TransactionSalt[i]
 	}
 	for i := range circuit.HeadProof {
 		circuit.HeadProof[i] = p.HeadProof[i]

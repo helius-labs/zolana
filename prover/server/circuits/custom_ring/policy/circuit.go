@@ -88,13 +88,13 @@ const (
 )
 
 func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
-	chain, _ := c.constrainPolicyRail(api, memberRail)
+	chain, _, _ := c.constrainPolicyRail(api, memberRail)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }
 
 // The rail is fixed in the compiled circuit, never selected by a witness.
-func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, transactionContext) {
+func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, transactionContext, successorCounters) {
 	// 1. Prove the audit encryption statement.
 	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash: c.PrivateTxHash,
@@ -123,11 +123,12 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 	c.constrainRules(api, txContext, listFacts, checked.ruleEnabled, checked.inlineEnabled)
 
 	// 6. Delegate moves retain list rules but bypass member outflow limits.
+	var counters successorCounters
 	if rail == delegateRail {
 		api.AssertIsEqual(c.WindowIndex, 0)
 		api.AssertIsEqual(c.ApprovalRequired, 0)
 	} else {
-		c.constrainVelocity(api, rangeChecker, checked.velocity, txContext)
+		counters = c.constrainVelocity(api, rangeChecker, checked.velocity, txContext)
 	}
 
 	// 7. Bind the program context and approval decision to the same proof.
@@ -135,5 +136,5 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 		checked.hash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,
 	)
-	return chain, txContext
+	return chain, txContext, counters
 }

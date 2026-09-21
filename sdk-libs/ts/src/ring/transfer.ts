@@ -1,3 +1,4 @@
+import { findSpendCountersMessage, spendCountersDisclosureHash } from "./counters.js";
 import type {
   BlockhashProvider,
   ProofAuthority,
@@ -895,6 +896,16 @@ async function proveRingTransferStatement(
         ringId,
         namespaceOwnerHash: policyRound.config.namespaceOwnerHash,
       });
+    let compressedHead;
+    if (headTransition !== undefined) {
+      const namespace = await ringPolicyNamespaceAddress(input.ringProgramId);
+      const counters = findSpendCountersMessage(messages, addressBytes(namespace) as Bytes32);
+      if (counters === undefined) throw new RingError("RING_SPEND_COUNTERS_UNKNOWN");
+      compressedHead = {
+        ...headTransition,
+        countersDisclosureHash: spendCountersDisclosureHash(encrypted.salt, counters.data),
+      };
+    }
     const policyRequest: CustomRingPolicyProofRequest = {
       publicInputHash: policyPublicInputHash({
         privateTxHash: data.privateTxHash,
@@ -909,7 +920,7 @@ async function proveRingTransferStatement(
         namespaceOwnerHash: velocityProofInput.namespaceOwnerHash,
         windowIndex: velocityProofInput.windowIndex,
         approvalRequired: velocityProofInput.approvalRequired,
-        ...(headTransition === undefined ? {} : { headTransition }),
+        ...(compressedHead === undefined ? {} : { headTransition: compressedHead }),
       }),
       privateTxHash: data.privateTxHash,
       txViewingSecret: encrypted.audit.txViewingSecret,
@@ -949,6 +960,7 @@ async function proveRingTransferStatement(
           : await flow.client.proveCustomRingCompressedPolicy(
               {
                 policy: policyRequest,
+                transactionSalt: encrypted.salt,
                 headOldRoot: headTransition.oldRoot,
                 headNewRoot: headTransition.newRoot,
                 headNext: head.next,

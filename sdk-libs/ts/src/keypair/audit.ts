@@ -181,7 +181,11 @@ export function policyPublicInputHash(
       /** Zero for per-transfer caps and delegate moves. */
       windowIndex: bigint;
       approvalRequired: boolean;
-      headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
+      headTransition?: Readonly<{
+        oldRoot: Bytes32;
+        newRoot: Bytes32;
+        countersDisclosureHash: Bytes32;
+      }>;
     }>,
 ): Bytes32 {
   return hashChain([
@@ -199,6 +203,7 @@ export function policyPublicInputHash(
       : [
           checkedBytes(input.headTransition.oldRoot, 32, "head old root"),
           checkedBytes(input.headTransition.newRoot, 32, "head new root"),
+          checkedBytes(input.headTransition.countersDisclosureHash, 32, "counters disclosure hash"),
         ]),
   ]);
 }

@@ -557,6 +557,7 @@ export function customRingCompressedPolicyProofRequest(
 ): Readonly<Record<string, unknown>> {
   return Object.freeze({
     circuitType: "custom-ring-compressed-policy",
+    transactionSalt: bytesHex(checkedBytes(input.transactionSalt, 16, "transactionSalt")),
     policy: customRingPolicyProofRequest(input.policy),
     headOldRoot: hex32(input.headOldRoot, "headOldRoot"),
     headNewRoot: hex32(input.headNewRoot, "headNewRoot"),

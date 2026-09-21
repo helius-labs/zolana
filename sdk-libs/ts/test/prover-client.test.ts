@@ -146,6 +146,7 @@ describe("compressed ring prover contracts", () => {
   it("nests the member policy and rejects a forty-bit index alias", () => {
     const request = {
       policy: ringRequest(p256.getPublicKey(bytes(4), false)),
+      transactionSalt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
       headOldRoot: bytes(1),
       headNewRoot: bytes(2),
       headNext: bytes(3),

@@ -154,12 +154,22 @@ impl TransactRail {
             (TransactRail::Member, Some(transition)) if windowed_policy => {
                 let account = rest.next_mut("head_map_root")?;
                 let root = load_append_root_mut::<HeadMapRoot>(program_id, account)?;
+                let (binding, _) = policy.as_ref().ok_or(CustomRingError::InvalidPolicyRules)?;
+                let namespace = namespace_address(program_id, binding.namespace_bump)?;
+                let counters_disclosure_hash = CountersDisclosure {
+                    namespace: namespace.as_array(),
+                    tx_viewing_pk: &transact.tx_viewing_pk,
+                    salt: &transact.salt,
+                    messages: &transact.messages,
+                }
+                .hash()?;
                 if root.root != transition.old_root {
                     return Err(CustomRingError::StaleHeadMapRoot.into());
                 }
                 PolicyStatement::Windowed {
                     transition: *transition,
                     root,
+                    counters_disclosure_hash,
                 }
             }
             _ => return Err(CustomRingError::InvalidInstructionData.into()),
@@ -331,6 +341,7 @@ enum PolicyStatement<'a> {
     Member,
     Windowed {
         transition: HeadMapTransition,
+        counters_disclosure_hash: [u8; 32],
         root: RefMut<'a, HeadMapRoot>,
     },
     Delegate,
@@ -348,9 +359,11 @@ impl PolicyStatement<'_> {
             Self::Windowed {
                 transition,
                 mut root,
+                counters_disclosure_hash,
             } => {
                 let public_input = CompressedPolicyPublicInput {
                     policy: policy_input,
+                    counters_disclosure_hash: &counters_disclosure_hash,
                     head_old_root: &transition.old_root,
                     head_new_root: &transition.new_root,
                 }
@@ -620,5 +633,73 @@ mod tests {
             select_err(&[message(tag, AUDITOR_MESSAGE_LEN + 1)]),
             invalid
         );
+    }
+}
+
+struct CountersDisclosure<'a> {
+    namespace: &'a [u8; 32],
+    tx_viewing_pk: &'a [u8; 33],
+    salt: &'a [u8; 16],
+    messages: &'a [MessageData],
+}
+
+impl CountersDisclosure<'_> {
+    fn hash(self) -> Result<[u8; 32], ProgramError> {
+        let mut messages = self
+            .messages
+            .iter()
+            .filter(|message| &message.view_tag == self.namespace);
+        let message = messages
+            .next()
+            .ok_or(CustomRingError::InvalidSpendCountersDisclosure)?;
+        if messages.next().is_some() || !message.data.starts_with(self.tx_viewing_pk) {
+            return Err(CustomRingError::InvalidSpendCountersDisclosure.into());
+        }
+        let body = message
+            .data
+            .as_slice()
+            .try_into()
+            .map_err(|_| CustomRingError::InvalidSpendCountersDisclosure)?;
+        zolana_ring_policy::spend_counters_disclosure_hash(self.salt, body)
+            .map_err(|_| CustomRingError::HashingFailed.into())
+    }
+}
+
+#[cfg(test)]
+mod counters_tests {
+    use super::*;
+
+    #[test]
+    fn counters_disclosure_requires_one_full_body_for_the_transaction_key() {
+        let namespace = [7; 32];
+        let public = [2; 33];
+        let salt = [3; 16];
+        let mut body = vec![0; zolana_ring_policy::SPEND_COUNTERS_BODY_LEN];
+        body[..33].copy_from_slice(&public);
+        let message = MessageData {
+            view_tag: namespace,
+            data: body,
+        };
+        let hash = |messages: &[MessageData]| {
+            CountersDisclosure {
+                namespace: &namespace,
+                tx_viewing_pk: &public,
+                salt: &salt,
+                messages,
+            }
+            .hash()
+        };
+        assert!(hash(std::slice::from_ref(&message)).is_ok());
+        assert!(hash(&[]).is_err());
+        assert!(hash(&[message.clone(), message.clone()]).is_err());
+        let mut changed = message.clone();
+        changed.data.pop();
+        assert!(hash(&[changed]).is_err());
+        let mut changed = message.clone();
+        changed.data[0] ^= 1;
+        assert!(hash(&[changed]).is_err());
+        let mut changed = message.clone();
+        changed.data[384] ^= 1;
+        assert_ne!(hash(&[message]).unwrap(), hash(&[changed]).unwrap());
     }
 }

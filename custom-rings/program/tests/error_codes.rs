@@ -72,6 +72,7 @@ fn error_codes_are_stable() {
         (InvalidDepositAudit as u32, 8173),
         (DepositAuditRequired as u32, 8174),
         (InvalidDepositDisclosure as u32, 8175),
+        (InvalidSpendCountersDisclosure as u32, 8176),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -150,6 +151,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | KeyRegistryRootAlreadyExists
         | InvalidDepositAudit
         | DepositAuditRequired
-        | InvalidDepositDisclosure => {}
+        | InvalidDepositDisclosure
+        | InvalidSpendCountersDisclosure => {}
     }
 }

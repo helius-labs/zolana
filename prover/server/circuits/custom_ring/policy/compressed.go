@@ -8,7 +8,8 @@ import (
 
 // Adds current-head authentication to the member's windowed policy proof.
 type CompressedPolicyCircuit struct {
-	Policy CustomRingPolicyCircuit
+	Policy          CustomRingPolicyCircuit
+	TransactionSalt [16]frontend.Variable
 
 	// Bound by the program to the live on-chain head-map root.
 	HeadOldRoot frontend.Variable
@@ -23,7 +24,7 @@ type CompressedPolicyCircuit struct {
 func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
 	// 1. Prove the member's windowed policy and record transition.
 	api.AssertIsDifferent(c.Policy.WindowSlots, 0)
-	chain, txContext := c.Policy.constrainPolicyRail(api, memberRail)
+	chain, txContext, counters := c.Policy.constrainPolicyRail(api, memberRail)
 
 	// 2. Replace the consumed record's head with its successor nullifier.
 	newRoot := headTransition{
@@ -40,7 +41,11 @@ func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(newRoot, c.HeadNewRoot)
 
 	// 3. Bind both head roots for the program's atomic compare-and-replace.
-	chain = append(chain, c.HeadOldRoot, c.HeadNewRoot)
+	disclosureHash, err := counters.seal(api, c.Policy.TxViewingSk, c.TransactionSalt)
+	if err != nil {
+		return err
+	}
+	chain = append(chain, c.HeadOldRoot, c.HeadNewRoot, disclosureHash)
 	api.AssertIsEqual(c.Policy.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }

@@ -100,7 +100,7 @@ impl TransactionAudit<'_> {
                         &self.transaction.messages,
                         slot,
                         &record,
-                    ),
+                    )?,
                     record,
                 });
             } else if let Some(output) = opened {
@@ -217,15 +217,27 @@ fn opened_counters(
     messages: &[MessageData],
     slot: &OutputSlot,
     record: &SpendRecord,
-) -> Option<zolana_ring_policy::SpendCounters> {
-    let message = find_counters_message(messages, &slot.view_tag)?;
+) -> Result<Option<zolana_ring_policy::SpendCounters>, AuditError> {
+    if record.version == 0 {
+        return Ok(None);
+    }
+    let message = find_counters_message(messages, &slot.view_tag)
+        .map_err(|_| AuditError::InvalidSpendCountersDisclosure)?
+        .ok_or(AuditError::InvalidSpendCountersDisclosure)?;
     let counters = SealedCounters {
         body: &message.data,
         salt,
     }
     .open(tx_key)
-    .ok()?;
-    (counters.commitment().ok()? == record.counters_commitment).then_some(counters)
+    .map_err(|_| AuditError::InvalidSpendCountersDisclosure)?;
+    if counters
+        .commitment()
+        .map_err(|_| AuditError::InvalidSpendCountersDisclosure)?
+        != record.counters_commitment
+    {
+        return Err(AuditError::InvalidSpendCountersDisclosure);
+    }
+    Ok(Some(counters))
 }
 
 /// Reduces the recovered 32 bytes modulo the P-256 group order `n`.

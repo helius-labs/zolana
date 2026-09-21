@@ -618,6 +618,17 @@ impl<'a> CustomRingTransfer<'a> {
                     head: Some(CompressedHead {
                         witness: facts.head.clone(),
                         transition: plan.head_transition,
+                        transaction_salt: salt,
+                        counters_disclosure_hash:
+                            zolana_ring_policy::spend_counters_disclosure_hash(
+                                &salt,
+                                plan.counters_message
+                                    .data
+                                    .as_slice()
+                                    .try_into()
+                                    .map_err(|_| TransferError::SpendCountersUnknown)?,
+                            )
+                            .map_err(|_| TransferError::PolicyHashing)?,
                     }),
                     plan: Some(plan),
                 }
@@ -1085,13 +1096,15 @@ pub(crate) enum TierRequest {
 }
 
 pub(crate) struct CompressedHead {
+    pub transaction_salt: [u8; 16],
+    pub counters_disclosure_hash: [u8; 32],
     pub witness: HeadWitness,
     pub transition: custom_ring_interface::HeadMapTransition,
 }
 
 pub(crate) enum PolicyProofKind {
     Ordinary,
-    Compressed(CompressedHead),
+    Compressed(Box<CompressedHead>),
     Delegate,
 }
 
@@ -1103,7 +1116,9 @@ struct WrappedPolicyJson {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CompressedPolicyJson {
+    transaction_salt: String,
     #[serde(flatten)]
     wrapped: WrappedPolicyJson,
     #[serde(flatten)]
@@ -1121,6 +1136,9 @@ impl ProveRequest for TierRequest {
                     policy: request.json()?,
                 }),
                 PolicyProofKind::Compressed(head) => json_body(&CompressedPolicyJson {
+                    transaction_salt: crate::instructions::transact::request::bytes_to_hex(
+                        &head.transaction_salt,
+                    ),
                     wrapped: WrappedPolicyJson {
                         circuit_type: "custom-ring-compressed-policy",
                         policy: request.json()?,
@@ -1196,7 +1214,10 @@ impl TierRequest {
             .map_err(|_| TransferError::PolicyHashing)?;
         request.public_input_hash = Poseidon::hashv(&[&old, &head.transition.new_root])
             .map_err(|_| TransferError::PolicyHashing)?;
-        *kind = PolicyProofKind::Compressed(head);
+        request.public_input_hash =
+            Poseidon::hashv(&[&request.public_input_hash, &head.counters_disclosure_hash])
+                .map_err(|_| TransferError::PolicyHashing)?;
+        *kind = PolicyProofKind::Compressed(Box::new(head));
         Ok(self)
     }
 

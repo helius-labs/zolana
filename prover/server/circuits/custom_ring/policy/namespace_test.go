@@ -179,13 +179,21 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	successor := spptest.MustNullifier(t, outputs[1], spptest.AsBigInt(s.outputs[1].Blinding), zero)
 	heads := spptest.NewHeadMap(t, HeadMapHeight)
 	transition := heads.Transfer(t, heads.Register(t, member, nullifiers[2]).NewIndex, successor)
+	var secret [32]byte
+	for i, b := range policy.TxViewingSk {
+		secret[i] = byte(spptest.AsBigInt(b).Uint64())
+	}
+	disclosure := spptest.CounterDisclosure{Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent}.Hash(t)
 	policy.PublicInputHash = spptest.MustHashChain(t, append(s.keys.ChainElements(t, s.privateTxHash),
 		s.policyHash, root, tree.Root(), big.NewInt(entriesTreeID), s.ringID, s.ownOwnerHash,
-		new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval), transition.OldRoot, transition.NewRoot,
+		new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval), transition.OldRoot, transition.NewRoot, disclosure,
 	))
 	compressed := &CompressedPolicyCircuit{
 		Policy: *policy, HeadOldRoot: transition.OldRoot, HeadNewRoot: transition.NewRoot,
 		HeadNext: transition.Leaf.Next, HeadIndex: transition.Index,
+	}
+	for i := range compressed.TransactionSalt {
+		compressed.TransactionSalt[i] = 0
 	}
 	for i := range compressed.HeadProof {
 		compressed.HeadProof[i] = transition.Proof[i]

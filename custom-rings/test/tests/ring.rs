@@ -2120,7 +2120,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     );
     let tx_key = sender.get_transaction_viewing_key(&indexed.nullifiers[0])?;
     let counters = SealedCounters {
-        body: &find_counters_message(&indexed.messages, ring.namespace_pda().as_array())
+        body: &find_counters_message(&indexed.messages, ring.namespace_pda().as_array())?
             .ok_or_else(|| anyhow!("counters message"))?
             .data,
         salt: indexed.salt.ok_or_else(|| anyhow!("transaction salt"))?,

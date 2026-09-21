@@ -79,7 +79,7 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	rangeChecker frontend.Rangechecker,
 	policy velocityPolicy,
 	txContext transactionContext,
-) {
+) successorCounters {
 	// 1. Require all money inputs to share one owner.
 	api.AssertIsEqual(txContext.inputs[0].record, 0)
 	shared.AssertWhen(api, policy.rowsEnabled, txContext.inputs[0].live)
@@ -176,6 +176,7 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	for i, slot := range c.Outputs {
 		slot.assertRecord(api, txContext.outputs[i], successor)
 	}
+	return successorCounters{salt: c.Record.NextSalt, assets: nextAssets, spent: nextSpent}
 }
 
 // Only the member record pair may use the namespace owner.

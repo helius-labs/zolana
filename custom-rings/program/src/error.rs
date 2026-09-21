@@ -153,6 +153,8 @@ pub enum CustomRingError {
     DepositAuditRequired = 8174,
     #[error("invalid deposit disclosure")]
     InvalidDepositDisclosure = 8175,
+    #[error("invalid spend counters disclosure")]
+    InvalidSpendCountersDisclosure = 8176,
 }
 
 impl From<CustomRingError> for ProgramError {
