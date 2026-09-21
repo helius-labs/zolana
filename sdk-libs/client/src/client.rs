@@ -1190,35 +1190,13 @@ fn validate_spend_proofs(
     state_proofs: Vec<crate::rpc::MerkleProof>,
     nullifier_proofs: Vec<crate::rpc::NonInclusionProof>,
 ) -> Result<Vec<SpendProof>, ClientError> {
-    if state_proofs.len() != commitments.len() || nullifier_proofs.len() != commitments.len() {
-        return Err(ClientError::IncompleteInputProofs {
-            expected: commitments.len(),
-            state: state_proofs.len(),
-            nullifier: nullifier_proofs.len(),
-        });
+    crate::InputProofs {
+        tree,
+        commitments,
+        state_proofs,
+        nullifier_proofs,
     }
-
-    state_proofs
-        .into_iter()
-        .zip(nullifier_proofs)
-        .zip(commitments)
-        .enumerate()
-        .map(|(index, ((state, nullifier), commitment))| {
-            if state.leaf != commitment.utxo_hash {
-                return Err(ClientError::StateProofLeafMismatch { index });
-            }
-            if state.merkle_context.tree != tree {
-                return Err(ClientError::StateProofTreeMismatch { index });
-            }
-            if nullifier.leaf != commitment.nullifier {
-                return Err(ClientError::NullifierProofLeafMismatch { index });
-            }
-            if nullifier.merkle_context.tree != tree {
-                return Err(ClientError::NullifierProofTreeMismatch { index });
-            }
-            Ok(SpendProof { state, nullifier })
-        })
-        .collect()
+    .validate()
 }
 
 /// Poll the RPC until the signature reaches confirmed commitment.

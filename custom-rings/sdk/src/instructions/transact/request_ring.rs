@@ -117,6 +117,7 @@ impl RingIdentity {
     }
 }
 
+#[cfg(feature = "solana-rpc")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ProvedWindow {
     pub slots: u64,
@@ -164,6 +165,7 @@ impl VelocityProofInput {
         }
     }
 
+    #[cfg(feature = "solana-rpc")]
     pub(crate) fn window(&self) -> Option<ProvedWindow> {
         (self.window_slots != 0).then_some(ProvedWindow {
             slots: self.window_slots,

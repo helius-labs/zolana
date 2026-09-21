@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use custom_ring_sdk::{
     CoSignScope, CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment,
-    MergeError as RingMergeError, MAX_MERGE_INPUTS,
+    MergeError as RingMergeError, MergeProofInput, MAX_MERGE_INPUTS,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -95,8 +95,11 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         .collect();
     let prepared = CustomRingMerge::new(ctx.ring, &sender, inputs, None)?.prepare();
     let proven = prepared.prove(
-        sender.nullifier_key.clone(),
-        tree,
+        MergeProofInput {
+            nullifier_key: sender.nullifier_key.clone(),
+            input_tree: tree,
+            output_tree: tree,
+        },
         CustomRingMergeProofEnvironment {
             indexer: &indexer,
             prover: &ctx.prover(),
@@ -110,7 +113,7 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         None => proven,
     };
     let payer = ctx.funded_authority()?;
-    let merge = proven.instruction(tree, tree, payer.pubkey());
+    let merge = proven.instruction(payer.pubkey());
     let signers = signers(
         &payer,
         cosigner.as_ref().map(|keypair| keypair as &dyn Signer),

@@ -1,22 +1,31 @@
+use solana_address::Address;
+use solana_hash::Hash;
+use solana_instruction::Instruction;
 use solana_instruction_error::InstructionError;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status_client_types::TransactionConfirmationStatus;
+use solana_transaction_status_client_types::TransactionStatus;
 use thiserror::Error;
 use zolana_client::{
-    compile_message, sign_transaction, ClientError, ComputeBudgetConfig, ProverClient, Rpc,
-    SolanaRpc,
+    compile_message, sign_transaction, AsyncProverClient, AsyncRpc, AsyncSolanaRpc, ClientError,
+    ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc,
 };
 
 use crate::{
-    budget::TRANSACT_COMPUTE_UNIT_LIMIT, instructions::transact::ProvedWindow, CustomRingTransfer,
-    TransferError, TransferProofEnvironment,
+    budget::TRANSACT_COMPUTE_UNIT_LIMIT, instructions::transact::ProvedWindow,
+    AsyncCustomRingMergeProofEnvironment, AsyncTransferProofEnvironment,
+    CustomRingMergeProofEnvironment, CustomRingTransfer, DelegateTransfer, EntryError,
+    KeyRegistrationError, MergeError, MergeProofInput, PreparedCustomRingMerge, RegisterKey,
+    RegisterSpend, TransferError, TransferProofEnvironment, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+    REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 };
 
 const MAX_ATTEMPTS: u8 = 3;
 const STALE_HEAD_ROOT: u32 = 8166;
+const STALE_KEY_REGISTRY_ROOT: u32 = 8169;
 const POLICY_PROOF_FAILED: u32 = 8101;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +49,124 @@ pub enum SubmissionError {
     Prove(#[from] TransferError),
     #[error(transparent)]
     Client(#[from] ClientError),
+    #[error(transparent)]
+    Registration(Box<EntryError>),
+    #[error(transparent)]
+    KeyRegistration(Box<KeyRegistrationError>),
+    #[error(transparent)]
+    Merge(Box<MergeError>),
+    #[error("submission has no signed attempt")]
+    MissingAttempt,
+}
+
+impl From<EntryError> for SubmissionError {
+    fn from(error: EntryError) -> Self {
+        Self::Registration(Box::new(error))
+    }
+}
+impl From<KeyRegistrationError> for SubmissionError {
+    fn from(error: KeyRegistrationError) -> Self {
+        Self::KeyRegistration(Box::new(error))
+    }
+}
+impl From<MergeError> for SubmissionError {
+    fn from(error: MergeError) -> Self {
+        Self::Merge(Box::new(error))
+    }
+}
+
+pub struct AsyncSubmissionEnvironment<'a, I: AsyncRpc> {
+    pub indexer: &'a I,
+    pub rpc: &'a AsyncSolanaRpc,
+    pub prover: &'a AsyncProverClient,
+    pub payer: &'a (dyn Signer + Sync),
+    pub signers: &'a [&'a (dyn Signer + Sync)],
+}
+
+pub enum RingOperation<'a> {
+    Transfer(Box<CustomRingTransfer<'a>>),
+    Delegate(Box<DelegateTransfer<'a>>),
+    RegisterSpend(RegisterSpend),
+    RegisterKey(RegisterKey<'a>),
+    Merge(Box<RingMergeOperation>),
+}
+
+pub struct RingMergeOperation {
+    prepared: PreparedCustomRingMerge,
+    input: MergeProofInput,
+    cosigner: Option<Address>,
+}
+
+impl RingMergeOperation {
+    pub fn new(prepared: PreparedCustomRingMerge, input: MergeProofInput) -> Self {
+        Self {
+            prepared,
+            input,
+            cosigner: None,
+        }
+    }
+    #[must_use]
+    pub fn with_cosigner(mut self, cosigner: Address) -> Self {
+        self.cosigner = Some(cosigner);
+        self
+    }
+}
+
+impl<'a> From<CustomRingTransfer<'a>> for RingOperation<'a> {
+    fn from(value: CustomRingTransfer<'a>) -> Self {
+        Self::Transfer(Box::new(value))
+    }
+}
+impl<'a> From<DelegateTransfer<'a>> for RingOperation<'a> {
+    fn from(value: DelegateTransfer<'a>) -> Self {
+        Self::Delegate(Box::new(value))
+    }
+}
+impl From<RegisterSpend> for RingOperation<'_> {
+    fn from(value: RegisterSpend) -> Self {
+        Self::RegisterSpend(value)
+    }
+}
+impl<'a> From<RegisterKey<'a>> for RingOperation<'a> {
+    fn from(value: RegisterKey<'a>) -> Self {
+        Self::RegisterKey(value)
+    }
+}
+impl From<RingMergeOperation> for RingOperation<'_> {
+    fn from(value: RingMergeOperation) -> Self {
+        Self::Merge(Box::new(value))
+    }
+}
+
+struct ProvedOperation {
+    instruction: Instruction,
+    window: Option<ProvedWindow>,
+    compute_limit: u32,
+}
+
+struct AttemptSigning<'a> {
+    blockhash: Hash,
+    last_valid_block_height: u64,
+    payer: &'a dyn Signer,
+    signers: &'a [&'a dyn Signer],
+}
+
+impl ProvedOperation {
+    fn sign(self, signing: AttemptSigning<'_>) -> Result<Attempt, SubmissionError> {
+        let message = compile_message(
+            &signing.payer.pubkey(),
+            &[self.instruction],
+            signing.blockhash,
+            ComputeBudgetConfig::new(self.compute_limit),
+        )?;
+        let mut signers = vec![signing.payer];
+        signers.extend_from_slice(signing.signers);
+        Ok(Attempt {
+            transaction: sign_transaction(message, &signers)?,
+            window: self.window,
+            last_valid_block_height: signing.last_valid_block_height,
+        })
+    }
 }
 
 pub struct SubmissionEnvironment<'a, I: Rpc> {
@@ -93,17 +220,17 @@ enum WindowState {
 }
 
 #[must_use]
-pub struct RingTransferSubmission<'a> {
-    transfer: CustomRingTransfer<'a>,
+pub struct RingSubmission<'a> {
+    operation: RingOperation<'a>,
     pending: Option<Attempt>,
     attempts: u8,
     terminal: Option<SubmissionStatus>,
 }
 
-impl<'a> RingTransferSubmission<'a> {
-    pub fn new(transfer: CustomRingTransfer<'a>) -> Self {
+impl<'a> RingSubmission<'a> {
+    pub fn new(operation: impl Into<RingOperation<'a>>) -> Self {
         Self {
-            transfer,
+            operation: operation.into(),
             pending: None,
             attempts: 0,
             terminal: None,
@@ -118,7 +245,7 @@ impl<'a> RingTransferSubmission<'a> {
         self.attempts
     }
 
-    /// The caller keeps the input notes reserved until a terminal result.
+    /// Inputs remain reserved while the submitted signature is unresolved.
     pub fn send<I: Rpc>(
         &mut self,
         env: SubmissionEnvironment<'_, I>,
@@ -127,78 +254,149 @@ impl<'a> RingTransferSubmission<'a> {
             return Ok(terminal.clone());
         }
         loop {
-            let mut failure = None;
-            let broadcast = match &self.pending {
-                Some(attempt) => attempt.broadcast(),
-                None => {
-                    let attempt = self.attempt(&env)?;
-                    self.attempts += 1;
-                    if let Err(error) = env.rpc.client().send_transaction(&attempt.transaction) {
-                        // A transport error says nothing about whether the node accepted the bytes.
-                        failure = error.get_transaction_error();
-                    }
-                    self.pending.insert(attempt).broadcast()
-                }
+            let is_new = self.pending.is_none();
+            if is_new {
+                let proved = self.operation.prove(&env)?;
+                let (blockhash, last_valid_block_height) = env.rpc.get_latest_blockhash()?;
+                self.pending = Some(proved.sign(AttemptSigning {
+                    blockhash,
+                    last_valid_block_height,
+                    payer: env.payer,
+                    signers: env.signers,
+                })?);
+                self.attempts += 1;
+            }
+            let attempt = self
+                .pending
+                .as_ref()
+                .ok_or(SubmissionError::MissingAttempt)?;
+            let broadcast = attempt.broadcast();
+            let failure = if is_new {
+                env.rpc
+                    .client()
+                    .send_transaction(&attempt.transaction)
+                    .err()
+                    .and_then(|error| error.get_transaction_error())
+            } else {
+                None
             };
-            let signature = broadcast.signature;
-            let error = match failure {
-                Some(error) => error,
-                None => match outcome(env.rpc, broadcast)? {
-                    Outcome::Unknown => return Ok(SubmissionStatus::Pending { signature }),
-                    Outcome::Confirmed { slot } => {
-                        let terminal = SubmissionStatus::Confirmed { signature, slot };
-                        self.pending = None;
-                        self.terminal = Some(terminal.clone());
-                        return Ok(terminal);
-                    }
-                    Outcome::Failed(error) => error,
-                },
+            let outcome = match failure {
+                Some(error) => Outcome::Failed(error),
+                None => outcome(env.rpc, broadcast)?,
             };
             let window = match broadcast.window {
-                Some(window) if ring_error(&error) == Some(POLICY_PROOF_FAILED) => {
-                    if env.rpc.get_slot()? / window.slots == window.index {
-                        WindowState::Same
-                    } else {
-                        WindowState::Advanced
-                    }
+                Some(window) if matches!(&outcome, Outcome::Failed(error) if ring_error(error) == Some(POLICY_PROOF_FAILED)) => {
+                    window_state(window, env.rpc.get_slot()?)
                 }
                 _ => WindowState::Same,
             };
-            let retry = retryable(&error, window) && self.attempts < MAX_ATTEMPTS;
-            self.pending = None;
-            if !retry {
-                let terminal = SubmissionStatus::Failed { signature, error };
-                self.terminal = Some(terminal.clone());
-                return Ok(terminal);
+            if let Some(status) = self.settle(Resolution {
+                broadcast,
+                outcome,
+                window,
+            }) {
+                return Ok(status);
             }
         }
     }
-
-    fn attempt<I: Rpc>(
-        &self,
-        env: &SubmissionEnvironment<'_, I>,
-    ) -> Result<Attempt, SubmissionError> {
-        let proven = self.transfer.clone().prove(TransferProofEnvironment {
-            indexer: env.indexer,
-            rpc: env.rpc,
-            prover: env.prover,
-        })?;
-        let window = proven.window;
-        let instruction = proven.instruction()?;
-        let (blockhash, last_valid_block_height) = env.rpc.get_latest_blockhash()?;
-        let message = compile_message(
-            &env.payer.pubkey(),
-            core::slice::from_ref(&instruction),
-            blockhash,
-            ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
-        )?;
-        let mut signers: Vec<&dyn Signer> = vec![env.payer];
-        signers.extend(env.signers.iter().copied());
-        Ok(Attempt {
-            transaction: sign_transaction(message, &signers)?,
+    /// Inputs remain reserved while the submitted signature is unresolved.
+    pub async fn send_async<I: AsyncRpc>(
+        &mut self,
+        env: AsyncSubmissionEnvironment<'_, I>,
+    ) -> Result<SubmissionStatus, SubmissionError> {
+        if let Some(terminal) = &self.terminal {
+            return Ok(terminal.clone());
+        }
+        loop {
+            let is_new = self.pending.is_none();
+            if is_new {
+                let proved = self.operation.prove_async(&env).await?;
+                let (blockhash, last_valid_block_height) = env.rpc.get_latest_blockhash().await?;
+                self.pending = Some(
+                    proved.sign(AttemptSigning {
+                        blockhash,
+                        last_valid_block_height,
+                        payer: env.payer,
+                        signers: &env
+                            .signers
+                            .iter()
+                            .map(|signer| *signer as &dyn Signer)
+                            .collect::<Vec<_>>(),
+                    })?,
+                );
+                self.attempts += 1;
+            }
+            let attempt = self
+                .pending
+                .as_ref()
+                .ok_or(SubmissionError::MissingAttempt)?;
+            let broadcast = attempt.broadcast();
+            let failure = if is_new {
+                env.rpc
+                    .client()
+                    .send_transaction(&attempt.transaction)
+                    .await
+                    .err()
+                    .and_then(|error| error.get_transaction_error())
+            } else {
+                None
+            };
+            let outcome = match failure {
+                Some(error) => Outcome::Failed(error),
+                None => outcome_async(env.rpc, broadcast).await?,
+            };
+            let window = match broadcast.window {
+                Some(window) if matches!(&outcome, Outcome::Failed(error) if ring_error(error) == Some(POLICY_PROOF_FAILED)) => {
+                    window_state(window, env.rpc.get_slot().await?)
+                }
+                _ => WindowState::Same,
+            };
+            if let Some(status) = self.settle(Resolution {
+                broadcast,
+                outcome,
+                window,
+            }) {
+                return Ok(status);
+            }
+        }
+    }
+    fn settle(&mut self, resolution: Resolution) -> Option<SubmissionStatus> {
+        let Resolution {
+            broadcast,
+            outcome,
             window,
-            last_valid_block_height,
-        })
+        } = resolution;
+        let signature = broadcast.signature;
+        let terminal = match outcome {
+            Outcome::Unknown => return Some(SubmissionStatus::Pending { signature }),
+            Outcome::Confirmed { slot } => SubmissionStatus::Confirmed { signature, slot },
+            Outcome::Failed(error) => {
+                self.pending = None;
+                if retryable(&error, window) && self.attempts < MAX_ATTEMPTS {
+                    return None;
+                }
+                SubmissionStatus::Failed { signature, error }
+            }
+        };
+        self.pending = None;
+        self.terminal = Some(terminal.clone());
+        Some(terminal)
+    }
+}
+
+pub type RingTransferSubmission<'a> = RingSubmission<'a>;
+
+struct Resolution {
+    broadcast: Broadcast,
+    outcome: Outcome,
+    window: WindowState,
+}
+
+fn window_state(window: ProvedWindow, slot: u64) -> WindowState {
+    if slot / window.slots == window.index {
+        WindowState::Same
+    } else {
+        WindowState::Advanced
     }
 }
 
@@ -228,7 +426,11 @@ fn observe_status(rpc: &SolanaRpc, signature: Signature) -> StatusObservation {
     else {
         return StatusObservation::Outcome(Outcome::Unknown);
     };
-    let [status]: [_; 1] = match response.value.try_into() {
+    decode_status(response.value)
+}
+
+fn decode_status(statuses: Vec<Option<TransactionStatus>>) -> StatusObservation {
+    let [status]: [_; 1] = match statuses.try_into() {
         Ok(status) => status,
         Err(_) => return StatusObservation::Outcome(Outcome::Unknown),
     };
@@ -247,6 +449,35 @@ fn observe_status(rpc: &SolanaRpc, signature: Signature) -> StatusObservation {
     })
 }
 
+async fn outcome_async(
+    rpc: &AsyncSolanaRpc,
+    broadcast: Broadcast,
+) -> Result<Outcome, SubmissionError> {
+    if let StatusObservation::Outcome(outcome) =
+        observe_status_async(rpc, broadcast.signature).await
+    {
+        return Ok(outcome);
+    }
+    if rpc.get_block_height().await? <= broadcast.last_valid_block_height {
+        return Ok(Outcome::Unknown);
+    }
+    Ok(match observe_status_async(rpc, broadcast.signature).await {
+        StatusObservation::Absent => Outcome::Failed(TransactionError::BlockhashNotFound),
+        StatusObservation::Outcome(outcome) => outcome,
+    })
+}
+
+async fn observe_status_async(rpc: &AsyncSolanaRpc, signature: Signature) -> StatusObservation {
+    match rpc
+        .client()
+        .get_signature_statuses_with_history(&[signature])
+        .await
+    {
+        Ok(response) => decode_status(response.value),
+        Err(_) => StatusObservation::Outcome(Outcome::Unknown),
+    }
+}
+
 // The attempt compiles a one-instruction message.
 fn ring_error(error: &TransactionError) -> Option<u32> {
     match error {
@@ -257,8 +488,146 @@ fn ring_error(error: &TransactionError) -> Option<u32> {
 
 fn retryable(error: &TransactionError, window: WindowState) -> bool {
     matches!(error, TransactionError::BlockhashNotFound)
-        || matches!(ring_error(error), Some(STALE_HEAD_ROOT))
+        || matches!(
+            ring_error(error),
+            Some(STALE_HEAD_ROOT | STALE_KEY_REGISTRY_ROOT)
+        )
         || (ring_error(error) == Some(POLICY_PROOF_FAILED) && window == WindowState::Advanced)
+}
+
+impl RingOperation<'_> {
+    fn prove<I: Rpc>(
+        &self,
+        env: &SubmissionEnvironment<'_, I>,
+    ) -> Result<ProvedOperation, SubmissionError> {
+        let proving = TransferProofEnvironment {
+            indexer: env.indexer,
+            rpc: env.rpc,
+            prover: env.prover,
+        };
+        Ok(match self {
+            Self::Transfer(transfer) => {
+                let proven = transfer.as_ref().clone().prove(proving)?;
+                ProvedOperation {
+                    instruction: proven.instruction()?,
+                    window: proven.window,
+                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                }
+            }
+            Self::Delegate(transfer) => {
+                let proven = transfer.as_ref().clone().prove(proving)?;
+                ProvedOperation {
+                    instruction: proven.instruction()?,
+                    window: None,
+                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                }
+            }
+            Self::RegisterSpend(registration) => {
+                let proven = registration.prove(proving)?;
+                let window = Some(proven.window);
+                ProvedOperation {
+                    instruction: proven.instruction()?,
+                    window,
+                    compute_limit: REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+                }
+            }
+            Self::RegisterKey(registration) => {
+                let proven = registration.prove(proving)?;
+                ProvedOperation {
+                    instruction: proven.instruction()?,
+                    window: None,
+                    compute_limit: REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+                }
+            }
+            Self::Merge(operation) => {
+                let proven = operation.prepared.clone().prove(
+                    operation.input.clone(),
+                    CustomRingMergeProofEnvironment {
+                        indexer: env.indexer,
+                        rpc: env.rpc,
+                        prover: env.prover,
+                    },
+                )?;
+                let proven = match operation.cosigner {
+                    Some(cosigner) => proven.with_cosigner(cosigner),
+                    None => proven,
+                };
+                ProvedOperation {
+                    instruction: proven.instruction(env.payer.pubkey()),
+                    window: None,
+                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                }
+            }
+        })
+    }
+    async fn prove_async<I: AsyncRpc>(
+        &self,
+        env: &AsyncSubmissionEnvironment<'_, I>,
+    ) -> Result<ProvedOperation, SubmissionError> {
+        let proving = AsyncTransferProofEnvironment {
+            indexer: env.indexer,
+            rpc: env.rpc,
+            prover: env.prover,
+        };
+        Ok(match self {
+            Self::Transfer(transfer) => {
+                let proven = transfer.as_ref().clone().prove_async(proving).await?;
+                ProvedOperation {
+                    instruction: proven.instruction()?,
+                    window: proven.window,
+                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                }
+            }
+            Self::Delegate(transfer) => {
+                let proven = transfer.as_ref().clone().prove_async(proving).await?;
+                ProvedOperation {
+                    instruction: proven.instruction()?,
+                    window: None,
+                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                }
+            }
+            Self::RegisterSpend(registration) => {
+                let proven = registration.prove_async(proving).await?;
+                let window = Some(proven.window);
+                ProvedOperation {
+                    instruction: proven.instruction()?,
+                    window,
+                    compute_limit: REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+                }
+            }
+            Self::RegisterKey(registration) => {
+                let proven = registration.prove_async(proving).await?;
+                ProvedOperation {
+                    instruction: proven.instruction()?,
+                    window: None,
+                    compute_limit: REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+                }
+            }
+            Self::Merge(operation) => {
+                let proven = operation
+                    .prepared
+                    .clone()
+                    .prove_async(
+                        operation.input.clone(),
+                        AsyncCustomRingMergeProofEnvironment {
+                            indexer: env.indexer,
+                            rpc: env.rpc,
+                            prover: env.prover,
+                        },
+                    )
+                    .await?;
+                let proven = match operation.cosigner {
+                    Some(cosigner) => proven.with_cosigner(cosigner),
+                    None => proven,
+                };
+                ProvedOperation {
+                    instruction: proven.instruction(env.payer.pubkey()),
+                    window: None,
+                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                }
+            }
+        })
+    }
 }
 
 #[cfg(test)]
@@ -719,6 +1088,14 @@ mod tests {
             |index, code| TransactionError::InstructionError(index, InstructionError::Custom(code));
         assert!(retryable(&error(0, STALE_HEAD_ROOT), WindowState::Same));
         assert!(!retryable(&error(1, STALE_HEAD_ROOT), WindowState::Same));
+        assert!(retryable(
+            &error(0, STALE_KEY_REGISTRY_ROOT),
+            WindowState::Same
+        ));
+        assert!(!retryable(
+            &error(1, STALE_KEY_REGISTRY_ROOT),
+            WindowState::Same
+        ));
         assert!(!retryable(
             &error(0, POLICY_PROOF_FAILED),
             WindowState::Same
@@ -736,5 +1113,234 @@ mod tests {
             &TransactionError::BlockhashNotFound,
             WindowState::Same
         ));
+    }
+    fn operations(sender: &ShieldedKeypair) -> Vec<RingOperation<'_>> {
+        let ring = CustomRing::new(Address::new_from_array([5; 32]));
+        let inputs: Vec<_> = [3, 5]
+            .into_iter()
+            .map(|amount| {
+                SppProofInputUtxo::new(
+                    Utxo {
+                        owner: sender.signing_pubkey(),
+                        asset: SOL_MINT,
+                        amount,
+                        blinding: random_blinding(),
+                        ring_program_id: Some(ring.program_id()),
+                        data: Data::default(),
+                    },
+                    sender,
+                )
+            })
+            .collect();
+        let merge = crate::CustomRingMerge::new(ring, sender, inputs.clone(), None)
+            .unwrap()
+            .prepare();
+        vec![
+            pending(sender, 1).operation,
+            DelegateTransfer::new(crate::DelegateTransferInput {
+                ring,
+                delegate: sender.pubkey(),
+                payer: sender.pubkey(),
+                inputs,
+                outputs: vec![crate::DelegateOutput {
+                    recipient: sender.shielded_address().unwrap(),
+                    asset: SOL_MINT,
+                    amount: 8,
+                }],
+            })
+            .into(),
+            RegisterSpend {
+                ring,
+                payer: sender.pubkey(),
+            }
+            .into(),
+            RegisterKey {
+                ring,
+                member: sender,
+            }
+            .into(),
+            RingMergeOperation::new(
+                merge,
+                MergeProofInput {
+                    nullifier_key: sender.nullifier_key.clone(),
+                    input_tree: Address::new_unique(),
+                    output_tree: Address::new_unique(),
+                },
+            )
+            .into(),
+        ]
+    }
+
+    #[test]
+    fn every_operation_keeps_the_signed_attempt_until_confirmation() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        for operation in operations(&sender) {
+            let mut submission = pending(&sender, 1);
+            submission.operation = operation;
+            let transaction = submission.pending_transaction().unwrap().clone();
+            let signature = transaction.signatures[0];
+            assert_eq!(
+                send(&mut submission, &rpc(Value::Null, 10), &sender),
+                SubmissionStatus::Pending { signature }
+            );
+            assert_eq!(submission.pending_transaction(), Some(&transaction));
+            assert_eq!(submission.attempts(), 1);
+        }
+    }
+
+    async fn send_async(
+        submission: &mut RingSubmission<'_>,
+        rpc: &AsyncSolanaRpc,
+        payer: &ShieldedKeypair,
+    ) -> SubmissionStatus {
+        let prover = AsyncProverClient::local();
+        let future = submission.send_async(AsyncSubmissionEnvironment {
+            indexer: rpc,
+            rpc,
+            prover: &prover,
+            payer,
+            signers: &[],
+        });
+        fn requires_send<T: Send>(value: T) -> T {
+            value
+        }
+        requires_send(future).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn async_operations_keep_the_same_signature_across_unknown_results() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        for operation in operations(&sender) {
+            let mut submission = pending(&sender, 1);
+            submission.operation = operation;
+            let transaction = submission.pending_transaction().unwrap().clone();
+            let signature = transaction.signatures[0];
+            let rpc = AsyncSolanaRpc::with_client(
+                solana_rpc_client::nonblocking::rpc_client::RpcClient::new_mock_with_mocks(
+                    "succeeds".into(),
+                    [
+                        (
+                            RpcRequest::GetSignatureStatuses,
+                            json!({"context": {"slot": 9}, "value": [null]}),
+                        ),
+                        (RpcRequest::GetBlockHeight, json!(10)),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            );
+            assert_eq!(
+                send_async(&mut submission, &rpc, &sender).await,
+                SubmissionStatus::Pending { signature }
+            );
+            assert_eq!(submission.pending_transaction(), Some(&transaction));
+            assert_eq!(submission.attempts(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn async_expiry_requires_a_fresh_resolved_status() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        for statuses_after_expiry in [
+            None,
+            Some(json!([])),
+            Some(json!([null, null])),
+            Some(json!([
+                {"slot": 20, "confirmations": 0, "confirmationStatus": "processed", "err": null, "status": {"Ok": null}}
+            ])),
+        ] {
+            let mut submission = pending(&sender, MAX_ATTEMPTS);
+            let transaction = submission.pending_transaction().unwrap().clone();
+            let signature = transaction.signatures[0];
+            let requests = Arc::new(AtomicUsize::new(0));
+            let rpc = AsyncSolanaRpc::with_client(
+                solana_rpc_client::nonblocking::rpc_client::RpcClient::new_sender(
+                    ExpiryObservation {
+                        requests: requests.clone(),
+                        statuses_after_expiry,
+                    },
+                    Default::default(),
+                ),
+            );
+            assert_eq!(
+                send_async(&mut submission, &rpc, &sender).await,
+                SubmissionStatus::Pending { signature }
+            );
+            assert_eq!(submission.pending_transaction(), Some(&transaction));
+            assert_eq!(requests.load(Ordering::Relaxed), 3);
+        }
+        let mut submission = pending(&sender, 1);
+        let signature = submission.pending_transaction().unwrap().signatures[0];
+        let requests = Arc::new(AtomicUsize::new(0));
+        let rpc = AsyncSolanaRpc::with_client(
+            solana_rpc_client::nonblocking::rpc_client::RpcClient::new_sender(
+                ExpiryObservation {
+                    requests: requests.clone(),
+                    statuses_after_expiry: Some(json!([
+                        {"slot": 20, "confirmations": 1, "confirmationStatus": "confirmed", "err": null, "status": {"Ok": null}}
+                    ])),
+                },
+                Default::default(),
+            ),
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                send_async(&mut submission, &rpc, &sender).await,
+                SubmissionStatus::Confirmed {
+                    signature,
+                    slot: 20
+                }
+            );
+        }
+        assert_eq!(requests.load(Ordering::Relaxed), 3);
+        assert_eq!(submission.attempts(), 1);
+    }
+
+    #[test]
+    fn retry_decisions_preserve_unknown_attempts_and_stop_at_the_limit() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        for code in [
+            STALE_HEAD_ROOT,
+            STALE_KEY_REGISTRY_ROOT,
+            POLICY_PROOF_FAILED,
+        ] {
+            let mut submission = pending(&sender, 1);
+            let broadcast = submission.pending.as_ref().unwrap().broadcast();
+            let transaction = submission.pending_transaction().unwrap().clone();
+            assert_eq!(
+                submission.settle(Resolution {
+                    broadcast,
+                    outcome: Outcome::Unknown,
+                    window: WindowState::Advanced
+                }),
+                Some(SubmissionStatus::Pending {
+                    signature: broadcast.signature
+                })
+            );
+            assert_eq!(submission.pending_transaction(), Some(&transaction));
+            let failure = || {
+                Outcome::Failed(TransactionError::InstructionError(
+                    0,
+                    InstructionError::Custom(code),
+                ))
+            };
+            assert!(submission
+                .settle(Resolution {
+                    broadcast,
+                    outcome: failure(),
+                    window: WindowState::Advanced
+                })
+                .is_none());
+            assert!(submission.pending_transaction().is_none());
+            submission.attempts = MAX_ATTEMPTS;
+            assert!(matches!(
+                submission.settle(Resolution {
+                    broadcast,
+                    outcome: failure(),
+                    window: WindowState::Advanced
+                }),
+                Some(SubmissionStatus::Failed { .. })
+            ));
+        }
     }
 }

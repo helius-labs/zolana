@@ -58,9 +58,10 @@ pub use crate::{
         grant_read_access::GrantReadAccess,
         init_spp_ring_config::InitSppRingConfig,
         merge::{
-            CustomRingMerge, CustomRingMergeInstruction, CustomRingMergeProofEnvironment,
-            MergeError, MergeRingProver, MergeRingWitness, PreparedCustomRingMerge,
-            ProvenCustomRingMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
+            AsyncCustomRingMergeProofEnvironment, CustomRingMerge, CustomRingMergeInstruction,
+            CustomRingMergeProofEnvironment, MergeError, MergeProofInput, MergeRingProver,
+            MergeRingWitness, PreparedCustomRingMerge, ProvenCustomRingMerge, MAX_MERGE_INPUTS,
+            MERGE_DEFAULT_INPUT_COUNT,
         },
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
@@ -100,6 +101,7 @@ pub use crate::{
 pub use crate::budget::TRANSACT_COMPUTE_UNIT_LIMIT;
 #[cfg(feature = "solana-rpc")]
 pub use crate::submission::{
+    AsyncSubmissionEnvironment, RingMergeOperation, RingOperation, RingSubmission,
     RingTransferSubmission, SubmissionEnvironment, SubmissionError, SubmissionStatus,
 };
 #[cfg(feature = "solana-rpc")]

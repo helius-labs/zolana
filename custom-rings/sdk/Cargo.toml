@@ -27,6 +27,7 @@ rand = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-instruction = { workspace = true }
+solana-hash = { workspace = true }
 solana-instruction-error = { workspace = true }
 # `v1::MAX_TRANSACTION_SIZE` is the bound the policy builders measure against.
 solana-message = { workspace = true }
@@ -55,6 +56,7 @@ zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
 zolana-ring-head-map = { workspace = true }
 async-trait = { workspace = true }
 curve25519-dalek = "4.1"

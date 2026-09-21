@@ -66,6 +66,7 @@ impl From<ClientError> for KeyRegistrationError {
 }
 
 #[must_use]
+#[derive(Clone, Copy)]
 pub struct RegisterKey<'a> {
     pub ring: CustomRing,
     /// Also the payer, the member identity derives from it.

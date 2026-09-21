@@ -1,3 +1,5 @@
+#[cfg(feature = "solana-rpc")]
+use crate::instructions::transact::ProvedWindow;
 use core::future::Future;
 
 use custom_ring_interface::PolicyConfig;
@@ -51,8 +53,8 @@ use crate::{
     instructions::{
         spend::{ReadEnvironment, ReadSpendRecord},
         transact::{
-            request::json_body, CustomRingPolicyProofRequestJson, HeadTransitionJson, ProvedWindow,
-            RingIdentity, VelocityProofInput,
+            request::json_body, CustomRingPolicyProofRequestJson, HeadTransitionJson, RingIdentity,
+            VelocityProofInput,
         },
     },
     to_instruction_proof,
@@ -125,6 +127,7 @@ pub struct ProvenTransfer {
     /// The velocity statement demands the co-signer, the caller must sign with it.
     pub approval_required: bool,
     pub head_transition: Option<custom_ring_interface::HeadMapTransition>,
+    #[cfg(feature = "solana-rpc")]
     pub(crate) window: Option<ProvedWindow>,
     payer: Address,
     input_tree: Address,
@@ -1067,6 +1070,7 @@ impl StagedTransfer {
         }
         Ok(WitnessedTransfer {
             request,
+            #[cfg(feature = "solana-rpc")]
             window: self.velocity.and_then(|velocity| velocity.window()),
             tx_viewing_key: self.tx_viewing_key,
             proof_inputs: self.proof_inputs,
@@ -1306,6 +1310,7 @@ impl TierProof {
 /// `private_tx_hash`. Only the two proofs are outstanding.
 struct WitnessedTransfer {
     request: TierRequest,
+    #[cfg(feature = "solana-rpc")]
     window: Option<ProvedWindow>,
     tx_viewing_key: ViewingKey,
     proof_inputs: SppProofInputs,
@@ -1340,6 +1345,7 @@ impl WitnessedTransfer {
         } = self.request.proven(ring_proof)?.binding();
         let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
         Ok(ProvenTransfer {
+            #[cfg(feature = "solana-rpc")]
             window: self.window,
             tx_viewing_key: self.tx_viewing_key,
             data: RingInstructionData {

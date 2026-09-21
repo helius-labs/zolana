@@ -1,3 +1,5 @@
+#[cfg(feature = "solana-rpc")]
+use crate::instructions::transact::ProvedWindow;
 use custom_ring_interface::{
     tag, HeadMapTransition, PlainGroth16Proof, PolicyConfig, RegisterSpendIxData,
 };
@@ -145,6 +147,8 @@ impl RegisterSpend {
                 .map_err(|_| EntryError::Hashing)?,
         };
         Ok(RegistrationDraft {
+            #[cfg(feature = "solana-rpc")]
+            window_slots,
             registration: self,
             policy,
             owner,
@@ -155,6 +159,8 @@ impl RegisterSpend {
 }
 
 struct RegistrationDraft {
+    #[cfg(feature = "solana-rpc")]
+    window_slots: u64,
     registration: RegisterSpend,
     policy: PolicyConfig,
     owner: ListNamespace,
@@ -209,6 +215,11 @@ impl RegistrationDraft {
 
     fn finish(self, proofs: RegistrationProofs) -> ProvenSpendRegistration {
         ProvenSpendRegistration {
+            #[cfg(feature = "solana-rpc")]
+            window: ProvedWindow {
+                slots: self.window_slots,
+                index: self.record.window,
+            },
             ring: self.registration.ring,
             payer: self.registration.payer,
             entries_tree: self.policy.entries_tree,
@@ -223,6 +234,8 @@ impl RegistrationDraft {
 
 #[must_use]
 pub struct ProvenSpendRegistration {
+    #[cfg(feature = "solana-rpc")]
+    pub(crate) window: ProvedWindow,
     ring: CustomRing,
     payer: Address,
     entries_tree: Address,
@@ -248,6 +261,8 @@ impl ProvenSpendRegistration {
             head_transition,
             head_next_index,
             head_proof,
+            #[cfg(feature = "solana-rpc")]
+                window: _,
         } = self;
         let mut data = vec![tag::REGISTER_SPEND];
         data.extend_from_slice(&wincode::serialize(&RegisterSpendIxData {

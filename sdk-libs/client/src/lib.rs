@@ -20,6 +20,7 @@ pub mod client;
 pub mod error;
 #[cfg(feature = "indexer-api")]
 pub mod indexer;
+mod input_proofs;
 pub mod prover;
 pub mod retry;
 pub mod rpc;
@@ -34,6 +35,7 @@ pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIM
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
+pub use input_proofs::InputProofs;
 pub use prover::{
     assign_spend_output_blindings, canonical_shape, input_utxos,
     merge::MergeWitness,

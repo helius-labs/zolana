@@ -26,6 +26,7 @@ use crate::{
 /// padding), the derived single output, the owner identity, and the ring program
 /// every input is owned by. Every input must share one owner (P256 or Solana),
 /// asset, and `ring_program_id`.
+#[derive(Clone)]
 pub struct MergeRing {
     inputs: Vec<SppProofInputUtxo>,
     padded_input_count: usize,
@@ -132,6 +133,7 @@ impl MergeRing {
 /// at the tail), still proofless. Carries the shared
 /// `ring_program_id` the proof commits. [`Self::input_utxo_hashes`] yields what
 /// to fetch Merkle proofs for.
+#[derive(Clone)]
 pub struct PreparedMergeRing {
     pub inputs: Vec<SppProofInputUtxo>,
     pub output: SppProofOutputUtxo,

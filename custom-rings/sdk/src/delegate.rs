@@ -28,6 +28,7 @@ use crate::{
     TransferProofEnvironment,
 };
 
+#[derive(Clone)]
 pub struct DelegateOutput {
     pub recipient: ShieldedAddress,
     pub asset: Address,
@@ -44,6 +45,7 @@ pub struct DelegateTransferInput {
 }
 
 #[must_use = "prove or discard the move explicitly"]
+#[derive(Clone)]
 pub struct DelegateTransfer<'a> {
     ring: CustomRing,
     delegate: Address,
