@@ -3,6 +3,7 @@
 
 import argparse
 import base64
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -22,6 +23,10 @@ PRIVATE_SUBNET = "subnet-01d0a4d27fb52d8d6"
 PUBLIC_SUBNETS = ["subnet-07fced5e99eeca643", "subnet-0e9b6b37f4491a4e5"]
 AMI = "ami-0c020a23b5dfdbd1b"
 PHOTON = "https://d2xah7tnhdhcom.cloudfront.net"
+PHOTON_PRIVATE = "http://photon-api.zolnet-devnet-c.internal:8784"
+PHOTON_SOURCE_SG = "sg-01aa2bf0f41123a9e"
+PHOTON_SG = "sg-0baaa2b6a890f32cd"
+PHOTON_TARGET = "arn:aws:elasticloadbalancing:eu-north-1:558215002830:targetgroup/zolnet-devnet-c-photon/22b063856a54c7f8"
 TAGS = {"Stack": STACK, "ManagedBy": "prover-rtt-deploy"}
 ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / "target/prover-rtt/deployment"
@@ -298,7 +303,61 @@ class Deployment:
             ])
         self.remote(commands)
 
-    def deploy(self, selectors):
+    @staticmethod
+    def validate_source_group(source, destinations):
+        if source["GroupId"] != PHOTON_SOURCE_SG or source["VpcId"] != VPC:
+            raise RuntimeError("Private Photon source group does not match the checked VPC")
+        for permission in source["IpPermissions"]:
+            protocol = permission["IpProtocol"]
+            if protocol == "-1" or (protocol in ["tcp", "6"] and any(
+                    permission["FromPort"] <= port <= permission["ToPort"] for port in [3001, 9998, 6379])):
+                raise RuntimeError("Shared source group would expose an experiment listener")
+        grants = []
+        for destination in destinations:
+            for permission in destination["IpPermissions"]:
+                if any(peer["GroupId"] == PHOTON_SOURCE_SG for peer in permission.get("UserIdGroupPairs", [])):
+                    grants.append((destination["GroupId"], permission["IpProtocol"], permission.get("FromPort"), permission.get("ToPort")))
+        if not grants or any(grant != (PHOTON_SG, "tcp", 8784, 8784) for grant in grants):
+            raise RuntimeError("Shared source group grants access beyond the Photon API")
+
+    def check_private_route(self):
+        source = self.aws("ec2", "describe-security-groups", GroupIds=[PHOTON_SOURCE_SG])["SecurityGroups"][0]
+        destinations = self.aws("ec2", "describe-security-groups", Filters=[{
+            "Name": "ip-permission.group-id", "Values": [PHOTON_SOURCE_SG]}])["SecurityGroups"]
+        self.validate_source_group(source, destinations)
+        service = self.aws("ecs", "describe-services", cluster="zolnet-devnet-c", services=["zolnet-devnet-c-photon-api"])["services"][0]
+        if (service["status"] != "ACTIVE" or service["runningCount"] != service["desiredCount"] or
+                PHOTON_SG not in service["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"] or
+                not any(item["targetGroupArn"] == PHOTON_TARGET for item in service["loadBalancers"])):
+            raise RuntimeError("Photon service differs from the checked private route")
+        instances = self.aws("servicediscovery", "discover-instances", NamespaceName="zolnet-devnet-c.internal",
+                             ServiceName="photon-api", HealthStatus="ALL", MaxResults=100)["Instances"]
+        if not instances or any(item["Attributes"].get("ECS_CLUSTER_NAME") != "zolnet-devnet-c" or
+                item["Attributes"].get("ECS_SERVICE_NAME") != "zolnet-devnet-c-photon-api" for item in instances):
+            raise RuntimeError("Private DNS discovery includes an unexpected service")
+        discovered = {item["Attributes"]["AWS_INSTANCE_IPV4"] for item in instances}
+        targets = self.aws("elbv2", "describe-target-health", TargetGroupArn=PHOTON_TARGET)["TargetHealthDescriptions"]
+        healthy = {item["Target"]["Id"] for item in targets if item["TargetHealth"]["State"] == "healthy" and item["Target"]["Port"] == 8784}
+        if discovered != healthy:
+            raise RuntimeError("Private DNS endpoints do not match the healthy Photon targets")
+        report = {"checked_at": datetime.now(timezone.utc).isoformat(), "url": PHOTON_PRIVATE,
+                  "source_group": PHOTON_SOURCE_SG, "instances": instances, "healthy_targets": sorted(healthy)}
+        path = STATE_DIR / "private-route-check.json"
+        path.write_text(json.dumps(report, indent=2) + "\n")
+        path.chmod(0o600)
+        print("Private Photon discovery and security checks passed")
+        return report
+
+    def deploy(self, selectors, indexer_route="public"):
+        if indexer_route not in ["public", "private"]:
+            raise RuntimeError("Unknown indexer route")
+        groups = [self.state["sg_task"]]
+        self.owned(self.aws("ec2", "describe-security-groups", GroupIds=groups)["SecurityGroups"][0].get("Tags", []))
+        if indexer_route == "private":
+            self.check_private_route()
+            groups.append(PHOTON_SOURCE_SG)
+        indexer_url = PHOTON_PRIVATE if indexer_route == "private" else PHOTON
+        network = {"awsvpcConfiguration": {"subnets": [PRIVATE_SUBNET], "securityGroups": groups, "assignPublicIp": "DISABLED"}}
         self.owned_cluster()
         self.configure_target()
         image = self.state.get("image")
@@ -328,7 +387,7 @@ class Deployment:
                  "mountPoints": [{"sourceVolume": "keys", "containerPath": "/proving-keys", "readOnly": False}],
                  "portMappings": [{"containerPort": 3001, "protocol": "tcp"}, {"containerPort": 9998, "protocol": "tcp"}],
                  "secrets": [{"name": "PROVER_API_KEY", "valueFrom": self.state["secret"]}],
-                 "environment": [{"name": key, "value": value} for key, value in {"PROVER_INDEXER_URL": PHOTON, "PROVER_INDEXER_CONCURRENCY": "1", "PROVER_REQUEST_TIMING": "true",
+                 "environment": [{"name": key, "value": value} for key, value in {"PROVER_INDEXER_URL": indexer_url, "PROVER_INDEXER_CONCURRENCY": "1", "PROVER_REQUEST_TIMING": "true",
                     "PROVER_TRANSFER_CONCURRENCY": "4", "PROVER_MAX_CONCURRENCY": "4", "CUSTOM_RING_WORKER_CONCURRENCY": "1", "REDIS_URL": "redis://127.0.0.1:6379", "SERVICE": STACK}.items()],
                  "logConfiguration": logs("prover"), "stopTimeout": 120},
                 {"name": "cloudwatch-agent", "image": "public.ecr.aws/cloudwatch-agent/cloudwatch-agent:latest", "essential": False, "memory": 256,
@@ -342,20 +401,22 @@ class Deployment:
         if "service" in self.state:
             service = self.aws("ecs", "describe-services", cluster=self.state["cluster"], services=[self.state["service"]], include=["TAGS"])["services"][0]
             self.owned(service.get("tags", []))
-            self.aws("ecs", "update-service", cluster=self.state["cluster"], service=self.state["service"], taskDefinition=task)
+            self.aws("ecs", "update-service", cluster=self.state["cluster"], service=self.state["service"], taskDefinition=task, networkConfiguration=network)
         else:
             result = self.aws("ecs", "create-service", cluster=self.state["cluster"], serviceName=STACK, taskDefinition=task, desiredCount=1,
                 capacityProviderStrategy=[{"capacityProvider": STACK, "weight": 1}], tags=ECS_TAGS, enableExecuteCommand=True,
                 deploymentConfiguration={"maximumPercent": 100, "minimumHealthyPercent": 0}, healthCheckGracePeriodSeconds=600,
                 loadBalancers=[{"targetGroupArn": self.state["target"], "containerName": "prover", "containerPort": 3001}],
-                networkConfiguration={"awsvpcConfiguration": {"subnets": [PRIVATE_SUBNET], "securityGroups": [self.state["sg_task"]], "assignPublicIp": "DISABLED"}})
+                networkConfiguration=network)
             self.state["service"] = result["service"]["serviceArn"]
             self.save()
+        self.state.update(indexer_route=indexer_route, indexer_url=indexer_url, indexer_security_groups=groups, preload=selectors)
+        self.save()
         print("Service uses " + image)
         self.status()
 
     def status(self):
-        result = {key: self.state.get(key) for key in ["stack", "repository", "revision", "image_digest", "task_definition"]}
+        result = {key: self.state.get(key) for key in ["stack", "repository", "revision", "image_digest", "task_definition", "indexer_route", "indexer_url"]}
         if "distribution" in self.state:
             item = self.aws("cloudfront", "get-distribution", Id=self.state["distribution"]["Id"])["Distribution"]
             result.update(endpoint="https://" + item["DomainName"], distribution_status=item["Status"])
@@ -499,13 +560,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", default="AdministratorAccess-558215002830")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ["infra", "status", "keys", "down"]:
+    for name in ["infra", "status", "keys", "down", "check-private-route"]:
         commands.add_parser(name)
     build = commands.add_parser("build")
     build.add_argument("--archive", type=Path, required=True)
     build.add_argument("--revision", required=True)
     deploy = commands.add_parser("deploy")
     deploy.add_argument("--preload", required=True)
+    deploy.add_argument("--indexer-route", choices=["public", "private"], default="public")
     command = commands.add_parser("command")
     command.add_argument("--id")
     args = parser.parse_args()
@@ -515,7 +577,8 @@ def main():
         "status": deployment.status,
         "keys": deployment.keys,
         "build": lambda: deployment.build(args.archive, args.revision),
-        "deploy": lambda: deployment.deploy(args.preload),
+        "deploy": lambda: deployment.deploy(args.preload, args.indexer_route),
+        "check-private-route": deployment.check_private_route,
         "command": lambda: deployment.command_status(args.id),
         "down": deployment.down,
     }
