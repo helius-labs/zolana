@@ -38,7 +38,7 @@ export function matrix() {
 }
 
 export class Budget {
-  static async acquire(directory) {
+  static async acquire(directory, maxAttempts = 30) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const lock = join(directory, "sweep.lock");
     await mkdir(lock);
@@ -49,12 +49,21 @@ export class Budget {
         state = JSON.parse(await readFile(path, "utf8"));
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
-        state = { attempts: 0, startedAt: Date.now(), lastCompletedAt: 0, stopped: null };
+        state = {
+          attempts: 0,
+          maxAttempts,
+          startedAt: Date.now(),
+          lastCompletedAt: 0,
+          stopped: null,
+        };
       }
+      state.maxAttempts ??= 30;
       if (
+        ![8, 30].includes(maxAttempts) ||
+        state.maxAttempts !== maxAttempts ||
         !Number.isInteger(state.attempts) ||
         state.attempts < 0 ||
-        state.attempts > 30 ||
+        state.attempts > maxAttempts ||
         !Number.isFinite(state.startedAt) ||
         !Number.isFinite(state.lastCompletedAt)
       ) {
@@ -89,12 +98,47 @@ export class Budget {
     await rename(temporary, this.path);
   }
   async claim() {
-    if (this.state.stopped || this.state.attempts >= 30 || !this.remainingMs())
+    if (this.state.stopped || this.state.attempts >= this.state.maxAttempts || !this.remainingMs())
       throw new Error("Sweep budget exhausted");
     this.state.attempts++;
     // 1. Save the attempt before any proof request can leave the process.
     await this.persist();
     return this.state.attempts;
+  }
+  async beginPhase(phase, identity) {
+    if (!["public", "private"].includes(phase)) throw new Error("Invalid campaign phase");
+    const phases = this.state.phases ?? {};
+    if (
+      typeof identity !== "string" ||
+      !identity ||
+      (this.state.campaignIdentity && this.state.campaignIdentity !== identity)
+    )
+      throw new Error("Campaign fixture identity changed");
+    const expectedAttempts = phase === "public" ? 0 : 4;
+    if (
+      this.state.stopped ||
+      phases[phase] ||
+      this.state.attempts !== expectedAttempts ||
+      (phase === "private" && phases.public?.status !== "complete")
+    ) {
+      throw new Error("Campaign phase cannot start or resume");
+    }
+    this.state.campaignIdentity = identity;
+    this.state.phases = {
+      ...phases,
+      [phase]: { status: "running", firstAttempt: expectedAttempts + 1 },
+    };
+    this.state.startedAt = Date.now();
+    await this.persist();
+  }
+  async finishPhase(phase) {
+    const current = this.state.phases[phase];
+    if (this.state.stopped || this.state.attempts !== current.firstAttempt + 3) {
+      throw new Error("Campaign phase did not complete four proofs");
+    }
+    current.status = "complete";
+    current.completedAt = new Date().toISOString();
+    await this.persist();
   }
   async stop(reason) {
     this.state.stopped = reason;
@@ -109,14 +153,64 @@ export class Budget {
   }
 }
 
-export async function sweep({ directory, deployments, indexer, fixtures, metadata = {} }) {
-  const budget = await Budget.acquire(directory);
+export async function sweep({
+  directory,
+  deployments,
+  indexer,
+  fixtures,
+  metadata = {},
+  entries = matrix(),
+  campaign,
+}) {
+  if (
+    !Array.isArray(entries) ||
+    entries.length === 0 ||
+    entries.length > 30 ||
+    entries.some(
+      (entry) =>
+        !entry ||
+        typeof entry.family !== "string" ||
+        !deployments[entry.deployment] ||
+        !["client", "prover"].includes(entry.source) ||
+        !Number.isInteger(entry.repetition) ||
+        entry.repetition < 1,
+    )
+  ) {
+    throw new Error("Invalid proof matrix");
+  }
+  if (
+    campaign &&
+    (entries.length !== 4 ||
+      !campaign.directory ||
+      !["public", "private"].includes(campaign.phase) ||
+      new Set(entries.map((entry) => `${entry.variant}:${entry.repetition}`)).size !== 4 ||
+      entries.some((entry) => {
+        const fixture = fixtures[entry.fixture ?? entry.family];
+        return (
+          entry.family !== "transfer-confidential" ||
+          entry.deployment !== "candidate" ||
+          entry.source !== "prover" ||
+          entry.route !== campaign.phase ||
+          !["padded", "compact"].includes(entry.variant) ||
+          entry.fixture !== entry.variant ||
+          ![1, 2].includes(entry.repetition) ||
+          !fixture ||
+          typeof fixture.verify !== "function" ||
+          fixture.blocked ||
+          fixture.blockedDeployments?.[entry.deployment]
+        );
+      }))
+  )
+    throw new Error("Campaign requires four available proof entries");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const budget = await Budget.acquire(campaign?.directory ?? directory, campaign ? 8 : 30);
   const transport = new TimedTransport();
   const results = [];
   try {
-    if (budget.state.attempts) throw new Error("Existing sweep cannot be resumed");
-    for (const entry of matrix()) {
-      const fixture = fixtures[entry.family];
+    if (campaign) await budget.beginPhase(campaign.phase, campaign.identity);
+    else if (budget.state.attempts) throw new Error("Existing sweep cannot be resumed");
+    for (const entry of entries) {
+      const fixture = fixtures[entry.fixture ?? entry.family];
       const blocked = fixture?.blocked ?? fixture?.blockedDeployments?.[entry.deployment];
       if (!fixture || blocked) {
         results.push({
@@ -174,6 +268,22 @@ export async function sweep({ directory, deployments, indexer, fixtures, metadat
           if (submitted) {
             abort.abort();
             throw new Error("Proof retries are disabled");
+          }
+          const body = JSON.parse(String(init.body));
+          const payload = body.prepared ?? body;
+          if (
+            campaign &&
+            (!Number.isInteger(payload.nInputs) || !Number.isInteger(payload.nOutputs))
+          ) {
+            abort.abort();
+            throw new Error("Campaign proof shape is missing");
+          }
+          if (Number.isInteger(payload.nInputs) && Number.isInteger(payload.nOutputs)) {
+            result.actualShape = `${payload.nInputs}x${payload.nOutputs}`;
+            if (result.actualShape !== fixture.shape) {
+              abort.abort();
+              throw new Error("Proof request shape does not match fixture");
+            }
           }
           submitted = true;
           result.submitted = true;
@@ -264,6 +374,11 @@ export async function sweep({ directory, deployments, indexer, fixtures, metadat
         await writeReports({ directory, metadata, results, budget: budget.state });
       }
       if (budget.state.stopped) break;
+    }
+    if (campaign && !budget.state.stopped) {
+      if (results.length === 4 && results.every((result) => result.status === "ok"))
+        await budget.finishPhase(campaign.phase);
+      else await budget.stop("campaign_incomplete");
     }
     await writeReports({ directory, metadata, results, budget: budget.state });
     return results;

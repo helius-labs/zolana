@@ -56,7 +56,7 @@ function verifyProof({ key, publicInput, proof, signal }) {
   });
 }
 
-export async function prepare() {
+export async function prepare({ compactOnly = false } = {}) {
   const indexer = process.env.INDEXER_URL ?? "https://d2xah7tnhdhcom.cloudfront.net";
   const deployments = {
     baseline: process.env.BASELINE_PROVER_URL ?? "https://d21ni15goiip6l.cloudfront.net",
@@ -96,21 +96,27 @@ export async function prepare() {
   const available = balances.balance(SOL_MINT).utxos.slice(0, 2);
   if (available.length !== 2)
     throw new Error("Two confirmed dedicated fixture deposits are required");
-  const inputs = available.map((utxo) => ProofInputUtxo.fromKeypair(utxo, owner));
-  const recipient = ShieldedKeypair.generate();
+  const inputs = available
+    .map((utxo) => ProofInputUtxo.fromKeypair(utxo, owner))
+    .sort((left, right) => Buffer.compare(left.hash(), right.hash()));
+  const recipient = compactOnly ? owner : ShieldedKeypair.generate();
   const ringProgramId =
     process.env.PROVER_FIXTURE_RING ?? "3b4wuHVM1zhL6Phs6So2n1ddr8K2wGQtFu7xATxYW9so";
-  const ringAddress = await ringConfigAddress(ringProgramId);
-  const ringAccount = await discovery.getAccount(ringAddress, {
-    signal: AbortSignal.timeout(15_000),
-  });
-  const ringConfig = await fetchRingProgramConfig(discovery, ringProgramId, {
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (ringConfig.hasPolicy) throw new Error("The fixture ring must use the audit-only circuit");
+  const ringAddress = compactOnly ? undefined : await ringConfigAddress(ringProgramId);
+  const ringAccount = compactOnly
+    ? undefined
+    : await discovery.getAccount(ringAddress, {
+        signal: AbortSignal.timeout(15_000),
+      });
+  const ringConfig = compactOnly
+    ? undefined
+    : await fetchRingProgramConfig(discovery, ringProgramId, {
+        signal: AbortSignal.timeout(15_000),
+      });
+  if (ringConfig?.hasPolicy) throw new Error("The fixture ring must use the audit-only circuit");
   let mergeSequence = 0n;
   const mergeExpiry = BigInt(Math.floor(Date.now() / 1000)) + 3600n;
-  const fixture = (family, shape, keyFile) => ({
+  const fixture = (family, shape, keyFile, variant) => ({
     shape,
     keyFile,
     async prove({ source, url, fetch, signal, span }) {
@@ -206,13 +212,18 @@ export async function prepare() {
         const transfer = await span("preparation", () => {
           const value = new ConfidentialTransfer(
             owner.shieldedAddress(),
-            inputs,
+            variant ? inputs.slice(0, 1) : inputs,
             owner.toSolanaSigner().address,
-          ).withShape({ inputs: 2, outputs: 3 });
+          );
+          if (!variant) value.withShape({ inputs: 2, outputs: 3 });
+          if (variant === "compact") value.withCompactChange();
           value.send(recipient.shieldedAddress(), SOL_MINT, 1n);
           return value;
         });
         const prepared = await span("signing", () => transfer.sign(owner, registry));
+        const selected = prepared.checkShape();
+        if (`${selected.inputs}x${selected.outputs}` !== shape)
+          throw new Error("SDK selected an unexpected proof shape");
         return await client.proveTransact(prepared, keys, undefined, context);
       } finally {
         keys.destroy();
@@ -232,34 +243,44 @@ export async function prepare() {
       });
     },
   });
-  const fixtures = {
-    "transfer-confidential": fixture(
-      "transfer-confidential",
-      "2x3",
-      "transfer_confidential_2_3.key",
-    ),
-    merge: fixture("merge", "8x1", "merge_8_1.key"),
-    "transfer-ring": fixture("transfer-ring", "2x3", "transfer_ring_2_3.key"),
-    "transfer-ring-authority": {
-      shape: "2x2",
-      blocked: "The deployed ring has its authority transfer rail disabled",
-    },
-    "transfer-p256-ring": {
-      shape: "2x3",
-      blocked: "The TS fixture builder rejects P256 owners, a Rust fixture is required",
-    },
-    "merge-ring": {
-      shape: "8x1",
-      blocked: "The TS fixture builder rejects ring merge inputs, a Rust fixture is required",
-    },
-    "custom-ring-base": {
-      ...fixture("custom-ring-base", "audit", "custom_ring_base.key"),
-      blockedDeployments: {
-        baseline: "The deployed baseline has no custom_ring_base.key release key",
-      },
-    },
-    "custom-ring-policy": { blocked: "The deployed ring has no policy account" },
-  };
+  const fixtures = compactOnly
+    ? {
+        padded: fixture("transfer-confidential", "2x3", "transfer_confidential_2_3.key", "padded"),
+        compact: fixture(
+          "transfer-confidential",
+          "1x2",
+          "transfer_confidential_1_2.key",
+          "compact",
+        ),
+      }
+    : {
+        "transfer-confidential": fixture(
+          "transfer-confidential",
+          "2x3",
+          "transfer_confidential_2_3.key",
+        ),
+        merge: fixture("merge", "8x1", "merge_8_1.key"),
+        "transfer-ring": fixture("transfer-ring", "2x3", "transfer_ring_2_3.key"),
+        "transfer-ring-authority": {
+          shape: "2x2",
+          blocked: "The deployed ring has its authority transfer rail disabled",
+        },
+        "transfer-p256-ring": {
+          shape: "2x3",
+          blocked: "The TS fixture builder rejects P256 owners, a Rust fixture is required",
+        },
+        "merge-ring": {
+          shape: "8x1",
+          blocked: "The TS fixture builder rejects ring merge inputs, a Rust fixture is required",
+        },
+        "custom-ring-base": {
+          ...fixture("custom-ring-base", "audit", "custom_ring_base.key"),
+          blockedDeployments: {
+            baseline: "The deployed baseline has no custom_ring_base.key release key",
+          },
+        },
+        "custom-ring-policy": { blocked: "The deployed ring has no policy account" },
+      };
   for (const value of Object.values(fixtures)) {
     if (!value.blocked) await access(join(keyDirectory, value.keyFile));
   }
@@ -270,13 +291,24 @@ export async function prepare() {
     metadata: {
       tree: discovery.tree,
       treeId: discovery.treeId,
-      ringProgramId,
-      ringHasPolicy: ringConfig.hasPolicy,
+      ...(!compactOnly ? { ringProgramId, ringHasPolicy: ringConfig?.hasPolicy } : {}),
+      ...(compactOnly
+        ? {
+            fixtureInputHash: Buffer.from(inputs[0].hash()).toString("hex"),
+            sendAmountLamports: "1",
+            realInputCount: 1,
+            recipient: "same fixture owner",
+          }
+        : {}),
       fixtureTransactions: transactions.transactions.length,
       measuredTransfersSubmitted: false,
-      ringConfigurationPrefetched: true,
-      customRingBaseStatement:
-        "Individual audit proof, private transaction hash derived by SDK assembly, no SPP proof requested",
+      ringConfigurationPrefetched: !compactOnly,
+      ...(!compactOnly
+        ? {
+            customRingBaseStatement:
+              "Individual audit proof, private transaction hash derived by SDK assembly, no SPP proof requested",
+          }
+        : {}),
       firstUseLabel: "First observed request, server key cache state is unknown",
     },
   };

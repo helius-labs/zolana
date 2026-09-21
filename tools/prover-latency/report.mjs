@@ -29,6 +29,9 @@ export async function writeReports({ directory, metadata, results, budget }) {
     "source",
     "repetition",
     "shape",
+    "actualShape",
+    "variant",
+    "route",
     "status",
     "verified",
     "proofReceivedMs",
@@ -124,7 +127,7 @@ export async function writeReports({ directory, metadata, results, budget }) {
     `<div class="row"><span>${escape(name)}</span><div class="track" style="width:${width}px"><div class="bar ${lane}" style="left:${start * pixelsPerMs}px;width:${Math.max(1, (end - start) * pixelsPerMs)}px" title="${number(start)}–${number(end)} ms">${number(end - start)} ms</div></div></div>`;
   const charts = results
     .map((result) => {
-      const title = `${result.attempt ?? "—"} ${result.family} / ${result.deployment} / ${result.source} / ${result.status}`;
+      const title = `${result.attempt ?? "—"} ${result.family} / ${result.deployment} / ${result.source}${result.variant ? ` / ${result.variant} / ${result.actualShape ?? result.shape} / ${result.route}` : ""} / ${result.status}`;
       if (!result.requests)
         return `<section><h2>${escape(title)}</h2><p>${escape(result.reason)}</p></section>`;
       const rows = [bar("End to end", 0, result.proofReceivedMs ?? result.totalMs, "total")];

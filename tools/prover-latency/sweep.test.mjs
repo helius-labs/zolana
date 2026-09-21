@@ -92,6 +92,132 @@ test("budget serializes runs and persists claims before restart", async () =>
     await reopened.close();
   }));
 
+test("campaign keeps eight attempts across two explicit phases", async () =>
+  temporary(async (directory) => {
+    const publicPhase = await Budget.acquire(directory, 8);
+    await assert.rejects(publicPhase.beginPhase("private", "same-note"), /cannot start/);
+    await publicPhase.beginPhase("public", "same-note");
+    for (let index = 0; index < 4; index++) await publicPhase.claim();
+    await publicPhase.finishPhase("public");
+    await publicPhase.close();
+    await assert.rejects(Budget.acquire(directory, 30), /Invalid sweep budget/);
+    const privatePhase = await Budget.acquire(directory, 8);
+    await assert.rejects(privatePhase.beginPhase("public", "same-note"), /cannot start/);
+    await assert.rejects(privatePhase.beginPhase("private", "other-note"), /identity changed/);
+    await privatePhase.beginPhase("private", "same-note");
+    for (let index = 0; index < 4; index++) await privatePhase.claim();
+    await privatePhase.finishPhase("private");
+    await assert.rejects(privatePhase.claim(), /exhausted/);
+    assert.equal(privatePhase.state.attempts, 8);
+    assert.equal(privatePhase.state.phases.public.status, "complete");
+    assert.equal(privatePhase.state.phases.private.status, "complete");
+    await privatePhase.close();
+  }));
+
+test("interrupted campaign cannot resume or advance", async () =>
+  temporary(async (directory) => {
+    const budget = await Budget.acquire(directory, 8);
+    await budget.beginPhase("public", "same-note");
+    await budget.claim();
+    await budget.close();
+    const reopened = await Budget.acquire(directory, 8);
+    await assert.rejects(reopened.beginPhase("public", "same-note"), /cannot start/);
+    await assert.rejects(reopened.beginPhase("private", "same-note"), /cannot start/);
+    await reopened.close();
+  }));
+
+test("explicit matrix selects one fixture and records the wire shape", async () =>
+  server(
+    (_request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end('{"ar":[]}');
+    },
+    async (url) =>
+      temporary(async (directory) => {
+        const results = await sweep({
+          directory,
+          deployments: { candidate: url },
+          indexer: "https://indexer.invalid",
+          entries: [
+            {
+              family: "transfer-confidential",
+              fixture: "compact",
+              deployment: "candidate",
+              source: "prover",
+              repetition: 1,
+            },
+          ],
+          fixtures: {
+            compact: {
+              shape: "1x2",
+              async prove({ fetch }) {
+                return fetch(`${url}/prove/indexed`, {
+                  method: "POST",
+                  body: JSON.stringify({ prepared: { nInputs: 1, nOutputs: 2 } }),
+                });
+              },
+              async verify() {
+                return true;
+              },
+            },
+          },
+        });
+        assert.equal(results.length, 1);
+        assert.equal(results[0].status, "ok");
+        assert.equal(results[0].actualShape, "1x2");
+      }),
+  ));
+
+test("campaign rejects absent proof arity before submission", async () => {
+  let submitted = 0;
+  await server(
+    (_request, response) => {
+      submitted++;
+      response.end("{}");
+    },
+    async (url) =>
+      temporary(async (directory) => {
+        const fixture = {
+          shape: "2x3",
+          async prove({ fetch }) {
+            return fetch(`${url}/prove/indexed`, { method: "POST", body: '{"prepared":{}}' });
+          },
+          async verify() {
+            return true;
+          },
+        };
+        const results = await sweep({
+          directory: join(directory, "public"),
+          campaign: {
+            directory: join(directory, "ledger"),
+            phase: "public",
+            identity: "same-note",
+          },
+          deployments: { candidate: url },
+          indexer: "https://indexer.invalid",
+          entries: [1, 2].flatMap((repetition) =>
+            ["padded", "compact"].map((variant) => ({
+              family: "transfer-confidential",
+              fixture: variant,
+              variant,
+              repetition,
+              deployment: "candidate",
+              source: "prover",
+              route: "public",
+            })),
+          ),
+          fixtures: { padded: fixture, compact: fixture },
+        });
+        assert.equal(submitted, 0);
+        assert.equal(results.length, 1);
+        assert.equal(results[0].submitted, false);
+        const ledger = JSON.parse(await readFile(join(directory, "ledger/budget.json"), "utf8"));
+        assert.equal(ledger.attempts, 1);
+        assert.ok(ledger.stopped);
+      }),
+  );
+});
+
 test("transport records overlapping calls and reuses connections", async () =>
   server(
     (request, response) => {
