@@ -9,6 +9,7 @@ autotests = false
 
 [features]
 default = []
+socks = ["reqwest/socks"]
 indexer-api = ["dep:zolana-api"]
 solana-rpc = ["dep:bs58", "dep:base64", "dep:solana-rpc-client", "dep:solana-commitment-config"]
 client = ["indexer-api", "solana-rpc"]
