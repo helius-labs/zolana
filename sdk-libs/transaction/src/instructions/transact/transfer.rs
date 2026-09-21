@@ -814,13 +814,13 @@ fn dummy_owner_tag(
 }
 
 /// Random `len` bytes for a dummy output slot.
-pub(crate) fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
+pub fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
     let mut data = vec![0u8; len];
     OsRng.fill_bytes(&mut data);
     data
 }
 
-pub(crate) fn dummy_len(salt: [u8; SALT_LEN]) -> Result<usize, TransactionError> {
+pub fn dummy_len(salt: [u8; SALT_LEN]) -> Result<usize, TransactionError> {
     let throwaway = ViewingKey::new();
     dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt)
 }

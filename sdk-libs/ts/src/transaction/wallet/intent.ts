@@ -29,6 +29,14 @@ export type TransactionIntent =
   | Readonly<{ kind: "split"; asset: Address; numOutputs: number; perOutputAmount: bigint }>
   | Readonly<{ kind: "merge"; asset: Address; numInputs: number; mergedAmount: bigint }>
   | Readonly<{
+      kind: "ringMerge";
+      ringProgramId: Address;
+      outputTree: Address;
+      asset: Address;
+      numInputs: number;
+      mergedAmount: bigint;
+    }>
+  | Readonly<{
       kind: "ringTransfer";
       ringProgramId: Address;
       asset: Address;
@@ -99,6 +107,7 @@ const KIND_TAGS = {
   ringWithdrawal: 6,
   ringEntry: 7,
   ringDelegate: 8,
+  ringMerge: 9,
 } as const;
 const BOUNDARY_TAGS = { entry: 0, transfer: 1, exit: 2 } as const;
 
@@ -141,6 +150,13 @@ export function intentHash(intent: TransactionIntent): Bytes32 {
       hash.update(addressBytes(intent.asset));
       hash.update(Uint8Array.of(intent.numOutputs));
       hash.update(u64(intent.perOutputAmount));
+      break;
+    case "ringMerge":
+      hash.update(addressBytes(intent.ringProgramId));
+      hash.update(addressBytes(intent.outputTree));
+      hash.update(addressBytes(intent.asset));
+      hash.update(Uint8Array.of(intent.numInputs));
+      hash.update(u64(intent.mergedAmount));
       break;
     case "merge":
       hash.update(addressBytes(intent.asset));
@@ -280,7 +296,7 @@ export function checkTransactData(
   intent: TransactionIntent,
   mismatch: (field: string) => Error,
 ): void {
-  if (intent.kind === "merge") throw mismatch("kind");
+  if (intent.kind === "merge" || intent.kind === "ringMerge") throw mismatch("kind");
   if (intent.kind === "withdrawal" || intent.kind === "ringWithdrawal") {
     const transfer = data.interfaceTransfers[0];
     if (data.interfaceTransfers.length !== 1 || transfer === undefined) {
@@ -432,6 +448,17 @@ export function checkTransactionIntent(
       checkIntentFields(intent, ["kind", "asset", "numOutputs", "perOutputAmount"], mismatch);
       checkCount(intent.numOutputs, "numOutputs", mismatch);
       checkAmount(intent.perOutputAmount, mismatch);
+      return;
+    case "ringMerge":
+      checkIntentFields(
+        intent,
+        ["kind", "ringProgramId", "outputTree", "asset", "numInputs", "mergedAmount"],
+        mismatch,
+      );
+      checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
+      checkAccount(intent.outputTree, "outputTree", mismatch);
+      checkCount(intent.numInputs, "numInputs", mismatch);
+      checkAmount(intent.mergedAmount, mismatch);
       return;
     case "merge":
       checkIntentFields(intent, ["kind", "asset", "numInputs", "mergedAmount"], mismatch);

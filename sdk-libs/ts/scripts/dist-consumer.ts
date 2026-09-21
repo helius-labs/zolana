@@ -3,9 +3,6 @@ export {
   MAX_INPUT_TREES,
   ShieldedPoolError,
   decodeShieldedPoolError,
-  RING_DEPOSIT_AUDIT_SLOTS,
-  encodeRingDepositCapsule,
-  readRingDepositCapsule,
 } from "@heliuslabs/zolana/interface";
 export type {
   AuthorizedPrivateTransaction,
@@ -155,3 +152,12 @@ export type {
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,
 } from "@heliuslabs/zolana";
+
+export {
+  RING_DEPOSIT_AUDIT_SLOTS,
+  encodeRingDepositCapsule,
+  readRingDepositCapsule,
+  buildRingMergeTransaction,
+  createRingMergeSubmission,
+  customRingDepositPayload,
+} from "@heliuslabs/zolana/ring";

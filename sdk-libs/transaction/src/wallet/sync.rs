@@ -125,6 +125,7 @@ enum MergeResolution {
 }
 
 pub(super) struct SyncCtx<'a> {
+    deposit_payload: super::state::DepositPayloadDecoder,
     pub(super) nullifier_key: &'a NullifierKey,
     /// Every viewing key this wallet has held, current and rotated-out. A
     /// transfer addressed to a retired key is still addressed to this wallet,
@@ -659,10 +660,13 @@ impl SyncCtx<'_> {
                 };
                 match scheme {
                     EncryptedScheme::RingDeposit => {
-                        let Ok(output) = EncryptedRingDepositOutput::try_from_slice(body) else {
+                        let Ok(mut output) = EncryptedRingDepositOutput::try_from_slice(body)
+                        else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
+                        output.encrypted.ciphertext =
+                            (self.deposit_payload)(&output.encrypted.ciphertext)?.to_vec();
                         let Ok(plaintext) = RingDepositPlaintext::decrypt(&output.encrypted, key)
                         else {
                             self.report.undecryptable_candidates += 1;
@@ -1054,6 +1058,7 @@ impl Wallet {
         let self_viewing_pubkeys = self.self_viewing_pubkeys();
         let owner_tag = identity.signing_pubkey.confidential_view_tag()?;
         let mut ctx = SyncCtx {
+            deposit_payload: self.deposit_payload,
             owner: identity.signing_pubkey,
             nullifier_pk: identity.nullifier_pubkey,
             nullifier_key: &material.nullifier_key,

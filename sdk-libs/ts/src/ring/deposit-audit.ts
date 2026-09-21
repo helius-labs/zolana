@@ -5,7 +5,7 @@ import {
   encodeRingDepositCapsule,
   RING_DEPOSIT_AUDIT_SLOTS,
   type RingDepositCapsule,
-} from "../interface/ring-deposit-audit.js";
+} from "./deposit-capsule.js";
 import type { Address, Bytes32, Bytes64 } from "../interface/types.js";
 import { auditSharedSecret } from "../keypair/audit.js";
 import { isCanonicalField } from "../interface/canonical-field.js";

@@ -1,3 +1,4 @@
+use custom_ring_interface::RingDepositAuditCapsule;
 use std::cell::{Cell, RefCell};
 
 use solana_address::Address;
@@ -6,9 +7,7 @@ use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
     GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, Rpc,
 };
-use zolana_event::{
-    encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput, RingDepositAuditCapsule,
-};
+use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{
     AuditedOutput, AuditorEncryption, DepositOpening, DepositSeal, MemberRecovery, NoteDataHashes,

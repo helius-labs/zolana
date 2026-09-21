@@ -1,13 +1,11 @@
 use custom_ring_interface::{
     deposit_verifying_key::VERIFYINGKEY, tag, CustomRingProof, DepositContext, DepositPublicInput,
 };
-use pinocchio::{error::ProgramError, Address, ProgramResult};
-use zolana_interface::{
-    event::{
-        RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
-    },
-    instruction::instruction_data::deposit::RingDepositIxDataRef,
+use custom_ring_interface::{
+    RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
 };
+use pinocchio::{error::ProgramError, Address, ProgramResult};
+use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
 
 use crate::{error::CustomRingError, instructions::verifier::verify_groth16};
 

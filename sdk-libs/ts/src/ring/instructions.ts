@@ -15,8 +15,11 @@ import {
   signerAddress,
   type SignerAccount,
 } from "../interface/instructions/index.js";
-import { encodeTransactInstructionData } from "../interface/codecs/index.js";
-import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
+import {
+  encodeMergeTransactInstructionData,
+  encodeTransactInstructionData,
+} from "../interface/codecs/index.js";
+import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import {
   nullifierPdaAddress,
   protocolConfigAddress,
@@ -29,6 +32,7 @@ import {
   ringPolicyConfigAddress,
 } from "../interface/pda/index.js";
 import type {
+  MergeTransactInstructionData,
   Bytes32,
   Bytes33,
   TransactInstructionData,
@@ -672,4 +676,46 @@ async function policyTableBody(
     data: writer.finish(),
     curatorPolicyConfigs: await Promise.all(curators.map(ringPolicyConfigAddress)),
   });
+}
+
+export async function ringMergeInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    inputTree: Address;
+    outputTree: Address;
+    payer: SignerAccount;
+    data: MergeTransactInstructionData;
+    outputRingDataHash: Bytes32;
+    cosigner?: SignerAccount;
+    hasPolicy: boolean;
+  }>,
+): Promise<Instruction> {
+  const [config, cosigner, auth, nullifiers] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+    ringAuthAddress(input.ringProgramId),
+    Promise.all(input.data.nullifiers.map((value) => nullifierPdaAddress(input.inputTree, value))),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(config, false, false),
+      ...ringCoSignerMetas(cosigner, input.cosigner),
+      ...(input.hasPolicy
+        ? [meta(await ringPolicyConfigAddress(input.ringProgramId), false, false)]
+        : []),
+      meta(input.inputTree, false, true),
+      meta(input.outputTree, false, true),
+      meta(auth, false, false),
+      meta(input.payer, true, true),
+      meta(SYSTEM_PROGRAM, false, false),
+      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ...nullifiers.map((key) => meta(key, false, true)),
+    ],
+    data: new Writer()
+      .u8(InstructionTag.ringMergeTransact, "instructionTag")
+      .bytes(input.outputRingDataHash, 32, "outputRingDataHash")
+      .bytes(encodeMergeTransactInstructionData(input.data))
+      .finish(),
+  };
 }

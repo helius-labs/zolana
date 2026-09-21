@@ -212,7 +212,8 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
             ),
         );
     }
-    let mut wallet = Wallet::new(source, assets.clone())?;
+    let mut wallet = Wallet::new(source, assets.clone())?
+        .with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
     wallet.utxos = recovered.utxos;
 
     let selection = NoteSelection {

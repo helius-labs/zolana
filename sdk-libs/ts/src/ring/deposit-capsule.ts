@@ -1,12 +1,12 @@
-import { copyBytes, fail } from "./internal.js";
-import type { Bytes33, Bytes64 } from "./types.js";
+import { copyBytes, fail } from "../interface/internal.js";
+import type { Bytes33, Bytes64 } from "../interface/types.js";
 
-export const RING_DEPOSIT_AUDIT_SLOTS = 8;
+import { RING_DEPOSIT_AUDIT_SLOTS } from "../client/prover/types.js";
+export { RING_DEPOSIT_AUDIT_SLOTS };
 export const AUDITED_RING_DEPOSIT_TAG = 32;
 const MAGIC = new TextEncoder().encode("CRDEP001");
 const HEADER_LENGTH = 106;
 
-/** Carries one deposit opening and its original recipient ciphertext. */
 export interface RingDepositCapsule {
   readonly slotIndex: number;
   readonly ephemeralPublicKey: Bytes33;

@@ -1,6 +1,7 @@
 use core::future::Future;
 
 use custom_ring_interface::PolicyConfig;
+use custom_ring_interface::{RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS};
 use futures::future::try_join;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use rand::{rngs::OsRng, RngCore};
@@ -20,7 +21,6 @@ use zolana_client::{
     SettlementAccountValidation, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
     TransferInputs, TransferSpendInput,
 };
-use zolana_event::{RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
@@ -1455,7 +1455,7 @@ impl RingDeposit<'_> {
             let mut auditor_pk = [0; 65];
             auditor_pk.copy_from_slice(uncompressed.as_bytes());
             Some(to_instruction_proof(env.prover.prove(
-                &zolana_client::prover::ring_deposit::RingDepositProofRequest {
+                &crate::instructions::deposit_request::RingDepositProofRequest {
                     public_input_hash: &public_input_hash,
                     context_hash: &context_hash,
                     count: 1,

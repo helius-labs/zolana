@@ -27,6 +27,7 @@ they spend.
 
 Breaking
 
+- Custom deposit codecs and `ringDepositInstruction` move from `/interface` to `/ring` → update imports and pass `customRingDepositPayload` as the wallet sync `depositPayloadDecoder`.
 - `serializeWallet` writes version 4 snapshots → upgrade snapshot readers before saving, while versions 2 and 3 remain readable.
 - `proveRingTransact` accepts `RingProvingConfig` → put indexer settings under `indexer` and supply `outputTree` when the destination differs from the client tree.
 
@@ -332,6 +333,7 @@ Breaking
 
 Added
 
+- `buildRingMergeTransaction` and `createRingMergeSubmission` consolidate up to eight ring notes with owner, asset, value, ring, and destination checks.
 - `RingTransactionSubmission.sendPersisted` saves signed attempts before broadcast, and `reconcileRingSubmissions` resolves saved signatures after restart without sending another payment.
 - `savePersistedWallet` saves wallet state on the same queue as wallet sync.
 

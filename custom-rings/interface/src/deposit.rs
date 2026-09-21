@@ -1,9 +1,9 @@
+use crate::deposit_audit::{MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN};
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice,
     primitives::{hash_bytes, right_align, PACK_BE_CHUNK_BYTES},
     HasherError,
 };
-use zolana_interface::event::{MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN};
 
 use crate::{pack33_to_2fe, COMPRESSED_P256_KEY_LEN};
 

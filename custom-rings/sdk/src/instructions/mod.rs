@@ -4,6 +4,7 @@ pub mod create_head_map_root;
 pub mod create_key_registry_root;
 pub mod delegate;
 pub mod deposit;
+pub mod deposit_request;
 pub mod entry;
 pub mod grant_read_access;
 pub mod init_spp_ring_config;

@@ -1,3 +1,4 @@
+use custom_ring_interface::RingDepositAuditCapsule;
 use custom_ring_interface::{pda, tag, CustomRingProof, DepositAudit, DEPOSIT_AUDIT};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
@@ -6,8 +7,7 @@ use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    event::RingDepositAuditCapsule, instruction::instruction_data::deposit::RingDepositIxData,
-    SHIELDED_POOL_PROGRAM_ID,
+    instruction::instruction_data::deposit::RingDepositIxData, SHIELDED_POOL_PROGRAM_ID,
 };
 
 use crate::common::{

@@ -433,3 +433,8 @@ export interface MergeAssembler {
     context?: RequestContext,
   ): Promise<Transaction>;
 }
+
+export type RingMergeClient = TreeContext &
+  BlockhashProvider &
+  Pick<ChainReader, "getAccount"> &
+  Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;

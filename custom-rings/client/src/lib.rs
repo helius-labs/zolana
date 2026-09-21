@@ -25,6 +25,7 @@ mod counters;
 mod decrypt;
 mod deposit;
 mod deposit_encryption;
+mod deposit_payload;
 mod encryption;
 mod error;
 mod origin;
@@ -62,3 +63,5 @@ pub use crate::{
     types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
 };
 pub use custom_ring_interface::AUDITOR_MESSAGE_LEN;
+
+pub use deposit_payload::deposit_payload;

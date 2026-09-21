@@ -1,8 +1,8 @@
-use zeroize::Zeroizing;
-use zolana_event::{
+use custom_ring_interface::{
     RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
     RING_DEPOSIT_AUDIT_INFO,
 };
+use zeroize::Zeroizing;
 use zolana_keypair::{symmetric_apply, P256Pubkey, ViewingKey};
 
 use crate::encryption::{AuditEncryptionError, AuditSharedSecret};

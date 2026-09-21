@@ -6,7 +6,6 @@ pub mod merge;
 pub mod merge_ring;
 mod proof;
 pub mod ring_authority;
-pub mod ring_deposit;
 pub mod transact;
 mod verify;
 

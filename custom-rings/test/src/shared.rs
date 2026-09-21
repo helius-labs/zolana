@@ -556,6 +556,7 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
         .map_err(|e| anyhow!("actor address failed {e:?}"))?;
     let wallet =
         Wallet::new(address, assets.clone()).map_err(|e| anyhow!("actor wallet failed {e:?}"))?;
+    let wallet = wallet.with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
     Ok(TestWallet { wallet, keypair })
 }
 

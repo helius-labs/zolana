@@ -1,3 +1,4 @@
+use crate::authority::{AuthoritySeal, RingAuthorityMove};
 use futures::future::try_join;
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -11,10 +12,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_salt, ShieldedAddress, ViewingKey};
 use zolana_transaction::{
-    instructions::{
-        ring_authority::{AuthoritySeal, PreparedRingAuthority, RingAuthorityMove},
-        transact::SppProofOutputUtxo,
-    },
+    instructions::{ring_authority::PreparedRingAuthority, transact::SppProofOutputUtxo},
     AssetRegistry,
 };
 

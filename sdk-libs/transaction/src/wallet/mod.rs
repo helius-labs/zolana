@@ -16,3 +16,5 @@ pub use state::{
     SyncReport, ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use sync::{decrypt_transactions, decrypt_transactions_with_config, SyncConfig};
+
+pub use state::DepositPayloadDecoder;

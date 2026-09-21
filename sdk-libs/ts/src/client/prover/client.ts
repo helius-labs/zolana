@@ -1,5 +1,5 @@
 import { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "../../interface/head-map.js";
-import { RING_DEPOSIT_AUDIT_SLOTS } from "../../interface/ring-deposit-audit.js";
+import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
@@ -437,7 +437,7 @@ export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
 /** Mirrors Rust `MergeParametersJson`, key set included. */
 function mergeProverRequest(inputs: MergeInputs, secret: SecretEncoder): ProverRequestBody {
   return Object.freeze({
-    circuitType: "merge",
+    circuitType: BigInt(inputs.ringProgramId) === 0n ? "merge" : "merge-ring",
     inputs: inputs.inputs.map(mergeInputJson),
     output: mergeOutputJson(inputs.output),
     treeSlots: inputs.treeSlots.map(treeSlotJson),

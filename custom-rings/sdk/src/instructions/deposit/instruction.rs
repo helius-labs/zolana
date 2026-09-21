@@ -1,6 +1,6 @@
+use custom_ring_interface::MAX_RING_DEPOSIT_AUDIT_SLOTS;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_event::MAX_RING_DEPOSIT_AUDIT_SLOTS;
 use zolana_interface::instruction::{DepositBuildError, RingAssetDeposit, RingDeposit};
 
 use crate::{

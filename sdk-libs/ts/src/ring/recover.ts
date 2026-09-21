@@ -4,7 +4,7 @@ import type { IndexerReader } from "../client/ports.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
 import { MERGE_SUPPORTED_INPUT_COUNTS } from "../interface/constants.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
-import { readRingDepositCapsule } from "../interface/ring-deposit-audit.js";
+import { readRingDepositCapsule } from "./deposit-capsule.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../keypair/merge/index.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";

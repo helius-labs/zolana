@@ -6,12 +6,6 @@ import {
   type Instruction,
   type TransactionSigner,
 } from "@solana/kit";
-import { CUSTOM_RING_PROOF_LENGTH } from "../custom-ring-proof.js";
-import {
-  AUDITED_RING_DEPOSIT_TAG,
-  RING_DEPOSIT_AUDIT_SLOTS,
-  readRingDepositCapsule,
-} from "../ring-deposit-audit.js";
 
 import {
   InstructionTag,
@@ -30,21 +24,15 @@ import {
   type InputUtxo,
   type MergeTransactInstructionData,
   type DepositSplAccounts,
-  type RingAssetDeposit,
   type TransactInstructionData,
   type TreeContext,
   type TransactWithdrawal,
   type TreeFeeSchedule,
 } from "../types.js";
-import { Writer, addressBytes, checkedAddress, copyBytes, fail } from "../internal.js";
+import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
   nullifierPdaAddress,
   protocolConfigAddress,
-  ringAuthAddress,
-  ringCoSignerAddress,
-  ringDepositAuditAddress,
-  ringConfigAddress,
-  ringPolicyConfigAddress,
   ringSpendWindowAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
@@ -56,7 +44,6 @@ import {
 import {
   encodeCreateTreeData,
   encodeDepositInstructionData,
-  encodeRingDepositInstructionData,
   encodeMergeTransactInstructionData,
   encodeTransactInstructionData,
   encodeTreeFeeSchedule,
@@ -88,7 +75,7 @@ export function meta(account: SignerAccount, isSigner: boolean, isWritable: bool
   } as Meta;
 }
 
-function instruction(
+export function instruction(
   data: Uint8Array,
   accounts: readonly Meta[],
   programAddress: Address = SHIELDED_POOL_PROGRAM_ID,
@@ -100,7 +87,7 @@ function instruction(
   };
 }
 
-function tagged(tag: number, payload?: Uint8Array): Uint8Array {
+export function tagged(tag: number, payload?: Uint8Array): Uint8Array {
   const data = new Uint8Array(1 + (payload?.length ?? 0));
   data[0] = tag;
   if (payload !== undefined) data.set(payload, 1);
@@ -207,7 +194,9 @@ interface DepositLayout {
   readonly splGroups: readonly DepositSplAccounts[];
 }
 
-function depositLayout(deposits: readonly Readonly<{ asset: DepositAsset }>[]): DepositLayout {
+export function depositLayout(
+  deposits: readonly Readonly<{ asset: DepositAsset }>[],
+): DepositLayout {
   if (deposits.length === 0 || deposits.length > 0xff) {
     fail("INTERFACE_CODEC", { reason: "invalid deposit count", count: deposits.length });
   }
@@ -235,7 +224,7 @@ function depositLayout(deposits: readonly Readonly<{ asset: DepositAsset }>[]): 
   return Object.freeze({ hasSol, splGroups: Object.freeze(splGroups) });
 }
 
-function depositAssetIndex(
+export function depositAssetIndex(
   layout: DepositLayout,
   deposit: Readonly<{ asset: DepositAsset }>,
 ): number {
@@ -246,7 +235,7 @@ function depositAssetIndex(
   return Number(layout.hasSol) + index;
 }
 
-async function depositAccounts(
+export async function depositAccounts(
   tree: Address,
   depositor: SignerAccount,
   layout: DepositLayout,
@@ -311,96 +300,6 @@ export async function depositInstruction(
       }),
     ),
     accounts,
-  );
-}
-
-/** Mirrors Rust `RingDeposit::instruction`, the shielded pool gets everything after the ring prefix unchanged. */
-export async function ringDepositInstruction(
-  input: Readonly<{
-    ringProgramId: Address;
-    tree: Address;
-    depositor: SignerAccount;
-    deposits: readonly RingAssetDeposit[];
-    proof?: Uint8Array;
-    cosigner?: SignerAccount;
-    /** True when the ring runs a policy, its `policy_config` joins the prefix. */
-    hasPolicy: boolean;
-  }>,
-): Promise<Instruction> {
-  const layout = depositLayout(input.deposits);
-  if (input.proof !== undefined) {
-    if (input.deposits.length > RING_DEPOSIT_AUDIT_SLOTS)
-      fail("INTERFACE_CODEC", { field: "deposit count" });
-    let ephemeralKey: Uint8Array | undefined;
-    for (const [index, deposit] of input.deposits.entries()) {
-      const capsule = readRingDepositCapsule(deposit.encrypted.ciphertext);
-      if (
-        capsule === undefined ||
-        capsule.slotIndex !== index ||
-        (ephemeralKey !== undefined &&
-          !ephemeralKey.every((byte, offset) => capsule.ephemeralPublicKey[offset] === byte))
-      )
-        fail("INTERFACE_CODEC", { field: "deposit capsule" });
-      ephemeralKey = capsule.ephemeralPublicKey;
-    }
-  }
-  const [ringAuth, config, cosignerPda, depositAudit, policyConfig, windows] = await Promise.all([
-    ringAuthAddress(input.ringProgramId),
-    ringConfigAddress(input.ringProgramId),
-    ringCoSignerAddress(input.ringProgramId),
-    ringDepositAuditAddress(input.ringProgramId),
-    input.hasPolicy ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
-    ringSpendWindowMetas(input.ringProgramId, [
-      ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
-      ...layout.splGroups.map((spl) => spl.mint),
-    ]),
-  ]);
-  const { accounts, splInterfaceBumps } = await depositAccounts(
-    input.tree,
-    input.depositor,
-    layout,
-    ringAuth,
-  );
-  accounts.unshift(
-    meta(config, false, false),
-    ...ringCoSignerMetas(cosignerPda, input.cosigner),
-    meta(depositAudit, false, false),
-    ...(policyConfig === undefined ? [] : [meta(policyConfig, false, false)]),
-    ...windows,
-  );
-  const sppWire = tagged(
-    InstructionTag.ringDeposit,
-    encodeRingDepositInstructionData({
-      assets: [
-        ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
-        ...splInterfaceBumps.map((splInterfaceBump) => ({
-          kind: "spl" as const,
-          splInterfaceBump,
-        })),
-      ],
-      deposits: input.deposits.map((deposit) => ({
-        assetIndex: depositAssetIndex(layout, deposit),
-        viewTag: deposit.viewTag,
-        ownerUtxoHash: deposit.ownerUtxoHash,
-        amount: deposit.amount,
-        ...(deposit.dataHash === undefined ? {} : { dataHash: deposit.dataHash }),
-        ringDataHash: deposit.ringDataHash,
-        encrypted: deposit.encrypted,
-      })),
-    }),
-  );
-  return instruction(
-    input.proof === undefined
-      ? sppWire
-      : tagged(
-          AUDITED_RING_DEPOSIT_TAG,
-          new Uint8Array([
-            ...copyBytes(input.proof, CUSTOM_RING_PROOF_LENGTH, "deposit proof"),
-            ...sppWire,
-          ]),
-        ),
-    accounts,
-    input.ringProgramId,
   );
 }
 

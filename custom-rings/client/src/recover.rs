@@ -5,9 +5,10 @@ use std::{
     num::{NonZeroU32, NonZeroUsize},
 };
 
+use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
 use zolana_client::Rpc;
-use zolana_event::{EncryptedRingDepositOutput, RingDepositAuditCapsule};
+use zolana_event::EncryptedRingDepositOutput;
 use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
 use zolana_indexer_api::PAGE_LIMIT;
 use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};

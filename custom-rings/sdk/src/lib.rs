@@ -3,6 +3,7 @@
 //! canonical public-input hashing are defined in `custom-ring-interface` so a single
 //! definition serves both sides.
 
+mod authority;
 mod budget;
 mod delegate;
 mod head_map;
@@ -40,6 +41,7 @@ pub use zolana_ring_client::{
 pub use zolana_ring_policy::RuleTableError;
 
 pub use crate::{
+    authority::{AuthoritySeal, RingAuthorityDraft, RingAuthorityMove},
     delegate::{DelegateOutput, DelegateTransfer, DelegateTransferInput, ProvenDelegateTransfer},
     instructions::{
         cosigner::{ClearCoSigner, CoSignThreshold, SetCoSigner},
@@ -48,6 +50,7 @@ pub use crate::{
         create_key_registry_root::CreateKeyRegistryRoot,
         delegate::{CustomRingDelegateTransact, DelegateInstructionError, SetDelegate},
         deposit::{Deposit, SetDepositAudit},
+        deposit_request::RingDepositProofRequest,
         entry::{
             CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
             EntryProofError, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry,

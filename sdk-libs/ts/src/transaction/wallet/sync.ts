@@ -29,8 +29,11 @@ import {
   splitEmbeddedKey,
   type ProoflessOutput,
 } from "../serialization/codecs.js";
-import { readRingDepositCapsule } from "../../interface/ring-deposit-audit.js";
-import { decodeRingDepositOutput, ringDepositUtxo } from "../serialization/ring-deposit.js";
+import {
+  decodeRingDepositOutput,
+  ringDepositUtxo,
+  type DepositPayloadDecoder,
+} from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
 import { KeyMemo } from "./key-memo.js";
 import {
@@ -75,6 +78,7 @@ function firstNullifierOf(tx: IndexedShieldedTransaction): Bytes32 {
 }
 
 interface DecryptTransactionsConfig {
+  readonly depositPayloadDecoder?: DepositPayloadDecoder;
   /** Recorded as `Wallet.lastSynced` once the sync commits, as `Wallet::sync` records `synced_at`. */
   readonly syncedAt?: bigint;
 }
@@ -228,6 +232,7 @@ function rowKey(row: PrivateTransaction): string {
  * advances.
  */
 class SyncPass {
+  readonly #depositPayloadDecoder: DepositPayloadDecoder;
   readonly #owner: ShieldedPublicKey;
   readonly #nullifierPublicKey: Bytes32;
   /** The keys the wallet holds, current first; the pass opens under each. */
@@ -256,6 +261,7 @@ class SyncPass {
 
   constructor(
     input: Readonly<{
+      depositPayloadDecoder?: DepositPayloadDecoder | undefined;
       identity: ShieldedAddress;
       viewingPublicKeys: readonly P256PublicKey[];
       keys: KeyMemo;
@@ -266,6 +272,7 @@ class SyncPass {
       selfViewingPublicKeys: readonly P256PublicKey[];
     }>,
   ) {
+    this.#depositPayloadDecoder = input.depositPayloadDecoder ?? ((bytes) => bytes);
     this.#owner = input.identity.signingPublicKey;
     this.#nullifierPublicKey = input.identity.nullifierPublicKey;
     this.#viewingPublicKeys = input.viewingPublicKeys;
@@ -817,14 +824,12 @@ class SyncPass {
       try {
         output = decodeRingDepositOutput(body);
         txViewingPublicKey = P256PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
-        // An audited deposit wraps the recipient ciphertext in the auditor capsule.
-        ciphertext =
-          readRingDepositCapsule(output.encrypted.ciphertext)?.recipientCiphertext ??
-          output.encrypted.ciphertext;
+        ciphertext = output.encrypted.ciphertext;
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
       }
+      ciphertext = this.#depositPayloadDecoder(ciphertext);
       const decrypted = this.#keys.decrypt({
         ciphertext,
         viewingPublicKey,
@@ -1101,6 +1106,7 @@ export async function decryptTransactions(
   try {
     for (let round = 0; round < maxKeyRounds(mergeSites.length); round++) {
       const pass = new SyncPass({
+        depositPayloadDecoder: input.config?.depositPayloadDecoder,
         identity,
         viewingPublicKeys,
         keys: memo,

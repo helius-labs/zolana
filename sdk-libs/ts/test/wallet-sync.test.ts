@@ -1,3 +1,5 @@
+import { encodeRingDepositCapsule } from "../src/ring/deposit-capsule.js";
+import { customRingDepositPayload } from "../src/ring/deposit-payload.js";
 import {
   address,
   getAddressEncoder,
@@ -13,7 +15,6 @@ import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/i
 import {
   DEFAULT_TREE_ID,
   SHIELDED_POOL_PROGRAM_ID,
-  encodeRingDepositCapsule,
   type Bytes16,
   type Bytes32,
   type Bytes64,
@@ -218,7 +219,11 @@ function decryptWithKeys(
   keys: ShieldedKeys,
   input: Omit<Parameters<typeof decryptTransactions>[0], "keys">,
 ): Promise<ReturnType<typeof decryptTransactions> extends Promise<infer R> ? R : never> {
-  return decryptTransactions({ ...input, keys });
+  return decryptTransactions({
+    ...input,
+    keys,
+    config: { ...input.config, depositPayloadDecoder: customRingDepositPayload },
+  });
 }
 
 describe("wallet sync atomicity", () => {

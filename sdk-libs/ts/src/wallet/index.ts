@@ -88,3 +88,5 @@ export {
 export type { ErrorEnvelope } from "../errors/internal.js";
 
 export type { PendingWalletSubmission } from "../transaction/wallet/state.js";
+
+export type { DepositPayloadDecoder } from "../transaction/serialization/ring-deposit.js";

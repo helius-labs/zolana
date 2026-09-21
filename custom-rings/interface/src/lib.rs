@@ -11,6 +11,7 @@ pub mod compressed_register_verifying_key;
 #[cfg(feature = "verifying-keys")]
 pub mod delegate_policy_verifying_key;
 pub mod deposit;
+pub mod deposit_audit;
 #[cfg(feature = "verifying-keys")]
 pub mod deposit_verifying_key;
 pub mod head_map;
@@ -71,3 +72,8 @@ pub const AUDITOR_MESSAGE_LEN: usize = COMPRESSED_P256_KEY_LEN + AUDIT_CIPHERTEX
 pub const READER_KEY_P256: u8 = 0x00;
 pub const READER_KEY_ED25519: u8 = 0x01;
 pub type ReaderKeyBytes = [u8; 34];
+
+pub use deposit_audit::{
+    RingDepositAuditCapsule, RingDepositAuditError, MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN, RING_DEPOSIT_AUDIT_INFO, RING_DEPOSIT_AUDIT_PREFIX_LEN,
+};

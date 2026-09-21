@@ -114,11 +114,18 @@ export type {
   RingDelegateSpender,
 } from "./transfer.js";
 export { currentRingSpendRecord } from "./policy.js";
-export { ringDepositInstruction, ringTransactAccounts } from "../interface/instructions/index.js";
+export { ringTransactAccounts } from "../interface/instructions/index.js";
+export { ringDepositInstruction } from "./deposit-instruction.js";
+export { customRingDepositPayload, decryptRingDepositUtxo } from "./deposit-payload.js";
+export {
+  encodeRingDepositCapsule,
+  readRingDepositCapsule,
+  RING_DEPOSIT_AUDIT_SLOTS,
+  type RingDepositCapsule,
+} from "./deposit-capsule.js";
 export {
   decodeRingDepositOutput,
   decodeRingDepositPlaintext,
-  decryptRingDepositUtxo,
   encodeRingDepositPlaintext,
 } from "../transaction/serialization/ring-deposit.js";
 export type {
@@ -439,3 +446,11 @@ export type {
   RingWithdrawalTransactionParams,
 } from "./transfer.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
+
+export {
+  buildRingMergeTransaction,
+  createRingMergeSubmission,
+  type RingMergeTransactionParams,
+} from "./merge.js";
+export { ringMergeInstruction } from "./instructions.js";
+export type { RingMergeClient } from "../client/ports.js";

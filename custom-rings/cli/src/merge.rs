@@ -76,7 +76,8 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         payment: None,
     }
     .load(ctx)?;
-    let mut wallet = Wallet::new(sender.shielded_address()?, registry)?;
+    let mut wallet = Wallet::new(sender.shielded_address()?, registry)?
+        .with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
 
     println!("syncing the sender wallet");
     sync_wallet(&mut wallet, &sender, &indexer)?;

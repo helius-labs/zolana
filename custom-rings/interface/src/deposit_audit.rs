@@ -5,8 +5,6 @@ pub const RING_DEPOSIT_AUDIT_INFO: &[u8; 10] = b"CRING/dep1";
 
 const MAGIC: &[u8; 8] = b"CRDEP001";
 
-/// Auditor opening prepended to an otherwise unchanged recipient deposit
-/// ciphertext.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RingDepositAuditCapsule<'a> {
     pub slot_index: u8,
@@ -15,7 +13,6 @@ pub struct RingDepositAuditCapsule<'a> {
     pub recipient_ciphertext: &'a [u8],
 }
 
-/// Invalid framing of a deposit disclosure capsule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RingDepositAuditError {
     Truncated,

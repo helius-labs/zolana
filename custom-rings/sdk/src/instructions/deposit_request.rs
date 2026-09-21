@@ -1,9 +1,9 @@
+use custom_ring_interface::MAX_RING_DEPOSIT_AUDIT_SLOTS;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
-use std::fmt::Write;
 use zeroize::Zeroizing;
-use zolana_event::MAX_RING_DEPOSIT_AUDIT_SLOTS;
 
-use crate::{prover::ProveRequest, ClientError};
+use super::transact::request::{json_body, SecretHex};
+use zolana_client::{prover::ProveRequest, ClientError};
 
 pub struct RingDepositProofRequest<'a> {
     pub public_input_hash: &'a [u8; 32],
@@ -15,35 +15,26 @@ pub struct RingDepositProofRequest<'a> {
     pub auditor_pk: &'a [u8; 65],
 }
 
-struct Hex<'a>(&'a [u8]);
-
-impl Serialize for Hex<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut encoded = Zeroizing::new(String::from("0x"));
-        for byte in self.0 {
-            write!(&mut *encoded, "{byte:02x}").map_err(serde::ser::Error::custom)?;
-        }
-        serializer.serialize_str(&encoded)
-    }
-}
-
 impl Serialize for RingDepositProofRequest<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("RingDepositProofRequest", 8)?;
         state.serialize_field("circuitType", "custom-ring-deposit")?;
-        state.serialize_field("publicInputHash", &Hex(self.public_input_hash))?;
-        state.serialize_field("contextHash", &Hex(self.context_hash))?;
+        state.serialize_field("publicInputHash", &SecretHex::new(self.public_input_hash))?;
+        state.serialize_field("contextHash", &SecretHex::new(self.context_hash))?;
         state.serialize_field("count", &self.count)?;
         state.serialize_field(
             "ownerHashes",
-            &self.owner_hashes.each_ref().map(|value| Hex(value)),
+            &self
+                .owner_hashes
+                .each_ref()
+                .map(|value| SecretHex::new(value)),
         )?;
         state.serialize_field(
             "blindings",
-            &self.blindings.each_ref().map(|value| Hex(value)),
+            &self.blindings.each_ref().map(|value| SecretHex::new(value)),
         )?;
-        state.serialize_field("ephSk", &Hex(self.ephemeral_sk))?;
-        state.serialize_field("auditorPk", &Hex(self.auditor_pk))?;
+        state.serialize_field("ephSk", &SecretHex::new(self.ephemeral_sk))?;
+        state.serialize_field("auditorPk", &SecretHex::new(self.auditor_pk))?;
         state.end()
     }
 }
@@ -65,9 +56,7 @@ impl ProveRequest for RingDepositProofRequest<'_> {
                 "unused deposit openings must be zero".into(),
             ));
         }
-        serde_json::to_string(self)
-            .map(Zeroizing::new)
-            .map_err(|error| ClientError::Prover(error.to_string()))
+        json_body(self)
     }
 }
 

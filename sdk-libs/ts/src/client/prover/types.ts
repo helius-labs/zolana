@@ -1,3 +1,4 @@
+export const RING_DEPOSIT_AUDIT_SLOTS = 8;
 import type {
   Address,
   Bytes32,

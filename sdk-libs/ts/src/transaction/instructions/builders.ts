@@ -124,7 +124,10 @@ export class PreparedMerge {
   }
 
   inputUtxoHashes(): readonly InputUtxoContext[] {
-    return realInputContexts(this.inputs, hasData);
+    return realInputContexts(
+      this.inputs,
+      this.output.ringProgramId === undefined ? hasData : hasUtxoData,
+    );
   }
 
   dummyNullifiers(): readonly Bytes32[] {
@@ -145,6 +148,13 @@ export class PreparedMerge {
 function hasData(input: ProofInputUtxo): boolean {
   return (
     input.dataHash !== undefined || input.ringDataHash !== undefined || !input.utxo.data.isEmpty()
+  );
+}
+
+function hasUtxoData(input: ProofInputUtxo): boolean {
+  return (
+    input.dataHash !== undefined ||
+    input.utxo.data.records().some((record) => record.kind === "utxoData")
   );
 }
 
@@ -191,6 +201,7 @@ export class Merge {
       /** `mergeDummyNullifier(firstNullifier, slot)` for each padded slot. */
       dummyNullifiers: readonly Bytes32[];
       outputTreeId?: TreeId;
+      ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
     }>,
   ) {
     const inputs = input.inputs;
@@ -220,10 +231,10 @@ export class Merge {
       if (spend.utxo.asset !== asset) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
       }
-      if (spend.utxo.ringProgramId !== undefined) {
+      if (spend.utxo.ringProgramId !== input.ring?.programId) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_RING_MISMATCH", { index });
       }
-      if (!spend.utxo.data.isEmpty() || spend.dataHash || spend.ringDataHash) {
+      if (input.ring === undefined ? hasData(spend) : hasUtxoData(spend)) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
       }
       amount += spend.utxo.amount;
@@ -241,6 +252,14 @@ export class Merge {
         asset,
         amount,
         blinding: checked<Bytes32>(input.outputBlinding, 32, "merge output blinding"),
+        ...(input.ring === undefined
+          ? {}
+          : {
+              ringProgramId: input.ring.programId,
+              ...(input.ring.outputDataHash === undefined
+                ? {}
+                : { ringDataHash: input.ring.outputDataHash }),
+            }),
       }),
       expiryUnixTs: U64_MAX,
       signingPublicKey: owner,

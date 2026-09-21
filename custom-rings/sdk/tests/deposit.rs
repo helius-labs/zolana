@@ -99,7 +99,7 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
                 .unwrap();
         let entry = &body.deposits[0];
         assert!(
-            zolana_event::RingDepositAuditCapsule::parse(&entry.encrypted.ciphertext)
+            custom_ring_interface::RingDepositAuditCapsule::parse(&entry.encrypted.ciphertext)
                 .unwrap()
                 .is_none()
         );

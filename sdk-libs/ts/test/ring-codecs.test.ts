@@ -1,3 +1,4 @@
+import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { readFileSync } from "node:fs";
 import {
@@ -13,10 +14,7 @@ import {
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  ringDepositInstruction,
-  ringTransactAccounts,
-} from "../src/interface/instructions/index.js";
+import { ringTransactAccounts } from "../src/interface/instructions/index.js";
 import {
   DepositAsset,
   InstructionTag,

@@ -1,3 +1,4 @@
+import { decryptRingDepositUtxo } from "../src/ring/deposit-payload.js";
 import { address, AccountRole, getAddressDecoder, type Signature } from "@solana/kit";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { initializePoseidon, BN254_SCALAR_ORDER } from "../src/hasher/index.js";
@@ -5,21 +6,15 @@ import { customRingDepositProofRequest, ProverClient } from "../src/client/prove
 import type { CustomRingDepositProofRequest } from "../src/client/prover/types.js";
 import { DepositAsset } from "../src/interface/types.js";
 import type { Bytes16, Bytes32 } from "../src/interface/types.js";
-import { ringDepositInstruction } from "../src/interface/instructions/index.js";
+import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { ringConfigPda, ringDepositAuditPda, treeAddress } from "../src/interface/pda/index.js";
-import {
-  encodeRingDepositCapsule,
-  readRingDepositCapsule,
-} from "../src/interface/ring-deposit-audit.js";
+import { encodeRingDepositCapsule, readRingDepositCapsule } from "../src/ring/deposit-capsule.js";
 import { InstructionTag } from "../src/interface/program.js";
 import { Writer, addressBytes } from "../src/interface/internal.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { bigIntToBytes } from "../src/keypair/bytes.js";
-import {
-  decryptRingDepositUtxo,
-  encodeRingDepositPlaintext,
-} from "../src/transaction/serialization/ring-deposit.js";
+import { encodeRingDepositPlaintext } from "../src/transaction/serialization/ring-deposit.js";
 import { ownerUtxoHash, Utxo } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
