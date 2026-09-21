@@ -97,6 +97,10 @@ func baseParams(t *testing.T) *BaseParameters {
 // rulesFreeParams opens a one input one output transfer against a length zero
 // rule table with every list fact slot disabled.
 func rulesFreeParams(t *testing.T) *PolicyParameters {
+	return rulesFreeParamsAtRoot(t, big.NewInt(0x0d))
+}
+
+func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParameters {
 	t.Helper()
 	p := &PolicyParameters{
 		NIn:               1,
@@ -104,7 +108,7 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		AddressChain:      big.NewInt(0x77),
 		ExternalDataHash:  big.NewInt(0x5eed),
 		PrivateTxBlinding: big.NewInt(0x5b1d),
-		StateRoot:         big.NewInt(0x0d),
+		StateRoot:         root,
 		NullifierRoot:     big.NewInt(0x0e),
 		EntriesTreeID:     big.NewInt(0x0f),
 	}
