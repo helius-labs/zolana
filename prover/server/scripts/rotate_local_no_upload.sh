@@ -62,6 +62,21 @@ for spec in "10" "250"; do
 done
 
 echo "==> regenerating proving-keys.lock"
+lock="prover/provingkeys/proving-keys.lock"
+base_entry="$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1]))["keys"]["custom_ring_base.key"]))' "$lock")"
 python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
+if [[ ! -f "$keys_dir/custom_ring_base.key" ]]; then
+    # The lockfile only lists the keys in $keys_dir; the frozen base key keeps
+    # its committed entry. It is a release key, so the prefix hash is unchanged.
+    python3 - "$lock" "$base_entry" <<'EOF'
+import json, sys
+path, entry = sys.argv[1], json.loads(sys.argv[2])
+manifest = json.load(open(path))
+manifest["keys"]["custom_ring_base.key"] = entry
+with open(path, "w") as f:
+    json.dump(manifest, f, indent=2, sort_keys=True)
+    f.write("\n")
+EOF
+fi
 
 echo "==> local rotation complete; S3 upload and the custom-ring release are the owner's step"
