@@ -7,7 +7,7 @@ cd "$repo_root"
 suite="${1:-ring}"
 if [[ $# -gt 0 ]]; then shift; fi
 case "$suite" in
-  ring|shared_sources|policy_rules|policy_repin) ;;
+  ring|shared_sources|policy_rules|policy_repin|head_contention) ;;
   *) echo "Unknown ring suite $suite" >&2; exit 2 ;;
 esac
 export SURFPOOL_BIN="${SURFPOOL_BIN:-$repo_root/target/tools/surfpool}"
@@ -81,9 +81,13 @@ if [[ -n "${ZOLANA_PREBUILT:-}" ]]; then
   for binary in "$ZOLANA_PHOTON_BIN" "$ring_cli_bin"; do
     [[ -x "$binary" ]] || { echo "Missing prebuilt executable $binary, unset ZOLANA_PREBUILT to build it" >&2; exit 1; }
   done
-  tools/ci/nextest-suite.sh -p custom-ring-test-validator --test "$suite" --no-capture "$@"
+  ignored=()
+  if [[ "$suite" == head_contention ]]; then ignored=(--run-ignored only); fi
+  tools/ci/nextest-suite.sh -p custom-ring-test-validator --test "$suite" --no-capture ${ignored[@]+"${ignored[@]}"} "$@"
 else
   cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection
   cargo build --locked -p custom-ring-cli
-  cargo test --locked -p custom-ring-test-validator --test "$suite" "$@" -- --test-threads=1 --nocapture
+  ignored=()
+  if [[ "$suite" == head_contention ]]; then ignored=(--ignored); fi
+  cargo test --locked -p custom-ring-test-validator --test "$suite" "$@" -- --test-threads=1 --nocapture ${ignored[@]+"${ignored[@]}"}
 fi

@@ -477,6 +477,8 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
     await register(harness.client, bob);
 
     const authorityBefore = await tokenBalance(harness.client, harness.testTokenAccount);
+    const vault = await getSplAssetVaultAddress(harness.mint);
+    const vaultBefore = await tokenBalance(harness.client, vault);
     await deposit({
       client: harness.client,
       feePayer: harness.testAuthority,
@@ -539,8 +541,7 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
     expect(await tokenBalance(harness.client, existingAta)).toBe(authorityBefore - 250_000n);
     expect(alice.wallet.balance(harness.mint).amount).toBe(150_000n);
 
-    const vault = await getSplAssetVaultAddress(harness.mint);
-    expect(await tokenBalance(harness.client, vault)).toBe(210_000n);
+    expect(await tokenBalance(harness.client, vault)).toBe(vaultBefore + 210_000n);
     expect(
       alice.wallet.balance(harness.mint).amount + bob.wallet.balance(harness.mint).amount,
     ).toBe(210_000n);

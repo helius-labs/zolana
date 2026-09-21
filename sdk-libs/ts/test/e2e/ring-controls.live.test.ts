@@ -54,6 +54,7 @@ import {
   prepareRingSpendRegistration,
   createKitRingSubmissionTransport,
   createRingTransferSubmission,
+  createRingMergeSubmission,
   createRingWithdrawalSubmission,
   createRingDelegateSubmission,
   buildRingTransferTransaction,
@@ -338,17 +339,19 @@ describe("fresh ring controls", () => {
           )
         ).kind,
       ).toBe("registered");
-      await signSendAndConfirm(
-        client,
-        await buildRingDepositTransaction({
+      for (const amount of [900_000_000n, 1_100_000_000n]) {
+        await signSendAndConfirm(
           client,
-          ringProgramId,
-          feePayer: sender.signer.address,
-          recipient: sender.keypair.shieldedAddress(),
-          amount: 2_000_000_000n,
-        }),
-        [sender.signer],
-      );
+          await buildRingDepositTransaction({
+            client,
+            ringProgramId,
+            feePayer: sender.signer.address,
+            recipient: sender.keypair.shieldedAddress(),
+            amount,
+          }),
+          [sender.signer],
+        );
+      }
       for (const [asset, splTokenAccount, splTokenProgram] of [
         [harness.mint, harness.testTokenAccount, undefined],
         [harness.token2022Mint, harness.testToken2022Account, SPL_TOKEN_2022_PROGRAM_ID],
@@ -391,7 +394,7 @@ describe("fresh ring controls", () => {
         expect(recoveredDeposits.notes.map((note) => note.outputContext.hash)).toEqual(
           expect.arrayContaining(deposits.map((note) => note.outputContext.hash)),
         );
-        expect(recoveredDeposits.notes).toHaveLength(3);
+        expect(recoveredDeposits.notes).toHaveLength(4);
         for (const [asset, amount] of [
           [SOL_MINT, 2_000_000_000n],
           [harness.mint, 1000n],
@@ -399,16 +402,45 @@ describe("fresh ring controls", () => {
         ] as const) {
           expect(
             deposits.filter((note) => note.utxo.asset === asset).map((note) => note.utxo.amount),
-          ).toEqual([amount]);
+          ).toEqual(
+            expect.arrayContaining(asset === SOL_MINT ? [900_000_000n, 1_100_000_000n] : [amount]),
+          );
           expect(
             recoveredDeposits.notes
               .filter((note) => note.utxo.asset === asset)
               .map((note) => note.utxo.amount),
-          ).toEqual([amount]);
+          ).toEqual(
+            expect.arrayContaining(asset === SOL_MINT ? [900_000_000n, 1_100_000_000n] : [amount]),
+          );
         }
       } finally {
         depositKey.destroy();
       }
+      const headBeforeMerge = await fetchRingHeadMapRoot(client, ringProgramId);
+      await settle(
+        await createRingMergeSubmission({
+          client,
+          ringProgramId,
+          wallet: sender.wallet,
+          keys: sender.keys,
+          feePayer: sender.signer.address,
+        }),
+        client,
+        [sender.signer],
+      );
+      await sync(client, sender);
+      expect(
+        sender.wallet
+          .utxos()
+          .filter(
+            (note) =>
+              !note.spent &&
+              note.utxo.ringProgramId === ringProgramId &&
+              note.utxo.asset === SOL_MINT,
+          )
+          .map((note) => note.utxo.amount),
+      ).toEqual([2_000_000_000n]);
+      expect(await fetchRingHeadMapRoot(client, ringProgramId)).toEqual(headBeforeMerge);
       const transfer = {
         client,
         ringProgramId,

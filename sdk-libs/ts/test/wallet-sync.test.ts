@@ -1721,6 +1721,71 @@ describe("wallet sync", () => {
     );
   });
 
+  it("recovers ring merges indexed by the first input nullifier", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const utxos = [20n, 22n].map((amount, index) => {
+      const utxo = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding: bytes(index + 1),
+        ringProgramId: OWNER,
+      });
+      const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
+        nullifier: utxo.nullifier(hash, keypair.nullifierKey()),
+        spent: false,
+      };
+    });
+    wallet._replace({ ...wallet._state(), utxos });
+    const firstNullifier = utxos[0]!.nullifier;
+    const output = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
+      ringProgramId: OWNER,
+    });
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
+      wallet,
+      transactions: [
+        {
+          slot: 2n,
+          txSignature: SIGNATURE,
+          outputSlots: [
+            {
+              viewTag: firstNullifier,
+              outputContext: {
+                hash: output.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
+                tree: TREE,
+                leafIndex: 2n,
+              },
+              payload: new Uint8Array(32),
+            },
+          ],
+          messages: [],
+          nullifiers: [
+            ...utxos.map((entry) => entry.nullifier),
+            ...Array.from({ length: 6 }, (_, offset) =>
+              mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + 2),
+            ),
+          ],
+          proofless: false,
+        },
+      ],
+    });
+    expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
+    expect(
+      wallet
+        .utxos()
+        .filter((entry) => !entry.spent)
+        .map((entry) => entry.utxo),
+    ).toEqual([output]);
+  });
+
   it("ignores a merge whose first nullifier is not owned", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });

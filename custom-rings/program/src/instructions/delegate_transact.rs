@@ -23,15 +23,13 @@ pub fn process_delegate_transact_ix(
     let delegate_account = iter.next_account("delegate_pda")?;
     let delegate = iter.next_account("delegate")?;
 
-    // 1. Require the configured Solana delegate signature, auditor decryption
-    // grants no authority.
+    // Auditor decryption grants no signing authority.
     let expected = load_delegate(program_id, delegate_account)?
         .ok_or(CustomRingError::DelegateDisabled)?
         .delegate;
     if !delegate.is_signer() || delegate.address() != &expected {
         return Err(CustomRingError::UnauthorizedDelegate.into());
     }
-    // 2. Apply ring controls and proofs before invoking SPP's authority rail.
     TransactRail::Delegate.verify_and_forward(
         TransactControls {
             program_id,

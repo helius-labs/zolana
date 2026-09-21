@@ -664,6 +664,7 @@ Changed
 
 Fixed
 
+- Wallet sync reconstructs ring merge outputs indexed by the first input nullifier.
 - Ring audit readers reject missing, duplicate, malformed, or foreign recipient successor counters instead of reporting an incomplete record.
 - Ring transfer builders bind output commitments to the selected destination tree on clients with nonzero tree IDs.
 - Ring submissions retain selected notes during proof generation, signing, pending confirmation and wallet sync, and retry verified blockhash expiry within the attempt limit.

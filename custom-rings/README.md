@@ -35,9 +35,9 @@ are data `init` pins from `ring.toml`.
    trusted accounts and the clock, checks public controls, and commits the head
    transition atomically with SPP settlement.
 5. [`transfer.rs`](sdk/src/transfer.rs) assembles the client proof inputs.
-   [`ring_projection`](../services/photon/src/ring_projection/mod.rs) projects
-   the head map and the key registry. Clients validate its exact-root proofs
-   before using them.
+   [`indexer`](indexer/src/lib.rs) validates head and key transitions and builds
+   their Merkle overlays. Photon owns block fetching, persistence and replay.
+   Clients validate its exact-root proofs before using them.
 
 ## Roles
 
@@ -145,8 +145,12 @@ spend record once with `zolana-ring spend register`, a zero-amount note the
 ring's namespace owns in the entries tree, and every transfer of that member
 spends the record into its successor inside the same proof, carrying the
 counters forward within the window and resetting them at a boundary. The
-counters travel encrypted under the transaction viewing key, so the sender
-and the auditor read them. The record publishes their commitment, member,
+counters travel encrypted under the transaction viewing key. The compressed
+policy circuit proves the encryption of the successor counters, and the
+program requires exactly one matching namespace message. Its statement binds
+the transaction salt and complete ciphertext under `CRING/spend-counters/v1`.
+The sender and auditor reject a missing or malformed disclosure on a
+non-genesis record. The record publishes their commitment, member,
 version and window. One 42-byte head-map PDA authenticates every member's
 current record. Photon stores the indexed leaves and supplies exact-root
 proofs. The `transact` and `transfer` commands register the sender on first
@@ -154,6 +158,9 @@ use and refuse to send a transfer the proof marks for approval without
 `--cosigner-keypair`.
 
 Ring controls require a fresh deployment. No state migration is provided.
+The compressed policy statement also requires matching program verification
+keys, prover keys and SDKs. Install the keys pinned by
+`prover/server/prover/provingkeys/proving-keys.lock` together with the program.
 
 ## How auditor visibility works
 
@@ -399,9 +406,14 @@ the table from the policy config and trusts its rows only under the pinned
 hash (`policy_config_table`), `client_rules_match` compares a table of the
 caller's with the stored rows. `prove_async` serves both tiers. `TransactSend`
 submits a V1 message with a 4096-byte limit and compute ceilings in its header.
-The opt-in `RingTransferSubmission` retains payment intent across confirmed
-stale-head or window-boundary retries. Unknown send outcomes retain the
-original signature for status checks. Pending state is in memory.
+The opt-in `RingSubmission` accepts member transfers, delegate moves, spend
+registration, key registration and merges through `RingOperation`. Its
+`send` and `send_async` paths retain intent across eligible stale-root,
+window-boundary and verified blockhash-expiry retries, with at most three
+signed attempts. Unknown send outcomes retain the original signature for
+status checks. Rust pending state is in memory. `RingTransferSubmission`
+remains an alias. A merge uses `RingMergeOperation` and `MergeProofInput`,
+binding the input and output tree accounts before proving.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
 its transactions, the ring RPC and the lifecycle test both use it. Auditor
 discovery matches the auditor view tag. Compressed spend-record discovery
@@ -424,7 +436,7 @@ for those deposits as `unsupported_deposits`
 Recovered notes are not a complete balance when either list is nonempty.
 
 The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`)
-builds unsigned V1 transfers, withdrawals, exits and delegate moves. Builders
+builds unsigned V1 transfers, withdrawals, exits, delegate moves and merges. Builders
 read the ring's tier and policy, fetch list proofs from its entries tree, and
 include the required audit and policy proofs. Money inputs come from
 `client.tree`, and `outputTree` defaults to it. Windowed member transfers
@@ -434,7 +446,26 @@ then use `prepareRingSpendRegistration` for each windowed member.
 `prepareRingKeyRegistration` enrols a member, `fetchRingSealedKey` and
 `openRingSealedKey` read its key with the auditor key, and
 `recoverRingMemberNotes` feeds `buildRingDelegateRecoveredTransaction`. Explicit
-submission APIs handle signing and confirmed stale-head or window-boundary retries.
+submission APIs handle signing and eligible stale-root, window-boundary and
+verified blockhash-expiry retries. `createRingMergeSubmission` consolidates
+two to eight clean notes of one owner, asset and ring, preserving their
+value and enforcing the configured transfer co-signer. A windowed merge
+must send its output to the entries tree.
+
+TypeScript callers needing restart recovery use `sendPersisted` with a
+`WalletPersistence` store and cipher. It saves the signed attempt identity
+and durable note holds before broadcasting. A failed save prevents broadcast.
+Restore the wallet snapshot, sync, then call `reconcileRingSubmissions` to
+check the retained signatures and save the results. Reconciliation does not
+rebuild transactions. Unknown outcomes keep their holds, and confirmed
+outcomes release them only after sync records the inputs as spent. Snapshot
+version 4 stores pending submissions and still reads versions 2 and 3.
+
+Generic wallet sync accepts a deposit payload decoder. Custom ring wallets
+pass `customRingDepositPayload` as TypeScript `depositPayloadDecoder`, or
+`zolana_ring_client::deposit_payload` to Rust `with_deposit_payload_decoder`.
+These decoders accept ordinary recipient ciphertext and unwrap validated
+custom audit capsules. Malformed capsules return an error.
 
 The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`.
 

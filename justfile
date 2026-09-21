@@ -1527,7 +1527,7 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
-    cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --archive-file {{dir}}/custom-ring-test-validator.tar.zst
+    cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --test head_contention --archive-file {{dir}}/custom-ring-test-validator.tar.zst
     cargo build --locked -p custom-ring-cli --target-dir target
     # The ring suites run the fixture Photon, not the shared release one.
     cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection --target-dir target

@@ -115,7 +115,7 @@ interface Site {
 interface TagIndex {
   readonly senderSites: ReadonlyMap<string, readonly number[]>;
   readonly recipientSites: ReadonlyMap<string, readonly Site[]>;
-  readonly mergeSites: ReadonlyMap<string, readonly Site[]>;
+  readonly mergeSites: readonly Site[];
   readonly unparsedTransactions: number;
 }
 
@@ -128,13 +128,13 @@ function pushInto<T>(into: Map<string, T[]>, tag: string, value: T): void {
 function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): TagIndex {
   const senderSites = new Map<string, number[]>();
   const recipientSites = new Map<string, Site[]>();
-  const mergeSites = new Map<string, Site[]>();
+  const mergeSites: Site[] = [];
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
     let classified = false;
     if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      for (const [slotIndex, slot] of tx.outputSlots.entries()) {
-        pushInto(mergeSites, hex(slot.viewTag), { transaction, slot: slotIndex });
+      for (const slotIndex of tx.outputSlots.keys()) {
+        mergeSites.push({ transaction, slot: slotIndex });
         classified = true;
       }
       if (!classified) unparsedTransactions++;
@@ -1101,7 +1101,7 @@ export async function decryptTransactions(
   // has ever been given -- including keys a later sync no longer holds.
   const viewingKeyHistory = ensureViewingKeyEntries(current.viewingKeyHistory, viewingPublicKeys);
   const identityTag = identity.signingPublicKey.confidentialViewTag();
-  const mergeSites = index.mergeSites.get(hex(identityTag)) ?? [];
+  const mergeSites = index.mergeSites;
   const memo = new KeyMemo(input.keys);
   try {
     for (let round = 0; round < maxKeyRounds(mergeSites.length); round++) {

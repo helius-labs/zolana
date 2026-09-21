@@ -127,7 +127,7 @@ const KEY_REGISTRY_ROOT: IndexedRootKind = {
   invalid: "RING_KEY_REGISTRY_INVALID",
 };
 
-/** Mirrors Rust `CustomRing::read_head_map_root`, a non-canonical bump is invalid. */
+/** The stored bump must be canonical. */
 export function fetchRingHeadMapRoot(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
@@ -136,7 +136,6 @@ export function fetchRingHeadMapRoot(
   return fetchIndexedRoot(HEAD_MAP_ROOT, client, ringProgramId, context);
 }
 
-/** Mirrors Rust `CustomRing::read_key_registry_root`, every ring with a delegate needs it. */
 export function fetchRingKeyRegistryRoot(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
@@ -281,7 +280,6 @@ export function windowedPolicy(configs: RingConfigs): RingPolicyConfig | undefin
     : undefined;
 }
 
-/** Mirrors Rust `CustomRing::read_cosigner`, `undefined` when the ring has no co-signer. */
 export async function fetchRingCoSigner(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
@@ -303,7 +301,6 @@ export async function fetchRingCoSigner(
   return cosigner;
 }
 
-/** Mirrors Rust `SetCoSigner`, creates or replaces the co-signer under the config authority. */
 export async function setRingCoSignerInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -342,7 +339,6 @@ export async function setRingCoSignerInstruction(
   };
 }
 
-/** Mirrors Rust `ClearCoSigner`. */
 export async function clearRingCoSignerInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -366,7 +362,6 @@ export async function clearRingCoSignerInstruction(
   };
 }
 
-/** Mirrors Rust `CustomRing::read_delegate`, `undefined` when the ring has no delegate. */
 export async function fetchRingDelegate(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
@@ -387,7 +382,7 @@ export async function fetchRingDelegate(
   return delegate;
 }
 
-/** Mirrors Rust `SetDelegate`, once under the upgrade authority, no instruction replaces it. */
+/** No instruction replaces the delegate. */
 export async function setRingDelegateInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -417,7 +412,6 @@ export async function setRingDelegateInstruction(
   };
 }
 
-/** Mirrors Rust `CustomRing::read_spend_window`, `undefined` when the mint is uncapped. */
 export async function fetchRingSpendWindow(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
@@ -439,7 +433,7 @@ export async function fetchRingSpendWindow(
   return window;
 }
 
-/** Mirrors Rust `SetSpendWindow`, creates or replaces the mint's window under the config authority, the counters restart. */
+/** Replacing a window resets its counters. */
 export async function setRingSpendWindowInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -480,7 +474,6 @@ export async function setRingSpendWindowInstruction(
   };
 }
 
-/** Mirrors Rust `ClearSpendWindow`. */
 export async function clearRingSpendWindowInstruction(
   input: Readonly<{
     ringProgramId: Address;
