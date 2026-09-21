@@ -72,8 +72,8 @@ fn element(val: &[u8; 32]) -> Result<Fr, HasherError> {
 
 fn bytes(e: Fr) -> Hash {
     let mut out = [0u8; 32];
-    for (chunk, limb) in out.chunks_exact_mut(8).zip(e.into_bigint().0.iter().rev()) {
-        chunk.copy_from_slice(&limb.to_be_bytes());
+    for (i, limb) in e.into_bigint().0.iter().rev().enumerate() {
+        out[i * 8..i * 8 + 8].copy_from_slice(&limb.to_be_bytes());
     }
     out
 }
