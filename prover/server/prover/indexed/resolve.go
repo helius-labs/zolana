@@ -9,6 +9,7 @@ import (
 	"math/big"
 
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -83,16 +84,24 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 }
 
 func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {
+	trace := timing.FromContext(ctx)
+	finishDecode := trace.Start("indexer_decode")
 	request, prepared, err := decodeRequest(data)
+	finishDecode()
 	if err != nil {
 		return nil, err
 	}
+	finishAdmission := trace.Start("indexer_admission")
+	defer finishAdmission()
 	select {
 	case r.permits <- struct{}{}:
 		defer func() { <-r.permits }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+	finishAdmission()
+	finishFetch := trace.Start("indexer_fetch")
+	defer finishFetch()
 	proofs := make([]treeProofs, len(request.Trees))
 	for index, input := range request.Inputs {
 		group := &proofs[input.TreeSlot]
@@ -144,6 +153,9 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	if err := tasks.Wait(); err != nil {
 		return nil, err
 	}
+	finishFetch()
+	finishValidate := trace.Start("indexer_validate")
+	defer finishValidate()
 	// 2. Bind every returned path to its requested leaf before completing the inputs.
 	resolution := &common.ProofResolution{Trees: make([]common.ResolvedTree, len(request.Trees))}
 	slots := make([]common.TreeSlotParams, 5)

@@ -6,11 +6,18 @@ import (
 
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 )
+
+type TransferProof struct {
+	System     *common.TransferProofSystem
+	Parameters *TransferParameters
+	Timing     *timing.Trace
+}
 
 func (p *TransferParameters) ValidateShape() error {
 	if len(p.Inputs) != int(p.NInputs) {
@@ -46,6 +53,13 @@ func (p *TransferParameters) ValidateShape() error {
 }
 
 func ProveTransfer(ps *common.TransferProofSystem, params *TransferParameters) (*common.Proof, error) {
+	return (TransferProof{System: ps, Parameters: params}).Prove()
+}
+
+func (request TransferProof) Prove() (*common.Proof, error) {
+	ps, params := request.System, request.Parameters
+	finishWitness := request.Timing.Start("witness")
+	defer finishWitness()
 	if params == nil {
 		panic("params cannot be nil")
 	}
@@ -64,7 +78,11 @@ func ProveTransfer(ps *common.TransferProofSystem, params *TransferParameters) (
 		return nil, fmt.Errorf("error creating witness: %v", err)
 	}
 
+	finishWitness()
+	finishProve := request.Timing.Start("prove")
+	defer finishProve()
 	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	finishProve()
 	if err != nil {
 		return nil, fmt.Errorf("error proving: %v", err)
 	}

@@ -87,6 +87,13 @@ A queued `202` measures acceptance only. Use queue delay and generation
 duration to assess queued work. Network RTT and client polling need client
 measurements.
 
+Set `PROVER_REQUEST_TIMING=true` and send `X-Prover-Timing: true` to inspect
+synchronous request stages. `Server-Timing` reports durations in milliseconds.
+The response `X-Prover-Timing` contains stage offsets from server receipt and
+marks unfinished stages with `complete: false`. `X-Request-ID` correlates the
+response with its timing log. Indexer RPC stages overlap within `indexer_fetch`.
+The `server` response duration ends before the response body is written.
+
 `prover_sync_admission_wait_seconds` separates permit waiting by `admitted`
 and `rejected` outcome. `prover_system_memory_bytes` is sampled during each
 metrics scrape. The per-proof `prover_proof_memory_usage_bytes` and

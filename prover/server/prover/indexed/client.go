@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"zolana/prover/prover/timing"
 )
 
 type Config struct {
@@ -62,6 +63,8 @@ type proofParams struct {
 }
 
 func (r *Resolver) call(ctx context.Context, query proofQuery) (json.RawMessage, error) {
+	finish := timing.FromContext(ctx).Start(query.Method)
+	defer finish()
 	body, err := json.Marshal(struct {
 		JSONRPC string      `json:"jsonrpc"`
 		ID      string      `json:"id"`
