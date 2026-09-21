@@ -4821,7 +4821,6 @@ name = "photon-indexer"
 version = "0.51.2"
 dependencies = [
  "anyhow",
- "ark-bn254 0.5.0",
  "async-stream",
  "async-trait",
  "base64",
@@ -4840,7 +4839,6 @@ dependencies = [
  "itertools 0.15.0",
  "jsonrpsee",
  "jsonwebtoken",
- "light-poseidon 0.4.0",
  "log",
  "num-bigint 0.4.8",
  "once_cell",

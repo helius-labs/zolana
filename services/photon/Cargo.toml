@@ -31,8 +31,6 @@ name = "photon-snapshot-loader"
 path = "src/snapshot/loader/main.rs"
 
 [dependencies]
-ark-bn254 = { workspace = true }
-
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 borsh = { workspace = true }
@@ -62,7 +60,6 @@ solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true, features = ["serde"] }
 solana-transaction-status-client-types = { workspace = true, features = ["agave-unstable-api"] }
 
-light-poseidon = { workspace = true }
 num-bigint = { workspace = true }
 
 sqlx = { workspace = true }
