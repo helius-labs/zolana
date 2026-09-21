@@ -26,12 +26,13 @@ use zolana_interface::{
 };
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditError, AuditedOutput, AuditedTransaction, AuditorEncryption,
-    OriginError, RingAudit, RingEnvironment, RingOrigin, RingScan, TransactionAudit,
-    TransactionOrigin, AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, AuditError, AuditOutputOpening, AuditedOutput, AuditedTransaction,
+    AuditorEncryption, OriginError, RingAudit, RingEnvironment, RingOrigin, RingScan,
+    TransactionAudit, TransactionOrigin, AUDITOR_MESSAGE_LEN,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+    utxo::ProofInputUtxo,
     AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, UtxoSerialization,
     SOL_ASSET_ID, SOL_MINT,
 };
@@ -49,15 +50,49 @@ fn plaintext(asset_id: u64, amount: u64, blinding: u8) -> ConfidentialOutputPlai
     ConfidentialOutputPlaintext {
         asset_id,
         amount,
-        blinding: [blinding; 32],
+        blinding: field(blinding),
         ring_program_id: None,
         data: Data::default(),
     }
 }
 
-fn output_context(slot_index: u32) -> OutputContext {
+fn field(value: u8) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    field[31] = value;
+    field
+}
+
+fn asset_for_fixture(asset_id: u64) -> Address {
+    match asset_id {
+        SOL_ASSET_ID => SOL_MINT,
+        TOKEN_ASSET_ID => TOKEN_MINT,
+        other => Address::new_from_array([other as u8; 32]),
+    }
+}
+
+fn proof_output(plaintext: &ConfidentialOutputPlaintext, slot_index: u32) -> ProofInputUtxo {
+    ProofInputUtxo::new(
+        field(slot_index as u8 | 0x40),
+        &asset_for_fixture(plaintext.asset_id),
+        plaintext.amount,
+        &plaintext.blinding,
+        u16::from(TREE.to_bytes()[0]),
+    )
+    .expect("proof output")
+    .with_ring([0; 32], &plaintext.ring_program_id)
+    .expect("ring output")
+}
+
+fn padding_output(slot_index: u32) -> ProofInputUtxo {
+    ProofInputUtxo::new_dummy(
+        &field(slot_index as u8 | 0x20),
+        u16::from(TREE.to_bytes()[0]),
+    )
+}
+
+fn output_context(output: &ProofInputUtxo, slot_index: u32) -> OutputContext {
     OutputContext {
-        hash: [slot_index as u8; 32],
+        hash: output.hash().expect("output commitment"),
         tree: TREE,
         leaf_index: u64::from(slot_index),
     }
@@ -93,7 +128,7 @@ fn confidential_slot(
     }
     OutputSlot {
         view_tag: encoded.view_tag,
-        output_context: output_context(slot_index),
+        output_context: output_context(&proof_output(plaintext, slot_index), slot_index),
         payload: encoded.data,
     }
 }
@@ -104,7 +139,7 @@ fn confidential_slot(
 fn dummy_slot(slot_index: u32) -> OutputSlot {
     OutputSlot {
         view_tag: [0xaa; 32],
-        output_context: output_context(slot_index),
+        output_context: output_context(&padding_output(slot_index), slot_index),
         payload: vec![0xff; 160],
     }
 }
@@ -116,7 +151,7 @@ fn foreign_scheme_slot(slot_index: u32) -> OutputSlot {
     blob.extend_from_slice(&[5u8; 96]);
     OutputSlot {
         view_tag: [0xbb; 32],
-        output_context: output_context(slot_index),
+        output_context: output_context(&padding_output(slot_index), slot_index),
         payload: borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).expect("borsh output data"),
     }
 }
@@ -129,19 +164,50 @@ fn transaction(
     ShieldedTransaction {
         slot: 42,
         tx_signature: Signature::from([6u8; 64]),
+        event_index: Some(0),
         tx_viewing_pk: Some(tx.pubkey()),
         salt: Some(SALT),
         output_slots,
         messages,
         nullifiers: vec![[1u8; 32]],
         proofless: false,
+        ring_config: None,
+        ring_program_id: Some(Address::new_from_array([9u8; 32])),
     }
 }
 
 /// The sender side of the audit feature: encrypt the transaction viewing secret
 /// key to the auditor and publish it as the last message.
-fn auditor_message_data(tx: &ViewingKey, auditor_pk: &P256Pubkey) -> MessageData {
-    let encryption = AuditorEncryption::new(tx, auditor_pk).expect("auditor encryption");
+fn auditor_message_data(
+    tx: &ViewingKey,
+    auditor_pk: &P256Pubkey,
+    output_slots: &[OutputSlot],
+) -> MessageData {
+    let openings = output_slots
+        .iter()
+        .enumerate()
+        .map(|(index, slot)| {
+            let slot_index = u32::try_from(index).expect("slot index");
+            let plaintext = slot.output_data().and_then(|output| match output {
+                OutputDataEncoding::Encrypted(blob) => blob.get(1..).and_then(|body| {
+                    Confidential::decrypt_with_tx_key(tx, body, SALT, slot_index).ok()
+                }),
+                OutputDataEncoding::Plaintext(_) | OutputDataEncoding::VerifiablyEncrypted(_) => {
+                    None
+                }
+            });
+            plaintext.as_ref().map_or_else(
+                || padding_output(slot_index),
+                |value| proof_output(value, slot_index),
+            )
+        })
+        .collect::<Vec<_>>();
+    let encryption = if openings.is_empty() {
+        AuditorEncryption::new(tx, auditor_pk)
+    } else {
+        AuditorEncryption::new_with_outputs(tx, auditor_pk, SALT, &openings)
+    }
+    .expect("auditor encryption");
     let message = encryption.message.to_message_data(auditor_pk);
     assert_eq!(message.data.len(), AUDITOR_MESSAGE_LEN);
     message
@@ -167,17 +233,18 @@ fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as
         version: 1,
         window: 9,
         counters_commitment: counters.commitment().unwrap(),
-        blinding: [6; 32],
+        blinding: field(6),
     };
     let mut slot = confidential_slot(&tx_key, &tx_key.pubkey(), &plaintext(SOL_ASSET_ID, 0, 6), 0);
     slot.view_tag = namespace;
+    let slots = vec![slot];
     let record_message = MessageData {
         view_tag: spend_record_message_tag(&namespace).unwrap(),
         data: record.to_output_data().to_vec(),
     };
     let mut tx = transaction(
         &tx_key,
-        vec![slot],
+        slots.clone(),
         vec![
             record_message.clone(),
             MessageData {
@@ -191,7 +258,7 @@ fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as
                 .encrypt()
                 .unwrap(),
             },
-            auditor_message_data(&tx_key, &auditor.pubkey()),
+            auditor_message_data(&tx_key, &auditor.pubkey(), &slots),
         ],
     );
     let assets = registry();
@@ -243,16 +310,17 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
 
     let sol_output = plaintext(SOL_ASSET_ID, 1_234_567, 0x21);
     let token_output = plaintext(TOKEN_ASSET_ID, 99, 0x22);
+    let slots = vec![
+        confidential_slot(&tx_key, &recipient_one.pubkey(), &sol_output, 0),
+        confidential_slot(&tx_key, &recipient_two.pubkey(), &token_output, 1),
+    ];
     let tx = transaction(
         &tx_key,
-        vec![
-            confidential_slot(&tx_key, &recipient_one.pubkey(), &sol_output, 0),
-            confidential_slot(&tx_key, &recipient_two.pubkey(), &token_output, 1),
-        ],
+        slots.clone(),
         // Free-form messages are allowed before the auditor message.
         vec![
             free_form_message(),
-            auditor_message_data(&tx_key, &auditor.pubkey()),
+            auditor_message_data(&tx_key, &auditor.pubkey(), &slots),
         ],
     );
 
@@ -277,7 +345,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                     owner_tag: [0x80; 32],
                     asset: SOL_MINT,
                     amount: 1_234_567,
-                    blinding: Zeroizing::new([0x21; 32]),
+                    blinding: Zeroizing::new(field(0x21)),
                     ring_program_id: None,
                     data: Data::default(),
                 },
@@ -287,10 +355,14 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                     owner_tag: [0x81; 32],
                     asset: TOKEN_MINT,
                     amount: 99,
-                    blinding: Zeroizing::new([0x22; 32]),
+                    blinding: Zeroizing::new(field(0x22)),
                     ring_program_id: None,
                     data: Data::default(),
                 },
+            ],
+            output_openings: vec![
+                AuditOutputOpening::from(&proof_output(&sol_output, 0)),
+                AuditOutputOpening::from(&proof_output(&token_output, 1)),
             ],
             spend_records: vec![],
             undecryptable_slots: vec![],
@@ -307,10 +379,11 @@ fn ring_owned_output_keeps_its_ring_program_id() {
 
     let mut output = plaintext(SOL_ASSET_ID, 500, 0x31);
     output.ring_program_id = Some(ring_program_id);
+    let slots = vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)];
     let tx = transaction(
         &tx_key,
-        vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey())],
+        slots.clone(),
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &slots)],
     );
     assert!(ring_confidential_encrypted_output_body(&tx.output_slots[0].payload).is_some());
 
@@ -329,7 +402,7 @@ fn ring_owned_output_keeps_its_ring_program_id() {
             owner_tag: [0x80; 32],
             asset: SOL_MINT,
             amount: 500,
-            blinding: Zeroizing::new([0x31; 32]),
+            blinding: Zeroizing::new(field(0x31)),
             ring_program_id: Some(ring_program_id),
             data: Data::default(),
         }]
@@ -348,15 +421,16 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
 
     let first = plaintext(SOL_ASSET_ID, 10, 0x41);
     let second = plaintext(TOKEN_ASSET_ID, 20, 0x42);
+    let slots = vec![
+        confidential_slot(&tx_key, &recipient_one.pubkey(), &first, 0),
+        dummy_slot(1),
+        confidential_slot(&tx_key, &recipient_two.pubkey(), &second, 2),
+        foreign_scheme_slot(3),
+    ];
     let tx = transaction(
         &tx_key,
-        vec![
-            confidential_slot(&tx_key, &recipient_one.pubkey(), &first, 0),
-            dummy_slot(1),
-            confidential_slot(&tx_key, &recipient_two.pubkey(), &second, 2),
-            foreign_scheme_slot(3),
-        ],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey())],
+        slots.clone(),
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &slots)],
     );
 
     let audited = TransactionAudit {
@@ -376,7 +450,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                     owner_tag: [0x80; 32],
                     asset: SOL_MINT,
                     amount: 10,
-                    blinding: Zeroizing::new([0x41; 32]),
+                    blinding: Zeroizing::new(field(0x41)),
                     ring_program_id: None,
                     data: Data::default(),
                 },
@@ -386,7 +460,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                     owner_tag: [0x82; 32],
                     asset: TOKEN_MINT,
                     amount: 20,
-                    blinding: Zeroizing::new([0x42; 32]),
+                    blinding: Zeroizing::new(field(0x42)),
                     ring_program_id: None,
                     data: Data::default(),
                 },
@@ -406,12 +480,14 @@ fn slot_encrypted_at_another_index_does_not_decrypt() {
 
     let output = plaintext(SOL_ASSET_ID, 7, 0x51);
     let mut slot = confidential_slot(&tx_key, &recipient.pubkey(), &output, 1);
-    slot.output_context = output_context(0);
-    let tx = transaction(
-        &tx_key,
-        vec![slot],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey())],
-    );
+    let opening = proof_output(&output, 0);
+    slot.output_context = output_context(&opening, 0);
+    let slots = vec![slot];
+    let message = AuditorEncryption::new_with_outputs(&tx_key, &auditor.pubkey(), SALT, &[opening])
+        .expect("auditor encryption")
+        .message
+        .to_message_data(&auditor.pubkey());
+    let tx = transaction(&tx_key, slots.clone(), vec![message]);
 
     let audited = TransactionAudit {
         auditor: &auditor,
@@ -434,10 +510,11 @@ fn another_auditor_key_finds_no_message() {
     let recipient = ViewingKey::new();
 
     let output = plaintext(SOL_ASSET_ID, 1, 0x61);
+    let slots = vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)];
     let tx = transaction(
         &tx_key,
-        vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey())],
+        slots.clone(),
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &slots)],
     );
 
     assert!(matches!(
@@ -482,9 +559,8 @@ fn tampered_ciphertext_fails_the_integrity_check() {
     let auditor = ViewingKey::new();
     let tx_key = ViewingKey::new();
 
-    let mut message = auditor_message_data(&tx_key, &auditor.pubkey());
-    let last = message.data.last_mut().expect("message data");
-    *last ^= 0x01;
+    let mut message = auditor_message_data(&tx_key, &auditor.pubkey(), &[]);
+    message.data[33] ^= 0x01;
     let tx = transaction(&tx_key, vec![], vec![message]);
 
     assert!(matches!(
@@ -531,7 +607,7 @@ fn auditor_message_must_be_the_last_message() {
         &tx_key,
         vec![],
         vec![
-            auditor_message_data(&tx_key, &auditor.pubkey()),
+            auditor_message_data(&tx_key, &auditor.pubkey(), &[]),
             free_form_message(),
         ],
     );
@@ -556,8 +632,8 @@ fn two_auditor_messages_are_rejected() {
         &tx_key,
         vec![],
         vec![
-            auditor_message_data(&tx_key, &auditor.pubkey()),
-            auditor_message_data(&tx_key, &auditor.pubkey()),
+            auditor_message_data(&tx_key, &auditor.pubkey(), &[]),
+            auditor_message_data(&tx_key, &auditor.pubkey(), &[]),
         ],
     );
 
@@ -580,13 +656,13 @@ fn missing_transaction_key_material_is_rejected() {
     let mut no_pubkey = transaction(
         &tx_key,
         vec![],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey())],
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &[])],
     );
     no_pubkey.tx_viewing_pk = None;
     let mut no_salt = transaction(
         &tx_key,
         vec![],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey())],
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &[])],
     );
     no_salt.salt = None;
 
@@ -620,10 +696,11 @@ fn unknown_asset_id_is_an_error() {
     let recipient = ViewingKey::new();
 
     let output = plaintext(TOKEN_ASSET_ID + 1, 4, 0x91);
+    let slots = vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)];
     let tx = transaction(
         &tx_key,
-        vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey())],
+        slots.clone(),
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &slots)],
     );
 
     assert!(matches!(
@@ -675,7 +752,12 @@ struct KnownOrigins {
 }
 
 impl TransactionOrigin for KnownOrigins {
-    fn origin(&self, signature: Signature, ring: Address) -> Result<RingOrigin, OriginError> {
+    fn origin(
+        &self,
+        signature: Signature,
+        _event_index: u16,
+        ring: Address,
+    ) -> Result<RingOrigin, OriginError> {
         assert_eq!(ring, self.ring);
         self.lookups.set(self.lookups.get() + 1);
         self.origins
@@ -709,29 +791,35 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
 
     let first_output = plaintext(SOL_ASSET_ID, 111, 0xa1);
     let second_output = plaintext(TOKEN_ASSET_ID, 222, 0xa2);
+    let first_slots = vec![confidential_slot(
+        &tx_key_one,
+        &recipient.pubkey(),
+        &first_output,
+        0,
+    )];
     let first = with_signature(
         transaction(
             &tx_key_one,
-            vec![confidential_slot(
-                &tx_key_one,
-                &recipient.pubkey(),
-                &first_output,
-                0,
-            )],
-            vec![auditor_message_data(&tx_key_one, &auditor_pk)],
+            first_slots.clone(),
+            vec![auditor_message_data(&tx_key_one, &auditor_pk, &first_slots)],
         ),
         1,
     );
+    let second_slots = vec![confidential_slot(
+        &tx_key_two,
+        &recipient.pubkey(),
+        &second_output,
+        0,
+    )];
     let second = with_signature(
         transaction(
             &tx_key_two,
-            vec![confidential_slot(
+            second_slots.clone(),
+            vec![auditor_message_data(
                 &tx_key_two,
-                &recipient.pubkey(),
-                &second_output,
-                0,
+                &auditor_pk,
+                &second_slots,
             )],
-            vec![auditor_message_data(&tx_key_two, &auditor_pk)],
         ),
         2,
     );
@@ -743,7 +831,7 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
     );
     output_tag_match.output_slots.push(OutputSlot {
         view_tag: auditor_view_tag(&auditor_pk),
-        output_context: output_context(0),
+        output_context: output_context(&padding_output(0), 0),
         payload: vec![0xff; 8],
     });
     let foreign_ring = with_signature(first.clone(), 4);
@@ -801,7 +889,7 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
             owner_tag: [0x80; 32],
             asset: SOL_MINT,
             amount: 111,
-            blinding: Zeroizing::new([0xa1; 32]),
+            blinding: Zeroizing::new(field(0xa1)),
             ring_program_id: None,
             data: Data::default(),
         }]
@@ -815,7 +903,7 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
             owner_tag: [0x80; 32],
             asset: TOKEN_MINT,
             amount: 222,
-            blinding: Zeroizing::new([0xa2; 32]),
+            blinding: Zeroizing::new(field(0xa2)),
             ring_program_id: None,
             data: Data::default(),
         }]
@@ -830,7 +918,7 @@ fn scan_fails_when_an_origin_is_unavailable() {
     let tx = transaction(
         &ViewingKey::new(),
         Vec::new(),
-        vec![auditor_message_data(&ViewingKey::new(), &auditor_pk)],
+        vec![auditor_message_data(&ViewingKey::new(), &auditor_pk, &[])],
     );
     let indexer = PagedIndexer {
         expected_tag: auditor_view_tag(&auditor_pk),
@@ -864,7 +952,7 @@ fn paged_history(auditor_pk: &P256Pubkey, pages: u8) -> Vec<Vec<ShieldedTransact
                 transaction(
                     &tx_key,
                     Vec::new(),
-                    vec![auditor_message_data(&tx_key, auditor_pk)],
+                    vec![auditor_message_data(&tx_key, auditor_pk, &[])],
                 ),
                 index + 1,
             )]

@@ -1,4 +1,4 @@
-import { initializePoseidon } from "../src/hasher/index.js";
+import { hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { describe, expect, it } from "vitest";
 import { address, type Signature } from "@solana/kit";
 
@@ -6,16 +6,21 @@ import { poseidon } from "../src/keypair/poseidon.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { treeIdField } from "../src/interface/tree-slot.js";
+import { addressBytes } from "../src/interface/internal.js";
+import { UTXO_DOMAIN } from "../src/interface/program.js";
 import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
 import {
   auditPublicInputHash,
   policyPublicInputHash,
   auditSharedSecret,
+  AUDITOR_MESSAGE_LENGTH,
   auditorMessageData,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
   parseAuditorMessage,
+  type AuditOutputOpening,
 } from "../src/keypair/audit.js";
+import { bigIntToBytes } from "../src/keypair/bytes.js";
 import { auditRingTransaction } from "../src/ring/audit.js";
 import {
   encodeSpendRecord,
@@ -24,7 +29,8 @@ import {
   memberOfIdentity,
   spendRecordMessageTag,
 } from "../src/ring/policy.js";
-import { AssetRegistry, SOL_ASSET_ID } from "../src/transaction/asset.js";
+import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
+import { commitmentPoseidon, rightAlign, ZERO_32 } from "../src/transaction/internal.js";
 import { Data } from "../src/transaction/data.js";
 import {
   EncryptedScheme,
@@ -60,7 +66,8 @@ const TX_PK = hex("0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee95
 const PRIVATE_TX_HASH = hex(
   "0000000000000000000000000000000000000000000000000000000000abcdef",
 ) as Bytes32;
-const PUBLIC_INPUT_HASH = hex("18bf7563a64675c110ae7d408b973c98005afac6d06b8ae177f4435d7e6e020b");
+const PUBLIC_INPUT_HASH = hex("25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093");
+const ZERO_DISCLOSURE = Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32);
 
 describe("ring audit encryption", () => {
   it("matches the Go vectors", () => {
@@ -74,19 +81,20 @@ describe("ring audit encryption", () => {
     const message = {
       ephemeralPublicKey: ephemeral.publicKey(),
       ciphertext: CIPHERTEXT,
+      disclosure: ZERO_DISCLOSURE,
     };
     expect(decryptTransactionViewingSecret(ViewingKey.fromBytes(AUDITOR_SK), message)).toEqual(
       TX_SK,
     );
   });
 
-  it("round-trips under a fresh ephemeral key and publishes a 65-byte message", () => {
+  it("round-trips under a fresh ephemeral key and publishes the complete audit message", () => {
     const auditor = ViewingKey.generate();
     const encrypted = encryptTransactionViewingSecret(TX_SK, auditor.publicKey());
     expect(decryptTransactionViewingSecret(auditor, encrypted.message)).toEqual(TX_SK);
     const data = auditorMessageData(encrypted.message, auditor.publicKey());
     expect(data.viewTag).toEqual(auditor.publicKey().x());
-    expect(data.data).toHaveLength(65);
+    expect(data.data).toHaveLength(AUDITOR_MESSAGE_LENGTH);
     const parsed = parseAuditorMessage(data.data);
     expect(parsed.ciphertext).toEqual(encrypted.message.ciphertext);
     expect(parsed.ephemeralPublicKey.toBytes()).toEqual(
@@ -96,19 +104,23 @@ describe("ring audit encryption", () => {
 
   it("hashes the audit statement like Rust `CustomRingBasePublicInput::hash`", () => {
     expect(
-      auditPublicInputHash({
-        privateTxHash: PRIVATE_TX_HASH,
-        txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
-        auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
-        message: {
-          ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
-          ciphertext: CIPHERTEXT,
-        },
-      }),
-    ).toEqual(PUBLIC_INPUT_HASH);
+      Buffer.from(
+        auditPublicInputHash({
+          privateTxHash: PRIVATE_TX_HASH,
+          txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
+          auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
+          message: {
+            ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
+            ciphertext: CIPHERTEXT,
+            disclosure: ZERO_DISCLOSURE,
+          },
+          outputHashes: [new Uint8Array(32) as Bytes32],
+          salt: new Uint8Array(16) as Bytes16,
+        }),
+      ).toString("hex"),
+    ).toBe(Buffer.from(PUBLIC_INPUT_HASH).toString("hex"));
   });
 
-  // The pinned Go fixture is the eight-element prefix and the policy tail folds onto it.
   it("extends the audit chain like Rust `the_public_input_chain_extends_the_audit_chain`", () => {
     const policyHash = new Uint8Array(32).fill(0x2a) as Bytes32;
     const stateRoot = new Uint8Array(32).fill(6) as Bytes32;
@@ -119,6 +131,9 @@ describe("ring audit encryption", () => {
     windowIndex[31] = 3;
     const approval = new Uint8Array(32) as Bytes32;
     approval[31] = 1;
+    const revocationTargets = Array.from({ length: 10 }, () => new Uint8Array(32) as Bytes32);
+    revocationTargets[0]![31] = 0x42;
+    revocationTargets[1] = new Uint8Array(32).fill(0x11) as Bytes32;
     const extended = [
       policyHash,
       stateRoot,
@@ -128,7 +143,11 @@ describe("ring audit encryption", () => {
       namespaceOwnerHash,
       windowIndex,
       approval,
+      ...revocationTargets,
     ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
+    expect(Buffer.from(extended).toString("hex")).toBe(
+      "15f667068a6366740e0cf6565708977d75a885347a08ccd47c6bd204d8096456",
+    );
     expect(
       policyPublicInputHash({
         privateTxHash: PRIVATE_TX_HASH,
@@ -137,7 +156,10 @@ describe("ring audit encryption", () => {
         message: {
           ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
           ciphertext: CIPHERTEXT,
+          disclosure: ZERO_DISCLOSURE,
         },
+        outputHashes: [new Uint8Array(32) as Bytes32],
+        salt: new Uint8Array(16) as Bytes16,
         policyHash,
         entriesTreeId: 9,
         stateRoot,
@@ -146,6 +168,7 @@ describe("ring audit encryption", () => {
         namespaceOwnerHash,
         windowIndex: 3n,
         approvalRequired: true,
+        revocationTargets,
       }),
     ).toEqual(extended);
   });
@@ -181,20 +204,29 @@ describe("ring audit spend records", () => {
   };
 
   function transaction(
-    input: Readonly<{ amount: bigint; recordMessage: Uint8Array | undefined }>,
+    input: Readonly<{
+      amount: bigint;
+      committedAmount?: bigint;
+      recordMessage: Uint8Array | undefined;
+    }>,
   ): IndexedShieldedTransaction {
-    const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey());
+    const salt = new Uint8Array(16) as Bytes16;
+    const opening = auditOpening(input.committedAmount ?? input.amount, record.blinding);
+    const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey(), {
+      salt,
+      outputs: [opening],
+    });
     const message = auditorMessageData(encrypted.message, auditor.publicKey());
     return {
       slot: 1n,
       txSignature: "sig" as Signature,
       txViewingPublicKey: tx.publicKey(),
-      salt: new Uint8Array(16) as Bytes16,
+      salt,
       outputSlots: [
         {
           viewTag,
           outputContext: {
-            hash: new Uint8Array(32) as Bytes32,
+            hash: auditOpeningHash(opening),
             tree: address("11111111111111111111111111111111"),
             leafIndex: 0n,
           },
@@ -209,7 +241,7 @@ describe("ring audit spend records", () => {
                 blinding: record.blinding,
                 data: new Data(),
               },
-              new Uint8Array(16) as Bytes16,
+              salt,
               0,
             ),
             "encrypted",
@@ -224,12 +256,7 @@ describe("ring audit spend records", () => {
           viewTag,
           data: new Uint8Array([
             ...tx.publicKey().toBytes(),
-            ...tx.encryptSlot(
-              tx.publicKey(),
-              encodeSpendCounters(counters),
-              new Uint8Array(16) as Bytes16,
-              0xffff_ffff,
-            ),
+            ...tx.encryptSlot(tx.publicKey(), encodeSpendCounters(counters), salt, 0xffff_ffff),
           ]),
         },
         message,
@@ -293,4 +320,36 @@ describe("ring audit spend records", () => {
     expect(wrongCarrier.spendRecords).toHaveLength(0);
     expect(wrongCarrier.outputs.map((output) => output.amount)).toEqual([5n]);
   });
+
+  it("rejects recipient plaintext that disagrees with the proof-bound output", () => {
+    expect(() =>
+      audit(transaction({ amount: 5n, committedAmount: 0n, recordMessage: undefined })),
+    ).toThrow("RING_AUDIT_OUTPUT_MISMATCH");
+  });
 });
+
+function auditOpening(amount: bigint, blinding: Bytes32): AuditOutputOpening {
+  return Object.freeze({
+    domain: rightAlign(Uint8Array.of(UTXO_DOMAIN)),
+    treeId: treeIdField(0),
+    ownerHash: ZERO_32,
+    asset: hashBytes(addressBytes(SOL_MINT)) as Bytes32,
+    amount: rightAlign(bigIntToBytes(amount, 8)),
+    blinding,
+    dataHash: ZERO_32,
+    ringDataHash: ZERO_32,
+    ringProgramId: ZERO_32,
+  });
+}
+
+function auditOpeningHash(opening: AuditOutputOpening): Bytes32 {
+  return commitmentPoseidon([
+    opening.domain,
+    opening.treeId,
+    opening.asset,
+    opening.amount,
+    opening.dataHash,
+    commitmentPoseidon([opening.ringDataHash, opening.ringProgramId]),
+    commitmentPoseidon([opening.ownerHash, opening.blinding]),
+  ]);
+}

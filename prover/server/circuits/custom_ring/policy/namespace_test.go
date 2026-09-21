@@ -184,9 +184,13 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 		secret[i] = byte(spptest.AsBigInt(b).Uint64())
 	}
 	disclosure := spptest.CounterDisclosure{Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent}.Hash(t)
-	policy.PublicInputHash = spptest.MustHashChain(t, append(s.keys.ChainElements(t, s.privateTxHash),
+	elements := append(s.auditChainElements(t),
 		s.policyHash, root, tree.Root(), big.NewInt(entriesTreeID), s.ringID, s.ownOwnerHash,
-		new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval), transition.OldRoot, transition.NewRoot, disclosure,
+		new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval),
+	)
+	elements = append(elements, s.revocationTargets(nil)...)
+	policy.PublicInputHash = spptest.MustHashChain(t, append(elements,
+		transition.OldRoot, transition.NewRoot, disclosure,
 	))
 	compressed := &CompressedPolicyCircuit{
 		Policy: *policy, HeadOldRoot: transition.OldRoot, HeadNewRoot: transition.NewRoot,

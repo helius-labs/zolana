@@ -892,6 +892,7 @@ fn convert_shielded_transaction(
     Ok(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature.0,
+        event_index: item.event_index,
         tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.txViewingPk"))?,
         salt: decode_optional_salt(item.salt, &format!("{path}.salt"))?,
         output_slots: item
@@ -909,6 +910,8 @@ fn convert_shielded_transaction(
             .collect(),
         nullifiers: item.nullifiers.into_iter().map(Into::into).collect(),
         proofless: item.proofless,
+        ring_config: item.ring_config.map(|key| key.0),
+        ring_program_id: item.ring_program_id.map(|key| key.0),
     })
 }
 
@@ -1189,6 +1192,7 @@ mod tests {
                 transactions: vec![ShieldedTransaction {
                     slot: 50,
                     tx_signature: signature,
+                    event_index: Some(0),
                     tx_viewing_pk: None,
                     salt: None,
                     output_slots: vec![OutputSlot {
@@ -1203,6 +1207,8 @@ mod tests {
                     nullifiers: vec![nullifier],
                     proofless: true,
                     messages: vec![],
+                    ring_config: None,
+                    ring_program_id: None,
                 }],
                 next_cursor: Some(vec![23]),
                 scanned_through: None,

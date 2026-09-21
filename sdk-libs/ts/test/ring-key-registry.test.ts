@@ -31,21 +31,17 @@ import type {
   Bytes128,
   TransactInstructionData,
 } from "../src/interface/types.js";
-import { auditorMessageData, encryptTransactionViewingSecret } from "../src/keypair/audit.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
-import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
+import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { Data } from "../src/transaction/data.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
-import {
-  EncryptedScheme,
-  encodeOutputData,
-  encryptConfidential,
-} from "../src/transaction/serialization/codecs.js";
-import { Utxo } from "../src/transaction/utxo.js";
+import { EncryptedScheme, encodeOutputData } from "../src/transaction/serialization/codecs.js";
+import { createProofOutput, Utxo } from "../src/transaction/utxo.js";
+import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
 import type { WalletUtxo } from "../src/transaction/wallet/state.js";
 import { decodeRingKeyRegistryRoot } from "../src/ring/codecs.js";
 import { fetchRingKeyRegistryRoot } from "../src/ring/config.js";
@@ -569,57 +565,61 @@ function ringTransaction(
   }>,
 ): IndexedShieldedTransaction {
   const tx = ViewingKey.generate();
-  const salt = filled(0, 16) as Bytes16;
-  const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), input.auditor.publicKey());
+  const proofOutputs = input.outputs.map((output, index) =>
+    createProofOutput({
+      ownerAddress: (output.recipient ?? input.source).address,
+      asset: SOL_MINT,
+      amount: output.amount,
+      blinding: blinding(50 + index),
+      ringProgramId: RING,
+      ...(output.data === undefined ? {} : { data: output.data }),
+      ...(output.dataHash === undefined ? {} : { dataHash: output.dataHash }),
+      ...(output.ringDataHash === undefined ? {} : { ringDataHash: output.ringDataHash }),
+    }),
+  );
+  if (proofOutputs.length === 0) {
+    tx.destroy();
+    return {
+      slot: 1n,
+      txSignature: "1".repeat(87) as Signature,
+      eventIndex: 0,
+      ringProgramId: RING,
+      outputSlots: [],
+      messages: [],
+      nullifiers: [...(input.nullifiers ?? [])],
+      proofless: false,
+    };
+  }
+  const encrypted = encryptCustomRingTransfer(tx, {
+    outputs: proofOutputs,
+    assets: new AssetRegistry(),
+    auditorPublicKey: input.auditor.publicKey(),
+    outputTreeId: 0,
+  });
+  tx.destroy();
   return {
     slot: 1n,
     txSignature: "1".repeat(87) as Signature,
-    txViewingPublicKey: tx.publicKey(),
-    salt,
+    eventIndex: 0,
+    ringProgramId: RING,
+    txViewingPublicKey: encrypted.txViewingPublicKey,
+    salt: encrypted.salt,
     outputSlots: input.outputs.map((output, index) => {
       const recipient = output.recipient ?? input.source;
-      const utxo = new Utxo({
-        owner: recipient.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: output.amount,
-        blinding: blinding(50 + index),
-        ringProgramId: RING,
-        ...(output.data === undefined ? {} : { data: output.data }),
-      });
+      const proofOutput = proofOutputs[index];
+      const payload = encrypted.payload[index];
+      if (proofOutput === undefined || payload === undefined) throw new Error("output fixture");
       return {
         viewTag: recipient.address.confidentialViewTag(),
         outputContext: {
-          hash:
-            output.hash ??
-            utxo.hash(
-              recipient.address.nullifierPublicKey,
-              0,
-              output.dataHash,
-              output.ringDataHash,
-            ),
+          hash: output.hash ?? proofOutput.hash(0),
           tree: TREE,
           leafIndex: BigInt(index),
         },
-        payload: encodeOutputData(
-          EncryptedScheme.ringConfidential,
-          encryptConfidential(
-            tx,
-            recipient.address.viewingPublicKey,
-            {
-              assetId: SOL_ASSET_ID,
-              amount: output.amount,
-              blinding: blinding(50 + index),
-              data: output.data ?? new Data(),
-              ringProgramId: RING,
-            },
-            salt,
-            index,
-          ),
-          "encrypted",
-        ),
+        payload: payload.data,
       };
     }),
-    messages: [auditorMessageData(encrypted.message, input.auditor.publicKey())],
+    messages: [encrypted.auditorMessage],
     nullifiers: [...(input.nullifiers ?? [])],
     proofless: false,
   };
@@ -636,7 +636,7 @@ describe("ring member recovery", () => {
       outputs: [
         { amount: 7n },
         { amount: 5n },
-        { amount: 9n, hash: filled(1) as Bytes32 },
+        { amount: 9n, dataHash: filled(1) as Bytes32 },
         { amount: 3n, recipient: other },
       ],
     });
@@ -680,9 +680,9 @@ describe("ring member recovery", () => {
       resolveTreeId: () => 0,
       origin: { ringInvoked: async () => true },
     });
-    expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([7n]);
+    expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([7n, 9n]);
     expect(recovered.notes[0]?.outputContext).toEqual(transaction.outputSlots[0]?.outputContext);
-    expect(recovered.unopened).toEqual([filled(1)]);
+    expect(recovered.unopened).toEqual([]);
     expect(byNullifiers.mock.calls[0]?.[0]?.nullifiers).toHaveLength(3);
     await expect(
       recoverRingMemberNotes({
@@ -745,6 +745,8 @@ function mergeTransaction(
       transaction: {
         txSignature: "1".repeat(87) as Signature,
         slot: 2n,
+        eventIndex: 0,
+        ringProgramId: RING,
         proofless: false,
         nullifiers,
         outputSlots: [
@@ -791,6 +793,8 @@ describe("recovery closure", () => {
     const deposit: IndexedShieldedTransaction = {
       txSignature: "1".repeat(87) as Signature,
       slot: 1n,
+      eventIndex: 0,
+      ringProgramId: RING,
       proofless: true,
       nullifiers: [],
       messages: [],
@@ -951,7 +955,7 @@ describe("recovery closure", () => {
     auditor.destroy();
   });
 
-  it("binds caller supplied data hashes to the committed opening", async () => {
+  it("recovers proof-bound data hashes without trusting a caller resolver", async () => {
     const source = actor(3);
     const auditor = ViewingKey.generate();
     const key = source.keypair.nullifierKey();
@@ -982,15 +986,15 @@ describe("recovery closure", () => {
       resolveTreeId: () => 0,
       origin: { ringInvoked: async () => true },
     };
-    const missing = await recoverRingMemberNotes(input);
-    expect(missing.notes).toEqual([]);
-    expect(missing.unopened).toEqual([seed.outputSlots[0]?.outputContext.hash]);
+    const disclosed = await recoverRingMemberNotes(input);
+    expect(disclosed.notes[0]).toMatchObject({ dataHash, ringDataHash });
+    expect(disclosed.unopened).toEqual([]);
     const wrong = await recoverRingMemberNotes({
       ...input,
       resolveOutputHashes: () => ({ dataHash }),
     });
-    expect(wrong.notes).toEqual([]);
-    expect(wrong.unopened).toEqual(missing.unopened);
+    expect(wrong.notes[0]).toMatchObject({ dataHash, ringDataHash });
+    expect(wrong.unopened).toEqual([]);
     const restored = await recoverRingMemberNotes({
       ...input,
       resolveOutputHashes: () => ({ dataHash, ringDataHash }),

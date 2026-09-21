@@ -46,6 +46,7 @@ export interface PolicyAnswerInput {
 export interface PolicyAnswers {
   readonly answers: readonly CustomRingRuleAnswer[];
   readonly roots: TreeHeadRoots;
+  readonly revocationTargets: readonly Bytes32[];
 }
 
 /** Mirrors Rust `CustomRingWitnessInput::build`, a rule no entry admits is refused before any prover round. */
@@ -80,9 +81,21 @@ export async function provePolicyAnswers(
   ]);
   const proofs = checkedEntryProofs({ tree, queries, states, absences });
   const fixed = fixedRoots(proofs);
-  const roots =
-    fixed.complete() ?? fixed.fill(await readEntriesTreeHeads(input.client, tree, context));
-  return Object.freeze({ answers: assemblePolicyAnswers(resolved, proofs), roots });
+  const roots = fixed.atHeads(await readEntriesTreeHeads(input.client, tree, context));
+  const revocationTargets = resolved.map((answer) =>
+    answer.fact.kind === "live" ? answer.fact.live.nullifier : answer.fact.address,
+  );
+  return Object.freeze({
+    answers: assemblePolicyAnswers(resolved, proofs),
+    roots,
+    revocationTargets: Object.freeze([
+      ...revocationTargets,
+      ...Array.from(
+        { length: RING_ANSWER_SLOTS - revocationTargets.length },
+        () => new Uint8Array(32) as Bytes32,
+      ),
+    ]),
+  });
 }
 
 interface AnswerLookup {
@@ -361,9 +374,7 @@ interface HistoryRoot {
 interface FixedRoots {
   readonly state: HistoryRoot | undefined;
   readonly nullifier: HistoryRoot | undefined;
-  complete(): TreeHeadRoots | undefined;
-  /** The program admits any live state root and any nullifier root inside its window. */
-  fill(heads: TreeHeadRoots): TreeHeadRoots;
+  atHeads(heads: TreeHeadRoots): TreeHeadRoots;
 }
 
 function fixedRoots(proofs: EntryProofs): FixedRoots {
@@ -372,22 +383,21 @@ function fixedRoots(proofs: EntryProofs): FixedRoots {
   return Object.freeze({
     state,
     nullifier,
-    complete: () =>
-      state === undefined || nullifier === undefined
-        ? undefined
-        : Object.freeze({
-            stateRoot: state.value,
-            stateRootIndex: state.index,
-            nullifierRoot: nullifier.value,
-            nullifierRootIndex: nullifier.index,
-          }),
-    fill: (heads: TreeHeadRoots) =>
-      Object.freeze({
+    atHeads: (heads: TreeHeadRoots) => {
+      if (
+        nullifier !== undefined &&
+        (nullifier.index !== heads.nullifierRootIndex ||
+          !equalBytes(nullifier.value, heads.nullifierRoot))
+      ) {
+        throw new RingError("RING_POLICY_ROOT_MISMATCH");
+      }
+      return Object.freeze({
         stateRoot: state?.value ?? heads.stateRoot,
         stateRootIndex: state?.index ?? heads.stateRootIndex,
-        nullifierRoot: nullifier?.value ?? heads.nullifierRoot,
-        nullifierRootIndex: nullifier?.index ?? heads.nullifierRootIndex,
-      }),
+        nullifierRoot: heads.nullifierRoot,
+        nullifierRootIndex: heads.nullifierRootIndex,
+      });
+    },
   });
 }
 

@@ -155,6 +155,10 @@ pub enum CustomRingError {
     InvalidDepositDisclosure = 8175,
     #[error("invalid spend counters disclosure")]
     InvalidSpendCountersDisclosure = 8176,
+    #[error("revocation target account is invalid")]
+    InvalidRevocationTarget = 8177,
+    #[error("policy fact changed after proof creation")]
+    PolicyFactRevoked = 8178,
 }
 
 impl From<CustomRingError> for ProgramError {

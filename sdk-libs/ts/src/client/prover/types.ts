@@ -275,6 +275,7 @@ export interface CustomRingPolicyProofRequest {
   readonly txViewingSecret: Bytes32;
   readonly ephemeralSecret: Bytes32;
   readonly auditorPublicKey: Uint8Array;
+  readonly salt: Bytes16;
   readonly nIn: number;
   readonly nOut: number;
   readonly inputs: readonly CustomRingOpening[];
@@ -301,6 +302,9 @@ export interface CustomRingBaseProofRequest {
   readonly txViewingSecret: Bytes32;
   readonly ephemeralSecret: Bytes32;
   readonly auditorPublicKey: Uint8Array;
+  readonly salt: Bytes16;
+  readonly nOut: number;
+  readonly outputs: readonly CustomRingOpening[];
 }
 
 /** Proves one batch of deposit openings encrypted to the ring auditor. */

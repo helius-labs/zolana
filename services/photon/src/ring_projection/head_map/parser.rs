@@ -51,7 +51,7 @@ pub(crate) fn reconstruct(
         instruction: instruction_view(invocation.instruction),
         decoded,
         policy,
-        event: &transaction(event, invocation.instruction.program_id),
+        event: &transaction(event, invocation.instruction.program_id)?,
         source_instruction_tag: u8::try_from(event.source_instruction_tag)?,
     }
     .reconstruct()
@@ -63,15 +63,16 @@ pub(crate) fn successor(
     context: &SuccessorContext<'_>,
 ) -> Result<zolana_ring_policy::SpendRecord> {
     zolana_ring_indexer::head_map::parser::successor(
-        &transaction(event, Pubkey::default()),
+        &transaction(event, Pubkey::default())?,
         context,
     )
 }
 
-fn transaction(event: &RingsTransactionUpdate, program: Pubkey) -> ShieldedTransaction {
-    ShieldedTransaction {
+fn transaction(event: &RingsTransactionUpdate, program: Pubkey) -> Result<ShieldedTransaction> {
+    Ok(ShieldedTransaction {
         slot: event.slot,
         tx_signature: event.signature.into(),
+        event_index: Some(u16::try_from(event.event_index)?),
         tx_viewing_pk: event.tx_viewing_pk.clone().map(Base64String),
         salt: event.salt.clone().map(Base64String),
         output_slots: event
@@ -105,5 +106,5 @@ fn transaction(event: &RingsTransactionUpdate, program: Pubkey) -> ShieldedTrans
             .ring_config
             .map(|key| Pubkey::new_from_array(key).into()),
         ring_program_id: Some(program.into()),
-    }
+    })
 }

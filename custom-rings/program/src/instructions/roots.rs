@@ -7,18 +7,15 @@ use zolana_tree::TreeAccount;
 
 use crate::error::CustomRingError;
 
-/// Root rotations back from the cursor, an older nullifier root still proves a
-/// retired entry current.
-pub const NULLIFIER_ROOT_WINDOW: u32 = 8;
+/// Absence proofs bind the current nullifier root.
+pub const NULLIFIER_ROOT_WINDOW: u32 = 0;
 
 pub struct TransactRoots {
     pub state: [u8; 32],
     pub nullifier: [u8; 32],
 }
 
-/// Any live state root is admissible, inclusion is monotone, while a nullifier
-/// root older than [`NULLIFIER_ROOT_WINDOW`] misses a retirement the absence
-/// proof must see.
+/// Historical nullifier roots invalidate absence proofs.
 ///
 /// The borrow drops before the caller's SPP CPI, else SPP faults borrowing the
 /// aliased money tree.
@@ -65,7 +62,7 @@ fn within_window(index: u32, cursor: u32) -> bool {
     if index >= capacity || cursor >= capacity {
         return false;
     }
-    (cursor + capacity - index) % capacity <= NULLIFIER_ROOT_WINDOW
+    index == cursor
 }
 
 #[cfg(test)]
@@ -75,16 +72,16 @@ mod tests {
     const CAPACITY: u32 = NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
 
     #[test]
-    fn the_window_admits_the_cursor_and_the_last_entries() {
+    fn only_the_current_root_is_admitted() {
         assert!(within_window(40, 40));
-        assert!(within_window(40 - NULLIFIER_ROOT_WINDOW, 40));
-        assert!(!within_window(40 - NULLIFIER_ROOT_WINDOW - 1, 40));
+        assert!(!within_window(39, 40));
+        assert!(!within_window(41, 40));
     }
 
     #[test]
-    fn the_window_wraps_with_the_buffer() {
-        assert!(within_window(CAPACITY - 1, 2));
-        assert!(within_window(CAPACITY - NULLIFIER_ROOT_WINDOW + 1, 1));
+    fn a_wrapped_history_index_is_stale() {
+        assert!(!within_window(CAPACITY - 1, 2));
+        assert!(!within_window(CAPACITY - 1, 1));
         assert!(!within_window(CAPACITY / 2, 1));
     }
 

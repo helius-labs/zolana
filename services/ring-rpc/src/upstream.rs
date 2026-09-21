@@ -47,6 +47,7 @@ pub trait TransactionSource: Send + Sync {
     fn transaction_origin(
         &self,
         signature: Signature,
+        event_index: u16,
         ring: Address,
     ) -> impl Future<Output = Result<RingOrigin, OriginError>> + Send;
 
@@ -241,6 +242,7 @@ impl TransactionSource for ChainSource {
     async fn transaction_origin(
         &self,
         signature: Signature,
+        event_index: u16,
         ring: Address,
     ) -> Result<RingOrigin, OriginError> {
         let transaction = self
@@ -256,7 +258,7 @@ impl TransactionSource for ChainSource {
             signature,
             transaction,
         }
-        .origin(ring)
+        .origin(event_index, ring)
     }
 
     async fn ring_config(&self, ring: Address) -> Result<Option<RingConfiguration>, ClientError> {

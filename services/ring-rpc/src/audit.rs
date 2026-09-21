@@ -235,17 +235,22 @@ impl<S: TransactionSource> AuditService<S> {
 
         let mut audited = Vec::new();
         let mut skipped = Vec::new();
-        let mut origins: HashMap<Signature, RingOrigin> = HashMap::new();
+        let mut origins: HashMap<(Signature, u16), RingOrigin> = HashMap::new();
         for tx in response.transactions {
-            let origin = match origins.get(&tx.tx_signature) {
+            if tx.ring_program_id != Some(self.ring) {
+                continue;
+            }
+            let event_index = tx.event_index.ok_or(RingRpcError::InvalidIndexerResponse)?;
+            let origin_key = (tx.tx_signature, event_index);
+            let origin = match origins.get(&origin_key) {
                 Some(known) => known.clone(),
                 None => {
                     let found = self
                         .shared
                         .source
-                        .transaction_origin(tx.tx_signature, self.ring)
+                        .transaction_origin(tx.tx_signature, event_index, self.ring)
                         .await?;
-                    origins.insert(tx.tx_signature, found.clone());
+                    origins.insert(origin_key, found.clone());
                     found
                 }
             };

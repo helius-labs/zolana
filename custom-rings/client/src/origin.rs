@@ -8,7 +8,7 @@ use solana_signature::Signature;
 use thiserror::Error;
 use zolana_client::ClientError;
 use zolana_event::tag;
-use zolana_event_parser::{InstructionGroup, ParsedInstruction};
+use zolana_event_parser::{event_parent, InstructionGroup, ParsedInstruction};
 use zolana_interface::{
     instruction::{InterfaceTransfer, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
@@ -36,11 +36,21 @@ pub struct RingWithdrawal {
 
 /// Whether a confirmed transaction ran the shielded pool under `ring`.
 pub trait TransactionOrigin {
-    fn ring_invoked(&self, signature: Signature, ring: Address) -> Result<bool, OriginError> {
-        Ok(self.origin(signature, ring)?.ring_invoked)
+    fn ring_invoked(
+        &self,
+        signature: Signature,
+        event_index: u16,
+        ring: Address,
+    ) -> Result<bool, OriginError> {
+        Ok(self.origin(signature, event_index, ring)?.ring_invoked)
     }
 
-    fn origin(&self, signature: Signature, ring: Address) -> Result<RingOrigin, OriginError>;
+    fn origin(
+        &self,
+        signature: Signature,
+        event_index: u16,
+        ring: Address,
+    ) -> Result<RingOrigin, OriginError>;
 }
 
 #[derive(Debug, Error)]
@@ -58,6 +68,32 @@ pub enum OriginError {
     InvalidTransactData(String),
     #[error("ring transact settlement accounts do not match its interface transfers")]
     SettlementAccounts,
+    #[error("trusted event index {0} is unavailable")]
+    InvalidEventIndex(u16),
+}
+
+pub fn ring_event_origin_in(
+    groups: &[InstructionGroup],
+    event_index: u16,
+    ring: Address,
+) -> Result<RingOrigin, OriginError> {
+    let ring_instructions = ring_instructions_in(groups, ring)?;
+    let source = trusted_event_sources(groups)
+        .nth(usize::from(event_index))
+        .ok_or(OriginError::InvalidEventIndex(event_index))?;
+    let ring_invoked = ring_instructions
+        .iter()
+        .any(|instruction| core::ptr::eq(*instruction, source));
+    let withdrawals = if ring_invoked {
+        ring_withdrawals_of(&[source])?
+    } else {
+        Vec::new()
+    };
+    Ok(RingOrigin {
+        ring_invoked,
+        signers: Vec::new(),
+        withdrawals,
+    })
 }
 
 /// `ring_transact` needs the ring's `ring_auth` PDA as signer, so only a pool
@@ -98,6 +134,44 @@ fn ring_instructions_in(
         }
     }
     Ok(found)
+}
+
+fn trusted_event_sources(groups: &[InstructionGroup]) -> impl Iterator<Item = &ParsedInstruction> {
+    let pool = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    groups.iter().flat_map(move |group| {
+        group
+            .inner
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, instruction)| {
+                if instruction.program_id != pool
+                    || instruction.data.first() != Some(&tag::EMIT_EVENT)
+                {
+                    return None;
+                }
+                let parent = event_parent(group, index)?;
+                (parent.program_id == pool
+                    && parent
+                        .data
+                        .first()
+                        .copied()
+                        .is_some_and(is_event_source_tag))
+                .then_some(parent)
+            })
+    })
+}
+
+fn is_event_source_tag(tag_byte: u8) -> bool {
+    matches!(
+        tag_byte,
+        tag::DEPOSIT
+            | tag::RING_DEPOSIT
+            | tag::TRANSACT
+            | tag::RING_TRANSACT
+            | tag::RING_AUTHORITY_TRANSACT
+            | tag::MERGE_TRANSACT
+            | tag::RING_MERGE_TRANSACT
+    )
 }
 
 /// The public settlement legs of the ring's pool instructions. An SPL leg
@@ -177,9 +251,7 @@ mod rpc {
     };
     use zolana_client::{ConfirmedInstructionGroups, SolanaRpc};
 
-    use super::{
-        ring_instructions_in, ring_withdrawals_of, OriginError, RingOrigin, TransactionOrigin,
-    };
+    use super::{ring_event_origin_in, OriginError, RingOrigin, TransactionOrigin};
 
     pub const ORIGIN_TRANSACTION_CONFIG: RpcTransactionConfig = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
@@ -197,19 +269,16 @@ mod rpc {
     }
 
     impl ConfirmedTransaction {
-        pub fn ring_invoked(self, ring: Address) -> Result<bool, OriginError> {
-            Ok(self.origin(ring)?.ring_invoked)
+        pub fn ring_invoked(self, event_index: u16, ring: Address) -> Result<bool, OriginError> {
+            Ok(self.origin(event_index, ring)?.ring_invoked)
         }
 
-        pub fn origin(self, ring: Address) -> Result<RingOrigin, OriginError> {
+        pub fn origin(self, event_index: u16, ring: Address) -> Result<RingOrigin, OriginError> {
             let signers = signers_of(&self.transaction);
             let groups = ConfirmedInstructionGroups::try_from(self.transaction)?;
-            let instructions = ring_instructions_in(&groups.groups, ring)?;
-            Ok(RingOrigin {
-                ring_invoked: !instructions.is_empty(),
-                withdrawals: ring_withdrawals_of(&instructions)?,
-                signers,
-            })
+            let mut origin = ring_event_origin_in(&groups.groups, event_index, ring)?;
+            origin.signers = signers;
+            Ok(origin)
         }
     }
 
@@ -240,7 +309,12 @@ mod rpc {
     }
 
     impl TransactionOrigin for SolanaRpc {
-        fn origin(&self, signature: Signature, ring: Address) -> Result<RingOrigin, OriginError> {
+        fn origin(
+            &self,
+            signature: Signature,
+            event_index: u16,
+            ring: Address,
+        ) -> Result<RingOrigin, OriginError> {
             let transaction = self
                 .client()
                 .get_transaction_with_config(&signature, ORIGIN_TRANSACTION_CONFIG)
@@ -252,7 +326,7 @@ mod rpc {
                 signature,
                 transaction,
             }
-            .origin(ring)
+            .origin(event_index, ring)
         }
     }
 }

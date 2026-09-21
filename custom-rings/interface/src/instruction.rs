@@ -157,6 +157,7 @@ pub struct CustomRingTransactIxData {
     pub approval_required: u8,
     /// Required only on the windowed member rail.
     pub head_transition: Option<HeadMapTransition>,
+    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
     pub transact: TransactIxData,
 }
 

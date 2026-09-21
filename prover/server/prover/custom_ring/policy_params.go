@@ -88,6 +88,7 @@ type PolicyParameters struct {
 	TxViewingSk     [scalarLen]byte
 	EphSk           [scalarLen]byte
 	AuditorPk       [uncompressedPubkeyLen]byte
+	Salt            [16]byte
 
 	NIn     uint8
 	NOut    uint8
@@ -179,6 +180,7 @@ type policyParametersJSON struct {
 	TxViewingSk        string            `json:"txViewingSk"`
 	EphSk              string            `json:"ephSk"`
 	AuditorPk          string            `json:"auditorPk"`
+	Salt               string            `json:"salt"`
 	NIn                uint8             `json:"nIn"`
 	NOut               uint8             `json:"nOut"`
 	Inputs             []openingJSON     `json:"inputs"`
@@ -214,6 +216,7 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 		TxViewingSk:        bytesHex(p.TxViewingSk[:]),
 		EphSk:              bytesHex(p.EphSk[:]),
 		AuditorPk:          bytesHex(p.AuditorPk[:]),
+		Salt:               bytesHex(p.Salt[:]),
 		NIn:                p.NIn,
 		NOut:               p.NOut,
 		Inputs:             writeOpenings(p.Inputs[:]),
@@ -327,6 +330,9 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	}
 	if x, y := elliptic.Unmarshal(elliptic.P256(), p.AuditorPk[:]); x == nil || y == nil {
 		return fmt.Errorf("custom-ring: auditorPk is not a P256 point")
+	}
+	if err = bytesFromHex(p.Salt[:], raw.Salt, "salt"); err != nil {
+		return err
 	}
 	if p.AddressChain, err = fieldFromHex(raw.AddressChain, "addressChain"); err != nil {
 		return err
@@ -654,6 +660,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	assignBytes(circuit.TxViewingSk[:], p.TxViewingSk[:])
 	assignBytes(circuit.EphSk[:], p.EphSk[:])
 	assignBytes(circuit.AuditorPk[:], p.AuditorPk[:])
+	assignBytes(circuit.Salt[:], p.Salt[:])
 
 	for i := range circuit.Inputs {
 		assignOpening(&circuit.Inputs[i], &p.Inputs[i])

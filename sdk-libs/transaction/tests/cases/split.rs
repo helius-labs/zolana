@@ -70,6 +70,7 @@ pub(crate) fn build_split_tx(
     ShieldedTransaction {
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: Some(tx_viewing_pk),
         salt: Some(salt),
         output_slots: vec![OutputSlot {
@@ -84,6 +85,8 @@ pub(crate) fn build_split_tx(
         messages: Vec::new(),
         nullifiers: vec![first_nullifier],
         proofless: false,
+        ring_config: None,
+        ring_program_id: None,
     }
 }
 

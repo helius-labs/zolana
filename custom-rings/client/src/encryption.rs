@@ -21,15 +21,21 @@
 //! [`zolana_keypair::symmetric_apply`], whose Poseidon silo/key/nonce separators
 //! are the ones `ve.KeySchedule` uses.
 
-use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair, AUDITOR_MESSAGE_LEN};
-use custom_ring_interface::{AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
+use custom_ring_interface::{
+    pack32_to_2fe, pack33_to_2fe, FieldPair, AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN,
+    AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS,
+    COMPRESSED_P256_KEY_LEN,
+};
+use num_bigint::BigUint;
 use thiserror::Error;
 use zeroize::Zeroizing;
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
     symmetric_apply, KeypairError, NullifierKey, P256Pubkey, ViewingKey,
 };
+use zolana_transaction::utxo::ProofInputUtxo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum AuditEncryptionError {
@@ -45,6 +51,10 @@ pub enum AuditEncryptionError {
     DepositSlot(usize),
     #[error("deposit opening does not match the owner commitment")]
     DepositOpeningMismatch,
+    #[error("output disclosure contains a non-canonical field element")]
+    DisclosureField,
+    #[error("output count must be between one and four, got {0}")]
+    OutputCount(usize),
     #[error(transparent)]
     Keypair(#[from] KeypairError),
 }
@@ -55,6 +65,20 @@ pub struct AuditorMessage {
     eph_pk: P256Pubkey,
     /// AES-256-CTR ciphertext of the transaction viewing secret key.
     ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
+    disclosure: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AuditOutputOpening {
+    pub domain: [u8; 32],
+    pub tree_id: [u8; 32],
+    pub owner_hash: [u8; 32],
+    pub asset: [u8; 32],
+    pub amount: [u8; 32],
+    pub blinding: [u8; 32],
+    pub data_hash: [u8; 32],
+    pub ring_data_hash: [u8; 32],
+    pub ring_program_id: [u8; 32],
 }
 
 /// A fresh ephemeral key and the auditor message it produced.
@@ -69,7 +93,11 @@ pub struct AuditorEncryption {
 
 impl AuditorMessage {
     pub fn new(eph_pk: P256Pubkey, ciphertext: [u8; AUDIT_CIPHERTEXT_LEN]) -> Self {
-        Self { eph_pk, ciphertext }
+        Self {
+            eph_pk,
+            ciphertext,
+            disclosure: [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+        }
     }
 
     /// Recovers the transaction viewing secret key with the auditor's viewing key.
@@ -88,6 +116,9 @@ impl AuditorMessage {
         let mut data = Vec::with_capacity(AUDITOR_MESSAGE_LEN);
         data.extend_from_slice(self.eph_pk.as_bytes());
         data.extend_from_slice(&self.ciphertext);
+        for field in self.disclosure {
+            data.extend_from_slice(&field);
+        }
         MessageData {
             view_tag: auditor_view_tag(auditor_pk),
             data,
@@ -98,18 +129,34 @@ impl AuditorMessage {
         if message.view_tag != auditor_view_tag(auditor_pk) {
             return Err(AuditEncryptionError::ViewTagMismatch);
         }
-        let (eph_pk, ciphertext) = message
+        let (eph_pk, body) = message
             .data
             .split_at_checked(COMPRESSED_P256_KEY_LEN)
-            .filter(|(_, ciphertext)| ciphertext.len() == AUDIT_CIPHERTEXT_LEN)
+            .filter(|(_, body)| {
+                body.len() == AUDIT_CIPHERTEXT_LEN + 32 * AUDIT_DISCLOSURE_FIELD_COUNT
+            })
             .ok_or(AuditEncryptionError::MessageLength(message.data.len()))?;
+        let (ciphertext, disclosure_bytes) = body.split_at(AUDIT_CIPHERTEXT_LEN);
         let eph_pk: [u8; COMPRESSED_P256_KEY_LEN] = eph_pk
             .try_into()
             .map_err(|_| AuditEncryptionError::MessageLength(message.data.len()))?;
         let ciphertext: [u8; AUDIT_CIPHERTEXT_LEN] = ciphertext
             .try_into()
             .map_err(|_| AuditEncryptionError::MessageLength(message.data.len()))?;
-        Ok(Self::new(P256Pubkey::from_bytes(eph_pk)?, ciphertext))
+        let mut disclosure = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
+        let (fields, remainder) = disclosure_bytes.as_chunks::<32>();
+        debug_assert!(remainder.is_empty());
+        for (field, bytes) in disclosure.iter_mut().zip(fields) {
+            *field = *bytes;
+            if *field >= BN254_SCALAR_MODULUS_BE {
+                return Err(AuditEncryptionError::DisclosureField);
+            }
+        }
+        Ok(Self {
+            eph_pk: P256Pubkey::from_bytes(eph_pk)?,
+            ciphertext,
+            disclosure,
+        })
     }
 
     pub fn ephemeral_pubkey(&self) -> P256Pubkey {
@@ -122,6 +169,26 @@ impl AuditorMessage {
 
     pub fn ciphertext(&self) -> &[u8; AUDIT_CIPHERTEXT_LEN] {
         &self.ciphertext
+    }
+
+    pub fn disclosure(&self) -> &[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT] {
+        &self.disclosure
+    }
+
+    pub fn open_outputs(
+        &self,
+        tx_viewing_key: &ViewingKey,
+        salt: [u8; 16],
+    ) -> Result<[AuditOutputOpening; AUDIT_OUTPUT_SLOTS]> {
+        let fields = apply_disclosure_stream(tx_viewing_key, salt, self.disclosure, false)?;
+        Ok(core::array::from_fn(|slot| {
+            let start = slot * AUDIT_OUTPUT_FIELD_COUNT;
+            AuditOutputOpening::from_fields(
+                fields[start..start + AUDIT_OUTPUT_FIELD_COUNT]
+                    .try_into()
+                    .expect("fixed disclosure field count"),
+            )
+        }))
     }
 }
 
@@ -144,6 +211,103 @@ impl AuditorEncryption {
             message: AuditorMessage::new(eph_pk, *ciphertext),
         })
     }
+
+    pub fn new_with_outputs(
+        tx_viewing_key: &ViewingKey,
+        auditor_pk: &P256Pubkey,
+        salt: [u8; 16],
+        outputs: &[ProofInputUtxo],
+    ) -> Result<Self> {
+        if outputs.is_empty() || outputs.len() > AUDIT_OUTPUT_SLOTS {
+            return Err(AuditEncryptionError::OutputCount(outputs.len()));
+        }
+        let mut sealed = Self::new(tx_viewing_key, auditor_pk)?;
+        let mut plaintext = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
+        for (slot, output) in outputs.iter().enumerate() {
+            let start = slot * AUDIT_OUTPUT_FIELD_COUNT;
+            plaintext[start..start + AUDIT_OUTPUT_FIELD_COUNT]
+                .copy_from_slice(&AuditOutputOpening::from(output).fields());
+        }
+        sealed.message.disclosure = apply_disclosure_stream(tx_viewing_key, salt, plaintext, true)?;
+        Ok(sealed)
+    }
+}
+
+impl AuditOutputOpening {
+    fn fields(self) -> [[u8; 32]; AUDIT_OUTPUT_FIELD_COUNT] {
+        [
+            self.domain,
+            self.tree_id,
+            self.owner_hash,
+            self.asset,
+            self.amount,
+            self.blinding,
+            self.data_hash,
+            self.ring_data_hash,
+            self.ring_program_id,
+        ]
+    }
+
+    fn from_fields(fields: [[u8; 32]; AUDIT_OUTPUT_FIELD_COUNT]) -> Self {
+        Self {
+            domain: fields[0],
+            tree_id: fields[1],
+            owner_hash: fields[2],
+            asset: fields[3],
+            amount: fields[4],
+            blinding: fields[5],
+            data_hash: fields[6],
+            ring_data_hash: fields[7],
+            ring_program_id: fields[8],
+        }
+    }
+}
+
+impl From<&ProofInputUtxo> for AuditOutputOpening {
+    fn from(output: &ProofInputUtxo) -> Self {
+        Self {
+            domain: output.domain,
+            tree_id: output.tree_id,
+            owner_hash: output.owner_hash,
+            asset: output.asset,
+            amount: output.amount,
+            blinding: output.blinding,
+            data_hash: output.data_hash,
+            ring_data_hash: output.ring_data_hash,
+            ring_program_id: output.ring_program_id,
+        }
+    }
+}
+
+fn apply_disclosure_stream(
+    tx_viewing_key: &ViewingKey,
+    salt: [u8; 16],
+    fields: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+    encrypt: bool,
+) -> Result<[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]> {
+    const DOMAIN: u64 = 0x4352_5f4f44;
+    let FieldPair { lo, hi } = pack32_to_2fe(&tx_viewing_key.secret_bytes());
+    let modulus = BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
+    let mut out = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
+    for (index, (field, result)) in fields.into_iter().zip(out.iter_mut()).enumerate() {
+        let stream = poseidon(&[
+            &right_align(&DOMAIN.to_be_bytes()),
+            &lo,
+            &hi,
+            &right_align(&salt),
+            &right_align(&(index as u64).to_be_bytes()),
+        ])?;
+        let value = BigUint::from_bytes_be(&field);
+        let mask = BigUint::from_bytes_be(&stream);
+        let transformed = if encrypt {
+            (value + mask) % &modulus
+        } else {
+            (value + &modulus - mask) % &modulus
+        };
+        let bytes = transformed.to_bytes_be();
+        result[32 - bytes.len()..].copy_from_slice(&bytes);
+    }
+    Ok(out)
 }
 
 /// Info string separating the nullifier key stream from the audit key stream.

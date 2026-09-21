@@ -72,6 +72,7 @@ func TestListFactRequiresStrictNullifierInterval(t *testing.T) {
 			fact.NullifierLowValue = low
 			fact.NullifierNextValue = next
 			c.ListFacts[0] = fact
+			c.PublicInputHash = s.publicInputHashForTargets(t, s.revocationTargets([]int{allowedActive}))
 			if tt.passes {
 				solve(t, testConstraintSystem(t), c)
 			} else {

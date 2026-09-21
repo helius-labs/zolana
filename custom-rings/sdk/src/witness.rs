@@ -56,6 +56,7 @@ pub struct CustomRingWitness {
     pub inline_count: u8,
     pub velocity: VelocityProofInput,
     pub answers: Vec<RuleAnswer>,
+    pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
 }
 
 /// Gathers the witness from the chain and the indexer at prove time.
@@ -84,10 +85,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         let resolved = plan.resolve(lineages)?;
         let proofs = resolved.queries().fetch(indexer)?;
         let fixed = FixedRoots::from_proofs(&proofs)?;
-        let roots = match fixed.complete() {
-            Some(roots) => roots,
-            None => fixed.fill(head_roots(rpc.get_account(tree)?, tree)?),
-        };
+        let roots = fixed.at_heads(head_roots(rpc.get_account(tree)?, tree)?)?;
         resolved.assemble(proofs, roots)
     }
 
@@ -106,10 +104,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         let resolved = plan.resolve(lineages)?;
         let proofs = resolved.queries().fetch_async(indexer).await?;
         let fixed = FixedRoots::from_proofs(&proofs)?;
-        let roots = match fixed.complete() {
-            Some(roots) => roots,
-            None => fixed.fill(head_roots(rpc.get_account(tree).await?, tree)?),
-        };
+        let roots = fixed.at_heads(head_roots(rpc.get_account(tree).await?, tree)?)?;
         resolved.assemble(proofs, roots)
     }
 
@@ -454,7 +449,9 @@ impl ResolvedWitness<'_> {
         }
         let mut states = proofs.states.into_iter();
         let mut answers = Vec::with_capacity(ANSWER_SLOTS);
-        for (answer, absence) in self.answers.iter().zip(proofs.absences) {
+        let mut revocation_targets = [[0u8; 32]; ANSWER_SLOTS];
+        for (index, (answer, absence)) in self.answers.iter().zip(proofs.absences).enumerate() {
+            revocation_targets[index] = answer.fact.absence_target();
             let mut entry = RuleAnswer {
                 enabled: true,
                 mode: answer.mode as u8,
@@ -508,6 +505,7 @@ impl ResolvedWitness<'_> {
             inline_count: table.inline_count,
             velocity: input.velocity,
             answers,
+            revocation_targets,
         })
     }
 }
@@ -594,33 +592,25 @@ impl FixedRoots {
         })
     }
 
-    fn complete(&self) -> Option<TransactRoots> {
-        let (state, nullifier) = (self.state?, self.nullifier?);
-        Some(TransactRoots {
+    fn at_heads(self, heads: TransactRoots) -> Result<TransactRoots, TransferError> {
+        let state = self.state.unwrap_or(HistoryRoot {
+            value: heads.state,
+            index: heads.state_index,
+        });
+        let head_nullifier = HistoryRoot {
+            value: heads.nullifier,
+            index: heads.nullifier_index,
+        };
+        let nullifier = self.nullifier.unwrap_or(head_nullifier);
+        if nullifier != head_nullifier {
+            return Err(TransferError::PolicyRootMismatch);
+        }
+        Ok(TransactRoots {
             state: state.value,
             state_index: state.index,
             nullifier: nullifier.value,
             nullifier_index: nullifier.index,
         })
-    }
-
-    /// The program admits any live state root and any nullifier root inside
-    /// its window, the heads serve a tree no proof fixed.
-    fn fill(self, heads: TransactRoots) -> TransactRoots {
-        let state = self.state.unwrap_or(HistoryRoot {
-            value: heads.state,
-            index: heads.state_index,
-        });
-        let nullifier = self.nullifier.unwrap_or(HistoryRoot {
-            value: heads.nullifier,
-            index: heads.nullifier_index,
-        });
-        TransactRoots {
-            state: state.value,
-            state_index: state.index,
-            nullifier: nullifier.value,
-            nullifier_index: nullifier.index,
-        }
     }
 }
 
@@ -1040,17 +1030,19 @@ mod tests {
 
     impl ProofRpc {
         fn new(spenders: Vec<ShieldedTransaction>) -> Self {
+            let account = tree_account();
+            let heads = head_roots(Some(account.clone()), tree()).expect("tree heads");
             Self {
                 lineages: NullifierRpc::new(spenders),
                 state_roots: vec![HistoryRoot {
-                    value: [1u8; 32],
-                    index: 3,
+                    value: heads.state,
+                    index: heads.state_index,
                 }],
                 nullifier_roots: vec![HistoryRoot {
-                    value: [2u8; 32],
-                    index: 4,
+                    value: heads.nullifier,
+                    index: heads.nullifier_index,
                 }],
-                account: None,
+                account: Some(account),
                 calls: Mutex::new(Calls::default()),
             }
         }
@@ -1211,7 +1203,7 @@ mod tests {
         let calls = rpc.calls.lock().expect("calls");
         assert_eq!(calls.merkle, vec![vec![live.utxo_hash]]);
         assert_eq!(calls.non_inclusion, vec![vec![live.nullifier]]);
-        assert_eq!(calls.accounts, 0);
+        assert_eq!(calls.accounts, 1);
         let requests = rpc.lineages.requests.lock().expect("requests");
         // The claim round asks for both group addresses, the Allow lineage one
         // more round.
@@ -1228,12 +1220,7 @@ mod tests {
         assert_eq!(enabled[0].absent_branch, 2);
         assert_eq!(
             witness.roots,
-            TransactRoots {
-                state: [1u8; 32],
-                state_index: 3,
-                nullifier: [2u8; 32],
-                nullifier_index: 4,
-            }
+            head_roots(Some(tree_account()), tree()).expect("heads")
         );
     }
 
@@ -1325,8 +1312,8 @@ mod tests {
         .build(&rpc, &rpc)
         .expect("witness");
         let heads = head_roots(Some(tree_account()), tree()).expect("heads");
-        assert_eq!(witness.roots.nullifier, [2u8; 32]);
-        assert_eq!(witness.roots.nullifier_index, 4);
+        assert_eq!(witness.roots.nullifier, heads.nullifier);
+        assert_eq!(witness.roots.nullifier_index, heads.nullifier_index);
         assert_eq!(witness.roots.state, heads.state);
         assert_eq!(witness.roots.state_index, heads.state_index);
         let calls = rpc.calls.lock().expect("calls");

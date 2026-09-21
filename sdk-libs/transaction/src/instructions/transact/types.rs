@@ -287,10 +287,13 @@ impl OutputSlot {
 pub struct ShieldedTransaction {
     pub slot: u64,
     pub tx_signature: solana_signature::Signature,
+    pub event_index: Option<u16>,
     pub tx_viewing_pk: Option<P256Pubkey>,
     pub salt: Option<[u8; 16]>,
     pub output_slots: Vec<OutputSlot>,
     pub messages: Vec<MessageData>,
     pub nullifiers: Vec<[u8; 32]>,
     pub proofless: bool,
+    pub ring_config: Option<Address>,
+    pub ring_program_id: Option<Address>,
 }

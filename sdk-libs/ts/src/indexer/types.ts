@@ -117,6 +117,7 @@ export interface GetEncryptedUtxosByTagsResponse {
 export interface IndexedShieldedTransaction {
   readonly slot: bigint;
   readonly txSignature: Signature;
+  readonly eventIndex?: number;
   readonly txViewingPk?: Base64String;
   readonly salt?: Base64String;
   readonly outputSlots: readonly RingsOutputSlot[];

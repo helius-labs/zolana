@@ -31,6 +31,7 @@ fn record() -> RingHeadRecord {
         transaction: ShieldedTransaction {
             slot: 1,
             tx_signature: Signature::from([1; 64]).into(),
+            event_index: Some(0),
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![],

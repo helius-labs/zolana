@@ -232,14 +232,14 @@ describe("answer proving", () => {
       member,
       states: ["active"],
     });
-    const client = entryProofReads({ tree: TREE, spenders: allow.spenders });
+    const client = entryProofReads({ tree: TREE, spenders: allow.spenders, account: true });
     const { answers, roots } = await provePolicyAnswers({
       client,
       ...input(TWO_ALLOW, [output(address, 10n), output(address, 20n)]),
     });
     expect(client.merkle).toEqual([[allow.utxoHash]]);
     expect(client.nonInclusion).toEqual([[allow.nullifier]]);
-    expect(client.accounts).toBe(0);
+    expect(client.accounts).toBe(1);
     // The claim round asks for both group addresses, the Allow lineage one more round.
     expect(client.requests).toHaveLength(2);
     expect(client.requests[0]).toHaveLength(2);
@@ -251,8 +251,8 @@ describe("answer proving", () => {
     expect(roots).toEqual({
       stateRoot: filled(1),
       stateRootIndex: 3,
-      nullifierRoot: filled(2),
-      nullifierRootIndex: 4,
+      nullifierRoot: HEADS.nullifierRoot,
+      nullifierRootIndex: HEADS.nullifierRootIndex,
     });
   });
 
@@ -323,7 +323,7 @@ describe("answer proving", () => {
       client,
       ...input(BLOCK, [output(address, 1n)]),
     });
-    expect(roots).toEqual({ ...HEADS, nullifierRoot: filled(2), nullifierRootIndex: 4 });
+    expect(roots).toEqual(HEADS);
     expect(client.merkle).toHaveLength(0);
     expect(client.nonInclusion).toEqual([
       [RingListNamespace.of(NAMESPACE, 0).entryAddress({ listId: ListId.block, member })],
@@ -365,6 +365,7 @@ describe("answer proving", () => {
     const client = entryProofReads({
       tree: TREE,
       spenders: [...approved.spenders, ...blocked.spenders],
+      account: true,
     });
     const { answers } = await provePolicyAnswers({
       client,
@@ -429,7 +430,7 @@ describe("answer proving", () => {
       member,
       states: ["active", "cleared"],
     });
-    const client = entryProofReads({ tree: TREE, spenders: cleared.spenders });
+    const client = entryProofReads({ tree: TREE, spenders: cleared.spenders, account: true });
     const { answers } = await provePolicyAnswers({
       client,
       ...input(BLOCK, [output(address, 1n)]),

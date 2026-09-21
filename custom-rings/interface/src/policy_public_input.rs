@@ -4,6 +4,7 @@ use zolana_hasher::{
 use zolana_interface::tree_slot::tree_id_field;
 
 use crate::base_public_input::CustomRingBasePublicInput;
+use zolana_ring_policy::ANSWER_SLOTS;
 
 /// Binds audited transaction openings to the pinned rules, list roots and
 /// amount controls.
@@ -21,13 +22,15 @@ pub struct CustomRingPolicyPublicInput<'a> {
     /// Fixed-window index, zero for per-transfer limits and delegate moves.
     pub window_index: u64,
     pub approval_required: bool,
+    pub revocation_targets: &'a [[u8; 32]; ANSWER_SLOTS],
 }
 
 impl CustomRingPolicyPublicInput<'_> {
     /// The audit prefix and policy tail share one circuit-defined field order.
-    fn elements(&self) -> Result<[[u8; 32]; 16], HasherError> {
+    fn elements(&self) -> Result<[[u8; 32]; 19 + ANSWER_SLOTS], HasherError> {
         let audit = self.audit.elements()?;
-        Ok([
+        let mut elements = [[0u8; 32]; 19 + ANSWER_SLOTS];
+        elements[..19].copy_from_slice(&[
             audit[0],
             audit[1],
             audit[2],
@@ -36,6 +39,9 @@ impl CustomRingPolicyPublicInput<'_> {
             audit[5],
             audit[6],
             audit[7],
+            audit[8],
+            audit[9],
+            audit[10],
             *self.policy_hash,
             *self.state_root,
             *self.nullifier_root,
@@ -44,7 +50,9 @@ impl CustomRingPolicyPublicInput<'_> {
             *self.namespace_owner_hash,
             right_align(&self.window_index.to_be_bytes()),
             right_align(&[u8::from(self.approval_required)]),
-        ])
+        ]);
+        elements[19..].copy_from_slice(self.revocation_targets);
+        Ok(elements)
     }
 
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
@@ -67,11 +75,11 @@ impl CompressedPolicyPublicInput<'_> {
     /// Root order must match the compressed policy circuit.
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         let policy = self.policy.elements()?;
-        let mut chain = [[0u8; 32]; 19];
-        chain[..16].copy_from_slice(&policy);
-        chain[16] = *self.head_old_root;
-        chain[17] = *self.head_new_root;
-        chain[18] = *self.counters_disclosure_hash;
+        let mut chain = [[0u8; 32]; 22 + ANSWER_SLOTS];
+        chain[..19 + ANSWER_SLOTS].copy_from_slice(&policy);
+        chain[19 + ANSWER_SLOTS] = *self.head_old_root;
+        chain[20 + ANSWER_SLOTS] = *self.head_new_root;
+        chain[21 + ANSWER_SLOTS] = *self.counters_disclosure_hash;
         create_hash_chain_from_slice(&chain)
     }
 }

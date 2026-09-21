@@ -36,6 +36,15 @@ fn velocity_transact() -> TransactIxData {
         nullifier_hash: SPENT_RECORD_NULLIFIER,
         tree_index: 0,
     }];
+    let mut counters = vec![0u8; zolana_ring_policy::SPEND_COUNTERS_BODY_LEN];
+    counters[..content.tx_viewing_pk.len()].copy_from_slice(&content.tx_viewing_pk);
+    content.messages.insert(
+        0,
+        zolana_interface::instruction::MessageData {
+            view_tag: namespace_pda().0.to_bytes(),
+            data: counters,
+        },
+    );
     let mut record = spend_record_output(RECORD_MEMBER_TAG);
     content.messages.insert(
         0,
@@ -150,7 +159,7 @@ fn missing_duplicate_or_wrongly_tagged_record_messages_are_rejected() {
     velocity_fixture(0, duplicate)
         .expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
     let mut wrong_tag = velocity_transact();
-    wrong_tag.messages[0].view_tag = namespace_pda().0.to_bytes();
+    wrong_tag.messages[0].view_tag = [0x99; 32];
     velocity_fixture(0, wrong_tag)
         .expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }

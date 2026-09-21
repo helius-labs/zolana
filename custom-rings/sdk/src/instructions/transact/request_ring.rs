@@ -15,6 +15,7 @@ use zolana_ring_policy::{
     VelocityRow, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS,
     POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
 };
+use zolana_transaction::utxo::ProofInputUtxo;
 
 use crate::{head_map::HeadWitness, velocity::RowCharges};
 
@@ -180,6 +181,7 @@ pub struct CustomRingPolicyProofRequest {
     pub tx_viewing_key: ViewingKey,
     pub ephemeral_key: ViewingKey,
     pub auditor_key: P256Pubkey,
+    pub salt: [u8; 16],
     pub n_in: u8,
     pub n_out: u8,
     pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
@@ -207,10 +209,18 @@ pub struct CustomRingBaseProofRequest {
     pub tx_viewing_key: ViewingKey,
     pub ephemeral_key: ViewingKey,
     pub auditor_key: P256Pubkey,
+    pub salt: [u8; 16],
+    pub outputs: Vec<ProofInputUtxo>,
 }
 
 impl ProveRequest for CustomRingBaseProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        if self.outputs.is_empty() || self.outputs.len() > POLICY_OUTPUT_SLOTS {
+            return Err(ClientError::Prover(format!(
+                "base request has {} outputs, expected 1..={POLICY_OUTPUT_SLOTS}",
+                self.outputs.len()
+            )));
+        }
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
         let auditor_key = self
@@ -218,6 +228,8 @@ impl ProveRequest for CustomRingBaseProofRequest {
             .to_p256()
             .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
         let auditor_pk = auditor_key.to_encoded_point(false);
+        let mut outputs: Vec<_> = self.outputs.iter().map(audit_opening_json).collect();
+        outputs.resize_with(POLICY_OUTPUT_SLOTS, AuditOpeningJson::zero);
         let json = CustomRingBaseProofRequestJson {
             circuit_type: "custom-ring-base",
             public_input_hash: field_hex(&self.public_input_hash),
@@ -225,6 +237,9 @@ impl ProveRequest for CustomRingBaseProofRequest {
             tx_viewing_sk: SecretHex::new(tx_viewing_secret.as_slice()),
             eph_sk: SecretHex::new(ephemeral_secret.as_slice()),
             auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
+            salt: bytes_to_hex(&self.salt),
+            n_out: self.outputs.len() as u8,
+            outputs,
         };
         serde_json::to_string(&json)
             .map(Zeroizing::new)
@@ -250,6 +265,10 @@ struct CustomRingBaseProofRequestJson {
     eph_sk: SecretHex,
     #[serde(rename = "auditorPk")]
     auditor_pk: String,
+    salt: String,
+    #[serde(rename = "nOut")]
+    n_out: u8,
+    outputs: Vec<AuditOpeningJson>,
 }
 
 impl CustomRingPolicyProofRequest {
@@ -268,6 +287,7 @@ impl CustomRingPolicyProofRequest {
             tx_viewing_sk: SecretHex::new(tx_viewing_secret.as_slice()),
             eph_sk: SecretHex::new(ephemeral_secret.as_slice()),
             auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
+            salt: bytes_to_hex(&self.salt),
             n_in: self.n_in,
             n_out: self.n_out,
             inputs: self.inputs.iter().map(opening_json).collect(),
@@ -344,6 +364,50 @@ fn opening_json(opening: &CustomRingOpening) -> CustomRingOpeningJson {
         data_hash: field_hex(&opening.data_hash),
         ring_data_hash: field_hex(&opening.ring_data_hash),
         ring_program_id: field_hex(&opening.ring_program_id),
+    }
+}
+
+fn audit_opening_json(opening: &ProofInputUtxo) -> AuditOpeningJson {
+    AuditOpeningJson {
+        domain: field_hex(&opening.domain),
+        tree_id: field_hex(&opening.tree_id),
+        owner_hash: field_hex(&opening.owner_hash),
+        asset: field_hex(&opening.asset),
+        amount: field_hex(&opening.amount),
+        blinding: field_hex(&opening.blinding),
+        data_hash: field_hex(&opening.data_hash),
+        ring_data_hash: field_hex(&opening.ring_data_hash),
+        ring_program_id: field_hex(&opening.ring_program_id),
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuditOpeningJson {
+    domain: String,
+    tree_id: String,
+    owner_hash: String,
+    asset: String,
+    amount: String,
+    blinding: String,
+    data_hash: String,
+    ring_data_hash: String,
+    ring_program_id: String,
+}
+
+impl AuditOpeningJson {
+    fn zero() -> Self {
+        Self {
+            domain: field_hex(&[0u8; 32]),
+            tree_id: field_hex(&[0u8; 32]),
+            owner_hash: field_hex(&[0u8; 32]),
+            asset: field_hex(&[0u8; 32]),
+            amount: field_hex(&[0u8; 32]),
+            blinding: field_hex(&[0u8; 32]),
+            data_hash: field_hex(&[0u8; 32]),
+            ring_data_hash: field_hex(&[0u8; 32]),
+            ring_program_id: field_hex(&[0u8; 32]),
+        }
     }
 }
 
@@ -488,6 +552,7 @@ pub(crate) struct CustomRingPolicyProofRequestJson {
     eph_sk: SecretHex,
     #[serde(rename = "auditorPk")]
     auditor_pk: String,
+    salt: String,
     #[serde(rename = "nIn")]
     n_in: u8,
     #[serde(rename = "nOut")]
@@ -549,6 +614,7 @@ mod tests {
             auditor_key: ViewingKey::from_bytes(&[5u8; 32])
                 .expect("auditor key")
                 .pubkey(),
+            salt: [10u8; 16],
             n_in: 2,
             n_out: 2,
             inputs: [CustomRingOpening::default(); POLICY_INPUT_SLOTS],
@@ -607,6 +673,7 @@ mod tests {
                 "record",
                 "ringId",
                 "ruleEnc",
+                "salt",
                 "sources",
                 "stateRoot",
                 "txViewingSk",

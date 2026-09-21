@@ -3,7 +3,8 @@ use core::num::NonZeroU64;
 use custom_ring_interface::{
     CompressedPolicyPublicInput, CustomRingBasePublicInput, CustomRingPolicyPublicInput,
     CustomRingProof, CustomRingTransactIxData, FixedWindow, HeadMapRoot, HeadMapTransition,
-    AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
+    AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_DISCLOSURE_LEN,
+    COMPRESSED_P256_KEY_LEN,
 };
 use pinocchio::{
     account::RefMut,
@@ -18,7 +19,8 @@ use zolana_interface::instruction::{
     },
     tag, CircuitId, MessageData,
 };
-use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode};
+use zolana_interface::{NULLIFIER_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
+use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode, ANSWER_SLOTS};
 
 use crate::{
     error::CustomRingError,
@@ -30,7 +32,7 @@ use crate::{
         },
         public_legs::PublicLegs,
         roots::load_roots,
-        shared::{cpi_spp_signed, SppSigners},
+        shared::{cpi_spp_signed, PdaCheck, SppSigners},
         verifier::verify_groth16,
     },
     state::{Advance, RootTransition},
@@ -113,6 +115,7 @@ impl TransactRail {
             nullifier_root_index,
             approval_required,
             head_transition,
+            revocation_targets,
             transact,
         } = &*decoded;
         let approval_required = match approval_required {
@@ -174,6 +177,15 @@ impl TransactRail {
             }
             _ => return Err(CustomRingError::InvalidInstructionData.into()),
         };
+        match policy.as_ref() {
+            Some((binding, _)) => {
+                validate_revocation_targets(&mut rest, &binding.entries_tree, revocation_targets)?
+            }
+            None if revocation_targets.iter().any(|target| *target != [0u8; 32]) => {
+                return Err(CustomRingError::InvalidInstructionData.into())
+            }
+            None => {}
+        }
 
         // 3. Enforce approval and public mint caps against the actual
         // settlement legs.
@@ -235,12 +247,20 @@ impl TransactRail {
             .and_then(|tag| tag.try_into().ok())
             .ok_or(CustomRingError::InvalidAuditorPubkey)?;
         let message = select_auditor_message(&transact.messages, view_tag)?;
+        let output_hashes: Vec<[u8; 32]> = transact
+            .outputs
+            .iter()
+            .map(|output| output.utxo_hash)
+            .collect();
         let audit = CustomRingBasePublicInput {
             private_tx_hash: &transact.private_tx_hash,
             tx_viewing_pk: &transact.tx_viewing_pk,
             auditor_pk: &auditor_pubkey,
             eph_pk: message.eph_pk,
             ciphertext: message.ciphertext,
+            output_hashes: &output_hashes,
+            salt: &transact.salt,
+            disclosure: message.disclosure,
         };
 
         // 5. Verify policy and record commitments before granting namespace
@@ -309,6 +329,7 @@ impl TransactRail {
                     namespace_owner_hash: &binding.namespace_owner_hash,
                     window_index,
                     approval_required,
+                    revocation_targets,
                 };
                 statement.verify_and_advance(proof, policy_input)?;
                 signers
@@ -333,6 +354,31 @@ impl TransactRail {
         instruction_data.extend_from_slice(&transact_bytes);
         cpi_spp_signed(program_id, spp_accounts, &instruction_data, signers)
     }
+}
+
+fn validate_revocation_targets(
+    accounts: &mut AccountIterator<'_>,
+    entries_tree: &Address,
+    targets: &[[u8; 32]; ANSWER_SLOTS],
+) -> ProgramResult {
+    let spp = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    for target in targets
+        .iter()
+        .filter(|target| target.iter().any(|byte| *byte != 0))
+    {
+        let account = accounts.next_account("revocation_target")?;
+        PdaCheck {
+            program_id: &spp,
+            address: account.address(),
+            seeds: &[NULLIFIER_PDA_SEED, entries_tree.as_array(), target],
+            mismatch: CustomRingError::InvalidRevocationTarget,
+        }
+        .verify()?;
+        if !pinocchio_system::check_id(account.owner()) || account.data_len() != 0 {
+            return Err(CustomRingError::PolicyFactRevoked.into());
+        }
+    }
+    Ok(())
 }
 
 /// Proof variants separating member limits, compressed history and delegate
@@ -401,9 +447,7 @@ impl PolicyStatement<'_> {
 
 #[inline(never)]
 fn decode_transact(data: &[u8]) -> Result<Box<CustomRingTransactIxData>, ProgramError> {
-    wincode::deserialize_exact(data)
-        .map(Box::new)
-        .map_err(|_| CustomRingError::InvalidInstructionData.into())
+    wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData.into())
 }
 
 /// Copied out, no account borrow may live across the SPP CPI.
@@ -452,6 +496,7 @@ impl PolicyBinding {
 struct AuditorMessageParts<'a> {
     eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
     ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
+    disclosure: &'a [[u8; 32]],
 }
 
 /// Select the auditor message out of the transaction's published messages.
@@ -478,17 +523,30 @@ fn select_auditor_message<'a>(
         _ => return Err(CustomRingError::InvalidAuditorMessage.into()),
     }
 
-    let (eph_pk, ciphertext) = last
+    let (eph_pk, body) = last
         .data
         .split_at_checked(COMPRESSED_P256_KEY_LEN)
         .ok_or(CustomRingError::InvalidAuditorMessage)?;
     let eph_pk: &[u8; COMPRESSED_P256_KEY_LEN] = eph_pk
         .try_into()
         .map_err(|_| CustomRingError::InvalidAuditorMessage)?;
+    let (ciphertext, disclosure) = body
+        .split_at_checked(AUDIT_CIPHERTEXT_LEN)
+        .filter(|(_, disclosure)| disclosure.len() == AUDIT_DISCLOSURE_LEN)
+        .ok_or(CustomRingError::InvalidAuditorMessage)?;
     let ciphertext: &[u8; AUDIT_CIPHERTEXT_LEN] = ciphertext
         .try_into()
         .map_err(|_| CustomRingError::InvalidAuditorMessage)?;
-    Ok(AuditorMessageParts { eph_pk, ciphertext })
+    let disclosure: &[[u8; 32]] =
+        bytemuck::try_cast_slice(disclosure).map_err(|_| CustomRingError::InvalidAuditorMessage)?;
+    if disclosure.len() != AUDIT_DISCLOSURE_FIELD_COUNT {
+        return Err(CustomRingError::InvalidAuditorMessage.into());
+    }
+    Ok(AuditorMessageParts {
+        eph_pk,
+        ciphertext,
+        disclosure,
+    })
 }
 
 fn is_valid_confidential_output(data: &[u8]) -> bool {
@@ -532,7 +590,7 @@ mod tests {
     const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000c5d5";
     const CT_HASH: &str = "1384dccfd224d268a2028165de1523e911e276a676568086166a3b782afdbada";
     const PUBLIC_INPUT_HASH: &str =
-        "18bf7563a64675c110ae7d408b973c98005afac6d06b8ae177f4435d7e6e020b";
+        "25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093";
 
     fn bytes<const N: usize>(hex_str: &str) -> [u8; N] {
         let decoded = hex::decode(hex_str).expect("valid hex");
@@ -572,6 +630,9 @@ mod tests {
             auditor_pk: &bytes::<33>(AUDITOR_PK),
             eph_pk: &bytes::<33>(EPH_PK),
             ciphertext: &bytes::<32>(CIPHERTEXT),
+            output_hashes: &[[0u8; 32]],
+            salt: &[0u8; 16],
+            disclosure: &[[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
         }
         .hash()
         .expect("public input hash");
@@ -606,7 +667,7 @@ mod tests {
         let valid = vec![message(other, 4), message(tag, AUDITOR_MESSAGE_LEN)];
         let parts = select_auditor_message(&valid, &tag).expect("valid selection");
         assert_eq!(
-            parts.eph_pk.len() + parts.ciphertext.len(),
+            parts.eph_pk.len() + parts.ciphertext.len() + core::mem::size_of_val(parts.disclosure),
             AUDITOR_MESSAGE_LEN
         );
 

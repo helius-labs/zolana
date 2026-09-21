@@ -390,6 +390,7 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
   const record = object(value, path, [
     "slot",
     "txSignature",
+    "eventIndex",
     "txViewingPk",
     "salt",
     "outputSlots",
@@ -406,6 +407,9 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
   return {
     slot: unboundedU64(record["slot"], `${path}.slot`),
     txSignature: checkedSignature(record["txSignature"], `${path}.txSignature`),
+    ...(record["eventIndex"] === undefined
+      ? {}
+      : { eventIndex: u16(record["eventIndex"], `${path}.eventIndex`) }),
     ...(txViewingPk === undefined ? {} : { txViewingPk }),
     ...(salt === undefined ? {} : { salt }),
     outputSlots: array(record["outputSlots"], `${path}.outputSlots`, outputSlot),

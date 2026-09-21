@@ -123,6 +123,7 @@ pub struct ProvenTransfer {
     /// History entries a policy statement binds, zero without rules.
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
+    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
     pub cosigner: Option<Address>,
     /// The velocity statement demands the co-signer, the caller must sign with it.
     pub approval_required: bool,
@@ -647,14 +648,6 @@ impl<'a> CustomRingTransfer<'a> {
         // other is the one SPP checks. `encrypt` returning a `PendingCustomRingProof`
         // that only `finish` can turn into a witness is what makes the order
         // unforgettable: there is no `private_tx_hash` to supply yet.
-        let EncryptedAudit {
-            pending: pending_proof,
-            message: auditor_message,
-        } = CustomRingProofParams {
-            tx_viewing_key: tx_viewing_key.clone(),
-            auditor_pk,
-        }
-        .encrypt()?;
         let slots = encode_confidential_slots(&prepared.outputs, assets, &tx_viewing_key, salt)?;
         let mut messages = Vec::with_capacity(3);
         if let Some(plan) = stage.plan {
@@ -666,6 +659,25 @@ impl<'a> CustomRingTransfer<'a> {
             &proof_inputs.output_utxos,
             &mut proof_inputs.external_data.outputs,
         )?;
+        let EncryptedAudit {
+            pending: pending_proof,
+            message: auditor_message,
+        } = CustomRingProofParams {
+            tx_viewing_key: tx_viewing_key.clone(),
+            auditor_pk,
+            salt,
+            outputs: proof_inputs
+                .output_utxos
+                .iter()
+                .map(|output| {
+                    zolana_transaction::utxo::ProofInputUtxo::try_from((
+                        output,
+                        proof_inputs.output_tree_id,
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        }
+        .encrypt()?;
         messages.push(auditor_message.to_message_data(&auditor_pk));
         proof_inputs.external_data.messages = messages;
         // RING_TRANSACT is folded into external_data_hash and from there into
@@ -1095,6 +1107,7 @@ pub(crate) enum TierRequest {
         entries_tree: Address,
         roots: TransactRoots,
         approval_required: bool,
+        revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
         kind: PolicyProofKind,
     },
 }
@@ -1185,6 +1198,7 @@ impl TierRequestInput<'_> {
                     .map_err(|_| TransferError::PolicyHashing)?;
                 let roots = witness.roots;
                 let approval_required = witness.velocity.approval_required;
+                let revocation_targets = witness.revocation_targets;
                 let request = self.pending.finish(
                     self.private_tx_hash,
                     &external_data_hash,
@@ -1197,6 +1211,7 @@ impl TierRequestInput<'_> {
                     entries_tree,
                     roots,
                     approval_required,
+                    revocation_targets,
                     kind: PolicyProofKind::Ordinary,
                 }
             }
@@ -1232,21 +1247,32 @@ impl TierRequest {
         self
     }
 
-    pub fn proven(self, proof: Proof) -> Result<TierProof, TransferError> {
+    pub fn proven(self, proof: Proof) -> Result<TierBinding, TransferError> {
         let proof = to_instruction_proof(proof)?;
         Ok(match self {
-            Self::Base(_) => TierProof::Base(proof),
+            Self::Base(_) => TierBinding {
+                proof,
+                entries_tree: None,
+                state_root_index: 0,
+                nullifier_root_index: 0,
+                approval_required: false,
+                revocation_targets: [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
+                head_transition: None,
+            },
             Self::Policy {
                 entries_tree,
                 roots,
                 approval_required,
+                revocation_targets,
                 kind,
                 ..
-            } => TierProof::Policy {
+            } => TierBinding {
                 proof,
-                entries_tree,
-                roots,
+                entries_tree: Some(entries_tree),
+                state_root_index: roots.state_index,
+                nullifier_root_index: roots.nullifier_index,
                 approval_required,
+                revocation_targets,
                 head_transition: match kind {
                     PolicyProofKind::Compressed(head) => Some(head.transition),
                     _ => None,
@@ -1256,54 +1282,14 @@ impl TierRequest {
     }
 }
 
-/// The tier's proof in the instruction's wire encoding.
-pub(crate) enum TierProof {
-    Base(CustomRingProof),
-    Policy {
-        proof: CustomRingProof,
-        entries_tree: Address,
-        roots: TransactRoots,
-        approval_required: bool,
-        head_transition: Option<custom_ring_interface::HeadMapTransition>,
-    },
-}
-
 pub(crate) struct TierBinding {
     pub proof: CustomRingProof,
     pub entries_tree: Option<Address>,
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
     pub approval_required: bool,
+    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
     pub head_transition: Option<custom_ring_interface::HeadMapTransition>,
-}
-
-impl TierProof {
-    pub fn binding(self) -> TierBinding {
-        match self {
-            Self::Base(proof) => TierBinding {
-                proof,
-                entries_tree: None,
-                state_root_index: 0,
-                nullifier_root_index: 0,
-                approval_required: false,
-                head_transition: None,
-            },
-            Self::Policy {
-                proof,
-                entries_tree,
-                roots,
-                approval_required,
-                head_transition,
-            } => TierBinding {
-                proof,
-                entries_tree: Some(entries_tree),
-                state_root_index: roots.state_index,
-                nullifier_root_index: roots.nullifier_index,
-                approval_required,
-                head_transition,
-            },
-        }
-    }
 }
 
 /// Both witnesses built and the auditor encryption closed over the transfer's
@@ -1341,8 +1327,9 @@ impl WitnessedTransfer {
             state_root_index,
             nullifier_root_index,
             approval_required,
+            revocation_targets,
             head_transition,
-        } = self.request.proven(ring_proof)?.binding();
+        } = self.request.proven(ring_proof)?;
         let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
         Ok(ProvenTransfer {
             #[cfg(feature = "solana-rpc")]
@@ -1369,6 +1356,7 @@ impl WitnessedTransfer {
             nullifier_root_index,
             cosigner: self.cosigner,
             approval_required,
+            revocation_targets,
             head_transition,
             payer: self.payer,
             input_tree: self.input_tree,
@@ -1397,6 +1385,7 @@ impl ProvenTransfer {
             state_root_index: self.state_root_index,
             nullifier_root_index: self.nullifier_root_index,
             approval_required: self.approval_required,
+            revocation_targets: self.revocation_targets,
             head_transition: self.head_transition,
         }
         .instruction()

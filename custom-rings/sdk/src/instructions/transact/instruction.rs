@@ -60,6 +60,7 @@ pub struct CustomRingTransact {
     pub nullifier_root_index: u16,
     /// The dual control bit the velocity statement proves, the co-signer then signs.
     pub approval_required: bool,
+    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
     pub head_transition: Option<custom_ring_interface::HeadMapTransition>,
 }
 
@@ -80,6 +81,7 @@ impl CustomRingTransact {
             state_root_index,
             nullifier_root_index,
             approval_required,
+            revocation_targets,
             head_transition,
         } = self;
 
@@ -124,6 +126,19 @@ impl CustomRingTransact {
         if let Some(head_map_root) = head_map_root.filter(|_| entries_tree.is_some()) {
             accounts.push(AccountMeta::new(head_map_root, false));
         }
+        if let Some(entries_tree) = entries_tree {
+            accounts.extend(
+                revocation_targets
+                    .iter()
+                    .filter(|target| target.iter().any(|byte| *byte != 0))
+                    .map(|target| {
+                        AccountMeta::new_readonly(
+                            zolana_interface::pda::nullifier_pda(&entries_tree, target).0,
+                            false,
+                        )
+                    }),
+            );
+        }
         accounts.extend(windows);
         accounts.extend(spp_accounts);
 
@@ -133,6 +148,7 @@ impl CustomRingTransact {
             nullifier_root_index,
             approval_required: u8::from(approval_required),
             head_transition,
+            revocation_targets,
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

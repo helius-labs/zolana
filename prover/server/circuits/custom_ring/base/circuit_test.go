@@ -208,10 +208,13 @@ func buildAssignment(t *testing.T, keys audittest.Keys) *base.CustomRingBaseCirc
 	privateTxHash := big.NewInt(0xabcdef)
 	wires := keys.AuditBlockWires(privateTxHash)
 	return &base.CustomRingBaseCircuit{
-		PublicInputHash: spptest.MustHashChain(t, keys.ChainElements(t, privateTxHash)),
-		PrivateTxHash:   wires.PrivateTxHash,
-		TxViewingSk:     wires.TxViewingSk,
-		EphSk:           wires.EphSk,
-		AuditorPk:       wires.AuditorPk,
+		PublicInputHash:     spptest.MustHashChain(t, keys.ChainElementsFor(t, wires, 1)),
+		PrivateTxHash:       wires.PrivateTxHash,
+		TxViewingSk:         wires.TxViewingSk,
+		EphSk:               wires.EphSk,
+		AuditorPk:           wires.AuditorPk,
+		Salt:                wires.Salt,
+		Outputs:             wires.Outputs,
+		OutputCountSelected: wires.OutputCountSelected,
 	}
 }

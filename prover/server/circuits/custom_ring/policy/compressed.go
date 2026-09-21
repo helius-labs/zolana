@@ -22,6 +22,9 @@ type CompressedPolicyCircuit struct {
 }
 
 func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
+	for i := range c.TransactionSalt {
+		api.AssertIsEqual(c.TransactionSalt[i], c.Policy.Salt[i])
+	}
 	// 1. Prove the member's windowed policy and record transition.
 	api.AssertIsDifferent(c.Policy.WindowSlots, 0)
 	chain, txContext, counters := c.Policy.constrainPolicyRail(api, memberRail)

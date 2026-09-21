@@ -1,12 +1,21 @@
 import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../../interface/constants.js";
+import { addressBytes } from "../../interface/internal.js";
+import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
+import { treeIdField } from "../../interface/tree-slot.js";
 import type { Bytes16, Bytes32, Bytes33, MessageData } from "../../interface/types.js";
-import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
-import { randomSalt } from "../../keypair/bytes.js";
+import { hashBytes } from "../../hasher/index.js";
+import {
+  auditorMessageData,
+  encryptTransactionViewingSecret,
+  type AuditOutputOpening,
+} from "../../keypair/audit.js";
+import { bigIntToBytes, randomSalt } from "../../keypair/bytes.js";
 import { P256_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
 import { ShieldedAddress } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { TransactionError } from "../error.js";
+import { rightAlign, ZERO_32 } from "../internal.js";
 
 import { encodeConfidentialSlots } from "../instructions/transact.js";
 import {
@@ -21,7 +30,7 @@ import {
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
-import { createProofOutput, type ProofOutputUtxo } from "../utxo.js";
+import { createProofOutput, type ProofOutputUtxo, type TreeId } from "../utxo.js";
 import { SOL_MINT, type AssetRegistry } from "../asset.js";
 
 export type { SplitBundlePlaintext };
@@ -105,6 +114,7 @@ export function encryptCustomRingTransfer(
     outputs: readonly ProofOutputUtxo[];
     assets: AssetRegistry;
     auditorPublicKey: P256PublicKey;
+    outputTreeId: TreeId;
     recordOutputIndex?: number;
     sealedMessages?: readonly SealedMessageInput[];
     counterMessage?: Omit<SealedMessageInput, "slotIndex">;
@@ -115,8 +125,6 @@ export function encryptCustomRingTransfer(
   try {
     const salt = randomSalt();
     txViewingSecret = tx.secretBytes();
-    const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
-    ephemeralSecret = encryption.ephemeralSecret;
     const recipient = tx.publicKey();
     const outputs = recordCarrierOutputs(
       input.outputs,
@@ -124,6 +132,11 @@ export function encryptCustomRingTransfer(
         ? undefined
         : { index: input.recordOutputIndex, recipient },
     );
+    const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey, {
+      salt,
+      outputs: outputs.map((output) => auditOutputOpening(output, input.outputTreeId)),
+    });
+    ephemeralSecret = encryption.ephemeralSecret;
     const callerMessages = (input.sealedMessages ?? []).map((message) => ({
       slotIndex: message.slotIndex,
       plaintext: message.plaintext,
@@ -159,6 +172,24 @@ export function encryptCustomRingTransfer(
     txViewingSecret?.fill(0);
     ephemeralSecret?.fill(0);
   }
+}
+
+function auditOutputOpening(output: ProofOutputUtxo, outputTreeId: TreeId): AuditOutputOpening {
+  const dummy = output.isDummy();
+  return Object.freeze({
+    domain: rightAlign(Uint8Array.of(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),
+    treeId: treeIdField(outputTreeId),
+    ownerHash: dummy ? ZERO_32 : output.ownerHash(),
+    asset: dummy ? ZERO_32 : (hashBytes(addressBytes(output.asset)) as Bytes32),
+    amount: dummy ? ZERO_32 : (bigIntToBytes(output.amount) as Bytes32),
+    blinding: output.blinding,
+    dataHash: dummy ? ZERO_32 : (output.dataHash ?? ZERO_32),
+    ringDataHash: dummy ? ZERO_32 : (output.ringDataHash ?? ZERO_32),
+    ringProgramId:
+      dummy || output.ringProgramId === undefined
+        ? ZERO_32
+        : (hashBytes(addressBytes(output.ringProgramId)) as Bytes32),
+  });
 }
 
 /** The recipient viewing key does not affect the UTXO commitment. */

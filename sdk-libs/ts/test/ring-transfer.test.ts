@@ -91,7 +91,10 @@ import { Data } from "../src/transaction/data.js";
 import { ProofInputUtxo, Utxo, createProofOutput } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
 import { LocalKeys } from "../src/client/keys.js";
-import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
+import {
+  encryptConfidentialTransfer,
+  encryptCustomRingTransfer,
+} from "../src/transaction/wallet/encrypt-rails.js";
 import { LocalShieldedKeys } from "../src/transaction/wallet/keys.js";
 import { withTransactionKey } from "../src/wallet/private-transaction.js";
 
@@ -178,6 +181,7 @@ async function auditedProofInputs(
       outputs: ring.outputs,
       assets,
       auditorPublicKey: auditor.publicKey(),
+      outputTreeId: ring.outputTreeId,
     }),
   );
   const proofInputs = frameDummyOutputs(
@@ -192,11 +196,39 @@ async function auditedProofInputs(
   return { proofInputs, recipient };
 }
 
+/** Builds a wide SPP fixture for framing tests; custom-ring proofs deliberately cap outputs at four. */
+async function paddedProofInputs(
+  amount: bigint,
+  others: readonly bigint[] = [],
+  exits: readonly bigint[] = [],
+): Promise<Readonly<{ proofInputs: SppProofInputs; recipient: ReturnType<typeof actor> }>> {
+  const { prepared, sender, recipient } = preparedTransfer(amount, others, exits);
+  const encrypted = await withTransactionKey(sender.keys, prepared.firstNullifier, (tx) =>
+    encryptConfidentialTransfer(tx, {
+      outputs: prepared.outputs,
+      assets: new AssetRegistry(),
+    }),
+  );
+  return {
+    recipient,
+    proofInputs: frameDummyOutputs(
+      prepared.finalize({
+        txViewingPublicKey: encrypted.txViewingPublicKey,
+        salt: encrypted.salt,
+        payload: encrypted.payload,
+        instructionDiscriminator: InstructionTag.ringTransact,
+      }),
+    ),
+  };
+}
+
 function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
   const external = proofInputs.externalData;
   return {
     slot: 5n,
     txSignature: "1".repeat(87) as Signature,
+    eventIndex: 0,
+    ringProgramId: RING,
     txViewingPublicKey: external.txViewingPublicKey,
     salt: external.salt,
     outputSlots: external.outputs.map((output, index) => ({
@@ -649,7 +681,7 @@ describe("frameDummyOutputs", () => {
   }
   it("frames dummy slots as confidential bodies of the real length like Rust `frame_dummy_outputs`", async () => {
     // Five real outputs pad to the (1, 8) shape.
-    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
+    const { proofInputs } = await paddedProofInputs(4n, [1n, 1n, 1n]);
     expect(proofInputs.outputs).toHaveLength(8);
     const external = proofInputs.externalData;
     const lengths = external.outputs.map((output) => output.data?.length);
@@ -672,13 +704,13 @@ describe("frameDummyOutputs", () => {
       expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
     }
     expect(external.instructionDiscriminator).toBe(InstructionTag.ringTransact);
-    expect(external.messages).toHaveLength(1);
+    expect(external.messages).toHaveLength(0);
   });
 });
 
 describe("frameDummyOutputs with an exit", () => {
   it("frames a dummy after the default-ring slot, 32 bytes shorter than a ring slot", async () => {
-    const { proofInputs } = await auditedProofInputs(3n, ViewingKey.generate(), [1n, 1n], [1n]);
+    const { proofInputs } = await paddedProofInputs(3n, [1n, 1n], [1n]);
     expect(proofInputs.outputs).toHaveLength(8);
     const external = proofInputs.externalData;
     const lengthOf = (index: number): number => external.outputs[index]?.data?.length ?? 0;
@@ -726,7 +758,7 @@ function spendProofFor(input: ProofInputUtxo): SpendProof {
 
 describe("ring witness", () => {
   it("publishes owner hashes only for `Confidential` slots like Rust `confidential_marked_output_owner_pk_hashes`", async () => {
-    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
+    const { proofInputs } = await paddedProofInputs(4n, [1n, 1n, 1n]);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
     const spendProof = spendProofFor(input);
@@ -830,7 +862,7 @@ describe("ring openings", () => {
   });
 
   it("refuses a transfer wider than the ring slots", async () => {
-    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
+    const { proofInputs } = await paddedProofInputs(4n, [1n, 1n, 1n]);
     expect(proofInputs.outputs).toHaveLength(8);
     expect(() => ringOpenings(proofInputs)).toThrow("CLIENT_PROVER_INPUT");
   });
@@ -953,7 +985,7 @@ describe("ring openings", () => {
 describe("ring audit", () => {
   it("opens every real slot with the recovered transaction key like Rust `TransactionAudit`", async () => {
     const auditor = ViewingKey.generate();
-    const { proofInputs, recipient } = await auditedProofInputs(4n, auditor, [1n, 1n, 1n]);
+    const { proofInputs, recipient } = await auditedProofInputs(4n, auditor, [1n]);
     const transaction = indexed(proofInputs);
     const audited = auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() });
     expect(audited.signature).toBe(transaction.txSignature);
@@ -961,17 +993,15 @@ describe("ring audit", () => {
       proofInputs.externalData.txViewingPublicKey.toBytes(),
     );
     expect(audited.outputs.map((output) => [output.slotIndex, output.amount])).toEqual([
-      [0, 3n],
+      [0, 5n],
       [1, 4n],
       [2, 1n],
-      [3, 1n],
-      [4, 1n],
     ]);
     expect(audited.outputs[1]?.recipientViewingPublicKey.toBytes()).toEqual(
       recipient.address.viewingPublicKey.toBytes(),
     );
     expect(audited.outputs.every((output) => output.ringProgramId === RING)).toBe(true);
-    expect(audited.undecryptableSlots).toEqual([5, 6, 7]);
+    expect(audited.undecryptableSlots).toEqual([]);
   });
 
   it("accepts the auditor message only as the unique last entry", async () => {
@@ -1119,6 +1149,7 @@ describe("ring audit", () => {
     const recovered = recoverTransactionViewingKey(auditor, {
       ephemeralPublicKey: ephemeral.publicKey(),
       ciphertext,
+      disclosure: Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32),
     });
     expect(recovered.publicKey().toBytes()).toEqual(viewingKey.publicKey().toBytes());
   });
@@ -1243,8 +1274,8 @@ describe("ring proof folded fields", () => {
     const reads = entryProofReads({
       tree: ACTIVE_TREE,
       spenders: entries.flatMap((entry) => entry.spenders),
-      stateRoots: [{ value: scalar(94), index: 3 }],
-      nullifierRoots: [{ value: scalar(95), index: 4 }],
+      stateRoots: [{ value: new Uint8Array(32).fill(0x17) as Bytes32, index: 7 }],
+      nullifierRoots: [{ value: new Uint8Array(32).fill(0x28) as Bytes32, index: 8 }],
     });
     const order: string[] = [];
     const lineages = reads.getShieldedTransactionsByNullifiers.getMockImplementation();
@@ -1284,10 +1315,10 @@ describe("ring proof folded fields", () => {
     const enabled = request?.answers.filter((answer) => answer.enabled) ?? [];
     expect(enabled).toHaveLength(3);
     expect(enabled.every((answer) => answer.mode === 1 && answer.absentBranch === 2)).toBe(true);
-    expect(request?.stateRoot).toEqual(scalar(94));
-    expect(request?.nullifierRoot).toEqual(scalar(95));
-    expect(proven.stateRootIndex).toBe(3);
-    expect(proven.nullifierRootIndex).toBe(4);
+    expect(request?.stateRoot).toEqual(new Uint8Array(32).fill(0x17));
+    expect(request?.nullifierRoot).toEqual(new Uint8Array(32).fill(0x28));
+    expect(proven.stateRootIndex).toBe(7);
+    expect(proven.nullifierRootIndex).toBe(8);
     expect(reads.getMerkleProofs).toHaveBeenCalledTimes(1);
     expect(reads.getNonInclusionProofs).toHaveBeenCalledTimes(1);
     // The account rows travel verbatim.
@@ -1370,7 +1401,8 @@ describe("ring proof folded fields", () => {
     });
 
     if (finalized === undefined) throw new Error("finalized");
-    const message = finalized.externalData.messages[0];
+    const finalizedInputs = finalized;
+    const message = finalizedInputs.externalData.messages[0];
     if (message === undefined) throw new Error("auditor message");
     // The policy config account is never read for an audit-only ring.
     expect(accounts.read).not.toContain(accounts.policyAddress);
@@ -1379,9 +1411,13 @@ describe("ring proof folded fields", () => {
     expect(request?.publicInputHash).toEqual(
       auditPublicInputHash({
         privateTxHash: txHash,
-        txViewingPublicKey: finalized.externalData.txViewingPublicKey,
+        txViewingPublicKey: finalizedInputs.externalData.txViewingPublicKey,
         auditorPublicKey: auditor.publicKey(),
         message: parseAuditorMessage(message.data),
+        outputHashes: finalizedInputs.outputs.map((output) =>
+          output.hash(finalizedInputs.outputTreeId),
+        ),
+        salt: finalizedInputs.externalData.salt,
       }),
     );
     expect(proven).toMatchObject({ hasPolicy: false });

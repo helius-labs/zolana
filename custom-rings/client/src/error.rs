@@ -32,6 +32,12 @@ pub enum AuditError {
     RecoveredKeyInvalid(KeypairError),
     #[error("output slot count exceeds the bound u32 slot index {0}")]
     SlotIndexOverflow(usize),
+    #[error("transaction has {0} output slots, but the audit proof supports four")]
+    OutputDisclosureCount(usize),
+    #[error("proof-bound opening does not match output commitment at slot {0}")]
+    OutputCommitmentMismatch(u32),
+    #[error("recipient ciphertext disagrees with the proof-bound opening at slot {0}")]
+    OutputPlaintextMismatch(u32),
     #[error("the public spend record message is malformed or does not match its carrier")]
     InvalidSpendRecordMessage,
     #[error("invalid spend counters disclosure")]
@@ -43,6 +49,8 @@ pub enum AuditError {
     },
     #[error("ring scan cursor did not advance")]
     CursorNotAdvanced,
+    #[error("ring transaction event index is unavailable")]
+    MissingEventIndex,
     #[error(transparent)]
     Encryption(#[from] AuditEncryptionError),
     #[error(transparent)]

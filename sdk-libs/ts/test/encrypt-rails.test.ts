@@ -98,6 +98,7 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
           outputs: [recipientOutput()],
           assets: new AssetRegistry(),
           auditorPublicKey: auditor.publicKey(),
+          outputTreeId: 0,
         }),
       );
       expectWiped(minted);
@@ -204,6 +205,7 @@ describe("custom ring transfer seals each slot once", () => {
         outputs: [recipientOutput()],
         assets: new AssetRegistry(),
         auditorPublicKey: ViewingKey.generate().publicKey(),
+        outputTreeId: 0,
         ...extra,
       }),
     );

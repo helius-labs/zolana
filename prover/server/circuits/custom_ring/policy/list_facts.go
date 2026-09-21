@@ -42,10 +42,11 @@ type ListFactWires struct {
 
 // listFact supplies authenticated claims for evaluation when enabled.
 type listFact struct {
-	enabled frontend.Variable
-	mode    frontend.Variable
-	listId  frontend.Variable
-	member  frontend.Variable
+	enabled          frontend.Variable
+	mode             frontend.Variable
+	listId           frontend.Variable
+	member           frontend.Variable
+	revocationTarget frontend.Variable
 }
 
 // listFactContext ties a list fact to its configured namespace owner and
@@ -170,10 +171,11 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 	shared.AssertWhen(api, w.Enabled, gadget.IsLessLimbs(api, targetLimbs, nextLimbs))
 
 	return listFact{
-		enabled: w.Enabled,
-		mode:    w.Mode,
-		listId:  w.ListId,
-		member:  w.Member,
+		enabled:          w.Enabled,
+		mode:             w.Mode,
+		listId:           w.ListId,
+		member:           w.Member,
+		revocationTarget: api.Mul(w.Enabled, nonInclusionTarget),
 	}
 }
 

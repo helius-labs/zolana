@@ -299,6 +299,7 @@ pub(super) async fn hydrate_shielded_transactions(
                 transaction: ShieldedTransaction {
                     slot: u64_from_i64(row.slot, "slot")?,
                     tx_signature: signature_from_bytes(&row.signature)?,
+                    event_index: Some(u16_from_i16(row.event_index, "event index")?),
                     tx_viewing_pk: row.tx_viewing_pk.map(Base64String),
                     salt: row.salt.map(Base64String),
                     output_slots: outputs_by_tx.remove(&row.rings_tx_id).unwrap_or_default(),

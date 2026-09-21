@@ -12,8 +12,10 @@
 use crate::encryption::{auditor_view_tag, AuditorMessage};
 use p256::{elliptic_curve::ops::Reduce, FieldBytes, Scalar, U256};
 use zeroize::Zeroizing;
+use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
+use zolana_transaction::utxo::{program_id_proof_input_hash, ProofInputUtxo};
 use zolana_transaction::{
     serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
     ShieldedTransaction, SOL_MINT,
@@ -55,19 +57,43 @@ impl TransactionAudit<'_> {
         if tx_key.pubkey() != tx_viewing_pk {
             return Err(AuditError::TxViewingKeyMismatch);
         }
+        if self.transaction.output_slots.len() > custom_ring_interface::AUDIT_OUTPUT_SLOTS {
+            return Err(AuditError::OutputDisclosureCount(
+                self.transaction.output_slots.len(),
+            ));
+        }
+        let disclosed = message.open_outputs(&tx_key, salt)?;
 
         let mut outputs = Vec::new();
+        let mut output_openings = Vec::with_capacity(self.transaction.output_slots.len());
         let mut spend_records = Vec::new();
         let mut undecryptable_slots = Vec::new();
         for (position, slot) in self.transaction.output_slots.iter().enumerate() {
             let slot_index =
                 u32::try_from(position).map_err(|_| AuditError::SlotIndexOverflow(position))?;
+            let opening = disclosed[position];
+            let committed = ProofInputUtxo {
+                domain: opening.domain,
+                tree_id: opening.tree_id,
+                owner_hash: opening.owner_hash,
+                asset: opening.asset,
+                amount: opening.amount,
+                blinding: opening.blinding,
+                data_hash: opening.data_hash,
+                ring_data_hash: opening.ring_data_hash,
+                ring_program_id: opening.ring_program_id,
+            };
+            if committed.hash().ok() != Some(slot.output_context.hash) {
+                return Err(AuditError::OutputCommitmentMismatch(slot_index));
+            }
+            output_openings.push(opening);
             let opened = OutputAudit {
                 tx_key: &tx_key,
                 slot,
                 salt,
                 slot_index,
                 assets: self.assets,
+                opening: &opening,
             }
             .run()?;
             let record = match RecordCarrier::decode(slot, &self.transaction.messages)? {
@@ -115,6 +141,7 @@ impl TransactionAudit<'_> {
             slot: self.transaction.slot,
             tx_viewing_pk,
             outputs,
+            output_openings,
             spend_records,
             undecryptable_slots,
         })
@@ -167,6 +194,7 @@ struct OutputAudit<'a> {
     salt: [u8; SALT_LEN],
     slot_index: u32,
     assets: &'a AssetRegistry,
+    opening: &'a crate::AuditOutputOpening,
 }
 
 impl OutputAudit<'_> {
@@ -198,6 +226,17 @@ impl OutputAudit<'_> {
                     asset_id: plaintext.asset_id,
                     source,
                 })?;
+        let asset_field = hash_bytes(asset.as_array())
+            .map_err(|_| AuditError::OutputPlaintextMismatch(self.slot_index))?;
+        let ring_program_id = program_id_proof_input_hash(&plaintext.ring_program_id)
+            .map_err(|_| AuditError::OutputPlaintextMismatch(self.slot_index))?;
+        if asset_field != self.opening.asset
+            || right_align(&plaintext.amount.to_be_bytes()) != self.opening.amount
+            || plaintext.blinding != self.opening.blinding
+            || ring_program_id != self.opening.ring_program_id
+        {
+            return Err(AuditError::OutputPlaintextMismatch(self.slot_index));
+        }
         Ok(Some(AuditedOutput {
             slot_index: self.slot_index,
             recipient_viewing_pk,

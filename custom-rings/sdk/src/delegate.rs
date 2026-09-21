@@ -67,6 +67,7 @@ pub struct ProvenDelegateTransfer {
     pub proof: CustomRingProof,
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
+    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
     pub cosigner: Option<Address>,
     delegate: Address,
     payer: Address,
@@ -262,14 +263,7 @@ impl<'a> DelegateTransfer<'a> {
         .validate()?;
         check_balance(&self.inputs, &outputs)?;
         let tx_viewing_key = ViewingKey::new();
-        let EncryptedAudit {
-            pending: pending_proof,
-            message: auditor_message,
-        } = CustomRingProofParams {
-            tx_viewing_key: tx_viewing_key.clone(),
-            auditor_pk,
-        }
-        .encrypt()?;
+        let salt = random_salt();
         let mut prepared = RingAuthorityMove {
             ring_program_id: program_id,
             inputs: self.inputs,
@@ -282,8 +276,24 @@ impl<'a> DelegateTransfer<'a> {
         .finalize(AuthoritySeal {
             tx: &tx_viewing_key,
             assets,
-            salt: random_salt(),
+            salt,
         })?;
+        let EncryptedAudit {
+            pending: pending_proof,
+            message: auditor_message,
+        } = CustomRingProofParams {
+            tx_viewing_key: tx_viewing_key.clone(),
+            auditor_pk,
+            salt,
+            outputs: prepared
+                .outputs
+                .iter()
+                .map(|output| {
+                    zolana_transaction::utxo::ProofInputUtxo::try_from((output, trees.output.id))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        }
+        .encrypt()?;
         frame_dummy_outputs(&prepared.outputs, &mut prepared.external_data.outputs)?;
         prepared.external_data.messages = vec![auditor_message.to_message_data(&auditor_pk)];
         Ok(StagedDelegateTransfer {
@@ -427,8 +437,9 @@ impl WitnessedDelegateTransfer {
             state_root_index,
             nullifier_root_index,
             approval_required: _,
+            revocation_targets,
             head_transition: _,
-        } = self.request.proven(ring_proof)?.binding();
+        } = self.request.proven(ring_proof)?;
         let width = self.prepared.shape.n_inputs() as u8;
         Ok(ProvenDelegateTransfer {
             tx_viewing_key: self.tx_viewing_key,
@@ -446,6 +457,7 @@ impl WitnessedDelegateTransfer {
             proof,
             state_root_index,
             nullifier_root_index,
+            revocation_targets,
             cosigner: self.cosigner,
             delegate: self.delegate,
             payer: self.prepared.payer,
@@ -471,6 +483,7 @@ impl ProvenDelegateTransfer {
             transact: self.data.clone(),
             state_root_index: self.state_root_index,
             nullifier_root_index: self.nullifier_root_index,
+            revocation_targets: self.revocation_targets,
         }
         .instruction()
         .map_err(Into::into)

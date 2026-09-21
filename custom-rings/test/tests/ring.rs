@@ -805,6 +805,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             state_root_index: 0,
             nullifier_root_index: 0,
             approval_required: false,
+            revocation_targets: proven.revocation_targets,
             head_transition: None,
         }
         .instruction()?,

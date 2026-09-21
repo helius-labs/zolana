@@ -961,6 +961,7 @@ fn proofless_deposit_from_indexed_match(
     Ok(Some(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature,
+        event_index: Some(0),
         tx_viewing_pk: None,
         salt: None,
         output_slots: vec![OutputSlot {
@@ -975,6 +976,8 @@ fn proofless_deposit_from_indexed_match(
         messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
+        ring_config: None,
+        ring_program_id: None,
     }))
 }
 
@@ -997,12 +1000,15 @@ fn convert_sync_transaction(
     Ok(ShieldedTransaction {
         slot: tx.slot,
         tx_signature: tx.tx_signature,
+        event_index: tx.event_index,
         tx_viewing_pk: tx.tx_viewing_pk,
         salt: tx.salt,
         output_slots,
         messages: tx.messages,
         nullifiers: tx.nullifiers,
         proofless: false,
+        ring_config: tx.ring_config,
+        ring_program_id: tx.ring_program_id,
     })
 }
 
@@ -1101,6 +1107,7 @@ mod tests {
                 .map(|(slot, tag)| ShieldedTransaction {
                     slot: *slot,
                     tx_signature: Signature::from([*slot as u8; 64]),
+                    event_index: Some(0),
                     tx_viewing_pk: None,
                     salt: None,
                     output_slots: vec![OutputSlot {
@@ -1115,6 +1122,8 @@ mod tests {
                     messages: Vec::new(),
                     nullifiers: Vec::new(),
                     proofless: false,
+                    ring_config: None,
+                    ring_program_id: None,
                 })
                 .collect();
             (transactions, next)
@@ -1157,12 +1166,15 @@ mod tests {
                 .map(|(slot, nullifier)| ShieldedTransaction {
                     slot: *slot,
                     tx_signature: Signature::from([*slot as u8; 64]),
+                    event_index: Some(0),
                     tx_viewing_pk: None,
                     salt: None,
                     output_slots: Vec::new(),
                     messages: Vec::new(),
                     nullifiers: vec![*nullifier],
                     proofless: false,
+                    ring_config: None,
+                    ring_program_id: None,
                 })
                 .collect();
             (transactions, next, scanned_through)
@@ -2453,6 +2465,7 @@ mod tests {
             transactions: vec![ShieldedTransaction {
                 slot: 1,
                 tx_signature: Signature::default(),
+                event_index: Some(0),
                 tx_viewing_pk: None,
                 salt: None,
                 output_slots: vec![OutputSlot {
@@ -2467,6 +2480,8 @@ mod tests {
                 messages: Vec::new(),
                 nullifiers: Vec::new(),
                 proofless: false,
+                ring_config: None,
+                ring_program_id: None,
             }],
             matches: Vec::new(),
             program_accounts: Vec::new(),
@@ -2765,6 +2780,7 @@ mod tests {
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
+            event_index: Some(0),
             tx_viewing_pk: Some(
                 zolana_keypair::P256Pubkey::from_bytes(external.tx_viewing_pk)
                     .expect("tx viewing pk"),
@@ -2774,6 +2790,8 @@ mod tests {
             messages,
             nullifiers,
             proofless: false,
+            ring_config: None,
+            ring_program_id: None,
         }
     }
 
@@ -2808,6 +2826,7 @@ mod tests {
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
+            event_index: Some(0),
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![OutputSlot {
@@ -2825,6 +2844,8 @@ mod tests {
                 .map(|commitment| commitment.nullifier)
                 .collect(),
             proofless: false,
+            ring_config: None,
+            ring_program_id: None,
         }
     }
 

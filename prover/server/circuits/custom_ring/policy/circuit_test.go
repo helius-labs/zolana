@@ -536,6 +536,26 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("transfer_cap_public_input_hash %s\n", hex32(cv.publicInputHash))
 }
 
+func TestNonzeroRevocationTailVector(t *testing.T) {
+	baseHash, _ := new(big.Int).SetString("25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093", 16)
+	repeatedTarget, _ := new(big.Int).SetString("1111111111111111111111111111111111111111111111111111111111111111", 16)
+	filled := func(value byte) *big.Int {
+		data := make([]byte, 32)
+		for i := range data {
+			data[i] = value
+		}
+		return new(big.Int).SetBytes(data)
+	}
+	elements := []*big.Int{
+		baseHash, filled(0x2a), filled(6), filled(7), big.NewInt(9), filled(8), filled(10),
+		big.NewInt(3), big.NewInt(1), big.NewInt(0x42), repeatedTarget,
+	}
+	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), NListFacts-2)...)
+	if got := hex32(spptest.MustHashChain(t, elements)); got != "15f667068a6366740e0cf6565708977d75a885347a08ccd47c6bd204d8096456" {
+		t.Fatalf("nonzero revocation tail %s", got)
+	}
+}
+
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *CustomRingPolicyCircuit) {
 	t.Helper()
 	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
@@ -1160,6 +1180,7 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 		TxViewingSk:        wires.TxViewingSk,
 		EphSk:              wires.EphSk,
 		AuditorPk:          wires.AuditorPk,
+		Salt:               wires.Salt,
 		AddressChain:       s.addressChain,
 		ExternalDataHash:   s.externalDataHash,
 		PrivateTxBlinding:  s.privateTxBlinding,
@@ -1240,6 +1261,8 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	for e, index := range listFacts {
 		c.ListFacts[e] = s.listFactForEntry(t, index)
 	}
+	s.publicInputHash = s.publicInputHashForTargets(t, s.revocationTargets(listFacts))
+	c.PublicInputHash = s.publicInputHash
 	return c
 }
 

@@ -526,6 +526,8 @@ describe("deposit recovery", () => {
     const deposit: IndexedShieldedTransaction = {
       txSignature: "1".repeat(87) as Signature,
       slot: 1n,
+      eventIndex: 0,
+      ringProgramId: RING,
       proofless: true,
       nullifiers: [],
       messages: [],
@@ -602,6 +604,8 @@ describe("deposit recovery", () => {
       const merge: IndexedShieldedTransaction = {
         txSignature: "2".repeat(87) as Signature,
         slot: 2n,
+        eventIndex: 0,
+        ringProgramId: RING,
         proofless: false,
         nullifiers: [
           nullifier,

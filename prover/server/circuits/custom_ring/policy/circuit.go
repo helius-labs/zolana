@@ -28,6 +28,7 @@ type CustomRingPolicyCircuit struct {
 	TxViewingSk   [32]frontend.Variable
 	EphSk         [32]frontend.Variable
 	AuditorPk     [65]frontend.Variable
+	Salt          [16]frontend.Variable
 
 	Inputs  [NInputs]UtxoWires
 	Outputs [NOutputs]UtxoWires
@@ -97,10 +98,13 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, transactionContext, successorCounters) {
 	// 1. Prove the audit encryption statement.
 	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
-		PrivateTxHash: c.PrivateTxHash,
-		TxViewingSk:   c.TxViewingSk,
-		EphSk:         c.EphSk,
-		AuditorPk:     c.AuditorPk,
+		PrivateTxHash:       c.PrivateTxHash,
+		TxViewingSk:         c.TxViewingSk,
+		EphSk:               c.EphSk,
+		AuditorPk:           c.AuditorPk,
+		Salt:                c.Salt,
+		Outputs:             auditOutputs(api, c.Outputs),
+		OutputCountSelected: c.OutputCountSelected,
 	})
 	// Both blocks share one BSB22 commitment.
 	rangeChecker := rangecheck.New(api)
@@ -134,5 +138,8 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 		checked.hash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,
 	)
+	for _, fact := range listFacts {
+		chain = append(chain, fact.revocationTarget)
+	}
 	return chain, txContext, counters
 }

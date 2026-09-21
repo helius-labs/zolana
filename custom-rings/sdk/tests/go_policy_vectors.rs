@@ -397,8 +397,14 @@ fn the_public_input_chain_extends_the_audit_chain() {
         auditor_pk: &[3u8; 33],
         eph_pk: &[4u8; 33],
         ciphertext: &[5u8; 32],
+        output_hashes: &[[0u8; 32]; 4],
+        salt: &[0u8; 16],
+        disclosure: &[[0u8; 32]; custom_ring_interface::AUDIT_DISCLOSURE_FIELD_COUNT],
     };
     let elements = audit.elements().expect("elements");
+    let mut revocation_targets = [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS];
+    revocation_targets[0] = field(0x42);
+    revocation_targets[1] = [0x11; 32];
     let policy = CustomRingPolicyPublicInput {
         audit,
         policy_hash: &hex32(POLICY_HASH),
@@ -409,16 +415,10 @@ fn the_public_input_chain_extends_the_audit_chain() {
         namespace_owner_hash: &[9u8; 32],
         window_index: 3,
         approval_required: true,
+        revocation_targets: &revocation_targets,
     };
-    let chain = zolana_hasher::hash_chain::create_hash_chain_from_slice(&[
-        elements[0],
-        elements[1],
-        elements[2],
-        elements[3],
-        elements[4],
-        elements[5],
-        elements[6],
-        elements[7],
+    let mut expected = elements.to_vec();
+    expected.extend_from_slice(&[
         hex32(POLICY_HASH),
         [6u8; 32],
         [7u8; 32],
@@ -427,9 +427,34 @@ fn the_public_input_chain_extends_the_audit_chain() {
         [9u8; 32],
         field(3),
         field(1),
-    ])
-    .expect("chain");
+    ]);
+    expected.extend_from_slice(&revocation_targets);
+    let chain = zolana_hasher::hash_chain::create_hash_chain_from_slice(&expected).expect("chain");
     assert_eq!(policy.hash().expect("policy input"), chain);
+}
+
+#[test]
+fn nonzero_revocation_tail_matches_go_and_typescript() {
+    let mut elements = vec![hex32(
+        "25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093",
+    )];
+    elements.extend_from_slice(&[
+        [0x2a; 32],
+        [6; 32],
+        [7; 32],
+        zolana_interface::tree_slot::tree_id_field(9),
+        [8; 32],
+        [10; 32],
+        field(3),
+        field(1),
+        field(0x42),
+        [0x11; 32],
+    ]);
+    elements.extend_from_slice(&[[0; 32]; zolana_ring_policy::ANSWER_SLOTS - 2]);
+    assert_eq!(
+        zolana_hasher::hash_chain::create_hash_chain_from_slice(&elements).expect("chain"),
+        hex32("15f667068a6366740e0cf6565708977d75a885347a08ccd47c6bd204d8096456")
+    );
 }
 
 /// The program reads the policy config out of the prefix, so the builder must
@@ -461,6 +486,7 @@ fn the_policy_transact_carries_the_policy_config() {
         state_root_index: 0,
         nullifier_root_index: 0,
         approval_required: false,
+        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         head_transition: None,
     }
     .instruction()

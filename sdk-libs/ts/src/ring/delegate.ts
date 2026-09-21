@@ -311,6 +311,7 @@ async function buildDelegateTransaction(
       proof: proven.proof,
       stateRootIndex: proven.stateRootIndex,
       nullifierRootIndex: proven.nullifierRootIndex,
+      revocationTargets: proven.revocationTargets,
       data: proven.data,
       delegate,
       ...(cosigner === undefined ? {} : { cosigner }),

@@ -112,6 +112,11 @@ export async function recoverRingMemberNotes(
       )
         continue;
       const { outputContext } = output;
+      const opening = transaction.outputOpenings[output.slotIndex];
+      if (opening === undefined) {
+        unopened.push(outputContext.hash);
+        continue;
+      }
       const key = bytesKey(outputContext.hash);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -128,28 +133,22 @@ export async function recoverRingMemberNotes(
         data: output.data,
         ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
       });
-      let hashes: Readonly<{ dataHash?: Bytes32; ringDataHash?: Bytes32 }> | undefined;
-      if (!equal(utxo.hash(input.source.nullifierPublicKey, treeId), outputContext.hash)) {
-        hashes = await input.resolveOutputHashes?.(output);
-        if (
-          hashes === undefined ||
-          !equal(
-            utxo.hash(
-              input.source.nullifierPublicKey,
-              treeId,
-              hashes.dataHash,
-              hashes.ringDataHash,
-            ),
-            outputContext.hash,
-          )
-        ) {
-          unopened.push(outputContext.hash);
-          unopenedNullifiers.set(
-            bytesKey(outputContext.hash),
-            utxo.nullifier(outputContext.hash, input.nullifierKey),
-          );
-          continue;
-        }
+      const hashes = {
+        ...(isZero(opening.dataHash) ? {} : { dataHash: opening.dataHash }),
+        ...(isZero(opening.ringDataHash) ? {} : { ringDataHash: opening.ringDataHash }),
+      };
+      if (
+        !equal(
+          utxo.hash(input.source.nullifierPublicKey, treeId, hashes.dataHash, hashes.ringDataHash),
+          outputContext.hash,
+        )
+      ) {
+        unopened.push(outputContext.hash);
+        unopenedNullifiers.set(
+          bytesKey(outputContext.hash),
+          utxo.nullifier(outputContext.hash, input.nullifierKey),
+        );
+        continue;
       }
       candidates.push({
         utxo,
@@ -195,7 +194,13 @@ export async function recoverRingMemberNotes(
       const hash = bytesKey(slot.outputContext.hash);
       if (
         !seen.has(hash) &&
-        (await origin.ringInvoked(transaction.txSignature, input.ringProgramId, context))
+        transaction.eventIndex !== undefined &&
+        (await origin.ringInvoked(
+          transaction.txSignature,
+          transaction.eventIndex,
+          input.ringProgramId,
+          context,
+        ))
       )
         pending.set(hash, transaction);
     }
@@ -243,6 +248,10 @@ export async function recoverRingMemberNotes(
   });
 }
 
+function isZero(bytes: Uint8Array): boolean {
+  return bytes.every((byte) => byte === 0);
+}
+
 async function recoverDeposits(
   input: RingRecoveryParams,
   origin: TransactionOrigin,
@@ -278,7 +287,13 @@ async function recoverDeposits(
         }
         if (
           deposit.ringProgramId !== input.ringProgramId ||
-          !(await origin.ringInvoked(transaction.txSignature, input.ringProgramId, context))
+          transaction.eventIndex === undefined ||
+          !(await origin.ringInvoked(
+            transaction.txSignature,
+            transaction.eventIndex,
+            input.ringProgramId,
+            context,
+          ))
         )
           continue;
         let opening;

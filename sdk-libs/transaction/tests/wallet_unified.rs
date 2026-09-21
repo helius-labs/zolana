@@ -106,6 +106,7 @@ fn fresh_sync_resolves_merge_dependencies() {
     let merge = ShieldedTransaction {
         slot: 2,
         tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: None,
         salt: None,
         output_slots: vec![OutputSlot {
@@ -122,6 +123,8 @@ fn fresh_sync_resolves_merge_dependencies() {
         messages: Vec::new(),
         nullifiers,
         proofless: false,
+        ring_config: None,
+        ring_program_id: None,
     };
     let merge_context = &merge.output_slots[0].output_context;
     let chained_nullifier = output
@@ -144,6 +147,7 @@ fn fresh_sync_resolves_merge_dependencies() {
     let chained_merge = ShieldedTransaction {
         slot: 3,
         tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: None,
         salt: None,
         output_slots: vec![OutputSlot {
@@ -160,6 +164,8 @@ fn fresh_sync_resolves_merge_dependencies() {
         messages: Vec::new(),
         nullifiers: chained_nullifiers,
         proofless: false,
+        ring_config: None,
+        ring_program_id: None,
     };
     let authority = KeypairWalletAuthority::new(Address::default(), &alice);
 
@@ -227,6 +233,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
     let merge = ShieldedTransaction {
         slot: 2,
         tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: None,
         salt: None,
         output_slots: vec![OutputSlot {
@@ -241,6 +248,8 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
         messages: Vec::new(),
         nullifiers,
         proofless: false,
+        ring_config: None,
+        ring_program_id: Some(ring),
     };
     let mut wallet = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
     wallet.utxos.push(WalletUtxo {

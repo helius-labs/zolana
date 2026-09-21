@@ -6,7 +6,6 @@ use custom_ring_program::{CustomRingError, NULLIFIER_ROOT_WINDOW};
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
-use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_interface::{
     event::RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
     instruction::{
@@ -16,6 +15,7 @@ use zolana_interface::{
         MessageData,
     },
 };
+use zolana_interface::{pda, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID};
 
 use solana_pubkey::Pubkey;
 use zolana_interface::state::NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
@@ -87,6 +87,22 @@ pub(crate) fn body(
     approval_required: u8,
     transact: TransactIxData,
 ) -> Vec<u8> {
+    body_with_targets(
+        state_root_index,
+        nullifier_root_index,
+        approval_required,
+        [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
+        transact,
+    )
+}
+
+fn body_with_targets(
+    state_root_index: u16,
+    nullifier_root_index: u16,
+    approval_required: u8,
+    revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
+    transact: TransactIxData,
+) -> Vec<u8> {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
         &wincode::serialize(&CustomRingTransactIxData {
@@ -103,11 +119,59 @@ pub(crate) fn body(
             nullifier_root_index,
             approval_required,
             head_transition: None,
+            revocation_targets,
             transact,
         })
         .expect("serialize policy transact body"),
     );
     data
+}
+
+fn revocation_fixture(target_account: Pubkey, target_state: solana_account::Account) -> Fixture {
+    let mut target = [0u8; 32];
+    target[31] = 7;
+    let mut targets = [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS];
+    targets[0] = target;
+    let mut fixture = transact_fixture(
+        initialized_config_account(authority(), auditor_pubkey(2)),
+        body_with_targets(0, 0, 0, targets, transact_data()),
+    );
+    fixture.insert_windows(vec![Slot {
+        label: "revocation_target",
+        meta: AccountMeta::new_readonly(target_account, false),
+        account: target_state,
+    }]);
+    fixture
+}
+
+#[test]
+fn an_unused_canonical_revocation_target_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let mut target = [0u8; 32];
+    target[31] = 7;
+    let address = pda::nullifier_pda(&entries_tree(), &target).0;
+    revocation_fixture(address, account(0))
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn a_substituted_revocation_target_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    revocation_fixture(Pubkey::new_from_array([91; 32]), account(0))
+        .expect_err(&mollusk, custom(CustomRingError::InvalidRevocationTarget));
+}
+
+#[test]
+fn a_queued_revocation_target_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut target = [0u8; 32];
+    target[31] = 7;
+    let address = pda::nullifier_pda(&entries_tree(), &target).0;
+    let mut queued = account(1_000_000);
+    queued.owner = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    queued.data = vec![1];
+    revocation_fixture(address, queued)
+        .expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
 }
 
 fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {

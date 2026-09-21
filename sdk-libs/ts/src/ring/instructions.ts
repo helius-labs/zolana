@@ -198,6 +198,7 @@ type RingTransactCommon = Readonly<{
   /** Must equal the proof's approval bit. */
   approvalRequired?: boolean;
   headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
+  revocationTargets?: readonly Bytes32[];
 }>;
 
 export async function ringTransactInstruction(
@@ -210,11 +211,19 @@ export async function ringTransactInstruction(
     }>,
 ): Promise<Instruction> {
   const hasPolicy = input.hasPolicy ?? true;
-  const [config, ringAuth, cosignerPda, windows] = await Promise.all([
+  const entriesTree = input.entriesTree;
+  const [config, ringAuth, cosignerPda, windows, revocationPdas] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
     ringSpendWindowMetas(input.ringProgramId, settledMints(input.data, input.withdrawal)),
+    entriesTree === undefined
+      ? []
+      : Promise.all(
+          (input.revocationTargets ?? [])
+            .filter((target) => target.some((byte) => byte !== 0))
+            .map((target) => nullifierPdaAddress(entriesTree, target)),
+        ),
   ]);
   const payerAddress = signerAddress(input.payer);
   const raw = await ringTransactAccounts({
@@ -253,6 +262,7 @@ export async function ringTransactInstruction(
               role: AccountRole.WRITABLE,
             },
           ]),
+      ...revocationPdas.map((address) => ({ address, role: AccountRole.READONLY })),
       ...windows,
       ...pool,
     ],
@@ -268,6 +278,7 @@ function transactData(
     nullifierRootIndex: number;
     approvalRequired?: boolean;
     headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
+    revocationTargets?: readonly Bytes32[];
     data: TransactInstructionData;
   }>,
 ): Uint8Array {
@@ -281,6 +292,15 @@ function transactData(
     prefix
       .bytes(input.headTransition.oldRoot, 32, "headOldRoot")
       .bytes(input.headTransition.newRoot, 32, "headNewRoot");
+  const targets = input.revocationTargets ?? [];
+  if (targets.length !== 0 && targets.length !== 10) {
+    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED", {
+      details: { revocationTargets: targets.length },
+    });
+  }
+  for (let index = 0; index < 10; index++) {
+    prefix.bytes(targets[index] ?? new Uint8Array(32), 32, "revocationTarget");
+  }
   const prefixBytes = prefix.finish();
   const transact = encodeTransactInstructionData(input.data);
   const data = new Uint8Array(1 + proof.length + prefixBytes.length + transact.length);
@@ -309,11 +329,19 @@ export async function ringDelegateTransactInstruction(
     });
   }
   const hasPolicy = input.hasPolicy ?? true;
-  const [config, ringAuth, cosignerPda, delegatePda] = await Promise.all([
+  const entriesTree = input.entriesTree;
+  const [config, ringAuth, cosignerPda, delegatePda, revocationPdas] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
     ringDelegateAddress(input.ringProgramId),
+    entriesTree === undefined
+      ? []
+      : Promise.all(
+          (input.revocationTargets ?? [])
+            .filter((target) => target.some((byte) => byte !== 0))
+            .map((target) => nullifierPdaAddress(entriesTree, target)),
+        ),
   ]);
   const pool = await ringTransactAccounts({
     payer: input.payer,
@@ -332,6 +360,7 @@ export async function ringDelegateTransactInstruction(
       meta(delegatePda, false, false),
       meta(input.delegate, true, false),
       ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
+      ...revocationPdas.map((address) => ({ address, role: AccountRole.READONLY })),
       ...pool,
     ],
     data: transactData(RingProgramTag.delegateTransact, input),

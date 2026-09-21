@@ -38,10 +38,13 @@ func compressedAssignment(t *testing.T, change func(member, spent, successor *bi
 	for i, b := range c.TxViewingSk {
 		secret[i] = byte(spptest.AsBigInt(b).Uint64())
 	}
-	elements := s.keys.ChainElements(t, s.privateTxHash)
-	c.PublicInputHash = spptest.MustHashChain(t, append(elements,
+	elements := s.auditChainElements(t)
+	elements = append(elements,
 		s.policyHash, s.stateRoot, s.nullifierRoot, big.NewInt(entriesTreeID),
 		s.ringID, s.ownOwnerHash, new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval),
+	)
+	elements = append(elements, s.revocationTargets(f.facts())...)
+	c.PublicInputHash = spptest.MustHashChain(t, append(elements,
 		transition.OldRoot, transition.NewRoot, spptest.CounterDisclosure{
 			Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent,
 		}.Hash(t),

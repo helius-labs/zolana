@@ -56,6 +56,7 @@ import {
   ringDelegateAddress,
   ringDelegatePda,
   ringDepositAuditAddress,
+  nullifierPdaAddress,
   ringPolicyConfigAddress,
   ringSpendWindowAddress,
   ringSpendWindowPda,
@@ -1537,6 +1538,11 @@ describe("ring transact", () => {
       programAddress: RING,
       seeds: [new TextEncoder().encode("policy")],
     });
+    const revocationTarget = filled(66, 32) as Bytes32;
+    const revocationTargets = [
+      revocationTarget,
+      ...Array.from({ length: 9 }, () => filled(0, 32) as Bytes32),
+    ];
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
@@ -1546,6 +1552,7 @@ describe("ring transact", () => {
       proof: customRingProof(),
       stateRootIndex: 0,
       nullifierRootIndex: 0,
+      revocationTargets,
       data: transactData(),
     });
     expect(instruction.programAddress).toBe(RING);
@@ -1556,6 +1563,7 @@ describe("ring transact", () => {
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [policyConfig, AccountRole.READONLY],
       [ENTRIES_TREE, AccountRole.READONLY],
+      [await nullifierPdaAddress(ENTRIES_TREE, revocationTarget), AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SPP, AccountRole.READONLY],
@@ -1563,7 +1571,15 @@ describe("ring transact", () => {
       [RING_AUTH, AccountRole.READONLY],
       [TREE, AccountRole.WRITABLE],
     ]);
-    expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
+    const encoded = Buffer.from(instruction.data ?? []).toString("hex");
+    const targetOffset = (1 + 192 + 6) * 2;
+    expect(encoded.slice(targetOffset, targetOffset + 32 * 2)).toBe("42".repeat(32));
+    expect(encoded.slice(targetOffset + 32 * 2, targetOffset + 10 * 32 * 2)).toBe(
+      "00".repeat(9 * 32),
+    );
+    const withoutRevocationTargets =
+      encoded.slice(0, targetOffset) + encoded.slice(targetOffset + 10 * 32 * 2);
+    expect(withoutRevocationTargets).toBe(
       "03333333333333333333333333333333333333333333333333333333333333333334343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434353535353535353535353535353535353535353535353535353535353535353536363636363636363636363636363636363636363636363636363636363636363737373737373737373737373737373737373737373737373737373737373737000000000000ffffffffffffffff0303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000000292929292929292929292929292929292929292929292929292929292929292901000203032b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000100000000",
     );
   });

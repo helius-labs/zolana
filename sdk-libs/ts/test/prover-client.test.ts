@@ -110,6 +110,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     txViewingSecret: bytes(2),
     ephemeralSecret: bytes(3),
     auditorPublicKey,
+    salt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
     nIn: 2,
     nOut: 2,
     inputs: Array.from({ length: 5 }, () => zeroOpening()),
@@ -139,6 +140,9 @@ function auditRequest(auditorPublicKey: Uint8Array): CustomRingBaseProofRequest 
     txViewingSecret: bytes(2),
     ephemeralSecret: bytes(3),
     auditorPublicKey,
+    salt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
+    nOut: 2,
+    outputs: Array.from({ length: 4 }, () => zeroOpening()),
   };
 }
 
@@ -275,6 +279,19 @@ const EXPECTED_AUDIT_BODY = {
   txViewingSk: fieldHex(2),
   ephSk: fieldHex(3),
   auditorPk: AUDITOR_PK_HEX,
+  salt: "0x00000000000000000000000000000000",
+  nOut: 2,
+  outputs: Array.from({ length: 4 }, () => ({
+    domain: fieldHex(0),
+    treeId: fieldHex(0),
+    ownerHash: fieldHex(0),
+    asset: fieldHex(0),
+    amount: fieldHex(0),
+    blinding: fieldHex(0),
+    dataHash: fieldHex(0),
+    ringDataHash: fieldHex(0),
+    ringProgramId: fieldHex(0),
+  })),
 };
 
 const EXPECTED_OPENING = {
@@ -316,6 +333,7 @@ const EXPECTED_RING_BODY = {
   txViewingSk: fieldHex(2),
   ephSk: fieldHex(3),
   auditorPk: AUDITOR_PK_HEX,
+  salt: "0x00000000000000000000000000000000",
   nIn: 2,
   nOut: 2,
   inputs: Array.from({ length: 5 }, () => EXPECTED_OPENING),
@@ -603,6 +621,7 @@ describe("prover request routing", () => {
       "record",
       "ringId",
       "ruleEnc",
+      "salt",
       "sources",
       "stateRoot",
       "txViewingSk",
@@ -659,8 +678,11 @@ describe("prover request routing", () => {
       "auditorPk",
       "circuitType",
       "ephSk",
+      "nOut",
+      "outputs",
       "privateTxHash",
       "publicInputHash",
+      "salt",
       "txViewingSk",
     ]);
     expect(body["circuitType"]).toBe("custom-ring-base");

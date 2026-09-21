@@ -59,12 +59,15 @@ fn shielded_transaction(proof_inputs: &SppProofInputs) -> ShieldedTransaction {
     ShieldedTransaction {
         slot: 0,
         tx_signature: Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: P256Pubkey::from_bytes(external.tx_viewing_pk).ok(),
         salt: Some(external.salt),
         output_slots,
         messages: external.messages.clone(),
         nullifiers,
         proofless: false,
+        ring_config: None,
+        ring_program_id: None,
     }
 }
 

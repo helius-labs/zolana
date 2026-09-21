@@ -64,6 +64,7 @@ pub struct CustomRingDelegateTransact {
     pub transact: TransactIxData,
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
+    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
 }
 
 impl CustomRingDelegateTransact {
@@ -80,6 +81,7 @@ impl CustomRingDelegateTransact {
             transact,
             state_root_index,
             nullifier_root_index,
+            revocation_targets,
         } = self;
         if !transact.interface_transfers.is_empty() {
             return Err(DelegateInstructionError::PublicLeg);
@@ -109,6 +111,19 @@ impl CustomRingDelegateTransact {
         );
         prefix.insert(4, AccountMeta::new_readonly(delegate, true));
         accounts.extend(prefix);
+        if let Some(entries_tree) = entries_tree {
+            accounts.extend(
+                revocation_targets
+                    .iter()
+                    .filter(|target| target.iter().any(|byte| *byte != 0))
+                    .map(|target| {
+                        AccountMeta::new_readonly(
+                            zolana_interface::pda::nullifier_pda(&entries_tree, target).0,
+                            false,
+                        )
+                    }),
+            );
+        }
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {
@@ -117,6 +132,7 @@ impl CustomRingDelegateTransact {
             nullifier_root_index,
             approval_required: 0,
             head_transition: None,
+            revocation_targets,
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

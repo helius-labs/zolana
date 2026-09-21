@@ -95,7 +95,11 @@ export function entryProofReads(
 ) {
   const spenders = options.spenders ?? [];
   const stateRoots = options.stateRoots ?? [{ value: filled(1) as Bytes32, index: 3 }];
-  const nullifierRoots = options.nullifierRoots ?? [{ value: filled(2) as Bytes32, index: 4 }];
+  const nullifierRoots =
+    options.nullifierRoots ??
+    (options.account
+      ? [{ value: FIXTURE_HEADS.nullifierRoot, index: FIXTURE_HEADS.nullifierRootIndex }]
+      : [{ value: filled(2) as Bytes32, index: 4 }]);
   const root = (roots: readonly HistoryRoot[], position: number): HistoryRoot =>
     roots[Math.min(position, roots.length - 1)] ?? { value: filled(0) as Bytes32, index: 0 };
   const requests: Bytes32[][] = [];

@@ -29,6 +29,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed};
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
+use zolana_transaction::utxo::ProofInputUtxo;
 
 use super::request::CustomRingPrivateTxHash;
 
@@ -71,6 +72,8 @@ pub struct CustomRingProofParams {
     pub tx_viewing_key: ViewingKey,
     /// The auditor key stored in the ring's config account.
     pub auditor_pk: P256Pubkey,
+    pub salt: [u8; 16],
+    pub outputs: Vec<ProofInputUtxo>,
 }
 
 #[must_use]
@@ -86,6 +89,8 @@ pub struct PendingCustomRingProof {
     auditor_pk: P256Pubkey,
     ephemeral_sk: Zeroizing<[u8; 32]>,
     message: AuditorMessage,
+    salt: [u8; 16],
+    outputs: Vec<ProofInputUtxo>,
 }
 
 impl CustomRingProofParams {
@@ -109,6 +114,8 @@ impl CustomRingProofParams {
         let Self {
             tx_viewing_key,
             auditor_pk,
+            salt,
+            outputs,
         } = self;
 
         let tx_viewing_pk = tx_viewing_key.pubkey();
@@ -119,7 +126,7 @@ impl CustomRingProofParams {
         let AuditorEncryption {
             ephemeral_sk,
             message,
-        } = AuditorEncryption::new(&tx_viewing_key, &auditor_pk)?;
+        } = AuditorEncryption::new_with_outputs(&tx_viewing_key, &auditor_pk, salt, &outputs)?;
 
         Ok(EncryptedAudit {
             pending: PendingCustomRingProof {
@@ -128,6 +135,8 @@ impl CustomRingProofParams {
                 auditor_pk,
                 ephemeral_sk,
                 message,
+                salt,
+                outputs,
             },
             message,
         })
@@ -158,7 +167,14 @@ impl PendingCustomRingProof {
             auditor_pk,
             ephemeral_sk,
             message,
+            salt,
+            outputs: audit_outputs,
         } = self;
+        let output_hashes = audit_outputs
+            .iter()
+            .map(ProofInputUtxo::hash)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CustomRingProofInputError::Hashing)?;
         let public_input_hash = custom_ring_interface::CustomRingPolicyPublicInput {
             audit: CustomRingBasePublicInput {
                 private_tx_hash: private_tx_hash.as_ref(),
@@ -166,6 +182,9 @@ impl PendingCustomRingProof {
                 auditor_pk: auditor_pk.as_bytes(),
                 eph_pk: message.ephemeral_pubkey_bytes(),
                 ciphertext: message.ciphertext(),
+                output_hashes: &output_hashes,
+                salt: &salt,
+                disclosure: message.disclosure(),
             },
             policy_hash,
             state_root: &witness.roots.state,
@@ -175,6 +194,7 @@ impl PendingCustomRingProof {
             namespace_owner_hash: &witness.velocity.namespace_owner_hash,
             window_index: witness.velocity.window_index,
             approval_required: witness.velocity.approval_required,
+            revocation_targets: &witness.revocation_targets,
         }
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;
@@ -186,6 +206,7 @@ impl PendingCustomRingProof {
                 tx_viewing_key,
                 ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
                 auditor_key: auditor_pk,
+                salt,
                 n_in: witness.n_in,
                 n_out: witness.n_out,
                 inputs: witness.inputs,
@@ -226,13 +247,23 @@ impl PendingCustomRingProof {
             auditor_pk,
             ephemeral_sk,
             message,
+            salt,
+            outputs,
         } = self;
+        let output_hashes = outputs
+            .iter()
+            .map(ProofInputUtxo::hash)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CustomRingProofInputError::Hashing)?;
         let public_input_hash = CustomRingBasePublicInput {
             private_tx_hash: private_tx_hash.as_ref(),
             tx_viewing_pk: tx_viewing_pk.as_bytes(),
             auditor_pk: auditor_pk.as_bytes(),
             eph_pk: message.ephemeral_pubkey_bytes(),
             ciphertext: message.ciphertext(),
+            output_hashes: &output_hashes,
+            salt: &salt,
+            disclosure: message.disclosure(),
         }
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;
@@ -243,6 +274,8 @@ impl PendingCustomRingProof {
             tx_viewing_key,
             ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
             auditor_key: auditor_pk,
+            salt,
+            outputs,
         })
     }
 }
@@ -319,6 +352,7 @@ mod tests {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
+            revocation_targets: [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
             velocity: VelocityProofInput::off(RingIdentity {
                 ring_id: [10u8; 32],
                 namespace_owner_hash: [11u8; 32],
@@ -335,9 +369,13 @@ mod tests {
         let tx_key = key(TX_SK);
         let tx_pk = tx_key.pubkey();
         let auditor_pk = key(AUDITOR_SK).pubkey();
+        let salt = [3u8; 16];
+        let outputs = vec![ProofInputUtxo::default()];
         let EncryptedAudit { pending, message } = CustomRingProofParams {
             tx_viewing_key: tx_key,
             auditor_pk,
+            salt,
+            outputs: outputs.clone(),
         }
         .encrypt()
         .expect("encrypt");
@@ -366,6 +404,9 @@ mod tests {
                 auditor_pk: auditor_pk.as_bytes(),
                 eph_pk: message.ephemeral_pubkey_bytes(),
                 ciphertext: message.ciphertext(),
+                output_hashes: &[outputs[0].hash().expect("output hash")],
+                salt: &salt,
+                disclosure: message.disclosure(),
             },
             policy_hash: &policy_hash,
             state_root: &state,
@@ -375,6 +416,7 @@ mod tests {
             namespace_owner_hash: &[11u8; 32],
             window_index: 0,
             approval_required: false,
+            revocation_targets: &[[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
         }
         .hash()
         .expect("public input hash");

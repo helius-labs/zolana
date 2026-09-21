@@ -109,6 +109,7 @@ pub(crate) fn instruction_data(proof: CustomRingProof, transact: TransactIxData)
             nullifier_root_index: 0,
             approval_required: 0,
             head_transition: None,
+            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
             transact,
         })
         .expect("serialize transact body"),

@@ -252,6 +252,7 @@ mod tests {
         ShieldedTransaction {
             slot: 0,
             tx_signature: solana_signature::Signature::default(),
+            event_index: Some(0),
             tx_viewing_pk: Some(tx_key.pubkey()),
             salt: Some([9u8; SALT_LEN]),
             output_slots: vec![OutputSlot {
@@ -266,6 +267,8 @@ mod tests {
             messages,
             nullifiers: vec![spent],
             proofless: false,
+            ring_config: None,
+            ring_program_id: None,
         }
     }
 

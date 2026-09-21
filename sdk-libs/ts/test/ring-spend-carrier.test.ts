@@ -73,6 +73,7 @@ function fixture() {
     outputs: [output],
     assets: new AssetRegistry(),
     auditorPublicKey: auditor.publicKey(),
+    outputTreeId: 4,
     recordOutputIndex: 0,
     counterMessage: sealedSpendCounters(counters, NAMESPACE),
   });

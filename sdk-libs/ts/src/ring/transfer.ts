@@ -224,6 +224,7 @@ export type ProvenRingTransfer = RingTransactTrees &
     /** History entries the ring proof binds, sent on the tag-3 wire. */
     stateRootIndex: number;
     nullifierRootIndex: number;
+    revocationTargets: readonly Bytes32[];
     /** Non-payer ed25519 input owners, they sign the transaction beside the fee payer. */
     ownerSigners: readonly Address[];
     /** The head transition must commit with the record spend. */
@@ -524,6 +525,7 @@ async function buildRingSpend<R>(
         proof: proven.proof,
         stateRootIndex: proven.stateRootIndex,
         nullifierRootIndex: proven.nullifierRootIndex,
+        revocationTargets: proven.revocationTargets,
         data: proven.data,
         approvalRequired: proven.approvalRequired,
         ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
@@ -775,12 +777,13 @@ async function proveRingTransferStatement(
   const approvalRequired = velocity?.approvalRequired ?? false;
 
   // 3. Bind audit and record messages to the SPP transaction hash.
-  const outputs = prepared.outputs;
+  const outputs = prepared.proofOutputs();
   const seal = (tx: ViewingKey): EncryptedCustomRingTransfer =>
     encryptCustomRingTransfer(tx, {
       outputs,
       assets: input.assets,
       auditorPublicKey: config.auditorPublicKey,
+      outputTreeId: outputTree.treeId,
       ...(plan === undefined
         ? {}
         : {
@@ -871,11 +874,18 @@ async function proveRingTransferStatement(
             txViewingPublicKey: encrypted.txViewingPublicKey,
             auditorPublicKey: config.auditorPublicKey,
             message,
+            outputHashes: proofInputs.outputs.map((output) =>
+              output.hash(proofInputs.outputTreeId),
+            ),
+            salt: encrypted.salt,
           }),
           privateTxHash: data.privateTxHash,
           txViewingSecret: encrypted.audit.txViewingSecret,
           ephemeralSecret: encrypted.audit.ephemeralSecret,
           auditorPublicKey: config.auditorPublicKey.toUncompressed(),
+          salt: encrypted.salt,
+          nOut: openings.nOut,
+          outputs: openings.outputs,
         },
         context,
       );
@@ -886,10 +896,13 @@ async function proveRingTransferStatement(
         hasPolicy: false,
         stateRootIndex: 0,
         nullifierRootIndex: 0,
+        revocationTargets: Object.freeze(
+          Array.from({ length: 10 }, () => new Uint8Array(32) as Bytes32),
+        ),
       });
     }
 
-    const { answers, roots } = policyRound;
+    const { answers, roots, revocationTargets } = policyRound;
     const velocityProofInput =
       velocity ??
       velocityProofInputOff({
@@ -912,6 +925,8 @@ async function proveRingTransferStatement(
         txViewingPublicKey: encrypted.txViewingPublicKey,
         auditorPublicKey: config.auditorPublicKey,
         message,
+        outputHashes: proofInputs.outputs.map((output) => output.hash(proofInputs.outputTreeId)),
+        salt: encrypted.salt,
         policyHash: policyRound.config.policyHash,
         stateRoot: roots.stateRoot,
         nullifierRoot: roots.nullifierRoot,
@@ -920,12 +935,14 @@ async function proveRingTransferStatement(
         namespaceOwnerHash: velocityProofInput.namespaceOwnerHash,
         windowIndex: velocityProofInput.windowIndex,
         approvalRequired: velocityProofInput.approvalRequired,
+        revocationTargets,
         ...(compressedHead === undefined ? {} : { headTransition: compressedHead }),
       }),
       privateTxHash: data.privateTxHash,
       txViewingSecret: encrypted.audit.txViewingSecret,
       ephemeralSecret: encrypted.audit.ephemeralSecret,
       auditorPublicKey: config.auditorPublicKey.toUncompressed(),
+      salt: encrypted.salt,
       nIn: openings.nIn,
       nOut: openings.nOut,
       inputs: openings.inputs,
@@ -977,6 +994,7 @@ async function proveRingTransferStatement(
       hasPolicy: true,
       stateRootIndex: roots.stateRootIndex,
       nullifierRootIndex: roots.nullifierRootIndex,
+      revocationTargets,
       ...(headTransition === undefined ? {} : { headTransition }),
       ...(plan === undefined
         ? {}

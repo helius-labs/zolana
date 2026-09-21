@@ -534,6 +534,7 @@ mod tests {
                     transaction: ShieldedTransaction {
                         slot: 2,
                         tx_signature: Default::default(),
+                        event_index: Some(0),
                         tx_viewing_pk: None,
                         salt: None,
                         output_slots: vec![RingsOutputSlot {

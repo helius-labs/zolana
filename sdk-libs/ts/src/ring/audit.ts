@@ -1,5 +1,5 @@
 import { p256 } from "@noble/curves/nist.js";
-import { initializePoseidon } from "../hasher/index.js";
+import { hashBytes, initializePoseidon } from "../hasher/index.js";
 
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import type {
@@ -12,16 +12,20 @@ import type {
   Signature,
 } from "../interface/types.js";
 import {
+  AUDIT_OUTPUT_SLOTS,
   auditorViewTag,
   decryptTransactionViewingSecret,
+  openAuditOutputDisclosure,
   parseAuditorMessage,
+  type AuditOutputOpening,
   type AuditorMessage,
 } from "../keypair/audit.js";
 import { bigIntToBytes, bytesToBigInt } from "../keypair/bytes.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import { TransactionError } from "../transaction/error.js";
-import { equal } from "../transaction/internal.js";
+import { commitmentPoseidon, equal, rightAlign, ZERO_32 } from "../transaction/internal.js";
+import { addressBytes } from "../interface/internal.js";
 import type { Data } from "../transaction/data.js";
 import type {
   IndexedShieldedTransaction,
@@ -69,6 +73,7 @@ export interface AuditedRingTransaction {
   readonly slot: bigint;
   readonly txViewingPublicKey: P256PublicKey;
   readonly outputs: readonly AuditedRingOutput[];
+  readonly outputOpenings: readonly AuditOutputOpening[];
   readonly spendRecords: readonly AuditedRingSpendRecord[];
   readonly undecryptableSlots: readonly number[];
   readonly invalidSpendRecordSlots: readonly number[];
@@ -150,11 +155,32 @@ export function auditRingTransaction(
       });
     }
     const outputs: AuditedRingOutput[] = [];
+    if (transaction.outputSlots.length > AUDIT_OUTPUT_SLOTS) {
+      throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
+        details: { reason: "count", count: transaction.outputSlots.length },
+      });
+    }
+    const txSecret = txKey.secretBytes();
+    let outputOpenings: readonly AuditOutputOpening[];
+    try {
+      outputOpenings = openAuditOutputDisclosure(txSecret, salt, message.disclosure).slice(
+        0,
+        transaction.outputSlots.length,
+      );
+    } finally {
+      txSecret.fill(0);
+    }
     const spendRecords: AuditedRingSpendRecord[] = [];
     const undecryptableSlots: number[] = [];
     const invalidSpendRecordSlots: number[] = [];
     transaction.outputSlots.forEach((slot, slotIndex) => {
-      const output = auditOutput(txKey, slot, salt, slotIndex, input.assets);
+      const opening = outputOpenings[slotIndex];
+      if (opening === undefined || !equal(auditOpeningHash(opening), slot.outputContext.hash)) {
+        throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
+          details: { reason: "commitment", slotIndex },
+        });
+      }
+      const output = auditOutput(txKey, slot, salt, slotIndex, input.assets, opening);
       const carried = carriedRecord({
         slot,
         messages: transaction.messages,
@@ -188,6 +214,7 @@ export function auditRingTransaction(
       slot: transaction.slot,
       txViewingPublicKey,
       outputs: Object.freeze(outputs),
+      outputOpenings: Object.freeze(outputOpenings),
       spendRecords: Object.freeze(spendRecords),
       undecryptableSlots: Object.freeze(undecryptableSlots),
       invalidSpendRecordSlots: Object.freeze(invalidSpendRecordSlots),
@@ -239,8 +266,19 @@ export async function auditRing(
       context,
     );
     for (const transaction of response.transactions) {
+      if (transaction.eventIndex === undefined) {
+        throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
+      }
+      if (transaction.ringProgramId !== input.ringProgramId) continue;
       if (!transaction.messages.some((message) => equal(message.viewTag, viewTag))) continue;
-      if (!(await origin.ringInvoked(transaction.txSignature, input.ringProgramId, context))) {
+      if (
+        !(await origin.ringInvoked(
+          transaction.txSignature,
+          transaction.eventIndex,
+          input.ringProgramId,
+          context,
+        ))
+      ) {
         continue;
       }
       try {
@@ -338,6 +376,7 @@ function auditOutput(
   salt: Bytes16,
   slotIndex: number,
   assets: AssetRegistry,
+  opening: AuditOutputOpening,
 ): AuditedRingOutput | undefined {
   let plaintext;
   let recipient: P256PublicKey;
@@ -355,15 +394,43 @@ function auditOutput(
   } catch {
     return undefined;
   }
+  const asset = assets.resolve(plaintext.assetId);
+  const ringProgramId =
+    plaintext.ringProgramId === undefined
+      ? ZERO_32
+      : (hashBytes(addressBytes(plaintext.ringProgramId, "ringProgramId")) as Bytes32);
+  if (
+    !equal(hashBytes(addressBytes(asset, "asset")), opening.asset) ||
+    !equal(rightAlign(bigIntToBytes(plaintext.amount, 8)), opening.amount) ||
+    !equal(plaintext.blinding, opening.blinding) ||
+    !equal(ringProgramId, opening.ringProgramId)
+  ) {
+    throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
+      details: { reason: "plaintext", slotIndex },
+    });
+  }
   return Object.freeze({
     slotIndex,
     outputContext: slot.outputContext,
     recipientViewingPublicKey: recipient,
     ownerTag: slot.viewTag,
-    asset: assets.resolve(plaintext.assetId),
+    asset,
     amount: plaintext.amount,
     blinding: plaintext.blinding,
     data: plaintext.data,
     ...(plaintext.ringProgramId === undefined ? {} : { ringProgramId: plaintext.ringProgramId }),
   });
+}
+
+/** Reconstructs the exact SPP output commitment the custom-ring proof binds. */
+function auditOpeningHash(opening: AuditOutputOpening): Bytes32 {
+  return commitmentPoseidon([
+    opening.domain,
+    opening.treeId,
+    opening.asset,
+    opening.amount,
+    opening.dataHash,
+    commitmentPoseidon([opening.ringDataHash, opening.ringProgramId]),
+    commitmentPoseidon([opening.ownerHash, opening.blinding]),
+  ]);
 }

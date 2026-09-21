@@ -210,12 +210,15 @@ pub fn build_transfer(
     let tx = ShieldedTransaction {
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: Some(tx_viewing_pk),
         salt: Some(salt),
         output_slots,
         messages: Vec::new(),
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
+        ring_config: None,
+        ring_program_id: None,
     };
     (tx, recipient_utxo, change)
 }
@@ -340,12 +343,15 @@ pub fn build_unified_transfer(
     let tx = ShieldedTransaction {
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: Some(tx_viewing_pk),
         salt: Some(salt),
         output_slots,
         messages: Vec::new(),
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
+        ring_config: None,
+        ring_program_id: None,
     };
     (tx, change_utxo, recipient_utxo)
 }

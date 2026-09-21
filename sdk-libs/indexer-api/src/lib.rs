@@ -623,6 +623,8 @@ pub struct RingsMessage {
 pub struct ShieldedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_index: Option<u16>,
     pub tx_viewing_pk: Option<Base64String>,
     /// Transaction-level AES salt shared by every output ciphertext.
     pub salt: Option<Base64String>,

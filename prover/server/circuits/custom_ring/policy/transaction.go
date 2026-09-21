@@ -6,6 +6,7 @@ package policy
 import (
 	"github.com/consensys/gnark/frontend"
 
+	base "zolana/prover/circuits/custom_ring/base"
 	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/spp_transaction/shared"
 )
@@ -49,6 +50,20 @@ type utxoView struct {
 type transactionContext struct {
 	inputs  [NInputs]utxoView
 	outputs [NOutputs]utxoView
+}
+
+func auditOutputs(api frontend.API, outputs [NOutputs]UtxoWires) [base.AuditOutputSlots]base.AuditOutputWires {
+	var disclosed [base.AuditOutputSlots]base.AuditOutputWires
+	for i, output := range outputs {
+		disclosed[i] = base.AuditOutputWires{
+			Domain: output.Domain, TreeID: output.TreeID,
+			OwnerHash: gadget.PoseidonHash(api, []frontend.Variable{output.OwnerPkHash, output.NullifierPk}),
+			Asset:     output.Asset, Amount: output.Amount, Blinding: output.Blinding,
+			DataHash: output.DataHash, RingDataHash: output.RingDataHash,
+			RingProgramID: output.RingProgramID,
+		}
+	}
+	return disclosed
 }
 
 // constrainTransactionContext binds subjects and amounts to the transaction

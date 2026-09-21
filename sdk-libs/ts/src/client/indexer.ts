@@ -526,6 +526,7 @@ function convertShieldedTransaction(
   return Object.freeze({
     slot: item.slot,
     txSignature: item.txSignature,
+    ...(item.eventIndex === undefined ? {} : { eventIndex: item.eventIndex }),
     ...(item.txViewingPk === undefined
       ? {}
       : {
@@ -543,6 +544,8 @@ function convertShieldedTransaction(
     ),
     nullifiers: Object.freeze(item.nullifiers.map(copyHash)),
     proofless: item.proofless,
+    ...(item.ringConfig === undefined ? {} : { ringConfig: item.ringConfig }),
+    ...(item.ringProgramId === undefined ? {} : { ringProgramId: item.ringProgramId }),
   });
 }
 

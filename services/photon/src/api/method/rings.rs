@@ -141,6 +141,7 @@ mod tests {
         let value = serde_json::to_value(ShieldedTransaction {
             slot: 1,
             tx_signature: SerializableSignature::default(),
+            event_index: Some(0),
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![RingsOutputSlot {

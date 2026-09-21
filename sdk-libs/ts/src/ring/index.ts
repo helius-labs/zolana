@@ -8,9 +8,10 @@ export {
   AUDITOR_MESSAGE_LENGTH,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
+  openAuditOutputDisclosure,
   parseAuditorMessage,
 } from "../keypair/audit.js";
-export type { AuditorEncryption, AuditorMessage } from "../keypair/audit.js";
+export type { AuditOutputOpening, AuditorEncryption, AuditorMessage } from "../keypair/audit.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
 export {
   ringHeadMapRootAddress,

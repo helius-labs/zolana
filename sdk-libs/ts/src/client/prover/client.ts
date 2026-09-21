@@ -4,7 +4,10 @@ import { isCanonicalField } from "../../interface/canonical-field.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 import { treeIdField } from "../../interface/tree-slot.js";
+import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { bytesToBigInt } from "../../keypair/bytes.js";
+import { poseidon } from "../../keypair/poseidon.js";
 
 import type { Bytes32, RequestContext } from "../../interface/types.js";
 
@@ -500,6 +503,9 @@ export function customRingBaseProofRequest(
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
     ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
     auditorPk: auditorPkHex(inputs.auditorPublicKey),
+    salt: bytesHex(inputs.salt),
+    nOut: u8(inputs.nOut, "nOut"),
+    outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(auditOpeningJson),
   });
 }
 
@@ -514,6 +520,7 @@ export function customRingPolicyProofRequest(
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
     ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
     auditorPk: auditorPkHex(inputs.auditorPublicKey),
+    salt: bytesHex(inputs.salt),
     nIn: u8(inputs.nIn, "nIn"),
     nOut: u8(inputs.nOut, "nOut"),
     inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map(openingJson),
@@ -715,6 +722,26 @@ function openingJson(opening: CustomRingOpening): Readonly<Record<string, unknow
     treeId: hex32(opening.treeId, "treeId"),
     ownerPkHash: hex32(opening.ownerPkHash, "ownerPkHash"),
     nullifierPk: hex32(opening.nullifierPk, "nullifierPk"),
+    asset: hex32(opening.asset, "asset"),
+    amount: hex32(opening.amount, "amount"),
+    blinding: hex32(opening.blinding, "blinding"),
+    dataHash: hex32(opening.dataHash, "dataHash"),
+    ringDataHash: hex32(opening.ringDataHash, "ringDataHash"),
+    ringProgramId: hex32(opening.ringProgramId, "ringProgramId"),
+  });
+}
+
+/** The base circuit needs the already-combined owner hash used by the SPP commitment. */
+function auditOpeningJson(opening: CustomRingOpening): Readonly<Record<string, unknown>> {
+  const domain = bytesToBigInt(opening.domain);
+  const ownerHash =
+    domain === 0n || domain === BigInt(DUMMY_DOMAIN)
+      ? new Uint8Array(32)
+      : poseidon([opening.ownerPkHash, opening.nullifierPk]);
+  return Object.freeze({
+    domain: hex32(opening.domain, "domain"),
+    treeId: hex32(opening.treeId, "treeId"),
+    ownerHash: hex32(ownerHash, "ownerHash"),
     asset: hex32(opening.asset, "asset"),
     amount: hex32(opening.amount, "amount"),
     blinding: hex32(opening.blinding, "blinding"),

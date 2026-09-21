@@ -717,12 +717,15 @@ mod tests {
             ShieldedTransaction {
                 slot: u64::from(self.signature),
                 tx_signature: Signature::from([self.signature; 64]),
+                event_index: Some(0),
                 tx_viewing_pk: Some(self.tx_key.pubkey()),
                 salt: Some(SALT),
                 output_slots: self.output_slots,
                 messages: vec![message],
                 nullifiers: self.nullifiers,
                 proofless: false,
+                ring_config: None,
+                ring_program_id: Some(ring().program_id()),
             }
         }
     }
@@ -784,7 +787,12 @@ mod tests {
     struct AllRingInvoked;
 
     impl TransactionOrigin for AllRingInvoked {
-        fn origin(&self, _signature: Signature, _ring: Address) -> Result<RingOrigin, OriginError> {
+        fn origin(
+            &self,
+            _signature: Signature,
+            _event_index: u16,
+            _ring: Address,
+        ) -> Result<RingOrigin, OriginError> {
             Ok(RingOrigin {
                 ring_invoked: true,
                 signers: Vec::new(),

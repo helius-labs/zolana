@@ -152,6 +152,8 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidDepositAudit
         | DepositAuditRequired
         | InvalidDepositDisclosure
-        | InvalidSpendCountersDisclosure => {}
+        | InvalidSpendCountersDisclosure
+        | InvalidRevocationTarget
+        | PolicyFactRevoked => {}
     }
 }

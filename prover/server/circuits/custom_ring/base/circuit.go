@@ -5,7 +5,7 @@
 // key.
 //
 // The circuit has exactly one public input, PublicInputHash, the Poseidon hash
-// chain over these eight elements in this exact order:
+// chain over these eleven elements in this exact order:
 //
 //  1. private_tx_hash    -- pass-through, not recomputed here
 //  2. tx_viewing_pk_lo   -- packed compressed tx_viewing_sk * G
@@ -15,6 +15,9 @@
 //  6. eph_pk_lo          -- packed compressed eph_sk * G
 //  7. eph_pk_hi
 //  8. ct_hash            -- Poseidon commitment of the 32-byte ciphertext
+//  9. output_hash_chain   -- SPP commitments for the published output prefix
+//  10. salt               -- transaction salt used by the disclosure stream
+//  11. disclosure_hash    -- encrypted output commitment fields
 //
 // The on-chain Rust recompute in
 // custom-rings/program/src/instructions/transact.rs
@@ -66,23 +69,32 @@ type CustomRingBaseCircuit struct {
 	EphSk [32]frontend.Variable
 
 	// AuditorPk is the auditor key as 0x04 || x || y.
-	AuditorPk [65]frontend.Variable
+	AuditorPk           [65]frontend.Variable
+	Salt                [16]frontend.Variable
+	Outputs             [AuditOutputSlots]AuditOutputWires
+	OutputCountSelected [AuditOutputSlots]frontend.Variable
 }
 
 // AuditBlockWires carries the audit block's witnesses into a folding circuit.
 type AuditBlockWires struct {
-	PrivateTxHash frontend.Variable
-	TxViewingSk   [32]frontend.Variable
-	EphSk         [32]frontend.Variable
-	AuditorPk     [65]frontend.Variable
+	PrivateTxHash       frontend.Variable
+	TxViewingSk         [32]frontend.Variable
+	EphSk               [32]frontend.Variable
+	AuditorPk           [65]frontend.Variable
+	Salt                [16]frontend.Variable
+	Outputs             [AuditOutputSlots]AuditOutputWires
+	OutputCountSelected [AuditOutputSlots]frontend.Variable
 }
 
 func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 	elements := DefineAuditBlock(api, AuditBlockWires{
-		PrivateTxHash: c.PrivateTxHash,
-		TxViewingSk:   c.TxViewingSk,
-		EphSk:         c.EphSk,
-		AuditorPk:     c.AuditorPk,
+		PrivateTxHash:       c.PrivateTxHash,
+		TxViewingSk:         c.TxViewingSk,
+		EphSk:               c.EphSk,
+		AuditorPk:           c.AuditorPk,
+		Salt:                c.Salt,
+		Outputs:             c.Outputs,
+		OutputCountSelected: c.OutputCountSelected,
 	})
 
 	// (k) The single public input, chain order pinned by the package comment.
@@ -90,8 +102,8 @@ func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// DefineAuditBlock constrains steps (a) to (j) and returns chain elements 1 to 8.
-func DefineAuditBlock(api frontend.API, w AuditBlockWires) [8]frontend.Variable {
+// DefineAuditBlock constrains the audit statement and returns its chain elements.
+func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable {
 	// (a) Range-check all 129 witnessed bytes to 8 bits. rangecheck.New reuses
 	// the range checker the emulated P-256 arithmetic already instantiates, so
 	// these checks share its lookup table.
@@ -125,13 +137,20 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [8]frontend.Variable 
 		AuditorPk: w.AuditorPk,
 		Info:      auditEncInfo,
 	}.Seal(api)
+	outputHashChain, disclosureHash := disclosureElements(
+		api, rangeChecker, w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
+	)
+	saltField := gadget.PackBytesBE(api, w.Salt[:])[0]
 
-	return [8]frontend.Variable{
+	return [11]frontend.Variable{
 		w.PrivateTxHash,
 		txLo, txHi,
 		sealed.AuditorLo, sealed.AuditorHi,
 		sealed.EphLo, sealed.EphHi,
 		sealed.CiphertextHash,
+		outputHashChain,
+		saltField,
+		disclosureHash,
 	}
 }
 

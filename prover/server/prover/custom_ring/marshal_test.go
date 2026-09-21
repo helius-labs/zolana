@@ -20,12 +20,16 @@ func sampleBaseParams() *BaseParameters {
 	p := &BaseParameters{
 		PublicInputHash: big.NewInt(0x1234),
 		PrivateTxHash:   big.NewInt(0xabcdef),
+		NOut:            1,
 	}
 	for i := range p.TxViewingSk {
 		p.TxViewingSk[i] = byte(i)
 		p.EphSk[i] = byte(0x20 + i)
 	}
 	copy(p.AuditorPk[:], elliptic.Marshal(elliptic.P256(), elliptic.P256().Params().Gx, elliptic.P256().Params().Gy))
+	for i := range p.Outputs {
+		p.Outputs[i] = zeroedAuditOpening()
+	}
 	return p
 }
 
@@ -192,7 +196,7 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 	}
 	keys := []string{
 		"circuitType", "publicInputHash", "privateTxHash",
-		"txViewingSk", "ephSk", "auditorPk", "nIn", "nOut", "inputs",
+		"txViewingSk", "ephSk", "auditorPk", "salt", "nIn", "nOut", "inputs",
 		"outputs", "addressChain", "externalDataHash", "privateTxBlinding", "sources",
 		"policyLen", "ruleEnc", "inlineAssets", "inlineLimits", "inlineCount", "stateRoot", "entriesTreeId",
 		"nullifierRoot", "answers", "windowSlots", "velocity", "velocityCount", "ringId",

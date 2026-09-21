@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
 	base "zolana/prover/circuits/custom_ring/base"
@@ -111,21 +112,85 @@ func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
 	setBytes(w.TxViewingSk[:], k.txSk[:])
 	setBytes(w.EphSk[:], k.ephSk[:])
 	setBytes(w.AuditorPk[:], k.auditorPk[:])
+	for i := range w.Salt {
+		w.Salt[i] = 0
+	}
+	for i := range w.Outputs {
+		w.Outputs[i] = zeroOutput()
+		w.OutputCountSelected[i] = 0
+	}
+	w.OutputCountSelected[0] = 1
 	return w
 }
 
-// Chain elements 1 to 8 of package base.
+// ChainElements returns a one-slot zero-output audit statement.
 func (k Keys) ChainElements(t testing.TB, privateTxHash *big.Int) []*big.Int {
+	w := k.AuditBlockWires(privateTxHash)
+	return k.ChainElementsFor(t, w, 1)
+}
+
+func (k Keys) ChainElementsFor(t testing.TB, w base.AuditBlockWires, count int) []*big.Int {
 	t.Helper()
 	txLo, txHi := pack33(k.txPk)
 	sealed := k.Seal(t, k.txSk[:], auditEncInfo)
+	outputHashes := make([]*big.Int, count)
+	plaintext := make([]*big.Int, 0, base.AuditOutputSlots*base.AuditOutputFieldCount)
+	for i, output := range w.Outputs {
+		fields := outputFields(output)
+		if i < count {
+			outputHashes[i] = spptest.MustUtxoHash(t, protocol.Utxo{
+				Domain: fields[0], Owner: fields[2], Asset: fields[3], Amount: fields[4],
+				Blinding: fields[5], DataHash: fields[6], RingDataHash: fields[7],
+				RingProgramID: fields[8],
+			}, fields[1])
+			plaintext = append(plaintext, fields...)
+		} else {
+			plaintext = append(plaintext, spptest.RepeatBigInt(big.NewInt(0), base.AuditOutputFieldCount)...)
+		}
+	}
+	outputHashChain := spptest.MustHashChain4(t, outputHashes)
+	keyLo, keyHi := pack32(k.txSk)
+	salt := make([]byte, len(w.Salt))
+	for i, value := range w.Salt {
+		salt[i] = byte(spptest.AsBigInt(value).Uint64())
+	}
+	ciphertext := make([]*big.Int, len(plaintext))
+	for i, value := range plaintext {
+		stream := spptest.MustPoseidon(t, 6, []*big.Int{
+			new(big.Int).SetUint64(0x4352_5f4f44), keyLo, keyHi,
+			new(big.Int).SetBytes(salt), big.NewInt(int64(i)),
+		})
+		ciphertext[i] = new(big.Int).Add(value, stream)
+		ciphertext[i].Mod(ciphertext[i], ecc.BN254.ScalarField())
+	}
 
 	return []*big.Int{
-		privateTxHash,
+		spptest.AsBigInt(w.PrivateTxHash),
 		txLo, txHi,
 		sealed.AuditorLo, sealed.AuditorHi,
 		sealed.EphLo, sealed.EphHi,
 		sealed.CiphertextHash,
+		outputHashChain,
+		new(big.Int).SetBytes(salt),
+		spptest.MustHashChain(t, ciphertext),
+	}
+}
+
+func zeroOutput() base.AuditOutputWires {
+	return base.AuditOutputWires{
+		Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),
+		Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0),
+		DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
+	}
+}
+
+func outputFields(output base.AuditOutputWires) []*big.Int {
+	return []*big.Int{
+		spptest.AsBigInt(output.Domain), spptest.AsBigInt(output.TreeID),
+		spptest.AsBigInt(output.OwnerHash), spptest.AsBigInt(output.Asset),
+		spptest.AsBigInt(output.Amount), spptest.AsBigInt(output.Blinding),
+		spptest.AsBigInt(output.DataHash), spptest.AsBigInt(output.RingDataHash),
+		spptest.AsBigInt(output.RingProgramID),
 	}
 }
 

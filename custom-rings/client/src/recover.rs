@@ -201,28 +201,29 @@ impl<'a> MemberRecovery<'a> {
                     ring_program_id: output.ring_program_id,
                     data: output.data.clone(),
                 };
-                // 2. Application hashes are accepted only when the opening
-                // reproduces the leaf.
-                let mut hashes = NoteDataHashes::default();
-                let mut commitment = utxo.hash(
-                    &self.source.address.nullifier_pubkey,
-                    &[0u8; 32],
-                    &[0u8; 32],
-                    tree_id,
-                )?;
-                if commitment != output_context.hash {
+                let disclosed =
+                    audited
+                        .output_openings
+                        .get(output.slot_index as usize)
+                        .map(|opening| NoteDataHashes {
+                            data_hash: (opening.data_hash != [0; 32]).then_some(opening.data_hash),
+                            ring_data_hash: (opening.ring_data_hash != [0; 32])
+                                .then_some(opening.ring_data_hash),
+                        });
+                let mut hashes = disclosed.unwrap_or_default();
+                if disclosed.is_none() {
                     if let Some(resolver) = self.data_hashes {
                         if let Some(resolved) = resolver(output, &output_context)? {
                             hashes = resolved;
-                            commitment = utxo.hash(
-                                &self.source.address.nullifier_pubkey,
-                                &hashes.data_hash.unwrap_or_default(),
-                                &hashes.ring_data_hash.unwrap_or_default(),
-                                tree_id,
-                            )?;
                         }
                     }
                 }
+                let commitment = utxo.hash(
+                    &self.source.address.nullifier_pubkey,
+                    &hashes.data_hash.unwrap_or_default(),
+                    &hashes.ring_data_hash.unwrap_or_default(),
+                    tree_id,
+                )?;
                 let nullifier = utxo.nullifier(&output_context.hash, self.source.nullifier_key)?;
                 if commitment != output_context.hash {
                     unresolved.push((output_context.hash, nullifier));
@@ -352,9 +353,16 @@ impl<'a> MemberRecovery<'a> {
                     if merge_outputs.contains(&commitment) {
                         continue;
                     }
+                    let event_index = transaction
+                        .event_index
+                        .ok_or(AuditError::MissingEventIndex)?;
                     if ring
                         .origin
-                        .ring_invoked(transaction.tx_signature, self.recovery.ring_program_id)
+                        .ring_invoked(
+                            transaction.tx_signature,
+                            event_index,
+                            self.recovery.ring_program_id,
+                        )
                         .map_err(AuditError::from)?
                     {
                         merge_outputs.insert(commitment);
@@ -461,12 +469,17 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                         ))
                     })
                     .collect();
-                if tagged.is_empty()
-                    || !self
-                        .environment
-                        .origin
-                        .ring_invoked(transaction.tx_signature, self.ring)
-                        .map_err(AuditError::from)?
+                if tagged.is_empty() {
+                    continue;
+                }
+                let event_index = transaction
+                    .event_index
+                    .ok_or(AuditError::MissingEventIndex)?;
+                if !self
+                    .environment
+                    .origin
+                    .ring_invoked(transaction.tx_signature, event_index, self.ring)
+                    .map_err(AuditError::from)?
                 {
                     continue;
                 }

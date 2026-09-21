@@ -728,6 +728,8 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
 fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
     let proof = sample_proof();
     let transact = transact_data(Vec::new());
+    let mut revocation_targets = [[0; 32]; zolana_ring_policy::ANSWER_SLOTS];
+    revocation_targets[0][31] = 7;
 
     let instruction = CustomRingTransact {
         ring: ring(),
@@ -743,6 +745,7 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         state_root_index: 0,
         nullifier_root_index: 0,
         approval_required: false,
+        revocation_targets,
         head_transition: None,
         transact: transact.clone(),
     }
@@ -759,6 +762,10 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(entries_tree(), false),
+            AccountMeta::new_readonly(
+                pda::nullifier_pda(&entries_tree(), &revocation_targets[0]).0,
+                false,
+            ),
             AccountMeta::new(payer(), true),
             AccountMeta::new(output_tree(), false),
             AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
@@ -781,6 +788,7 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
             state_root_index: 0,
             nullifier_root_index: 0,
             approval_required: 0,
+            revocation_targets,
             head_transition: None,
             transact,
         }
@@ -806,6 +814,7 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         state_root_index: 0,
         nullifier_root_index: 0,
         approval_required: false,
+        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         head_transition: None,
         transact: transact_data(Vec::new()),
     }
@@ -853,6 +862,7 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
         state_root_index: 0,
         nullifier_root_index: 0,
         approval_required: false,
+        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         head_transition: None,
         transact,
     }
@@ -897,6 +907,7 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         state_root_index: 0,
         nullifier_root_index: 0,
         approval_required: false,
+        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         head_transition: None,
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
@@ -1336,6 +1347,7 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
             transact: transact_data(legs),
             state_root_index: 0,
             nullifier_root_index: 0,
+            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         }
         .instruction()
     };
@@ -1399,6 +1411,7 @@ fn the_cosigner_slot_signs_only_when_set() {
             state_root_index: 0,
             nullifier_root_index: 0,
             approval_required: false,
+            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
             head_transition: None,
         }
         .instruction()

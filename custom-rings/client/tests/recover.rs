@@ -18,6 +18,7 @@ use zolana_transaction::{
     instructions::{merge::merge_dummy_nullifier, merge_ring::MergeRing, types::SppProofInputUtxo},
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     serialization::ring_deposit::RingDepositPlaintext,
+    utxo::ProofInputUtxo,
     AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, SppProofOutputUtxo, Utxo,
     UtxoSerialization, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
@@ -112,6 +113,8 @@ impl Fixture {
         let tx_key = ViewingKey::new();
         let signature = self.signature();
         let held = self.held(&output, tree_id);
+        let proof_output =
+            ProofInputUtxo::try_from((&output, tree_id)).expect("proof output opening");
         let encoded = Confidential::encode_plaintext(
             &ConfidentialOutputPlaintext {
                 asset_id: SOL_ASSET_ID,
@@ -129,13 +132,19 @@ impl Fixture {
             },
         )
         .expect("encrypt");
-        let message = AuditorEncryption::new(&tx_key, &self.auditor.pubkey())
-            .expect("audit encryption")
-            .message
-            .to_message_data(&self.auditor.pubkey());
+        let message = AuditorEncryption::new_with_outputs(
+            &tx_key,
+            &self.auditor.pubkey(),
+            SALT,
+            &[proof_output],
+        )
+        .expect("audit encryption")
+        .message
+        .to_message_data(&self.auditor.pubkey());
         let transaction = ShieldedTransaction {
             slot: u64::from(self.sequence.get()),
             tx_signature: signature,
+            event_index: Some(0),
             tx_viewing_pk: Some(tx_key.pubkey()),
             salt: Some(SALT),
             output_slots: vec![OutputSlot {
@@ -146,6 +155,8 @@ impl Fixture {
             messages: vec![message],
             nullifiers: Vec::new(),
             proofless: false,
+            ring_config: None,
+            ring_program_id: Some(RING),
         };
         (held, transaction)
     }
@@ -184,6 +195,7 @@ impl Fixture {
         let transaction = ShieldedTransaction {
             slot: u64::from(self.sequence.get()),
             tx_signature: signature,
+            event_index: Some(0),
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![OutputSlot {
@@ -194,6 +206,8 @@ impl Fixture {
             messages: Vec::new(),
             nullifiers,
             proofless: false,
+            ring_config: None,
+            ring_program_id: Some(RING),
         };
         (held, transaction)
     }
@@ -336,7 +350,12 @@ impl Rpc for History {
 }
 
 impl TransactionOrigin for History {
-    fn origin(&self, signature: Signature, _ring: Address) -> Result<RingOrigin, OriginError> {
+    fn origin(
+        &self,
+        signature: Signature,
+        _event_index: u16,
+        _ring: Address,
+    ) -> Result<RingOrigin, OriginError> {
         Ok(RingOrigin {
             ring_invoked: !self.foreign.contains(&signature),
             signers: Vec::new(),
@@ -435,7 +454,7 @@ fn a_merge_from_another_program_cannot_supply_recovery_outputs() {
 }
 
 #[test]
-fn verified_hash_metadata_is_preserved_without_assuming_a_preimage_hash_scheme() {
+fn proof_bound_hash_metadata_is_recovered_without_a_caller_resolver() {
     let fixture = Fixture::new();
     let output = fixture
         .output(9)
@@ -446,26 +465,13 @@ fn verified_hash_metadata_is_preserved_without_assuming_a_preimage_hash_scheme()
         transactions: vec![transaction],
         ..Default::default()
     };
-    let unresolved = fixture.run(fixture.recovery(), &history).expect("recover");
-    assert!(unresolved.utxos.is_empty());
-    assert_eq!(unresolved.unopened, vec![held.output_context.hash]);
-    let resolver = |output: &AuditedOutput, context: &OutputContext| {
-        assert_eq!(output.data, held.utxo.data);
-        assert_eq!(context.hash, held.output_context.hash);
-        Ok(Some(NoteDataHashes {
-            data_hash: held.data_hash,
-            ring_data_hash: held.ring_data_hash,
-        }))
-    };
-    let recovered = fixture
-        .run(fixture.recovery().with_data_hashes(&resolver), &history)
-        .expect("recover");
+    let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
     assert!(recovered.unopened.is_empty());
     assert_eq!(recovered.utxos, vec![held]);
 }
 
 #[test]
-fn incorrect_hash_metadata_stays_unopened() {
+fn caller_hash_metadata_cannot_override_the_proof_bound_opening() {
     let fixture = Fixture::new();
     let (held, transaction) =
         fixture.encrypt(fixture.output(9).with_ring_data_hash(RING, [4; 32]), 7);
@@ -473,7 +479,9 @@ fn incorrect_hash_metadata_stays_unopened() {
         transactions: vec![transaction],
         ..Default::default()
     };
-    let resolver = |_: &AuditedOutput, _: &OutputContext| {
+    let resolver = |output: &AuditedOutput, context: &OutputContext| {
+        assert_eq!(output.data, held.utxo.data);
+        assert_eq!(context.hash, held.output_context.hash);
         Ok(Some(NoteDataHashes {
             ring_data_hash: Some([5; 32]),
             ..Default::default()
@@ -482,8 +490,8 @@ fn incorrect_hash_metadata_stays_unopened() {
     let recovered = fixture
         .run(fixture.recovery().with_data_hashes(&resolver), &history)
         .expect("recover");
-    assert!(recovered.utxos.is_empty());
-    assert_eq!(recovered.unopened, vec![held.output_context.hash]);
+    assert!(recovered.unopened.is_empty());
+    assert_eq!(recovered.utxos, vec![held]);
 }
 
 #[test]

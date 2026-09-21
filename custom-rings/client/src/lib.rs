@@ -43,13 +43,13 @@ pub use crate::{
     deposit::{ring_deposits_in, RingDeposit},
     deposit_encryption::{DepositEncryption, DepositOpen, DepositOpening, DepositSeal},
     encryption::{
-        auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage,
-        NullifierKeyEnvelope, SealedNullifierKey,
+        auditor_view_tag, AuditEncryptionError, AuditOutputOpening, AuditorEncryption,
+        AuditorMessage, NullifierKeyEnvelope, SealedNullifierKey,
     },
     error::{AuditError, RecoveryError},
     origin::{
-        ring_invoked_in, ring_withdrawals_in, OriginError, RingOrigin, RingWithdrawal,
-        TransactionOrigin,
+        ring_event_origin_in, ring_invoked_in, ring_withdrawals_in, OriginError, RingOrigin,
+        RingWithdrawal, TransactionOrigin,
     },
     reader::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,

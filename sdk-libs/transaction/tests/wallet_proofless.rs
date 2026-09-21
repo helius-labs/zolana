@@ -35,6 +35,7 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
     ShieldedTransaction {
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: None,
         salt: None,
         output_slots: vec![OutputSlot {
@@ -49,6 +50,8 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
         messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
+        ring_config: None,
+        ring_program_id: None,
     }
 }
 
@@ -103,12 +106,15 @@ fn sync_discovers_and_spends_proofless_deposit() {
     let spend = ShieldedTransaction {
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
+        event_index: Some(0),
         tx_viewing_pk: Some(keypair.viewing_pubkey()),
         salt: Some([0u8; 16]),
         output_slots: Vec::new(),
         messages: Vec::new(),
         nullifiers: vec![nullifier],
         proofless: false,
+        ring_config: None,
+        ring_program_id: None,
     };
     wallet
         .sync(

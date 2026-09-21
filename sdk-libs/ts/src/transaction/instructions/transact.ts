@@ -735,6 +735,7 @@ export interface PreparedTransfer {
   readonly changeLayout: ChangeLayout;
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
+  proofOutputs(): readonly ProofOutputUtxo[];
   /** Appends the velocity record after the dummy padding, Rust `append_record_slots`. */
   withAppendedSlot(
     extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
@@ -1035,7 +1036,7 @@ export class ConfidentialTransfer {
 
 type PreparedTransferFields = Omit<
   PreparedTransfer,
-  "finalize" | "outputBlindingSeed" | "withAppendedSlot"
+  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withAppendedSlot"
 >;
 
 export function prepareRingAuthorityTransfer(
@@ -1142,6 +1143,7 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
     ...fields,
     outputBlindingSeed: (): Bytes32 =>
       outputBlindingSeed(fields.firstNullifier, fields.blindingSeed),
+    proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
     withAppendedSlot: (
@@ -1243,10 +1245,10 @@ function finalizeTransfer(
 ): SppProofInputs {
   // Slots are read by output position, so a longer list would be dropped
   // without a trace rather than encrypted into the transaction.
-  if (encrypted.payload.length > prepared.outputs.length) {
+  if (encrypted.payload.length > prepared.shape.outputs) {
     throw new TransactionError("TRANSACTION_EXCESS_OUTPUT_SLOTS", {
       got: encrypted.payload.length,
-      outputs: prepared.outputs.length,
+      outputs: prepared.shape.outputs,
     });
   }
   // An owner who is also the fee payer is already account index 0, so the tag
@@ -1256,35 +1258,7 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
-  const padTag = dummyOwnerTag(
-    prepared.ownerMode === "opaque" ? [] : prepared.inputs,
-    prepared.outputs,
-    prepared.payer,
-  );
-  const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
-  const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
-  // `prepare` tags its zero-value change slots with the sender, but the pad tag
-  // may name someone else (a self-paying sender that keeps no change names the
-  // recipient). The prover folds the tag it reads from the output into the
-  // owner chain the program recomputes from the published tags, so every dummy
-  // carries the tag its slot publishes. Mirrors Rust `finalize`.
-  const outputUtxos = [
-    ...prepared.outputs.map((output) =>
-      output.isDummy() ? retagDummyOutput(output, padTag) : output,
-    ),
-    ...Array.from({ length: padCount }, (_, offset) =>
-      createProofOutput({
-        asset: ZERO_ADDRESS,
-        amount: 0n,
-        blinding: transactOutputBlinding(
-          prepared.firstNullifier,
-          outputSeed,
-          prepared.outputs.length + offset,
-        ),
-        ownerTag: padTag,
-      }),
-    ),
-  ];
+  const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
   // A dummy is hashed under the tree of the run it sits in, both here for the
   // nullifier the client requests a non-inclusion witness for and in the
   // prover, which rehashes the slot under that run's tree. Padding closes the
@@ -1363,6 +1337,40 @@ function finalizeTransfer(
     blindingSeed: prepared.blindingSeed,
     outputTreeId: prepared.outputTreeId,
   });
+}
+
+/** Builds the commitment-bearing output prefix once for sealing and finalization. */
+function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
+  outputs: ProofOutputUtxo[];
+  padCount: number;
+  padTag: Bytes32;
+}> {
+  const padTag = dummyOwnerTag(
+    prepared.ownerMode === "opaque" ? [] : prepared.inputs,
+    prepared.outputs,
+    prepared.payer,
+  );
+  const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
+  const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
+  // Dummy owner hashes stay zero after public retagging.
+  const outputs = [
+    ...prepared.outputs.map((output) =>
+      output.isDummy() ? retagDummyOutput(output, padTag) : output,
+    ),
+    ...Array.from({ length: padCount }, (_, offset) =>
+      createProofOutput({
+        asset: ZERO_ADDRESS,
+        amount: 0n,
+        blinding: transactOutputBlinding(
+          prepared.firstNullifier,
+          outputSeed,
+          prepared.outputs.length + offset,
+        ),
+        ownerTag: padTag,
+      }),
+    ),
+  ];
+  return { outputs, padCount, padTag };
 }
 
 /** The same dummy slot under `ownerTag`; a dummy has no owner address, so only the tag changes. */
@@ -1464,10 +1472,13 @@ export interface OutputSlot {
 export interface IndexedShieldedTransaction {
   readonly slot: bigint;
   readonly txSignature: Signature;
+  readonly eventIndex?: number;
   readonly txViewingPublicKey?: P256PublicKey;
   readonly salt?: Bytes16;
   readonly outputSlots: readonly OutputSlot[];
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
   readonly nullifiers: readonly Bytes32[];
   readonly proofless: boolean;
+  readonly ringConfig?: Address;
+  readonly ringProgramId?: Address;
 }

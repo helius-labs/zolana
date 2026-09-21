@@ -353,6 +353,9 @@ pub fn shielded_transaction_from_general_event(
     ShieldedTransaction {
         slot: 0,
         tx_signature: signature,
+        event_index: Some(0),
+        ring_config: None,
+        ring_program_id: None,
         tx_viewing_pk,
         salt,
         output_slots,

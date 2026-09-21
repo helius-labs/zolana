@@ -66,8 +66,12 @@ pub use state::{DepositAudit, DEPOSIT_AUDIT};
 pub const COMPRESSED_P256_KEY_LEN: usize = 33;
 /// AES-256-CTR ciphertext of the 32-byte transaction viewing secret key.
 pub const AUDIT_CIPHERTEXT_LEN: usize = 32;
-/// `eph_pk_compressed(33) || ciphertext(32)`.
-pub const AUDITOR_MESSAGE_LEN: usize = COMPRESSED_P256_KEY_LEN + AUDIT_CIPHERTEXT_LEN;
+pub const AUDIT_OUTPUT_FIELD_COUNT: usize = 9;
+pub const AUDIT_OUTPUT_SLOTS: usize = 4;
+pub const AUDIT_DISCLOSURE_FIELD_COUNT: usize = AUDIT_OUTPUT_FIELD_COUNT * AUDIT_OUTPUT_SLOTS;
+pub const AUDIT_DISCLOSURE_LEN: usize = 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
+pub const AUDITOR_MESSAGE_LEN: usize =
+    COMPRESSED_P256_KEY_LEN + AUDIT_CIPHERTEXT_LEN + AUDIT_DISCLOSURE_LEN;
 
 pub const READER_KEY_P256: u8 = 0x00;
 pub const READER_KEY_ED25519: u8 = 0x01;

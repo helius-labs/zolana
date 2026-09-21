@@ -9,23 +9,13 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 
+	base "zolana/prover/circuits/custom_ring/base"
+	"zolana/prover/circuits/custom_ring/base/audittest"
 	"zolana/prover/circuits/custom_ring/policy"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
 )
-
-// Chain elements 2 to 8 of the public input hash, the audit block recomputed
-// over the fixture scalars by the transfer package's host mirror.
-var auditChainElements = [7]string{
-	"0x000268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955",
-	"0x000000000000000000000000000000000000000000000000000000000000c5d5",
-	"0x00039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b7",
-	"0x0000000000000000000000000000000000000000000000000000000000001dec",
-	"0x00038bd43dcdaea72a1db879b1ca6faac09593fd17893d22eeef926b5c1c245a",
-	"0x000000000000000000000000000000000000000000000000000000000000133c",
-	"0x1384dccfd224d268a2028165de1523e911e276a676568086166a3b782afdbada",
-}
 
 func TestCustomRingProofVerifies(t *testing.T) {
 	loadedSystem := loadRingSystem(t, common.CustomRingPolicyKeyFile)
@@ -75,6 +65,7 @@ func baseParams(t *testing.T) *BaseParameters {
 		PrivateTxHash: big.NewInt(0xabcdef),
 		TxViewingSk:   testScalar(0x11),
 		EphSk:         testScalar(0x22),
+		NOut:          1,
 	}
 	auditorSk := testScalar(0x33)
 	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
@@ -82,14 +73,12 @@ func baseParams(t *testing.T) *BaseParameters {
 		t.Fatal(err)
 	}
 	copy(p.AuditorPk[:], auditorKey.PublicKey().Bytes())
-	elements := []*big.Int{p.PrivateTxHash}
-	for _, element := range auditChainElements {
-		value, ok := new(big.Int).SetString(element[2:], 16)
-		if !ok {
-			t.Fatalf("bad element %s", element)
-		}
-		elements = append(elements, value)
+	for i := range p.Outputs {
+		p.Outputs[i] = zeroedAuditOpening()
 	}
+	keys := audittest.DefaultKeys(t)
+	wires := keys.AuditBlockWires(p.PrivateTxHash)
+	elements := keys.ChainElementsFor(t, wires, int(p.NOut))
 	p.PublicInputHash = spptest.MustHashChain(t, elements)
 	return p
 }
@@ -193,17 +182,47 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int)
 		preimage = append(preimage, row.Asset, row.Cap, row.CosignAbove)
 	}
 	policyHash := spptest.MustHashChain(t, preimage)
-	elements := []*big.Int{p.PrivateTxHash}
-	for _, element := range auditChainElements {
-		value, ok := new(big.Int).SetString(element[2:], 16)
-		if !ok {
-			t.Fatalf("bad element %s", element)
-		}
-		elements = append(elements, value)
-	}
+	elements := audittest.DefaultKeys(t).ChainElementsFor(t, policyAuditWires(t, p), int(p.NOut))
 	elements = append(elements, policyHash, p.StateRoot, p.NullifierRoot, p.EntriesTreeID,
 		p.RingID, p.NamespaceOwnerHash, new(big.Int).SetUint64(p.WindowIndex), big.NewInt(0))
+	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), policy.NListFacts)...)
 	p.PublicInputHash = spptest.MustHashChain(t, append(elements, tail...))
+}
+
+func policyAuditWires(t testing.TB, p *PolicyParameters) base.AuditBlockWires {
+	t.Helper()
+	wires := base.AuditBlockWires{PrivateTxHash: p.PrivateTxHash}
+	for i, value := range p.TxViewingSk {
+		wires.TxViewingSk[i] = value
+	}
+	for i, value := range p.EphSk {
+		wires.EphSk[i] = value
+	}
+	for i, value := range p.AuditorPk {
+		wires.AuditorPk[i] = value
+	}
+	for i, value := range p.Salt {
+		wires.Salt[i] = int(value)
+	}
+	for i, output := range p.Outputs {
+		wires.Outputs[i] = base.AuditOutputWires{
+			Domain: output.Domain, TreeID: output.TreeID,
+			OwnerHash: spptest.MustPoseidon(t, 3, []*big.Int{output.OwnerPkHash, output.NullifierPk}),
+			Asset:     output.Asset, Amount: output.Amount, Blinding: output.Blinding,
+			DataHash: output.DataHash, RingDataHash: output.RingDataHash,
+			RingProgramID: output.RingProgramID,
+		}
+	}
+	wires.OutputCountSelected[int(p.NOut)-1] = 1
+	return wires
+}
+
+func zeroedAuditOpening() AuditOpening {
+	return AuditOpening{
+		Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),
+		Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0),
+		DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
+	}
 }
 
 func zeroedRecord() SpendRecord {
