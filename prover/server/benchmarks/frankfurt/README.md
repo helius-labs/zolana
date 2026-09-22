@@ -193,3 +193,29 @@ The prototype uses fixed precomputation and launch settings for these L4 tests.
 It is not part of the release source. Its source archive hash, complete proof
 records and stage measurements are in [the evidence](l4-hillclimb.json).
 The samples do not establish sustained TPS or p95 latency.
+
+
+## Tuned L4 transfers
+
+Four more live proofs tested the same experimental binary with 1×2 and 2×3
+transfers. All passed standard Gnark verification. Each shape ran twice. The
+second request had a cached GPU key. Values below are milliseconds.
+
+| Transfer | Blackwell witness and proof | Original L4 witness and proof | Tuned L4 witness and proof | Reduction from original L4 |
+|---|---:|---:|---:|---:|
+| 1×2 | 28.58 | 38.41 | 29.75 | 22.6% |
+| 2×3 | 29.87 | 43.26 | 34.21 | 20.9% |
+
+| Transfer | Witness | FFT | MSM | Indexer fetch | Full server | Client receipt |
+|---|---:|---:|---:|---:|---:|---:|
+| 1×2 | 15.38 | 0.29 | 12.93 | 16.20 | 49.12 | 193.94 |
+| 2×3 | 16.34 | 0.53 | 15.84 | 10.57 | 49.72 | 159.38 |
+
+The 1×2 receipt rose from 151.62 ms to 193.94 ms despite faster proving.
+Its indexer fetch rose from 5.89 ms to 16.20 ms and transport from 82.41 ms to
+120.36 ms. The 2×3 receipt fell from 185.94 ms to 159.38 ms. These samples do
+not isolate a stable network latency or establish p95 performance.
+
+Both full server paths are below 100 ms. Neither client receipt reaches that
+target. See [the transfer evidence](l4-transfer-tuned.json) for all four proofs
+and their request stages.

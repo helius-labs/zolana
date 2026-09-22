@@ -1,0 +1,723 @@
+{
+  "date": "2026-09-22",
+  "candidate_source_archive_sha256": "a7a0286e2cf7678035ba3d6f7a60e9bc5713d3a2af48754fd3cc55bdd6046ebc",
+  "configuration": {
+    "cuda_arch": "sm_89",
+    "GOAMD64": "v3",
+    "GOMAXPROCS": 6,
+    "g1_window_bits": 17,
+    "g2_accumulation_block_threads": 128,
+    "g2_accumulation_min_blocks_per_sm": 3,
+    "requested_g2_fold_factor": 17
+  },
+  "configuration_scope": "Same experimental binary and environment as the L4 merge test. The G2 window and actual shifted table count depend on key size. The requested fold factor is 17.",
+  "summary": [
+    {
+      "shape": "1x2",
+      "proof_ms": 29.745878999999974,
+      "prior_l4_proof_ms": 38.414161,
+      "blackwell_proof_ms": 28.576687000000003,
+      "witness_ms": 15.375573000000003,
+      "fft_ms": 0.2878759999999994,
+      "msm_ms": 12.925169000000015,
+      "indexer_ms": 16.20154,
+      "server_ms": 49.118487,
+      "prior_l4_server_ms": 47.217818,
+      "receipt_ms": 193.93770799999993,
+      "prior_l4_receipt_ms": 151.6243330000002,
+      "client_ms": 24.454625000000306,
+      "transport_and_edge_ms": 120.36459599999962,
+      "proof_reduction_percent": 22.565329488778964
+    },
+    {
+      "shape": "2x3",
+      "proof_ms": 34.21170100000004,
+      "prior_l4_proof_ms": 43.26349299999998,
+      "blackwell_proof_ms": 29.865730000000006,
+      "witness_ms": 16.34169199999999,
+      "fft_ms": 0.5288500000000008,
+      "msm_ms": 15.835892000000019,
+      "indexer_ms": 10.566454,
+      "server_ms": 49.719486,
+      "prior_l4_server_ms": 55.742956,
+      "receipt_ms": 159.3842079999995,
+      "prior_l4_receipt_ms": 185.93870799999968,
+      "client_ms": 31.27720799999952,
+      "transport_and_edge_ms": 78.38751399999997,
+      "proof_reduction_percent": 20.922471516573903
+    }
+  ],
+  "live_samples": {
+    "metadata": {
+      "tree": "33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN",
+      "treeId": 0,
+      "ringProgramId": "3b4wuHVM1zhL6Phs6So2n1ddr8K2wGQtFu7xATxYW9so",
+      "ringHasPolicy": false,
+      "fixtureTransactions": 2,
+      "measuredTransfersSubmitted": false,
+      "ringConfigurationPrefetched": true,
+      "customRingBaseStatement": "Individual audit proof, private transaction hash derived by SDK assembly, no SPP proof requested",
+      "firstUseLabel": "First observed request, server key cache state is unknown",
+      "deployments": {
+        "baseline": "https://d21ni15goiip6l.cloudfront.net",
+        "candidate": "https://d2f21oiccbx8ot.cloudfront.net"
+      },
+      "revision": "e6470a295de7d3bedcf3f3a80ceee8a295a3e760",
+      "aeglosRevision": "63450b2fcde9f2949b794e276889798b06dcbfed",
+      "experimentalChanges": "G2 folded precomputation, lean G2 launch bounds, G1 17 bit windows",
+      "g2Fold": 17,
+      "g1WindowBits": 17,
+      "gpu": "NVIDIA L4",
+      "instanceType": "g6.2xlarge",
+      "cudaArch": "sm_89",
+      "region": "eu-central-1",
+      "client": "Current local machine",
+      "simulatedRTT": false,
+      "maxProofRequests": 4,
+      "measurement": "SDK proof preparation through verified proof receipt. Wallet discovery and verification are reported outside proof receipt time. Each candidate calls its local Photon. Two samples per shape on the experimental L4 build. Blackwell uses the prior recorded run. Native backend stages are isolated metric deltas."
+    },
+    "budget": {
+      "attempts": 4,
+      "maxAttempts": 4,
+      "startedAt": 1790059227374,
+      "lastCompletedAt": 1790059235128,
+      "stopped": null
+    },
+    "results": [
+      {
+        "family": "transfer-confidential",
+        "fixture": "compact",
+        "deployment": "candidate",
+        "repetition": 1,
+        "source": "prover",
+        "attempt": 1,
+        "submitted": true,
+        "shape": "1x2",
+        "status": "ok",
+        "spans": [
+          {
+            "name": "preparation",
+            "startMs": 2.269166999999925,
+            "endMs": 3.9898329999998623,
+            "durationMs": 1.7206659999999374
+          },
+          {
+            "name": "signing",
+            "startMs": 3.9928749999999127,
+            "endMs": 14.06616699999995,
+            "durationMs": 10.073292000000038
+          },
+          {
+            "name": "verification",
+            "startMs": 786.1084579999997,
+            "endMs": 991.225042,
+            "durationMs": 205.11658400000033
+          }
+        ],
+        "requests": [
+          {
+            "startMs": 25.91791699999999,
+            "endMs": 773.7827079999997,
+            "phases": {
+              "socketMs": 27.418957999999975,
+              "dnsMs": 28.27341699999988,
+              "connectMs": 56.66879199999994,
+              "tlsMs": 88.00549999999998,
+              "uploadFinishedMs": 88.12024999999994,
+              "firstByteMs": 773.2942079999998
+            },
+            "reusedConnection": false,
+            "lane": "prover",
+            "operation": "/prove/indexed",
+            "requestBytes": 3260,
+            "status": 200,
+            "serverTiming": "decode;dur=0.734, indexer_decode;dur=0.101, indexer_admission;dur=0.002, indexer_fetch;dur=22.859, getNonInclusionProofs;dur=22.462, getMerkleProofs;dur=9.564, indexer_validate;dur=2.238, admission;dur=0.002, parameters;dur=0.133, keys;dur=435.467, witness;dur=0.163, prove;dur=127.867, encode;dur=0.014, server;dur=589.851",
+            "serverStages": [
+              {
+                "name": "decode",
+                "start_ms": 0.02844,
+                "duration_ms": 0.733764,
+                "complete": true
+              },
+              {
+                "name": "indexer_decode",
+                "start_ms": 0.805064,
+                "duration_ms": 0.100752,
+                "complete": true
+              },
+              {
+                "name": "indexer_admission",
+                "start_ms": 0.906036,
+                "duration_ms": 0.00156,
+                "complete": true
+              },
+              {
+                "name": "indexer_fetch",
+                "start_ms": 0.907696,
+                "duration_ms": 22.858922,
+                "complete": true
+              },
+              {
+                "name": "getNonInclusionProofs",
+                "start_ms": 0.918586,
+                "duration_ms": 22.462035,
+                "complete": true
+              },
+              {
+                "name": "getMerkleProofs",
+                "start_ms": 0.930156,
+                "duration_ms": 9.563993,
+                "complete": true
+              },
+              {
+                "name": "indexer_validate",
+                "start_ms": 23.766888,
+                "duration_ms": 2.238051,
+                "complete": true
+              },
+              {
+                "name": "admission",
+                "start_ms": 26.008319,
+                "duration_ms": 0.00196,
+                "complete": true
+              },
+              {
+                "name": "parameters",
+                "start_ms": 26.10978,
+                "duration_ms": 0.132703,
+                "complete": true
+              },
+              {
+                "name": "keys",
+                "start_ms": 26.242593,
+                "duration_ms": 435.467386,
+                "complete": true
+              },
+              {
+                "name": "witness",
+                "start_ms": 461.710659,
+                "duration_ms": 0.163423,
+                "complete": true
+              },
+              {
+                "name": "prove",
+                "start_ms": 461.874432,
+                "duration_ms": 127.866544,
+                "complete": true
+              },
+              {
+                "name": "encode",
+                "start_ms": 589.834648,
+                "duration_ms": 0.01433,
+                "complete": true
+              },
+              {
+                "name": "server",
+                "start_ms": 0,
+                "duration_ms": 589.851198,
+                "complete": true
+              }
+            ],
+            "requestId": "d28779d7-930e-4b77-b059-e8ad6384dc69",
+            "responseBytes": 962,
+            "durationMs": 747.866291
+          }
+        ],
+        "startedAt": "2026-09-22T06:40:27.767Z",
+        "actualShape": "1x2",
+        "sdkReadyMs": 786.0969169999998,
+        "proofReceivedMs": 773.7827079999997,
+        "verified": true,
+        "totalMs": 991.240792,
+        "backendProofCount": 1,
+        "backendStagesMs": {
+          "admission": 0.0003800000000000002,
+          "commitment": 0,
+          "fft": 0.4621079999999993,
+          "host_hints": 0,
+          "msm": 12.449533999999984,
+          "prepare": 97.67822000000015,
+          "proof": 30.172564000000012,
+          "total": 127.85280399999976,
+          "witness": 15.972728000000005
+        },
+        "backendCacheMisses": 1
+      },
+      {
+        "family": "transfer-confidential",
+        "fixture": "compact",
+        "deployment": "candidate",
+        "repetition": 2,
+        "source": "prover",
+        "attempt": 2,
+        "submitted": true,
+        "shape": "1x2",
+        "status": "ok",
+        "spans": [
+          {
+            "name": "preparation",
+            "startMs": 1.6478750000001128,
+            "endMs": 3.451415999999881,
+            "durationMs": 1.8035409999997682
+          },
+          {
+            "name": "signing",
+            "startMs": 3.453375000000051,
+            "endMs": 14.166749999999865,
+            "durationMs": 10.713374999999814
+          },
+          {
+            "name": "verification",
+            "startMs": 203.09595799999988,
+            "endMs": 421.15333299999975,
+            "durationMs": 218.05737499999987
+          }
+        ],
+        "requests": [
+          {
+            "startMs": 24.455083000000286,
+            "endMs": 193.93770799999993,
+            "phases": {
+              "socketMs": 24.827833000000282,
+              "uploadFinishedMs": 25.036833000000115,
+              "firstByteMs": 193.820291
+            },
+            "reusedConnection": true,
+            "lane": "prover",
+            "operation": "/prove/indexed",
+            "requestBytes": 3256,
+            "status": 200,
+            "serverTiming": "decode;dur=0.400, indexer_decode;dur=0.182, indexer_admission;dur=0.003, indexer_fetch;dur=16.202, getNonInclusionProofs;dur=10.215, getMerkleProofs;dur=15.844, indexer_validate;dur=2.030, admission;dur=0.002, parameters;dur=0.137, keys;dur=0.013, witness;dur=0.183, prove;dur=29.753, encode;dur=0.011, server;dur=49.118",
+            "serverStages": [
+              {
+                "name": "decode",
+                "start_ms": 0.031931,
+                "duration_ms": 0.400237,
+                "complete": true
+              },
+              {
+                "name": "indexer_decode",
+                "start_ms": 0.479239,
+                "duration_ms": 0.181953,
+                "complete": true
+              },
+              {
+                "name": "indexer_admission",
+                "start_ms": 0.661542,
+                "duration_ms": 0.00283,
+                "complete": true
+              },
+              {
+                "name": "indexer_fetch",
+                "start_ms": 0.664542,
+                "duration_ms": 16.20154,
+                "complete": true
+              },
+              {
+                "name": "getNonInclusionProofs",
+                "start_ms": 0.698143,
+                "duration_ms": 10.214909,
+                "complete": true
+              },
+              {
+                "name": "getMerkleProofs",
+                "start_ms": 0.718603,
+                "duration_ms": 15.844433,
+                "complete": true
+              },
+              {
+                "name": "indexer_validate",
+                "start_ms": 16.866362,
+                "duration_ms": 2.030107,
+                "complete": true
+              },
+              {
+                "name": "admission",
+                "start_ms": 18.89874,
+                "duration_ms": 0.00232,
+                "complete": true
+              },
+              {
+                "name": "parameters",
+                "start_ms": 18.991011,
+                "duration_ms": 0.137213,
+                "complete": true
+              },
+              {
+                "name": "keys",
+                "start_ms": 19.128354,
+                "duration_ms": 0.01271,
+                "complete": true
+              },
+              {
+                "name": "witness",
+                "start_ms": 19.141284,
+                "duration_ms": 0.182764,
+                "complete": true
+              },
+              {
+                "name": "prove",
+                "start_ms": 19.324437,
+                "duration_ms": 29.752659,
+                "complete": true
+              },
+              {
+                "name": "encode",
+                "start_ms": 49.106737,
+                "duration_ms": 0.01058,
+                "complete": true
+              },
+              {
+                "name": "server",
+                "start_ms": 0,
+                "duration_ms": 49.118487,
+                "complete": true
+              }
+            ],
+            "requestId": "9a999893-8ce8-4fdb-b1ed-2b32daa46f7c",
+            "responseBytes": 962,
+            "durationMs": 169.48308299999962
+          }
+        ],
+        "startedAt": "2026-09-22T06:40:29.918Z",
+        "actualShape": "1x2",
+        "sdkReadyMs": 203.083666,
+        "proofReceivedMs": 193.93770799999993,
+        "verified": true,
+        "totalMs": 421.15941599999996,
+        "backendProofCount": 1,
+        "backendStagesMs": {
+          "admission": 0.0005490000000000001,
+          "commitment": 0,
+          "fft": 0.2878759999999994,
+          "host_hints": 0,
+          "msm": 12.925169000000015,
+          "prepare": 0,
+          "proof": 29.745878999999974,
+          "total": 29.747438000000237,
+          "witness": 15.375573000000003
+        },
+        "backendCacheMisses": 0
+      },
+      {
+        "family": "transfer-confidential",
+        "fixture": "transfer",
+        "deployment": "candidate",
+        "repetition": 1,
+        "source": "prover",
+        "attempt": 3,
+        "submitted": true,
+        "shape": "2x3",
+        "status": "ok",
+        "spans": [
+          {
+            "name": "preparation",
+            "startMs": 1.4008750000002692,
+            "endMs": 2.9367910000000848,
+            "durationMs": 1.5359159999998155
+          },
+          {
+            "name": "signing",
+            "startMs": 2.939166000000114,
+            "endMs": 15.011999999999716,
+            "durationMs": 12.072833999999602
+          },
+          {
+            "name": "verification",
+            "startMs": 1207.9382910000004,
+            "endMs": 1505.3521659999997,
+            "durationMs": 297.4138749999993
+          }
+        ],
+        "requests": [
+          {
+            "startMs": 28.767375000000357,
+            "endMs": 1198.7520409999997,
+            "phases": {
+              "socketMs": 28.945040999999947,
+              "uploadFinishedMs": 29.183874999999716,
+              "firstByteMs": 1198.589916
+            },
+            "reusedConnection": true,
+            "lane": "prover",
+            "operation": "/prove/indexed",
+            "requestBytes": 4429,
+            "status": 200,
+            "serverTiming": "decode;dur=0.267, indexer_decode;dur=0.134, indexer_admission;dur=0.001, indexer_fetch;dur=13.663, getNonInclusionProofs;dur=12.230, getMerkleProofs;dur=13.359, indexer_validate;dur=2.969, admission;dur=0.002, parameters;dur=0.250, keys;dur=826.772, witness;dur=0.215, prove;dur=244.781, encode;dur=0.012, server;dur=1089.335",
+            "serverStages": [
+              {
+                "name": "decode",
+                "start_ms": 0.01665,
+                "duration_ms": 0.266525,
+                "complete": true
+              },
+              {
+                "name": "indexer_decode",
+                "start_ms": 0.308386,
+                "duration_ms": 0.133992,
+                "complete": true
+              },
+              {
+                "name": "indexer_admission",
+                "start_ms": 0.442648,
+                "duration_ms": 0.00139,
+                "complete": true
+              },
+              {
+                "name": "indexer_fetch",
+                "start_ms": 0.444158,
+                "duration_ms": 13.662691,
+                "complete": true
+              },
+              {
+                "name": "getNonInclusionProofs",
+                "start_ms": 0.453968,
+                "duration_ms": 12.229806,
+                "complete": true
+              },
+              {
+                "name": "getMerkleProofs",
+                "start_ms": 0.462478,
+                "duration_ms": 13.358836,
+                "complete": true
+              },
+              {
+                "name": "indexer_validate",
+                "start_ms": 14.107049,
+                "duration_ms": 2.969095,
+                "complete": true
+              },
+              {
+                "name": "admission",
+                "start_ms": 17.079654,
+                "duration_ms": 0.00179,
+                "complete": true
+              },
+              {
+                "name": "parameters",
+                "start_ms": 17.242487,
+                "duration_ms": 0.249975,
+                "complete": true
+              },
+              {
+                "name": "keys",
+                "start_ms": 17.492662,
+                "duration_ms": 826.771913,
+                "complete": true
+              },
+              {
+                "name": "witness",
+                "start_ms": 844.265725,
+                "duration_ms": 0.215244,
+                "complete": true
+              },
+              {
+                "name": "prove",
+                "start_ms": 844.481199,
+                "duration_ms": 244.780576,
+                "complete": true
+              },
+              {
+                "name": "encode",
+                "start_ms": 1089.321706,
+                "duration_ms": 0.01151,
+                "complete": true
+              },
+              {
+                "name": "server",
+                "start_ms": 0,
+                "duration_ms": 1089.335406,
+                "complete": true
+              }
+            ],
+            "requestId": "ccbdb402-faa0-4831-b8a2-898fe2117525",
+            "responseBytes": 962,
+            "durationMs": 1169.985291
+          }
+        ],
+        "startedAt": "2026-09-22T06:40:31.686Z",
+        "actualShape": "2x3",
+        "sdkReadyMs": 1207.9337910000004,
+        "proofReceivedMs": 1198.7520409999997,
+        "verified": true,
+        "totalMs": 1505.3599160000003,
+        "backendProofCount": 1,
+        "backendStagesMs": {
+          "admission": 0.0005100000000000003,
+          "commitment": 0,
+          "fft": 0.6789929999999993,
+          "host_hints": 0,
+          "msm": 16.20028899999998,
+          "prepare": 208.5371180000002,
+          "proof": 36.22667700000004,
+          "total": 244.76607500000026,
+          "witness": 17.673755000000014
+        },
+        "backendCacheMisses": 1
+      },
+      {
+        "family": "transfer-confidential",
+        "fixture": "transfer",
+        "deployment": "candidate",
+        "repetition": 2,
+        "source": "prover",
+        "attempt": 4,
+        "submitted": true,
+        "shape": "2x3",
+        "status": "ok",
+        "spans": [
+          {
+            "name": "preparation",
+            "startMs": 2.1479159999998956,
+            "endMs": 3.9524579999997513,
+            "durationMs": 1.8045419999998558
+          },
+          {
+            "name": "signing",
+            "startMs": 3.9578329999985726,
+            "endMs": 16.7292499999985,
+            "durationMs": 12.771416999999929
+          },
+          {
+            "name": "verification",
+            "startMs": 169.10537499999919,
+            "endMs": 476.0502499999984,
+            "durationMs": 306.94487499999923
+          }
+        ],
+        "requests": [
+          {
+            "startMs": 31.277790999998615,
+            "endMs": 159.3842079999995,
+            "phases": {
+              "socketMs": 31.658457999999882,
+              "uploadFinishedMs": 31.83612499999981,
+              "firstByteMs": 159.26195799999914
+            },
+            "reusedConnection": true,
+            "lane": "prover",
+            "operation": "/prove/indexed",
+            "requestBytes": 4429,
+            "status": 200,
+            "serverTiming": "decode;dur=0.611, indexer_decode;dur=0.249, indexer_admission;dur=0.002, indexer_fetch;dur=10.566, getNonInclusionProofs;dur=8.986, getMerkleProofs;dur=10.229, indexer_validate;dur=3.206, admission;dur=0.005, parameters;dur=0.233, keys;dur=0.016, witness;dur=0.256, prove;dur=34.219, encode;dur=0.011, server;dur=49.719",
+            "serverStages": [
+              {
+                "name": "decode",
+                "start_ms": 0.056651,
+                "duration_ms": 0.610901,
+                "complete": true
+              },
+              {
+                "name": "indexer_decode",
+                "start_ms": 0.725043,
+                "duration_ms": 0.248545,
+                "complete": true
+              },
+              {
+                "name": "indexer_admission",
+                "start_ms": 0.973738,
+                "duration_ms": 0.00158,
+                "complete": true
+              },
+              {
+                "name": "indexer_fetch",
+                "start_ms": 0.975418,
+                "duration_ms": 10.566454,
+                "complete": true
+              },
+              {
+                "name": "getNonInclusionProofs",
+                "start_ms": 0.985008,
+                "duration_ms": 8.985846,
+                "complete": true
+              },
+              {
+                "name": "getMerkleProofs",
+                "start_ms": 0.997058,
+                "duration_ms": 10.229279,
+                "complete": true
+              },
+              {
+                "name": "indexer_validate",
+                "start_ms": 11.542043,
+                "duration_ms": 3.206018,
+                "complete": true
+              },
+              {
+                "name": "admission",
+                "start_ms": 14.750631,
+                "duration_ms": 0.00518,
+                "complete": true
+              },
+              {
+                "name": "parameters",
+                "start_ms": 14.902504,
+                "duration_ms": 0.232614,
+                "complete": true
+              },
+              {
+                "name": "keys",
+                "start_ms": 15.135228,
+                "duration_ms": 0.016381,
+                "complete": true
+              },
+              {
+                "name": "witness",
+                "start_ms": 15.151939,
+                "duration_ms": 0.255504,
+                "complete": true
+              },
+              {
+                "name": "prove",
+                "start_ms": 15.407843,
+                "duration_ms": 34.219111,
+                "complete": true
+              },
+              {
+                "name": "encode",
+                "start_ms": 49.708056,
+                "duration_ms": 0.01066,
+                "complete": true
+              },
+              {
+                "name": "server",
+                "start_ms": 0,
+                "duration_ms": 49.719486,
+                "complete": true
+              }
+            ],
+            "requestId": "425b99d1-188d-46e4-a068-e37831bbdfdb",
+            "responseBytes": 962,
+            "durationMs": 128.10699999999997
+          }
+        ],
+        "startedAt": "2026-09-22T06:40:34.573Z",
+        "actualShape": "2x3",
+        "sdkReadyMs": 169.10049999999865,
+        "proofReceivedMs": 159.3842079999995,
+        "verified": true,
+        "totalMs": 476.05729099999917,
+        "backendProofCount": 1,
+        "backendStagesMs": {
+          "admission": 0.0005699999999999997,
+          "commitment": 0,
+          "fft": 0.5288500000000008,
+          "host_hints": 0,
+          "msm": 15.835892000000019,
+          "prepare": 0,
+          "proof": 34.21170100000004,
+          "total": 34.21349100000004,
+          "witness": 16.34169199999999
+        },
+        "backendCacheMisses": 0
+      }
+    ]
+  },
+  "limitations": [
+    "Two proofs per shape, warm comparison uses the second proof.",
+    "Proof time includes witness solving and excludes indexer, network and client work.",
+    "Client receipt excludes wallet discovery and independent proof verification.",
+    "Network and client variation contribute to receipt differences between runs.",
+    "No sustained TPS or p95 measurement."
+  ]
+}
