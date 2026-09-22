@@ -1,6 +1,6 @@
 use crate::{
     authority::{AuthoritySeal, RingAuthorityMove},
-    PreparedRingAuthority,
+    RingAuthorityProofInputs,
 };
 use futures::future::try_join;
 use solana_address::Address;
@@ -358,7 +358,7 @@ fn check_balance(
 struct StagedDelegateTransfer {
     tx_viewing_key: ViewingKey,
     pending_proof: PendingCustomRingProof,
-    prepared: PreparedRingAuthority,
+    prepared: RingAuthorityProofInputs,
     source_nullifier_key: NullifierKey,
     delegate: Address,
     input_tree: Address,
@@ -425,7 +425,7 @@ impl StagedDelegateTransfer {
 struct WitnessedDelegateTransfer {
     request: TierRequest,
     tx_viewing_key: ViewingKey,
-    prepared: PreparedRingAuthority,
+    prepared: RingAuthorityProofInputs,
     result: RingAuthorityProofResult,
     delegate: Address,
     input_tree: Address,

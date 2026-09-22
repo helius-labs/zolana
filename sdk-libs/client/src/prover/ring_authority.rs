@@ -11,25 +11,20 @@ use solana_address::Address;
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::instruction::instruction_data::transact::TreeContext;
 use zolana_transaction::{
-    instructions::{ring_authority::RingAuthorityProofInputs, transact::PublicTransfers},
-    utxo::program_id_proof_input_hash,
-    ExternalData, SppProofOutputUtxo,
+    instructions::transact::PublicTransfers, utxo::program_id_proof_input_hash, ExternalData,
+    SppProofOutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
         field::be,
-        transact::{
-            assembly::{
-                assemble_transaction, validate_shape, AssembledTransaction, OwnerMode,
-                PublicInputs, TransferInputUtxo,
-            },
-            witness::{attach_input_proofs, SpendProof},
+        transact::assembly::{
+            assemble_transaction, validate_shape, AssembledTransaction, OwnerMode, PublicInputs,
+            TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
     },
-    rpc::NonInclusionProof,
 };
 
 /// Ring-authority state transition over ring-owned UTXOs. The ring authority is
@@ -145,56 +140,6 @@ impl RingAuthorityProver {
             private_tx_hash: private_tx,
             tree_contexts: assembled_inputs.tree_contexts,
             input_tree_indexes: assembled_inputs.input_tree_indexes,
-        })
-    }
-}
-
-/// A [`RingAuthorityProofInputs`] plus the fetched Merkle proofs, ready to fold into a
-/// [`RingAuthorityProver`]. One
-/// [`SpendProof`] per real (non-dummy) input, in input order.
-pub struct RingAuthorityWitness {
-    pub prepared: RingAuthorityProofInputs,
-    pub proofs: Vec<SpendProof>,
-    /// One nullifier non-inclusion proof per dummy input, in dummy-slot order.
-    /// Unlike merge, the shared transfer circuit checks non-inclusion for every
-    /// slot, including padding.
-    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
-}
-
-impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
-    type Error = ClientError;
-
-    fn try_from(witness: RingAuthorityWitness) -> Result<Self, Self::Error> {
-        let RingAuthorityWitness {
-            prepared,
-            proofs,
-            dummy_nullifier_proofs,
-        } = witness;
-        let RingAuthorityProofInputs {
-            input_utxos: inputs,
-            output_utxos: outputs,
-            blinding_seed,
-            output_tree_id,
-            public_transfers,
-            external_data,
-            payer,
-            ring_program_id,
-            shape,
-        } = prepared;
-
-        let input_utxos = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
-
-        Ok(RingAuthorityProver {
-            inputs: input_utxos,
-            outputs,
-            blinding_seed,
-            output_tree_id,
-            external_data,
-            public_transfers,
-            payer,
-            allow_dummy_inputs: true,
-            ring_program_id,
-            shape,
         })
     }
 }

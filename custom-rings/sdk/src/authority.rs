@@ -15,7 +15,7 @@ use zolana_transaction::{
     AssetRegistry, EncryptedScheme, ExternalData, SppProofOutputUtxo, UtxoSerialization,
 };
 
-use crate::PreparedRingAuthority;
+use crate::RingAuthorityProofInputs;
 
 const MAX_AUTHORITY_SLOTS: usize = 4;
 
@@ -127,7 +127,7 @@ impl RingAuthorityDraft {
     pub fn finalize(
         self,
         seal: AuthoritySeal<'_>,
-    ) -> Result<PreparedRingAuthority, TransactionError> {
+    ) -> Result<RingAuthorityProofInputs, TransactionError> {
         let Self {
             inputs,
             outputs,
@@ -197,7 +197,7 @@ impl RingAuthorityDraft {
             Vec::new(),
         );
         external_data.instruction_discriminator = RING_AUTHORITY_TRANSACT;
-        Ok(PreparedRingAuthority {
+        Ok(RingAuthorityProofInputs {
             inputs,
             outputs,
             blinding_seed,
@@ -251,7 +251,7 @@ mod tests {
     fn prepare(
         inputs: Vec<SppProofInputUtxo>,
         outputs: Vec<SppProofOutputUtxo>,
-    ) -> Result<PreparedRingAuthority, TransactionError> {
+    ) -> Result<RingAuthorityProofInputs, TransactionError> {
         RingAuthorityMove {
             ring_program_id: RING,
             inputs,

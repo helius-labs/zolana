@@ -3,7 +3,7 @@ mod prover_bootstrap;
 #[path = "../../../sdk-libs/client/tests/test_indexer.rs"]
 mod test_indexer;
 
-use custom_ring_sdk::{PreparedRingAuthority, RingAuthorityWitness};
+use custom_ring_sdk::{RingAuthorityProofInputs, RingAuthorityProofs};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use test_indexer::TestIndexer;
@@ -27,7 +27,7 @@ use zolana_transaction::{
 const TEST_TREE_ID: u16 = 0;
 
 #[test]
-fn prepared_authority_witness_proves_and_verifies() {
+fn prepared_authority_proves_and_verifies() {
     prover_bootstrap::start_prover();
     let ring = Address::new_from_array([9u8; 32]);
     let mut indexer = TestIndexer::new();
@@ -62,7 +62,7 @@ fn prepared_authority_witness_proves_and_verifies() {
             derive_transact_output_blinding(&inputs[0].nullifier(), &output_seed, index as u32)
                 .expect("output blinding");
     }
-    let prepared = PreparedRingAuthority {
+    let prepared = RingAuthorityProofInputs {
         inputs,
         outputs,
         blinding_seed,
@@ -85,7 +85,7 @@ fn prepared_authority_witness_proves_and_verifies() {
         .filter(|input| input.is_dummy())
         .map(|input| indexer.dummy_nullifier_proof(input.nullifier()))
         .collect();
-    let mut result = RingAuthorityProver::try_from(RingAuthorityWitness {
+    let mut result = RingAuthorityProver::try_from(RingAuthorityProofs {
         prepared,
         proofs,
         dummy_nullifier_proofs,
