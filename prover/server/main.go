@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/logging"
+	"zolana/prover/prover/backend"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/extractor"
@@ -523,7 +525,9 @@ func runCli() {
 				},
 			},
 			{
-				Name: "start",
+				Name:   "start",
+				Before: initializeProofBackend,
+				After:  closeProofBackend,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "json-logging", Usage: "enable JSON logging", Required: false},
 					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server", Value: "0.0.0.0:5000", Required: false},
@@ -736,9 +740,13 @@ func runCli() {
 					go preloadAsync()
 
 					sigint := make(chan os.Signal, 1)
-					signal.Notify(sigint, os.Interrupt)
+					signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
 					<-sigint
 					logging.Logger().Info().Msg("Received sigint, shutting down")
+
+					if enableServer {
+						instance.RequestStop()
+					}
 
 					if len(workers) > 0 {
 						logging.Logger().Info().Msg("Stopping queue workers...")
@@ -747,13 +755,14 @@ func runCli() {
 							worker.Stop()
 						}
 
-						time.Sleep(2 * time.Second)
+						for _, worker := range workers {
+							worker.Wait()
+						}
 						logging.Logger().Info().Msg("All queue workers stopped")
 					}
 
 					if enableServer {
 						logging.Logger().Info().Msg("Stopping HTTP server...")
-						instance.RequestStop()
 						instance.AwaitStop()
 						logging.Logger().Info().Msg("HTTP server stopped")
 					}
@@ -769,7 +778,9 @@ func runCli() {
 				},
 			},
 			{
-				Name: "prove",
+				Name:   "prove",
+				Before: initializeProofBackend,
+				After:  closeProofBackend,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "address-append", Usage: "Run batch address append circuit", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where circuit key files are stored", Value: "./proving-keys/", Required: false},
@@ -848,6 +859,10 @@ func runCli() {
 		logging.Logger().Fatal().Err(err).Msg("App failed.")
 	}
 }
+
+func initializeProofBackend(_ *cli.Context) error { return backend.Initialize() }
+
+func closeProofBackend(_ *cli.Context) error { return backend.Close() }
 
 func parseRunMode(runModeString string) (common.RunMode, error) {
 	runMode := common.LocalRpc

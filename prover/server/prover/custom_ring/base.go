@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"zolana/prover/prover/backend"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -134,7 +135,7 @@ func ProveBase(ps *common.RingProofSystem, params *BaseParameters) (*common.Proo
 	if err != nil {
 		return nil, fmt.Errorf("create witness: %w", err)
 	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}

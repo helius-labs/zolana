@@ -1,0 +1,28 @@
+FROM golang:1.27.1-bookworm AS go
+FROM nvidia/cuda:12.8.1-devel-ubuntu22.04 AS builder
+
+COPY --from=go /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates make g++ git && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY . .
+COPY --from=aeglos_source / /tmp/aeglos-source/
+RUN cd /tmp/aeglos-source && sha256sum -c /app/prover/backend/aeglos-source.lock && \
+    mkdir -p /opt/aeglos && \
+    tar -xf aeglos-63450b2fcde9f2949b794e276889798b06dcbfed.tar -C /opt/aeglos
+ENV GOWORK=/build/go.work
+RUN mkdir /build && cd /build && go work init /app /opt/aeglos && \
+    go mod download && go mod verify
+ARG CUDA_ARCH=sm_89
+RUN make -C /opt/aeglos BUILD_DIR=/tmp/aeglos-build ARCH="$CUDA_ARCH" install
+ENV CGO_ENABLED=1
+ENV CGO_LDFLAGS="-L/usr/local/lib -L/usr/local/cuda/lib64"
+RUN go build -tags aeglos -trimpath -o /usr/local/bin/light-prover .
+
+FROM nvidia/cuda:12.8.1-runtime-ubuntu22.04
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
+USER 65532:65532
+ENV PROVER_BACKEND=aeglos
+ENTRYPOINT ["light-prover"]
+CMD ["start", "--preload-keys", "rpc", "--keys-dir", "/proving-keys/"]

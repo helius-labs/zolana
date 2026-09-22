@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
@@ -142,11 +143,15 @@ type ProofJob struct {
 }
 
 type QueueWorker interface {
+	Wait()
 	Start()
 	Stop()
 }
 
 type BaseQueueWorker struct {
+	done                chan struct{}
+	pending             sync.WaitGroup
+	stopOnce            sync.Once
 	queue               *RedisQueue
 	keyManager          *common.LazyKeyManager
 	stopChan            chan struct{}
@@ -171,6 +176,7 @@ func NewAddressAppendQueueWorker(redisQueue *RedisQueue, keyManager *common.Lazy
 			queue:               redisQueue,
 			keyManager:          keyManager,
 			stopChan:            make(chan struct{}),
+			done:                make(chan struct{}),
 			queueName:           "zk_address_append_queue",
 			processingQueueName: "zk_address_append_processing_queue",
 			maxConcurrency:      maxConcurrency,
@@ -185,6 +191,7 @@ func NewCustomRingQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKey
 		queue:               redisQueue,
 		keyManager:          keyManager,
 		stopChan:            make(chan struct{}),
+		done:                make(chan struct{}),
 		queueName:           "zk_custom_ring_queue",
 		processingQueueName: "zk_custom_ring_processing_queue",
 		maxConcurrency:      maxConcurrency,
@@ -193,6 +200,7 @@ func NewCustomRingQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKey
 }
 
 func (w *BaseQueueWorker) Start() {
+	defer func() { w.pending.Wait(); close(w.done) }()
 	logging.Logger().Info().
 		Str("queue", w.queueName).
 		Int("max_concurrency", w.maxConcurrency).
@@ -210,7 +218,7 @@ func (w *BaseQueueWorker) Start() {
 }
 
 func (w *BaseQueueWorker) Stop() {
-	close(w.stopChan)
+	w.stopOnce.Do(func() { close(w.stopChan) })
 }
 
 func (w *BaseQueueWorker) processJobs() {
@@ -390,7 +398,9 @@ func (w *BaseQueueWorker) processJobs() {
 	w.semaphore <- struct{}{}
 	RecordDispatchStage(w.queueName, "semaphore", time.Since(semaphoreStart))
 
+	w.pending.Add(1)
 	go func(job *ProofJob, inputHash string) {
+		defer w.pending.Done()
 		// Set once the processing entry exists; the panic handler below reads
 		// whatever it holds at that point, which is "" if we never got that far.
 		var processingItem string
@@ -588,6 +598,7 @@ func NewTransferQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyMa
 			queue:               redisQueue,
 			keyManager:          keyManager,
 			stopChan:            make(chan struct{}),
+			done:                make(chan struct{}),
 			queueName:           "zk_transfer_queue",
 			processingQueueName: "zk_transfer_processing_queue",
 			maxConcurrency:      maxConcurrency,
@@ -850,3 +861,5 @@ func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err 
 		}
 	}
 }
+
+func (w *BaseQueueWorker) Wait() { <-w.done }

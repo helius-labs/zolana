@@ -9,8 +9,8 @@ import (
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
+	"zolana/prover/prover/backend"
 )
 
 // ValidateShape checks the parameter arity is a supported merge shape, and the
@@ -70,7 +70,7 @@ func ProveMerge(ps *common.TransferProofSystem, params *MergeParameters) (*commo
 	if err != nil {
 		return nil, fmt.Errorf("error creating witness: %v", err)
 	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 	if err != nil {
 		return nil, fmt.Errorf("error proving: %v", err)
 	}

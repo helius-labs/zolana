@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
+	"zolana/prover/prover/backend"
 
 	"zolana/prover/prover/common"
 )
@@ -19,7 +19,7 @@ func ProvePolicy(ps *common.RingProofSystem, params *PolicyParameters) (*common.
 	if err != nil {
 		return nil, fmt.Errorf("create witness: %w", err)
 	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}
