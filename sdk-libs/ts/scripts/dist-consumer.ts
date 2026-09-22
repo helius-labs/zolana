@@ -63,3 +63,8 @@ export type {
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,
 } from "@heliuslabs/zolana";
+
+import poolIdl from "@heliuslabs/zolana/idl/shieldedPool.json" with { type: "json" };
+import registryIdl from "@heliuslabs/zolana/idl/userRegistry.json" with { type: "json" };
+void poolIdl.program.instructions;
+void registryIdl.program.instructions;

@@ -1,0 +1,4688 @@
+{
+  "kind": "rootNode",
+  "standard": "codama",
+  "version": "1.8.0",
+  "program": {
+    "kind": "programNode",
+    "name": "shieldedPool",
+    "publicKey": "sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6",
+    "version": "0.1.0",
+    "docs": [
+      "Native Pinocchio program. Custom wincode instructions and Borsh self-CPI events. Tree internals intentionally omitted; configuration and asset accounts are described."
+    ],
+    "accounts": [
+      {
+        "kind": "accountNode",
+        "name": "protocolConfig",
+        "size": 166,
+        "data": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "discriminator",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "protocolAuthority",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "treeCreationAuthority",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "foresterAuthority",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "ringCreationAuthority",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "feeAuthority",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "treeCreationIsPermissionless",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "ringActivationIsPermissionless",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "splInterfaceCreationIsPermissionless",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "nextTreeId",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u16",
+                "endian": "le"
+              }
+            }
+          ]
+        },
+        "discriminators": [
+          {
+            "kind": "constantDiscriminatorNode",
+            "offset": 0,
+            "constant": {
+              "kind": "constantValueNode",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              },
+              "value": {
+                "kind": "numberValueNode",
+                "number": 3
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "accountNode",
+        "name": "ringConfig",
+        "size": 69,
+        "data": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "discriminator",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "authority",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "programId",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "ringAuthorityTransactIsEnabled",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "paused",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "activated",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "bump",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            }
+          ]
+        },
+        "discriminators": [
+          {
+            "kind": "constantDiscriminatorNode",
+            "offset": 0,
+            "constant": {
+              "kind": "constantValueNode",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              },
+              "value": {
+                "kind": "numberValueNode",
+                "number": 4
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "accountNode",
+        "name": "splAssetRegistry",
+        "size": 48,
+        "data": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "discriminator",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "reserved",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 7,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "mint",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "assetId",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            }
+          ]
+        },
+        "discriminators": [
+          {
+            "kind": "constantDiscriminatorNode",
+            "offset": 0,
+            "constant": {
+              "kind": "constantValueNode",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              },
+              "value": {
+                "kind": "numberValueNode",
+                "number": 5
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "accountNode",
+        "name": "splAssetCounter",
+        "size": 16,
+        "data": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "discriminator",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "reserved",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 7,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "nextId",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            }
+          ]
+        },
+        "discriminators": [
+          {
+            "kind": "constantDiscriminatorNode",
+            "offset": 0,
+            "constant": {
+              "kind": "constantValueNode",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              },
+              "value": {
+                "kind": "numberValueNode",
+                "number": 6
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "instructions": [
+      {
+        "kind": "instructionNode",
+        "name": "createProtocolConfig",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "initializationAuthority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "program",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "programData",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 0
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "protocolAuthority",
+                  "type": {
+                    "kind": "publicKeyTypeNode"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "treeCreationAuthority",
+                  "type": {
+                    "kind": "publicKeyTypeNode"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "treeCreationIsPermissionless",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "foresterAuthority",
+                  "type": {
+                    "kind": "publicKeyTypeNode"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "ringCreationAuthority",
+                  "type": {
+                    "kind": "publicKeyTypeNode"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "ringActivationIsPermissionless",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "splInterfaceCreationIsPermissionless",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "feeAuthority",
+                  "type": {
+                    "kind": "publicKeyTypeNode"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "updateProtocolConfig",
+        "docs": [""],
+        "optionalAccountStrategy": "omitted",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "newAuthority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": true,
+            "docs": [
+              "Required only for ProtocolAuthority (variant 0); address must equal the instruction payload. Omitted for other updates."
+            ]
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 1
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "enumTypeNode",
+              "variants": [
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "protocolAuthority",
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "value",
+                        "type": {
+                          "kind": "publicKeyTypeNode"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "treeCreationAuthority",
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "value",
+                        "type": {
+                          "kind": "publicKeyTypeNode"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "foresterAuthority",
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "value",
+                        "type": {
+                          "kind": "publicKeyTypeNode"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "ringCreationAuthority",
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "value",
+                        "type": {
+                          "kind": "publicKeyTypeNode"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "treeCreationPermissionless",
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "value",
+                        "type": {
+                          "kind": "booleanTypeNode",
+                          "size": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "ringActivationPermissionless",
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "value",
+                        "type": {
+                          "kind": "booleanTypeNode",
+                          "size": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "splInterfaceCreationPermissionless",
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "value",
+                        "type": {
+                          "kind": "booleanTypeNode",
+                          "size": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "feeAuthority",
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "value",
+                        "type": {
+                          "kind": "publicKeyTypeNode"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "size": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "createTree",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "tree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 2
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "treeId",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u16",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "nullifierParams",
+                  "type": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "inputQueueBatchSize",
+                        "type": {
+                          "kind": "numberTypeNode",
+                          "format": "u64",
+                          "endian": "le"
+                        }
+                      },
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "inputQueueZkpBatchSize",
+                        "type": {
+                          "kind": "numberTypeNode",
+                          "format": "u64",
+                          "endian": "le"
+                        }
+                      },
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "height",
+                        "type": {
+                          "kind": "numberTypeNode",
+                          "format": "u32",
+                          "endian": "le"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "fees",
+                  "type": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "feePerNullifier",
+                        "type": {
+                          "kind": "numberTypeNode",
+                          "format": "u64",
+                          "endian": "le"
+                        }
+                      },
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "appendReimbursement",
+                        "type": {
+                          "kind": "numberTypeNode",
+                          "format": "u64",
+                          "endian": "le"
+                        }
+                      },
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "closeReimbursement",
+                        "type": {
+                          "kind": "numberTypeNode",
+                          "format": "u64",
+                          "endian": "le"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "pauseTree",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "tree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 3
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "paused",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "setTreeFees",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "tree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 4
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "feePerNullifier",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u64",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "appendReimbursement",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u64",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "closeReimbursement",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u64",
+                    "endian": "le"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "claimTreeLamports",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "tree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "recipient",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 5
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "createAssetCounter",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "assetCounter",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 6
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "createSplInterface",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "assetCounter",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "registryEntry",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "mint",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "splInterface",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "tokenProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 7
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "createRingConfig",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "ringConfig",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 8
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "programId",
+                  "type": {
+                    "kind": "publicKeyTypeNode"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "authority",
+                  "type": {
+                    "kind": "publicKeyTypeNode"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "updateRingConfig",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "ringConfig",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 9
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "paused",
+                  "type": {
+                    "kind": "booleanTypeNode",
+                    "size": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "updateRingConfigOwner",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "ringConfig",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "newAuthority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 10
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "setRingActivation",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "ringConfig",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 11
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "activated",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "ringAuthorityTransactIsEnabled",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "batchUpdateNullifierTree",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "tree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "reimbursementRecipient",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "sppProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 12
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "newRoot",
+                  "type": {
+                    "kind": "fixedSizeTypeNode",
+                    "size": 32,
+                    "type": {
+                      "kind": "bytesTypeNode"
+                    }
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "oldRoot",
+                  "type": {
+                    "kind": "fixedSizeTypeNode",
+                    "size": 32,
+                    "type": {
+                      "kind": "bytesTypeNode"
+                    }
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "zkpBatchIndex",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u16",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "proof",
+                  "type": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "a",
+                        "type": {
+                          "kind": "fixedSizeTypeNode",
+                          "size": 32,
+                          "type": {
+                            "kind": "bytesTypeNode"
+                          }
+                        }
+                      },
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "b",
+                        "type": {
+                          "kind": "fixedSizeTypeNode",
+                          "size": 128,
+                          "type": {
+                            "kind": "bytesTypeNode"
+                          }
+                        }
+                      },
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "c",
+                        "type": {
+                          "kind": "fixedSizeTypeNode",
+                          "size": 32,
+                          "type": {
+                            "kind": "bytesTypeNode"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "closeNullifierPdas",
+        "docs": ["Remaining accounts: writable nullifier PDAs to close."],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "authority",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "protocolConfig",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "tree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "reimbursementRecipient",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 13
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "emitEvent",
+        "docs": [
+          "Unvalidated no-op. These schemas describe recognized event bodies. Decoding alone does not authenticate an event: require a successful state-changing SPP direct parent and the matching event kind."
+        ],
+        "optionalAccountStrategy": "programId",
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 14
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "enumTypeNode",
+              "variants": [
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "deposit",
+                  "discriminator": 1,
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "event",
+                        "type": {
+                          "kind": "definedTypeLinkNode",
+                          "name": "generalEvent"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "transact",
+                  "discriminator": 2,
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "event",
+                        "type": {
+                          "kind": "definedTypeLinkNode",
+                          "name": "transactEvent"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "merge",
+                  "discriminator": 3,
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "event",
+                        "type": {
+                          "kind": "definedTypeLinkNode",
+                          "name": "mergeEvent"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "enumStructVariantTypeNode",
+                  "name": "nullifierTreeUpdate",
+                  "discriminator": 4,
+                  "struct": {
+                    "kind": "structTypeNode",
+                    "fields": [
+                      {
+                        "kind": "structFieldTypeNode",
+                        "name": "event",
+                        "type": {
+                          "kind": "definedTypeLinkNode",
+                          "name": "nullifierTreeUpdateEvent"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "size": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "deposit",
+        "docs": [
+          "Remaining accounts in assets order: SOL = system program, interface; SPL = token program, mint, user token, interface. Owner is a hash; viewTag is not a verified wallet address."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "tree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "depositor",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "sppProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 15
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "definedTypeLinkNode",
+              "name": "deposit"
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "transact",
+        "docs": [
+          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "outputTree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "sppProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 16
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "definedTypeLinkNode",
+              "name": "transact"
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "mergeTransact",
+        "docs": [
+          "Remaining accounts: one writable nullifier PDA per nullifier, in nullifiers order."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "inputTree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "outputTree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "userRecord",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "sppProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 17
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "definedTypeLinkNode",
+              "name": "merge"
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "ringDeposit",
+        "docs": [
+          "Remaining accounts in assets order: SOL = system program, interface; SPL = token program, mint, user token, interface. Owner is a hash; viewTag is not a verified wallet address."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "tree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "depositor",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "ringConfig",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "sppProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 18
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "definedTypeLinkNode",
+              "name": "ringDeposit"
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "ringTransact",
+        "docs": [
+          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "outputTree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "sppProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "ringConfig",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 19
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "definedTypeLinkNode",
+              "name": "transact"
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "ringMergeTransact",
+        "docs": [
+          "Remaining accounts: one writable nullifier PDA per nullifier, in nullifiers order."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "inputTree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "outputTree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "ringConfig",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "sppProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 20
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "outputRingDataHash",
+                  "type": {
+                    "kind": "fixedSizeTypeNode",
+                    "size": 32,
+                    "type": {
+                      "kind": "bytesTypeNode"
+                    }
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "merge",
+                  "type": {
+                    "kind": "definedTypeLinkNode",
+                    "name": "merge"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "ringAuthorityTransact",
+        "docs": [
+          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "outputTree",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "sppProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "ringConfig",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 21
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "definedTypeLinkNode",
+              "name": "transact"
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      }
+    ],
+    "definedTypes": [
+      {
+        "kind": "definedTypeNode",
+        "name": "proof",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "a",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "b",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 128,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "c",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "circuit",
+        "type": {
+          "kind": "enumTypeNode",
+          "variants": [
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "confidentialEddsa",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "ringEddsa",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "ringAuthority",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "ringP256",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "commitment",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 32,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "commitmentPok",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 32,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "defaultOwnerTag",
+                    "type": {
+                      "kind": "optionTypeNode",
+                      "fixed": true,
+                      "item": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      },
+                      "prefix": {
+                        "kind": "numberTypeNode",
+                        "format": "u8",
+                        "endian": "le"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "size": {
+            "kind": "numberTypeNode",
+            "format": "u16",
+            "endian": "le"
+          }
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "transact",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "expiryUnixTs",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "txViewingPk",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 33,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "salt",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 16,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "interfaceTransfers",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "enumTypeNode",
+                  "variants": [
+                    {
+                      "kind": "enumStructVariantTypeNode",
+                      "name": "solDeposit",
+                      "struct": {
+                        "kind": "structTypeNode",
+                        "fields": [
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "amount",
+                            "type": {
+                              "kind": "numberTypeNode",
+                              "format": "u64",
+                              "endian": "le"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "kind": "enumStructVariantTypeNode",
+                      "name": "solWithdrawal",
+                      "struct": {
+                        "kind": "structTypeNode",
+                        "fields": [
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "amount",
+                            "type": {
+                              "kind": "numberTypeNode",
+                              "format": "u64",
+                              "endian": "le"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "kind": "enumStructVariantTypeNode",
+                      "name": "splDeposit",
+                      "struct": {
+                        "kind": "structTypeNode",
+                        "fields": [
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "amount",
+                            "type": {
+                              "kind": "numberTypeNode",
+                              "format": "u64",
+                              "endian": "le"
+                            }
+                          },
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "splInterfaceBump",
+                            "type": {
+                              "kind": "numberTypeNode",
+                              "format": "u8",
+                              "endian": "le"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "kind": "enumStructVariantTypeNode",
+                      "name": "splWithdrawal",
+                      "struct": {
+                        "kind": "structTypeNode",
+                        "fields": [
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "amount",
+                            "type": {
+                              "kind": "numberTypeNode",
+                              "format": "u64",
+                              "endian": "le"
+                            }
+                          },
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "splInterfaceBump",
+                            "type": {
+                              "kind": "numberTypeNode",
+                              "format": "u8",
+                              "endian": "le"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "size": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "dataHash",
+              "type": {
+                "kind": "optionTypeNode",
+                "fixed": false,
+                "item": {
+                  "kind": "fixedSizeTypeNode",
+                  "size": 32,
+                  "type": {
+                    "kind": "bytesTypeNode"
+                  }
+                },
+                "prefix": {
+                  "kind": "numberTypeNode",
+                  "format": "u8",
+                  "endian": "le"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "ringDataHash",
+              "type": {
+                "kind": "optionTypeNode",
+                "fixed": false,
+                "item": {
+                  "kind": "fixedSizeTypeNode",
+                  "size": 32,
+                  "type": {
+                    "kind": "bytesTypeNode"
+                  }
+                },
+                "prefix": {
+                  "kind": "numberTypeNode",
+                  "format": "u8",
+                  "endian": "le"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "outputs",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "utxoHash",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "ownerTag",
+                      "type": {
+                        "kind": "enumTypeNode",
+                        "variants": [
+                          {
+                            "kind": "enumStructVariantTypeNode",
+                            "name": "inline",
+                            "struct": {
+                              "kind": "structTypeNode",
+                              "fields": [
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "value",
+                                  "type": {
+                                    "kind": "fixedSizeTypeNode",
+                                    "size": 32,
+                                    "type": {
+                                      "kind": "bytesTypeNode"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "kind": "enumStructVariantTypeNode",
+                            "name": "account",
+                            "struct": {
+                              "kind": "structTypeNode",
+                              "fields": [
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "index",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "size": {
+                          "kind": "numberTypeNode",
+                          "format": "u8",
+                          "endian": "le"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "data",
+                      "type": {
+                        "kind": "optionTypeNode",
+                        "fixed": false,
+                        "item": {
+                          "kind": "sizePrefixTypeNode",
+                          "type": {
+                            "kind": "bytesTypeNode"
+                          },
+                          "prefix": {
+                            "kind": "numberTypeNode",
+                            "format": "u16",
+                            "endian": "le"
+                          }
+                        },
+                        "prefix": {
+                          "kind": "numberTypeNode",
+                          "format": "u8",
+                          "endian": "le"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "messages",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "viewTag",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "data",
+                      "type": {
+                        "kind": "sizePrefixTypeNode",
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        },
+                        "prefix": {
+                          "kind": "numberTypeNode",
+                          "format": "u16",
+                          "endian": "le"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "privateTxHash",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "circuit",
+              "type": {
+                "kind": "enumTypeNode",
+                "variants": [
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "confidentialEddsa",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "ringEddsa",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "ringAuthority",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "ringP256",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitment",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitmentPok",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "defaultOwnerTag",
+                          "type": {
+                            "kind": "optionTypeNode",
+                            "fixed": true,
+                            "item": {
+                              "kind": "fixedSizeTypeNode",
+                              "size": 32,
+                              "type": {
+                                "kind": "bytesTypeNode"
+                              }
+                            },
+                            "prefix": {
+                              "kind": "numberTypeNode",
+                              "format": "u8",
+                              "endian": "le"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "size": {
+                  "kind": "numberTypeNode",
+                  "format": "u16",
+                  "endian": "le"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "proof",
+              "type": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "a",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 32,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "b",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 128,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "c",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 32,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "inputs",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "nullifierHash",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "treeIndex",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u8",
+                        "endian": "le"
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "treeContexts",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "utxoTreeRootIndex",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u16",
+                        "endian": "le"
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "nullifierTreeRootIndex",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u16",
+                        "endian": "le"
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "merge",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "expiryUnixTs",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "proof",
+              "type": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "a",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 32,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "b",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 128,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "c",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 32,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "outputUtxoHash",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "eddsaOwner",
+              "type": {
+                "kind": "booleanTypeNode",
+                "size": {
+                  "kind": "numberTypeNode",
+                  "format": "u8",
+                  "endian": "le"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "privateTxHash",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "nullifiers",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "fixedSizeTypeNode",
+                  "size": 32,
+                  "type": {
+                    "kind": "bytesTypeNode"
+                  }
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "utxoTreeRootIndex",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u16",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "nullifierTreeRootIndex",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u16",
+                "endian": "le"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "generalEvent",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "inputs",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "tree",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "inputQueueSeq",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u64",
+                        "endian": "le"
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "nullifier",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u32",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "outputs",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "viewTag",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "utxoHash",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "data",
+                      "type": {
+                        "kind": "sizePrefixTypeNode",
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        },
+                        "prefix": {
+                          "kind": "numberTypeNode",
+                          "format": "u32",
+                          "endian": "le"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u32",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "messages",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "viewTag",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "data",
+                      "type": {
+                        "kind": "sizePrefixTypeNode",
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        },
+                        "prefix": {
+                          "kind": "numberTypeNode",
+                          "format": "u32",
+                          "endian": "le"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u32",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "txViewingPk",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 33,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "salt",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 16,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "firstOutputLeafIndex",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "outputTree",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "splTransfers",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "isDeposit",
+                      "type": {
+                        "kind": "booleanTypeNode",
+                        "size": {
+                          "kind": "numberTypeNode",
+                          "format": "u8",
+                          "endian": "le"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "amount",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u64",
+                        "endian": "le"
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "asset",
+                      "type": {
+                        "kind": "optionTypeNode",
+                        "fixed": false,
+                        "item": {
+                          "kind": "fixedSizeTypeNode",
+                          "size": 32,
+                          "type": {
+                            "kind": "bytesTypeNode"
+                          }
+                        },
+                        "prefix": {
+                          "kind": "numberTypeNode",
+                          "format": "u8",
+                          "endian": "le"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u32",
+                    "endian": "le"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "transactEvent",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "inputTrees",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "tree",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "firstInputQueueSeq",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u64",
+                        "endian": "le"
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u32",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "outputTree",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "firstOutputLeafIndex",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "mergeEvent",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "inputTrees",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "tree",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "firstInputQueueSeq",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u64",
+                        "endian": "le"
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u32",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "outputTree",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "outputLeafIndex",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "outputViewTag",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "nullifierTreeUpdateEvent",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "merkleTreePubkey",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "zkpBatchSize",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u16",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "oldNextIndex",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "startSequenceNumber",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u64",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "firstRootIndex",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u32",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "numUpdate",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u32",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "firstZkpBatchIndex",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u32",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "newRoot",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "deposit",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "assets",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "enumTypeNode",
+                  "variants": [
+                    {
+                      "kind": "enumStructVariantTypeNode",
+                      "name": "sol",
+                      "struct": {
+                        "kind": "structTypeNode"
+                      }
+                    },
+                    {
+                      "kind": "enumStructVariantTypeNode",
+                      "name": "spl",
+                      "struct": {
+                        "kind": "structTypeNode",
+                        "fields": [
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "splInterfaceBump",
+                            "type": {
+                              "kind": "numberTypeNode",
+                              "format": "u8",
+                              "endian": "le"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "size": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "deposits",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "assetIndex",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u8",
+                        "endian": "le"
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "viewTag",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "owner",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "amount",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u64",
+                        "endian": "le"
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "utxoData",
+                      "type": {
+                        "kind": "optionTypeNode",
+                        "fixed": false,
+                        "item": {
+                          "kind": "structTypeNode",
+                          "fields": [
+                            {
+                              "kind": "structFieldTypeNode",
+                              "name": "dataHash",
+                              "type": {
+                                "kind": "fixedSizeTypeNode",
+                                "size": 32,
+                                "type": {
+                                  "kind": "bytesTypeNode"
+                                }
+                              }
+                            },
+                            {
+                              "kind": "structFieldTypeNode",
+                              "name": "data",
+                              "type": {
+                                "kind": "sizePrefixTypeNode",
+                                "type": {
+                                  "kind": "bytesTypeNode"
+                                },
+                                "prefix": {
+                                  "kind": "numberTypeNode",
+                                  "format": "u16",
+                                  "endian": "le"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        "prefix": {
+                          "kind": "numberTypeNode",
+                          "format": "u8",
+                          "endian": "le"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "memo",
+                      "type": {
+                        "kind": "optionTypeNode",
+                        "fixed": false,
+                        "item": {
+                          "kind": "sizePrefixTypeNode",
+                          "type": {
+                            "kind": "bytesTypeNode"
+                          },
+                          "prefix": {
+                            "kind": "numberTypeNode",
+                            "format": "u16",
+                            "endian": "le"
+                          }
+                        },
+                        "prefix": {
+                          "kind": "numberTypeNode",
+                          "format": "u8",
+                          "endian": "le"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "definedTypeNode",
+        "name": "ringDeposit",
+        "type": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "assets",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "enumTypeNode",
+                  "variants": [
+                    {
+                      "kind": "enumStructVariantTypeNode",
+                      "name": "sol",
+                      "struct": {
+                        "kind": "structTypeNode"
+                      }
+                    },
+                    {
+                      "kind": "enumStructVariantTypeNode",
+                      "name": "spl",
+                      "struct": {
+                        "kind": "structTypeNode",
+                        "fields": [
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "splInterfaceBump",
+                            "type": {
+                              "kind": "numberTypeNode",
+                              "format": "u8",
+                              "endian": "le"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "size": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "deposits",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "structTypeNode",
+                  "fields": [
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "assetIndex",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u8",
+                        "endian": "le"
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "viewTag",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "ownerUtxoHash",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "amount",
+                      "type": {
+                        "kind": "numberTypeNode",
+                        "format": "u64",
+                        "endian": "le"
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "dataHash",
+                      "type": {
+                        "kind": "optionTypeNode",
+                        "fixed": false,
+                        "item": {
+                          "kind": "fixedSizeTypeNode",
+                          "size": 32,
+                          "type": {
+                            "kind": "bytesTypeNode"
+                          }
+                        },
+                        "prefix": {
+                          "kind": "numberTypeNode",
+                          "format": "u8",
+                          "endian": "le"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "ringDataHash",
+                      "type": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "structFieldTypeNode",
+                      "name": "encrypted",
+                      "type": {
+                        "kind": "structTypeNode",
+                        "fields": [
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "txViewingPk",
+                            "type": {
+                              "kind": "fixedSizeTypeNode",
+                              "size": 33,
+                              "type": {
+                                "kind": "bytesTypeNode"
+                              }
+                            }
+                          },
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "salt",
+                            "type": {
+                              "kind": "fixedSizeTypeNode",
+                              "size": 16,
+                              "type": {
+                                "kind": "bytesTypeNode"
+                              }
+                            }
+                          },
+                          {
+                            "kind": "structFieldTypeNode",
+                            "name": "ciphertext",
+                            "type": {
+                              "kind": "sizePrefixTypeNode",
+                              "type": {
+                                "kind": "bytesTypeNode"
+                              },
+                              "prefix": {
+                                "kind": "numberTypeNode",
+                                "format": "u16",
+                                "endian": "le"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "count": {
+                  "kind": "prefixedCountNode",
+                  "prefix": {
+                    "kind": "numberTypeNode",
+                    "format": "u8",
+                    "endian": "le"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "errors": [
+      {
+        "kind": "errorNode",
+        "name": "invalidInstructionData",
+        "code": 7000,
+        "message": "invalid instruction data"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidTreeAccounts",
+        "code": 7001,
+        "message": "pool tree accounts are invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nullifierTreeUpdateFailed",
+        "code": 7002,
+        "message": "nullifier tree maintenance failed"
+      },
+      {
+        "kind": "errorNode",
+        "name": "unauthorizedCaller",
+        "code": 7003,
+        "message": "caller is not authorized"
+      },
+      {
+        "kind": "errorNode",
+        "name": "stateAppendFailed",
+        "code": 7004,
+        "message": "state sub-tree append failed"
+      },
+      {
+        "kind": "errorNode",
+        "name": "expiredTransaction",
+        "code": 7005,
+        "message": "transaction has expired"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidTransactShape",
+        "code": 7006,
+        "message": "transact instruction shape is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidTransactProofEncoding",
+        "code": 7007,
+        "message": "transact proof encoding is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "transactProofVerificationFailed",
+        "code": 7008,
+        "message": "transact proof verification failed"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidSettlementAccounts",
+        "code": 7009,
+        "message": "transact settlement accounts are invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "publicSettlementFailed",
+        "code": 7010,
+        "message": "transact public settlement failed"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidSplAssetRegistry",
+        "code": 7011,
+        "message": "SPL asset registry account is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidProtocolConfig",
+        "code": 7012,
+        "message": "protocol config account is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "treePaused",
+        "code": 7013,
+        "message": "pool tree is paused"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidRingConfig",
+        "code": 7014,
+        "message": "ring config account is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "staleNullifierRoot",
+        "code": 7015,
+        "message": "nullifier root index references a zeroed (stale) root-history slot"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidPda",
+        "code": 7016,
+        "message": "account address does not match its canonical PDA derivation"
+      },
+      {
+        "kind": "errorNode",
+        "name": "mergeDisabled",
+        "code": 7017,
+        "message": "merging is not enabled for this user"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidUserRecord",
+        "code": 7018,
+        "message": "user record account is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidMergeShape",
+        "code": 7019,
+        "message": "merge_transact instruction shape is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "ringAuthorityTransactDisabled",
+        "code": 7020,
+        "message": "ring_authority_transact is disabled for this ring"
+      },
+      {
+        "kind": "errorNode",
+        "name": "ownerTagAccountMissing",
+        "code": 7021,
+        "message": "output owner tag account index is out of range"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidForesterFee",
+        "code": 7022,
+        "message": "forester fee calculation overflowed or used an invalid tree configuration"
+      },
+      {
+        "kind": "errorNode",
+        "name": "insufficientForesterFeeBalance",
+        "code": 7023,
+        "message": "tree does not contain enough fee funds to reimburse the forester"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidSystemProgram",
+        "code": 7024,
+        "message": "system program account is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "emptyDepositBatch",
+        "code": 7025,
+        "message": "deposit batch contains no entries"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidDepositAssetIndex",
+        "code": 7026,
+        "message": "deposit entry references an asset index out of range"
+      },
+      {
+        "kind": "errorNode",
+        "name": "duplicateDepositAsset",
+        "code": 7027,
+        "message": "deposit settlement accounts contain a duplicate asset"
+      },
+      {
+        "kind": "errorNode",
+        "name": "depositAmountOverflow",
+        "code": 7028,
+        "message": "deposit batch amounts overflow for an asset"
+      },
+      {
+        "kind": "errorNode",
+        "name": "unreferencedDepositAsset",
+        "code": 7029,
+        "message": "deposit settlement asset is not referenced by any entry"
+      },
+      {
+        "kind": "errorNode",
+        "name": "tooManyDepositAssets",
+        "code": 7030,
+        "message": "deposit batch exceeds the maximum number of assets"
+      },
+      {
+        "kind": "errorNode",
+        "name": "tooManyInterfaceTransfers",
+        "code": 7031,
+        "message": "transact interface transfer count exceeds the u8 wire encoding"
+      },
+      {
+        "kind": "errorNode",
+        "name": "zeroInterfaceTransferAmount",
+        "code": 7032,
+        "message": "transact interface transfers must have nonzero amounts"
+      },
+      {
+        "kind": "errorNode",
+        "name": "tooManyPublicAssets",
+        "code": 7033,
+        "message": "transact exceeds the maximum number of distinct public assets"
+      },
+      {
+        "kind": "errorNode",
+        "name": "publicAssetAmountOverflow",
+        "code": 7034,
+        "message": "transact public settlement amounts overflow while aggregating an asset"
+      },
+      {
+        "kind": "errorNode",
+        "name": "mismatchedCircuitType",
+        "code": 7035,
+        "message": "circuit selector type does not match the dispatched instruction"
+      },
+      {
+        "kind": "errorNode",
+        "name": "splTokenAuthorityMustSign",
+        "code": 7036,
+        "message": "SPL deposit authority must sign"
+      },
+      {
+        "kind": "errorNode",
+        "name": "unsupportedSplTokenProgram",
+        "code": 7037,
+        "message": "SPL token program is not supported"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidSplTokenMint",
+        "code": 7038,
+        "message": "SPL token mint account is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "unsupportedToken2022Extension",
+        "code": 7039,
+        "message": "Token-2022 mint extension is not supported"
+      },
+      {
+        "kind": "errorNode",
+        "name": "zeroNetInterfaceTransferAmount",
+        "code": 7040,
+        "message": "transact interface transfers for one asset must not net to zero"
+      },
+      {
+        "kind": "errorNode",
+        "name": "splAssetCounterAlreadyInitialized",
+        "code": 7041,
+        "message": "SPL asset counter is already initialized"
+      },
+      {
+        "kind": "errorNode",
+        "name": "ringPaused",
+        "code": 7042,
+        "message": "ring is paused"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nullifierAlreadyQueued",
+        "code": 7043,
+        "message": "nullifier is already queued in the nullifier tree"
+      },
+      {
+        "kind": "errorNode",
+        "name": "insufficientNullifierPdaRent",
+        "code": 7044,
+        "message": "tree does not hold enough lamports to fund a nullifier PDA"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nullifierPdaNotClosable",
+        "code": 7045,
+        "message": "nullifier PDA batch is not reclaimable yet"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidNullifierPda",
+        "code": 7046,
+        "message": "nullifier PDA account is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidTreeId",
+        "code": 7047,
+        "message": "tree id does not match the protocol config's next tree id"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nullifierPdaTreeMismatch",
+        "code": 7048,
+        "message": "nullifier PDA belongs to a different tree"
+      },
+      {
+        "kind": "errorNode",
+        "name": "treeIdOverflow",
+        "code": 7049,
+        "message": "tree id space is exhausted"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidReimbursementRecipient",
+        "code": 7050,
+        "message": "reimbursement recipient must not be a program-owned account"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nonCanonicalOutputUtxoHash",
+        "code": 7051,
+        "message": "output utxo hash is not a canonical BN254 field element"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nonCanonicalInputNullifier",
+        "code": 7052,
+        "message": "input nullifier is not a canonical BN254 field element"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nonCanonicalPrivateTxHash",
+        "code": 7053,
+        "message": "private tx hash is not a canonical BN254 field element"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nonCanonicalRingDataHash",
+        "code": 7054,
+        "message": "ring data hash is not a canonical BN254 field element"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nonCanonicalDepositField",
+        "code": 7055,
+        "message": "deposit entry field is not a canonical BN254 field element"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nonCanonicalRoot",
+        "code": 7056,
+        "message": "nullifier tree root is not a canonical BN254 field element"
+      },
+      {
+        "kind": "errorNode",
+        "name": "noClaimableTreeLamports",
+        "code": 7057,
+        "message": "tree holds no lamports above its rent, fee balance, and working capital"
+      },
+      {
+        "kind": "errorNode",
+        "name": "depositBlindingDerivationFailed",
+        "code": 7058,
+        "message": "deposit blinding derivation failed"
+      },
+      {
+        "kind": "errorNode",
+        "name": "ringNotActivated",
+        "code": 7059,
+        "message": "ring is not activated by governance"
+      },
+      {
+        "kind": "errorNode",
+        "name": "tooManyExternalDataHashSlices",
+        "code": 7060,
+        "message": "external data hash preimage exceeds the supported slice count"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidTreeContextCount",
+        "code": 7061,
+        "message": "transact must declare between one and MAX_INPUT_TREES input trees"
+      },
+      {
+        "kind": "errorNode",
+        "name": "inputTreeIndexOutOfRange",
+        "code": 7062,
+        "message": "input references a tree index beyond the declared input trees"
+      },
+      {
+        "kind": "errorNode",
+        "name": "inputsNotGroupedByTree",
+        "code": 7063,
+        "message": "inputs must be grouped by tree in non-decreasing tree-index order"
+      },
+      {
+        "kind": "errorNode",
+        "name": "unreferencedTreeContext",
+        "code": 7064,
+        "message": "a declared input tree is referenced by no input"
+      },
+      {
+        "kind": "errorNode",
+        "name": "duplicateInputTree",
+        "code": 7065,
+        "message": "the same input tree account is passed twice"
+      }
+    ]
+  }
+}

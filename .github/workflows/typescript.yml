@@ -29,6 +29,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:ts
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: idl-fixtures
+          install-just: "false"
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Verify IDL Rust byte fixtures
+        run: cargo test -p zolana-idl-fixtures --locked
       - run: npm run docs:ts
       - name: Verify the published package
         run: |
@@ -43,6 +50,10 @@ jobs:
           npm --prefix "$tmp" install "$tarball" "@solana/kit@$kit_range" --ignore-scripts
           cat > "$tmp/smoke.mts" <<'TS'
           import { createZolanaClient, type ZolanaClientConfig } from "@heliuslabs/zolana";
+          import poolIdl from "@heliuslabs/zolana/idl/shieldedPool.json" with { type: "json" };
+          import registryIdl from "@heliuslabs/zolana/idl/userRegistry.json" with { type: "json" };
+          void poolIdl.program.instructions;
+          void registryIdl.program.instructions;
           const config: ZolanaClientConfig = {
             solanaRpcUrl: new URL("http://127.0.0.1:8899"),
             indexerUrl: undefined,
@@ -51,12 +62,15 @@ jobs:
           await createZolanaClient(config);
           TS
           ./node_modules/.bin/tsc \
-            --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck \
+            --noEmit --strict --exactOptionalPropertyTypes --resolveJsonModule \
             --target es2022 --module nodenext --moduleResolution nodenext \
             "$tmp/smoke.mts"
           (
             cd "$tmp"
             node --input-type=module <<'NODE'
+          const { default: poolIdl } = await import("@heliuslabs/zolana/idl/shieldedPool.json", { with: { type: "json" } });
+          const { default: registryIdl } = await import("@heliuslabs/zolana/idl/userRegistry.json", { with: { type: "json" } });
+          if (poolIdl.program.instructions.length !== 22 || registryIdl.program.instructions.length !== 3) process.exit(1);
           const sdk = await import("@heliuslabs/zolana");
           const instructions = await import("@heliuslabs/zolana/instructions");
           await Promise.all(
