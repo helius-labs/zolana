@@ -110,3 +110,39 @@ The comparison includes hardware, region, indexer placement and request-path
 changes. It does not isolate each contribution. P256, authority, ring-merge,
 custom-ring and forester paths were not covered by these live fixtures.
 Use the [backend guide](../../prover/backend/README.md) for the optional GPU build.
+
+## L4 comparison
+
+The L4 test used a separate Frankfurt `g6.2xlarge` with the same source revisions,
+Photon image and database clone. CUDA targeted `sm_89`. The host has 8 vCPUs,
+32 GiB RAM and one L4 GPU. The prover retained six CPU threads and four request
+admission slots. Its memory limit was 16 GiB. Photon reported healthy before
+the proof run.
+
+Six proofs passed standard Gnark verification. Each shape ran twice. The table
+uses the second sample with prepared GPU keys cached. Wallet discovery and
+independent verification remain outside receipt time.
+
+| Proof | Blackwell receipt ms | L4 receipt ms | Increase | Blackwell witness and proof ms | L4 witness and proof ms |
+|---|---:|---:|---:|---:|---:|
+| Transfer 1×2 | 137.3 | 151.6 | 10.4% | 28.58 | 38.42 |
+| Transfer 2×3 | 157.3 | 185.9 | 18.2% | 29.87 | 43.27 |
+| Merge 36×1 | 256.6 | 443.8 | 72.9% | 52.35 | 196.38 |
+
+| L4 proof | Indexer fetch ms | Witness ms | FFT ms | MSM ms | Full server ms |
+|---|---:|---:|---:|---:|---:|
+| Transfer 1×2 | 5.89 | 15.47 | 0.29 | 21.51 | 47.22 |
+| Transfer 2×3 | 8.00 | 16.35 | 0.52 | 24.81 | 55.74 |
+| Merge 36×1 | 15.84 | 19.87 | 11.29 | 159.96 | 246.67 |
+
+The wide merge still uses two real notes and 34 dummy inputs. Its MSM time rose
+from 30.27 ms to 159.96 ms. Transfer witness time changed by less than 1 ms.
+The idle L4 HTTP round trip had a 89.2 ms warm median, with a
+75.2–192.4 ms range. The runs occurred at different times, so receipt
+differences include network and client variation. These samples do not establish
+sustained TPS or p95 latency.
+
+At the checked on-demand rate, the L4 host costs $892.42 for 730 hours. The same
+database brings the total to $1,185.15 before storage and traffic. Host cost is
+78.6% lower than Blackwell. See [the L4 measurements](l4-measurements.json) for
+all samples, request stages and verification results.
