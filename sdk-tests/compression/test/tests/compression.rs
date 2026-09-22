@@ -16,7 +16,7 @@ use shared::{send, send_from, setup, tree_root, Environment};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ProofCompressed, ProverClient, Rpc};
+use zolana_client::{ProofCompressed, Prover, ProverClient, Rpc};
 use zolana_interface::{
     event::OutputDataEncoding,
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},

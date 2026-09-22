@@ -13,7 +13,6 @@ use crate::{
     authority::ProofAuthority,
     error::ClientError,
     prover::{
-        indexed::ProofDataSource,
         transact::witness::{assemble, SpendProof},
         verify_confidential_transfer_inputs, ProofCompressed,
     },
@@ -256,7 +255,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         transaction: SppProofInputs,
         authority: &dyn ProofAuthority,
     ) -> Result<ProveResult, ClientError> {
-        if self.blocking_prover().proof_data_source() == ProofDataSource::Prover {
+        if self.proves_indexed() {
             let proved = self.indexed_transfer(
                 TransferPreparation {
                     transaction,

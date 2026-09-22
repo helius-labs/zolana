@@ -9,7 +9,7 @@ use thiserror::Error;
 use zolana_client::ProofInputUtxo;
 use zolana_client::{
     prover::{field::be, ProofCompressed},
-    AsyncRpc, ClientError, MerkleProof, NonInclusionProof, ProverClient, PublicInputs,
+    AsyncRpc, ClientError, MerkleProof, NonInclusionProof, Prover, ProverClient, PublicInputs,
     PublicTransfers, Rpc, TransferInput, TransferInputs, TransferOutput, TreeSlotFields,
     STATE_TREE_HEIGHT,
 };

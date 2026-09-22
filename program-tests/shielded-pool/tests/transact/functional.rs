@@ -23,7 +23,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::STATE_TREE_HEIGHT;
 use zolana_client::{
-    prover::field::be, ComputeBudgetConfig, ProverClient, PublicInputs, PublicTransfers,
+    prover::field::be, ComputeBudgetConfig, Prover, ProverClient, PublicInputs, PublicTransfers,
     TransferOutput,
 };
 use zolana_hasher::Poseidon;

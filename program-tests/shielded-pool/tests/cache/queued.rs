@@ -7,7 +7,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    ClientError, ComputeBudgetConfig, Proof, ProverClient, PublicInputs, PublicTransfers,
+    ClientError, ComputeBudgetConfig, Proof, Prover, ProverClient, PublicInputs, PublicTransfers,
     TransferInputs, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;

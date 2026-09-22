@@ -8,7 +8,7 @@ use zolana_client::prover::indexed::{
 };
 use zolana_client::{
     AsyncProverClient, AsyncRpc, ClientError, MergeProofResult, NonInclusionProof, Proof,
-    ProofCompressed, ProverClient, Rpc, SpendProof,
+    ProofCompressed, Prover, ProverClient, Rpc, SpendProof,
 };
 use zolana_interface::instruction::instruction_data::merge_ring::MergeRingIxData;
 use zolana_keypair::NullifierKey;

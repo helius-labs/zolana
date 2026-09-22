@@ -14,7 +14,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     prover::MergeCacheTarget, ComputeBudgetConfig, MergeProver, ProofAuthority, ProofCompressed,
-    ProverClient, Rpc, SolanaRpc, WitnessReader, ZolanaClient, ZolanaIndexer,
+    Prover, ProverClient, Rpc, SolanaRpc, WitnessReader, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::instruction::instruction_data::CreateCacheData;
 use zolana_program::instruction::{

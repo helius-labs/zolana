@@ -10,7 +10,7 @@ use solana_clock::Clock;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ProverClient, PublicInputs, PublicTransfers};
+use zolana_client::{Prover, ProverClient, PublicInputs, PublicTransfers};
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     instruction::instruction_data::{

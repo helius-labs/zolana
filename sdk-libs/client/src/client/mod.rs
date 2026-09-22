@@ -11,7 +11,7 @@ mod nonblocking;
 mod transaction;
 mod validation;
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::{
     authority::ProofAuthority,
@@ -19,7 +19,7 @@ use crate::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource, ProvenIndexedTransfer},
-        AsyncProverClient, ProverClient,
+        AsyncProverClient, Proof, Prover, ProverClient, TransferInputs,
     },
     rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
 };
@@ -50,6 +50,9 @@ pub struct ZolanaClient<R> {
     rpc: R,
     indexer: OnceLock<ZolanaIndexer>,
     prover: OnceLock<ProverClient>,
+    /// Set by [`Self::with_prover`]; replaces both prover clients so no proof
+    /// request reaches a prover server.
+    custom_prover: Option<Arc<dyn Prover>>,
     blocking_indexer_url: Option<String>,
     blocking_prover_url: Option<String>,
     async_indexer: AsyncZolanaIndexer,
@@ -71,6 +74,7 @@ impl<R> ZolanaClient<R> {
             rpc,
             indexer: OnceLock::from(indexer),
             prover: OnceLock::from(prover),
+            custom_prover: None,
             blocking_indexer_url: None,
             blocking_prover_url: None,
             async_indexer,
@@ -115,6 +119,7 @@ impl<R> ZolanaClient<R> {
             rpc,
             indexer: OnceLock::new(),
             prover: OnceLock::new(),
+            custom_prover: None,
             blocking_indexer_url: Some(indexer_url.clone()),
             blocking_prover_url: Some(prover_url.clone()),
             async_indexer: AsyncZolanaIndexer::new(indexer_url),
@@ -123,6 +128,16 @@ impl<R> ZolanaClient<R> {
             priority_fee_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
         }
+    }
+
+    /// Prove with `prover` instead of the prover server, for example on the
+    /// device. Every proving method uses it, blocking and async alike, so the
+    /// witness never leaves the process. The client fetches the proof data from
+    /// the indexer itself, whatever [`Self::with_proof_data_source`] says. The
+    /// async methods run the prover on Tokio's blocking pool.
+    pub fn with_prover(mut self, prover: impl Prover + 'static) -> Self {
+        self.custom_prover = Some(Arc::new(prover));
+        self
     }
 
     pub fn with_compute_unit_limit(mut self, cu_limit: u32) -> Self {
@@ -158,12 +173,26 @@ impl<R> ZolanaClient<R> {
         self
     }
 
+    /// Whether a transfer takes the prover server's indexed route, where the
+    /// server fetches the proof data. A custom prover only proves what the
+    /// client hands it, so with one set the client always fetches the data
+    /// itself and no transfer reaches the prover server.
+    fn proves_indexed(&self) -> bool {
+        self.custom_prover.is_none()
+            && self.prover_client().proof_data_source() == ProofDataSource::Prover
+    }
+
+    fn proves_indexed_async(&self) -> bool {
+        self.custom_prover.is_none()
+            && self.async_prover.proof_data_source() == ProofDataSource::Prover
+    }
+
     fn indexed_transfer(
         &self,
         preparation: TransferPreparation,
         authority: &dyn ProofAuthority,
     ) -> Result<ProvenIndexedTransfer, ClientError> {
-        self.blocking_prover()
+        self.prover_client()
             .prove_indexed(&preparation.prepare(authority)?)
     }
 
@@ -200,7 +229,14 @@ impl<R> ZolanaClient<R> {
         })
     }
 
-    fn blocking_prover(&self) -> &ProverClient {
+    fn blocking_prover(&self) -> &dyn Prover {
+        match &self.custom_prover {
+            Some(prover) => prover.as_ref(),
+            None => self.prover_client(),
+        }
+    }
+
+    fn prover_client(&self) -> &ProverClient {
         self.prover.get_or_init(|| {
             ProverClient::new(
                 self.blocking_prover_url
@@ -209,6 +245,18 @@ impl<R> ZolanaClient<R> {
             )
             .with_proof_data_source(self.async_prover.proof_data_source())
         })
+    }
+
+    /// The async counterpart of [`Self::blocking_prover`]'s transfer proof.
+    async fn prove_transfer_async(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        let Some(prover) = &self.custom_prover else {
+            return self.async_prover.prove_transfer(inputs).await;
+        };
+        let prover = Arc::clone(prover);
+        let request = crate::prover::requests::transfer(inputs)?;
+        tokio::task::spawn_blocking(move || prover.prove(&request))
+            .await
+            .map_err(|error| ClientError::Prover(format!("prover task failed: {error}")))?
     }
 }
 

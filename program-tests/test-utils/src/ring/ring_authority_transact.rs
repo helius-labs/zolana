@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProverClient,
+    input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, Prover, ProverClient,
     PublicTransfers, RingAuthorityProver, Shape, SpendProof, TransferInputUtxo,
 };
 use zolana_interface::{

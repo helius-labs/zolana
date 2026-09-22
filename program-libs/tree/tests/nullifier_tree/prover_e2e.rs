@@ -3,7 +3,9 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
+use zolana_client::{
+    spawn_prover, BatchAddressAppendInputs, ProofCompressed, Prover, ProverClient,
+};
 use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{

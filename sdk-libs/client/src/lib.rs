@@ -41,11 +41,11 @@ pub use prover::{
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
     AsyncProverClient, BatchAddressAppendInputs, CacheReadInputs, Commitments,
     CompressedCommitments, Delivery, IndexerRequirement, MergeProofResult, MergeProver, Proof,
-    ProofCompressed, ProofInputUtxo, ProveRequest, ProverClient, ProverLaunch, PublicInputs,
-    PublicTransfers, RingAuthorityProofResult, RingAuthorityProver, RingTransferP256ProofResult,
-    RingTransferP256Prover, RingTransferProofResult, RingTransferProver, Shape, TransferInput,
-    TransferInputUtxo, TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult,
-    TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,
+    ProofCompressed, ProofInputUtxo, ProveRequest, Prover, ProverClient, ProverLaunch,
+    PublicInputs, PublicTransfers, RingAuthorityProofResult, RingAuthorityProver,
+    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver, Shape, TransferInput, TransferInputUtxo, TransferInputs, TransferOutput,
+    TransferP256Inputs, TransferProofResult, TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 #[cfg(feature = "solana-rpc")]
 pub use rpc::solana_rpc::{
