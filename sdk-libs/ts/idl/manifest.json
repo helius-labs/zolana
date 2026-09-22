@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "1",
+  "sourceCommit": "4745bbb3bc60edd08ca0f348ea6cfc6a4ab168f8",
+  "sources": {
+    "program-libs/interface/src/instruction/builders/protocol_config/mod.rs": "02819ed4ea9bc9c33c418d9e6da7ddebe816153c95ed9ba77f0a4b81b3f8a27a",
+    "program-libs/interface/src/instruction/builders/ring_config/mod.rs": "060ea5e59c848d0b93dfbe4aad1476ae3cb97c38640745815c5fdc482b9de084",
+    "program-libs/interface/src/instruction/builders/create_tree.rs": "4c17d6d48d1a5dd6c5205311ef5af7e3804607b18d6b29049de0a79a46fe3da7",
+    "program-libs/interface/src/instruction/builders/create_asset_counter.rs": "e01cf02ce5f6593d8caf968795fb343bd9c4f9e429a40448706ab63870a1ce6c",
+    "program-libs/interface/src/instruction/builders/create_spl_interface.rs": "153858145159dbaa55be84512dc09c8328867b56808d9c4d1dc8df091c99b3a1",
+    "program-libs/interface/src/instruction/builders/close_nullifier_pdas.rs": "af3cd0e9fe580ef99dc02804463e9b760fc77a886bd6033015f1aa8b92f2abdc",
+    "program-libs/interface/src/instruction/builders/batch_update_nullifier_tree.rs": "fdcdcfda3294693e7a4cac7f21625adcfc0ffad2b9a961e7cf61dfaf94223c07",
+    "program-libs/interface/src/instruction/builders/transact.rs": "f144cae6e7585d6fd79be5d2404fb06dde0eb17fc8965b4268e827a5007b065e",
+    "program-libs/interface/src/instruction/builders/deposit.rs": "5e2ad2eef531a9c58d5de947b25f25c320414ef4172f469bb33d421307dcec8d",
+    "program-libs/interface/src/instruction/builders/ring_deposit.rs": "a85cfad536af91d2af67c9ffd5d96a55716d2d533511875218dc0e66e70ba27a",
+    "program-libs/interface/src/instruction/builders/ring_transact.rs": "c471e21df455c5e7077242ba4bf5d9e727d491a571df129542fe222d2b595e73",
+    "program-libs/interface/src/instruction/builders/ring_authority_transact.rs": "1b0b94271ab29dceca8d081e695a6c7ece18b11915c52759090c254a59e5a5f1",
+    "program-libs/interface/src/instruction/builders/merge_transact.rs": "0f3647d9edf03de90e99bad459758a79425e919df5c8589d4c418e0aa854c84e",
+    "program-libs/interface/src/instruction/builders/merge_ring.rs": "3c7fe054ce2c1c1488ec969db069212baa858e3e05193b9ab8daffe7c390473b",
+    "program-libs/tree/src/fees.rs": "408711495192ef09bc6e85ef635d5e4291d3b8bc9b1856acd0d933a7b1ce35b7",
+    "program-libs/tree/src/nullifier_tree/init.rs": "eb4aec6350e85bd41ba92009311e934efe2b657b3ac684e07c90b09bdd9e4c33",
+    "program-libs/tree/src/nullifier_tree/merkle_tree_update.rs": "bfbc692678f2f8c9b66cf6ad74c2cc91ffceef08f221777c7995191c483a4c0a",
+    "program-libs/interface/src/instruction/instruction_data/create_tree.rs": "27680a0206868a9e8f4d197d270f27638c2c77591c69f49b61cdc2779fbe8b18",
+    "program-libs/interface/src/instruction/instruction_data/batch_update_nullifier_tree.rs": "41623baa1460d19ea1721c4b784f9a154b1d5e2243de9ea07da6313534190519",
+    "program-libs/event/src/tag.rs": "1f0dce875d30b9a8f340f3782e90f3cb5d33d94af542a2bb796ea382527782a7",
+    "programs/shielded-pool/src/instructions/protocol_config/update.rs": "6f2341f9c79b2ac137aec2005fa936352c2543216a40254682c4c5db0082f691",
+    "program-libs/event/src/lib.rs": "f116799e6586c01f781a9d7e2fe19fbc8b24cf876451123b6e6ac4a82b4ec02d",
+    "program-libs/event/src/proofless.rs": "ee4500be81d1cbe119e2cb71ef3d337809aed8db374c549c6e5d788a4578bcdc",
+    "program-libs/interface/src/instruction/instruction_data/transact.rs": "ff492948b166d53127a344b66d08c3cffffec4eadda6a9afe670db481824aaf4",
+    "program-libs/interface/src/instruction/instruction_data/deposit.rs": "1811c402af0ad331be4c565154b5158fff84d49f6aa01d797d75957847c61f88",
+    "program-libs/interface/src/instruction/instruction_data/merge_transact.rs": "27d0e4317e93a95f3b977f0735bc539eaede0beb612c3e5a8b4af82ca104ea36",
+    "program-libs/interface/src/instruction/instruction_data/merge_ring.rs": "1c5b6d7a57ca69471cf114f00d7bb0d51a46f40cdbeb14c0f874f1de0b1544ef",
+    "program-libs/interface/src/instruction/instruction_data/protocol_config.rs": "0d8ca47283589a62f529dc4f565692187431fc920b2079e931bdb9941c8b8cb3",
+    "program-libs/interface/src/instruction/instruction_data/ring_config.rs": "b29ac251af6a5138c5aac5d9c671acb1a3f5d3be1f1dbd0c097325af232709e1",
+    "program-libs/interface/src/verifying_keys/circuit.rs": "97b45d38bdff606a4d203f3c17507c7c744608a839b300cc2a7e799e5bf69db2",
+    "program-libs/interface/src/error.rs": "aec318230733e05e04ca86097bedbad50d0eb67af442791dc42bdd64b293444b",
+    "program-libs/interface/src/state/protocol_config.rs": "bcaec8d16c47fc1df9eeba93746ab62ce229aa5908d086c0da05b1dadc5b9359",
+    "program-libs/interface/src/state/ring_config.rs": "dae028808602a0bff049465d2d10c27d49daefd7650b5c8a51e683f2e0a733a2",
+    "program-libs/interface/src/state/spl_asset_registry.rs": "d28db2e0e7627274d5f96e3f2f566c17c1e7bbaae6f44b00c8bdabb3d32a418e",
+    "program-libs/interface/src/state/spl_asset_counter.rs": "3f89c6eef180a691cfced3184dc71fe5cdc03c5e5421937f1ce5ac49895c3fb4",
+    "program-libs/user-registry-interface/src/instruction.rs": "8500103964310b8399921f3101ea906a711924a17bb508453d7a01c13ddc7785",
+    "program-libs/user-registry-interface/src/state.rs": "459204b995877e5e35ad335e41695a8d2f7026c18883e88dc3aa373c6d5415db",
+    "programs/user-registry/src/error.rs": "fbcbd1d175923ab85ab213dd8746908062742bdd46f5eb8b73df55228f3faf41",
+    "program-libs/interface/src/lib.rs": "db33db09d3e4287634851f7547204064155355c4310bc8b2620323fbf4f5ac59",
+    "program-libs/user-registry-interface/src/lib.rs": "cff227cd0980ba4ebb6462ff16816d1f3e932e4954d088f812205314a6fac376",
+    "sdk-libs/ts/src/interface/program.ts": "c496c478ddf19d9007136bcfb254c5d6aa5df5d94ab715e782037ebf847e270f"
+  },
+  "programs": {
+    "shieldedPool": {
+      "address": "sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6",
+      "sha256": "12f6887b884aa0c96b1434a7714e52296e5e5c39fc37251c03bdec3a6beabc51"
+    },
+    "userRegistry": {
+      "address": "regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD",
+      "sha256": "2e071ade461fdb4a8f8b70840664cd8ad5bb7aa01ce7458f3165b6a7cd59afd9"
+    }
+  }
+}
