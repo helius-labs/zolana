@@ -73,6 +73,8 @@ fn error_codes_are_stable() {
         (DepositAuditRequired as u32, 8174),
         (InvalidDepositDisclosure as u32, 8175),
         (InvalidSpendCountersDisclosure as u32, 8176),
+        (InvalidRevocationTarget as u32, 8177),
+        (PolicyFactRevoked as u32, 8178),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

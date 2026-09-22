@@ -76,3 +76,19 @@ pub(crate) fn approval_signer(
         .ok_or(CustomRingError::ApprovalWithoutCoSigner)?
         .signer)
 }
+
+pub(crate) fn require_cosigner(
+    expected: Option<Address>,
+    cosigner: &AccountView,
+) -> Result<(), CustomRingError> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    if !cosigner.is_signer() {
+        return Err(CustomRingError::MissingCoSigner);
+    }
+    if cosigner.address() != &expected {
+        return Err(CustomRingError::UnauthorizedCoSigner);
+    }
+    Ok(())
+}
