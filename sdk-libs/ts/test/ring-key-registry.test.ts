@@ -537,7 +537,9 @@ describe("key registration flow", () => {
     });
     const opened = openRingSealedKey(entry, test.auditor);
     expect(opened.publicKey()).toEqual(test.member.keypair.nullifierPublicKey());
-    expect(() => openRingSealedKey(entry, ViewingKey.fromBytes(EPHEMERAL_SK))).toThrow();
+    expect(() => openRingSealedKey(entry, ViewingKey.fromBytes(EPHEMERAL_SK))).toThrow(
+      "RING_KEY_ENVELOPE_INVALID",
+    );
     const forged = { ...entry, proof: [filled(1) as Bytes32, ...entry.proof.slice(1)] };
     expect(() => openRingSealedKey(forged, test.auditor)).toThrow("RING_KEY_REGISTRY_INVALID");
     await expect(

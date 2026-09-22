@@ -5,7 +5,6 @@ export {
   UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_LEN_OFFSET,
   decodeShieldedPoolError,
-  ringDepositInstruction as interfaceRingDepositInstruction,
 } from "@heliuslabs/zolana/interface";
 export type {
   AuthorizedPrivateTransaction,
@@ -116,7 +115,6 @@ export {
   openRingDepositOpening,
   ringDepositContextHash,
   ringDepositPublicInputHash,
-  customRingPublicInputHash,
 } from "@heliuslabs/zolana/ring";
 export type {
   RingDelegateTransferClient,

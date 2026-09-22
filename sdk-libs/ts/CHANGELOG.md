@@ -1,11 +1,119 @@
 # Changelog
 
+## 0.3.0-alpha — unreleased
+
+A ring gains a scoped co-signer, a permanent delegate that moves and
+recovers member notes, public spend windows, private per-window velocity
+caps kept in compressed spend records, and optional deposit audit. Ring
+notes merge in one transaction, and ring submissions save each signed
+attempt before broadcast and resolve it after a restart. Ring instructions,
+proof requests and the policy hash change shape, so rings, programs and
+prover keys of 0.2.0-alpha need their counterparts from this release.
+
+Breaking
+
+- `ringDepositInstruction` is no longer exported from
+  `@heliuslabs/zolana/interface` and requires `hasPolicy`, and it and
+  `ringTransactInstruction` add the co-signer, spend window and deposit audit
+  accounts, with `ringTransactInstruction` taking `approvalRequired` and, on a
+  windowed ring, `headTransition` → import it from `@heliuslabs/zolana/ring`,
+  pass the ring config's policy flag, and rebuild ring transactions with this
+  release.
+- `buildRingDepositTransaction` takes a `RingDepositClient` with a deposit
+  prover and wraps each recipient ciphertext in an audit capsule → supply
+  `proveCustomRingDeposit` on the client and pass `customRingDepositPayload`
+  as the wallet sync `depositPayloadDecoder`.
+- `customRingPublicInputHash` is renamed `policyPublicInputHash` and also
+  takes the ring id, namespace owner, window and approval inputs → call
+  `policyPublicInputHash` for a policy ring and `auditPublicInputHash` for an
+  audit-only ring.
+- `RING_POLICY_VERSION` is 7 (was 4), `RingPolicyConfig` and `RuleTable` carry
+  `windowSlots` and `velocity`, `ringPolicyHash` covers both, and
+  `buildRuleTable` refuses a window without rows → deploy a fresh policy ring
+  and pass `windowSlots: 0n` and `velocity: []` for a table without amount
+  controls.
+- `AUDITOR_MESSAGE_LENGTH` is 1,217 (was 65), `CustomRingBasePublicInput`, `CustomRingBaseProofRequest` and
+  `CustomRingPolicyProofRequest` require the transaction `salt` and output
+  openings, and `encryptCustomRingTransfer` requires `outputTreeId` → size
+  parsers with the constant, pass the salt, openings and destination tree id,
+  and run the prover and program of this release.
+- `RingTransferClient` also needs `getSlot`, `getRingHeadTransferProof` and
+  `proveCustomRingCompressedPolicy`, `ProvenRingTransfer` returns
+  `approvalRequired`, `revocationTargets` and `headTransition`, and
+  `PolicyAnswers` requires `revocationTargets` → add the methods to a custom
+  client and return the revoked hashes from a custom policy answer provider.
+- Every `Prover` implements `proveCustomRingDeposit`,
+  `proveRingAuthorityTransact`, `proveCustomRingDelegatePolicy`,
+  `proveCustomRingCompressedPolicy`, `proveCustomRingRegister` and
+  `proveCustomRingRegisterKey`, and `proveRingTransact` takes a
+  `RingProvingConfig` → implement each method, put indexer settings under
+  `indexer`, and pass `outputTree` when the destination differs from the
+  client tree.
+- `TransactionOrigin.ringInvoked` takes `eventIndex` between `signature` and
+  `ring` → pass the indexed event's position.
+- `SignatureType`, `ProverInputs["circuit"]`, `TransactionIntent`,
+  `TransactionErrorCode` and `RingErrorCode` gain variants → handle `"pda"`,
+  `"transferRingAuthority"`, `"ringDelegate"`, `"ringMerge"` and the new codes
+  in exhaustive switches.
+- `serializeWallet` writes version 4 snapshots with `pendingSubmissions` and a
+  nullable `SerializedNoteReservation.expiresAtMs` → upgrade snapshot readers
+  before saving and treat `null` as no local expiry, versions 2 and 3 stay
+  readable.
+
+Added
+
+- `setRingCoSignerInstruction` and `clearRingCoSignerInstruction` set and close
+  a ring's co-signer, a second Solana key that must sign the transfers,
+  deposits or withdrawals in its scope, and every ring builder takes `cosigner`
+  and refuses a missing one with `RING_COSIGNER_REQUIRED` before proving.
+- `setRingDelegateInstruction` names a ring's permanent delegate,
+  `buildRingDelegateTransferTransaction` moves a member's ring notes with change
+  back to the member, and `recoverRingMemberNotes` with
+  `buildRingDelegateRecoveredTransaction` moves a member's unspent notes using
+  the auditor's viewing key, without the member's wallet.
+- `setRingSpendWindowInstruction` and `clearRingSpendWindowInstruction` cap a
+  mint's public deposits and withdrawals per fixed window of slots, and
+  `fetchRingSpendWindow` reads the cap.
+- `buildRingSpendRegistrationTransaction` registers a sender's spend record on
+  a windowed ring, `proveCustomRingTransfer` charges each transfer against the
+  ring's private per-window velocity caps and refuses an overspend with
+  `RING_VELOCITY_CAP_EXCEEDED`, `readRingVelocityState` reads the sender's
+  counters, and `auditRingTransaction` reports them as `AuditedRingSpendRecord`.
+- `createRingHeadMapRootInstruction` and `createRingKeyRegistryRootInstruction`
+  create a ring's spend record map and member key registry, and
+  `buildRingKeyRegistrationTransaction` seals a member's nullifier key to the
+  ring auditor, which `fetchRingSealedKey` and `openRingSealedKey` read back.
+- `initializeRingConfigInstructions` takes `depositAudit`,
+  `setRingDepositAuditInstruction` toggles it, `buildRingDepositTransaction`
+  then proves auditor-readable openings for up to eight deposits, and
+  `GetByTagsRequest.ringProgramId` scopes a scan to one ring, deposits to
+  unknown recipients included.
+- `buildRingMergeTransaction` and `createRingMergeSubmission` consolidate up to
+  eight ring notes of one owner and asset.
+- `createRingTransferSubmission` and its exit, withdrawal, delegate and
+  registration counterparts return a `RingTransactionSubmission` that retries a
+  stale root or window failure and keeps the spent notes reserved until the
+  broadcast settles, `sendPersisted` saves each signed attempt before
+  broadcast, `reconcileRingSubmissions` resolves saved signatures after a
+  restart without paying twice, and `savePersistedWallet` saves wallet state on
+  the sync queue.
+
+Fixed
+
+- `buildRingTransferTransaction` bound output commitments to the wrong tree on
+  a client with a nonzero tree id, each output now commits to the selected
+  destination tree.
+- `deployRingProgram` could upgrade a ring to a program that cannot load its
+  `RingPolicyConfig`, and `RingProgramBinary.bytes` handed out its internal
+  buffer, the upgrade is now refused with `RING_POLICY_CONFIG_INCOMPATIBLE`
+  before any transaction is sent and the accessors return copies.
+
 ## 0.2.0-alpha — 2026-09-21
 
 Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated
 entries tree, and a ring transfer can land its outputs in a tree other than
-the one it spends from. Wallets save pending transactions across restarts.
+the one it spends from.
 A tree derives from its id instead of one fixed address, holds its own fee
 schedule, and takes four instructions in one transaction to create. Every
 spent nullifier gets its own account, and the transact, merge, and ring
@@ -17,36 +125,9 @@ transaction hash blinding. Every builder now returns a version 1 transaction,
 which holds 4,096 bytes instead of 1,232, carries its compute budget and
 priority fee in the message itself, and uses no address lookup tables. Wallet
 builders can send value across multiple trees.
-A ring gains a scoped co-signer, a permanent delegate, public spend windows
-and private per-window velocity caps kept in compressed member spend records,
-and transfer submissions settle their broadcast before releasing the notes
-they spend.
 
 Breaking
 
-- Windowed ring transfers require the new counter proof and keys → deploy matching programs and prover keys, pass `transactionSalt` in low level compressed proof requests, and provide `countersDisclosureHash` when hashing a head transition.
-- Custom ring deposits wrap recipient ciphertext in an audit capsule while the
-  `/interface` reexports remain available → pass `customRingDepositPayload` as
-  the wallet sync `depositPayloadDecoder` before syncing deposits from this
-  release.
-- `serializeWallet` writes version 4 snapshots, preserves `pendingSubmissions`,
-  and permits `SerializedNoteReservation.expiresAtMs` to be `null` → upgrade
-  snapshot readers before saving and treat `null` as no local expiry, while
-  versions 2 and 3 remain readable.
-- `proveRingTransact` accepts `RingProvingConfig` → put indexer settings under `indexer` and supply `outputTree` when the destination differs from the client tree.
-
-- Ring transfer, exit and withdrawal submissions, `readRingVelocityState` and
-  `openSpendCounters` take `keys`, and `proveCustomRingDelegateTransfer` takes
-  `spender: RingDelegateSpender` → pass the member's `WalletKeys`, and
-  for a delegate move `source: WalletKeys` or the recovered
-  `nullifierKey` with a client that exposes `proofService`.
-- `prepareRingKeyRegistration` and `createRingKeyRegistrationSubmission` take
-  `member: { address, nullifierKey }` instead of `authority` → pass the
-  member's `ShieldedAddress` and `NullifierKey`, the one place a nullifier
-  secret leaves its holder.
-- `ringDepositInstruction` adds the canonical deposit-audit account, and
-  `buildRingDepositTransaction` takes `RingDepositClient` with a deposit prover
-  → upgrade ring deposit callers with the program even when auditing is disabled.
 - `SHIELDED_POOL_PROGRAM_ID` is `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`, and
   `SOL_INTERFACE`, `SHIELDED_POOL_CPI_AUTHORITY` and every tree address derive
   from it, while `InstructionTag` renumbers every tag → point at a deployment of
@@ -154,47 +235,6 @@ Breaking
   legs, read transact payloads in the new order, and run a program and prover
   from this release.
 
-- `ringTransactInstruction` and `ringDepositInstruction` place `cosigner_pda`
-  and `cosigner` after the config, then one spend window account per public
-  leg, `ringDepositInstruction` takes `hasPolicy`, and `ringTransactInstruction`
-  and `ringDelegateTransactInstruction` take `approvalRequired` and, on a
-  windowed ring, `headTransition` → rebuild ring transactions with this
-  release, pass `cosigner` when the ring's co-signer scope covers the
-  operation, or let `buildRingDepositTransaction` read the policy state.
-- `RING_POLICY_VERSION` is 7, `RingPolicyConfig` and `decodeRingPolicyConfig`
-  carry `namespaceOwnerHash`, `windowSlots`, `velocityCount` and `velocity`,
-  and `ringPolicyHash` folds the window and the velocity rows → every policy
-  hash of an earlier release differs, deploy a fresh policy ring rather than
-  re-pinning an old one.
-- `RuleTable`, `EncodedRuleTable` and `buildRuleTable` carry `windowSlots`
-  and `velocity`, `decodeRuleTable` takes both, and `buildRuleTable` refuses
-  a window without rows, a zero or repeated mint and a row without a bound →
-  pass `windowSlots: 0n` and `velocity: []` for a table without amount
-  controls.
-- `AuditorMessage` appends 36 output disclosure fields and is now 1,217 bytes,
-  `CustomRingBasePublicInput` requires `outputHashes` and `salt`, and
-  `CustomRingBaseProofRequest` requires `salt`, `nOut` and `outputs` → size
-  parsers with `AUDITOR_MESSAGE_LENGTH`, provide the transaction salt and
-  output openings, and use the matching prover and program.
-- `policyPublicInputHash` takes `ringId`, `namespaceOwnerHash`, `windowIndex`
-  and `approvalRequired`, and `CustomRingPolicyProofRequest` carries `salt`
-  and a `velocity` proof input → pass the transaction salt and build velocity
-  with `velocityProofInputOff({ ringId, namespaceOwnerHash })` when the ring has
-  no amount controls.
-- `proveCustomRingTransfer` charges the sender's outflow on a velocity ring,
-  spends a windowed ring's record into its successor and returns
-  `approvalRequired`, `revocationTargets` and `headTransition` on
-  `ProvenRingTransfer`, and
-  `CustomRingTransferParams.keys` mints the transaction keys that open the
-  sender's counters while the client needs `getSlot` and
-  `getRingHeadTransferProof` → create the ring's
-  head map root with `createRingHeadMapRootInstruction`, register each sender
-  before its first windowed transfer, and run the Photon and prover of this
-  release.
-- `PolicyAnswers` requires `revocationTargets` → custom policy answer providers
-  must return the hashes that the transfer should revoke.
-- `encryptCustomRingTransfer` requires `outputTreeId` → pass the destination
-  tree id so the disclosed output openings bind to the correct commitments.
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - `extendProgramInstruction` uses the extension supported by Agave 4.2 → pass
   `payer` and remove the `authority` argument; upgrading still requires the
@@ -216,31 +256,18 @@ Breaking
   account for a policy ring → pass the value given to
   `createRingConfigInstruction`, a policy ring registers only after its policy
   config exists.
-- `Prover.proveRingTransact` resolves to `ProvenRingTransact`, and every custom
-  `Prover` gains `proveCustomRingBase`, `proveTransferInputs`,
-  `proveCustomRingDeposit`, `proveRingAuthorityTransact`,
-  `proveCustomRingDelegatePolicy`, `proveCustomRingCompressedPolicy`,
-  `proveCustomRingRegister` and `proveCustomRingRegisterKey` → read `.data`
-  where the instruction data was used and implement each new proof method.
+- `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
+  data beside the `RingTransactRoots` the ring statement binds, and `Prover`
+  gains `proveCustomRingBase` and `proveTransferInputs` over caller-assembled
+  `TransferInputs` → read `.data` where the instruction data was used and add
+  both methods to a custom prover.
 - `RingTransferClient` reads entries and their proofs through
   `getEncryptedUtxosByTags`, `getShieldedTransactionsByNullifiers`,
-  `getMerkleProofs`, `getNonInclusionProofs`, `getSlot` and
-  `getRingHeadTransferProof`, and proves compressed policies through
-  `proveCustomRingCompressedPolicy` → add those capabilities to a custom
-  client.
-- `TransactionOrigin.ringInvoked` takes `eventIndex` between `signature` and
-  `ring` → pass the indexed event's position so two ring events in one Solana
-  transaction are distinguished.
-- `customRingPublicInputHash` now aliases `policyPublicInputHash`, while
-  `auditPublicInputHash` hashes the audit-only statement → call the function
-  for the ring tier and supply the policy fields to the compatibility alias.
-- `SignatureType`, `ProverInputs["circuit"]`, `TransactionIntent`,
-  `TransactionErrorCode` and `RingErrorCode` gain custom-ring variants → update
-  exhaustive switches for `"pda"`, `"transferRingAuthority"`, `"ringDelegate"`,
-  `"ringMerge"` and the new error codes.
-- `UTXO_ROOT_HISTORY_LEN_OFFSET` and `UTXO_ROOT_HISTORY_CAPACITY_OFFSET` leave
-  `@heliuslabs/zolana/interface` → read the root history through
-  `decodeTreeHeadRoots`.
+  `getMerkleProofs` and `getNonInclusionProofs` → add the four methods to a
+  custom client.
+- `customRingPublicInputHash` takes `policyHash`, `stateRoot`,
+  `nullifierRoot` and `entriesTreeId` → use `auditPublicInputHash` for the
+  audit statement alone.
 - Ring registration is permissionless and produces a config that authorizes
   nothing, and governance admits it separately with
   `getSetRingActivationInstructionAsync` → a ring is live only after its
@@ -335,18 +362,6 @@ Breaking
 
 Added
 
-- `buildRingMergeTransaction` and `createRingMergeSubmission` consolidate up to eight ring notes with owner, asset, value, ring, and destination checks.
-- `RingTransactionSubmission.sendPersisted` saves signed attempts before broadcast, and `reconcileRingSubmissions` resolves saved signatures after restart without sending another payment.
-- `savePersistedWallet` saves wallet state on the same queue as wallet sync.
-
-- `GetByTagsRequest.ringProgramId` scopes a scan to one ring, including
-  deposits whose recipient tags do not identify a known member.
-- `initializeRingConfigInstructions` accepts `depositAudit` with a default of
-  `false`, `setRingDepositAuditInstruction` toggles it under the config authority,
-  and `fetchRingDepositAudit` reads whether deposit disclosure is required.
-- `buildRingDepositTransaction` proves auditor-readable deposit openings only
-  when required, while `sealRingDepositOpenings`, `ringDepositPublicInputHash`
-  and `ZolanaClient.proveCustomRingDeposit` support batches of up to eight.
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
@@ -377,146 +392,6 @@ Added
   `RING_POLICY_CONFIG_INVALID`.
 - `ZolanaClient.proveCustomRingBase` proves the audit statement from a
   `CustomRingBaseProofRequest`.
-- `setRingCoSignerInstruction` and `clearRingCoSignerInstruction` set and
-  close a ring's co-signer, a second Solana key with a scope over transfers,
-  deposits and withdrawals (`RING_COSIGN_TRANSFERS`, `RING_COSIGN_DEPOSITS`,
-  `RING_COSIGN_WITHDRAWALS`, `RING_COSIGN_SCOPE_MASK`) and up to
-  `RING_COSIGN_THRESHOLD_SLOTS` per-mint withdrawal thresholds,
-  `fetchRingCoSigner` and `decodeRingCoSigner` read it as
-  `RingCoSigner`, `ringCoSignerAddress` and `ringCoSignerPda` derive its
-  account, and every ring builder takes `cosigner` and refuses a missing or
-  wrong one with `RING_COSIGNER_REQUIRED` before proving, a scope or
-  threshold table the program refuses is `RING_CO_SIGNER_INVALID`.
-- `setRingDelegateInstruction` sets a ring's permanent delegate under the
-  upgrade authority, `fetchRingDelegate` and `decodeRingDelegate` read it as
-  `RingDelegate`, `ringDelegateAddress` derives its account, and
-  `buildRingDelegateTransferTransaction(RingDelegateTransferParams)`,
-  `createRingDelegateSubmission` and `ringDelegateTransactInstruction` move
-  the source's ring notes over the shielded pool's authority rail with change
-  back to the source for a `RingDelegateTransferClient`, keeping audit, list
-  rules and co-signing through
-  `proveCustomRingDelegateTransfer(CustomRingDelegateTransferParams)` on a
-  `RingDelegateProofClient`, refusing a public leg with
-  `RING_DELEGATE_PUBLIC_LEG`, a velocity record with
-  `RING_DELEGATE_ON_VELOCITY_RING`, an input outside the ring with
-  `TRANSACTION_INPUT_OUTSIDE_RING` and a malformed account with
-  `RING_DELEGATE_INVALID`, while `recoverRingMemberNotes(RingRecoveryParams)`
-  rebuilds a member's unspent ring notes as `RecoveredRingNotes` from the
-  auditor's `ViewingKey` and the opened `NullifierKey` for a
-  `RingRecoveryClient`, refusing an unfinished scan with
-  `RING_RECOVERY_INCOMPLETE`, and
-  `buildRingDelegateRecoveredTransaction(RingDelegateRecoveredParams)` and
-  `createRingDelegateRecoveredSubmission` move those notes without the
-  source's wallet or approval.
-- `setRingSpendWindowInstruction` and `clearRingSpendWindowInstruction` set
-  and close a mint's spend window, a cap on the ring's public deposits and
-  withdrawals per fixed window of slots, `fetchRingSpendWindow` and
-  `decodeRingSpendWindow` read it as `RingSpendWindow`,
-  `ringSpendWindowAddress` derives its account, and a malformed account is
-  `RING_SPEND_WINDOW_INVALID`.
-- `createRingHeadMapRootInstruction`, `fetchRingHeadMapRoot`,
-  `decodeRingHeadMapRoot`, `ringHeadMapRootAddress` and `ringHeadMapRootPda`
-  create and read a ring's shared head map root as `RingHeadMapRoot`,
-  `createRingKeyRegistryRootInstruction`, `fetchRingKeyRegistryRoot`,
-  `decodeRingKeyRegistryRoot`, `ringKeyRegistryRootAddress` and
-  `ringKeyRegistryRootPda` do the same for its member key registry as
-  `RingKeyRegistryRoot`, and
-  `HEAD_MAP_HEIGHT`, `HEAD_MAP_CAPACITY`, `headMapLeaf`, `headMapRootFromProof`,
-  `verifyHeadMapInsert` and `verifyHeadMapTransfer` verify a member's
-  insertion or record transfer under it from `HeadMapLeaf`, `HeadMapPath`,
-  `HeadMapInsertProofInput` and `HeadMapTransferProofInput`.
-- `prepareRingSpendRegistration`, `createRingSpendRegistrationSubmission` and
-  `buildRingSpendRegistrationTransaction` take `RingSpendRegistrationParams`
-  for a `RingSpendRegistrationClient` and register a sender's first spend
-  record on a windowed ring with `registerRingSpendInstruction` and
-  `RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT`, `prepareRingSpendRegistration`
-  returns a `RingSpendRegistrationPreparation`, and `readRingVelocityState`,
-  `readRingSpendRecord(ReadRingSpendRecordInput)` and `currentRingSpendRecord`
-  read the live record as `LiveSpendRecord` and `VelocityFacts` with its
-  recovered counters and `SpendRecordHashes`, a stale, malformed or missing
-  root is `RING_HEAD_MAP_STALE`, `RING_HEAD_MAP_INVALID` or
-  `RING_HEAD_MAP_MISSING`, and `prepareRingKeyRegistration`,
-  `createRingKeyRegistrationSubmission` and
-  `buildRingKeyRegistrationTransaction` take `RingKeyRegistrationParams` for a
-  `RingKeyRegistrationClient`, seal the member's nullifier key to the ring
-  auditor with `sealNullifierKey` (`NullifierKeyEnvelope`,
-  `SealedNullifierKey`, `NF_KEY_ENC_INFO`) and append it with
-  `registerRingKeyInstruction` under `RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT`,
-  `prepareRingKeyRegistration` returns a `RingKeyRegistrationPreparation`,
-  `registeredKeyCommitment` and `registerKeyPublicInputHash` hash the registry
-  leaf and the `RegisterKeyStatement`, `fetchRingSealedKey` reads the member's
-  `RingSealedKeyEntry` for a `RingSealedKeyClient` and `openRingSealedKey`
-  authenticates the key opened with the auditor's `ViewingKey` into the
-  `NullifierKey`, a stale, malformed or missing registry is
-  `RING_KEY_REGISTRY_STALE`, `RING_KEY_REGISTRY_INVALID` or
-  `RING_KEY_REGISTRY_MISSING`, `openNullifierKey` checks plaintext encoding
-  without authenticating registry inclusion and reports malformed encoding as
-  `RING_KEY_ENVELOPE_INVALID`, and a nullifier key that does not derive its
-  address is `RING_NULLIFIER_KEY_MISMATCH`.
-- `SpendRecord`, `SpendCounters`, `encodeSpendRecord`, `decodeSpendRecord`,
-  `encodeSpendCounters`, `decodeSpendCounters`, `spendCountersCommitment`,
-  `spendCountersSpent`, `zeroSpendCounters`, `spendSeed`,
-  `spendRecordMessageTag`, `SPEND_COUNTERS_LENGTH`,
-  `RingListNamespace.spendAddress` and `RingListNamespace.spendRecordHashes`
-  mirror the Rust spend record and its counters.
-- `RING_VELOCITY_SLOTS`, `CustomRingVelocityRow`,
-  `CustomRingVelocityProofInput`, `CustomRingSpendRecordProofInput`,
-  `CustomRingCompressedPolicyProofRequest`, `CustomRingHeadInsertion`,
-  `CustomRingRegisterProofRequest` and `CustomRingRegisterKeyProofRequest`
-  type the velocity, compressed-head and key registry proof requests,
-  `velocityProofInputOff(identity)` builds the proof input of a ring without
-  amount controls, and `ZolanaClient.proveCustomRingCompressedPolicy`,
-  `proveCustomRingRegister`, `proveCustomRingRegisterKey`,
-  `proveCustomRingDelegatePolicy` and `proveRingAuthorityTransact` prove them.
-- `createRingTransferSubmission`, `createRingExitSubmission`,
-  `createRingWithdrawalSubmission`, `createRingDelegateSubmission` and
-  `createRingSpendRegistrationSubmission` return a
-  `RingTransactionSubmission`, built from a `RingSubmissionBuild`, a
-  `RingSubmissionWindowChanged` and an optional `ReservationHold`, whose
-  `send(transport)` retries a confirmed
-  stale-root or window failure up to three times, reports an unresolved
-  broadcast as `unknown` until its signature settles or a valid status response
-  confirms absence after blockhash expiry, retains pending state when history
-  is unavailable or has the wrong result count, and keeps the wallet reservation alive while it runs,
-  `createKitRingSubmissionTransport` is the `RingSubmissionTransport` over
-  `@solana/kit`, `RingSubmissionAttempt`, `RingSubmissionResult`,
-  `RingSubmissionStatus` and `RingSubmissionPending` type the exchange,
-  `RingProgramError` names the program codes the retry reads, and a retained
-  note spent elsewhere is `RING_RESERVED_INPUT_SPENT`.
-- `auditRingTransaction` reports a velocity ring's `spendRecords` as
-  `AuditedRingSpendRecord` with the counters recovered from the sender's
-  message, lists a slot with a malformed record message under
-  `invalidSpendRecordSlots`, gives every `AuditedRingOutput` its
-  `outputContext` and `data`, and `DecryptedRingTransaction.spendRecords`
-  carries each record over `RingRpc.getDecryptedTransactions` as a
-  `DecryptedRingSpendRecord` whose `counters` list the populated slots as
-  `DecryptedRingSpendCounter`.
-- `openSealedMessage(tx, { salt, slotIndex, data })` opens a message sealed
-  under a transaction viewing key, `encryptCustomRingTransfer` takes a
-  `counterMessage` without a caller slot index and a `recordOutputIndex`
-  sealed to the transaction viewing key and refuses caller messages on the
-  reserved counter slot or a slot shared by an output or another message with
-  `TRANSACTION_DUPLICATE_SLOT_INDEX`, and `ZolanaClient.getSlot`,
-  `getRingHeadRegisterProof`, `getRingHeadTransferProof`,
-  `getRingKeyRegistryEntry` and `getRingKeyRegistryRegisterProof` read the
-  slot, the head proofs and the key registry proofs of a
-  `RingMemberProofRequest` (`RingHeadRegisterProof`, `RingHeadTransferProof`,
-  `RingKeyRegistryEntry` and `RingKeyRegistryRegisterProof` over a
-  `RingMemberProofContext`) through the `SlotReader`, `RingHeadReader` and
-  `RingKeyRegistryReader` ports, and a head map or registry the indexer
-  cannot serve is `CLIENT_HEAD_MAP_OUT_OF_SYNC`, `CLIENT_HEAD_ROOT_CHANGED`,
-  `CLIENT_HEAD_MEMBER_UNREGISTERED`, `CLIENT_HEAD_MEMBER_ALREADY_REGISTERED`,
-  `CLIENT_KEY_REGISTRY_OUT_OF_SYNC`, `CLIENT_KEY_REGISTRY_ROOT_CHANGED`,
-  `CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED` or
-  `CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED`.
-- `ShieldedPublicKey.fromPda`, `ShieldedAddress.forPda(keys)` and the `"pda"`
-  owner type carry a program-derived owner into a proof input.
-- Ring error codes `RING_SPEND_RECORD_INVALID`,
-  `RING_SPEND_RECORD_LINEAGE_BROKEN`, `RING_SPEND_RECORD_MISSING`,
-  `RING_SPEND_COUNTERS_UNKNOWN`, `RING_VELOCITY_CAP_EXCEEDED`,
-  `RING_VELOCITY_OVERFLOW`, `RING_VELOCITY_DISABLED` and
-  `RING_SUBMISSION_PENDING` name the velocity, record and submission
-  failures.
 - `setRingPausedInstruction` pauses or resumes a ring under its own authority,
   the shielded pool refuses the ring's transactions while it is paused, and
   `RING_SET_PAUSED_COMPUTE_UNIT_LIMIT` is its compute budget.
@@ -544,9 +419,8 @@ Added
   and `buildRingSetPolicySourceTransaction` pin, replace and re-source a
   ring's rule table, `createRingPolicyInstruction`,
   `setRingPolicyRulesInstruction` and `setRingPolicySourceInstruction` build
-  the instructions with `RingSharedSource` curators, the create instruction
-  carries the ring config so the program refuses an audit-only ring, the
-  create and rules builders refuse one with `RING_POLICY_TIER_MISMATCH`, and a
+  the instructions with `RingSharedSource` curators, the create and rules
+  builders refuse an audit-only ring with `RING_POLICY_TIER_MISMATCH`, and a
   curator on another entries tree, without the list, or named twice for one
   list is refused with `RING_POLICY_SOURCE_INVALID` before the transaction is
   compiled.
@@ -564,7 +438,7 @@ Added
   positive integer with `RING_DEPLOY_OPTIONS_INVALID`, and a program that
   stays unusable with `RING_PROGRAM_NOT_USABLE`.
 - `RingProgramBinary.parse` checks and hashes a program binary and refuses
-  a malformed or truncated ELF artifact with `RING_PROGRAM_BINARY_INVALID`,
+  one without an ELF header with `RING_PROGRAM_BINARY_INVALID`,
   `fetchRingProgramData` reads a deployed program's upgrade authority,
   capacity and deploy slot as `RingProgramData`, `verifyRingProgram` refuses
   a missing or different deployed binary with `RING_PROGRAM_NOT_DEPLOYED` or
@@ -662,16 +536,8 @@ Changed
 
 Fixed
 
-- Wallet sync reconstructs ring merge outputs indexed by the first input nullifier.
-- Ring audit readers reject missing, duplicate, malformed, or foreign recipient successor counters instead of reporting an incomplete record.
-- Ring transfer builders bind output commitments to the selected destination tree on clients with nonzero tree IDs.
-- Ring submissions retain selected notes during proof generation, signing, pending confirmation and wallet sync, and retry verified blockhash expiry within the attempt limit.
-
-- `recoverRingMemberNotes` follows successive merges, batches large histories,
-  recovers disclosed deposits, accepts `resolveOutputHashes` for committed data
-  hashes and reports deposits lacking disclosure in `unsupportedDeposits`
-  without claiming their spend status.
 - `ZolanaClient` accepts Photon tree metadata while rejecting invalid tree IDs and tree addresses that disagree with them.
+
 - `decryptTransactions` rejects malformed key-holder batches with
   `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and
   leaves wallet state unchanged on failure.
@@ -693,22 +559,6 @@ Fixed
   which produced a duplicate UTXO hash and nullifier and left the second UTXO
   unspendable; the shielded pool now derives every deposit blinding from the
   tree and the leaf index, so each deposit is unique.
-- `deployRingProgram` upgraded a ring whose `RingPolicyConfig` the new
-  program cannot load and left the ring unreadable, it now reads the config
-  first and refuses the upgrade with `RING_POLICY_CONFIG_INCOMPATIBLE` before
-  any transaction is sent.
-- `RingProgramBinary.bytes` and `RingProgramBinary.sha256` handed out the
-  parsed buffers and `verifyRingProgram` accepted unchecked descriptors and
-  deployed prefixes, both accessors now return copies, deployment and
-  verification require a parsed instance, and verification covers every
-  deployed byte except zeroed loader capacity.
-- `decodeRingCoSigner` accepted a zero signer, duplicate mints and nonzero
-  unused rows, it now rejects that state and `setRingCoSignerInstruction`
-  rejects zero signers before building an instruction.
-- `RingRpc.getDecryptedTransactions` accepted a spend record with a
-  `slotIndex` outside u32, a counter slot outside `RING_VELOCITY_SLOTS` or a
-  slot listed twice, or a version, window or spent amount above u64, it now
-  rejects the page.
 
 Dependencies
 

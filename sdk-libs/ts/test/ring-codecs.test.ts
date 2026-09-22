@@ -219,6 +219,7 @@ describe("ring deposit", () => {
       ringProgramId: RING,
       tree: TREE,
       depositor: PAYER,
+      hasPolicy: false,
       deposits: [
         {
           asset: DepositAsset.sol(),
