@@ -391,6 +391,7 @@ mod tests {
         serialization::confidential::{
             Confidential, ConfidentialEncode, ConfidentialOutputPlaintext,
         },
+        utxo::ProofInputUtxo,
         AssetRegistry, Data, OutputContext, OutputSlot, Utxo, UtxoSerialization, SOL_ASSET_ID,
     };
 
@@ -636,6 +637,7 @@ mod tests {
 
     struct RecoveredFixture {
         slot: OutputSlot,
+        audit_opening: ProofInputUtxo,
         utxo: Utxo,
         nullifier: [u8; 32],
     }
@@ -678,9 +680,10 @@ mod tests {
                 ring_program_id: Some(ring),
                 data: Data::default(),
             };
-            let commitment = utxo
-                .hash(&address.nullifier_pubkey, &[0u8; 32], &[0u8; 32], 0)
-                .expect("commitment");
+            let audit_opening = utxo
+                .proof_input(&address.nullifier_pubkey, &[0u8; 32], &[0u8; 32], 0)
+                .expect("audit opening");
+            let commitment = audit_opening.hash().expect("commitment");
             let nullifier = utxo
                 .nullifier(&commitment, &self.source.nullifier_key)
                 .expect("nullifier");
@@ -694,6 +697,7 @@ mod tests {
                     },
                     payload: encoded.data,
                 },
+                audit_opening,
                 utxo,
                 nullifier,
             }
@@ -705,15 +709,25 @@ mod tests {
         auditor: &'a ViewingKey,
         signature: u8,
         output_slots: Vec<OutputSlot>,
+        audit_openings: Vec<ProofInputUtxo>,
         nullifiers: Vec<[u8; 32]>,
     }
 
     impl RingTx<'_> {
         fn indexed(self) -> ShieldedTransaction {
-            let message = AuditorEncryption::new(self.tx_key, &self.auditor.pubkey())
-                .expect("auditor encryption")
-                .message
-                .to_message_data(&self.auditor.pubkey());
+            let auditor_pk = self.auditor.pubkey();
+            let encryption = if self.audit_openings.is_empty() {
+                AuditorEncryption::new(self.tx_key, &auditor_pk)
+            } else {
+                AuditorEncryption::new_with_outputs(
+                    self.tx_key,
+                    &auditor_pk,
+                    SALT,
+                    &self.audit_openings,
+                )
+            }
+            .expect("auditor encryption");
+            let message = encryption.message.to_message_data(&auditor_pk);
             ShieldedTransaction {
                 slot: u64::from(self.signature),
                 tx_signature: Signature::from([self.signature; 64]),
@@ -847,6 +861,7 @@ mod tests {
                     auditor: &auditor,
                     signature: 1,
                     output_slots: vec![unspent.slot.clone()],
+                    audit_openings: vec![unspent.audit_opening.clone()],
                     nullifiers: Vec::new(),
                 }
                 .indexed(),
@@ -855,6 +870,7 @@ mod tests {
                     auditor: &auditor,
                     signature: 2,
                     output_slots: vec![spent.slot.clone()],
+                    audit_openings: vec![spent.audit_opening.clone()],
                     nullifiers: Vec::new(),
                 }
                 .indexed(),
@@ -863,6 +879,7 @@ mod tests {
                     auditor: &auditor,
                     signature: 3,
                     output_slots: Vec::new(),
+                    audit_openings: Vec::new(),
                     nullifiers: vec![spent.nullifier],
                 }
                 .indexed(),
