@@ -47,11 +47,18 @@ pub(crate) fn reconstruct(
         bail!("transition must have exactly one SPP event");
     }
     let event = &update.rings_transactions[0];
+    // The event carries the output tree account but not its raw id. Head
+    // transitions are required to write to the policy's entries tree, and the
+    // shared parser below verifies both the account and this id.
     zolana_ring_indexer::head_map::parser::Reconstruction {
         instruction: instruction_view(invocation.instruction),
         decoded,
         policy,
-        event: &transaction(event, invocation.instruction.program_id)?,
+        event: &transaction(
+            event,
+            invocation.instruction.program_id,
+            policy.entries_tree_id(),
+        )?,
         source_instruction_tag: u8::try_from(event.source_instruction_tag)?,
     }
     .reconstruct()
@@ -63,12 +70,16 @@ pub(crate) fn successor(
     context: &SuccessorContext<'_>,
 ) -> Result<zolana_ring_policy::SpendRecord> {
     zolana_ring_indexer::head_map::parser::successor(
-        &transaction(event, Pubkey::default())?,
+        &transaction(event, Pubkey::default(), context.entries_tree_id)?,
         context,
     )
 }
 
-fn transaction(event: &RingsTransactionUpdate, program: Pubkey) -> Result<ShieldedTransaction> {
+fn transaction(
+    event: &RingsTransactionUpdate,
+    program: Pubkey,
+    output_tree_id: u16,
+) -> Result<ShieldedTransaction> {
     Ok(ShieldedTransaction {
         slot: event.slot,
         tx_signature: event.signature.into(),
@@ -83,6 +94,7 @@ fn transaction(event: &RingsTransactionUpdate, program: Pubkey) -> Result<Shield
                 output_context: RingsOutputContext {
                     hash: Hash(output.utxo_hash),
                     tree: Pubkey::new_from_array(output.output_tree).into(),
+                    tree_id: output_tree_id,
                     leaf_index: output.leaf_index,
                 },
                 payload: Base64String(output.payload.clone()),

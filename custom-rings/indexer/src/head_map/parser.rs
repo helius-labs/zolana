@@ -250,6 +250,7 @@ pub fn successor(
         .utxo_hash(&owner, &address, context.entries_tree_id)
         .map_err(|error| anyhow::anyhow!("spend-record leaf hash failed ({error:?})"))?;
     if output.output_context.tree.0.to_bytes() != context.entries_tree
+        || output.output_context.tree_id != context.entries_tree_id
         || output.output_context.hash.0 != leaf
     {
         bail!("spend-record message does not open its successor output");
