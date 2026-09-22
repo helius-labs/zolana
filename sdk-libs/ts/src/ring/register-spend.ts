@@ -23,6 +23,7 @@ import {
 } from "./instructions.js";
 import { memberOfTag, memberOfIdentity, type LiveSpendRecord, type Member } from "./policy.js";
 import { readCurrentSpendRecord } from "./head-reader.js";
+import { HEAD_MAP_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
 import {
   RingTransactionSubmission,
   windowChangedOn,
@@ -180,24 +181,31 @@ async function buildRegistrationAttempt(
   const { policy, payer, member } = registration;
   // 1. Pin the window and authenticate the member's empty head.
   const windowIndex = (await params.client.getSlot(context)) / policy.windowSlots;
-  const root = await fetchRingHeadMapRoot(params.client, params.ringProgramId, context);
-  if (root.nextIndex >= HEAD_MAP_CAPACITY)
-    throw new RingError("RING_HEAD_MAP_INVALID", { details: { reason: "capacity" } });
-  const head = await params.client.getRingHeadRegisterProof(
-    {
-      ringProgramId: params.ringProgramId,
-      member,
-      expectedRoot: root.root,
-      expectedNextIndex: root.nextIndex,
+  const { root, head } = await waitForRingProjection(
+    async (attemptContext) => {
+      const root = await fetchRingHeadMapRoot(params.client, params.ringProgramId, attemptContext);
+      if (root.nextIndex >= HEAD_MAP_CAPACITY)
+        throw new RingError("RING_HEAD_MAP_INVALID", { details: { reason: "capacity" } });
+      const head = await params.client.getRingHeadRegisterProof(
+        {
+          ringProgramId: params.ringProgramId,
+          member,
+          expectedRoot: root.root,
+          expectedNextIndex: root.nextIndex,
+        },
+        attemptContext,
+      );
+      if (
+        !equalBytes(head.root, root.root) ||
+        !equalBytes(head.member, member) ||
+        head.nextIndex !== root.nextIndex
+      )
+        throw new RingError("RING_HEAD_MAP_STALE");
+      return { root, head };
     },
+    HEAD_MAP_PROJECTION_ERRORS,
     context,
   );
-  if (
-    !equalBytes(head.root, root.root) ||
-    !equalBytes(head.member, member) ||
-    head.nextIndex !== root.nextIndex
-  )
-    throw new RingError("RING_HEAD_MAP_STALE");
   // 2. Prove creation of the initial compressed record.
   const entry = await proveRingSpendRegistration(
     {

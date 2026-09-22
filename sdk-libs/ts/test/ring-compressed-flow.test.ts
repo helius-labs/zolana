@@ -303,22 +303,27 @@ describe("compressed registration flow", () => {
     test.auditor.destroy();
   });
 
-  it("does not interpret indexer unavailability as unregistered", async () => {
+  it("waits out indexer unavailability without treating it as unregistered", async () => {
     const test = await fixture();
+    const abort = new AbortController();
     await expect(
-      prepareRingSpendRegistration({
-        client: {
-          ...test.client,
-          getRingHeadTransferProof: async () => {
-            throw new ClientError("CLIENT_HEAD_MAP_OUT_OF_SYNC", {
-              details: { method: "getRingHeadTransferProof" },
-            });
+      prepareRingSpendRegistration(
+        {
+          client: {
+            ...test.client,
+            getRingHeadTransferProof: async () => {
+              abort.abort();
+              throw new ClientError("CLIENT_HEAD_MAP_OUT_OF_SYNC", {
+                details: { method: "getRingHeadTransferProof" },
+              });
+            },
           },
+          ringProgramId: RING,
+          payer: PAYER,
         },
-        ringProgramId: RING,
-        payer: PAYER,
-      }),
-    ).rejects.toMatchObject({ code: "CLIENT_HEAD_MAP_OUT_OF_SYNC" });
+        { signal: abort.signal },
+      ),
+    ).rejects.toMatchObject({ code: "CLIENT_ABORTED" });
     expect(test.prove).not.toHaveBeenCalled();
     test.auditor.destroy();
   });

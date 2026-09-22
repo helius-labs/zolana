@@ -605,6 +605,8 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     let mut spl_entry = sol_deposit_entry();
     spl_entry.asset = spl;
     spl_entry.amount = 42;
+    let mut second_spl_entry = spl_entry.clone();
+    second_spl_entry.amount = 43;
 
     let instruction = Deposit {
         proof: None,
@@ -612,7 +614,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
         cosigner: None,
         tree: Address::new_from_array([13; 32]),
         depositor: payer(),
-        deposits: vec![spl_entry, sol_deposit_entry()],
+        deposits: vec![spl_entry, sol_deposit_entry(), second_spl_entry],
         has_policy: false,
     }
     .instruction()
@@ -636,7 +638,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
             .iter()
             .map(|entry| (entry.asset_index, entry.amount))
             .collect::<Vec<_>>(),
-        vec![(1, 42), (0, 7_000_000)]
+        vec![(1, 42), (0, 7_000_000), (1, 43)]
     );
     assert_eq!(
         instruction

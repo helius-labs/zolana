@@ -1,7 +1,9 @@
 use custom_ring_interface::MAX_RING_DEPOSIT_AUDIT_SLOTS;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::instruction::{DepositBuildError, RingAssetDeposit, RingDeposit};
+use zolana_interface::instruction::{
+    DepositAsset, DepositBuildError, RingAssetDeposit, RingDeposit,
+};
 
 use crate::{
     instructions::{
@@ -44,13 +46,13 @@ impl Deposit {
             });
         }
 
+        let windows = window_metas(ring, settled_mints(&deposits));
         let deposit = RingDeposit {
             tree,
             depositor,
             ring_program_id: ring.program_id(),
             deposits,
         };
-        let windows = window_metas(ring, deposit.settled_mints()?);
         let mut instruction = deposit.instruction()?;
         if let Some(proof) = proof {
             let mut data = vec![custom_ring_interface::tag::AUDITED_DEPOSIT];
@@ -76,4 +78,24 @@ impl Deposit {
         instruction.accounts.splice(0..0, prefix);
         Ok(instruction)
     }
+}
+
+/// Matches SPP's SOL-first, then distinct-SPL first-appearance settlement order.
+/// A different order would shift spend-window accounts away from the assets they gate.
+fn settled_mints(deposits: &[RingAssetDeposit]) -> Vec<Address> {
+    let mut has_sol = false;
+    let mut spl = Vec::new();
+    for deposit in deposits {
+        match deposit.asset {
+            DepositAsset::Sol => has_sol = true,
+            DepositAsset::Spl(accounts) if !spl.contains(&accounts.mint) => {
+                spl.push(accounts.mint);
+            }
+            DepositAsset::Spl(_) => {}
+        }
+    }
+    if has_sol {
+        spl.insert(0, Address::default());
+    }
+    spl
 }

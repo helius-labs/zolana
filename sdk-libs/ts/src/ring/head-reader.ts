@@ -6,6 +6,7 @@ import { fetchRingHeadMapRoot } from "./config.js";
 import { RingError } from "./error.js";
 import { verifyHeadMapTransfer } from "./head-map.js";
 import { currentRingSpendRecord, type Member } from "./policy.js";
+import { HEAD_MAP_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
 
 export async function readCurrentSpendRecord(
   input: Readonly<{
@@ -18,6 +19,26 @@ export async function readCurrentSpendRecord(
   }>,
   context?: RequestContext,
 ) {
+  return waitForRingProjection(
+    (attemptContext) => readCurrentSpendRecordOnce(input, attemptContext),
+    HEAD_MAP_PROJECTION_ERRORS,
+    context,
+  );
+}
+
+async function readCurrentSpendRecordOnce(
+  input: Readonly<{
+    client: Pick<ChainReader, "getAccount"> & Pick<RingHeadReader, "getRingHeadTransferProof">;
+    ringProgramId: Address;
+    namespace: Address;
+    entriesTree: Address;
+    entriesTreeId: TreeId;
+    sender: Member;
+  }>,
+  context?: RequestContext,
+) {
+  // The chain account is authoritative. Refetch it on every projection retry so
+  // a concurrent spend cannot leave the next request pinned to an obsolete root.
   const root = await fetchRingHeadMapRoot(input.client, input.ringProgramId, context);
   const head = await input.client.getRingHeadTransferProof(
     {

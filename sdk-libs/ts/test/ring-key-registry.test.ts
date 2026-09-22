@@ -486,20 +486,25 @@ describe("key registration flow", () => {
       }),
     ).rejects.toMatchObject({ code: "RING_KEY_REGISTRY_STALE" });
     expect(test.prove).not.toHaveBeenCalled();
+    const abort = new AbortController();
     await expect(
-      prepareRingKeyRegistration({
-        client: {
-          ...test.client,
-          getRingKeyRegistryEntry: async () => {
-            throw new ClientError("CLIENT_KEY_REGISTRY_OUT_OF_SYNC", {
-              details: { method: "getRingKeyRegistryEntry" },
-            });
+      prepareRingKeyRegistration(
+        {
+          client: {
+            ...test.client,
+            getRingKeyRegistryEntry: async () => {
+              abort.abort();
+              throw new ClientError("CLIENT_KEY_REGISTRY_OUT_OF_SYNC", {
+                details: { method: "getRingKeyRegistryEntry" },
+              });
+            },
           },
+          ringProgramId: RING,
+          member: test.member.enrolment,
         },
-        ringProgramId: RING,
-        member: test.member.enrolment,
-      }),
-    ).rejects.toMatchObject({ code: "CLIENT_KEY_REGISTRY_OUT_OF_SYNC" });
+        { signal: abort.signal },
+      ),
+    ).rejects.toMatchObject({ code: "CLIENT_ABORTED" });
   });
 
   it("refuses a lent nullifier key that does not derive the address", async () => {

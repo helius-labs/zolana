@@ -33,6 +33,7 @@ import {
   registerRingKeyInstruction,
 } from "./instructions.js";
 import { memberOfTag, type Member } from "./policy.js";
+import { KEY_REGISTRY_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
 import { RingTransactionSubmission, type RingSubmissionAttempt } from "./submission.js";
 
 /** Rust `NF_KEY_ENC_INFO`, separates the key stream from the audit stream. */
@@ -225,39 +226,49 @@ export async function fetchRingSealedKey(
   input: Readonly<{ client: RingSealedKeyClient; ringProgramId: Address; member: Member }>,
   context?: RequestContext,
 ): Promise<RingSealedKeyEntry> {
-  const root = await fetchRingKeyRegistryRoot(input.client, input.ringProgramId, context);
-  const entry = await input.client.getRingKeyRegistryEntry(
-    {
-      ringProgramId: input.ringProgramId,
-      member: input.member,
-      expectedRoot: root.root,
-      expectedNextIndex: root.nextIndex,
+  return waitForRingProjection(
+    async (attemptContext) => {
+      const root = await fetchRingKeyRegistryRoot(
+        input.client,
+        input.ringProgramId,
+        attemptContext,
+      );
+      const entry = await input.client.getRingKeyRegistryEntry(
+        {
+          ringProgramId: input.ringProgramId,
+          member: input.member,
+          expectedRoot: root.root,
+          expectedNextIndex: root.nextIndex,
+        },
+        attemptContext,
+      );
+      if (
+        !equalBytes(entry.root, root.root) ||
+        entry.nextIndex !== root.nextIndex ||
+        !equalBytes(entry.member, input.member)
+      )
+        throw new RingError("RING_KEY_REGISTRY_STALE");
+      if (
+        entry.index === 0n ||
+        entry.index >= entry.nextIndex ||
+        entry.proof.length !== HEAD_MAP_HEIGHT
+      )
+        throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "entry" } });
+      return Object.freeze({
+        sealed: Object.freeze({
+          ephemeralPublicKey: entry.ephemeralPublicKey,
+          ciphertext: entry.ciphertext,
+        }),
+        member: input.member,
+        root: entry.root,
+        next: entry.next,
+        index: entry.index,
+        proof: entry.proof,
+      });
     },
+    KEY_REGISTRY_PROJECTION_ERRORS,
     context,
   );
-  if (
-    !equalBytes(entry.root, root.root) ||
-    entry.nextIndex !== root.nextIndex ||
-    !equalBytes(entry.member, input.member)
-  )
-    throw new RingError("RING_KEY_REGISTRY_STALE");
-  if (
-    entry.index === 0n ||
-    entry.index >= entry.nextIndex ||
-    entry.proof.length !== HEAD_MAP_HEIGHT
-  )
-    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "entry" } });
-  return Object.freeze({
-    sealed: Object.freeze({
-      ephemeralPublicKey: entry.ephemeralPublicKey,
-      ciphertext: entry.ciphertext,
-    }),
-    member: input.member,
-    root: entry.root,
-    next: entry.next,
-    index: entry.index,
-    proof: entry.proof,
-  });
 }
 
 /** The opened key must reproduce the leaf under the root read from Solana. */
@@ -335,19 +346,26 @@ async function buildRegistrationAttempt(
   const { client, ringProgramId } = input;
   const { payer, member } = checkedIdentity(input.member);
   const auditor = (await fetchRingProgramConfig(client, ringProgramId, context)).auditorPublicKey;
-  const root = await fetchRingKeyRegistryRoot(client, ringProgramId, context);
-  if (root.nextIndex >= HEAD_MAP_CAPACITY)
-    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "capacity" } });
-  const insertion = await client.getRingKeyRegistryRegisterProof(
-    { ringProgramId, member, expectedRoot: root.root, expectedNextIndex: root.nextIndex },
+  const { root, insertion } = await waitForRingProjection(
+    async (attemptContext) => {
+      const root = await fetchRingKeyRegistryRoot(client, ringProgramId, attemptContext);
+      if (root.nextIndex >= HEAD_MAP_CAPACITY)
+        throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "capacity" } });
+      const insertion = await client.getRingKeyRegistryRegisterProof(
+        { ringProgramId, member, expectedRoot: root.root, expectedNextIndex: root.nextIndex },
+        attemptContext,
+      );
+      if (
+        !equalBytes(insertion.root, root.root) ||
+        !equalBytes(insertion.member, member) ||
+        insertion.nextIndex !== root.nextIndex
+      )
+        throw new RingError("RING_KEY_REGISTRY_STALE");
+      return { root, insertion };
+    },
+    KEY_REGISTRY_PROJECTION_ERRORS,
     context,
   );
-  if (
-    !equalBytes(insertion.root, root.root) ||
-    !equalBytes(insertion.member, member) ||
-    insertion.nextIndex !== root.nextIndex
-  )
-    throw new RingError("RING_KEY_REGISTRY_STALE");
   // 2. Seal the member's key and authenticate the insertion path.
   const envelope = sealNullifierKey(input.member.nullifierKey, auditor);
   const secret = input.member.nullifierKey.secretBytes();
