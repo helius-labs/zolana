@@ -45,15 +45,24 @@ impl RingDeposit {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
+    /// The settled mints in settlement group order, SOL under the zero address.
+    pub fn settled_mints(&self) -> Result<Vec<Pubkey>, DepositBuildError> {
+        Ok(self.layout()?.mints())
+    }
+
+    fn layout(&self) -> Result<DepositLayout, DepositBuildError> {
+        DepositLayout::new(
+            self.deposits.len(),
+            self.deposits.iter().map(|entry| entry.asset),
+        )
+    }
+
     fn build_instruction(
         self,
         program_id: Pubkey,
         auth_signer: bool,
     ) -> Result<Instruction, DepositBuildError> {
-        let layout = DepositLayout::new(
-            self.deposits.len(),
-            self.deposits.iter().map(|entry| entry.asset),
-        )?;
+        let layout = self.layout()?;
         let deposits = self
             .deposits
             .into_iter()
@@ -152,6 +161,12 @@ mod tests {
             ring_entry(DepositAsset::Sol, 2),
             ring_entry(spl, 3),
         ];
+        assert_eq!(
+            builder(expected.clone())
+                .settled_mints()
+                .expect("valid ring batch"),
+            vec![Pubkey::default(), mint]
+        );
 
         let ix = builder(expected.clone())
             .instruction()
