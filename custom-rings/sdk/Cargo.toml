@@ -44,7 +44,6 @@ thiserror = { workspace = true }
 wincode = { workspace = true }
 zeroize = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api"] }
-zolana-event = { workspace = true }
 # `solana` pulls in the instruction builders this crate wraps for ring deposits.
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-hasher = { workspace = true }

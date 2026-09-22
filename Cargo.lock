@@ -2105,7 +2105,6 @@ dependencies = [
  "wincode",
  "zeroize",
  "zolana-client",
- "zolana-event",
  "zolana-hasher",
  "zolana-indexer-api",
  "zolana-interface",

@@ -1159,6 +1159,12 @@ components:
       - nullifiers
       - proofless
       properties:
+        eventIndex:
+          type:
+          - integer
+          - 'null'
+          format: u-int16
+          minimum: 0
         messages:
           type: array
           items:

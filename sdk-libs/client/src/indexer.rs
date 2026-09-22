@@ -1149,6 +1149,7 @@ mod tests {
             "transactions": [{
                 "slot": 50,
                 "txSignature": signature.to_string(),
+                "eventIndex": 0,
                 "txViewingPk": null,
                 "outputSlots": [{
                     "viewTag": encode_hash_string(tag),
