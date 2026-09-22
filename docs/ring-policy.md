@@ -101,7 +101,7 @@ carries its absent set in byte 19, a rule with absent lists only is `Absent`
 primary with byte 19 zero. `Rule::decode` refuses every other row, the
 stored rows are exactly what `encoded` emits. The circuit range-checks the
 components and re-derives the row by weighted sum (`ruleWeights` in
-`prover/server/circuits/custom_ring/policy/constants.go`).
+`prover/server/custom_rings/circuits/policy/constants.go`).
 
 A velocity table bounds a sender's outflow per mint and puts a single
 transfer above a threshold under dual control. It is `window_slots` and up

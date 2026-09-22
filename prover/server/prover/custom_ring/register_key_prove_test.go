@@ -4,8 +4,8 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/circuits/custom_ring/base/audittest"
-	"zolana/prover/circuits/custom_ring/policy"
+	"zolana/prover/custom_rings/circuits/base/audittest"
+	"zolana/prover/custom_rings/circuits/policy"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
 )

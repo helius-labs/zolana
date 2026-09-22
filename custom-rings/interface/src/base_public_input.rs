@@ -9,7 +9,7 @@ use crate::{AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, COMPRESSED_P256_
 /// Inputs of the auditor circuit's single public input.
 ///
 /// The chain order is pinned by the circuit's package comment
-/// (`prover/server/circuits/custom_ring/base/circuit.go`) and is
+/// (`prover/server/custom_rings/circuits/base/circuit.go`) and is
 /// numbered 1..11 there; [`CustomRingBasePublicInput::hash`] mirrors it element for
 /// element. Recomputing the hash on-chain from values the program itself trusts
 /// -- `private_tx_hash` and `tx_viewing_pk` from the forwarded SPP content, the
@@ -94,7 +94,7 @@ pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
 /// the auditor circuit hashes.
 ///
 /// Mirrors `Pack33To2FECircuit` in
-/// `prover/server/circuits/custom_ring/base/pack.go`.
+/// `prover/server/custom_rings/circuits/base/pack.go`.
 ///
 /// ```text
 /// lo = 0x00 || key[0..31]        (the SEC1 prefix is the most significant data byte)

@@ -23,13 +23,13 @@ are data `init` pins from `ring.toml`.
 
 1. [`RuleTable`](policy/src/rule_table.rs) defines the obligations.
    [`PolicyConfig`](interface/src/state.rs) pins their hash, sources and entries tree.
-2. [`transaction.go`](../prover/server/circuits/custom_ring/policy/transaction.go)
+2. [`transaction.go`](../prover/server/custom_rings/circuits/policy/transaction.go)
    binds private slot openings to SPP's transaction hash.
-   [`list_facts.go`](../prover/server/circuits/custom_ring/policy/list_facts.go)
-   proves entry state, and [`evaluate.go`](../prover/server/circuits/custom_ring/policy/evaluate.go)
+   [`list_facts.go`](../prover/server/custom_rings/circuits/policy/list_facts.go)
+   proves entry state, and [`evaluate.go`](../prover/server/custom_rings/circuits/policy/evaluate.go)
    applies the rules to those openings.
-3. [`velocity.go`](../prover/server/circuits/custom_ring/policy/velocity.go)
-   accounts for outflow. [`head_map.go`](../prover/server/circuits/custom_ring/policy/head_map.go)
+3. [`velocity.go`](../prover/server/custom_rings/circuits/policy/velocity.go)
+   accounts for outflow. [`head_map.go`](../prover/server/custom_rings/circuits/policy/head_map.go)
    binds windowed counters to the current record, preventing history rollback.
 4. [`transact.rs`](program/src/instructions/transact.rs) binds the proof to
    trusted accounts and the clock, checks public controls, and commits the head

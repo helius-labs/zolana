@@ -11,9 +11,9 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	base "zolana/prover/circuits/custom_ring/base"
-	"zolana/prover/circuits/custom_ring/base/audittest"
 	"zolana/prover/circuits/verifiable-encryption/p256"
+	base "zolana/prover/custom_rings/circuits/base"
+	"zolana/prover/custom_rings/circuits/base/audittest"
 	"zolana/prover/prover-test/spp/spptest"
 )
 

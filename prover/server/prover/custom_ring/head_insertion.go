@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/circuits/custom_ring/policy"
+	"zolana/prover/custom_rings/circuits/policy"
 	"zolana/prover/prover/common"
 )
 

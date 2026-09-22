@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"math/big"
 
-	base "zolana/prover/circuits/custom_ring/base"
+	base "zolana/prover/custom_rings/circuits/base"
 	"zolana/prover/prover/common"
 )
 

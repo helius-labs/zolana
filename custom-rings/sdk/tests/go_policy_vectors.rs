@@ -1,5 +1,5 @@
 //! Pins the entry and policy hashing to the Go circuit. The values are the
-//! fixture `prover/server/circuits/custom_ring/policy/circuit_test.go` prints
+//! fixture `prover/server/custom_rings/circuits/policy/circuit_test.go` prints
 //! under `PRINT_POLICY_VECTORS=1`, so a change on either side fails here.
 
 use core::num::NonZeroU64;

@@ -9,9 +9,9 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 
-	base "zolana/prover/circuits/custom_ring/base"
-	"zolana/prover/circuits/custom_ring/base/audittest"
-	"zolana/prover/circuits/custom_ring/policy"
+	base "zolana/prover/custom_rings/circuits/base"
+	"zolana/prover/custom_rings/circuits/base/audittest"
+	"zolana/prover/custom_rings/circuits/policy"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"

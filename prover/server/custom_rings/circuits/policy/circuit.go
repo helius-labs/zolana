@@ -7,8 +7,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
-	base "zolana/prover/circuits/custom_ring/base"
 	"zolana/prover/circuits/gadget"
+	base "zolana/prover/custom_rings/circuits/base"
 )
 
 // SourceWires binds a list to its namespace owner through the policy hash.

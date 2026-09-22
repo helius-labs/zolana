@@ -6,11 +6,11 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
-	"zolana/prover/circuits/custom_ring/base"
 	"zolana/prover/circuits/gadget"
 	ve "zolana/prover/circuits/verifiable-encryption"
 	"zolana/prover/circuits/verifiable-encryption/aes"
 	"zolana/prover/circuits/verifiable-encryption/p256"
+	"zolana/prover/custom_rings/circuits/base"
 )
 
 const MaxDeposits = 8

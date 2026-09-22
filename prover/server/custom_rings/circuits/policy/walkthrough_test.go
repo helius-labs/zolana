@@ -7,7 +7,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	base "zolana/prover/circuits/custom_ring/base"
+	base "zolana/prover/custom_rings/circuits/base"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 )

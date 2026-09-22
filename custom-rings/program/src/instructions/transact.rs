@@ -568,7 +568,7 @@ mod tests {
     use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test
-    /// (`prover/server/circuits/custom_ring/audit/circuit_test.go`, scalars
+    /// (`prover/server/custom_rings/circuits/base/circuit_test.go`, scalars
     /// 0x11/0x22/0x33) and of the SDK's cross-language vectors
     /// (`custom-rings/sdk/tests/go_vectors.rs`). The compressed keys and the
     /// ciphertext are the values Go printed and the Go test feeds to the compiled

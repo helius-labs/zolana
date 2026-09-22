@@ -12,8 +12,8 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/custom_ring/policy"
 	"zolana/prover/circuits/verifiable-encryption/p256"
+	"zolana/prover/custom_rings/circuits/policy"
 )
 
 func sampleBaseParams() *BaseParameters {

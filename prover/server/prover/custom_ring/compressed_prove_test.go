@@ -9,7 +9,7 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/custom_ring/policy"
+	"zolana/prover/custom_rings/circuits/policy"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"

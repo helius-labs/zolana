@@ -13,9 +13,9 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/custom_ring/base"
-	"zolana/prover/circuits/custom_ring/deposit"
 	ve "zolana/prover/circuits/verifiable-encryption"
+	"zolana/prover/custom_rings/circuits/base"
+	"zolana/prover/custom_rings/circuits/deposit"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"

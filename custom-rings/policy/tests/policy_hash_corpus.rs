@@ -1,4 +1,4 @@
-//! The policy hash corpus `prover/server/circuits/custom_ring/policy/corpus_test.go` re-hashes.
+//! The policy hash corpus `prover/server/custom_rings/circuits/policy/corpus_test.go` re-hashes.
 
 use std::num::NonZeroU64;
 

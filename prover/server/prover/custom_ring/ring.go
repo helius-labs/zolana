@@ -12,9 +12,9 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	base "zolana/prover/circuits/custom_ring/base"
-	"zolana/prover/circuits/custom_ring/deposit"
-	"zolana/prover/circuits/custom_ring/policy"
+	base "zolana/prover/custom_rings/circuits/base"
+	"zolana/prover/custom_rings/circuits/deposit"
+	"zolana/prover/custom_rings/circuits/policy"
 	"zolana/prover/prover/common"
 )
 
