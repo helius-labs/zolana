@@ -25,7 +25,7 @@ use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode, ANSWER_SLOT
 use crate::{
     error::CustomRingError,
     instructions::{
-        cosign::{approval_signer, CoSignerRequirement},
+        cosign::{approval_signer, require_cosigner, CoSignerRequirement},
         loader::{load_append_root_mut, load_config, load_policy_config, validate_spp_program},
         policy_shared::{
             namespace_address, require_entries_trees, RecordNamespace, SpendRecordCarrier,
@@ -215,14 +215,7 @@ impl TransactRail {
         } else {
             demand.demanded_signer(program_id, cosigner_account)?
         };
-        if let Some(expected) = demanded {
-            if !cosigner.is_signer() {
-                return Err(CustomRingError::MissingCoSigner.into());
-            }
-            if cosigner.address() != &expected {
-                return Err(CustomRingError::UnauthorizedCoSigner.into());
-            }
-        }
+        require_cosigner(demanded, cosigner)?;
         if amount_controls_active && demand.legs.has_deposits() {
             return Err(CustomRingError::VelocityDepositLeg.into());
         }
@@ -751,14 +744,15 @@ mod counters_tests {
             .hash()
         };
         assert!(hash(std::slice::from_ref(&message)).is_ok());
-        assert!(hash(&[]).is_err());
-        assert!(hash(&[message.clone(), message.clone()]).is_err());
+        let refused = Err(CustomRingError::InvalidSpendCountersDisclosure.into());
+        assert_eq!(hash(&[]), refused);
+        assert_eq!(hash(&[message.clone(), message.clone()]), refused);
         let mut changed = message.clone();
         changed.data.pop();
-        assert!(hash(&[changed]).is_err());
+        assert_eq!(hash(&[changed]), refused);
         let mut changed = message.clone();
         changed.data[0] ^= 1;
-        assert!(hash(&[changed]).is_err());
+        assert_eq!(hash(&[changed]), refused);
         let mut changed = message.clone();
         changed.data[384] ^= 1;
         assert_ne!(hash(&[message]).unwrap(), hash(&[changed]).unwrap());

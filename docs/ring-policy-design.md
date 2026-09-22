@@ -343,15 +343,13 @@ root must sit within `NULLIFIER_ROOT_WINDOW = 8` entries of the live
 cursor. Absence is the one thing that rots. An old nullifier root still
 shows a freshly banned member as absent.
 
-Revocation has two latencies, and the window bounds only the second. An
-entry mutation inserts its nullifiers into a queue. The indexed tree
-learns them when the forester applies a batch and rotates the root. Until
-that rotation, a fresh ban is invisible under every admissible root, and
-the absence branches still verify. After it, proofs against roots up to
-eight rotations old still miss the ban until the window slides past. The
-cursor moves once per forester rotation, and each rotation absorbs a batch
-of queued insertions from all tree traffic. Requiring the exact current
-root would make every transfer race the forester's rotations instead.
+Transact closes that gap without waiting for the forester. The proof binds
+each absence target, and transact refuses a target whose nullifier PDA
+exists. SPP creates the PDA when it queues the nullifier and permits closing
+it only after every root lacking the nullifier has left the root history. Any
+admissible root therefore contains the ban or meets a live PDA. The window
+bounds only how far a transfer may trail the forester's rotations. Requiring
+the exact current root would fail every transfer a rotation overtakes.
 
 ## The wallet cycle
 

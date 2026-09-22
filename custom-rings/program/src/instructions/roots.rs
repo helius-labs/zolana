@@ -7,16 +7,15 @@ use zolana_tree::TreeAccount;
 
 use crate::error::CustomRingError;
 
-/// Absence proofs bind the current nullifier root.
-pub const NULLIFIER_ROOT_WINDOW: u32 = 0;
+/// Liveness bound only, the revocation target PDA check keeps older roots sound.
+pub const NULLIFIER_ROOT_WINDOW: u32 = 8;
+const _: () = assert!(NULLIFIER_ROOT_WINDOW < NULLIFIER_TREE_ROOT_HISTORY_CAPACITY);
 
 pub struct TransactRoots {
     pub state: [u8; 32],
     pub nullifier: [u8; 32],
 }
 
-/// Historical nullifier roots invalidate absence proofs.
-///
 /// The borrow drops before the caller's SPP CPI, else SPP faults borrowing the
 /// aliased money tree.
 pub fn load_roots(
@@ -62,7 +61,7 @@ fn within_window(index: u32, cursor: u32) -> bool {
     if index >= capacity || cursor >= capacity {
         return false;
     }
-    index == cursor
+    (cursor + capacity - index) % capacity <= NULLIFIER_ROOT_WINDOW
 }
 
 #[cfg(test)]
@@ -72,16 +71,17 @@ mod tests {
     const CAPACITY: u32 = NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
 
     #[test]
-    fn only_the_current_root_is_admitted() {
+    fn the_window_admits_the_cursor_and_the_last_entries() {
         assert!(within_window(40, 40));
-        assert!(!within_window(39, 40));
+        assert!(within_window(40 - NULLIFIER_ROOT_WINDOW, 40));
+        assert!(!within_window(40 - NULLIFIER_ROOT_WINDOW - 1, 40));
         assert!(!within_window(41, 40));
     }
 
     #[test]
-    fn a_wrapped_history_index_is_stale() {
-        assert!(!within_window(CAPACITY - 1, 2));
-        assert!(!within_window(CAPACITY - 1, 1));
+    fn the_window_wraps_with_the_buffer() {
+        assert!(within_window(CAPACITY - 1, 2));
+        assert!(within_window(CAPACITY - NULLIFIER_ROOT_WINDOW + 1, 1));
         assert!(!within_window(CAPACITY / 2, 1));
     }
 

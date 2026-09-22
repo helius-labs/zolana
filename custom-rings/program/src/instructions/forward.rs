@@ -6,7 +6,7 @@ use zolana_ring_policy::VelocityMode;
 use crate::{
     error::CustomRingError,
     instructions::{
-        cosign::CoSignerRequirement,
+        cosign::{require_cosigner, CoSignerRequirement},
         deposit_audit::{AuditedDeposit, DepositVerification},
         loader::{load_config, load_deposit_audit, load_policy_config, validate_spp_program},
         policy_shared::require_entries_trees,
@@ -116,14 +116,10 @@ impl Forward {
             }
             None => CoSignerRequirement::TRANSFER,
         };
-        if let Some(expected) = demand.demanded_signer(program_id, cosigner_account)? {
-            if !cosigner.is_signer() {
-                return Err(CustomRingError::MissingCoSigner.into());
-            }
-            if cosigner.address() != &expected {
-                return Err(CustomRingError::UnauthorizedCoSigner.into());
-            }
-        }
+        require_cosigner(
+            demand.demanded_signer(program_id, cosigner_account)?,
+            cosigner,
+        )?;
         demand.legs.apply_windows(program_id, windows)?;
         // 4. Authorize SPP settlement, any failure rolls back the public window
         // counters.

@@ -127,19 +127,42 @@ fn body_with_targets(
     data
 }
 
-fn revocation_fixture(target_account: Pubkey, target_state: solana_account::Account) -> Fixture {
+struct RevocationTarget {
+    address: Pubkey,
+    state: solana_account::Account,
+}
+
+fn revocation_target_bytes() -> [u8; 32] {
     let mut target = [0u8; 32];
     target[31] = 7;
+    target
+}
+
+fn canonical_target(state: solana_account::Account) -> RevocationTarget {
+    RevocationTarget {
+        address: pda::nullifier_pda(&entries_tree(), &revocation_target_bytes()).0,
+        state,
+    }
+}
+
+fn queued_target() -> RevocationTarget {
+    let mut queued = account(1_000_000);
+    queued.owner = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    queued.data = vec![1];
+    canonical_target(queued)
+}
+
+fn revocation_fixture(nullifier_root_index: u16, target: RevocationTarget) -> Fixture {
     let mut targets = [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS];
-    targets[0] = target;
+    targets[0] = revocation_target_bytes();
     let mut fixture = transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(2)),
-        body_with_targets(0, 0, 0, targets, transact_data()),
+        body_with_targets(0, nullifier_root_index, 0, targets, transact_data()),
     );
     fixture.insert_windows(vec![Slot {
         label: "revocation_target",
-        meta: AccountMeta::new_readonly(target_account, false),
-        account: target_state,
+        meta: AccountMeta::new_readonly(target.address, false),
+        account: target.state,
     }]);
     fixture
 }
@@ -147,31 +170,36 @@ fn revocation_fixture(target_account: Pubkey, target_state: solana_account::Acco
 #[test]
 fn an_unused_canonical_revocation_target_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
-    let mut target = [0u8; 32];
-    target[31] = 7;
-    let address = pda::nullifier_pda(&entries_tree(), &target).0;
-    revocation_fixture(address, account(0))
+    revocation_fixture(0, canonical_target(account(0)))
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 #[test]
 fn a_substituted_revocation_target_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    revocation_fixture(Pubkey::new_from_array([91; 32]), account(0))
+    let target = RevocationTarget {
+        address: Pubkey::new_from_array([91; 32]),
+        state: account(0),
+    };
+    revocation_fixture(0, target)
         .expect_err(&mollusk, custom(CustomRingError::InvalidRevocationTarget));
 }
 
 #[test]
 fn a_queued_revocation_target_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut target = [0u8; 32];
-    target[31] = 7;
-    let address = pda::nullifier_pda(&entries_tree(), &target).0;
-    let mut queued = account(1_000_000);
-    queued.owner = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    queued.data = vec![1];
-    revocation_fixture(address, queued)
+    revocation_fixture(0, queued_target())
         .expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
+}
+
+#[test]
+fn a_revocation_behind_an_older_admitted_root_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let tree = initialized_entries_tree_account_with_roots(NULLIFIER_ROOT_WINDOW as u16 + 1);
+    let edge = nullifier_root_cursor(&tree) - NULLIFIER_ROOT_WINDOW as u16;
+    let mut fixture = revocation_fixture(edge, queued_target());
+    fixture.set_account("entries_tree", tree);
+    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
 }
 
 fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {

@@ -479,11 +479,9 @@ the cli loads and re-renders.
   A new state leaf, an `Allow` entry or a `Cleared` version, is provable at
   the next transfer, transact appends the leaf synchronously. An effect that
   lives in the nullifier tree, a `Block` address claim or the retirement of an
-  `Allow` entry, is enforced on chain only after the forester appends the zkp
-  batch holding it and the window has dropped every earlier root,
-  `NULLIFIER_ROOT_WINDOW` rotations later. Indexer-backed clients are refused
-  at once, photon serves no non-inclusion proof for a queued leaf and the SDK
-  refuses a contradicting live entry. No slot or clock bound exists.
+  `Allow` entry, is enforced on chain once SPP queues its nullifier. The proof
+  binds each absence target, and transact refuses a target whose nullifier PDA
+  exists. No slot or clock bound exists.
 - A changed policy hash takes effect at once. In-flight proofs over the old
   hash must be rebuilt. An identical re-pin advances `generation` and keeps
   the proof statement.
