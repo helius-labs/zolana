@@ -510,7 +510,6 @@ the cli loads and re-renders.
   recipients fits `ANSWER_SLOTS`. A shape past `POLICY_INPUT_SLOTS` inputs or
   `POLICY_OUTPUT_SLOTS` outputs, or a spend whose answers exceed
   `ANSWER_SLOTS`, is refused at witness build with `PolicyShapeUnsupported`.
-  `prove` requires compact change and refuses padded change with `PaddedChange`.
 - The entries tree is pinned at `create_policy` for the life of the ring, like
   the tier. The grammar accepts a missing `entries_tree` as the SPP default;
   the cli writes the effective address explicitly.

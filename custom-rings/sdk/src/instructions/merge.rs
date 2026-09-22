@@ -22,7 +22,6 @@ use crate::{
 };
 
 pub use zolana_client::MergeProver as MergeRingProver;
-pub type MergeRingWitness = MergeRingProver;
 pub use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 
 /// A merge plan whose inputs and output are bound to one custom ring.
@@ -151,13 +150,13 @@ impl PreparedCustomRingMerge {
         self.inner.dummy_nullifiers()
     }
 
-    pub fn witness(
+    pub fn prover(
         self,
         nullifier_key: NullifierKey,
         proofs: Vec<SpendProof>,
         dummy_nullifier_proofs: Vec<NonInclusionProof>,
-    ) -> MergeRingWitness {
-        MergeRingWitness {
+    ) -> MergeRingProver {
+        MergeRingProver {
             transaction: self.inner,
             nullifier_key,
             proofs,
@@ -295,7 +294,7 @@ impl PreparedCustomRingMerge {
         let input_count = proofs.len();
         let input_tree = input.input_tree;
         let output_tree = input.output_tree;
-        let result = self.witness(input.nullifier_key, proofs, dummy).build()?;
+        let result = self.prover(input.nullifier_key, proofs, dummy).build()?;
         Ok(StagedMerge {
             ring,
             result,
