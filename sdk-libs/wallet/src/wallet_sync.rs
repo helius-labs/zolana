@@ -12,15 +12,18 @@ use zolana_event_parser::{decode_encrypted_ring_deposit_output_data, decode_outp
 use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, CursorStream, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction,
-    SyncReport, SyncWalletAuthority, TransactionError, Wallet, WalletAuthority, WalletSyncMaterial,
-    DEFAULT_TAG_WINDOW,
+    AssetBalance, OutputContext, OutputSlot, ShieldedTransaction, TransactionError,
+};
+
+use crate::wallet::{
+    CursorStream, PrivateTransaction, SyncReport, SyncWalletAuthority, Wallet, WalletAuthority,
+    WalletSyncMaterial, DEFAULT_TAG_WINDOW,
 };
 
 use zolana_client::{
     error::ClientError,
-    retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
+    rpc::{IndexerPollConfig, IndexerRpcConfig},
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -220,14 +223,14 @@ where
             (
                 a.output_slots
                     .first()
-                    .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+                    .map(|slot| (slot.output_context.tree_id, slot.output_context.leaf_index)),
                 a.slot,
                 a.tx_signature,
             )
                 .cmp(&(
                     b.output_slots
                         .first()
-                        .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+                        .map(|slot| (slot.output_context.tree_id, slot.output_context.leaf_index)),
                     b.slot,
                     b.tx_signature,
                 ))
@@ -246,12 +249,19 @@ where
     }
 
     // Lazy registry backfill: if decode hit asset ids the wallet's registry did
-    // not know, refresh the id->mint map from the on-chain SplAssetRegistry
-    // accounts and re-run sync once. Single pass — if an id is still unknown
-    // after the refresh it is genuinely not on chain, so we stop rather than
-    // loop. A refresh source that cannot enumerate accounts (RPC without
-    // `get_program_accounts`) is a soft miss: sync keeps today's behaviour.
-    if !report.unknown_asset_ids.is_empty() && refresh_registry_from_chain(wallet, indexer)? > 0 {
+    // not know, refresh it from chain and re-run sync once. Single pass — if
+    // something is still unknown after the refresh it is genuinely not on
+    // chain, so we stop rather than loop. A refresh source that cannot
+    // enumerate accounts (RPC without `get_program_accounts`) is a soft miss:
+    // sync keeps today's behaviour.
+    let mut refreshed = 0;
+    // Either direction of the asset mapping can come up short: an id the
+    // ciphertext carried, or a mint the ring-deposit rail read off the event.
+    // One refresh rebuilds the registry for both.
+    if !report.unknown_asset_ids.is_empty() || !report.unknown_mints.is_empty() {
+        refreshed += refresh_registry_from_chain(wallet, indexer)?;
+    }
+    if refreshed > 0 {
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
 
@@ -355,14 +365,14 @@ where
             (
                 a.output_slots
                     .first()
-                    .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+                    .map(|slot| (slot.output_context.tree_id, slot.output_context.leaf_index)),
                 a.slot,
                 a.tx_signature,
             )
                 .cmp(&(
                     b.output_slots
                         .first()
-                        .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+                        .map(|slot| (slot.output_context.tree_id, slot.output_context.leaf_index)),
                     b.slot,
                     b.tx_signature,
                 ))
@@ -375,9 +385,11 @@ where
         }
     }
 
-    if !report.unknown_asset_ids.is_empty()
-        && refresh_registry_from_chain_async(wallet, indexer).await? > 0
-    {
+    let mut refreshed = 0;
+    if !report.unknown_asset_ids.is_empty() || !report.unknown_mints.is_empty() {
+        refreshed += refresh_registry_from_chain_async(wallet, indexer).await?;
+    }
+    if refreshed > 0 {
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
 
@@ -532,12 +544,7 @@ fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
 /// A nullifier appears at most once on chain, so once its spend is known the
 /// answer is final. Cost tracks the unspent count, not history.
 fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
-    wallet
-        .utxos
-        .iter()
-        .filter(|utxo| !utxo.spent)
-        .map(|utxo| utxo.nullifier)
-        .collect()
+    wallet.unspent().map(|utxo| utxo.nullifier).collect()
 }
 
 /// Buckets keys by the position their stream was last read to.
@@ -968,7 +975,7 @@ fn proofless_deposit_from_indexed_match(
             view_tag: item.output_slot.view_tag,
             output_context: OutputContext {
                 hash: item.output_slot.output_context.hash,
-                tree: item.output_slot.output_context.tree,
+                tree_id: item.output_slot.output_context.tree_id,
                 leaf_index: item.output_slot.output_context.leaf_index,
             },
             payload: item.output_slot.payload,
@@ -991,7 +998,7 @@ fn convert_sync_transaction(
             view_tag: slot.view_tag,
             output_context: OutputContext {
                 hash: slot.output_context.hash,
-                tree: slot.output_context.tree,
+                tree_id: slot.output_context.tree_id,
                 leaf_index: slot.output_context.leaf_index,
             },
             payload: slot.payload,
@@ -1024,21 +1031,23 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use solana_signature::Signature;
-    use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::{random_salt, ShieldedKeypair, SigningKey, ViewingKey};
+    use zolana_interface::{
+        event::{encode_output_data, ProoflessOutput},
+        pda,
+    };
+    use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
     use zolana_transaction::{
         instructions::{
-            merge::Merge as MergePlan,
-            transact::{
-                encode_confidential_slots, ConfidentialTransfer, SettlementTarget, SppProofInputs,
-                SPP_SUPPORTED_SHAPES,
-            },
-            types::SppProofInputUtxo,
+            merge::MergeTransaction as MergePlan,
+            transact::{ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES},
         },
         serialization::Proofless,
-        Address, AssetRegistry, Data, KeypairWalletAuthority, OwnerCx, PrivateTransaction,
-        PrivateTransactionDirection, PrivateTransactionKind, PrivateTransactionStatus, Utxo,
-        UtxoSerialization, WalletUtxo, SOL_MINT,
+        Address, AssetRegistry, Data, OwnerCx, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
+    };
+
+    use crate::wallet::{
+        KeypairWalletAuthority, PrivateTransaction, PrivateTransactionDirection,
+        PrivateTransactionKind, PrivateTransactionStatus,
     };
 
     use super::*;
@@ -1059,7 +1068,7 @@ mod tests {
         /// key is total, as it is in photon.
         entries: Vec<(u64, ViewTag)>,
         /// (slot, nullifier) pairs: the transaction at `slot` spent `nullifier`.
-        spends: Vec<(u64, [u8; 32])>,
+        input_utxos: Vec<(u64, [u8; 32])>,
         /// (slot, view tag) pairs in the encrypted-utxo stream. Paged separately
         /// from `entries`.
         utxo_entries: Vec<(u64, ViewTag)>,
@@ -1114,7 +1123,7 @@ mod tests {
                         view_tag: *tag,
                         output_context: OutputContext {
                             hash: [0u8; 32],
-                            tree: Address::default(),
+                            tree_id: TEST_TREE_ID,
                             leaf_index: *slot,
                         },
                         payload: Vec::new(),
@@ -1145,7 +1154,7 @@ mod tests {
                 .push((nullifiers.len(), after));
 
             let mut rows: Vec<_> = self
-                .spends
+                .input_utxos
                 .iter()
                 .filter(|(slot, nullifier)| {
                     nullifiers.contains(nullifier) && after.is_none_or(|after| *slot > after)
@@ -1186,7 +1195,7 @@ mod tests {
             self.entries
                 .iter()
                 .map(|(slot, _)| *slot)
-                .chain(self.spends.iter().map(|(slot, _)| *slot))
+                .chain(self.input_utxos.iter().map(|(slot, _)| *slot))
                 .max()
         }
     }
@@ -1198,9 +1207,22 @@ mod tests {
         /// Canned SplAssetRegistry accounts returned by `get_program_accounts`,
         /// used to exercise the lazy registry backfill during sync.
         program_accounts: Vec<(Address, solana_account::Account)>,
+        /// Canned protocol-config account, used to exercise the lazy tree
+        /// backfill. `None` stands for an RPC that cannot answer for it.
+        protocol_config: Option<solana_account::Account>,
     }
 
     impl Rpc for MockIndexer {
+        fn get_account(
+            &self,
+            address: Address,
+        ) -> Result<Option<solana_account::Account>, ClientError> {
+            if address == pda::protocol_config() {
+                return Ok(self.protocol_config.clone());
+            }
+            Ok(None)
+        }
+
         fn get_program_accounts(
             &self,
             _program_id: Address,
@@ -1220,6 +1242,7 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
+                output_tree_id: Some(TEST_TREE_ID),
                 matches: self.matches.clone(),
                 next_cursor: None,
                 scanned_through: None,
@@ -1238,6 +1261,7 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
+                output_tree_id: Some(TEST_TREE_ID),
                 transactions: self.transactions.clone(),
                 next_cursor: None,
                 scanned_through: None,
@@ -1256,6 +1280,7 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
+                output_tree_id: Some(TEST_TREE_ID),
                 transactions: self
                     .transactions
                     .iter()
@@ -1316,7 +1341,7 @@ mod tests {
                         view_tag: *tag,
                         output_context: OutputContext {
                             hash: [0u8; 32],
-                            tree: Address::default(),
+                            tree_id: TEST_TREE_ID,
                             leaf_index: *slot,
                         },
                         payload: Vec::new(),
@@ -1330,6 +1355,7 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
+                output_tree_id: Some(TEST_TREE_ID),
                 matches,
                 next_cursor,
                 scanned_through: None,
@@ -1350,6 +1376,7 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
+                output_tree_id: Some(TEST_TREE_ID),
                 transactions,
                 next_cursor,
                 scanned_through: None,
@@ -1376,6 +1403,7 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
+                output_tree_id: Some(TEST_TREE_ID),
                 transactions,
                 next_cursor,
                 scanned_through,
@@ -1519,7 +1547,7 @@ mod tests {
         );
 
         let spent_nullifier = wallet.utxos.first().expect("first utxo").nullifier;
-        wallet.utxos.first_mut().expect("first utxo").spent = true;
+        wallet.nullifiers.insert(spent_nullifier);
 
         let queried = wallet_query_nullifiers(&wallet);
         assert_eq!(queried.len(), 1, "the spent UTXO is no longer asked about");
@@ -1530,7 +1558,7 @@ mod tests {
 
         // The narrowed set is what actually reaches the indexer.
         let indexer = TaggedIndexer {
-            spends: vec![(10, spent_nullifier)],
+            input_utxos: vec![(10, spent_nullifier)],
             ..Default::default()
         };
         fetch_shielded_transactions_by_nullifiers(
@@ -1614,7 +1642,7 @@ mod tests {
         let unspent = [7u8; 32];
         let indexer = TaggedIndexer {
             entries: vec![(10, tag), (50, tag)],
-            spends: vec![(20, [9u8; 32])],
+            input_utxos: vec![(20, [9u8; 32])],
             utxo_entries: vec![(30, tag)],
             ..Default::default()
         };
@@ -1654,7 +1682,7 @@ mod tests {
                 .get(&CursorStream::Nullifiers(unspent))
                 .map(slot_of),
             Some(50),
-            "no spend matched, so the position comes from the reported scan"
+            "no input_utxo matched, so the position comes from the reported scan"
         );
 
         let mut proofless_cursors = HashMap::new();
@@ -1705,7 +1733,7 @@ mod tests {
         let unspent = [7u8; 32];
         // A stream with traffic in it, none of which spends `unspent`.
         let indexer = TaggedIndexer {
-            spends: vec![(10, [9u8; 32]), (50, [9u8; 32])],
+            input_utxos: vec![(10, [9u8; 32]), (50, [9u8; 32])],
             ..Default::default()
         };
 
@@ -2035,6 +2063,7 @@ mod tests {
                 transactions: vec![funding.clone()],
                 matches: Vec::new(),
                 program_accounts: Vec::new(),
+                protocol_config: None,
             },
         )
         .expect("sync funding");
@@ -2045,15 +2074,24 @@ mod tests {
         assert_eq!(inbound.amount, 100);
         assert_eq!(inbound.counterparty_viewing_pubkey, None);
 
-        let spend = SppProofInputUtxo::new(wallet.utxos[0].utxo.clone(), &alice);
+        let input_utxo = input_utxo(
+            wallet
+                .utxos
+                .first()
+                .expect("the wallet was funded with one UTXO")
+                .utxo
+                .clone(),
+            &alice,
+        );
         let outbound = signed_to_shielded_tx(
-            confidential_send(&alice, vec![spend], &bob, SOL_MINT, 40, &assets),
+            confidential_send(&alice, vec![input_utxo], &bob, SOL_MINT, 40, &assets),
             2,
         );
         let indexer = MockIndexer {
             transactions: vec![funding, outbound],
             matches: Vec::new(),
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
 
         sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync outbound");
@@ -2098,41 +2136,35 @@ mod tests {
                 transactions: vec![funding.clone()],
                 matches: Vec::new(),
                 program_accounts: Vec::new(),
+                protocol_config: None,
             },
         )
         .expect("sync funding");
 
-        let input = SppProofInputUtxo::new(wallet.utxos[0].utxo.clone(), &alice);
-        let mut transfer = ConfidentialTransfer::new(
-            alice.shielded_address().expect("sender address"),
-            vec![input],
-            Address::default(),
-        )
-        .with_compact_change();
+        let input = input_utxo(
+            wallet
+                .utxos
+                .first()
+                .expect("the wallet was funded with one UTXO")
+                .utxo
+                .clone(),
+            &alice,
+        );
+        // Compact change plus the one recipient: two output slots.
+        let mut transfer = confidential_transaction(vec![input]);
         transfer
-            .send(
+            .transfer_sol(
                 &recipient.shielded_address().expect("recipient address"),
-                SOL_MINT,
                 100,
             )
-            .expect("send");
-        let prepared = transfer.prepare().expect("prepare");
-        let tx_key = alice
-            .get_transaction_viewing_key(&prepared.first_nullifier)
-            .expect("transaction viewing key");
-        let salt = random_salt();
-        let slots = encode_confidential_slots(&prepared.outputs, &assets, &tx_key, salt)
-            .expect("encrypt outputs");
-        let outbound = signed_to_shielded_tx(
-            prepared
-                .finalize(tx_key.pubkey(), salt, slots)
-                .expect("finalize"),
-            2,
-        );
+            .expect("transfer");
+
+        let outbound = signed_to_shielded_tx(transfer.encrypt(&alice).expect("encrypt"), 2);
         let indexer = MockIndexer {
             transactions: vec![funding, outbound],
             matches: Vec::new(),
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
 
         sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync transfer");
@@ -2169,15 +2201,16 @@ mod tests {
             .expect("the wallet was funded with one UTXO")
             .utxo
             .clone();
-        let spend = SppProofInputUtxo::new(funded, &alice);
+        let input_utxo = input_utxo(funded, &alice);
         let transfer = signed_to_shielded_tx(
-            confidential_send(&alice, vec![spend], &alice, SOL_MINT, 40, &assets),
+            confidential_send(&alice, vec![input_utxo], &alice, SOL_MINT, 40, &assets),
             1,
         );
         let indexer = MockIndexer {
             transactions: vec![transfer],
             matches: Vec::new(),
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
 
         sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync self transfer");
@@ -2206,8 +2239,8 @@ mod tests {
                 direction: PrivateTransactionDirection::SelfTransfer,
                 status: PrivateTransactionStatus::Confirmed,
                 asset: SOL_MINT,
-                amount: 40,
-                counterparty_viewing_pubkey: Some(alice.viewing_pubkey()),
+                amount: 100,
+                counterparty_viewing_pubkey: None,
             }
         );
     }
@@ -2244,7 +2277,7 @@ mod tests {
         let transfer = signed_to_shielded_tx(
             confidential_send(
                 &retired,
-                vec![SppProofInputUtxo::new(funded, &retired)],
+                vec![input_utxo(funded, &retired)],
                 &retired,
                 SOL_MINT,
                 40,
@@ -2266,6 +2299,7 @@ mod tests {
                 transactions: vec![transfer],
                 matches: Vec::new(),
                 program_accounts: Vec::new(),
+                protocol_config: None,
             },
         )
         .expect("sync across the rotation");
@@ -2278,7 +2312,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             self_rows,
-            vec![(SOL_MINT, 40, Some(retired.viewing_pubkey()))],
+            vec![(SOL_MINT, 100, None)],
             "history={:?}",
             wallet.private_transactions()
         );
@@ -2304,36 +2338,27 @@ mod tests {
             let sender = ed25519_keypair(3);
             let recipient = ed25519_keypair(4);
             let recipient_count = shape.n_outputs() - 2;
-            let input = SppProofInputUtxo::new(
+            let input = input_utxo(
                 test_utxo(&sender, SOL_MINT, recipient_count as u64, case as u8),
                 &sender,
             );
-            let mut transfer = ConfidentialTransfer::new(
-                sender.shielded_address().expect("sender address"),
-                vec![input],
-                Address::default(),
-            )
-            .with_shape(shape);
+            let mut transfer = ConfidentialTransaction::new(vec![input], Address::default())
+                .expect("confidential transaction");
 
             for _ in 1..recipient_count {
                 let decoy = ed25519_keypair(5);
                 transfer
-                    .send(
-                        &decoy.shielded_address().expect("decoy address"),
-                        SOL_MINT,
-                        1,
-                    )
-                    .expect("send to decoy");
+                    .transfer_sol(&decoy.shielded_address().expect("decoy address"), 1)
+                    .expect("transfer to decoy");
             }
             transfer
-                .send(
-                    &recipient.shielded_address().expect("recipient address"),
-                    SOL_MINT,
-                    1,
-                )
-                .expect("send to recipient");
+                .transfer_sol(&recipient.shielded_address().expect("recipient address"), 1)
+                .expect("transfer to recipient");
 
-            let proof_inputs = transfer.sign(&sender, &assets).expect("sign");
+            transfer
+                .pad_utxos(shape, &sender.shielded_address().unwrap())
+                .unwrap();
+            let proof_inputs = transfer.encrypt(&sender).expect("encrypt");
             assert_eq!(proof_inputs.check_shape().expect("shape"), shape);
             let tx = signed_to_shielded_tx(proof_inputs, case as u64 + 1);
             let mut wallet = Wallet::new(
@@ -2349,6 +2374,7 @@ mod tests {
                     transactions: vec![tx],
                     matches: Vec::new(),
                     program_accounts: Vec::new(),
+                    protocol_config: None,
                 },
             )
             .expect("sync recipient");
@@ -2362,7 +2388,7 @@ mod tests {
     fn sync_wallet_records_confidential_public_withdrawal_history() {
         let assets = AssetRegistry::default();
         let alice = ed25519_keypair(6);
-        let input = SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 100, 7), &alice);
+        let input = input_utxo(test_utxo(&alice, SOL_MINT, 100, 7), &alice);
         let withdrawal = signed_to_shielded_tx(
             confidential_withdrawal(&alice, vec![input], SOL_MINT, 30, &assets),
             1,
@@ -2376,6 +2402,7 @@ mod tests {
                 transactions: vec![withdrawal],
                 matches: Vec::new(),
                 program_accounts: Vec::new(),
+                protocol_config: None,
             },
         )
         .expect("sync withdrawal");
@@ -2395,8 +2422,8 @@ mod tests {
         let alice = ed25519_keypair(7);
         let bob = ed25519_keypair(8);
         let inputs = vec![
-            SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 100, 8), &alice),
-            SppProofInputUtxo::new(test_utxo(&alice, SPL_MINT, 100, 9), &alice),
+            input_utxo(test_utxo(&alice, SOL_MINT, 100, 8), &alice),
+            input_utxo(test_utxo(&alice, SPL_MINT, 100, 9), &alice),
         ];
         let tx = signed_to_shielded_tx(
             confidential_send_and_withdraw(
@@ -2413,6 +2440,7 @@ mod tests {
                 transactions: vec![tx],
                 matches: Vec::new(),
                 program_accounts: Vec::new(),
+                protocol_config: None,
             },
         )
         .expect("sync mixed outbound");
@@ -2433,8 +2461,8 @@ mod tests {
     fn sync_wallet_records_merge_history() {
         let alice = ShieldedKeypair::new_p256().expect("alice");
         let inputs = vec![
-            SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 30, 10), &alice),
-            SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 70, 11), &alice),
+            input_utxo(test_utxo(&alice, SOL_MINT, 30, 10), &alice),
+            input_utxo(test_utxo(&alice, SOL_MINT, 70, 11), &alice),
         ];
         let tx = merge_tx(&alice, inputs, 1);
         let mut wallet = wallet_with_utxos(&alice, &[(SOL_MINT, 30, 10), (SOL_MINT, 70, 11)]);
@@ -2446,6 +2474,7 @@ mod tests {
                 transactions: vec![tx],
                 matches: Vec::new(),
                 program_accounts: Vec::new(),
+                protocol_config: None,
             },
         )
         .expect("sync merge");
@@ -2472,7 +2501,7 @@ mod tests {
                     view_tag: [1u8; 32],
                     output_context: OutputContext {
                         hash: [0u8; 32],
-                        tree: Address::new_from_array([0u8; 32]),
+                        tree_id: TEST_TREE_ID,
                         leaf_index: 0,
                     },
                     payload: Vec::new(),
@@ -2485,6 +2514,7 @@ mod tests {
             }],
             matches: Vec::new(),
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
         let mut out = HashMap::new();
 
@@ -2511,6 +2541,7 @@ mod tests {
             transactions: Vec::new(),
             matches: vec![item],
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
         let mut out = HashMap::new();
 
@@ -2531,7 +2562,7 @@ mod tests {
         assert!(deposit.proofless);
         let slot = deposit.output_slots.first().expect("proofless slot");
         assert_eq!(slot.view_tag, keypair.recipient_bootstrap_view_tag());
-        assert_eq!(slot.output_context.tree.to_bytes(), [7u8; 32]);
+        assert_eq!(slot.output_context.tree_id, TEST_TREE_ID);
         assert_eq!(slot.output_context.leaf_index, 13);
         let decoded = decode_output_data(&slot.payload).expect("decode proofless output");
         assert_eq!(decoded.owner, output.owner);
@@ -2552,6 +2583,7 @@ mod tests {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&keypair, output)],
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
 
         sync_wallet(&mut wallet, &local_authority(&keypair), &indexer)
@@ -2559,13 +2591,13 @@ mod tests {
 
         assert_eq!(wallet.utxos.len(), 1);
         assert_eq!(wallet.utxos[0].utxo.amount, 42);
-        assert!(!wallet.utxos[0].spent);
+        assert!(!wallet.is_spent(&wallet.utxos[0]));
         assert_eq!(wallet.private_transactions().len(), 1);
         let tx = &wallet.private_transactions()[0];
-        assert_eq!(tx.kind, zolana_transaction::PrivateTransactionKind::Deposit);
+        assert_eq!(tx.kind, crate::wallet::PrivateTransactionKind::Deposit);
         assert_eq!(
             tx.direction,
-            zolana_transaction::PrivateTransactionDirection::Inbound
+            crate::wallet::PrivateTransactionDirection::Inbound
         );
         assert_eq!(tx.amount, 42);
         assert_eq!(tx.id.slot, 1);
@@ -2585,6 +2617,7 @@ mod tests {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&keypair, output)],
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
 
         sync_wallet(&mut wallet, &local_authority(&keypair), &indexer)
@@ -2610,6 +2643,7 @@ mod tests {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&keypair, output)],
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
 
         sync_wallet(&mut wallet, &local_authority(&keypair), &indexer)
@@ -2617,10 +2651,7 @@ mod tests {
 
         let txs = get_private_transactions(&wallet);
         assert_eq!(txs.len(), 1);
-        assert_eq!(
-            txs[0].kind,
-            zolana_transaction::PrivateTransactionKind::Deposit
-        );
+        assert_eq!(txs[0].kind, crate::wallet::PrivateTransactionKind::Deposit);
         assert_eq!(txs[0].amount, 7);
     }
 
@@ -2633,6 +2664,7 @@ mod tests {
             transactions: Vec::new(),
             matches: vec![item],
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
         let mut out = HashMap::new();
 
@@ -2660,40 +2692,48 @@ mod tests {
         slot: u64,
         assets: &AssetRegistry,
     ) -> ShieldedTransaction {
-        let input = SppProofInputUtxo::new(test_utxo(sender, asset, amount, slot as u8), sender);
+        let input = input_utxo(test_utxo(sender, asset, amount, slot as u8), sender);
         signed_to_shielded_tx(
             confidential_send(sender, vec![input], recipient, asset, amount, assets),
             slot,
         )
     }
 
+    /// Opens a transaction on the smallest shape that fits the inputs and
+    /// `n_outputs`, with the input slots padded up to it.
+    fn confidential_transaction(inputs: Vec<WalletUtxo>) -> ConfidentialTransaction {
+        ConfidentialTransaction::new(inputs, Address::default()).expect("transaction")
+    }
+
     fn confidential_send(
         sender: &ShieldedKeypair,
-        inputs: Vec<SppProofInputUtxo>,
+        mut inputs: Vec<WalletUtxo>,
         recipient: &ShieldedKeypair,
         asset: Address,
         amount: u64,
         assets: &AssetRegistry,
     ) -> SppProofInputs {
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("sender address"),
-            inputs,
-            Address::default(),
-        );
-        transfer
-            .send(
-                &recipient.shielded_address().expect("recipient address"),
-                asset,
-                amount,
-            )
-            .expect("send");
-        transfer.sign(sender, assets).expect("sign")
+        for input in &mut inputs {
+            input.utxo.asset = assets.mint(&input.utxo.asset.asset).unwrap();
+        }
+        let mut transfer = confidential_transaction(inputs);
+        if asset == SOL_MINT {
+            transfer
+                .transfer_sol(&recipient.shielded_address().unwrap(), amount)
+                .unwrap();
+        } else {
+            transfer
+                .transfer(&recipient.shielded_address().unwrap(), asset, amount)
+                .unwrap();
+        }
+
+        transfer.encrypt(sender).expect("encrypt")
     }
 
     #[allow(clippy::too_many_arguments)]
     fn confidential_send_and_withdraw(
         sender: &ShieldedKeypair,
-        inputs: Vec<SppProofInputUtxo>,
+        mut inputs: Vec<WalletUtxo>,
         recipient: &ShieldedKeypair,
         send_asset: Address,
         send_amount: u64,
@@ -2701,52 +2741,62 @@ mod tests {
         withdraw_amount: u64,
         assets: &AssetRegistry,
     ) -> SppProofInputs {
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("sender address"),
-            inputs,
-            Address::default(),
-        );
-        transfer
-            .send(
-                &recipient.shielded_address().expect("recipient address"),
-                send_asset,
-                send_amount,
-            )
-            .expect("send");
-        transfer
-            .withdraw(
-                withdraw_asset,
-                withdraw_amount,
-                SettlementTarget::Sol {
-                    user_sol_account: Address::new_from_array([9u8; 32]),
-                },
-            )
-            .expect("withdraw");
-        transfer.sign(sender, assets).expect("sign")
+        for input in &mut inputs {
+            input.utxo.asset = assets.mint(&input.utxo.asset.asset).unwrap();
+        }
+        let mut transfer = confidential_transaction(inputs);
+        if send_asset == SOL_MINT {
+            transfer
+                .transfer_sol(&recipient.shielded_address().unwrap(), send_amount)
+                .unwrap();
+        } else {
+            transfer
+                .transfer(
+                    &recipient.shielded_address().unwrap(),
+                    send_asset,
+                    send_amount,
+                )
+                .unwrap();
+        }
+        if withdraw_asset == SOL_MINT {
+            transfer
+                .withdraw_sol(withdraw_amount, Address::new_from_array([9; 32]))
+                .unwrap();
+        } else {
+            transfer
+                .withdraw(
+                    withdraw_asset,
+                    withdraw_amount,
+                    Address::new_from_array([9; 32]),
+                )
+                .unwrap();
+        }
+
+        transfer.encrypt(sender).expect("encrypt")
     }
 
     fn confidential_withdrawal(
         sender: &ShieldedKeypair,
-        inputs: Vec<SppProofInputUtxo>,
+        mut inputs: Vec<WalletUtxo>,
         asset: Address,
         amount: u64,
         assets: &AssetRegistry,
     ) -> SppProofInputs {
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("sender address"),
-            inputs,
-            Address::default(),
-        );
-        transfer
-            .withdraw(
-                asset,
-                amount,
-                SettlementTarget::Sol {
-                    user_sol_account: Address::new_from_array([9u8; 32]),
-                },
-            )
-            .expect("withdraw");
-        transfer.sign(sender, assets).expect("sign")
+        for input in &mut inputs {
+            input.utxo.asset = assets.mint(&input.utxo.asset.asset).unwrap();
+        }
+        let mut transfer = confidential_transaction(inputs);
+        if asset == SOL_MINT {
+            transfer
+                .withdraw_sol(amount, Address::new_from_array([9; 32]))
+                .unwrap();
+        } else {
+            transfer
+                .withdraw(asset, amount, Address::new_from_array([9; 32]))
+                .unwrap();
+        }
+
+        transfer.encrypt(sender).expect("encrypt")
     }
 
     fn signed_to_shielded_tx(proof_inputs: SppProofInputs, slot: u64) -> ShieldedTransaction {
@@ -2771,7 +2821,7 @@ mod tests {
                 view_tag: *view_tag,
                 output_context: OutputContext {
                     hash: output.utxo_hash,
-                    tree: Address::new_from_array([slot as u8; 32]),
+                    tree_id: TEST_TREE_ID,
                     leaf_index: i as u64,
                 },
                 payload: output.data.clone().unwrap_or_default(),
@@ -2797,17 +2847,17 @@ mod tests {
 
     fn merge_tx(
         owner: &ShieldedKeypair,
-        inputs: Vec<SppProofInputUtxo>,
+        inputs: Vec<WalletUtxo>,
         slot: u64,
     ) -> ShieldedTransaction {
-        let merge = MergePlan::new(owner, inputs).expect("merge plan");
-        let prepared = merge.prepare();
+        let merge = MergePlan::new(inputs).expect("merge plan");
+        let prepared = merge.encrypt(owner).expect("encrypt merge");
         let commitments = prepared.input_utxo_hashes().expect("input commitments");
         let output = Utxo {
             owner: owner.signing_pubkey(),
-            asset: prepared.output.asset,
-            amount: prepared.output.amount,
-            blinding: prepared.output.blinding,
+            asset: prepared.output_utxo.asset,
+            amount: prepared.output_utxo.amount,
+            blinding: prepared.output_utxo.blinding,
             ring_program_id: None,
             data: Data::default(),
         };
@@ -2833,7 +2883,7 @@ mod tests {
                 view_tag: output_view_tag,
                 output_context: OutputContext {
                     hash: output_hash,
-                    tree: Address::new_from_array([slot as u8; 32]),
+                    tree_id: TEST_TREE_ID,
                     leaf_index: 0,
                 },
                 payload: Vec::new(),
@@ -2880,7 +2930,8 @@ mod tests {
         )
         .expect("wallet");
         for &(asset, amount, seed) in entries {
-            let utxo = test_utxo(owner, asset, amount, seed);
+            let mut utxo = test_utxo(owner, asset, amount, seed);
+            utxo.asset = wallet.registry.mint(&asset).unwrap();
             let nullifier_pk = owner.nullifier_key.pubkey().expect("nullifier pubkey");
             let hash = utxo
                 .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
@@ -2890,16 +2941,17 @@ mod tests {
                 .expect("nullifier");
             wallet.utxos.push(WalletUtxo {
                 utxo,
-                output_context: OutputContext {
-                    hash,
-                    tree: Address::default(),
-                    leaf_index: u64::from(seed),
-                },
+                nullifier_pubkey: nullifier_pk,
+                utxo_hash: hash,
                 nullifier,
                 data_hash: None,
                 ring_data_hash: None,
                 tree_id: TEST_TREE_ID,
-                spent: false,
+                leaf_index: u64::from(seed),
+
+                slot: 0,
+                tx_signature: Signature::default(),
+                slot_index: 0,
             });
         }
         wallet
@@ -2910,11 +2962,39 @@ mod tests {
         blinding[0] = 0;
         Utxo {
             owner: owner.signing_pubkey(),
-            asset,
+            asset: zolana_transaction::Mint {
+                asset,
+                asset_id: if asset == SOL_MINT { 1 } else { 2 },
+            },
             amount,
             blinding,
             ring_program_id: None,
             data: Data::default(),
+        }
+    }
+
+    /// A spend of `utxo` from [`TEST_TREE_ID`], computed through `owner`'s keys.
+    fn input_utxo(utxo: Utxo, owner: &ShieldedKeypair) -> WalletUtxo {
+        let nullifier_pubkey = owner.nullifier_key.pubkey().unwrap();
+        let utxo_hash = utxo
+            .hash(&nullifier_pubkey, &[0; 32], &[0; 32], TEST_TREE_ID)
+            .unwrap();
+        let nullifier = owner
+            .nullifier_key
+            .nullifier(&utxo_hash, &utxo.blinding)
+            .unwrap();
+        WalletUtxo {
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            nullifier,
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: TEST_TREE_ID,
+            leaf_index: 0,
+            slot: 0,
+            slot_index: 0,
+            tx_signature: Default::default(),
         }
     }
 
@@ -2936,14 +3016,25 @@ mod tests {
     }
 
     fn encrypted_match(keypair: &ShieldedKeypair, output: ProoflessOutput) -> EncryptedUtxoMatch {
+        encrypted_match_in_tree(keypair, output, TEST_TREE_ID)
+    }
+
+    /// The same deposit published in `tree_id`: the commitment is hashed under
+    /// that id and the slot names the account it derives to, so the two agree
+    /// only if sync resolves one from the other.
+    fn encrypted_match_in_tree(
+        keypair: &ShieldedKeypair,
+        output: ProoflessOutput,
+        tree_id: u16,
+    ) -> EncryptedUtxoMatch {
         EncryptedUtxoMatch {
             slot: 1,
             tx_signature: Signature::default(),
             output_slot: OutputSlot {
                 view_tag: keypair.recipient_bootstrap_view_tag(),
                 output_context: OutputContext {
-                    hash: proofless_leaf_hash(keypair, &output),
-                    tree: Address::new_from_array([7u8; 32]),
+                    hash: proofless_leaf_hash(keypair, &output, tree_id),
+                    tree_id,
                     leaf_index: 13,
                 },
                 payload: encode_output_data(output),
@@ -2953,7 +3044,11 @@ mod tests {
         }
     }
 
-    fn proofless_leaf_hash(keypair: &ShieldedKeypair, output: &ProoflessOutput) -> [u8; 32] {
+    fn proofless_leaf_hash(
+        keypair: &ShieldedKeypair,
+        output: &ProoflessOutput,
+        tree_id: u16,
+    ) -> [u8; 32] {
         let assets = AssetRegistry::default();
         let owner_cx = OwnerCx {
             owner: keypair.signing_pubkey(),
@@ -2970,7 +3065,7 @@ mod tests {
             .next()
             .expect("proofless utxo");
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
-        utxo.hash(&nullifier_pk, &data_hash, &ring_data_hash, TEST_TREE_ID)
+        utxo.hash(&nullifier_pk, &data_hash, &ring_data_hash, tree_id)
             .expect("proofless leaf hash")
     }
 
@@ -3011,6 +3106,7 @@ mod tests {
             transactions: vec![transfer],
             matches: Vec::new(),
             program_accounts: vec![spl_registry_account(SPL_MINT, SPL_ASSET_ID)],
+            protocol_config: None,
         };
 
         let report = sync_wallet(&mut wallet, &local_authority(&alice), &indexer)
@@ -3045,6 +3141,7 @@ mod tests {
             transactions: vec![transfer],
             matches: Vec::new(),
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
 
         let report =
@@ -3073,6 +3170,7 @@ mod tests {
             transactions: vec![transfer],
             matches: Vec::new(),
             program_accounts: Vec::new(),
+            protocol_config: None,
         };
 
         let report =

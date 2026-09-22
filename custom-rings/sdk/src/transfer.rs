@@ -16,35 +16,37 @@ use solana_signer::Signer;
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
-    input_utxos,
+    input_utxos_from_nullifiers,
     prover::{Delivery, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
-    Proof, ProofCompressed, ProverClient, RingTransferProofResult, RingTransferProver, Rpc,
-    SettlementAccountValidation, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
-    TransferInputs, TransferSpendInput,
+    Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, ProverClient, RingTransferProofResult,
+    RingTransferProver, Rpc, SettlementAccountValidation, SpendProof, TransferInputUtxo,
+    TransferInputs,
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
-        tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, RingAssetDeposit,
+        tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, OwnerTag, RingAssetDeposit,
         TransactInterfaceTransferAccounts, TransactIxData, TransactOutput, TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
-    random_blinding, random_salt, KeypairError, P256Pubkey, ShieldedAddress, ShieldedKeypair,
-    ViewingKey, ViewingKeyTrait,
+    random_blinding, KeypairError, NullifierKey, P256Pubkey, ShieldedAddress, ShieldedKeypair,
+    ViewingKey,
 };
 use zolana_ring_client::{DepositOpening, DepositSeal};
 use zolana_ring_policy::{ListNamespace, Member, VelocityMode, VelocityRow};
 use zolana_transaction::{
     instructions::transact::{
-        encode_confidential_slots, ChangeLayout, ExternalData, PreparedTransfer, SppProofOutputUtxo,
+        ConfidentialTransaction, ExternalData, SppProofInputs, SppProofOutputUtxo,
     },
+    keys::{ShieldedKeys, TransactionKeyRequest},
     owner_utxo_hash,
-    serialization::confidential::ConfidentialOutputPlaintext,
-    AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError, Utxo,
+    serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
+    Data, EncryptedScheme, Mint, RingDepositPlaintext, TransactionError, Utxo, UtxoSerialization,
 };
 use zolana_tree::{TreeAccount, TreeError};
 
@@ -74,30 +76,39 @@ const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
 #[derive(Clone)]
 pub struct CustomRingTransfer<'a> {
     ring: CustomRing,
-    sender: &'a (dyn ViewingKeyTrait + Send + Sync),
-    prepared: PreparedTransfer,
+    sender: &'a (dyn ShieldedKeys + Send + Sync),
+    nullifier_key: Option<&'a NullifierKey>,
+    transaction: ConfidentialTransaction,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     input_tree: Option<Address>,
     output_tree: Option<Address>,
-    assets: Option<&'a AssetRegistry>,
     cosigner: Option<Address>,
 }
 
 pub struct CustomRingTransferInput<'a> {
     pub ring: CustomRing,
-    /// The sender's viewing key. Only [`ViewingKeyTrait::get_transaction_viewing_key`]
-    /// is used, so a backend that keeps the owner's signing key elsewhere -- an
-    /// HSM, or a remote custodian -- can build a transfer. The owner's signature
-    /// is not taken here: [`ProvenTransfer`] reports `owner_signers`, and the
-    /// owner signs the assembled Solana transaction.
+    /// The sender's key holder. Only [`ShieldedKeys::transaction_keys`] and
+    /// [`ShieldedKeys::address`] are used, so a backend that keeps the owner's
+    /// signing key elsewhere -- an HSM, or a remote custodian -- can build a
+    /// transfer. The owner's signature is not taken here: [`ProvenTransfer`]
+    /// reports `owner_signers`, and the owner signs the assembled Solana
+    /// transaction.
     ///
-    /// `ShieldedKeypair` implements the trait, so passing one still works.
+    /// `ShieldedKeypair` and `LocalShieldedKeys` both implement the trait, so a
+    /// software wallet passes one of those.
     ///
     /// `Send + Sync` so that [`Self::prove_async`]'s future is `Send`. Without
     /// it the async path cannot be awaited on a multi-threaded runtime, which
     /// is exactly where a host that needs the async path runs.
-    pub sender: &'a (dyn ViewingKeyTrait + Send + Sync),
-    pub prepared: PreparedTransfer,
+    pub sender: &'a (dyn ShieldedKeys + Send + Sync),
+    /// The spend secret for the inputs this caller owns, acting as their
+    /// [`ProofAuthority`]: the assembled witness leaves every real input's
+    /// secret absent and this completes the ones it owns. The circuit consumes
+    /// the raw secret rather than deriving it, so proving a real input without
+    /// one fails. `None` is only valid for an all-padding transfer.
+    pub nullifier_key: Option<&'a NullifierKey>,
+    /// The transaction with its output slots already padded to its shape.
+    pub transaction: ConfidentialTransaction,
 }
 
 pub struct TransferProofEnvironment<'a, I: Rpc, R: Rpc> {
@@ -222,7 +233,7 @@ pub enum TransferError {
     MissingSourceOwner,
     #[error(transparent)]
     ListEntry(Box<crate::EntryProofError>),
-    #[error("transfer was prepared with padded change slots, prepare it with ConfidentialTransfer::with_compact_change")]
+    #[error("transaction has padded change slots, build it with ConfidentialTransaction::with_compact_change")]
     PaddedChange,
     #[error("asset registry is required")]
     MissingAssetRegistry,
@@ -295,11 +306,11 @@ impl<'a> CustomRingTransfer<'a> {
         Self {
             ring: input.ring,
             sender: input.sender,
-            prepared: input.prepared,
+            nullifier_key: input.nullifier_key,
+            transaction: input.transaction,
             interface_transfer_accounts: Vec::new(),
             input_tree: None,
             output_tree: None,
-            assets: None,
             cosigner: None,
         }
     }
@@ -322,12 +333,6 @@ impl<'a> CustomRingTransfer<'a> {
     #[must_use = "use the updated transfer"]
     pub fn with_output_tree(mut self, tree: Address) -> Self {
         self.output_tree = Some(tree);
-        self
-    }
-
-    #[must_use = "use the updated transfer"]
-    pub fn with_assets(mut self, assets: &'a AssetRegistry) -> Self {
-        self.assets = Some(assets);
         self
     }
 
@@ -373,7 +378,7 @@ impl<'a> CustomRingTransfer<'a> {
             inputs: RingSpendInputs {
                 indexer: environment.indexer,
                 tree: staged.input_tree,
-                spends: &staged.proof_inputs.input_utxos,
+                input_utxos: &staged.proof_inputs.input_utxos,
             }
             .load()?,
             allow_dummy_inputs: input_tree.allows_dummy_inputs(&staged.proof_inputs.input_utxos),
@@ -438,7 +443,7 @@ impl<'a> CustomRingTransfer<'a> {
             inputs: RingSpendInputs {
                 indexer: environment.indexer,
                 tree: staged.input_tree,
-                spends: &staged.proof_inputs.input_utxos,
+                input_utxos: &staged.proof_inputs.input_utxos,
             }
             .load_async()
             .await?,
@@ -529,7 +534,7 @@ impl<'a> CustomRingTransfer<'a> {
                         ring: self.ring,
                         entries_tree,
                         entries_tree_id: pinned.config.entries_tree_id(),
-                        member: sender_member(&self.prepared.owner)?,
+                        member: sender_member(&self.sender.address()?)?,
                     },
                     context: VelocityContext {
                         namespace: self.ring.namespace_pda(),
@@ -555,25 +560,34 @@ impl<'a> CustomRingTransfer<'a> {
     ) -> Result<StagedTransfer, TransferError> {
         let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
         let output_tree = self.output_tree.unwrap_or(input_tree);
-        let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
-        // A padded change slot overflows the packet and cannot be opened by the auditor.
-        if self.prepared.change_layout() != ChangeLayout::Compact {
-            return Err(TransferError::PaddedChange);
-        }
-        let mut prepared = self.prepared;
+        let transaction = self.transaction;
         let program_id = self.ring.program_id();
+        validate_transfer_accounts(&transaction, &self.interface_transfer_accounts)?;
+        let payer = transaction.payer();
+        let sender = self.sender.address()?;
+        let keys = self.sender.transaction_keys(&[TransactionKeyRequest {
+            viewing_pubkey: sender.viewing_pubkey,
+            first_nullifier: *transaction.first_nullifier(),
+        }])?;
+        let got = keys.len();
+        let tx_viewing_key = keys
+            .into_iter()
+            .next()
+            .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })?;
+        let mut proof_inputs = transaction.encrypt_with_viewing_key(&sender, &tx_viewing_key)?;
+
         RingMembership {
             program_id,
-            inputs: &prepared.inputs,
-            outputs: &prepared.outputs,
+            inputs: &proof_inputs.input_utxos,
+            outputs: &proof_inputs.output_utxos,
         }
         .validate()?;
-        validate_transfer_accounts(&prepared, &self.interface_transfer_accounts)?;
-        let payer = prepared.payer;
-        let tx_viewing_key = self
-            .sender
-            .get_transaction_viewing_key(&prepared.first_nullifier)?;
-        let salt = random_salt();
+
+        let money_shape = proof_inputs.check_shape()?;
+        let first_nullifier = proof_inputs.first_nullifier()?;
+        let output_blinding_seed =
+            derive_output_blinding_seed(&first_nullifier, &proof_inputs.blinding_seed)?;
+        let salt = proof_inputs.external_data.salt;
         let stage = match limit {
             SpendLimit::Unbounded => VelocityStage {
                 plan: None,
@@ -582,10 +596,10 @@ impl<'a> CustomRingTransfer<'a> {
             },
             SpendLimit::PerTransfer { rows, identity } => {
                 let outflows = Outflows {
-                    sender: sender_member(&prepared.owner)?,
+                    sender: sender_member(&sender)?,
                     ring: program_id,
-                    inputs: &prepared.inputs,
-                    outputs: &prepared.outputs,
+                    inputs: &proof_inputs.input_utxos,
+                    outputs: &proof_inputs.output_utxos,
                 };
                 let charges = ChargeRows {
                     rows,
@@ -604,19 +618,19 @@ impl<'a> CustomRingTransfer<'a> {
                 let plan = VelocityPlanInput {
                     facts,
                     outflows: Outflows {
-                        sender: sender_member(&prepared.owner)?,
+                        sender: sender_member(&sender)?,
                         ring: program_id,
-                        inputs: &prepared.inputs,
-                        outputs: &prepared.outputs,
+                        inputs: &proof_inputs.input_utxos,
+                        outputs: &proof_inputs.output_utxos,
                     },
                     tx_viewing_key: &tx_viewing_key,
                     salt,
-                    first_nullifier: prepared.first_nullifier,
-                    output_blinding_seed: prepared.output_blinding_seed()?,
-                    money_shape: prepared.shape,
+                    first_nullifier,
+                    output_blinding_seed,
+                    money_shape,
                 }
                 .plan()?;
-                append_record_slots(&mut prepared, &plan)?;
+                append_record_slots(&mut proof_inputs, &plan, &tx_viewing_key)?;
                 VelocityStage {
                     proof_input: Some(plan.proof_input),
                     head: Some(CompressedHead {
@@ -639,26 +653,15 @@ impl<'a> CustomRingTransfer<'a> {
             }
         };
 
-        // ORDER MATTERS. The auditor message has to be inside `external_data`
-        // BEFORE the SPP proof runs: SPP folds `messages` into
-        // `external_data_hash` and that into `private_tx_hash`, which is element 1
-        // of the custom-ring circuit's public-input chain. Proving SPP first and
-        // appending the message afterwards yields two irreconcilable
-        // `private_tx_hash` values -- whichever one the ring proof commits to, the
-        // other is the one SPP checks. `encrypt` returning a `PendingCustomRingProof`
-        // that only `finish` can turn into a witness is what makes the order
-        // unforgettable: there is no `private_tx_hash` to supply yet.
-        let slots = encode_confidential_slots(&prepared.outputs, assets, &tx_viewing_key, salt)?;
+        frame_dummy_outputs(
+            &proof_inputs.output_utxos,
+            &mut proof_inputs.external_data.outputs,
+        )?;
         let mut messages = Vec::with_capacity(3);
         if let Some(plan) = stage.plan {
             messages.push(plan.record_message);
             messages.push(plan.counters_message);
         }
-        let mut proof_inputs = prepared.finalize(tx_viewing_key.pubkey(), salt, slots)?;
-        frame_dummy_outputs(
-            &proof_inputs.output_utxos,
-            &mut proof_inputs.external_data.outputs,
-        )?;
         let EncryptedAudit {
             pending: pending_proof,
             message: auditor_message,
@@ -669,12 +672,7 @@ impl<'a> CustomRingTransfer<'a> {
             outputs: proof_inputs
                 .output_utxos
                 .iter()
-                .map(|output| {
-                    zolana_transaction::utxo::ProofInputUtxo::try_from((
-                        output,
-                        proof_inputs.output_tree_id,
-                    ))
-                })
+                .map(|output| ProofInputUtxo::try_from((output, proof_inputs.output_tree_id)))
                 .collect::<Result<Vec<_>, _>>()?,
         }
         .encrypt()?;
@@ -688,6 +686,7 @@ impl<'a> CustomRingTransfer<'a> {
         Ok(StagedTransfer {
             head_witness: stage.head,
             tx_viewing_key,
+            nullifier_key: self.nullifier_key.cloned(),
             pending_proof,
             proof_inputs,
             payer,
@@ -825,32 +824,83 @@ impl VelocityLookup<'_> {
 
 /// The successor's blinding derives from the last output slot index.
 fn append_record_slots(
-    prepared: &mut PreparedTransfer,
+    proof_inputs: &mut SppProofInputs,
     plan: &VelocityPlan,
+    tx_viewing_key: &ViewingKey,
 ) -> Result<(), TransferError> {
-    let output_seed = prepared.output_blinding_seed()?;
-    while prepared.inputs.len() + 1 < plan.shape.n_inputs() {
-        prepared.inputs.push(
-            zolana_transaction::instructions::types::SppProofInputUtxo::new_dummy()
-                .in_tree(plan.input.tree_id),
-        );
+    if proof_inputs.input_utxos.len() + 1 > plan.shape.n_inputs()
+        || proof_inputs.output_utxos.len() + 1 > plan.shape.n_outputs()
+    {
+        return Err(TransferError::PolicyShapeUnsupported);
     }
-    while prepared.outputs.len() + 1 < plan.shape.n_outputs() {
-        let index = u32::try_from(prepared.outputs.len())
+    while proof_inputs.input_utxos.len() + 1 < plan.shape.n_inputs() {
+        proof_inputs
+            .input_utxos
+            .push(SppProofInputUtxo::dummy(plan.input.tree_id)?);
+    }
+
+    let first_nullifier = proof_inputs.first_nullifier()?;
+    let output_seed = derive_output_blinding_seed(&first_nullifier, &proof_inputs.blinding_seed)?;
+    while proof_inputs.output_utxos.len() + 1 < plan.shape.n_outputs() {
+        let index = u32::try_from(proof_inputs.output_utxos.len())
             .map_err(|_| TransferError::PolicyShapeUnsupported)?;
-        prepared.outputs.push(SppProofOutputUtxo {
-            blinding: zolana_transaction::utxo::derive_transact_output_blinding(
-                &prepared.first_nullifier,
-                &output_seed,
-                index,
-            )?,
-            owner_tag: Some(prepared.owner.signing_pubkey.confidential_view_tag()?),
+        let output = SppProofOutputUtxo {
+            blinding: derive_transact_output_blinding(&first_nullifier, &output_seed, index)?,
             ..Default::default()
+        };
+        proof_inputs.external_data.outputs.push(TransactOutput {
+            utxo_hash: output.hash(proof_inputs.output_tree_id)?,
+            owner_tag: OwnerTag::Inline([0; 32]),
+            data: None,
         });
+        proof_inputs.external_data.resolved_owner_tags.push([0; 32]);
+        proof_inputs.output_utxos.push(output);
     }
-    prepared.inputs.push(plan.input.clone());
-    prepared.outputs.push(plan.output.clone());
-    prepared.shape = plan.shape;
+
+    proof_inputs.input_utxos.push(plan.input.clone());
+    let output = plan.output.clone();
+    let slot_index = u32::try_from(proof_inputs.output_utxos.len())
+        .map_err(|_| TransferError::PolicyShapeUnsupported)?;
+    let expected_blinding =
+        derive_transact_output_blinding(&first_nullifier, &output_seed, slot_index)?;
+    if output.blinding != expected_blinding {
+        return Err(ClientError::OutputBlindingMismatch {
+            index: slot_index as usize,
+        }
+        .into());
+    }
+    let address = output
+        .owner_address
+        .ok_or(TransactionError::OutputWithoutOwner {
+            slot_index: slot_index as usize,
+        })?;
+    let resolved_owner_tag = address.signing_pubkey.confidential_view_tag()?;
+    let encoded = Confidential::encode_plaintext(
+        &ConfidentialOutputPlaintext {
+            asset_id: output.asset.asset_id,
+            amount: output.amount,
+            blinding: output.blinding,
+            ring_program_id: output.ring_program_id,
+            data: output.data.clone(),
+        },
+        resolved_owner_tag,
+        &ConfidentialEncode {
+            tx: tx_viewing_key.clone(),
+            recipient_pubkey: address.viewing_pubkey,
+            salt: proof_inputs.external_data.salt,
+            slot_index,
+        },
+    )?;
+    proof_inputs.external_data.outputs.push(TransactOutput {
+        utxo_hash: output.hash(proof_inputs.output_tree_id)?,
+        owner_tag: OwnerTag::Inline(resolved_owner_tag),
+        data: Some(encoded.data),
+    });
+    proof_inputs
+        .external_data
+        .resolved_owner_tags
+        .push(resolved_owner_tag);
+    proof_inputs.output_utxos.push(output);
     Ok(())
 }
 
@@ -991,6 +1041,10 @@ impl Tier {
 struct StagedTransfer {
     head_witness: Option<CompressedHead>,
     tx_viewing_key: ViewingKey,
+    /// The sender's proof authority, which completes the built witness. Owned
+    /// rather than borrowed: `stage` consumes the transfer, so the caller's
+    /// reference does not outlive it.
+    nullifier_key: Option<NullifierKey>,
     pending_proof: PendingCustomRingProof,
     proof_inputs: SppProofInputs,
     payer: Address,
@@ -1054,7 +1108,7 @@ impl StagedTransfer {
     /// proofs at once.
     fn witness(self, spends: SpendSet, tier: Tier) -> Result<WitnessedTransfer, TransferError> {
         let tx_shape = self.proof_inputs.check_shape()?;
-        let ring_result = RingTransferProver {
+        let mut ring_result = RingTransferProver {
             inputs: spends.inputs,
             outputs: self.proof_inputs.output_utxos.clone(),
             blinding_seed: self.proof_inputs.blinding_seed,
@@ -1066,9 +1120,15 @@ impl StagedTransfer {
                 .signer_pk_hashes(tx_shape.signer_width())?,
             allow_dummy_inputs: spends.allow_dummy_inputs,
             ring_program_id: Some(self.program_id),
-            shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
+            shape: tx_shape,
         }
         .build()?;
+        // Proof assembly deliberately leaves every real input's nullifier secret
+        // absent. The caller's authority completes the inputs it owns and the
+        // prover request rejects anything still incomplete.
+        if let Some(authority) = self.nullifier_key.as_ref() {
+            authority.complete_inputs(&mut ring_result.inputs.inputs)?;
+        }
         let mut request = TierRequestInput {
             tier,
             pending: self.pending_proof,
@@ -1399,6 +1459,26 @@ impl RingDeposit<'_> {
         env: DepositProofEnvironment<'_, R>,
     ) -> Result<RingDepositReceipt, DepositError> {
         let rpc = env.rpc;
+        let address = self.asset.mint();
+        let mint = if address == zolana_transaction::SOL_MINT {
+            Mint::SOL
+        } else {
+            let registry = zolana_interface::pda::spl_asset_registry(&address);
+            let account = rpc
+                .get_account(registry)?
+                .ok_or(ClientError::AccountNotFound {
+                    address: registry.to_bytes(),
+                })?;
+            let record =
+                zolana_interface::state::SplAssetRegistry::from_account_bytes(&account.data)
+                    .map_err(|error| {
+                        ClientError::Rpc(format!("invalid asset registry: {error:?}"))
+                    })?;
+            if record.mint != address || account.owner.to_bytes() != SHIELDED_POOL_PROGRAM_ID {
+                return Err(ClientError::Rpc("asset registry mismatch".into()).into());
+            }
+            Mint::new(address, record.asset_id)
+        };
         let config = self
             .ring
             .read_config(rpc)?
@@ -1510,7 +1590,7 @@ impl RingDeposit<'_> {
             signature,
             utxo: Utxo {
                 owner: self.recipient.signing_pubkey(),
-                asset: self.asset.mint(),
+                asset: mint,
                 amount: self.amount,
                 blinding,
                 ring_program_id: Some(self.ring.program_id()),
@@ -1614,13 +1694,12 @@ impl RingMembership<'_> {
 }
 
 fn validate_transfer_accounts(
-    prepared: &PreparedTransfer,
+    transaction: &ConfidentialTransaction,
     accounts: &[TransactInterfaceTransferAccounts],
 ) -> Result<(), TransferError> {
-    let transfers = prepared
-        .interface_transfers
-        .iter()
-        .copied()
+    let transfers = transaction
+        .interface_transfers()?
+        .into_iter()
         .map(|transfer| transfer.interface_transfer())
         .collect::<Vec<_>>();
     SettlementAccountValidation {
@@ -1690,7 +1769,7 @@ pub(crate) fn frame_dummy_outputs(
 }
 
 pub(crate) struct SpendSet {
-    pub inputs: Vec<TransferSpendInput>,
+    pub inputs: Vec<TransferInputUtxo>,
     pub allow_dummy_inputs: bool,
 }
 
@@ -1710,37 +1789,37 @@ struct SpendQueries {
 pub(crate) struct RingSpendInputs<'a, I> {
     pub indexer: &'a I,
     pub tree: Address,
-    pub spends: &'a [SppProofInputUtxo],
+    pub input_utxos: &'a [SppProofInputUtxo],
 }
 
 impl<'a, I> RingSpendInputs<'a, I> {
     /// The hashes to prove inclusion for, and the nullifiers to prove absence
     /// of. Independent of transport.
-    fn queries(&self) -> Result<SpendQueries, TransferError> {
+    fn queries(&self) -> SpendQueries {
         let utxo_hashes = self
-            .spends
+            .input_utxos
             .iter()
-            .filter(|spend| !spend.is_dummy())
+            .filter(|input_utxo| !input_utxo.is_dummy())
             .map(SppProofInputUtxo::hash)
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
         let nullifiers = self
-            .spends
+            .input_utxos
             .iter()
             .map(SppProofInputUtxo::nullifier)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(SpendQueries {
+            .collect::<Vec<_>>();
+        SpendQueries {
             utxo_hashes,
             nullifiers,
-        })
+        }
     }
 }
 
 impl<I: AsyncRpc> RingSpendInputs<'_, I> {
-    pub async fn load_async(self) -> Result<Vec<TransferSpendInput>, TransferError> {
+    pub async fn load_async(self) -> Result<Vec<TransferInputUtxo>, TransferError> {
         let SpendQueries {
             utxo_hashes,
             nullifiers,
-        } = self.queries()?;
+        } = self.queries();
         let states = self
             .indexer
             .get_merkle_proofs(self.tree, utxo_hashes, None)
@@ -1756,11 +1835,11 @@ impl<I: AsyncRpc> RingSpendInputs<'_, I> {
 }
 
 impl<I: Rpc> RingSpendInputs<'_, I> {
-    pub fn load(self) -> Result<Vec<TransferSpendInput>, TransferError> {
+    pub fn load(self) -> Result<Vec<TransferInputUtxo>, TransferError> {
         let SpendQueries {
             utxo_hashes,
             nullifiers,
-        } = self.queries()?;
+        } = self.queries();
         let states = self
             .indexer
             .get_merkle_proofs(self.tree, utxo_hashes, None)?
@@ -1779,28 +1858,28 @@ impl<I> RingSpendInputs<'_, I> {
         self,
         states: Vec<MerkleProof>,
         non_inclusions: Vec<NonInclusionProof>,
-    ) -> Result<Vec<TransferSpendInput>, TransferError> {
-        let real_count = self.spends.iter().filter(|spend| !spend.is_dummy()).count();
-        if states.len() != real_count || non_inclusions.len() != self.spends.len() {
+    ) -> Result<Vec<TransferInputUtxo>, TransferError> {
+        let real_count = self
+            .input_utxos
+            .iter()
+            .filter(|input_utxo| !input_utxo.is_dummy())
+            .count();
+        if states.len() != real_count || non_inclusions.len() != self.input_utxos.len() {
             return Err(TransferError::IncompleteProofSet);
         }
         let mut states = states.into_iter();
-        self.spends
+        self.input_utxos
             .iter()
             .zip(non_inclusions)
-            .map(|(spend, nullifier)| {
-                let (proof, nullifier_proof) = if spend.is_dummy() {
+            .map(|(input_utxo, nullifier)| {
+                let (proof, nullifier_proof) = if input_utxo.is_dummy() {
                     (None, Some(nullifier))
                 } else {
                     let state = states.next().ok_or(TransferError::IncompleteProofSet)?;
                     (Some(SpendProof { state, nullifier }), None)
                 };
-                Ok(TransferSpendInput {
-                    utxo: spend.utxo.clone(),
-                    nullifier_key: spend.nullifier_key.clone(),
-                    data_hash: spend.data_hash,
-                    ring_data_hash: spend.ring_data_hash,
-                    tree_id: spend.tree_id,
+                Ok(TransferInputUtxo {
+                    utxo: input_utxo.clone(),
                     proof,
                     nullifier_proof,
                 })
@@ -1822,7 +1901,7 @@ pub(crate) struct RingInstructionData<'a> {
 
 impl RingInstructionData<'_> {
     pub fn assemble(self) -> Result<TransactIxData, TransferError> {
-        let inputs = input_utxos(self.nullifiers, self.input_tree_indexes)?;
+        let inputs = input_utxos_from_nullifiers(self.nullifiers, self.input_tree_indexes)?;
         if inputs.len() != usize::from(self.circuit.num_inputs()) {
             return Err(TransferError::IncompleteInputSet);
         }
@@ -1859,8 +1938,8 @@ mod tests {
         },
         TransactSolTransferAccounts,
     };
-    use zolana_transaction::instructions::transact::{ConfidentialTransfer, SettlementTarget};
-    use zolana_transaction::SOL_MINT;
+    use zolana_transaction::keys::LocalShieldedKeys;
+    use zolana_transaction::Mint;
 
     use super::*;
 
@@ -1871,21 +1950,23 @@ mod tests {
     #[test]
     fn spend_proofs_carry_the_note_data_hashes() {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
-        let spends = [SppProofInputUtxo {
-            utxo: Utxo {
+        let input_utxos = [zolana_test_utils::utxo::wallet(
+            Utxo {
                 owner: owner.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount: 5,
                 blinding: [1u8; 32],
                 ring_program_id: None,
                 data: Data::default(),
             },
-            nullifier_key: owner.nullifier_key.clone(),
-            data_hash: Some([7u8; 32]),
-            ring_data_hash: Some([8u8; 32]),
-            // TODO(tree-id): resolve the tree id from the tree account.
-            tree_id: 0,
-        }];
+            &owner.nullifier_key,
+            0,
+            0,
+            Some([7; 32]),
+            Some([8; 32]),
+        )
+        .expect("input")
+        .into()];
         let merkle = MerkleProof {
             leaf: [2u8; 32],
             merkle_context: MerkleContext {
@@ -1916,67 +1997,79 @@ mod tests {
         let inputs = RingSpendInputs {
             indexer: &(),
             tree: Address::default(),
-            spends: &spends,
+            input_utxos: &input_utxos,
         }
         .assemble(vec![merkle], vec![non_inclusion])
-        .expect("one real spend pairs with its proofs");
-        assert_eq!(inputs[0].data_hash, Some([7u8; 32]));
-        assert_eq!(inputs[0].ring_data_hash, Some([8u8; 32]));
+        .expect("one real input_utxo pairs with its proofs");
+        let input = inputs.first().expect("one assembled input_utxo");
+        assert_eq!(input.utxo.data_hash, Some([7u8; 32]));
+        assert_eq!(input.utxo.ring_data_hash, Some([8u8; 32]));
     }
 
-    fn prepared_transfer(amount: u64) -> (ShieldedKeypair, PreparedTransfer) {
+    fn prepared_transfer(amount: u64) -> (ShieldedKeypair, ConfidentialTransaction) {
         let sender = ShieldedKeypair::new_ed25519().expect("sender");
         let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
-        let input = SppProofInputUtxo::new(
+        let input = zolana_test_utils::utxo::wallet(
             Utxo {
                 owner: sender.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount: 10,
                 blinding: random_blinding(),
                 ring_program_id: Some(ring().program_id()),
                 data: Data::default(),
             },
-            &sender,
-        );
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("sender address"),
-            vec![input],
-            solana_signer::Signer::pubkey(&sender),
-        );
+            &sender.nullifier_key,
+            0,
+            0,
+            None,
+            None,
+        )
+        .expect("input");
+        let mut transfer =
+            ConfidentialTransaction::new(vec![input], solana_signer::Signer::pubkey(&sender))
+                .expect("transaction");
         transfer
-            .send(
-                &recipient.shielded_address().expect("recipient address"),
-                SOL_MINT,
-                amount,
+            .transfer_sol(&recipient.shielded_address().unwrap(), amount)
+            .unwrap();
+        transfer
+            .pad_utxos(
+                zolana_interface::shape::Shape::IN2_OUT3,
+                &sender.shielded_address().unwrap(),
             )
-            .expect("recipient");
-        (sender, transfer.prepare().expect("prepared transfer"))
+            .unwrap();
+        (sender, transfer)
     }
 
     #[test]
     fn membership_accepts_active_and_default_outputs() {
-        let (_sender, mut prepared) = prepared_transfer(4);
+        let (_sender, prepared) = prepared_transfer(4);
+        let inputs = prepared
+            .inputs()
+            .iter()
+            .map(SppProofInputUtxo::from)
+            .collect::<Vec<_>>();
+        let mut outputs = prepared.outputs().to_vec();
         RingMembership {
             program_id: ring().program_id(),
-            inputs: &prepared.inputs,
-            outputs: &prepared.outputs,
+            inputs: &inputs,
+            outputs: &outputs,
         }
         .validate()
         .expect("default outputs");
-        prepared.outputs[1].ring_program_id = Some(ring().program_id());
+        outputs[1].ring_program_id = Some(ring().program_id());
         RingMembership {
             program_id: ring().program_id(),
-            inputs: &prepared.inputs,
-            outputs: &prepared.outputs,
+            inputs: &inputs,
+            outputs: &outputs,
         }
         .validate()
         .expect("active ring output");
-        prepared.outputs[1].ring_program_id = Some(Address::new_from_array([9u8; 32]));
+        outputs[1].ring_program_id = Some(Address::new_from_array([9u8; 32]));
         assert!(matches!(
             RingMembership {
                 program_id: ring().program_id(),
-                inputs: &prepared.inputs,
-                outputs: &prepared.outputs,
+                inputs: &inputs,
+                outputs: &outputs,
             }
             .validate(),
             Err(TransferError::ForeignRing(_))
@@ -1985,22 +2078,28 @@ mod tests {
 
     #[test]
     fn membership_refuses_ring_data_outside_a_ring() {
-        let (_sender, mut prepared) = prepared_transfer(4);
-        prepared.outputs[1].ring_data_hash = Some([3u8; 32]);
+        let (_sender, prepared) = prepared_transfer(4);
+        let inputs = prepared
+            .inputs()
+            .iter()
+            .map(SppProofInputUtxo::from)
+            .collect::<Vec<_>>();
+        let mut outputs = prepared.outputs().to_vec();
+        outputs[1].ring_data_hash = Some([3u8; 32]);
         assert!(matches!(
             RingMembership {
                 program_id: ring().program_id(),
-                inputs: &prepared.inputs,
-                outputs: &prepared.outputs,
+                inputs: &inputs,
+                outputs: &outputs,
             }
             .validate(),
             Err(TransferError::RingDataOutsideRing)
         ));
-        prepared.outputs[1].ring_program_id = Some(ring().program_id());
+        outputs[1].ring_program_id = Some(ring().program_id());
         RingMembership {
             program_id: ring().program_id(),
-            inputs: &prepared.inputs,
-            outputs: &prepared.outputs,
+            inputs: &inputs,
+            outputs: &outputs,
         }
         .validate()
         .expect("ring data inside the ring");
@@ -2009,33 +2108,27 @@ mod tests {
     #[test]
     fn withdrawal_accounts_are_validated_before_proving() {
         let (sender, _) = prepared_transfer(4);
-        let input = SppProofInputUtxo::new(
+        let input = zolana_test_utils::utxo::wallet(
             Utxo {
                 owner: sender.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount: 10,
                 blinding: random_blinding(),
                 ring_program_id: Some(ring().program_id()),
                 data: Data::default(),
             },
-            &sender,
-        );
-        let recipient = Address::new_from_array([7u8; 32]);
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("sender address"),
-            vec![input],
-            solana_signer::Signer::pubkey(&sender),
-        );
-        transfer
-            .withdraw(
-                SOL_MINT,
-                4,
-                SettlementTarget::Sol {
-                    user_sol_account: recipient,
-                },
-            )
-            .expect("withdrawal");
-        let prepared = transfer.prepare().expect("prepared withdrawal");
+            &sender.nullifier_key,
+            0,
+            0,
+            None,
+            None,
+        )
+        .unwrap();
+        let recipient = Address::new_from_array([7; 32]);
+        let mut prepared =
+            ConfidentialTransaction::new(vec![input], solana_signer::Signer::pubkey(&sender))
+                .unwrap();
+        prepared.withdraw_sol(4, recipient).unwrap();
         assert!(matches!(
             validate_transfer_accounts(&prepared, &[]),
             Err(TransferError::Client(
@@ -2075,7 +2168,8 @@ mod tests {
             CustomRingTransfer::new(CustomRingTransferInput {
                 ring: ring(),
                 sender: &keypair,
-                prepared,
+                nullifier_key: Some(&keypair.nullifier_key),
+                transaction: prepared,
             })
             .prove_async(AsyncTransferProofEnvironment {
                 indexer: &rpc,
@@ -2086,93 +2180,84 @@ mod tests {
     }
 
     #[test]
-    fn a_viewing_key_alone_can_build_a_transfer() {
-        // The sender is used only to derive the transaction viewing key. The
-        // owner's signature is taken later, over the assembled Solana
-        // transaction, from the `owner_signers` a `ProvenTransfer` reports. So a
-        // backend that keeps the signing key elsewhere -- an HSM, or a remote
-        // custodian holding it in an enclave -- can still build the transfer.
-        // This test exists to keep that true: narrowing `sender` back to
-        // `&ShieldedKeypair` would stop it compiling.
+    fn keys_without_a_signing_secret_can_build_a_transfer() {
         let (keypair, prepared) = prepared_transfer(4);
-        let first_nullifier = prepared.first_nullifier;
-        let viewing_key: &ViewingKey = &keypair.viewing_key;
+        let first_nullifier = *prepared.first_nullifier();
+        let keys = LocalShieldedKeys::from_keypair(&keypair).unwrap();
 
         let transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: ring(),
-            sender: viewing_key,
-            prepared,
+            sender: &keys,
+            nullifier_key: Some(&keypair.nullifier_key),
+            transaction: prepared,
         });
 
-        // The viewing key alone derives the same per-transaction key the full
-        // keypair would, so the built transfer is not merely well-typed.
+        let derived = transfer
+            .sender
+            .transaction_keys(&[TransactionKeyRequest {
+                viewing_pubkey: keypair.viewing_pubkey(),
+                first_nullifier,
+            }])
+            .unwrap();
         assert_eq!(
-            transfer
-                .sender
-                .get_transaction_viewing_key(&first_nullifier)
-                .expect("transaction viewing key from the viewing key alone")
-                .pubkey(),
+            derived[0].pubkey(),
             keypair
                 .get_transaction_viewing_key(&first_nullifier)
-                .expect("transaction viewing key from the keypair")
-                .pubkey(),
+                .unwrap()
+                .pubkey()
         );
+    }
+
+    fn framed_fixture(rings: &[Option<Address>]) -> SppProofInputs {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let input = zolana_test_utils::utxo::wallet(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: Mint::SOL,
+                amount: rings.len() as u64,
+                blinding: random_blinding(),
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &sender.nullifier_key,
+            0,
+            0,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut tx =
+            ConfidentialTransaction::new(vec![input], solana_signer::Signer::pubkey(&sender))
+                .unwrap();
+        for ring in rings {
+            tx.transfer_with_ring(&sender.shielded_address().unwrap(), Mint::SOL, 1, *ring)
+                .unwrap();
+        }
+        tx.encrypt(&sender).unwrap()
     }
 
     #[test]
     fn output_framing_selects_ring_membership() {
-        let (sender, mut prepared) = prepared_transfer(4);
-        let tx_viewing_key = sender
-            .get_transaction_viewing_key(&prepared.first_nullifier)
-            .expect("transaction viewing key");
-        let salt = random_salt();
-        let default_slots = encode_confidential_slots(
-            &prepared.outputs,
-            &AssetRegistry::default(),
-            &tx_viewing_key,
-            salt,
-        )
-        .expect("default slots");
-        assert!(default_slots.iter().flatten().all(|slot| {
-            confidential_encrypted_output_body(&slot.data).is_some()
-                && ring_confidential_encrypted_output_body(&slot.data).is_none()
-        }));
-
-        for output in &mut prepared.outputs {
-            output.ring_program_id = Some(ring().program_id());
+        for binding in [None, Some(ring().program_id())] {
+            let tx = framed_fixture(&[binding, binding, binding]);
+            for slot in &tx.external_data.outputs {
+                let data = slot.data.as_deref().unwrap();
+                assert_eq!(
+                    ring_confidential_encrypted_output_body(data).is_some(),
+                    binding.is_some()
+                );
+                assert_eq!(
+                    confidential_encrypted_output_body(data).is_some(),
+                    binding.is_none()
+                );
+            }
         }
-        let ring_slots = encode_confidential_slots(
-            &prepared.outputs,
-            &AssetRegistry::default(),
-            &tx_viewing_key,
-            salt,
-        )
-        .expect("ring slots");
-        assert!(ring_slots.iter().flatten().all(|slot| {
-            ring_confidential_encrypted_output_body(&slot.data).is_some()
-                && confidential_encrypted_output_body(&slot.data).is_none()
-        }));
     }
 
     #[test]
     fn a_dummy_takes_the_length_of_a_real_slot_with_its_own_binding() {
-        // Padded layout, the SPL change slot is a dummy, the SOL change is real.
-        let (sender, mut prepared) = prepared_transfer(4);
-        prepared.outputs[1].ring_program_id = Some(ring().program_id());
-        let tx_viewing_key = sender
-            .get_transaction_viewing_key(&prepared.first_nullifier)
-            .expect("transaction viewing key");
-        let salt = random_salt();
-        let slots = encode_confidential_slots(
-            &prepared.outputs,
-            &AssetRegistry::default(),
-            &tx_viewing_key,
-            salt,
-        )
-        .expect("slots");
-        let mut proof_inputs = prepared
-            .finalize(tx_viewing_key.pubkey(), salt, slots)
-            .expect("proof inputs");
+        let mut proof_inputs = framed_fixture(&[None, Some(ring().program_id()), None]);
+        proof_inputs.output_utxos[2].owner_address = None;
         let real_len = |in_ring: bool| {
             proof_inputs
                 .output_utxos
@@ -2210,34 +2295,23 @@ mod tests {
 
     #[test]
     fn full_withdrawal_padding_uses_the_canonical_empty_payload_size() {
-        let (sender, prepared) = prepared_transfer(10);
-        let payer = Address::new_from_array([99; 32]);
-        let mut transfer =
-            ConfidentialTransfer::new(sender.shielded_address().unwrap(), prepared.inputs, payer);
-        transfer
-            .withdraw(
-                SOL_MINT,
-                10,
-                SettlementTarget::Sol {
-                    user_sol_account: payer,
-                },
-            )
-            .unwrap();
-        let mut prepared = transfer.prepare().unwrap();
-        let key = sender
-            .get_transaction_viewing_key(&prepared.first_nullifier)
-            .unwrap();
-        for (index, output) in prepared.outputs.iter_mut().enumerate() {
-            *output = SppProofOutputUtxo {
+        let outputs = (0..2)
+            .map(|index| SppProofOutputUtxo {
+                blinding: random_blinding(),
                 ring_program_id: (index % 2 == 0).then_some(ring().program_id()),
                 ..Default::default()
-            };
-        }
-        let salt = random_salt();
-        let slots = vec![None; prepared.outputs.len()];
-        let mut proof = prepared.finalize(key.pubkey(), salt, slots).unwrap();
-        frame_dummy_outputs(&proof.output_utxos, &mut proof.external_data.outputs).unwrap();
-        for (output, encoded) in proof.output_utxos.iter().zip(&proof.external_data.outputs) {
+            })
+            .collect::<Vec<_>>();
+        let mut encoded = outputs
+            .iter()
+            .map(|output| TransactOutput {
+                utxo_hash: output.hash(0).unwrap(),
+                owner_tag: OwnerTag::Inline([0; 32]),
+                data: None,
+            })
+            .collect::<Vec<_>>();
+        frame_dummy_outputs(&outputs, &mut encoded).unwrap();
+        for (output, encoded) in outputs.iter().zip(&encoded) {
             assert!(output.is_dummy());
             let data = encoded.data.as_deref().unwrap();
             let body = if output.ring_program_id.is_some() {
@@ -2246,6 +2320,7 @@ mod tests {
                 confidential_encrypted_output_body(data)
             }
             .unwrap();
+            let key_len = ViewingKey::new().pubkey().as_bytes().len();
             let plaintext = ConfidentialOutputPlaintext {
                 asset_id: zolana_transaction::SOL_ASSET_ID,
                 amount: 0,
@@ -2255,43 +2330,20 @@ mod tests {
             }
             .serialize()
             .unwrap();
-            assert_eq!(body.len(), key.pubkey().as_bytes().len() + plaintext.len());
+            assert_eq!(body.len(), key_len + plaintext.len());
         }
     }
 
     #[test]
     fn a_record_carrier_frames_a_full_withdrawals_dummy_outputs() {
-        let (sender, mut prepared) = prepared_transfer(10);
-        let key = sender
-            .get_transaction_viewing_key(&prepared.first_nullifier)
-            .unwrap();
-        for output in &mut prepared.outputs {
-            *output = SppProofOutputUtxo::default().with_ring_program_id(ring().program_id());
+        let mut proof = framed_fixture(&[Some(ring().program_id()); 3]);
+        let money_count = proof.output_utxos.len() - 1;
+        for output in &mut proof.output_utxos[..money_count] {
+            output.owner_address = None;
         }
-        let namespace = ring().namespace_pda();
-        *prepared.outputs.last_mut().unwrap() = SppProofOutputUtxo {
-            asset: SOL_MINT,
-            blinding: random_blinding(),
-            data_hash: Some([1; 32]),
-            owner_address: Some(zolana_keypair::ShieldedAddress::for_pda(
-                &namespace,
-                zolana_keypair::NullifierKey::from_secret([0; 31])
-                    .pubkey()
-                    .unwrap(),
-                key.pubkey(),
-            )),
-            owner_tag: Some(namespace.to_bytes()),
-            ..Default::default()
-        };
-        let salt = random_salt();
-        let slots =
-            encode_confidential_slots(&prepared.outputs, &AssetRegistry::default(), &key, salt)
-                .unwrap();
-        let mut proof = prepared.finalize(key.pubkey(), salt, slots).unwrap();
         let record = proof.external_data.outputs.last().unwrap().clone();
         frame_dummy_outputs(&proof.output_utxos, &mut proof.external_data.outputs).unwrap();
         assert_eq!(proof.external_data.outputs.last(), Some(&record));
-        let money_count = proof.output_utxos.len() - 1;
         assert!(proof.output_utxos[..money_count]
             .iter()
             .all(SppProofOutputUtxo::is_dummy));
@@ -2304,24 +2356,9 @@ mod tests {
 
     #[test]
     fn dummy_framing_matches_ring_slot_lengths() {
-        let (sender, mut prepared) = prepared_transfer(10);
-        for output in &mut prepared.outputs {
-            output.ring_program_id = Some(ring().program_id());
-        }
-        let tx_viewing_key = sender
-            .get_transaction_viewing_key(&prepared.first_nullifier)
-            .expect("transaction viewing key");
-        let salt = random_salt();
-        let slots = encode_confidential_slots(
-            &prepared.outputs,
-            &AssetRegistry::default(),
-            &tx_viewing_key,
-            salt,
-        )
-        .expect("slots");
-        let mut proof_inputs = prepared
-            .finalize(tx_viewing_key.pubkey(), salt, slots)
-            .expect("proof inputs");
+        let mut proof_inputs = framed_fixture(&[Some(ring().program_id()); 3]);
+        proof_inputs.output_utxos[1].owner_address = None;
+        proof_inputs.output_utxos[2].owner_address = None;
         assert!(
             proof_inputs
                 .output_utxos

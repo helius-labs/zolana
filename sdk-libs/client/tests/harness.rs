@@ -61,9 +61,3 @@ pub(crate) fn random_blinding(rng: &mut ThreadRng) -> [u8; 32] {
     rng.fill_bytes(&mut b[1..]);
     b
 }
-
-pub(crate) fn random_32(rng: &mut ThreadRng) -> [u8; 32] {
-    let mut b = [0u8; 32];
-    rng.fill_bytes(&mut b);
-    b
-}

@@ -56,6 +56,7 @@ zolana-merkle-tree = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true, features = ["mollusk"] }
 zolana-tree = { workspace = true }
+zolana-wallet = { workspace = true }
 mollusk-svm = { workspace = true }
 
 [dev-dependencies]

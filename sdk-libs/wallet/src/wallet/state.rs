@@ -1,0 +1,315 @@
+use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
+
+use solana_address::Address;
+use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
+
+use zolana_transaction::{
+    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, WalletUtxo,
+};
+
+pub const DEFAULT_TAG_WINDOW: u64 = 64;
+pub(crate) const SENDER_HISTORY_ROW_BASE: u64 = 1 << 63;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrivateTransactionId {
+    pub signature: String,
+    pub slot: u64,
+    /// Stable row discriminator within the transaction. For received outputs this
+    /// is the UTXO leaf index when available; sender-side aggregate rows use a
+    /// high local row index range.
+    pub index: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrivateTransactionKind {
+    Deposit,
+    PrivateTransfer,
+    PublicWithdrawal,
+    Split,
+    Merge,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrivateTransactionDirection {
+    Inbound,
+    Outbound,
+    SelfTransfer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrivateTransactionStatus {
+    Confirmed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrivateTransaction {
+    pub id: PrivateTransactionId,
+    pub kind: PrivateTransactionKind,
+    pub direction: PrivateTransactionDirection,
+    pub status: PrivateTransactionStatus,
+    pub asset: Address,
+    pub amount: u64,
+    pub counterparty_viewing_pubkey: Option<P256Pubkey>,
+}
+
+pub struct ViewingKeyEntry {
+    pub viewing_pubkey: P256Pubkey,
+    pub created_at: i64,
+    pub tx_count: u64,
+    pub request_count: u64,
+    pub known_senders: HashMap<P256Pubkey, u64>,
+    pub known_recipients: HashMap<P256Pubkey, u64>,
+}
+
+impl ViewingKeyEntry {
+    pub fn new(viewing_pubkey: P256Pubkey, created_at: i64) -> Self {
+        Self {
+            viewing_pubkey,
+            created_at,
+            tx_count: 0,
+            request_count: 0,
+            known_senders: HashMap::new(),
+            known_recipients: HashMap::new(),
+        }
+    }
+}
+
+/// Holdings bound to one ring, never selectable by the default spend path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RingBalance {
+    pub ring_program_id: Address,
+    pub assets: Vec<AssetBalance>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Filter {
+    MinAmount(u64),
+}
+
+impl Filter {
+    fn matches(&self, utxo: &Utxo) -> bool {
+        match self {
+            Filter::MinAmount(min) => utxo.amount >= *min,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SyncReport {
+    pub stored_utxos: usize,
+    pub unparsed_transactions: usize,
+    pub undecryptable_candidates: usize,
+    /// Compact asset ids that failed to decode because the wallet's registry
+    /// did not know them (SPL assets registered after the registry was built).
+    /// The client sync layer uses this to lazily backfill the registry from
+    /// chain and retry; it stays empty when every id is known.
+    pub unknown_asset_ids: BTreeSet<u64>,
+    /// Mints a decoded note named that the registry could not give a compact id
+    /// for. Only the ring-deposit rail reaches this: every other rail takes its
+    /// mint back out of the registry, so the lookup cannot fail. Recorded for
+    /// the same backfill-and-retry, because a note whose mint is unresolved is
+    /// otherwise counted as undecryptable and lost.
+    pub unknown_mints: BTreeSet<Address>,
+}
+
+/// One key on one indexer stream. `ViewTag` is `[u8; 32]`, so the variant is
+/// what stops a tag being read as a nullifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CursorStream {
+    /// Shielded transactions matched by output view tag.
+    Tags(ViewTag),
+    /// Shielded transactions matched by spent nullifier.
+    Nullifiers([u8; 32]),
+    /// Encrypted UTXOs, which proofless deposits are read from.
+    Proofless(ViewTag),
+}
+
+impl CursorStream {
+    /// The tag or nullifier, for building the query.
+    pub fn value(self) -> [u8; 32] {
+        match self {
+            Self::Tags(value) | Self::Nullifiers(value) | Self::Proofless(value) => value,
+        }
+    }
+}
+
+pub type DepositPayloadDecoder = for<'a> fn(&'a [u8]) -> Result<&'a [u8], TransactionError>;
+
+pub struct Wallet {
+    pub(super) deposit_payload: DepositPayloadDecoder,
+    /// Public wallet identity. All secret key material is supplied by a
+    /// `WalletAuthority` when cryptographic work is required.
+    pub identity: ShieldedAddress,
+    /// Asset-id ↔ mint translation config for this wallet's session. Built once
+    /// before the wallet and immutable afterward; the build and sync paths read
+    /// it to encode/decode UTXO asset ids.
+    pub registry: AssetRegistry,
+    pub viewing_key_history: Vec<ViewingKeyEntry>,
+    pub utxos: Vec<WalletUtxo>,
+    pub transactions: Vec<PrivateTransaction>,
+    /// Every input nullifier ever observed across synced transactions. Kept
+    /// permanently so a UTXO discovered after its spend was seen still marks
+    /// spent.
+    pub nullifiers: HashSet<[u8; 32]>,
+    pub last_synced: i64,
+    /// Per key, the position everything matching it has been seen through.
+    /// Streams advance independently. Nullifier entries die with their spend.
+    pub cursors: HashMap<CursorStream, Vec<u8>>,
+}
+
+impl Wallet {
+    pub fn new(
+        identity: ShieldedAddress,
+        registry: AssetRegistry,
+    ) -> Result<Self, TransactionError> {
+        let viewing_pubkey = identity.viewing_pubkey;
+        Ok(Self {
+            deposit_payload: |bytes| Ok(bytes),
+            identity,
+            registry,
+            viewing_key_history: vec![ViewingKeyEntry::new(viewing_pubkey, 0)],
+            utxos: Vec::new(),
+            transactions: Vec::new(),
+            nullifiers: HashSet::new(),
+            last_synced: 0,
+            cursors: HashMap::new(),
+        })
+    }
+
+    #[must_use]
+    pub fn with_deposit_payload_decoder(mut self, decoder: DepositPayloadDecoder) -> Self {
+        self.deposit_payload = decoder;
+        self
+    }
+
+    pub(crate) fn ensure_viewing_key_entries(
+        &mut self,
+        viewing_pubkeys: impl IntoIterator<Item = P256Pubkey>,
+    ) {
+        for viewing_pubkey in viewing_pubkeys {
+            if self
+                .viewing_key_history
+                .iter()
+                .all(|entry| entry.viewing_pubkey != viewing_pubkey)
+            {
+                self.viewing_key_history
+                    .push(ViewingKeyEntry::new(viewing_pubkey, 0));
+            }
+        }
+    }
+
+    /// Every viewing key this wallet has been given, current and rotated-out.
+    ///
+    /// Seeded from the identity and extended by [`Self::ensure_viewing_key_entries`]
+    /// on each sync, so it also holds keys a later scan's material omits. A scan
+    /// snapshots this before it borrows the wallet mutably; a transfer addressed
+    /// to any of these keys is addressed to this wallet.
+    pub(crate) fn self_viewing_pubkeys(&self) -> HashSet<P256Pubkey> {
+        self.viewing_key_history
+            .iter()
+            .map(|entry| entry.viewing_pubkey)
+            .collect()
+    }
+
+    pub fn private_transactions(&self) -> &[PrivateTransaction] {
+        &self.transactions
+    }
+
+    pub fn get_private_transactions(&self) -> Vec<PrivateTransaction> {
+        self.transactions.clone()
+    }
+
+    /// Whether a spend of `utxo` has been observed. Derived from
+    /// [`Self::nullifiers`], which already holds every input nullifier the
+    /// wallet has ever synced, so there is no second place a spend could be
+    /// recorded and disagree.
+    pub fn is_spent(&self, utxo: &WalletUtxo) -> bool {
+        self.nullifiers.contains(&utxo.nullifier)
+    }
+
+    pub fn unspent(&self) -> impl Iterator<Item = &WalletUtxo> {
+        self.utxos.iter().filter(|utxo| !self.is_spent(utxo))
+    }
+
+    /// The spendable default-ring balance of one mint.
+    pub fn balance(
+        &self,
+        mint: Address,
+        filter: Option<Filter>,
+    ) -> Result<AssetBalance, TransactionError> {
+        let mut balance = AssetBalance {
+            asset_id: self.registry.asset_id(&mint)?,
+            mint,
+            amount: 0,
+            utxos: Vec::new(),
+        };
+        for input_utxo in self.unspent() {
+            if input_utxo.utxo.asset.asset != mint || input_utxo.utxo.ring_program_id.is_some() {
+                continue;
+            }
+            if let Some(filter) = &filter {
+                if !filter.matches(&input_utxo.utxo) {
+                    continue;
+                }
+            }
+            balance.amount = balance.amount.saturating_add(input_utxo.utxo.amount);
+            balance.utxos.push(input_utxo.clone());
+        }
+        Ok(balance)
+    }
+
+    /// Spendable default-ring balances, ring-bound notes appear in
+    /// [`Self::ring_balances`].
+    pub fn balances(&self, skip_utxos: bool) -> Result<Vec<AssetBalance>, TransactionError> {
+        self.asset_balances(skip_utxos, |entry| entry.utxo.ring_program_id.is_none())
+    }
+
+    pub fn ring_balances(&self, skip_utxos: bool) -> Result<Vec<RingBalance>, TransactionError> {
+        let rings: BTreeSet<Address> = self
+            .unspent()
+            .filter_map(|entry| entry.utxo.ring_program_id)
+            .collect();
+        rings
+            .into_iter()
+            .map(|ring| {
+                Ok(RingBalance {
+                    ring_program_id: ring,
+                    assets: self.asset_balances(skip_utxos, |entry| {
+                        entry.utxo.ring_program_id == Some(ring)
+                    })?,
+                })
+            })
+            .collect()
+    }
+
+    fn asset_balances(
+        &self,
+        skip_utxos: bool,
+        eligible: impl Fn(&WalletUtxo) -> bool,
+    ) -> Result<Vec<AssetBalance>, TransactionError> {
+        let mut by_mint: HashMap<Address, AssetBalance> = HashMap::new();
+        for input_utxo in self.unspent() {
+            if !eligible(input_utxo) {
+                continue;
+            }
+            let balance = match by_mint.entry(input_utxo.utxo.asset.asset) {
+                Entry::Occupied(occupied) => occupied.into_mut(),
+                // The id sync resolved, not a second lookup: a UTXO the wallet
+                // holds already carries the id its mint resolved to.
+                Entry::Vacant(vacant) => vacant.insert(AssetBalance {
+                    asset_id: input_utxo.utxo.asset.asset_id,
+                    mint: input_utxo.utxo.asset.asset,
+                    amount: 0,
+                    utxos: Vec::new(),
+                }),
+            };
+            balance.amount = balance.amount.saturating_add(input_utxo.utxo.amount);
+            if !skip_utxos {
+                balance.utxos.push(input_utxo.clone());
+            }
+        }
+        let mut balances: Vec<AssetBalance> = by_mint.into_values().collect();
+        balances.sort_by_key(|b| b.asset_id);
+        Ok(balances)
+    }
+}

@@ -8,7 +8,7 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    Proof, ProverClient, PublicTransfers, RingAuthorityProver, Rpc, SppProofInputUtxo,
+    Proof, ProofAuthority, ProverClient, PublicTransfers, RingAuthorityProver, Rpc,
 };
 use zolana_interface::{
     instruction::{
@@ -19,8 +19,9 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_transaction::{
-    instructions::transact::{prepare_output_blindings, shape::Shape},
-    Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    instructions::transact::shape::Shape,
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
+    Data, ExternalData, Mint, SppProofOutputUtxo, Utxo,
 };
 
 const TEST_TREE_ID: u16 = 0;
@@ -33,7 +34,7 @@ fn prepared_authority_witness_proves_and_verifies() {
     let owner = ShieldedKeypair::new_ed25519().expect("owner keypair");
     let utxo = Utxo {
         owner: owner.signing_pubkey(),
-        asset: SOL_MINT,
+        asset: Mint::SOL,
         amount: 0,
         blinding: random_blinding(),
         ring_program_id: Some(ring),
@@ -45,12 +46,22 @@ fn prepared_authority_witness_proves_and_verifies() {
         .expect("UTXO hash");
     indexer.add_utxo(utxo_hash);
 
+    let wallet =
+        zolana_test_utils::utxo::wallet(utxo, &owner.nullifier_key, TEST_TREE_ID, 0, None, None)
+            .expect("wallet UTXO");
     let inputs = vec![
-        SppProofInputUtxo::new(utxo, &owner).in_tree(TEST_TREE_ID),
-        SppProofInputUtxo::new_dummy().in_tree(TEST_TREE_ID),
+        SppProofInputUtxo::from(wallet),
+        SppProofInputUtxo::dummy(TEST_TREE_ID).expect("dummy input"),
     ];
     let mut outputs = vec![dummy_output(), dummy_output()];
-    let blinding_seed = prepare_output_blindings(&inputs, &mut outputs).expect("output blindings");
+    let blinding_seed = random_blinding();
+    let output_seed =
+        derive_output_blinding_seed(&inputs[0].nullifier(), &blinding_seed).expect("output seed");
+    for (index, output) in outputs.iter_mut().enumerate() {
+        output.blinding =
+            derive_transact_output_blinding(&inputs[0].nullifier(), &output_seed, index as u32)
+                .expect("output blinding");
+    }
     let prepared = PreparedRingAuthority {
         inputs,
         outputs,
@@ -72,9 +83,9 @@ fn prepared_authority_witness_proves_and_verifies() {
         .inputs
         .iter()
         .filter(|input| input.is_dummy())
-        .map(|input| indexer.dummy_nullifier_proof(input.nullifier().expect("dummy nullifier")))
+        .map(|input| indexer.dummy_nullifier_proof(input.nullifier()))
         .collect();
-    let result = RingAuthorityProver::try_from(RingAuthorityWitness {
+    let mut result = RingAuthorityProver::try_from(RingAuthorityWitness {
         prepared,
         proofs,
         dummy_nullifier_proofs,
@@ -82,6 +93,9 @@ fn prepared_authority_witness_proves_and_verifies() {
     .expect("ring-authority prover")
     .build()
     .expect("ring-authority witness");
+    owner
+        .complete_inputs(&mut result.inputs.inputs)
+        .expect("complete owner witness");
 
     let proof = ProverClient::local()
         .prove_ring_authority(&result.inputs)

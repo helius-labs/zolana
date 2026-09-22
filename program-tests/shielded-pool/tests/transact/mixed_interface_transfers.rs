@@ -3,7 +3,6 @@
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
 
 use num_bigint::BigUint;
-use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -30,14 +29,11 @@ use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
     dummy_transfer_output, external_data_hash, fe, inline_outputs, input_utxo,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
-    real_output, set_output_owner_tags, single_tree_slots, sol_leg, spend_input, spl_leg,
-    test_private_tx_blinding, transfer_output, LegAccounts, SpendInputArgs,
+    real_output, set_output_owner_tags, signed_to_field, single_tree_slots, sol_leg, spl_leg,
+    test_private_tx_blinding, transfer_input, transfer_output, LegAccounts, TransferInputArgs,
     TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::{
-    instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
-    Utxo, SOL_MINT,
-};
+use zolana_transaction::{instructions::transact::PrivateTxHash, Utxo, SOL_MINT};
 
 const SOL_SPLIT_TOTAL: u64 = 1_000_000_000;
 const SPL_SPLIT_TOTAL: u64 = 1_000;
@@ -94,7 +90,7 @@ fn build_spend_note(
         .expect("non inclusion proof");
     let (dummy_input, dummy_nullifier) =
         dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
-    let input = spend_input(SpendInputArgs {
+    let input = transfer_input(TransferInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
@@ -134,7 +130,7 @@ fn deposit_sol_note(env: &mut Pool, amount: u64) -> SpendNote {
         .rpc
         .indexed_deposit_utxo(&event, owner)
         .expect("indexed deposit UTXO");
-    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, amount));
+    assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, amount));
     let zero = [0u8; 32];
     let utxo_hash = utxo
         .hash(&nullifier_pk, &zero, &zero, env.tree_id)
@@ -188,7 +184,7 @@ fn deposit_spl_note_with_program(
         .rpc
         .indexed_deposit_utxo(&event, owner)
         .expect("indexed deposit UTXO");
-    assert_eq!((utxo.asset, utxo.amount), (mint, amount));
+    assert_eq!((utxo.asset.asset, utxo.amount), (mint, amount));
     let zero = [0u8; 32];
     let utxo_hash = utxo
         .hash(&nullifier_pk, &zero, &zero, env.tree_id)
@@ -234,7 +230,7 @@ fn change_and_dummy_outputs(
     let mut outputs = vec![real_witness_output(
         payer_owner,
         nullifier_pk,
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         0,
         [30u8; 31],
         output_tree_id,
@@ -246,7 +242,7 @@ fn change_and_dummy_outputs(
 fn real_witness_output(
     signing_pubkey: PublicKey,
     nullifier_pk: [u8; 32],
-    asset: Address,
+    asset: zolana_transaction::Mint,
     amount: u64,
     blinding: [u8; 31],
     output_tree_id: u16,
@@ -650,11 +646,19 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let sol_deposit_amount = 10_000_000u64;
 
     let payer_owner = PublicKey::from_ed25519(&payer.pubkey().to_bytes());
+    let registry_data = env
+        .rpc
+        .account_data(&zolana_interface::pda::spl_asset_registry(&deposit_mint))
+        .expect("asset registry");
+    let deposit_asset_id =
+        zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
+            .expect("asset registry")
+            .asset_id;
     let outputs = vec![
         real_witness_output(
             payer_owner,
             note.nullifier_pk,
-            SOL_MINT,
+            zolana_transaction::Mint::SOL,
             sol_deposit_amount,
             [41u8; 31],
             env.tree_id,
@@ -662,7 +666,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         real_witness_output(
             payer_owner,
             note.nullifier_pk,
-            Address::new_from_array(deposit_mint.to_bytes()),
+            zolana_transaction::Mint::new(deposit_mint, deposit_asset_id),
             spl_deposit_amount,
             [42u8; 31],
             env.tree_id,

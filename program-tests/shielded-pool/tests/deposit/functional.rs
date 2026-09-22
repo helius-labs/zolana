@@ -22,10 +22,10 @@ use zolana_test_utils::litesvm_asserts::{
 };
 use zolana_transaction::{
     derive_output_blinding_seed, owner_utxo_hash, serialization::RingDepositPlaintext,
-    utxo::derive_transact_output_blinding, AssetRegistry, Data, KeypairWalletAuthority, Utxo,
-    Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
+    utxo::derive_transact_output_blinding, AssetRegistry, Data, Utxo,
 };
 use zolana_tree::TreeAccount;
+use zolana_wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use shielded_pool_tests::support::{
     fixtures::{register_mint, spl_depositor, Pool},
@@ -288,7 +288,7 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
         }],
         "SOL deposit emits exactly one deposit transfer with no asset"
     );
-    assert!(event.inputs.is_empty(), "deposit spends no inputs");
+    assert!(event.inputs.is_empty(), "deposit input_utxos no inputs");
     assert_eq!(event.outputs.len(), 1, "deposit appends exactly one output");
 }
 
@@ -376,7 +376,7 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
     let blinding = deposit_blinding(&tree.to_bytes(), event.leaf_index).expect("deposit blinding");
     let utxo = Utxo {
         owner: owner_pk,
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: AMOUNT,
         blinding,
         ring_program_id: None,
@@ -433,7 +433,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
         recipient
             .sync(
                 &authority,
-                &[event.to_shielded_transaction(Signature::default())],
+                &[event.to_shielded_transaction(Signature::default(), pool.tree_id)],
                 0,
                 DEFAULT_TAG_WINDOW,
             )
@@ -686,7 +686,7 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
 
         let expected_utxo = Utxo {
             owner: recipient.signing_pubkey,
-            asset: SOL_MINT,
+            asset: zolana_transaction::Mint::SOL,
             amount,
             blinding,
             ring_program_id: Some(ring_program_id),
@@ -764,12 +764,18 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
             true,
         )
         .expect("create ring config");
-    let (mint, _, vault) = register_mint(&mut pool);
+    let (mint, registry_address, vault) = register_mint(&mut pool);
+    let registry_data = pool
+        .rpc
+        .account_data(&registry_address)
+        .expect("asset registry");
+    let asset = zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
+        .expect("asset registry");
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
     let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_key.shielded_address().expect("shielded address"),
-        AssetRegistry::default(),
+        AssetRegistry::new([(asset.asset_id, mint)]).expect("registered asset"),
     )
     .expect("recipient wallet");
     let output_blinding_seed = derive_output_blinding_seed(&FIXTURE_FIRST_NULLIFIER, &[9u8; 32])

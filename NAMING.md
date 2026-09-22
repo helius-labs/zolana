@@ -59,7 +59,10 @@ Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
 `asset`, `amount`, `blinding`, `ring_program_id`, `data`.
 
 - Consumed notes: `SppProofInputUtxo` (signing/proving layer) or `InputUtxo`
-  (encrypted/instruction layer); local binding `spend`; collections `inputs`.
+  (encrypted/instruction layer); local binding `input_utxo`, collections
+  `input_utxos`. Never `spend` -- these are input UTXOs, and `spend` reads as
+  the verb. The client's input UTXO plus its fetched witnesses is
+  `TransferInputUtxo`, whose UTXO field is `utxo`.
 - Created notes: `OutputUtxo`; collections `outputs`. No `src_out` / `in_` /
   `out_` prefixes.
 - The client-side proof-inputs struct is `SppProofInputs`; its UTXO

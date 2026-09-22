@@ -156,7 +156,9 @@ impl ReadSpendRecord {
             .output_slots
             .get(usize::from(response.record.output_index))
             .ok_or(EntryProofError::InvalidHeadProof)?;
-        if output.output_context.tree != self.entries_tree || transaction.proofless {
+        if zolana_interface::pda::tree(output.output_context.tree_id) != self.entries_tree
+            || transaction.proofless
+        {
             return Err(EntryProofError::InvalidHeadProof);
         }
         let lookup = self.lookup()?;
@@ -512,7 +514,7 @@ mod tests {
                     successor: nullifier,
                 })
                 .unwrap();
-            let tree = Address::new_from_array([6; 32]);
+            let tree = zolana_interface::pda::tree(4);
             let query = ring.member_proof_request(
                 &member,
                 IndexedMapRoot {
@@ -543,6 +545,7 @@ mod tests {
                             output_context: RingsOutputContext {
                                 hash: Hash(hash),
                                 tree: SerializablePubkey::from(tree.to_bytes()),
+                                tree_id: 4,
                                 leaf_index: 7,
                             },
                         }],
@@ -595,7 +598,7 @@ mod tests {
             |response| {
                 response.record.transaction.output_slots[0]
                     .output_context
-                    .tree = SerializablePubkey::from([8; 32])
+                    .tree_id ^= 1
             },
             |response| response.record.transaction.proofless = true,
             |response| response.index = HEAD_MAP_CAPACITY,

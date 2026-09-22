@@ -35,7 +35,7 @@ impl Update {
         } = self;
 
         let [input] = spp_proof.inputs.as_slice() else {
-            return Err(anyhow!("SPP transact must spend exactly one input"));
+            return Err(anyhow!("SPP transact must input_utxo exactly one input"));
         };
         let [tree_context] = spp_proof.tree_contexts.as_slice() else {
             return Err(anyhow!("SPP transact must declare exactly one input tree"));

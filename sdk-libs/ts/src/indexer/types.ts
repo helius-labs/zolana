@@ -82,6 +82,7 @@ export interface GetRingsByNullifiersRequest {
 }
 
 export interface RingsOutputContext {
+  readonly treeId: number;
   readonly hash: Hash;
   readonly tree: Address;
   readonly leafIndex: bigint;
@@ -107,6 +108,7 @@ export interface EncryptedUtxoMatch {
 }
 
 export interface GetEncryptedUtxosByTagsResponse {
+  readonly outputTreeId?: number;
   readonly context: IndexerContext;
   readonly matches: readonly EncryptedUtxoMatch[];
   readonly nextCursor?: Base64String;
@@ -139,6 +141,7 @@ export interface IndexedShieldedTransaction {
 }
 
 export interface GetShieldedTransactionsByTagsResponse {
+  readonly outputTreeId?: number;
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Base64String;
@@ -147,6 +150,7 @@ export interface GetShieldedTransactionsByTagsResponse {
 }
 
 export interface GetShieldedTransactionsByNullifiersResponse {
+  readonly outputTreeId?: number;
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Base64String;
@@ -168,6 +172,7 @@ export interface SignatureIndexedShieldedTransaction {
 }
 
 export interface GetShieldedTransactionsBySignatureResponse {
+  readonly outputTreeId?: number;
   readonly context: IndexerContext;
   readonly transactions: readonly SignatureIndexedShieldedTransaction[];
 }

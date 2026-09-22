@@ -11,41 +11,42 @@ use zolana_keypair::{
     P256Pubkey, PublicKey,
 };
 
+pub mod asset;
 pub mod data;
+pub mod decrypt;
 pub mod error;
+pub mod indexer_types;
 pub mod instructions;
+pub mod keys;
 pub mod serialization;
+pub mod signature;
 pub mod utxo;
-pub mod wallet;
 
+pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
+pub use decrypt::{
+    decrypt, decrypt_spendable, verify_spendable, DecryptionResult, SpendableDecryptionResult,
+};
 pub use error::TransactionError;
-pub use instructions::transact::{
-    EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, ShieldedTransaction,
-    SppProofOutputUtxo,
+pub use indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
+pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
+pub use keys::{
+    DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
+    TransactionKeyRequest,
 };
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };
+pub use signature::P256Signature;
 pub use solana_address::Address;
+pub use utxo::wallet as spendable;
 pub use utxo::{
-    derive_output_blinding_seed, derive_private_tx_blinding, owner_utxo_hash, Blinding,
-    ProofInputUtxo, Utxo,
+    derive_output_blinding_seed, derive_private_tx_blinding, owner_utxo_hash, Blinding, Utxo,
+    WalletUtxo,
 };
-pub use wallet::{
-    asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
-    AnonymousRecipientSlot, ApprovalRequest, AssetBalance, Balances, ClientEd25519WalletAuthority,
-    CursorStream, EncryptedEnvelope, EncryptedSplit, EncryptedTransfer, Filter,
-    KeypairWalletAuthority, P256Signature, PrivateTransaction, PrivateTransactionDirection,
-    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, RingBalance,
-    SyncReport, SyncWalletAuthority, ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial,
-    WalletUtxo, DEFAULT_TAG_WINDOW,
-};
-pub use wallet::{decrypt_transactions, decrypt_transactions_with_config, SyncConfig};
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 
 pub const TRANSFER: u8 = 1;
-pub const SPLIT: u8 = 2;
 pub const MERGE: u8 = 3;
 pub const TRANSFER_PLAINTEXT: u8 = 4;
 

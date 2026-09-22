@@ -7,6 +7,7 @@ use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
     utxo::{Blinding, Utxo},
+    Mint,
 };
 
 /// Private preimages delivered to the owner of a proofless ring deposit.
@@ -53,7 +54,7 @@ impl RingDepositPlaintext {
     pub fn into_utxo(
         self,
         owner: PublicKey,
-        asset: Address,
+        asset: Mint,
         amount: u64,
         ring_program_id: Address,
     ) -> Utxo {

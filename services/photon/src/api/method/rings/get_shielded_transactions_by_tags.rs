@@ -8,7 +8,7 @@ use super::common::{
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
-use crate::common::indexer_context::extract as extract_context;
+use crate::common::indexer_context::{extract as extract_context, newest_unpaused_tree_id};
 use bincode::{Decode, Encode};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, FromQueryResult,
@@ -43,6 +43,7 @@ struct RingsOutputRow {
     output_index: i16,
     view_tag: Vec<u8>,
     output_tree: Vec<u8>,
+    tree_id: Option<i32>,
     leaf_index: i64,
     utxo_hash: Vec<u8>,
     payload: Vec<u8>,
@@ -99,6 +100,7 @@ pub async fn get_shielded_transactions_by_tags(
     .await?;
     Ok(GetShieldedTransactionsByTagsResponse {
         context: page.context,
+        output_tree_id: page.output_tree_id,
         transactions: page.transactions,
         next_cursor: page.next_cursor,
         scanned_through: page.scanned_through,
@@ -121,6 +123,7 @@ pub async fn get_shielded_transactions_by_nullifiers(
     .await?;
     Ok(GetShieldedTransactionsByNullifiersResponse {
         context: page.context,
+        output_tree_id: page.output_tree_id,
         transactions: page.transactions,
         next_cursor: page.next_cursor,
         scanned_through: page.scanned_through,
@@ -135,6 +138,7 @@ enum MatchBy {
 
 struct ShieldedTransactionPage {
     context: zolana_indexer_api::Context,
+    output_tree_id: Option<u16>,
     transactions: Vec<ShieldedTransaction>,
     next_cursor: Option<Base64String>,
     /// Set on a terminal page so an empty match set can still advance its scan.
@@ -158,6 +162,7 @@ async fn get_shielded_transactions(
         .map(|c| decode_cursor::<ShieldedTxCursor>(cursor_kind, c))
         .transpose()?;
     let context = extract_context(conn).await?;
+    let output_tree_id = newest_unpaused_tree_id(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
@@ -194,6 +199,7 @@ async fn get_shielded_transactions(
 
     Ok(ShieldedTransactionPage {
         context,
+        output_tree_id,
         transactions,
         next_cursor,
         scanned_through,
@@ -267,6 +273,7 @@ pub(super) async fn hydrate_shielded_transactions(
                 row.view_tag,
                 row.utxo_hash,
                 row.output_tree,
+                row.tree_id,
                 row.leaf_index,
                 row.payload,
             )?);
@@ -426,11 +433,13 @@ async fn fetch_rings_outputs(
             po.output_index AS output_index,
             po.view_tag AS view_tag,
             po.output_tree AS output_tree,
+            tm.tree_id AS tree_id,
             po.leaf_index AS leaf_index,
             po.utxo_hash AS utxo_hash,
             pop.payload AS payload
          FROM rings_outputs po
          JOIN rings_output_payloads pop ON pop.output_id = po.output_id
+         LEFT JOIN tree_metadata tm ON tm.tree_pubkey = po.output_tree
          WHERE po.rings_tx_id IN ({ids})
          ORDER BY po.rings_tx_id ASC, po.output_index ASC"
     );
@@ -558,9 +567,13 @@ mod tests {
         rings_tx_nullifiers, transactions,
     };
     use crate::migration::RingsMigrator;
+    use crate::monitor::tree_metadata_sync::{upsert_tree_metadata, TreeAccountData};
     use sea_orm::{Database, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
     use zolana_indexer_api::{GetRingsByNullifiersRequest, Limit};
+
+    const OUTPUT_TREE: [u8; 32] = [8; 32];
+    const OUTPUT_TREE_ID: u16 = 3;
 
     fn hash(byte: u8) -> Hash {
         Hash::from([byte; 32])
@@ -569,6 +582,10 @@ mod tests {
     async fn setup() -> DatabaseConnection {
         let db = Database::connect("sqlite::memory:").await.unwrap();
         RingsMigrator::up(&db, None).await.unwrap();
+        // `filter_by_known_trees` refuses to persist an output whose tree has
+        // no metadata row, so a fixture without one is not a state the ingester
+        // can produce.
+        insert_output_tree_metadata(&db).await;
         blocks::Entity::insert(blocks::ActiveModel {
             slot: Set(7),
             parent_slot: Set(0),
@@ -595,7 +612,7 @@ mod tests {
             slot: Set(7),
             ring_config: Set(Some(vec![9; 32])),
             source_instruction_tag: Set(1),
-            output_tree: Set(vec![8; 32]),
+            output_tree: Set(OUTPUT_TREE.to_vec()),
             first_output_leaf_index: Set(0),
             tx_viewing_pk: Set(None),
             salt: Set(None),
@@ -639,6 +656,21 @@ mod tests {
         assert_eq!(response.transactions[0].nullifiers, vec![hash(3), hash(4)]);
     }
 
+    async fn insert_output_tree_metadata(db: &DatabaseConnection) {
+        let tree = Pubkey::new_from_array(OUTPUT_TREE);
+        let data = TreeAccountData {
+            tree_id: OUTPUT_TREE_ID,
+            paused: false,
+            queue_pubkey: tree,
+            root_history_capacity: 1,
+            input_queue_zkp_batch_size: 1,
+            height: 1,
+            sequence_number: 0,
+            next_index: 0,
+        };
+        upsert_tree_metadata(db, tree, &data, 7).await.unwrap();
+    }
+
     /// Inserts one ring transaction whose `ring_config` is a real derived PDA,
     /// with the registration that maps it back to a program.
     async fn setup_ring(register: bool) -> (DatabaseConnection, Pubkey) {
@@ -661,7 +693,7 @@ mod tests {
             slot: Set(7),
             ring_config: Set(Some(ring_config.to_bytes().to_vec())),
             source_instruction_tag: Set(15),
-            output_tree: Set(vec![8; 32]),
+            output_tree: Set(OUTPUT_TREE.to_vec()),
             first_output_leaf_index: Set(0),
             tx_viewing_pk: Set(None),
             salt: Set(None),
@@ -675,7 +707,7 @@ mod tests {
             rings_tx_id: Set(2),
             slot: Set(7),
             output_index: Set(0),
-            output_tree: Set(vec![8; 32]),
+            output_tree: Set(OUTPUT_TREE.to_vec()),
             leaf_index: Set(2),
             view_tag: Set(hash(6).to_vec()),
             utxo_hash: Set(vec![6; 32]),

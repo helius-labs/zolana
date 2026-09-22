@@ -114,15 +114,15 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
     }
     .deposit()?;
     enrol(ListId::Allow, sender_member).send(&prover)?;
-    egress.spend(sender, &notes[0]).expect_refusal()?;
+    egress.input_utxo(sender, &notes[0]).expect_refusal()?;
     enrol(ListId::Allow, owner_member(recipient)?).send(&prover)?;
-    egress.spend(sender, &notes[0]).land(&prover)?;
+    egress.input_utxo(sender, &notes[0]).land(&prover)?;
 
     // 2. A Frozen sender is refused until its entry clears.
     let frozen = enrol(ListId::Frozen, sender_member).send(&prover)?;
-    egress.spend(sender, &notes[1]).expect_refusal()?;
+    egress.input_utxo(sender, &notes[1]).expect_refusal()?;
     clear(frozen).send(&prover)?;
-    egress.spend(sender, &notes[1]).land(&prover)?;
+    egress.input_utxo(sender, &notes[1]).land(&prover)?;
 
     // 3. Deposits are ungoverned ingress, the rows bound egress, and Block
     //    refuses the party's own change output even once Allow admits it.
@@ -138,11 +138,11 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
     .into_iter()
     .next()
     .ok_or_else(|| anyhow!("the Block party's note"))?;
-    egress.spend(&blocked, &note).expect_refusal()?;
+    egress.input_utxo(&blocked, &note).expect_refusal()?;
     enrol(ListId::Allow, blocked_member).send(&prover)?;
-    egress.spend(&blocked, &note).expect_refusal()?;
+    egress.input_utxo(&blocked, &note).expect_refusal()?;
     clear(block).send(&prover)?;
-    egress.spend(&blocked, &note).land(&prover)?;
+    egress.input_utxo(&blocked, &note).land(&prover)?;
 
     Ok(())
 }
@@ -292,7 +292,7 @@ struct Egress<'a> {
 }
 
 impl<'a> Egress<'a> {
-    fn spend(&self, sender: &'a ShieldedKeypair, note: &Utxo) -> PolicyTransfer<'a> {
+    fn input_utxo(&self, sender: &'a ShieldedKeypair, note: &Utxo) -> PolicyTransfer<'a> {
         PolicyTransfer {
             ring: self.ring,
             sender,

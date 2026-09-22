@@ -1,11 +1,10 @@
 use anyhow::{anyhow, Result};
 use dynamic_swap_program::instructions::shared::u64_right_align;
-use solana_address::Address;
 use zolana_keypair::{hash::poseidon, ShieldedPda};
 use zolana_transaction::{
-    instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
-    utxo::{Blinding, Utxo},
-    Data,
+    instructions::transact::SppProofOutputUtxo,
+    utxo::{Blinding, SppProofInputUtxo, Utxo},
+    Data, Mint,
 };
 
 use crate::err;
@@ -60,7 +59,7 @@ pub struct EscrowUtxo {
     pub terms: EscrowTerms,
     pub created_at: u64,
     /// The pair's source asset -- what the user escrows.
-    pub asset: Address,
+    pub asset: Mint,
     /// The private `OrderAmount` witness; also this UTXO's own amount.
     pub order_amount: u64,
     pub blinding: Blinding,
@@ -95,7 +94,15 @@ impl EscrowUtxo {
     }
 
     /// The order UTXO as a `settle` input spend.
-    pub fn to_input_utxo(&self, owner: &ShieldedPda) -> Result<SppProofInputUtxo> {
+    /// Takes the tree because the commitment and the nullifier both fold it
+    /// in; choosing it afterwards would leave the pair describing a UTXO in a
+    /// different tree.
+    pub fn to_input_utxo(
+        &self,
+        owner: &ShieldedPda,
+        tree_id: u16,
+        leaf_index: u64,
+    ) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
             owner: owner.shielded_address()?.signing_pubkey,
             asset: self.asset,
@@ -104,7 +111,21 @@ impl EscrowUtxo {
             ring_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, owner).with_data_hash(self.data_hash()?))
+        let data_hash = self.data_hash()?;
+        let key = owner.as_ref();
+        let nullifier_pubkey = key.pubkey()?;
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &data_hash, &[0; 32], tree_id)?;
+        let nullifier = key.nullifier(&utxo_hash, &utxo.blinding)?;
+        Ok(SppProofInputUtxo {
+            utxo,
+            utxo_hash,
+            nullifier,
+            nullifier_pubkey,
+            data_hash: Some(data_hash),
+            ring_data_hash: None,
+            tree_id,
+            leaf_index,
+        })
     }
 }
 
@@ -119,7 +140,7 @@ impl EscrowUtxo {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reservation {
     /// The pair's destination asset -- what the pool reserves.
-    pub asset: Address,
+    pub asset: Mint,
     pub amount: u64,
     pub blinding: Blinding,
 }
@@ -145,10 +166,13 @@ impl Reservation {
     }
 
     /// The reservation UTXO as a `settle` input spend.
+    /// Takes the tree for the same reason as [`Order::to_input_utxo`].
     pub fn to_input_utxo(
         &self,
         owner: &ShieldedPda,
         order_utxo_hash: [u8; 32],
+        tree_id: u16,
+        leaf_index: u64,
     ) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
             owner: owner.shielded_address()?.signing_pubkey,
@@ -158,7 +182,21 @@ impl Reservation {
             ring_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, owner).with_data_hash(order_utxo_hash))
+        let data_hash = order_utxo_hash;
+        let key = owner.as_ref();
+        let nullifier_pubkey = key.pubkey()?;
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &data_hash, &[0; 32], tree_id)?;
+        let nullifier = key.nullifier(&utxo_hash, &utxo.blinding)?;
+        Ok(SppProofInputUtxo {
+            utxo,
+            utxo_hash,
+            nullifier,
+            nullifier_pubkey,
+            data_hash: Some(data_hash),
+            ring_data_hash: None,
+            tree_id,
+            leaf_index,
+        })
     }
 }
 

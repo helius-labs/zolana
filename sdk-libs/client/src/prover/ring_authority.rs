@@ -9,12 +9,10 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_hasher::primitives::solana_owner_identity;
-use zolana_interface::{
-    instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
-};
+use zolana_interface::instruction::instruction_data::transact::TreeContext;
 use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, PublicTransfers},
-    utxo::{derive_output_blinding_seed, derive_private_tx_blinding, program_id_proof_input_hash},
+    instructions::{ring_authority::RingAuthorityProofInputs, transact::PublicTransfers},
+    utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -22,13 +20,16 @@ use crate::{
     error::ClientError,
     prover::{
         field::be,
-        resolve_shape,
-        transact::assembly::{
-            assemble_inputs, assemble_outputs, validate_output_blindings, OwnerMode, PublicInputs,
-            TransferSpendInput,
+        transact::{
+            assembly::{
+                assemble_transaction, validate_shape, AssembledTransaction, OwnerMode,
+                PublicInputs, TransferInputUtxo,
+            },
+            witness::{attach_input_proofs, SpendProof},
         },
         Shape, TransferInputs, TreeSlotFields,
     },
+    rpc::NonInclusionProof,
 };
 
 /// Ring-authority state transition over ring-owned UTXOs. The ring authority is
@@ -36,9 +37,8 @@ use crate::{
 /// signature. Owners are opaque field elements bound through their nullifier
 /// secrets, exactly like the merge circuit, and stay private (anonymous).
 pub struct RingAuthorityProver {
-    /// Input slots; a `None` proof on [`TransferSpendInput`] is a dummy. Each real
-    /// input's `nullifier_key` is supplied by the ring authority.
-    pub inputs: Vec<TransferSpendInput>,
+    /// Input slots; a `None` proof on [`TransferSpendInput`] is a dummy.
+    pub inputs: Vec<TransferInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     /// The transaction's private random root seed. See
     /// [`TransferProver::blinding_seed`](crate::prover::TransferProver).
@@ -54,11 +54,14 @@ pub struct RingAuthorityProver {
     /// The ring program; bound to the public `ring_program_id` and to each
     /// non-dummy UTXO's ring field by the circuit.
     pub ring_program_id: Option<Address>,
-    pub shape: Option<Shape>,
+    pub shape: Shape,
 }
 
 #[derive(Debug, Clone)]
 pub struct RingAuthorityProofResult {
+    /// Assembled but not complete: every real input is still waiting for its
+    /// owner's [`ProofAuthority`](crate::authority::ProofAuthority) to fill in
+    /// the nullifier secret, which the prover request refuses without.
     pub inputs: TransferInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
@@ -73,30 +76,23 @@ pub struct RingAuthorityProofResult {
 
 impl RingAuthorityProver {
     pub fn build(self) -> Result<RingAuthorityProofResult, ClientError> {
-        resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        validate_shape(self.shape, self.inputs.len(), self.outputs.len())?;
 
-        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::RingAuthority)?;
-        let input_flags = pack_input_flags(
+        let AssembledTransaction {
+            inputs: assembled_inputs,
+            outputs: assembled_outputs,
+            external_data_hash,
+            private_tx_hash: private_tx,
+            input_flags,
+        } = assemble_transaction(
+            &self.inputs,
+            &self.outputs,
+            &self.blinding_seed,
+            self.output_tree_id,
+            &self.external_data,
+            &OwnerMode::RingAuthority,
             self.allow_dummy_inputs,
-            assembled_inputs.input_tree_indexes.iter().copied(),
         )?;
-        let first_nullifier = assembled_inputs
-            .nullifiers
-            .first()
-            .ok_or(ClientError::NoInputs)?;
-        let output_blinding_seed =
-            derive_output_blinding_seed(first_nullifier, &self.blinding_seed)?;
-        validate_output_blindings(&self.outputs, first_nullifier, &output_blinding_seed)?;
-        let assembled_outputs = assemble_outputs(&self.outputs, self.output_tree_id)?;
-        let external_data_hash = self.external_data.hash()?;
-        let private_tx_blinding = derive_private_tx_blinding(first_nullifier, &self.blinding_seed)?;
-        let private_tx = PrivateTxHash::new(
-            &assembled_inputs.input_hashes,
-            &assembled_outputs.private_tx_output_hashes,
-            &external_data_hash,
-            &private_tx_blinding,
-        )
-        .hash()?;
 
         // Bind the ring program: ring_program_id is the ring's pk_field. The UTXOs
         // themselves carry ring_program_id; the circuit binds each non-dummy UTXO's
@@ -149,6 +145,56 @@ impl RingAuthorityProver {
             private_tx_hash: private_tx,
             tree_contexts: assembled_inputs.tree_contexts,
             input_tree_indexes: assembled_inputs.input_tree_indexes,
+        })
+    }
+}
+
+/// A [`RingAuthorityProofInputs`] plus the fetched Merkle proofs, ready to fold into a
+/// [`RingAuthorityProver`]. One
+/// [`SpendProof`] per real (non-dummy) input, in input order.
+pub struct RingAuthorityWitness {
+    pub prepared: RingAuthorityProofInputs,
+    pub proofs: Vec<SpendProof>,
+    /// One nullifier non-inclusion proof per dummy input, in dummy-slot order.
+    /// Unlike merge, the shared transfer circuit checks non-inclusion for every
+    /// slot, including padding.
+    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
+}
+
+impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
+    type Error = ClientError;
+
+    fn try_from(witness: RingAuthorityWitness) -> Result<Self, Self::Error> {
+        let RingAuthorityWitness {
+            prepared,
+            proofs,
+            dummy_nullifier_proofs,
+        } = witness;
+        let RingAuthorityProofInputs {
+            input_utxos: inputs,
+            output_utxos: outputs,
+            blinding_seed,
+            output_tree_id,
+            public_transfers,
+            external_data,
+            payer,
+            ring_program_id,
+            shape,
+        } = prepared;
+
+        let input_utxos = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
+
+        Ok(RingAuthorityProver {
+            inputs: input_utxos,
+            outputs,
+            blinding_seed,
+            output_tree_id,
+            external_data,
+            public_transfers,
+            payer,
+            allow_dummy_inputs: true,
+            ring_program_id,
+            shape,
         })
     }
 }

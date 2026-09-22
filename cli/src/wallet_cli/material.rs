@@ -17,12 +17,12 @@ use zolana_keypair::{
     SigningKey, ViewingKey,
 };
 use zolana_transaction::{
-    serialization::{anonymous::AnonymousTransferSenderPlaintext, split::SplitBundlePlaintext},
-    Address, AssetRegistry, SppProofOutputUtxo, TransactionError,
+    serialization::anonymous::AnonymousTransferSenderPlaintext, Address, SppProofOutputUtxo,
+    TransactionError,
 };
 use zolana_wallet::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedSplit, EncryptedTransfer,
-    KeypairWalletAuthority, P256Signature, SyncWalletAuthority,
+    AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority,
+    P256Signature, SyncWalletAuthority,
 };
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
@@ -91,13 +91,11 @@ impl SyncWalletAuthority for WalletMaterial {
         &self,
         first_nullifier: &[u8; 32],
         outputs: &[SppProofOutputUtxo],
-        assets: &AssetRegistry,
     ) -> std::result::Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
             &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             outputs,
-            assets,
         )
     }
 
@@ -114,20 +112,6 @@ impl SyncWalletAuthority for WalletMaterial {
             sender_view_tag,
             sender,
             recipients,
-        )
-    }
-
-    fn encrypt_split(
-        &self,
-        first_nullifier: &[u8; 32],
-        view_tag: ViewTag,
-        bundle: &SplitBundlePlaintext,
-    ) -> std::result::Result<EncryptedSplit, TransactionError> {
-        SyncWalletAuthority::encrypt_split(
-            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
-            first_nullifier,
-            view_tag,
-            bundle,
         )
     }
 

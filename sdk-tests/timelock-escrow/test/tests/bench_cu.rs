@@ -1,4 +1,8 @@
 use std::time::{Duration, Instant};
+use zolana_test_utils::utxo::{
+    encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+};
+use zolana_transaction::utxo::SppProofInputUtxo;
 
 use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
@@ -41,14 +45,8 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
-    instructions::{
-        transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
-            spp_proof_inputs::BN254_MODULUS_DEC, ExternalData, SppProofInputs, SppProofOutputUtxo,
-        },
-        types::SppProofInputUtxo,
-    },
-    AssetRegistry, Data, Utxo, SOL_MINT,
+    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo, BN254_MODULUS_DEC},
+    Data, Utxo,
 };
 use zolana_tree::TreeAccount;
 
@@ -158,7 +156,7 @@ fn build_spend_proofs(
     tree: &Pubkey,
     state_tree: &MerkleTree<Poseidon>,
     nf_tree: &IndexedMerkleTree<Poseidon, usize>,
-    commitments: &[zolana_transaction::instructions::types::InputUtxoContext],
+    commitments: &[&SppProofInputUtxo],
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
     root_index: u16,
@@ -243,13 +241,25 @@ fn prove_transact_timed(
     proof_inputs: SppProofInputs,
     spend_proofs: &[SpendProof],
     prover: &ProverClient,
+    keys: &[&zolana_keypair::NullifierKey],
 ) -> (TransactIxData, Duration) {
+    let dummy_proofs = zolana_test_utils::utxo::dummy_proofs(&proof_inputs);
     prover
-        .prove_transact(proof_inputs.clone(), spend_proofs, &[])
+        .prove_transact(
+            proof_inputs.clone(),
+            spend_proofs,
+            &dummy_proofs,
+            &zolana_test_utils::utxo::ProofKeys(keys),
+        )
         .expect("warm prove transact");
     let start = Instant::now();
     let transact = prover
-        .prove_transact(proof_inputs, spend_proofs, &[])
+        .prove_transact(
+            proof_inputs,
+            spend_proofs,
+            &dummy_proofs,
+            &zolana_test_utils::utxo::ProofKeys(keys),
+        )
         .expect("prove transact");
     (transact, start.elapsed())
 }
@@ -365,7 +375,7 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
     const LOCK_AMOUNT: u64 = 400_000;
     const UNLOCK_TIMESTAMP: u64 = 1_000_000;
 
-    let tree = Keypair::new().pubkey();
+    let tree = zolana_interface::pda::tree(BENCH_TREE_ID);
     let payer = Keypair::new();
     let creator = keypair_from_payer(&payer);
     let creator_address = creator.shielded_address().expect("creator address");
@@ -373,14 +383,26 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
     let input_blinding = random_blinding();
     let input_utxo = Utxo {
         owner: creator.signing_pubkey(),
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: INPUT_AMOUNT,
         blinding: input_blinding,
         ring_program_id: None,
         data: Data::default(),
     };
-    let spend = SppProofInputUtxo::new(input_utxo, &creator).in_tree(BENCH_TREE_ID);
-    let input_utxos = vec![spend, SppProofInputUtxo::new_dummy().in_tree(BENCH_TREE_ID)];
+    let input_utxo: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
+        input_utxo,
+        &creator.nullifier_key,
+        BENCH_TREE_ID,
+        0,
+        None,
+        None,
+    )
+    .expect("indexed input")
+    .into();
+    let input_utxos = vec![
+        input_utxo,
+        SppProofInputUtxo::dummy(BENCH_TREE_ID).expect("dummy"),
+    ];
 
     let escrow_utxo = EscrowUtxo {
         terms: EscrowTerms {
@@ -388,16 +410,16 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
             unlock_timestamp: UNLOCK_TIMESTAMP,
         },
         blinding: random_blinding(),
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: LOCK_AMOUNT,
     };
     let escrow_output_utxo = escrow_utxo.output_utxo().expect("escrow output");
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let assets = AssetRegistry::default();
 
     let escrow_asset = escrow_output_utxo.asset;
-    let leftover = input_sum(&input_utxos, &escrow_asset) - i128::from(escrow_output_utxo.amount);
+    let leftover =
+        input_sum(&input_utxos, &escrow_asset.asset) - i128::from(escrow_output_utxo.amount);
     let change_amount =
         u64::try_from(leftover).expect("insufficient shielded balance for escrow bench");
     let change = SppProofOutputUtxo::new(escrow_asset, change_amount, creator_address)
@@ -413,7 +435,6 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         .expect("escrow transaction viewing key");
     let encoded = encrypt_transaction_data(
         &[change.clone(), escrow_output_utxo],
-        &assets,
         &transaction_viewing_key,
         BENCH_TREE_ID,
     )
@@ -426,14 +447,14 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         encoded.resolved_owner_tags,
         vec![],
     );
-    let spp_proof_inputs = SppProofInputs::new(
+    let spp_proof_inputs = SppProofInputs {
         input_utxos,
-        encoded.output_utxos,
+        output_utxos: encoded.output_utxos,
         external_data,
-        payer_address,
-    )
-    .with_blinding_seed(blinding_seed)
-    .with_output_tree_id(BENCH_TREE_ID);
+        payer: payer_address,
+        blinding_seed,
+        output_tree_id: BENCH_TREE_ID,
+    };
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -463,7 +484,12 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
 
     let prover = ProverClient::local();
     let escrow_prover = EscrowProverClient::new();
-    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(
+        spp_proof_inputs,
+        &spend_proofs,
+        &prover,
+        &[&creator.nullifier_key],
+    );
     let escrow_prove_start = Instant::now();
     let escrow_proof = escrow_prover
         .prove_escrow(
@@ -503,7 +529,7 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
     const UNLOCK_TIMESTAMP: u64 = 1_000_000;
     const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 
-    let tree = Keypair::new().pubkey();
+    let tree = zolana_interface::pda::tree(BENCH_TREE_ID);
     let payer = Keypair::new();
     let creator = keypair_from_payer(&payer);
     let creator_address = creator.shielded_address().expect("creator address");
@@ -514,27 +540,24 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
             unlock_timestamp: UNLOCK_TIMESTAMP,
         },
         blinding: random_blinding(),
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: LOCK_AMOUNT,
     };
     let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
 
     let escrow_input_utxo = escrow_utxo
-        .to_input_utxo()
-        .expect("escrow spend")
-        .in_tree(BENCH_TREE_ID);
+        .to_input_utxo(BENCH_TREE_ID, 0)
+        .expect("escrow input_utxo");
     let input_utxos = vec![escrow_input_utxo];
     let blinding_seed =
         prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))
             .expect("derive withdraw output blinding");
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let assets = AssetRegistry::default();
     let transaction_viewing_key = get_transaction_viewing_key(&creator, &input_utxos)
         .expect("withdraw transaction viewing key");
     let encoded = encrypt_transaction_data(
         std::slice::from_ref(&source_output),
-        &assets,
         &transaction_viewing_key,
         BENCH_TREE_ID,
     )
@@ -548,14 +571,14 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
         vec![],
     );
     external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-    let spp_proof_inputs = SppProofInputs::new(
+    let spp_proof_inputs = SppProofInputs {
         input_utxos,
-        encoded.output_utxos,
+        output_utxos: encoded.output_utxos,
         external_data,
-        payer_address,
-    )
-    .with_blinding_seed(blinding_seed)
-    .with_output_tree_id(BENCH_TREE_ID);
+        payer: payer_address,
+        blinding_seed,
+        output_tree_id: BENCH_TREE_ID,
+    };
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -592,7 +615,12 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
 
     let prover = ProverClient::local();
     let escrow_prover = EscrowProverClient::new();
-    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(
+        spp_proof_inputs,
+        &spend_proofs,
+        &prover,
+        &[&zolana_keypair::NullifierKey::from_secret([0; 31])],
+    );
     let withdraw_prove_start = Instant::now();
     let withdraw_proof = escrow_prover
         .prove_withdraw(

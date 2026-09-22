@@ -29,13 +29,13 @@ use custom_ring_interface::{
 use num_bigint::BigUint;
 use thiserror::Error;
 use zeroize::Zeroizing;
+use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
     symmetric_apply, KeypairError, NullifierKey, P256Pubkey, ViewingKey,
 };
-use zolana_transaction::utxo::ProofInputUtxo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum AuditEncryptionError {

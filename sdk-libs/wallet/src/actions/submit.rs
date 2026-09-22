@@ -11,15 +11,12 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::instruction::MergeTransact;
 use zolana_keypair::{Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair};
-use zolana_transaction::{instructions::merge::PreparedMerge, Address};
+use zolana_transaction::{instructions::merge::MergeProofInputs, Address};
 use zolana_user_registry_interface::{user_record_pda, UserRecord};
 
 use zolana_client::{
     error::ClientError,
-    prover::{
-        merge::{MergeProver, MergeWitness},
-        ProofCompressed, ProverClient,
-    },
+    prover::{merge::MergeProver, ProofCompressed, ProverClient},
     rpc::{ComputeBudgetConfig, Rpc},
     SpendProof,
 };
@@ -72,7 +69,7 @@ pub struct SubmitMergeTransaction<'a, R: Rpc, I: Rpc + ?Sized> {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
     pub prover_url: &'a str,
-    pub prepared: PreparedMerge,
+    pub prepared: MergeProofInputs,
 }
 
 /// The result of a submitted merge: the transaction signature and the commitment
@@ -109,9 +106,9 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     // merkle context, checked against the ix tree before paying for a proof that
     // could never verify on-chain.
     let commitments = prepared.input_utxo_hashes()?;
-    let proofs = indexer.get_input_merkle_proofs_for_tree(input_tree, &commitments, None)?;
+    let proofs = indexer.get_input_merkle_proofs(&commitments, None)?;
     ensure_proofs_match_input_tree(&proofs, input_tree)?;
-    let dummy_nullifiers = prepared.dummy_nullifiers(&material.nullifier_key)?;
+    let dummy_nullifiers = prepared.dummy_nullifiers();
     let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
         Vec::new()
     } else {
@@ -129,12 +126,12 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         }
     }
 
-    let result = MergeProver::try_from(MergeWitness {
-        prepared,
+    let result = MergeProver {
+        transaction: prepared,
         nullifier_key: material.nullifier_key.clone(),
         proofs,
         dummy_nullifier_proofs,
-    })?
+    }
     .build()?;
 
     let proof = ProverClient::new(prover_url.to_string()).prove_merge(&result.inputs)?;

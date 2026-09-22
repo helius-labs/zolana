@@ -647,35 +647,37 @@ mod tests {
     };
     use zolana_keypair::{random_blinding, ShieldedKeypair};
     use zolana_transaction::{
-        instructions::{transact::ConfidentialTransfer, types::SppProofInputUtxo},
-        Data, Utxo, SOL_MINT,
+        instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
+        SOL_MINT,
     };
 
     fn pending(sender: &ShieldedKeypair, attempts: u8) -> RingTransferSubmission<'_> {
         let ring = CustomRing::new(Address::new_from_array([5; 32]));
-        let input = SppProofInputUtxo::new(
+        let input = zolana_test_utils::utxo::wallet(
             Utxo {
                 owner: sender.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount: 10,
                 blinding: random_blinding(),
                 ring_program_id: Some(ring.program_id()),
                 data: Data::default(),
             },
-            sender,
-        );
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().unwrap(),
-            vec![input],
-            sender.pubkey(),
-        );
-        transfer
-            .send(&sender.shielded_address().unwrap(), SOL_MINT, 4)
+            &sender.nullifier_key,
+            0,
+            0,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut transaction = ConfidentialTransaction::new(vec![input], sender.pubkey()).unwrap();
+        transaction
+            .transfer_sol(&sender.shielded_address().unwrap(), 4)
             .unwrap();
         let transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring,
             sender,
-            prepared: transfer.prepare().unwrap(),
+            nullifier_key: Some(&sender.nullifier_key),
+            transaction,
         });
         let message = compile_message(
             &sender.pubkey(),
@@ -1116,25 +1118,36 @@ mod tests {
     }
     fn operations(sender: &ShieldedKeypair) -> Vec<RingOperation<'_>> {
         let ring = CustomRing::new(Address::new_from_array([5; 32]));
-        let inputs: Vec<_> = [3, 5]
+        let wallets: Vec<_> = [3, 5]
             .into_iter()
-            .map(|amount| {
-                SppProofInputUtxo::new(
+            .enumerate()
+            .map(|(index, amount)| {
+                zolana_test_utils::utxo::wallet(
                     Utxo {
                         owner: sender.signing_pubkey(),
-                        asset: SOL_MINT,
+                        asset: Mint::SOL,
                         amount,
                         blinding: random_blinding(),
                         ring_program_id: Some(ring.program_id()),
                         data: Data::default(),
                     },
-                    sender,
+                    &sender.nullifier_key,
+                    0,
+                    index as u64,
+                    None,
+                    None,
                 )
+                .unwrap()
             })
             .collect();
-        let merge = crate::CustomRingMerge::new(ring, sender, inputs.clone(), None)
+        let inputs = wallets
+            .iter()
+            .map(SppProofInputUtxo::from)
+            .collect::<Vec<_>>();
+        let merge = crate::CustomRingMerge::new(ring, wallets, None)
             .unwrap()
-            .prepare();
+            .encrypt(sender)
+            .unwrap();
         vec![
             pending(sender, 1).operation,
             DelegateTransfer::new(crate::DelegateTransferInput {

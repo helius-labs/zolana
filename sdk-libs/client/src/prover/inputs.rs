@@ -1,12 +1,9 @@
 use num_bigint::BigUint;
 use zolana_interface::{tree_slot::TreeSlot, INPUT_TREES, N_PUBLIC_SLOTS};
-use zolana_transaction::{instructions::types::SppProofInputUtxo, ProofInputUtxo};
 
-use crate::{
-    error::ClientError,
-    prover::field::be,
-    rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
-};
+use super::ProofInputUtxo;
+
+use crate::prover::field::be;
 
 /// One public tree slot of a proof request: the raw `u16` id of a tree inputs
 /// may be spent from and the two roots SPP resolved for it. An unused slot is
@@ -52,42 +49,16 @@ pub struct TransferInput {
     pub tree_slot: BigUint,
     pub nullifier: BigUint,
     pub owner_pk_hash: BigUint,
-    pub nullifier_secret: BigUint,
-}
-
-impl TransferInput {
-    /// Padding input over the sender's chosen random `blinding` (secret 0). It
-    /// is hashed under `tree_id`, the tree it was assigned; the caller supplies
-    /// the owner hash and the tree slot. The circuit skips ownership and state
-    /// inclusion for it but still checks nullifier non-inclusion, so the
-    /// nullifier returned here must be the one the caller fetched a
-    /// non-inclusion witness for.
-    pub fn new_dummy(
-        blinding: &[u8; 32],
-        tree_id: u16,
-        owner_pk_hash: &[u8; 32],
-    ) -> Result<(Self, [u8; 32]), ClientError> {
-        let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
-        spend.utxo.blinding = *blinding;
-        let nullifier = spend.nullifier()?;
-        Ok((
-            Self {
-                utxo: ProofInputUtxo::try_from(&spend)?,
-                is_dummy: BigUint::from(1u8),
-                state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
-                state_path_index: BigUint::ZERO,
-                nullifier_low_value: BigUint::ZERO,
-                nullifier_next_value: BigUint::ZERO,
-                nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
-                nullifier_low_path_index: BigUint::ZERO,
-                tree_slot: BigUint::ZERO,
-                nullifier: be(&nullifier),
-                owner_pk_hash: be(owner_pk_hash),
-                nullifier_secret: BigUint::ZERO,
-            },
-            nullifier,
-        ))
-    }
+    /// The secret this input is nullified with, absent until the owner's
+    /// [`ProofAuthority`](crate::authority::ProofAuthority) fills it in.
+    ///
+    /// `None` is a real input of that authority's owner, waiting to be
+    /// completed; `Some(0)` a padding slot, whose secret is genuinely zero and
+    /// public; `Some(s)` another owner's input, which arrived complete. Without
+    /// the `Option` the two zeros are indistinguishable and an uncompleted real
+    /// input would prove as a dummy, so serialization refuses a `None` rather
+    /// than sending one.
+    pub nullifier_secret: Option<BigUint>,
 }
 
 /// One output. Mirrors txcircuit.Output.

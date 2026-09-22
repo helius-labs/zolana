@@ -26,11 +26,9 @@ use zolana_test_utils::{
     spl::{create_mint, create_token_account, mint_to},
     test_validator_asserts::wait_for_indexed_utxo,
 };
-use zolana_transaction::{
-    instructions::types::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, Wallet, SOL_MINT,
-};
+use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
-use zolana_wallet::{sync_wallet, Deposit, DepositParams};
+use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 
 // The whole per-transaction budget: a swap verifies an SPP proof and its own.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -300,23 +298,29 @@ pub fn setup() -> Result<TestEnv> {
     // The order authority is a PDA holding no viewing key, but a proofless
     // deposit publishes its UTXO in the clear, so the depositor-chosen view tag
     // reads it back from the indexer.
-    let maker_deposited = wait_for_indexed_utxo(&indexer, maker_view_tag, maker_signature)
+    let indexed_deposit = wait_for_indexed_utxo(&indexer, maker_view_tag, maker_signature);
+    let maker_deposited = indexed_deposit
         .output_slot
         .proofless_output()
         .ok_or_else(|| anyhow!("indexed maker deposit is not a proofless UTXO"))?;
-    let maker_input = SppProofInputUtxo::new(
+    let maker_input: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
         Utxo {
             owner: order_authority_address.signing_pubkey,
-            asset: Address::new_from_array(maker_deposited.asset),
+            asset: assets.mint(&spl_mint)?,
             amount: maker_deposited.amount,
             blinding: maker_deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         },
-        order_nullifier_key,
-    );
+        &order_nullifier_key,
+        tree_id,
+        indexed_deposit.output_slot.output_context.leaf_index,
+        None,
+        None,
+    )?
+    .into();
     assert_eq!(
-        (maker_input.utxo.asset, maker_input.utxo.amount),
+        (maker_input.utxo.asset.asset, maker_input.utxo.amount),
         (spl_mint, MAKER_SHIELD_SPL)
     );
     Deposit::new(DepositParams {
@@ -351,7 +355,6 @@ pub fn setup() -> Result<TestEnv> {
         ProverClient::default(),
         AsyncZolanaIndexer::new(indexer_url),
         AsyncProverClient::default(),
-        Address::new_from_array(tree.to_bytes()),
     );
 
     let env = TestEnv {
@@ -372,7 +375,7 @@ pub fn setup() -> Result<TestEnv> {
 
     // Guard the fixture: the retained order-authority input the make flows
     // spend must be exactly the note the maker deposit just funded.
-    debug_assert_eq!(env.maker_input.utxo.asset, spl_mint);
+    debug_assert_eq!(env.maker_input.utxo.asset.asset, spl_mint);
     debug_assert_eq!(env.maker_input.utxo.amount, MAKER_SHIELD_SPL);
     Ok(env)
 }

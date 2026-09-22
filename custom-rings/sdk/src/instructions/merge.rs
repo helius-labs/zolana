@@ -4,18 +4,16 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use thiserror::Error;
 use zolana_client::{
-    AsyncProverClient, AsyncRpc, ClientError, InputProofs, MergeProofResult, NonInclusionProof,
-    Proof, ProofCompressed, ProverClient, Rpc, SpendProof,
+    AsyncProverClient, AsyncRpc, ClientError, MergeProofResult, NonInclusionProof, Proof,
+    ProofCompressed, ProverClient, Rpc, SpendProof,
 };
 use zolana_interface::instruction::{instruction_data::merge_ring::MergeRingIxData, MergeRing};
-use zolana_keypair::{NullifierKey, ShieldedKeypairTrait};
+use zolana_keypair::NullifierKey;
 use zolana_transaction::{
     error::TransactionError,
-    instructions::{
-        merge_ring::{MergeRing as MergePlan, PreparedMergeRing},
-        types::{InputUtxoContext, SppProofInputUtxo},
-    },
-    SppProofOutputUtxo,
+    instructions::merge::{MergeProofInputs, MergeTransaction},
+    utxo::SppProofInputUtxo,
+    ShieldedKeys, SppProofOutputUtxo, WalletUtxo,
 };
 
 use crate::{
@@ -23,7 +21,8 @@ use crate::{
     policy_config_table, tree_id, tree_id_async, AccountReadError, CustomRing, TransferError,
 };
 
-pub use zolana_client::{MergeRingProver, MergeRingWitness};
+pub use zolana_client::MergeProver as MergeRingProver;
+pub type MergeRingWitness = MergeRingProver;
 pub use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 
 /// A merge plan whose inputs and output are bound to one custom ring.
@@ -31,17 +30,17 @@ pub use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAUL
 #[derive(Clone)]
 pub struct CustomRingMerge {
     ring: CustomRing,
-    inner: MergePlan,
+    inner: MergeTransaction,
 }
 
 impl CustomRingMerge {
-    pub fn new<K: ShieldedKeypairTrait>(
+    pub fn new(
         ring: CustomRing,
-        keypair: &K,
-        inputs: Vec<SppProofInputUtxo>,
+        inputs: Vec<WalletUtxo>,
         output_ring_data_hash: Option<[u8; 32]>,
     ) -> Result<Self, TransactionError> {
-        let inner = MergePlan::new(keypair, inputs, ring.program_id(), output_ring_data_hash)?;
+        let inner =
+            MergeTransaction::new_with_ring(inputs, ring.program_id(), output_ring_data_hash)?;
         Ok(Self { ring, inner })
     }
 
@@ -50,11 +49,19 @@ impl CustomRingMerge {
         self
     }
 
-    pub fn prepare(self) -> PreparedCustomRingMerge {
-        PreparedCustomRingMerge {
+    pub fn with_output_tree_id(mut self, tree_id: u16) -> Self {
+        self.inner = self.inner.with_output_tree_id(tree_id);
+        self
+    }
+
+    pub fn encrypt<K: ShieldedKeys + ?Sized>(
+        self,
+        keys: &K,
+    ) -> Result<PreparedCustomRingMerge, TransactionError> {
+        Ok(PreparedCustomRingMerge {
             ring: self.ring,
-            inner: self.inner.prepare(),
-        }
+            inner: self.inner.encrypt(keys)?,
+        })
     }
 }
 
@@ -63,7 +70,7 @@ impl CustomRingMerge {
 #[derive(Clone)]
 pub struct PreparedCustomRingMerge {
     ring: CustomRing,
-    inner: PreparedMergeRing,
+    inner: MergeProofInputs,
 }
 
 #[derive(Debug, Error)]
@@ -118,6 +125,9 @@ pub struct ProvenCustomRingMerge {
     pub output_hash: [u8; 32],
     pub input_count: usize,
     pub merged_amount: u64,
+    pub tx_viewing_pk: [u8; 33],
+    pub salt: [u8; 16],
+    pub output_data: zolana_event::MessageData,
 }
 
 impl PreparedCustomRingMerge {
@@ -126,22 +136,19 @@ impl PreparedCustomRingMerge {
     }
 
     pub fn inputs(&self) -> &[SppProofInputUtxo] {
-        &self.inner.inputs
+        &self.inner.input_utxos
     }
 
     pub const fn output(&self) -> &SppProofOutputUtxo {
-        &self.inner.output
+        &self.inner.output_utxo
     }
 
-    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<&SppProofInputUtxo>, TransactionError> {
         self.inner.input_utxo_hashes()
     }
 
-    pub fn dummy_nullifiers(
-        &self,
-        nullifier_key: &NullifierKey,
-    ) -> Result<Vec<[u8; 32]>, TransactionError> {
-        self.inner.dummy_nullifiers(nullifier_key)
+    pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
+        self.inner.dummy_nullifiers()
     }
 
     pub fn witness(
@@ -151,7 +158,7 @@ impl PreparedCustomRingMerge {
         dummy_nullifier_proofs: Vec<NonInclusionProof>,
     ) -> MergeRingWitness {
         MergeRingWitness {
-            prepared: self.inner,
+            transaction: self.inner,
             nullifier_key,
             proofs,
             dummy_nullifier_proofs,
@@ -175,7 +182,7 @@ impl PreparedCustomRingMerge {
         }
         let commitments = self.input_utxo_hashes()?;
         let proofs = fetch_spend_proofs(env.indexer, input.input_tree, &commitments)?;
-        let dummy_nullifiers = self.dummy_nullifiers(&input.nullifier_key)?;
+        let dummy_nullifiers = self.dummy_nullifiers();
         let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
             Vec::new()
         } else {
@@ -222,14 +229,13 @@ impl PreparedCustomRingMerge {
                 None
             ),
         )?;
-        let proofs = InputProofs {
-            tree: input.input_tree,
-            commitments: &commitments,
-            state_proofs: state.proofs,
-            nullifier_proofs: nullifier.proofs,
-        }
-        .validate()?;
-        let dummy_nullifiers = self.dummy_nullifiers(&input.nullifier_key)?;
+        let proofs = validate_input_proofs(
+            input.input_tree,
+            &commitments,
+            state.proofs,
+            nullifier.proofs,
+        )?;
+        let dummy_nullifiers = self.dummy_nullifiers();
         let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
             Vec::new()
         } else {
@@ -251,7 +257,7 @@ impl PreparedCustomRingMerge {
     fn validate_source(&self, tree_id: u16) -> Result<(), MergeError> {
         if self
             .inner
-            .inputs
+            .input_utxos
             .iter()
             .filter(|input| !input.is_dummy())
             .any(|input| input.tree_id != tree_id)
@@ -285,19 +291,16 @@ impl PreparedCustomRingMerge {
             has_policy,
         } = proofs;
         let ring = self.ring;
-        let output_ring_data_hash = self.inner.output.ring_data_hash.unwrap_or_default();
-        let merged_amount = self.inner.output.amount;
+        let merged_amount = self.inner.output_utxo.amount;
         let input_count = proofs.len();
         let input_tree = input.input_tree;
         let output_tree = input.output_tree;
-        let result =
-            MergeRingProver::try_from(self.witness(input.nullifier_key, proofs, dummy))?.build()?;
+        let result = self.witness(input.nullifier_key, proofs, dummy).build()?;
         Ok(StagedMerge {
             ring,
             result,
             input_tree,
             output_tree,
-            output_ring_data_hash,
             merged_amount,
             input_count,
             has_policy,
@@ -317,7 +320,6 @@ struct StagedMerge {
     result: MergeProofResult,
     input_tree: Address,
     output_tree: Address,
-    output_ring_data_hash: [u8; 32],
     merged_amount: u64,
     input_count: usize,
     has_policy: bool,
@@ -332,12 +334,13 @@ impl StagedMerge {
             output_tree: self.output_tree,
             cosigner: None,
             has_policy: self.has_policy,
-            data: self
-                .result
-                .ring_instruction_data(proof, self.output_ring_data_hash),
+            data: self.result.ring_instruction_data(proof),
             output_hash: self.result.output_hash,
             input_count: self.input_count,
             merged_amount: self.merged_amount,
+            tx_viewing_pk: self.result.tx_viewing_pk,
+            salt: self.result.salt,
+            output_data: self.result.output_data.clone(),
         })
     }
 }
@@ -366,7 +369,7 @@ impl ProvenCustomRingMerge {
 fn fetch_spend_proofs<I: Rpc>(
     indexer: &I,
     tree: Address,
-    commitments: &[InputUtxoContext],
+    commitments: &[&SppProofInputUtxo],
 ) -> Result<Vec<SpendProof>, ClientError> {
     let state_proofs = indexer
         .get_merkle_proofs(
@@ -382,13 +385,43 @@ fn fetch_spend_proofs<I: Rpc>(
             None,
         )?
         .proofs;
-    InputProofs {
-        tree,
-        commitments,
-        state_proofs,
-        nullifier_proofs,
+    validate_input_proofs(tree, commitments, state_proofs, nullifier_proofs)
+}
+
+fn validate_input_proofs(
+    tree: Address,
+    commitments: &[&SppProofInputUtxo],
+    state_proofs: Vec<zolana_client::MerkleProof>,
+    nullifier_proofs: Vec<NonInclusionProof>,
+) -> Result<Vec<SpendProof>, ClientError> {
+    if state_proofs.len() != commitments.len() || nullifier_proofs.len() != commitments.len() {
+        return Err(ClientError::IncompleteInputProofs {
+            expected: commitments.len(),
+            state: state_proofs.len(),
+            nullifier: nullifier_proofs.len(),
+        });
     }
-    .validate()
+    state_proofs
+        .into_iter()
+        .zip(nullifier_proofs)
+        .zip(commitments)
+        .enumerate()
+        .map(|(index, ((state, nullifier), commitment))| {
+            if state.leaf != commitment.utxo_hash {
+                return Err(ClientError::StateProofLeafMismatch { index });
+            }
+            if state.merkle_context.tree != tree {
+                return Err(ClientError::StateProofTreeMismatch { index });
+            }
+            if nullifier.leaf != commitment.nullifier {
+                return Err(ClientError::NullifierProofLeafMismatch { index });
+            }
+            if nullifier.merkle_context.tree != tree {
+                return Err(ClientError::NullifierProofTreeMismatch { index });
+            }
+            Ok(SpendProof { state, nullifier })
+        })
+        .collect()
 }
 
 /// Client instruction for a proved custom-ring merge, the ring's
@@ -445,7 +478,7 @@ mod tests {
     use solana_address::Address;
     use zolana_interface::{instruction::instruction_data::merge_transact::MergeProof, pda};
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{instructions::types::SppProofInputUtxo, Utxo, SOL_MINT};
+    use zolana_transaction::{Mint, Utxo};
 
     use super::*;
 
@@ -454,27 +487,33 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
         let ring = CustomRing::new(Address::new_from_array([9; 32]));
         let inputs = [3, 5].map(|amount| {
-            SppProofInputUtxo::new(
+            zolana_test_utils::utxo::wallet(
                 Utxo {
                     owner: owner.signing_pubkey(),
-                    asset: SOL_MINT,
+                    asset: Mint::SOL,
                     amount,
                     blinding: [amount as u8; 32],
                     ring_program_id: Some(ring.program_id()),
                     data: Default::default(),
                 },
-                &owner,
+                &owner.nullifier_key,
+                0,
+                amount,
+                None,
+                None,
             )
+            .expect("input_utxo")
         });
 
-        let prepared = CustomRingMerge::new(ring, &owner, inputs.into(), None)
+        let prepared = CustomRingMerge::new(ring, inputs.into(), None)
             .expect("merge")
-            .prepare();
+            .encrypt(&owner)
+            .expect("prepare");
 
         assert_eq!(prepared.inputs().len(), MERGE_DEFAULT_INPUT_COUNT);
         assert_eq!(prepared.output().amount, 8);
         assert_eq!(prepared.output().ring_program_id, Some(ring.program_id()));
-        assert_eq!(prepared.output().asset, SOL_MINT);
+        assert_eq!(prepared.output().asset, Mint::SOL);
     }
 
     #[test]

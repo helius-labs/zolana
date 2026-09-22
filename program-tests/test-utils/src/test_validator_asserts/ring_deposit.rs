@@ -3,11 +3,10 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::RingAssetDeposit;
+use zolana_interface::{instruction::RingAssetDeposit, state::read_tree_id};
 use zolana_program_test::RingDepositOutput;
-use zolana_transaction::{
-    OutputContext, OutputSlot, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
-};
+use zolana_transaction::{OutputContext, OutputSlot};
+use zolana_wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use super::{
     fetch_account, state_root_from, to_address, wait_for_indexed_utxo, wait_for_merkle_proof,
@@ -65,8 +64,12 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     assert_eq!(*event, expected, "ring deposit event");
 
     let root_before = state_root_from(tree_before);
-    let root_after = state_root_from(&fetch_account(rpc, tree)?);
+    let tree_account = fetch_account(rpc, tree)?;
+    let root_after = state_root_from(&tree_account);
     assert_ne!(root_after, root_before, "leaf must be appended");
+    // The commitment folds the tree's raw id in, and the id lives in the tree
+    // account, so the assert reads it there rather than restating it.
+    let tree_id = read_tree_id(&tree_account.data).expect("tree id");
 
     let indexed = wait_for_indexed_utxo(indexer, data.view_tag, signature);
     assert_eq!(
@@ -78,7 +81,7 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
                 view_tag: data.view_tag,
                 output_context: OutputContext {
                     hash: event.utxo_hash,
-                    tree: to_address(tree),
+                    tree_id,
                     leaf_index: event.leaf_index,
                 },
                 payload: zolana_event::encode_encrypted_ring_deposit_output(
@@ -101,7 +104,7 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     recipient
         .sync(
             authority,
-            &[event.to_shielded_transaction(signature)],
+            &[event.to_shielded_transaction(signature, tree_id)],
             0,
             DEFAULT_TAG_WINDOW,
         )
@@ -112,10 +115,7 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
         "recipient wallet must discover the ring deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(
-        utxo.output_context.hash, event.utxo_hash,
-        "wallet UTXO hash"
-    );
+    assert_eq!(utxo.utxo_hash, event.utxo_hash, "wallet UTXO hash");
     assert_eq!(
         utxo.utxo.ring_program_id.map(|id| id.to_bytes()),
         Some(expected_ring_program_id),

@@ -18,7 +18,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zeroize::Zeroizing;
 use zolana_client::{
-    Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, Rpc, ShieldedTransaction,
+    Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
+    ShieldedTransaction,
 };
 use zolana_interface::{
     event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
@@ -32,15 +33,14 @@ use zolana_ring_client::{
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-    utxo::ProofInputUtxo,
-    AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, UtxoSerialization,
-    SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, SppProofOutputUtxo,
+    UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
 };
 
 const SALT: [u8; SALT_LEN] = [3u8; SALT_LEN];
 const TOKEN_ASSET_ID: u64 = 7;
 const TOKEN_MINT: Address = Address::new_from_array([9u8; 32]);
-const TREE: Address = Address::new_from_array([4u8; 32]);
+const TREE_ID: u16 = 4;
 
 fn registry() -> AssetRegistry {
     AssetRegistry::new([(TOKEN_ASSET_ID, TOKEN_MINT)]).expect("asset registry")
@@ -76,7 +76,7 @@ fn proof_output(plaintext: &ConfidentialOutputPlaintext, slot_index: u32) -> Pro
         &asset_for_fixture(plaintext.asset_id),
         plaintext.amount,
         &plaintext.blinding,
-        u16::from(TREE.to_bytes()[0]),
+        TREE_ID,
     )
     .expect("proof output")
     .with_ring([0; 32], &plaintext.ring_program_id)
@@ -84,16 +84,20 @@ fn proof_output(plaintext: &ConfidentialOutputPlaintext, slot_index: u32) -> Pro
 }
 
 fn padding_output(slot_index: u32) -> ProofInputUtxo {
-    ProofInputUtxo::new_dummy(
-        &field(slot_index as u8 | 0x20),
-        u16::from(TREE.to_bytes()[0]),
-    )
+    ProofInputUtxo::try_from((
+        &SppProofOutputUtxo {
+            blinding: field(slot_index as u8 | 0x20),
+            ..Default::default()
+        },
+        TREE_ID,
+    ))
+    .expect("dummy output")
 }
 
 fn output_context(output: &ProofInputUtxo, slot_index: u32) -> OutputContext {
     OutputContext {
         hash: output.hash().expect("output commitment"),
-        tree: TREE,
+        tree_id: TREE_ID,
         leaf_index: u64::from(slot_index),
     }
 }
@@ -741,6 +745,7 @@ impl Rpc for PagedIndexer {
             transactions,
             next_cursor,
             scanned_through: None,
+            output_tree_id: None,
         })
     }
 }

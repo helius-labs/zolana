@@ -7,7 +7,7 @@ use serde::Serialize;
 use zeroize::Zeroizing;
 use zolana_client::{
     prover::{Delivery, ProveRequest},
-    ClientError,
+    ClientError, ProofInputUtxo,
 };
 use zolana_interface::tree_slot::tree_id_field;
 use zolana_keypair::{P256Pubkey, ViewingKey};
@@ -15,7 +15,6 @@ use zolana_ring_policy::{
     VelocityRow, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS,
     POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
 };
-use zolana_transaction::utxo::ProofInputUtxo;
 
 use crate::{head_map::HeadWitness, velocity::RowCharges};
 

@@ -34,7 +34,7 @@ use zolana_test_utils::{
     test_validator_asserts::wait_for_indexed_utxo,
 };
 use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::asset_field, utxo::Blinding, AssetRegistry, SOL_MINT,
+    instructions::transact::asset_field, utxo::Blinding, AssetRegistry, SOL_MINT,
 };
 use zolana_user_registry_interface::user_registry_program_id;
 use zolana_wallet::{ensure_registered, Deposit, DepositParams};
@@ -343,7 +343,6 @@ pub fn setup() -> Result<TestEnv> {
         ProverClient::default(),
         zolana_client::AsyncZolanaIndexer::new(indexer_url),
         zolana_client::AsyncProverClient::default(),
-        Address::new_from_array(tree.to_bytes()),
     );
 
     Ok(TestEnv {

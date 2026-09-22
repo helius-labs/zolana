@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
-    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, Rpc,
+    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
 };
 use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
@@ -15,11 +15,10 @@ use zolana_ring_client::{
     RingRecovery, SourceMember, TransactionOrigin,
 };
 use zolana_transaction::{
-    instructions::{merge::merge_dummy_nullifier, merge_ring::MergeRing, types::SppProofInputUtxo},
+    instructions::merge::MergeTransaction,
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     serialization::ring_deposit::RingDepositPlaintext,
-    utxo::ProofInputUtxo,
-    AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, SppProofOutputUtxo, Utxo,
+    AssetRegistry, Mint, OutputContext, OutputSlot, ShieldedTransaction, SppProofOutputUtxo, Utxo,
     UtxoSerialization, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -68,12 +67,11 @@ impl Fixture {
                 origin: history,
             },
             assets: &AssetRegistry::default(),
-            tree_ids: |tree: Address| Ok(u16::from(tree.to_bytes()[0])),
         })
     }
 
     fn output(&self, amount: u64) -> SppProofOutputUtxo {
-        SppProofOutputUtxo::new(SOL_MINT, amount, self.address)
+        SppProofOutputUtxo::new(Mint::SOL, amount, self.address)
             .expect("output")
             .with_ring_program_id(RING)
     }
@@ -89,19 +87,19 @@ impl Fixture {
             data: output.data.clone(),
         };
         WalletUtxo {
+            nullifier_pubkey: self.address.nullifier_pubkey,
+            utxo_hash: hash,
             nullifier: utxo
                 .nullifier(&hash, &self.member.nullifier_key)
                 .expect("nullifier"),
             utxo,
-            output_context: OutputContext {
-                hash,
-                tree: Address::new_from_array([tree_id as u8; 32]),
-                leaf_index: u64::from(self.sequence.get()),
-            },
             data_hash: output.data_hash,
             ring_data_hash: output.ring_data_hash,
             tree_id,
-            spent: false,
+            leaf_index: u64::from(self.sequence.get()),
+            slot: u64::from(self.sequence.get()),
+            tx_signature: Signature::from([0; 64]),
+            slot_index: 0,
         }
     }
 
@@ -112,7 +110,8 @@ impl Fixture {
     ) -> (WalletUtxo, ShieldedTransaction) {
         let tx_key = ViewingKey::new();
         let signature = self.signature();
-        let held = self.held(&output, tree_id);
+        let mut held = self.held(&output, tree_id);
+        held.tx_signature = signature;
         let proof_output =
             ProofInputUtxo::try_from((&output, tree_id)).expect("proof output opening");
         let encoded = Confidential::encode_plaintext(
@@ -149,7 +148,7 @@ impl Fixture {
             salt: Some(SALT),
             output_slots: vec![OutputSlot {
                 view_tag: encoded.view_tag,
-                output_context: held.output_context.clone(),
+                output_context: output_context(&held),
                 payload: encoded.data,
             }],
             messages: vec![message],
@@ -162,36 +161,20 @@ impl Fixture {
     }
 
     fn merge(&self, inputs: &[WalletUtxo], tree_id: u16) -> (WalletUtxo, ShieldedTransaction) {
-        let spends = inputs
-            .iter()
-            .map(|held| SppProofInputUtxo {
-                utxo: held.utxo.clone(),
-                nullifier_key: self.member.nullifier_key.clone(),
-                data_hash: held.data_hash,
-                ring_data_hash: held.ring_data_hash,
-                tree_id: held.tree_id,
-            })
-            .collect();
-        let prepared = MergeRing::new(&self.member, spends, RING, Some([6; 32]))
+        let prepared = MergeTransaction::new_with_ring(inputs.to_vec(), RING, Some([6; 32]))
             .expect("merge")
             .with_output_tree_id(tree_id)
-            .prepare();
-        let first = inputs[0].nullifier;
+            .encrypt(&self.member)
+            .expect("encrypt merge");
+        let first = prepared.input_utxos[0].nullifier();
         let nullifiers = prepared
-            .inputs
+            .input_utxos
             .iter()
-            .enumerate()
-            .map(|(index, input)| {
-                if input.is_dummy() {
-                    merge_dummy_nullifier(&self.member.nullifier_key, &first, index as u8)
-                        .expect("dummy")
-                } else {
-                    input.nullifier().expect("input nullifier")
-                }
-            })
+            .map(|input| input.nullifier())
             .collect();
         let signature = self.signature();
-        let held = self.held(&prepared.output, tree_id);
+        let mut held = self.held(&prepared.output_utxo, tree_id);
+        held.tx_signature = signature;
         let transaction = ShieldedTransaction {
             slot: u64::from(self.sequence.get()),
             tx_signature: signature,
@@ -200,8 +183,12 @@ impl Fixture {
             salt: None,
             output_slots: vec![OutputSlot {
                 view_tag: first,
-                output_context: held.output_context.clone(),
-                payload: prepared.output.ring_data_hash.expect("ring hash").to_vec(),
+                output_context: output_context(&held),
+                payload: prepared
+                    .output_utxo
+                    .ring_data_hash
+                    .expect("ring hash")
+                    .to_vec(),
             }],
             messages: Vec::new(),
             nullifiers,
@@ -254,7 +241,7 @@ impl Fixture {
         transaction.output_slots[0].payload =
             encode_encrypted_ring_deposit_output(EncryptedRingDepositOutput {
                 owner_utxo_hash,
-                asset: held.utxo.asset.to_bytes(),
+                asset: held.utxo.asset.asset.to_bytes(),
                 amount: held.utxo.amount,
                 data_hash: held.data_hash,
                 ring_program_id: RING.to_bytes(),
@@ -262,6 +249,14 @@ impl Fixture {
                 encrypted,
             });
         (held, transaction)
+    }
+}
+
+fn output_context(note: &WalletUtxo) -> OutputContext {
+    OutputContext {
+        hash: note.utxo_hash,
+        tree_id: note.tree_id,
+        leaf_index: note.leaf_index,
     }
 }
 
@@ -285,6 +280,7 @@ impl Rpc for History {
                 slot: 100,
             },
             transactions: self.transactions.clone(),
+            output_tree_id: None,
             next_cursor: None,
             scanned_through: Some(Vec::new()),
         })
@@ -315,6 +311,7 @@ impl Rpc for History {
                 })
                 .cloned()
                 .collect(),
+            output_tree_id: None,
             next_cursor: None,
             scanned_through: Some(Vec::new()),
         })
@@ -343,6 +340,7 @@ impl Rpc for History {
                 })
                 .cloned()
                 .collect(),
+            output_tree_id: None,
             next_cursor: Some(vec![1]),
             scanned_through: Some(vec![1]),
         })
@@ -418,7 +416,7 @@ fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs
         };
         let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
         assert!(recovered.utxos.is_empty());
-        assert_eq!(recovered.unopened, vec![merged.output_context.hash]);
+        assert_eq!(recovered.unopened, vec![merged.utxo_hash]);
     }
 }
 
@@ -481,7 +479,7 @@ fn caller_hash_metadata_cannot_override_the_proof_bound_opening() {
     };
     let resolver = |output: &AuditedOutput, context: &OutputContext| {
         assert_eq!(output.data, held.utxo.data);
-        assert_eq!(context.hash, held.output_context.hash);
+        assert_eq!(context.hash, held.utxo_hash);
         Ok(Some(NoteDataHashes {
             ring_data_hash: Some([5; 32]),
             ..Default::default()
@@ -565,10 +563,7 @@ fn direct_deposits_are_reported_separately_without_claiming_they_are_unspent() {
     let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
     assert!(recovered.utxos.is_empty());
     assert!(recovered.unopened.is_empty());
-    assert_eq!(
-        recovered.unsupported_deposits,
-        vec![held.output_context.hash]
-    );
+    assert_eq!(recovered.unsupported_deposits, vec![held.utxo_hash]);
 }
 
 #[test]

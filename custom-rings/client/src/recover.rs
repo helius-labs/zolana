@@ -1,7 +1,7 @@
 //! Rebuilds a source member's unspent ring notes from the auditor's visibility.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     num::{NonZeroU32, NonZeroUsize},
 };
 
@@ -69,11 +69,9 @@ pub struct NoteDataHashes {
 pub type NoteHashResolver<'a> =
     dyn Fn(&AuditedOutput, &OutputContext) -> Result<Option<NoteDataHashes>, RecoveryError> + 'a;
 
-pub struct RecoveryEnvironment<'a, I, O, F> {
+pub struct RecoveryEnvironment<'a, I, O> {
     pub ring: RingEnvironment<'a, I, O>,
     pub assets: &'a AssetRegistry,
-    /// The raw id a note's leaf is committed under.
-    pub tree_ids: F,
 }
 
 /// Verified unspent notes with separate unresolved coverage.
@@ -133,23 +131,18 @@ impl<'a> MemberRecovery<'a> {
         self
     }
 
-    pub fn run<I, O, F>(
+    pub fn run<I, O>(
         self,
-        env: RecoveryEnvironment<'_, I, O, F>,
+        env: RecoveryEnvironment<'_, I, O>,
     ) -> Result<RecoveredNotes, RecoveryError>
     where
         I: Rpc,
         O: TransactionOrigin,
-        F: FnMut(Address) -> Result<u16, RecoveryError>,
     {
         // 1. The recovered nullifier key must match the requested source
         // address.
         let source_member = self.source.verify()?;
-        let RecoveryEnvironment {
-            ring,
-            assets,
-            mut tree_ids,
-        } = env;
+        let RecoveryEnvironment { ring, assets } = env;
         let auditor_pk = self.recovery.auditor.pubkey();
         let page = RingScan::new(self.recovery.ring_program_id, &auditor_pk)
             .with_page_size(self.recovery.page_size)
@@ -162,7 +155,6 @@ impl<'a> MemberRecovery<'a> {
         let mut candidates = Vec::new();
         let mut unresolved = Vec::new();
         let mut seen: HashSet<[u8; 32]> = HashSet::new();
-        let mut known_tree_ids: HashMap<Address, u16> = HashMap::new();
         for transaction in &page.transactions {
             let audited = TransactionAudit {
                 auditor: self.recovery.auditor,
@@ -185,17 +177,10 @@ impl<'a> MemberRecovery<'a> {
                 if !seen.insert(output_context.hash) {
                     continue;
                 }
-                let tree_id = match known_tree_ids.get(&output_context.tree) {
-                    Some(id) => *id,
-                    None => {
-                        let id = tree_ids(output_context.tree)?;
-                        known_tree_ids.insert(output_context.tree, id);
-                        id
-                    }
-                };
+                let tree_id = output_context.tree_id;
                 let utxo = Utxo {
                     owner: self.source.address.signing_pubkey,
-                    asset: output.asset,
+                    asset: assets.mint(&output.asset)?,
                     amount: output.amount,
                     blinding: *output.blinding,
                     ring_program_id: output.ring_program_id,
@@ -231,12 +216,16 @@ impl<'a> MemberRecovery<'a> {
                 }
                 candidates.push(WalletUtxo {
                     utxo,
-                    output_context,
+                    nullifier_pubkey: self.source.address.nullifier_pubkey,
+                    utxo_hash: output_context.hash,
                     nullifier,
                     data_hash: hashes.data_hash,
                     ring_data_hash: hashes.ring_data_hash,
                     tree_id,
-                    spent: false,
+                    leaf_index: output_context.leaf_index,
+                    slot: transaction.slot,
+                    tx_signature: transaction.tx_signature,
+                    slot_index: output.slot_index,
                 });
             }
         }
@@ -245,7 +234,7 @@ impl<'a> MemberRecovery<'a> {
         let mut unsupported_deposits = Vec::new();
         let source_owner_hash = self.source.address.owner_hash()?;
         let bootstrap_tag = self.source.address.viewing_pubkey.x();
-        for (output_context, output, tag) in (DepositHistory {
+        for deposit in (DepositHistory {
             environment: ring,
             ring: self.recovery.ring_program_id,
             page_size: self.recovery.page_size,
@@ -253,6 +242,14 @@ impl<'a> MemberRecovery<'a> {
         })
         .read()?
         {
+            let DepositHistoryEntry {
+                output_context,
+                output,
+                tag,
+                slot,
+                tx_signature,
+                slot_index,
+            } = deposit;
             if seen.contains(&output_context.hash) {
                 continue;
             }
@@ -277,17 +274,10 @@ impl<'a> MemberRecovery<'a> {
             if opening.owner_hash != source_owner_hash {
                 continue;
             }
-            let tree_id = match known_tree_ids.get(&output_context.tree) {
-                Some(id) => *id,
-                None => {
-                    let id = tree_ids(output_context.tree)?;
-                    known_tree_ids.insert(output_context.tree, id);
-                    id
-                }
-            };
+            let tree_id = output_context.tree_id;
             let utxo = Utxo {
                 owner: self.source.address.signing_pubkey,
-                asset: Address::new_from_array(output.asset),
+                asset: assets.mint(&Address::new_from_array(output.asset))?,
                 amount: output.amount,
                 blinding: *opening.blinding,
                 ring_program_id: Some(self.recovery.ring_program_id),
@@ -306,11 +296,15 @@ impl<'a> MemberRecovery<'a> {
             candidates.push(WalletUtxo {
                 nullifier: utxo.nullifier(&output_context.hash, self.source.nullifier_key)?,
                 utxo,
-                output_context,
+                nullifier_pubkey: self.source.address.nullifier_pubkey,
+                utxo_hash: output_context.hash,
                 data_hash: output.data_hash,
                 ring_data_hash: Some(output.ring_data_hash),
                 tree_id,
-                spent: false,
+                leaf_index: output_context.leaf_index,
+                slot,
+                tx_signature,
+                slot_index,
             });
         }
         // 4. Every discovered merge successor must pass a fresh spentness
@@ -376,14 +370,7 @@ impl<'a> MemberRecovery<'a> {
                 if seen.contains(&output.hash) {
                     continue;
                 }
-                let tree_id = match known_tree_ids.get(&output.tree) {
-                    Some(id) => *id,
-                    None => {
-                        let id = tree_ids(output.tree)?;
-                        known_tree_ids.insert(output.tree, id);
-                        id
-                    }
-                };
+                let tree_id = output.tree_id;
                 if let Some(candidate) = (MergeOpening {
                     source: &self.source,
                     transaction,
@@ -436,10 +423,17 @@ struct DepositHistory<'a, I, O> {
     max_pages: NonZeroUsize,
 }
 
+struct DepositHistoryEntry {
+    output_context: OutputContext,
+    output: EncryptedRingDepositOutput,
+    tag: [u8; 32],
+    slot: u64,
+    tx_signature: solana_signature::Signature,
+    slot_index: u32,
+}
+
 impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
-    fn read(
-        self,
-    ) -> Result<Vec<(OutputContext, EncryptedRingDepositOutput, [u8; 32])>, RecoveryError> {
+    fn read(self) -> Result<Vec<DepositHistoryEntry>, RecoveryError> {
         let mut deposits = Vec::new();
         let mut seen = HashSet::new();
         let mut cursor = None;
@@ -459,14 +453,20 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                 let tagged: Vec<_> = transaction
                     .output_slots
                     .iter()
-                    .filter_map(|slot| {
+                    .enumerate()
+                    .filter_map(|(slot_index, slot)| {
                         let output =
                             decode_encrypted_ring_deposit_output_data(&slot.payload).ok()?;
-                        (output.ring_program_id == self.ring.to_bytes()).then_some((
-                            slot.output_context.clone(),
-                            output,
-                            slot.view_tag,
-                        ))
+                        (output.ring_program_id == self.ring.to_bytes()).then_some(
+                            DepositHistoryEntry {
+                                output_context: slot.output_context.clone(),
+                                output,
+                                tag: slot.view_tag,
+                                slot: transaction.slot,
+                                tx_signature: transaction.tx_signature,
+                                slot_index: slot_index as u32,
+                            },
+                        )
                     })
                     .collect();
                 if tagged.is_empty() {
@@ -483,9 +483,9 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                 {
                     continue;
                 }
-                for (context, output, tag) in tagged {
-                    if seen.insert(context.hash) {
-                        deposits.push((context, output, tag));
+                for deposit in tagged {
+                    if seen.insert(deposit.output_context.hash) {
+                        deposits.push(deposit);
                     }
                 }
             }
@@ -611,11 +611,15 @@ impl MergeOpening<'_, '_> {
         Ok(Some(WalletUtxo {
             nullifier: utxo.nullifier(&slot.output_context.hash, self.source.nullifier_key)?,
             utxo,
-            output_context: slot.output_context.clone(),
+            nullifier_pubkey: self.source.address.nullifier_pubkey,
+            utxo_hash: slot.output_context.hash,
             data_hash: None,
             ring_data_hash: Some(ring_data_hash),
             tree_id: self.tree_id,
-            spent: false,
+            leaf_index: slot.output_context.leaf_index,
+            slot: transaction.slot,
+            tx_signature: transaction.tx_signature,
+            slot_index: 0,
         }))
     }
 }
@@ -660,6 +664,7 @@ mod tests {
                     slot: 1,
                 },
                 transactions: Vec::new(),
+                output_tree_id: None,
                 next_cursor: Some(vec![1]),
                 scanned_through: (cursor.is_some() && !self.stuck).then(|| vec![1]),
             })

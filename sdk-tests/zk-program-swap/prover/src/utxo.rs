@@ -1,4 +1,4 @@
-use zolana_transaction::ProofInputUtxo;
+use zolana_client::ProofInputUtxo;
 
 use crate::bytes_to_decimal_string;
 

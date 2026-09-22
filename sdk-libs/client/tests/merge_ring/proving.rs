@@ -1,14 +1,13 @@
 //! Ring-merge proof construction and verification cases.
 
+use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
-use zolana_client::{
-    prover::merge_ring::MergeRingProver, MergeRing, MergeRingWitness, ProverClient, Rpc,
-    SppProofInputUtxo, MAX_MERGE_INPUTS,
-};
+use zolana_client::{MergeProver, ProverClient, Rpc};
 use zolana_interface::verifying_keys::{merge_ring_36_1, merge_ring_8_1};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
-use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Utxo};
+use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
+use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
 
 use crate::{harness::MergeRingHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
@@ -39,7 +38,7 @@ impl MergeRingHarness {
         } else {
             ShieldedKeypair::new_p256().expect("sender keypair")
         };
-        let asset = Address::default(); // SOL
+        let asset = Mint::SOL;
         let ring = ring_program();
         let owner = sender.signing_pubkey();
         let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pk");
@@ -63,36 +62,41 @@ impl MergeRingHarness {
             let utxo_hash = utxo
                 .hash(&nullifier_pk, &[0u8; 32], &ring_data_hash, TEST_TREE_ID)
                 .expect("utxo hash");
-            indexer.add_utxo(utxo_hash);
-            inputs.push(SppProofInputUtxo::new(utxo, &sender).with_ring_data_hash(ring_data_hash));
+            let leaf_index = indexer.add_utxo(utxo_hash);
+            inputs.push(wallet_utxo(
+                utxo,
+                &sender.nullifier_key,
+                TEST_TREE_ID,
+                leaf_index,
+                None,
+                Some(ring_data_hash),
+            ));
         }
         // The plan derives the merged ring-owned output and owner identity; preparing
         // it pads to MERGE_INPUTS, and the MergeRingWitness folds in the owner
         // nullifier key and the proofs. The prover never sees the high-level plan.
         let mut output_ring_data_hash = [0u8; 32];
         output_ring_data_hash[31] = 0xd2;
-        let merge = MergeRing::new(&sender, inputs, ring, Some(output_ring_data_hash))
+        let merge = MergeTransaction::new_with_ring(inputs, ring, Some(output_ring_data_hash))
             .expect("build merge-ring plan")
             .with_expiry(0);
-        let prepared = merge.prepare();
-        let expected_output = prepared.output.clone();
+        let prepared = merge.encrypt(&sender).expect("encrypt merge");
+        let expected_output = prepared.output_utxo.clone();
         let commitments = prepared.input_utxo_hashes().expect("input commitments");
         let proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
             .expect("merkle proofs");
         let dummy_nullifier_proofs = prepared
-            .dummy_nullifiers(&sender.nullifier_key)
-            .expect("dummy nullifiers")
+            .dummy_nullifiers()
             .into_iter()
             .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
             .collect();
-        let result = MergeRingProver::try_from(MergeRingWitness {
-            prepared,
+        let result = MergeProver {
+            transaction: prepared,
             nullifier_key: sender.nullifier_key.clone(),
             proofs,
             dummy_nullifier_proofs,
-        })
-        .expect("merge-ring prover")
+        }
         .build()
         .expect("build merge-ring proof");
 

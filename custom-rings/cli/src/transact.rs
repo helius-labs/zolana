@@ -14,15 +14,14 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{
-    ClientError, ComputeBudgetConfig, Rpc, SolanaRpc, SppProofInputUtxo, ZolanaIndexer,
-};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::pda;
 use zolana_keypair::{shielded::ShieldedAddress, KeypairError, ShieldedKeypair};
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 use zolana_ring_policy::{EntryState, ListId, Member, MemberError, RuleTable};
 use zolana_transaction::{
-    instructions::transact::ConfidentialTransfer, AssetRegistry, TransactionError, Utxo, SOL_MINT,
+    instructions::transact::{canonical_shape, ConfidentialTransaction},
+    TransactionError, Utxo, WalletUtxo, SOL_MINT,
 };
 
 use crate::{
@@ -70,7 +69,6 @@ struct RingTransfer<'a> {
     recipient: ShieldedAddress,
     amount: u64,
     tree: Address,
-    assets: &'a AssetRegistry,
     asset: DepositAsset,
     cosigner: Option<&'a dyn Signer>,
     rules: Option<&'a RingRules>,
@@ -153,7 +151,7 @@ pub enum TransactError {
     List(Box<ListError>),
     #[error("reader {reader} is not granted, run `grant-reader {reader}` first")]
     ReaderNotGranted { reader: ReaderKey },
-    #[error("amount {amount} does not split across the two deposits a ring transfer spends")]
+    #[error("amount {amount} does not split across the two deposits a ring transfer input_utxos")]
     AmountTooSmall { amount: u64 },
     #[error(transparent)]
     Spend(Box<SpendError>),
@@ -284,7 +282,6 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
         recipient: args.to,
         amount: args.amount,
         tree,
-        assets: &assets.registry,
         asset,
         cosigner: cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
         rules: rules.as_ref(),
@@ -420,7 +417,6 @@ impl DemoTransfer<'_> {
         let enrol = self
             .rules
             .is_some_and(|rules| rules.rules.referenced().contains(ListId::Allow));
-        let assets = AssetRegistry::default();
         // The demo deposits the amount twice and keeps the change, so the
         // sender's balance shows in the auditor's view next to the payment.
         let deposited = RingTransfer {
@@ -431,7 +427,6 @@ impl DemoTransfer<'_> {
             recipient: recipient.shielded_address()?,
             amount: self.amount,
             tree: transfer_tree(self.rules),
-            assets: &assets,
             asset: DepositAsset::Sol,
             cosigner: self.cosigner,
             rules: self.rules,
@@ -585,24 +580,59 @@ impl Deposited<'_> {
         line("member key", enrolled.label());
 
         let tree_id = custom_ring_sdk::tree_id(rpc, this.tree)?;
+        let nullifier_pubkey = sender.nullifier_key.pubkey()?;
+        let hashes = utxos
+            .iter()
+            .map(|utxo| utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], tree_id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let proofs = env
+            .indexer
+            .get_merkle_proofs(this.tree, hashes, None)?
+            .proofs;
         let inputs = utxos
             .into_iter()
-            .map(|utxo| SppProofInputUtxo::new(utxo, &sender).in_tree(tree_id))
-            .collect();
-        let mut transfer =
-            ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey())
-                .with_compact_change()
-                .with_ring_program_id(this.ring.program_id())
-                .with_output_tree_id(tree_id);
-        transfer.send(&this.recipient, this.asset.mint(), this.amount)?;
-        let prepared = transfer.prepare()?;
+            .map(|utxo| {
+                let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], tree_id)?;
+                let state = proofs
+                    .iter()
+                    .find(|proof| proof.leaf == utxo_hash)
+                    .ok_or_else(|| ClientError::Rpc("missing deposited input proof".into()))?;
+                let nullifier = sender.nullifier_key.nullifier(&utxo_hash, &utxo.blinding)?;
+                Ok(WalletUtxo {
+                    utxo,
+                    utxo_hash,
+                    nullifier,
+                    nullifier_pubkey,
+                    tree_id,
+                    leaf_index: state.leaf_index,
+                    data_hash: None,
+                    ring_data_hash: None,
+                    slot: 0,
+                    tx_signature: Signature::default(),
+                    slot_index: 0,
+                })
+            })
+            .collect::<Result<Vec<_>, TransactError>>()?;
+        let shape = canonical_shape(inputs.len(), 2)?;
+        let mut transfer = ConfidentialTransaction::new_with_ring(
+            inputs,
+            sender.pubkey(),
+            this.ring.program_id(),
+        )?
+        .with_output_tree_id(tree_id)?;
+        if this.asset.mint() == zolana_transaction::SOL_MINT {
+            transfer.transfer_sol(&this.recipient, this.amount)?;
+        } else {
+            transfer.transfer(&this.recipient, this.asset.mint(), this.amount)?;
+        }
+        transfer.pad_utxos(shape, &sender.shielded_address()?)?;
         let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: this.ring,
             sender: &sender,
-            prepared,
+            nullifier_key: Some(&sender.nullifier_key),
+            transaction: transfer,
         })
-        .with_tree(this.tree)
-        .with_assets(this.assets);
+        .with_tree(this.tree);
         if let Some(cosigner) = this.cosigner {
             transfer = transfer.with_cosigner(cosigner.pubkey());
         }

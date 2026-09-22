@@ -13,6 +13,9 @@ pub(crate) enum Mode {
     P256Input,
     /// One Solana-owned and one P256-owned real input + dummy padding.
     MixedOwners,
+    /// Built through `PreparedRingAuthority` -> `RingAuthorityWitness` ->
+    /// `RingAuthorityProver` (the transaction-crate input boundary).
+    Boundary,
 }
 
 #[derive(Debug, Default)]

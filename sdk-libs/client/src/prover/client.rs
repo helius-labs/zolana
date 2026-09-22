@@ -137,24 +137,54 @@ impl Default for AsyncPollConfig {
     }
 }
 
-fn build_http_client() -> reqwest::blocking::Client {
-    reqwest::blocking::Client::builder()
+fn build_http_client(
+    proxy: Option<reqwest::Proxy>,
+) -> Result<reqwest::blocking::Client, reqwest::Error> {
+    let mut builder = reqwest::blocking::Client::builder()
         .no_proxy()
         .redirect(Policy::none())
         .connect_timeout(Duration::from_secs(PROVE_CONNECT_TIMEOUT_SECS))
-        .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
-        .build()
-        .expect("failed to build HTTP client")
+        .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS));
+    if let Some(proxy) = proxy {
+        builder = builder.proxy(proxy);
+    }
+    builder.build()
 }
 
-fn build_async_http_client() -> reqwest::Client {
-    reqwest::Client::builder()
+fn build_async_http_client(
+    proxy: Option<reqwest::Proxy>,
+) -> Result<reqwest::Client, reqwest::Error> {
+    let mut builder = reqwest::Client::builder()
         .no_proxy()
         .redirect(Policy::none())
         .connect_timeout(Duration::from_secs(PROVE_CONNECT_TIMEOUT_SECS))
-        .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
-        .build()
-        .expect("failed to build HTTP client")
+        .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS));
+    if let Some(proxy) = proxy {
+        builder = builder.proxy(proxy);
+    }
+    builder.build()
+}
+
+fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
+    // Require an explicit scheme instead of reqwest's implicit HTTP fallback.
+    // Do not include the URL in errors: it may contain proxy credentials.
+    let url = reqwest::Url::parse(proxy_url)
+        .map_err(|_| ClientError::Prover("invalid proxy URL".into()))?;
+    #[cfg(not(feature = "socks"))]
+    if matches!(url.scheme(), "socks5" | "socks5h") {
+        return Err(ClientError::Prover(
+            "SOCKS proxies require the zolana-client `socks` feature".into(),
+        ));
+    }
+    if !matches!(url.scheme(), "http" | "https" | "socks5" | "socks5h") || url.host_str().is_none()
+    {
+        return Err(ClientError::Prover(
+            "proxy URL must have a host and an http, https, socks5, or socks5h scheme".into(),
+        ));
+    }
+    // An all-destinations proxy with no exclusions also covers loopback and
+    // cannot inherit NO_PROXY from the environment.
+    reqwest::Proxy::all(url).map_err(|_| ClientError::Prover("invalid proxy URL".into()))
 }
 
 /// Blocking client for the transfer proving endpoints of the prover server.
@@ -195,10 +225,27 @@ impl ProverClient {
     pub fn new(server_address: String) -> Self {
         Self {
             server_address,
-            http: build_http_client(),
+            http: build_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
         }
+    }
+
+    /// Route all proof submissions and status polls through an explicit proxy.
+    ///
+    /// Connections are direct by default. Environment proxy settings, including
+    /// `NO_PROXY`, are ignored. Proxy failures return errors without falling back
+    /// to a direct connection. TLS verification, disabled redirects, and the
+    /// prover's timeouts are preserved.
+    ///
+    /// SOCKS proxies require the `socks` Cargo feature. HTTP/HTTPS proxies do not.
+    /// Use `socks5h://127.0.0.1:9050` for Tor so hostname resolution also goes
+    /// through the proxy. Use an HTTPS prover URL to protect the witness in transit;
+    /// proxying does not hide the witness from the prover itself.
+    pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self, ClientError> {
+        self.http = build_http_client(Some(prover_proxy(proxy_url)?))
+            .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
+        Ok(self)
     }
 
     /// Override the async-proof polling config (see [`AsyncPollConfig`]).
@@ -220,7 +267,7 @@ impl ProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs), self.delivery)
+        self.send(to_json(inputs)?, self.delivery)
     }
 
     /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
@@ -233,7 +280,7 @@ impl ProverClient {
     /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
     /// call [`Proof::compress`] for the wire format.
     pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs), self.delivery)
+        self.send(to_json_ring_authority(inputs)?, self.delivery)
     }
 
     /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
@@ -245,7 +292,7 @@ impl ProverClient {
 
     /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
     pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs), self.delivery)
+        self.send(to_json_ring(inputs)?, self.delivery)
     }
 
     /// Prove a custom-ring P256 transfer.
@@ -253,7 +300,7 @@ impl ProverClient {
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs), self.delivery)
+        self.send(to_json_p256_ring(inputs)?, self.delivery)
     }
 
     pub fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
@@ -309,7 +356,7 @@ impl ProverClient {
 
     fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
-        crate::timing::note(0, "prover_request_bytes", body.as_ref().len());
+        crate::prover::timing::note(0, "prover_request_bytes", body.as_ref().len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
         let mut delivery = delivery;
@@ -512,10 +559,30 @@ impl AsyncProverClient {
     pub fn new(server_address: String) -> Self {
         Self {
             server_address,
-            http: build_async_http_client(),
+            http: build_async_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
         }
+    }
+
+    /// Route all proof submissions and status polls through an explicit proxy.
+    ///
+    /// Has the same routing and security behavior as [`ProverClient::with_proxy`].
+    /// Enable the `socks` Cargo feature for SOCKS proxies.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), zolana_client::error::ClientError> {
+    /// use zolana_client::prover::AsyncProverClient;
+    ///
+    /// let prover = AsyncProverClient::new("https://prover.example.com".into())
+    ///     .with_proxy("socks5h://127.0.0.1:9050")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self, ClientError> {
+        self.http = build_async_http_client(Some(prover_proxy(proxy_url)?))
+            .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
+        Ok(self)
     }
 
     /// Override the queued-proof polling config (see [`AsyncPollConfig`]).
@@ -537,7 +604,7 @@ impl AsyncProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs), self.delivery).await
+        self.send(to_json(inputs)?, self.delivery).await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
@@ -548,7 +615,7 @@ impl AsyncProverClient {
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs), self.delivery)
+        self.send(to_json_ring_authority(inputs)?, self.delivery)
             .await
     }
 
@@ -557,14 +624,14 @@ impl AsyncProverClient {
     }
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs), self.delivery).await
+        self.send(to_json_ring(inputs)?, self.delivery).await
     }
 
     pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs), self.delivery).await
+        self.send(to_json_p256_ring(inputs)?, self.delivery).await
     }
 
     pub async fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
@@ -835,7 +902,7 @@ pub fn spawn_prover_with_artifacts(
 }
 
 fn health_check(retries: usize, timeout_secs: u64) -> bool {
-    let client = build_http_client();
+    let client = build_http_client(None).expect("failed to build HTTP client");
     let timeout = Duration::from_secs(timeout_secs);
     let address = server_address();
     for attempt in 0..retries {
@@ -928,6 +995,123 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
+
+    #[test]
+    fn proxy_urls_require_an_explicit_supported_scheme() {
+        for url in [
+            "",
+            "127.0.0.1:9050",
+            "proxy.example",
+            "ftp://proxy.example",
+            "socks5h://",
+        ] {
+            assert!(prover_proxy(url).is_err(), "accepted invalid proxy URL");
+        }
+        for url in ["http://localhost:8080", "https://localhost:8080"] {
+            assert!(prover_proxy(url).is_ok(), "rejected supported proxy URL");
+        }
+        for url in ["socks5://localhost:9050", "socks5h://localhost:9050"] {
+            assert_eq!(prover_proxy(url).is_ok(), cfg!(feature = "socks"));
+        }
+    }
+
+    fn proxy_proof_responses() -> Vec<MockResponse> {
+        vec![
+            MockResponse::json(202, json!({ "jobId": "proxy-job", "status": "queued" })),
+            MockResponse::json(
+                200,
+                json!({ "status": "completed", "proof": gnark_proof() }),
+            ),
+        ]
+    }
+
+    fn assert_proxy_requests(proxy: MockServer, socks: bool) {
+        let requests = proxy.requests();
+        if socks {
+            assert_paths(&requests, ["/prove", "/prove/status?jobId=proxy-job"]);
+        } else {
+            assert_paths(
+                &requests,
+                [
+                    "http://prover.invalid:3001/prove",
+                    "http://prover.invalid:3001/prove/status?jobId=proxy-job",
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn blocking_proxy_routes_submission_and_polling() {
+        for socks in [false, true]
+            .into_iter()
+            .filter(|socks| !socks || cfg!(feature = "socks"))
+        {
+            let proxy = MockServer::respond_with_transport(proxy_proof_responses(), socks);
+            let client = queued_prover_client("http://prover.invalid:3001")
+                .with_proxy(proxy.url())
+                .unwrap();
+            client
+                .send("{}", Delivery::Queued)
+                .expect("proof through proxy");
+            assert_proxy_requests(proxy, socks);
+        }
+    }
+
+    #[tokio::test]
+    async fn async_proxy_routes_submission_and_polling() {
+        for socks in [false, true]
+            .into_iter()
+            .filter(|socks| !socks || cfg!(feature = "socks"))
+        {
+            let proxy = MockServer::respond_with_transport(proxy_proof_responses(), socks);
+            let client = async_prover_client("http://prover.invalid:3001")
+                .with_proxy(proxy.url())
+                .unwrap();
+            client
+                .send("{}", Delivery::Queued)
+                .await
+                .expect("proof through proxy");
+            assert_proxy_requests(proxy, socks);
+        }
+    }
+
+    #[test]
+    fn blocking_proxy_failure_never_connects_directly() {
+        let direct = MockServer::respond_then_hold(vec![MockResponse::json(200, gnark_proof())]);
+        let proxy = MockServer::respond_with(
+            (0..PROVE_MAX_ATTEMPTS)
+                .map(|_| MockResponse::disconnect())
+                .collect(),
+        );
+        let client = queued_prover_client(direct.url())
+            .with_proxy(proxy.url())
+            .unwrap();
+        assert!(client.send("{}", Delivery::InResponse).is_err());
+        assert_eq!(proxy.requests().len(), PROVE_MAX_ATTEMPTS);
+        assert!(
+            direct.requests().is_empty(),
+            "witness bypassed failed proxy"
+        );
+    }
+
+    #[tokio::test]
+    async fn async_proxy_failure_never_connects_directly() {
+        let direct = MockServer::respond_then_hold(vec![MockResponse::json(200, gnark_proof())]);
+        let proxy = MockServer::respond_with(
+            (0..PROVE_MAX_ATTEMPTS)
+                .map(|_| MockResponse::disconnect())
+                .collect(),
+        );
+        let client = async_prover_client(direct.url())
+            .with_proxy(proxy.url())
+            .unwrap();
+        assert!(client.send("{}", Delivery::InResponse).await.is_err());
+        assert_eq!(proxy.requests().len(), PROVE_MAX_ATTEMPTS);
+        assert!(
+            direct.requests().is_empty(),
+            "witness bypassed failed proxy"
+        );
+    }
 
     #[test]
     fn prover_start_command_forwards_redis_url() {
@@ -1489,10 +1673,15 @@ mod tests {
 
     impl MockServer {
         fn respond_with(responses: Vec<MockResponse>) -> Self {
+            Self::respond_with_transport(responses, false)
+        }
+
+        fn respond_with_transport(responses: Vec<MockResponse>, socks: bool) -> Self {
             let listener =
                 TcpListener::bind("127.0.0.1:0").expect("mock server should bind to a local port");
+            let scheme = if socks { "socks5h" } else { "http" };
             let url = format!(
-                "http://{}",
+                "{scheme}://{}",
                 listener
                     .local_addr()
                     .expect("mock server should expose its local address")
@@ -1503,6 +1692,9 @@ mod tests {
                     let (mut stream, _) = listener
                         .accept()
                         .expect("mock server should accept a request");
+                    if socks {
+                        accept_socks_connect(&mut stream);
+                    }
                     let request = read_http_request(&mut stream);
                     request_tx
                         .send(request)
@@ -1609,6 +1801,36 @@ mod tests {
                 .expect("mock server thread should finish");
             self.request_rx.try_iter().collect()
         }
+    }
+
+    fn accept_socks_connect(stream: &mut TcpStream) {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut greeting = [0; 2];
+        stream.read_exact(&mut greeting).unwrap();
+        let [version, method_count] = greeting;
+        assert_eq!(version, 5);
+        let mut methods = vec![0; usize::from(method_count)];
+        stream.read_exact(&mut methods).unwrap();
+        assert!(
+            methods.contains(&0),
+            "client must support no authentication"
+        );
+        stream.write_all(&[5, 0]).unwrap();
+        let mut connect = [0; 4];
+        stream.read_exact(&mut connect).unwrap();
+        // Domain-name address type proves resolution is delegated to the proxy.
+        assert_eq!(connect, [5, 1, 0, 3]);
+        let mut length = [0];
+        stream.read_exact(&mut length).unwrap();
+        let mut hostname = vec![0; usize::from(length[0])];
+        stream.read_exact(&mut hostname).unwrap();
+        assert_eq!(hostname, b"prover.invalid");
+        let mut port = [0; 2];
+        stream.read_exact(&mut port).unwrap();
+        assert_eq!(u16::from_be_bytes(port), 3001);
+        stream.write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0]).unwrap();
     }
 
     fn read_http_request(stream: &mut TcpStream) -> RecordedRequest {

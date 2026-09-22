@@ -174,9 +174,17 @@ impl LineageLookup for SpendLookup {
 mod tests {
     use zolana_client::{OutputContext, OutputSlot, ShieldedTransaction};
     use zolana_ring_policy::SpendCounters;
+    use zolana_transaction::{
+        serialization::confidential::{
+            Confidential, ConfidentialEncode, ConfidentialOutputPlaintext,
+        },
+        Data, UtxoSerialization,
+    };
 
     use super::*;
     use crate::instructions::entry::discovery::tests::{tree, NullifierRpc};
+
+    const ENTRIES_TREE_ID: u16 = 7;
 
     fn ring() -> CustomRing {
         CustomRing::new(Address::new_from_array([8u8; 32]))
@@ -202,8 +210,12 @@ mod tests {
             counters_commitment: SpendCounters::EMPTY.commitment().expect("commitment"),
             blinding: [version as u8 + 1; 32],
         };
-        let address = owner().spend_address(&member(), 0).expect("address");
-        let utxo_hash = record.utxo_hash(&owner(), &address, 0).expect("leaf");
+        let address = owner()
+            .spend_address(&member(), ENTRIES_TREE_ID)
+            .expect("address");
+        let utxo_hash = record
+            .utxo_hash(&owner(), &address, ENTRIES_TREE_ID)
+            .expect("leaf");
         (
             record,
             utxo_hash,
@@ -216,27 +228,22 @@ mod tests {
         let mut messages = Vec::new();
         let tx_key = zolana_keypair::ViewingKey::new();
         if record.version != 0 {
-            let output = zolana_transaction::instructions::transact::SppProofOutputUtxo {
-                asset: zolana_transaction::SOL_MINT,
-                blinding: record.blinding,
-                owner_address: Some(zolana_keypair::ShieldedAddress::for_pda(
-                    &namespace(),
-                    zolana_keypair::NullifierKey::from_secret([0; 31])
-                        .pubkey()
-                        .unwrap(),
-                    tx_key.pubkey(),
-                )),
-                owner_tag: Some(namespace().to_bytes()),
-                ..Default::default()
-            };
-            payload = zolana_transaction::instructions::transact::encode_confidential_slots(
-                &[output],
-                &Default::default(),
-                &tx_key,
-                [9; SALT_LEN],
+            payload = Confidential::encode_plaintext(
+                &ConfidentialOutputPlaintext {
+                    asset_id: zolana_transaction::SOL_ASSET_ID,
+                    amount: 0,
+                    blinding: record.blinding,
+                    ring_program_id: None,
+                    data: Data::default(),
+                },
+                namespace().to_bytes(),
+                &ConfidentialEncode {
+                    tx: tx_key.clone(),
+                    recipient_pubkey: tx_key.pubkey(),
+                    salt: [9; SALT_LEN],
+                    slot_index: 0,
+                },
             )
-            .unwrap()
-            .remove(0)
             .unwrap()
             .data;
             messages.push(MessageData {
@@ -259,7 +266,7 @@ mod tests {
                 view_tag: namespace().to_bytes(),
                 output_context: OutputContext {
                     hash: utxo_hash,
-                    tree: tree(),
+                    tree_id: ENTRIES_TREE_ID,
                     leaf_index: record.version,
                 },
                 payload,
@@ -276,7 +283,7 @@ mod tests {
         ReadSpendRecord {
             ring: ring(),
             entries_tree: tree(),
-            entries_tree_id: 0,
+            entries_tree_id: ENTRIES_TREE_ID,
             member: member(),
         }
         .read(rpc)
@@ -284,7 +291,9 @@ mod tests {
 
     #[test]
     fn the_walk_returns_the_live_version_with_its_origin() {
-        let address = owner().spend_address(&member(), 0).expect("address");
+        let address = owner()
+            .spend_address(&member(), ENTRIES_TREE_ID)
+            .expect("address");
         let (first, first_hash, first_nullifier) = version(0);
         let (second, second_hash, second_nullifier) = version(1);
         let rpc = NullifierRpc::new(vec![
@@ -302,12 +311,12 @@ mod tests {
     #[test]
     fn a_successor_requires_one_bound_public_record_message() {
         let (record, hash, _) = version(1);
-        let address = owner().spend_address(&member(), 0).unwrap();
+        let address = owner().spend_address(&member(), ENTRIES_TREE_ID).unwrap();
         let transaction = spender(address, &record, hash);
         let lookup = SpendLookup {
             owner: owner(),
             member: member(),
-            tree_id: 0,
+            tree_id: ENTRIES_TREE_ID,
         };
         let decode = |transaction: &ShieldedTransaction| {
             lookup.decode(

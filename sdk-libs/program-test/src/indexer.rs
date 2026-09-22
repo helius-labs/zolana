@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use thiserror::Error;
+use zolana_client::ProofInputUtxo;
 use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
 use zolana_event_parser::proofless_output;
 use zolana_hasher::Poseidon;
@@ -13,8 +14,8 @@ use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::{P256Pubkey, PublicKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_transaction::{
-    owner_utxo_hash, Address, Data, DataRecord, OutputContext, OutputSlot, ProofInputUtxo,
-    ShieldedTransaction, TransactionError, Utxo,
+    owner_utxo_hash, Address, Data, DataRecord, OutputContext, OutputSlot, ShieldedTransaction,
+    TransactionError, Utxo,
 };
 
 #[derive(Debug, Error)]
@@ -194,15 +195,18 @@ impl TestIndexer {
         Ok(())
     }
 
+    /// `tree_id` is the raw id of `event.output_tree`, read off the tree
+    /// account by the caller.
     pub fn record_transaction(
         &mut self,
         signature: solana_signature::Signature,
         event: &GeneralEvent,
         proofless: bool,
+        tree_id: u16,
     ) {
         self.transactions
             .push(shielded_transaction_from_general_event(
-                signature, event, proofless,
+                signature, event, proofless, tree_id,
             ));
     }
 
@@ -270,6 +274,7 @@ impl TestIndexer {
         &self,
         utxo_hash: &[u8; 32],
         owner: PublicKey,
+        asset_id: u64,
     ) -> Result<Utxo, IndexerError> {
         let output = self
             .fetch_by_utxo_hash(utxo_hash)
@@ -284,7 +289,7 @@ impl TestIndexer {
             .collect();
         Ok(Utxo {
             owner,
-            asset: Address::new_from_array(output.asset),
+            asset: zolana_transaction::Mint::new(Address::new_from_array(output.asset), asset_id),
             amount: output.amount,
             blinding: output.blinding,
             ring_program_id: None,
@@ -324,10 +329,14 @@ impl TestIndexer {
     }
 }
 
+/// `tree_id` is the raw id of `event.output_tree`. The event carries the tree
+/// account, the slot carries the id its commitments fold in, and the two are
+/// the same tree; the caller reads the id off the account, as Photon does.
 pub fn shielded_transaction_from_general_event(
     signature: solana_signature::Signature,
     event: &GeneralEvent,
     proofless: bool,
+    tree_id: u16,
 ) -> ShieldedTransaction {
     let tx_viewing_pk = optional_tx_viewing_pk(&event.tx_viewing_pk);
     let salt = if event.salt == [0u8; 16] {
@@ -343,7 +352,7 @@ pub fn shielded_transaction_from_general_event(
             view_tag: output.view_tag,
             output_context: OutputContext {
                 hash: output.utxo_hash,
-                tree: Address::new_from_array(event.output_tree),
+                tree_id,
                 leaf_index: event.first_output_leaf_index + offset as u64,
             },
             payload: output.data.clone(),

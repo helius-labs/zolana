@@ -10,7 +10,7 @@ pub use escrow_open::EscrowOpenProofInputs;
 pub use escrow_settle::EscrowSettleProofInputs;
 pub use ffi::{preload, prove, setup, CircuitId, WitnessMap};
 pub use proof::{OrderProof, ProofError};
-pub use zolana_transaction::ProofInputUtxo;
+pub use zolana_client::ProofInputUtxo;
 
 pub fn bytes_to_decimal_string(bytes: &[u8; 32]) -> String {
     BigUint::from_bytes_be(bytes).to_string()

@@ -26,8 +26,9 @@ use zolana_interface::{
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_smart_account_client::{execute_sync_each, execute_sync_ix};
-use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, WalletUtxo};
+use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, WalletUtxo};
 use zolana_tree::NullifierTreeInitParams;
+use zolana_wallet::Wallet;
 
 use crate::{
     localnet::{
@@ -79,7 +80,7 @@ pub struct DepositRecord<D> {
 
 /// One shielded participant: its key material, the wallet it syncs into, the
 /// UTXOs it can currently spend, and the full set of UTXOs its wallet is expected
-/// to hold after a sync (with `spent` flags), tracked for full-struct assertions.
+/// to hold after a sync, tracked for full-struct assertions.
 pub struct Actor<D> {
     pub keypair: ShieldedKeypair,
     pub wallet: Wallet,

@@ -16,7 +16,7 @@ pub use order_terms::{OrderTermsProofInput, TAKE_MODE_DERIVED, TAKE_MODE_VERIFIA
 pub use proof::{OrderProof, ProofError};
 pub use take::TakeProofInputs;
 pub use take_verifiable_encryption::{TakeVerifiableEncryptionProofInputs, TAKE_ENC_KDF_DOMAIN};
-pub use zolana_transaction::ProofInputUtxo;
+pub use zolana_client::ProofInputUtxo;
 
 pub fn bytes_to_decimal_string(bytes: &[u8; 32]) -> String {
     BigUint::from_bytes_be(bytes).to_string()

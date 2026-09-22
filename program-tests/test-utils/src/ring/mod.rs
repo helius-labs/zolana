@@ -29,9 +29,9 @@ use zolana_interface::{
 };
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_transaction::{
-    serialization::confidential::Confidential, KeypairWalletAuthority, ShieldedTransaction, Utxo,
-    WalletUtxo, DEFAULT_TAG_WINDOW,
+    serialization::confidential::Confidential, ShieldedTransaction, Utxo, WalletUtxo,
 };
+use zolana_wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 
 use crate::{
     harness::{BootstrapConfig, LocalnetHarness},
@@ -193,9 +193,8 @@ impl RingHarness {
         }
         let newly_spendable: Vec<Utxo> = actor
             .wallet
-            .utxos
-            .iter()
-            .filter(|w| !w.spent && !spendable_hashes.contains(&w.output_context.hash))
+            .unspent()
+            .filter(|w| w.utxo.amount > 0 && !spendable_hashes.contains(&w.utxo_hash))
             .map(|w| w.utxo.clone())
             .collect();
         actor.spendable.extend(newly_spendable);
@@ -203,14 +202,14 @@ impl RingHarness {
     }
 
     /// Full-struct assert that the actor's synced wallet holds exactly the UTXOs it
-    /// is expected to have decrypted (with `spent` flags). Run `sync` first.
+    /// is expected to have decrypted. Run `sync` first.
     #[track_caller]
     pub fn assert_utxos(&self, name: &str) {
         let actor = self.actor(name);
         let mut actual = actor.wallet.utxos.clone();
         let mut expected = actor.expected.clone();
-        actual.sort_by_key(|u| u.output_context.hash);
-        expected.sort_by_key(|u| u.output_context.hash);
+        actual.sort_by_key(|u| u.utxo_hash);
+        expected.sort_by_key(|u| u.utxo_hash);
         assert_eq!(
             actual, expected,
             "synced UTXOs for {name} do not match expected"
@@ -230,22 +229,26 @@ impl RingHarness {
     ) -> Result<WalletUtxo> {
         let keypair = &self.actor(name).keypair;
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, self.tree_id)?;
-        let output_context = tx
+        let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, self.tree_id)?;
+        let (position, slot) = tx
             .output_slots
             .iter()
-            .find(|slot| slot.output_context.hash == hash)
-            .map(|slot| slot.output_context.clone())
+            .enumerate()
+            .find(|(_, slot)| slot.output_context.hash == utxo_hash)
             .ok_or_else(|| anyhow!("expected output not found in indexed tx"))?;
-        let nullifier = utxo.nullifier(&output_context.hash, &keypair.nullifier_key)?;
+        let nullifier = utxo.nullifier(&utxo_hash, &keypair.nullifier_key)?;
         Ok(WalletUtxo {
-            utxo,
-            output_context,
+            nullifier_pubkey: nullifier_pk,
+            utxo_hash,
             nullifier,
             data_hash: None,
             ring_data_hash: None,
             tree_id: self.tree_id,
-            spent: false,
+            leaf_index: slot.output_context.leaf_index,
+            slot: tx.slot,
+            tx_signature: tx.tx_signature,
+            slot_index: u32::try_from(position)?,
+            utxo,
         })
     }
 

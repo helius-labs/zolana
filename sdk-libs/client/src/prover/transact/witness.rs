@@ -1,22 +1,23 @@
 use zolana_interface::{
     instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
-    N_PUBLIC_SLOTS,
+    pda, N_PUBLIC_SLOTS,
 };
-use zolana_transaction::instructions::{
-    transact::{inputs_require_p256, SppProofInputs},
-    types::SppProofInputUtxo,
+use zolana_transaction::{
+    instructions::transact::{inputs_require_p256, SppProofInputs},
+    utxo::SppProofInputUtxo,
 };
 
 use crate::{
+    authority::ProofAuthority,
     error::ClientError,
     prover::{
         transact::{
-            assembly::{input_utxos, TransferSpendInput},
+            assembly::{input_utxos_from_nullifiers, TransferInputUtxo},
             eddsa::TransferProver,
         },
         ProofCompressed, ProverClient, TransferInputs,
     },
-    rpc::{MerkleProof, NonInclusionProof},
+    rpc::{MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
 
 /// State-inclusion and nullifier-non-inclusion proofs for one real input UTXO.
@@ -26,22 +27,86 @@ pub struct SpendProof {
     pub nullifier: NonInclusionProof,
 }
 
+impl SpendProof {
+    pub(crate) fn validate(
+        &self,
+        input: &SppProofInputUtxo,
+        index: usize,
+    ) -> Result<(), ClientError> {
+        if self.state.leaf != input.utxo_hash {
+            return Err(ClientError::StateProofLeafMismatch { index });
+        }
+        if self.state.merkle_context.tree != pda::tree(input.tree_id) {
+            return Err(ClientError::StateProofTreeMismatch { index });
+        }
+        if self.state.leaf_index != input.leaf_index {
+            return Err(ClientError::StateProofIndexMismatch { index });
+        }
+        if self.state.path.len() != STATE_TREE_HEIGHT {
+            return Err(ClientError::ProofPathLength {
+                got: self.state.path.len(),
+                expected: STATE_TREE_HEIGHT,
+            });
+        }
+        validate_nullifier_proof(&self.nullifier, input, index)
+    }
+}
+
+pub(crate) fn validate_nullifier_proof(
+    proof: &NonInclusionProof,
+    input: &SppProofInputUtxo,
+    index: usize,
+) -> Result<(), ClientError> {
+    if proof.leaf != input.nullifier {
+        return Err(ClientError::NullifierProofLeafMismatch { index });
+    }
+    if proof.merkle_context.tree != pda::tree(input.tree_id) {
+        return Err(ClientError::NullifierProofTreeMismatch { index });
+    }
+    if proof.path.len() != NULLIFIER_TREE_HEIGHT {
+        return Err(ClientError::ProofPathLength {
+            got: proof.path.len(),
+            expected: NULLIFIER_TREE_HEIGHT,
+        });
+    }
+    Ok(())
+}
+
 /// Attach the fetched Merkle proofs to the proof inputs positionally: each real
 /// input (non-zero owner) consumes the next spend proof, each dummy slot consumes
 /// the next dummy non-inclusion proof (the transact circuit checks non-inclusion
 /// for every slot). Shared by every witness builder (transact, merge,
 /// merge-ring, ring-authority).
+///
+/// No secret comes in here: a real input's nullifier secret is filled in by its
+/// owner's [`ProofAuthority`](crate::authority::ProofAuthority), one call before
+/// the witness goes to the prover.
 pub fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
-) -> Result<Vec<TransferSpendInput>, ClientError> {
-    let mut spends = Vec::with_capacity(inputs.len());
+) -> Result<Vec<TransferInputUtxo>, ClientError> {
+    let real_count = inputs.iter().filter(|input| !input.is_dummy()).count();
+    let dummy_count = inputs.len() - real_count;
+    if proofs.len() != real_count || dummy_nullifier_proofs.len() != dummy_count {
+        return Err(ClientError::InputProofCountMismatch {
+            real: real_count,
+            dummy: dummy_count,
+            real_proofs: proofs.len(),
+            dummy_proofs: dummy_nullifier_proofs.len(),
+        });
+    }
+    let mut input_utxos = Vec::with_capacity(inputs.len());
     let mut real_index = 0;
     let mut dummy_index = 0;
-    for spend in inputs {
-        let (proof, nullifier_proof) = if spend.utxo.owner.is_zero() {
-            let nullifier_proof = dummy_nullifier_proofs.get(dummy_index).cloned();
+    for input_utxo in inputs {
+        let (proof, nullifier_proof) = if input_utxo.is_dummy() {
+            let nullifier_proof = Some(
+                dummy_nullifier_proofs
+                    .get(dummy_index)
+                    .ok_or(ClientError::MissingDummyNullifierProof { index: dummy_index })?
+                    .clone(),
+            );
             dummy_index += 1;
             (None, nullifier_proof)
         } else {
@@ -52,42 +117,29 @@ pub fn attach_input_proofs(
             real_index += 1;
             (Some(proof), None)
         };
-        spends.push(TransferSpendInput {
-            utxo: spend.utxo,
-            nullifier_key: spend.nullifier_key,
-            data_hash: spend.data_hash,
-            ring_data_hash: spend.ring_data_hash,
-            tree_id: spend.tree_id,
+        input_utxos.push(TransferInputUtxo {
+            utxo: input_utxo,
             proof,
             nullifier_proof,
         });
     }
-    Ok(spends)
-}
-
-pub enum ProverVariant {
-    Eddsa(TransferProver),
-}
-
-/// A built circuit ready to hand to the prover client.
-pub struct BuiltCircuit {
-    pub circuit: ProverVariant,
-}
-
-/// Witness for a supported transaction circuit, ready for the prover client.
-pub enum ProverInputs {
-    Eddsa(TransferInputs),
+    Ok(input_utxos)
 }
 
 /// A transaction assembled exactly once: the prover witness, the public input it
 /// commits to, and the `Transact` instruction data minus the proof bytes. The
-/// per-input nullifiers, hash chains, dummy padding, and `private_tx_hash` are
+/// per-input nullifiers, hash chains and `private_tx_hash` are
 /// computed a single time and shared by the witness and the instruction, so they
 /// are identical by construction. Call [`AssembledTransfer::with_proof`] once the
 /// proof is produced from [`AssembledTransfer::prover_inputs`].
 pub struct AssembledTransfer {
-    pub prover_inputs: ProverInputs,
+    pub prover_inputs: TransferInputs,
     pub public_input_hash: [u8; 32],
+    /// The raw ids of the trees the inputs are nullified in, in the order
+    /// `ix.tree_contexts` declares them. The `Transact` builder takes one tree
+    /// account per context entry in that order, and `pda::tree` of these is the
+    /// only place that list can come from.
+    pub input_tree_ids: Vec<u16>,
     ix: TransactIxData,
 }
 
@@ -95,6 +147,24 @@ impl AssembledTransfer {
     pub fn with_proof(mut self, proof: TransactProof) -> TransactIxData {
         self.ix.proof = proof;
         self.ix
+    }
+
+    /// Prove this assembly through `authority`, which fills in the nullifier
+    /// secrets it owns, and verify the proof against the public input the
+    /// assembly fixed.
+    ///
+    /// One call rather than "complete, then prove": the two belong together, and
+    /// nothing between assembly and the prover has any use for a witness
+    /// carrying key material.
+    pub fn prove(
+        &mut self,
+        prover: &ProverClient,
+        authority: &dyn ProofAuthority,
+    ) -> Result<TransactProof, ClientError> {
+        let inputs = &mut self.prover_inputs;
+        let proof = authority.prove_transfer(prover, inputs)?;
+        crate::verify_confidential_transfer_inputs(inputs, self.public_input_hash, &proof)?;
+        Ok(ProofCompressed::try_from(proof)?.to_transact_proof())
     }
 }
 
@@ -104,12 +174,14 @@ impl ProverClient {
         proof_inputs: SppProofInputs,
         input_proofs: &[SpendProof],
         dummy_nullifier_proofs: &[NonInclusionProof],
+        authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
         self.prove_transact_with_dummy_policy(
             proof_inputs,
             input_proofs,
             dummy_nullifier_proofs,
             true,
+            authority,
         )
     }
 
@@ -119,97 +191,24 @@ impl ProverClient {
         input_proofs: &[SpendProof],
         dummy_nullifier_proofs: &[NonInclusionProof],
         allow_dummy_inputs: bool,
+        authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        let assembled = assemble_with_dummy_policy(
+        let mut assembled = assemble_with_dummy_policy(
             proof_inputs,
             input_proofs,
             dummy_nullifier_proofs,
             allow_dummy_inputs,
         )?;
-        let proof = match &assembled.prover_inputs {
-            ProverInputs::Eddsa(inputs) => {
-                let proof = self.prove_transfer(inputs)?;
-                crate::verify_confidential_transfer_inputs(
-                    inputs,
-                    assembled.public_input_hash,
-                    &proof,
-                )?;
-                proof
-            }
-        };
-        Ok(assembled.with_proof(ProofCompressed::try_from(proof)?.to_transact_proof()))
+        let proof = assembled.prove(self, authority)?;
+        Ok(assembled.with_proof(proof))
     }
-}
-
-pub fn into_prover(
-    proof_inputs: SppProofInputs,
-    input_merkle_proofs: &[SpendProof],
-    dummy_nullifier_proofs: &[NonInclusionProof],
-) -> Result<BuiltCircuit, ClientError> {
-    into_prover_with_dummy_policy(
-        proof_inputs,
-        input_merkle_proofs,
-        dummy_nullifier_proofs,
-        true,
-    )
-}
-
-pub fn into_prover_with_dummy_policy(
-    proof_inputs: SppProofInputs,
-    input_merkle_proofs: &[SpendProof],
-    dummy_nullifier_proofs: &[NonInclusionProof],
-    allow_dummy_inputs: bool,
-) -> Result<BuiltCircuit, ClientError> {
-    // `allow_dummy_inputs == 0` forces every slot to be a real spend: the
-    // circuit rejects dummy and address slots alike, so reject them here with
-    // the offending slot named rather than as an opaque proving failure.
-    if !allow_dummy_inputs {
-        if let Some(index) = proof_inputs
-            .input_utxos
-            .iter()
-            .position(|input| input.is_dummy())
-        {
-            return Err(ClientError::NonSpendInputNotAllowed { index });
-        }
-    }
-    if inputs_require_p256(&proof_inputs.input_utxos)? {
-        return Err(ClientError::P256TransactUnsupported);
-    }
-    let shape = proof_inputs.check_shape()?;
-    let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
-    let public_transfers = proof_inputs.public_transfers()?;
-    let SppProofInputs {
-        input_utxos: inputs,
-        output_utxos: outputs,
-        blinding_seed,
-        output_tree_id,
-        external_data,
-        ..
-    } = proof_inputs;
-
-    let spends = attach_input_proofs(inputs, input_merkle_proofs, dummy_nullifier_proofs)?;
-
-    let circuit = ProverVariant::Eddsa(TransferProver {
-        inputs: spends,
-        outputs,
-        blinding_seed,
-        output_tree_id,
-        external_data,
-        public_transfers,
-        signer_pk_hashes,
-        allow_dummy_inputs,
-        shape: Some(shape),
-    });
-    Ok(BuiltCircuit { circuit })
 }
 
 /// Assemble the prover witness and the `Transact` instruction data in a single
 /// pass over the already-padded transaction. The witness and the instruction
 /// commit to identical values by construction: the nullifiers and
 /// `private_tx_hash` come from the one prover build, and `external_data`
-/// (including every dummy output hash) was finalized at signing time. Each padded
-/// dummy input mirrors the first real input's signer; root indices come from each
-/// real `SpendProof`.
+/// was finalized before proving. Root indices come from the supplied proofs.
 pub fn assemble(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
@@ -252,16 +251,25 @@ pub fn assemble_with_dummy_policy(
         N_PUBLIC_SLOTS as u8,
     );
 
-    let BuiltCircuit { circuit } = into_prover_with_dummy_policy(
-        proof_inputs,
-        input_proofs,
-        dummy_nullifier_proofs,
+    let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
+    let public_transfers = proof_inputs.public_transfers()?;
+    let result = TransferProver {
+        inputs: attach_input_proofs(
+            proof_inputs.input_utxos,
+            input_proofs,
+            dummy_nullifier_proofs,
+        )?,
+        outputs: proof_inputs.output_utxos,
+        blinding_seed: proof_inputs.blinding_seed,
+        output_tree_id: proof_inputs.output_tree_id,
+        external_data: proof_inputs.external_data,
+        public_transfers,
+        signer_pk_hashes,
         allow_dummy_inputs,
-    )?;
-
-    let ProverVariant::Eddsa(prover) = circuit;
-    let result = prover.build()?;
-    let prover_inputs = ProverInputs::Eddsa(result.inputs);
+        shape,
+    }
+    .build()?;
+    let prover_inputs = result.inputs;
     let public_input_hash = result.public_input_hash;
     let nullifiers = result.nullifiers;
     let private_tx = result.private_tx_hash;
@@ -273,7 +281,7 @@ pub fn assemble_with_dummy_policy(
         });
     }
 
-    let inputs = input_utxos(&nullifiers, &result.input_tree_indexes)?;
+    let inputs = input_utxos_from_nullifiers(&nullifiers, &result.input_tree_indexes)?;
 
     let ix = TransactIxData {
         proof: TransactProof::zeroed(),
@@ -294,68 +302,104 @@ pub fn assemble_with_dummy_policy(
     Ok(AssembledTransfer {
         prover_inputs,
         public_input_hash,
+        input_tree_ids: result.tree_ids,
         ix,
     })
 }
 
 #[cfg(test)]
 mod tests {
+
+    fn wallet_input(
+        utxo: Utxo,
+        key: &zolana_keypair::NullifierKey,
+        tree_id: u16,
+    ) -> zolana_transaction::WalletUtxo {
+        let nullifier_pubkey = key.pubkey().unwrap();
+        let utxo_hash = utxo
+            .hash(&nullifier_pubkey, &[0; 32], &[0; 32], tree_id)
+            .unwrap();
+        let nullifier = key.nullifier(&utxo_hash, &utxo.blinding).unwrap();
+        zolana_transaction::WalletUtxo {
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            nullifier,
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id,
+            leaf_index: 0,
+            slot: 0,
+            tx_signature: Default::default(),
+            slot_index: 0,
+        }
+    }
+
     use solana_address::Address;
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{
-        instructions::{
-            transact::{
-                spp_proof_inputs::asset_field, ConfidentialTransfer, SettlementTransfer, Shape,
-                SppProofInputs,
-            },
-            types::SppProofInputUtxo,
+        instructions::transact::{
+            asset_field, ConfidentialTransaction, SettlementTransfer, Shape, SppProofInputs,
         },
-        AssetRegistry, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+        Data, ExternalData, SppProofOutputUtxo, Utxo,
     };
 
-    use super::{assemble, attach_input_proofs, into_prover, ProverVariant, SpendProof};
+    use super::{assemble, attach_input_proofs, SpendProof};
     use crate::error::ClientError;
     use crate::rpc::{
         MerkleContext, MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
     };
+    use zolana_transaction::utxo::SppProofInputUtxo;
 
     #[test]
     fn attaches_dummy_nullifier_proofs_in_slot_order() {
         let inputs = vec![
-            SppProofInputUtxo::new_dummy(),
-            SppProofInputUtxo::new_dummy(),
+            SppProofInputUtxo::dummy(0).expect("dummy input"),
+            SppProofInputUtxo::dummy(0).expect("dummy input"),
         ];
         let proofs = [dummy_nullifier_proof(1), dummy_nullifier_proof(2)];
 
-        let spends = attach_input_proofs(inputs, &[], &proofs).expect("attach dummy proofs");
+        let input_utxos = attach_input_proofs(inputs, &[], &proofs).expect("attach dummy proofs");
 
-        assert_eq!(spends[0].nullifier_proof.as_ref(), Some(&proofs[0]));
-        assert_eq!(spends[1].nullifier_proof.as_ref(), Some(&proofs[1]));
+        let attached: Vec<_> = input_utxos
+            .iter()
+            .map(|input_utxo| input_utxo.nullifier_proof.clone())
+            .collect();
+        assert_eq!(attached, proofs.map(Some).to_vec());
     }
 
     #[test]
     fn default_transact_rejects_p256_owned_inputs() {
         let keypair = ShieldedKeypair::new_p256().expect("P256 keypair");
-        let input = SppProofInputUtxo::new(
+        let input = wallet_input(
             Utxo {
                 owner: keypair.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: zolana_transaction::Mint::SOL,
                 amount: 1,
                 blinding: [1u8; 32],
                 ring_program_id: None,
                 data: Data::default(),
             },
-            &keypair,
+            &keypair.nullifier_key,
+            0,
         );
-        let proof_inputs = SppProofInputs::new(
-            vec![input],
-            vec![SppProofOutputUtxo::default()],
-            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new()),
-            Address::default(),
-        );
+        let proof_inputs = SppProofInputs {
+            input_utxos: vec![input.into()],
+            output_utxos: vec![SppProofOutputUtxo::default()],
+            external_data: ExternalData::new(
+                [0u8; 33],
+                [0u8; 16],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+            payer: Address::default(),
+            blinding_seed: [7; 32],
+            output_tree_id: 0,
+        };
 
         assert!(matches!(
-            into_prover(proof_inputs, &[], &[]),
+            assemble(proof_inputs, &[], &[]),
             Err(ClientError::P256TransactUnsupported)
         ));
     }
@@ -372,25 +416,21 @@ mod tests {
                     user_spl_token: Address::new_from_array([42u8; 32]),
                 })
                 .expect("valid SPL settlement");
-        let proof_inputs = SppProofInputs::new(
-            vec![SppProofInputUtxo::new_dummy()],
-            vec![SppProofOutputUtxo::default()],
+        let proof_inputs = SppProofInputs {
+            input_utxos: vec![SppProofInputUtxo::dummy(0).unwrap()],
+            output_utxos: vec![SppProofOutputUtxo::default()],
             external_data,
-            Address::default(),
-        );
-
-        let built = into_prover(proof_inputs, &[], &[]).expect("assemble prover");
-        let ProverVariant::Eddsa(prover) = built.circuit;
-        assert_eq!(
-            prover.public_transfers.assets.first().copied(),
-            Some(asset_field(&mint).expect("asset field"))
-        );
-        assert!(prover
-            .public_transfers
+            payer: Address::default(),
+            blinding_seed: [7; 32],
+            output_tree_id: 0,
+        };
+        let transfers = proof_inputs.public_transfers().unwrap();
+        assert_eq!(transfers.assets[0], asset_field(&mint).unwrap());
+        assert!(transfers
             .assets
             .iter()
             .skip(1)
-            .all(|asset| *asset == [0u8; 32]));
+            .all(|asset| *asset == [0; 32]));
     }
 
     /// The nullifiers `dummy_nullifiers()` requests non-inclusion witnesses for
@@ -400,43 +440,50 @@ mod tests {
     fn assembled_dummy_nullifiers_match_the_requested_ones() {
         let sender = ShieldedKeypair::new_ed25519().expect("sender keypair");
         let recipient = ShieldedKeypair::new_ed25519().expect("recipient keypair");
-        let input = SppProofInputUtxo::new(
+        let input = wallet_input(
             Utxo {
                 owner: sender.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: zolana_transaction::Mint::SOL,
                 amount: 10,
                 blinding: [1u8; 32],
                 ring_program_id: None,
                 data: Data::default(),
             },
-            &sender,
-        )
-        .in_tree(3);
+            &sender.nullifier_key,
+            3,
+        );
         let payer = Address::new_from_array(
             sender
                 .signing_pubkey()
                 .as_ed25519()
                 .expect("sender Ed25519 pubkey"),
         );
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("sender address"),
-            vec![input],
-            payer,
-        )
-        .with_shape(Shape::IN2_OUT3);
+        let mut transfer = ConfidentialTransaction::new(vec![input], payer).unwrap();
         transfer
-            .send(
-                &recipient.shielded_address().expect("recipient address"),
-                SOL_MINT,
-                4,
-            )
-            .expect("send");
-        let proof_inputs = transfer
-            .sign(&sender, &AssetRegistry::default())
-            .expect("sign");
+            .transfer_sol(&recipient.shielded_address().expect("recipient address"), 4)
+            .expect("transfer");
+        transfer
+            .pad_utxos(Shape::IN2_OUT3, &sender.shielded_address().unwrap())
+            .unwrap();
+        let proof_inputs = transfer.encrypt(&sender).expect("encrypt");
 
-        let requested = proof_inputs.dummy_nullifiers().expect("dummy nullifiers");
-        let assembled = assemble(proof_inputs, &[fake_spend_proof()], &[]).expect("assemble");
+        let requested = proof_inputs.dummy_nullifiers();
+        let real = &proof_inputs.input_utxos[0];
+        let mut proof = fake_spend_proof();
+        proof.state.leaf = real.utxo_hash;
+        proof.state.leaf_index = real.leaf_index;
+        proof.state.merkle_context.tree = zolana_interface::pda::tree(real.tree_id);
+        proof.nullifier.leaf = real.nullifier;
+        proof.nullifier.merkle_context.tree = zolana_interface::pda::tree(real.tree_id);
+        let dummy: Vec<_> = requested
+            .iter()
+            .map(|nullifier| {
+                let mut nf = proof.nullifier.clone();
+                nf.leaf = *nullifier;
+                nf
+            })
+            .collect();
+        let assembled = assemble(proof_inputs, &[proof], &dummy).expect("assemble");
 
         let witnessed: Vec<[u8; 32]> = assembled
             .ix

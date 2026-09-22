@@ -3,11 +3,14 @@ pub mod field;
 mod inputs;
 mod json;
 pub mod merge;
-pub mod merge_ring;
 mod proof;
 pub mod ring_authority;
+pub mod timing;
 pub mod transact;
+mod utxo;
 mod verify;
+#[cfg(feature = "indexer-api")]
+pub mod witness;
 
 pub use client::{
     spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, Delivery,
@@ -18,16 +21,13 @@ pub use inputs::{
     TransferP256Inputs, TreeSlotFields,
 };
 pub use merge::{MergeProofResult, MergeProver};
-pub use merge_ring::{MergeRingProver, MergeRingWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
-pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
+pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness};
 pub use transact::{
-    assign_spend_output_blindings, attach_input_proofs, input_utxos, PublicInputs, PublicTransfers,
+    attach_input_proofs, input_utxos_from_nullifiers, PublicInputs, PublicTransfers,
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
-    RingTransferProver, TransferProofResult, TransferProver, TransferSpendInput,
+    RingTransferProver, TransferInputUtxo, TransferProofResult, TransferProver,
 };
+pub use utxo::ProofInputUtxo;
 pub use verify::{verify_confidential_transfer_inputs, verify_confidential_transfer_proof};
-pub use zolana_transaction::instructions::transact::{
-    canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES,
-};
-pub use zolana_transaction::ProofInputUtxo;
+pub use zolana_transaction::instructions::transact::{Shape, SPP_SUPPORTED_SHAPES};

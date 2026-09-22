@@ -1,6 +1,7 @@
 //! Post-instruction checks for `deposit` (SOL deposits).
 
 use solana_pubkey::Pubkey;
+use zolana_client::ProofInputUtxo;
 use zolana_hasher::Poseidon;
 use zolana_interface::instruction::{deposit_blinding, AssetDeposit};
 use zolana_interface::{
@@ -9,7 +10,8 @@ use zolana_interface::{
 };
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{ProofInputUtxo, SyncWalletAuthority, Wallet, SOL_MINT};
+use zolana_transaction::SOL_MINT;
+use zolana_wallet::{SyncWalletAuthority, Wallet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SolDepositSnapshot {
@@ -312,10 +314,14 @@ pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
     crate::wallet_discovery::assert_wallet_discovers(
         recipient,
         authority,
-        event,
-        solana_signature::Signature::default(),
-        &data.memo,
-        None,
-        "deposit",
+        crate::wallet_discovery::DiscoveredDeposit {
+            event,
+            signature: solana_signature::Signature::default(),
+            tree_id: read_tree_id(&program_test.account_data(tree).expect("tree account"))
+                .expect("tree id"),
+            memo: &data.memo,
+            expected_mint: None,
+            label: "deposit",
+        },
     );
 }

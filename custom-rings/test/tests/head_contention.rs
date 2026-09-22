@@ -16,10 +16,7 @@ use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_program_test::Rejection;
 use zolana_ring_policy::{Member, RuleTable, VelocityRow};
-use zolana_transaction::{
-    instructions::{transact::ConfidentialTransfer, types::SppProofInputUtxo},
-    SOL_MINT,
-};
+use zolana_transaction::instructions::transact::{canonical_shape, ConfidentialTransaction};
 
 const RULES: RuleTable = RuleTable::builder()
     .windowed(NonZeroU64::new(1_000_000).unwrap())
@@ -120,26 +117,32 @@ impl Benchmark<'_> {
                 prover: &self.prover,
             })?;
             transact::wait_for_indexed_transaction(self.env.client.indexer(), deposit.signature)?;
-            let mut transfer = ConfidentialTransfer::new(
-                member.shielded_address()?,
-                vec![SppProofInputUtxo::new(deposit.utxo, member)],
+            let tree_id = custom_ring_sdk::tree_id(self.env.client.rpc(), self.env.tree)?;
+            let input = zolana_test_utils::utxo::indexed(
+                deposit.utxo,
+                &member.nullifier_key,
+                self.env.client.indexer(),
+                tree_id,
+            )?;
+            let mut transfer = ConfidentialTransaction::new_with_ring(
+                vec![input],
                 member.pubkey(),
-            )
-            .with_compact_change()
-            .with_ring_program_id(self.ring.program_id());
-            transfer.send(
-                &self.env.recipient.keypair.shielded_address()?,
-                SOL_MINT,
-                1_000_000,
+                self.ring.program_id(),
+            )?
+            .with_output_tree_id(tree_id)?;
+            transfer.transfer_sol(&self.env.recipient.keypair.shielded_address()?, 1_000_000)?;
+            transfer.pad_utxos(
+                canonical_shape(transfer.inputs().len(), 2)?,
+                &member.shielded_address()?,
             )?;
             transfers.push(
                 CustomRingTransfer::new(CustomRingTransferInput {
                     ring: self.ring,
                     sender: member,
-                    prepared: transfer.prepare()?,
+                    nullifier_key: Some(&member.nullifier_key),
+                    transaction: transfer,
                 })
-                .with_tree(self.env.tree)
-                .with_assets(&self.env.assets),
+                .with_tree(self.env.tree),
             );
         }
         self.catch_up()?;

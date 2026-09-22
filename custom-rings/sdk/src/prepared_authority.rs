@@ -4,14 +4,8 @@ use zolana_client::{
 };
 use zolana_transaction::{
     error::TransactionError,
-    instructions::{
-        transact::{
-            shape::Shape,
-            spp_proof_inputs::{first_nullifier, PublicTransfers},
-        },
-        types::{InputUtxoContext, SppProofInputUtxo},
-    },
-    utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
+    instructions::transact::{shape::Shape, PublicTransfers},
+    utxo::{derive_output_blinding_seed, derive_private_tx_blinding, SppProofInputUtxo},
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -24,50 +18,41 @@ pub struct PreparedRingAuthority {
     /// The transaction's private random root seed. See
     /// [`SppProofInputs::blinding_seed`](zolana_transaction::instructions::transact::SppProofInputs).
     pub blinding_seed: [u8; 32],
-    /// Raw id of the tree every output is appended to.
-    // TODO(tree-id): resolve the tree id from the tree account.
     pub output_tree_id: u16,
     pub public_transfers: PublicTransfers,
     pub external_data: ExternalData,
     pub payer: Address,
-    /// The ring program; bound to the public `ring_program_id` and to each
-    /// non-dummy UTXO's ring field by the circuit. Every input/output UTXO must
-    /// already carry this `ring_program_id`.
     pub ring_program_id: Option<Address>,
     pub shape: Shape,
 }
 
 impl PreparedRingAuthority {
-    /// Nullifier of the first input slot, which must be a real spend.
     pub fn first_nullifier(&self) -> Result<[u8; 32], TransactionError> {
-        first_nullifier(&self.inputs)
+        Ok(self
+            .inputs
+            .first()
+            .ok_or(TransactionError::NoInputs)?
+            .nullifier())
     }
 
-    /// Seed every physical output blinding derives from.
     pub fn output_blinding_seed(&self) -> Result<[u8; 32], TransactionError> {
         derive_output_blinding_seed(&self.first_nullifier()?, &self.blinding_seed)
     }
 
-    /// Final `private_tx_hash` preimage element.
     pub fn private_tx_blinding(&self) -> Result<[u8; 32], TransactionError> {
         derive_private_tx_blinding(&self.first_nullifier()?, &self.blinding_seed)
     }
 
-    /// Commitments for the real inputs only; dummy padding has a zero owner and no
-    /// meaningful commitment to look up.
-    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
-        self.inputs
+    pub fn input_utxo_hashes(&self) -> Result<Vec<&SppProofInputUtxo>, TransactionError> {
+        let inputs = self
+            .inputs
             .iter()
-            .filter(|spend| !spend.is_dummy())
-            .enumerate()
-            .map(|(index, spend)| {
-                Ok(InputUtxoContext {
-                    index,
-                    utxo_hash: spend.hash()?,
-                    nullifier: spend.nullifier()?,
-                })
-            })
-            .collect()
+            .filter(|input_utxo| !input_utxo.is_dummy())
+            .collect::<Vec<_>>();
+        if inputs.is_empty() {
+            return Err(TransactionError::NoInputs);
+        }
+        Ok(inputs)
     }
 }
 
@@ -113,7 +98,7 @@ impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
             payer,
             allow_dummy_inputs: true,
             ring_program_id,
-            shape: Some(shape),
+            shape,
         })
     }
 }

@@ -17,7 +17,7 @@ use zolana_ring_policy::{
     ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS,
     POLICY_OUTPUT_SLOTS,
 };
-use zolana_transaction::instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo};
+use zolana_transaction::{instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo};
 use zolana_tree::TreeAccount;
 
 use crate::{
@@ -194,7 +194,8 @@ impl<'a> CustomRingWitnessInput<'a> {
             if owner_member(address.signing_pubkey.owner_proof_input_hash())? != *owner {
                 continue;
             }
-            let asset = Member::asset(&output.asset).map_err(|_| TransferError::PolicyHashing)?;
+            let asset =
+                Member::asset(&output.asset.asset).map_err(|_| TransferError::PolicyHashing)?;
             let index = assets
                 .iter()
                 .position(|known| known == asset.as_bytes())
@@ -237,7 +238,7 @@ impl<'a> CustomRingWitnessInput<'a> {
             };
             let output_member = match subject {
                 Subject::Asset => {
-                    Member::asset(&output.asset).map_err(|_| TransferError::PolicyHashing)?
+                    Member::asset(&output.asset.asset).map_err(|_| TransferError::PolicyHashing)?
                 }
                 _ => owner_member(address.signing_pubkey.owner_proof_input_hash())?,
             };
@@ -259,8 +260,8 @@ impl<'a> CustomRingWitnessInput<'a> {
             Subject::Sender => self
                 .rule_inputs()
                 .iter()
-                .filter(|spend| !spend.is_dummy())
-                .map(|spend| owner_member(spend.utxo.owner.owner_proof_input_hash()))
+                .filter(|input_utxo| !input_utxo.is_dummy())
+                .map(|input_utxo| owner_member(input_utxo.utxo.owner.owner_proof_input_hash()))
                 .collect(),
             // The circuit ranges asset rules over live outputs, using the same
             // hashed mint field as output_opening.
@@ -269,7 +270,7 @@ impl<'a> CustomRingWitnessInput<'a> {
                 .iter()
                 .filter(|output| output.owner_address.is_some())
                 .map(|output| {
-                    Member::asset(&output.asset).map_err(|_| TransferError::PolicyHashing)
+                    Member::asset(&output.asset.asset).map_err(|_| TransferError::PolicyHashing)
                 })
                 .collect(),
             // RuleTableBuilder rejects this subject until a settlement-aware
@@ -482,8 +483,8 @@ impl ResolvedWitness<'_> {
 
         let input = self.input;
         let mut inputs = [CustomRingOpening::default(); POLICY_INPUT_SLOTS];
-        for (slot, spend) in inputs.iter_mut().zip(input.inputs) {
-            *slot = input_opening(spend)?;
+        for (slot, input_utxo) in inputs.iter_mut().zip(input.inputs) {
+            *slot = input_opening(input_utxo)?;
         }
         let mut outputs = [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS];
         for (slot, output) in outputs.iter_mut().zip(input.outputs) {
@@ -656,8 +657,8 @@ fn owner_member(
     Member::owner_identity(&identity).map_err(|_| TransferError::PolicyHashing)
 }
 
-fn input_opening(spend: &SppProofInputUtxo) -> Result<CustomRingOpening, TransferError> {
-    if spend.is_dummy() {
+fn input_opening(input_utxo: &SppProofInputUtxo) -> Result<CustomRingOpening, TransferError> {
+    if input_utxo.is_dummy() {
         return Ok(CustomRingOpening {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
             ..CustomRingOpening::default()
@@ -665,22 +666,19 @@ fn input_opening(spend: &SppProofInputUtxo) -> Result<CustomRingOpening, Transfe
     }
     Ok(CustomRingOpening {
         domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
-        tree_id: tree_id_field(spend.tree_id),
-        owner_pk_hash: spend
+        tree_id: tree_id_field(input_utxo.tree_id),
+        owner_pk_hash: input_utxo
             .utxo
             .owner
             .owner_proof_input_hash()
             .map_err(|_| TransferError::PolicyHashing)?,
-        nullifier_pk: spend
-            .nullifier_key
-            .pubkey()
-            .map_err(|_| TransferError::PolicyHashing)?,
-        asset: asset_field(&spend.utxo.asset)?,
-        amount: right_align(&spend.utxo.amount.to_be_bytes()),
-        blinding: spend.utxo.blinding,
-        data_hash: spend.data_hash.unwrap_or_default(),
-        ring_data_hash: spend.ring_data_hash.unwrap_or_default(),
-        ring_program_id: ring_field(spend.utxo.ring_program_id.as_ref())?,
+        nullifier_pk: input_utxo.nullifier_pubkey,
+        asset: asset_field(&input_utxo.utxo.asset.asset)?,
+        amount: right_align(&input_utxo.utxo.amount.to_be_bytes()),
+        blinding: input_utxo.utxo.blinding,
+        data_hash: input_utxo.data_hash.unwrap_or_default(),
+        ring_data_hash: input_utxo.ring_data_hash.unwrap_or_default(),
+        ring_program_id: ring_field(input_utxo.utxo.ring_program_id.as_ref())?,
     })
 }
 
@@ -704,7 +702,7 @@ fn output_opening(
             .owner_proof_input_hash()
             .map_err(|_| TransferError::PolicyHashing)?,
         nullifier_pk: address.nullifier_pubkey,
-        asset: asset_field(&output.asset)?,
+        asset: asset_field(&output.asset.asset)?,
         amount: right_align(&output.amount.to_be_bytes()),
         blinding: output.blinding,
         data_hash: output.data_hash.unwrap_or_default(),
@@ -802,7 +800,8 @@ mod tests {
         address: zolana_keypair::ShieldedAddress,
         amount: u64,
     ) -> SppProofOutputUtxo {
-        SppProofOutputUtxo::new(asset, amount, address).expect("output")
+        SppProofOutputUtxo::new(zolana_transaction::Mint::new(asset, 2), amount, address)
+            .expect("output")
     }
 
     const EMPTY: RuleTable = RuleTable::builder().build();
@@ -864,7 +863,7 @@ mod tests {
         let asset = Address::new_from_array([9; 32]);
         let outputs = [
             SppProofOutputUtxo::new(
-                asset,
+                zolana_transaction::Mint::new(asset, 2),
                 1,
                 recipient.shielded_address().expect("shielded address"),
             )

@@ -1,22 +1,18 @@
+use borsh::BorshDeserialize;
 use solana_address::Address;
+use zolana_event::OutputDataEncoding;
 use zolana_interface::instruction::{
     instruction_data::transact::{OwnerTag, TransactOutput},
     tag::RING_AUTHORITY_TRANSACT,
 };
-use zolana_keypair::{constants::SALT_LEN, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, random_blinding, ViewingKey};
 
 use zolana_transaction::{
     error::TransactionError,
-    instructions::{
-        transact::{
-            shape::Shape,
-            slots::encode_confidential_slots,
-            spp_proof_inputs::{prepare_output_blindings, PublicTransfers},
-            transfer::{dummy_len, random_dummy_ciphertext},
-        },
-        types::SppProofInputUtxo,
-    },
-    AssetRegistry, ExternalData, SppProofOutputUtxo,
+    instructions::transact::{shape::Shape, PublicTransfers},
+    serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
+    AssetRegistry, EncryptedScheme, ExternalData, SppProofOutputUtxo, UtxoSerialization,
 };
 
 use crate::PreparedRingAuthority;
@@ -41,7 +37,6 @@ pub struct RingAuthorityDraft {
     output_tree_id: u16,
     blinding_seed: [u8; 32],
     dummy_tag: [u8; 32],
-    padded_outputs: usize,
 }
 
 pub struct AuthoritySeal<'a> {
@@ -89,13 +84,32 @@ impl RingAuthorityMove {
                 ..Default::default()
             });
         }
-        for spend in inputs.iter_mut().filter(|spend| spend.is_dummy()) {
-            spend.tree_id = input_tree_id;
-        }
         while inputs.len() < width {
-            inputs.push(SppProofInputUtxo::new_dummy().in_tree(input_tree_id));
+            inputs.push(SppProofInputUtxo::dummy(input_tree_id)?);
         }
-        let blinding_seed = prepare_output_blindings(&inputs, &mut outputs)?;
+        if let Some((index, input)) = inputs
+            .iter()
+            .enumerate()
+            .find(|(_, input)| input.is_dummy() && input.tree_id != input_tree_id)
+        {
+            return Err(TransactionError::PaddingInUndeclaredTree {
+                index,
+                tree_id: input.tree_id,
+            });
+        }
+        let blinding_seed = random_blinding();
+        let first_nullifier = inputs
+            .first()
+            .ok_or(TransactionError::NoInputs)?
+            .nullifier();
+        let output_seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed)?;
+        for (index, output) in outputs.iter_mut().enumerate() {
+            output.blinding = derive_transact_output_blinding(
+                &first_nullifier,
+                &output_seed,
+                u32::try_from(index).map_err(|_| TransactionError::TooManyOutputs)?,
+            )?;
+        }
         Ok(RingAuthorityDraft {
             inputs,
             outputs,
@@ -105,7 +119,6 @@ impl RingAuthorityMove {
             output_tree_id,
             blinding_seed,
             dummy_tag,
-            padded_outputs,
         })
     }
 }
@@ -124,27 +137,55 @@ impl RingAuthorityDraft {
             output_tree_id,
             blinding_seed,
             dummy_tag,
-            padded_outputs,
         } = self;
-        let AuthoritySeal { tx, assets, salt } = seal;
-        let slots = encode_confidential_slots(&outputs, assets, tx, salt)?;
-        let pad_len = if padded_outputs > 0 {
-            dummy_len(salt)?
-        } else {
-            0
-        };
+        let AuthoritySeal {
+            tx,
+            assets: _,
+            salt,
+        } = seal;
         let mut transact_outputs = Vec::with_capacity(outputs.len());
         let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
-        for (output, slot) in outputs.iter().zip(slots) {
+        for (slot_index, output) in outputs.iter().enumerate() {
             let utxo_hash = output.hash(output_tree_id)?;
-            let (tag, data) = match slot {
-                Some(slot) => (slot.view_tag, slot.data),
-                None => (dummy_tag, random_dummy_ciphertext(pad_len)),
+            let (tag, data) = match output.owner_address {
+                Some(address) => {
+                    let tag = address.signing_pubkey.confidential_view_tag()?;
+                    let mut message = Confidential::encode_plaintext(
+                        &ConfidentialOutputPlaintext {
+                            asset_id: output.asset.asset_id,
+                            amount: output.amount,
+                            blinding: output.blinding,
+                            ring_program_id: output.ring_program_id,
+                            data: output.data.clone(),
+                        },
+                        tag,
+                        &ConfidentialEncode {
+                            tx: tx.clone(),
+                            recipient_pubkey: address.viewing_pubkey,
+                            salt,
+                            slot_index: slot_index as u32,
+                        },
+                    )?;
+                    let OutputDataEncoding::Encrypted(mut blob) =
+                        OutputDataEncoding::try_from_slice(&message.data)
+                            .map_err(|error| TransactionError::Deserialize(error.to_string()))?
+                    else {
+                        return Err(TransactionError::BadDiscriminator(
+                            EncryptedScheme::Confidential.as_byte(),
+                        ));
+                    };
+                    *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
+                        EncryptedScheme::RingConfidential.as_byte();
+                    message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+                        .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
+                    (tag, Some(message.data))
+                }
+                None => (dummy_tag, None),
             };
             transact_outputs.push(TransactOutput {
                 utxo_hash,
                 owner_tag: OwnerTag::Inline(tag),
-                data: Some(data),
+                data,
             });
             resolved_owner_tags.push(tag);
         }
@@ -175,30 +216,35 @@ mod tests {
     use zolana_keypair::{random_blinding, random_salt, ShieldedKeypair, ViewingKey};
 
     use super::*;
-    use zolana_transaction::{data::Data, utxo::Utxo, AssetRegistry, SOL_MINT};
+    use zolana_transaction::{data::Data, utxo::Utxo, AssetRegistry, Mint};
 
     const RING: Address = Address::new_from_array([42u8; 32]);
 
     fn note(owner: &ShieldedKeypair, amount: u64) -> SppProofInputUtxo {
-        SppProofInputUtxo::new(
+        zolana_test_utils::utxo::wallet(
             Utxo {
                 owner: owner.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount,
                 blinding: random_blinding(),
                 ring_program_id: Some(RING),
                 data: Data::default(),
             },
-            owner,
+            &owner.nullifier_key,
+            3,
+            0,
+            None,
+            None,
         )
-        .in_tree(3)
+        .expect("wallet UTXO")
+        .into()
     }
 
     fn recipient(owner: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
         let address = owner.shielded_address().expect("address");
         SppProofOutputUtxo {
             ring_program_id: Some(RING),
-            ..SppProofOutputUtxo::new(SOL_MINT, amount, address).expect("output")
+            ..SppProofOutputUtxo::new(Mint::SOL, amount, address).expect("output")
         }
     }
 
@@ -296,7 +342,10 @@ mod tests {
         ));
         assert!(matches!(
             prepare(
-                vec![SppProofInputUtxo::new_dummy(), note(&member, 5)],
+                vec![
+                    SppProofInputUtxo::dummy(3).expect("dummy"),
+                    note(&member, 5)
+                ],
                 vec![recipient(&member, 5)]
             ),
             Err(TransactionError::NoInputs)

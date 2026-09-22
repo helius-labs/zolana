@@ -1,4 +1,10 @@
+#[path = "../common/authority.rs"]
+mod authority_fixture;
 mod harness;
+#[path = "../common/input.rs"]
+mod input_fixture;
+#[path = "../common/blindings.rs"]
+mod output_blindings;
 mod proving;
 
 #[path = "../prover_bootstrap.rs"]
@@ -25,11 +31,12 @@ fn ring_authority_proofs_cover_shape_sweep() {
 
 #[test]
 #[serial_test::serial]
-fn ring_authority_proofs_cover_owner_modes() {
+fn ring_authority_proofs_cover_owner_modes_and_prepared_boundary() {
     for (n_inputs, n_outputs, mode) in [
         (3, 3, Mode::MultiReal),
         (1, 1, Mode::P256Input),
         (2, 2, Mode::MixedOwners),
+        (2, 2, Mode::Boundary),
     ] {
         RingAuthorityHarness {
             plan: Plan {

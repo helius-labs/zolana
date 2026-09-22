@@ -6,6 +6,7 @@ use num_bigint::BigUint;
 use rand::{rngs::OsRng, RngCore};
 use solana_address::Address;
 use thiserror::Error;
+use zolana_client::ProofInputUtxo;
 use zolana_client::{
     prover::{field::be, ProofCompressed},
     AsyncRpc, ClientError, MerkleProof, NonInclusionProof, ProverClient, PublicInputs,
@@ -28,7 +29,6 @@ use zolana_transaction::{
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
-    ProofInputUtxo,
 };
 use zolana_tree::TreeAccount;
 
@@ -349,7 +349,10 @@ impl NamespaceWrite<'_> {
             tree_slot: BigUint::ZERO,
             nullifier: be(&slot.nullifier),
             owner_pk_hash: be(&owner_pk_hash),
-            nullifier_secret: BigUint::ZERO,
+            // An entry slot nullifies under the zero secret (`entry_nullifier`),
+            // so it is complete as built and no authority has anything to fill
+            // in.
+            nullifier_secret: Some(BigUint::ZERO),
         };
         let transfer_output = TransferOutput {
             utxo: ProofInputUtxo {

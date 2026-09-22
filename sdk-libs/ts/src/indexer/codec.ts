@@ -1,3 +1,4 @@
+import { treeAddress } from "../interface/pda/index.js";
 import type {
   EncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse,
@@ -348,10 +349,21 @@ function context(value: unknown, path: string): IndexerContext {
 }
 
 function outputContext(value: unknown, path: string): RingsOutputContext {
-  const record = object(value, path, ["hash", "tree", "leafIndex"]);
+  const record = object(value, path, ["hash", "tree", "treeId", "leafIndex"]);
+  const treeId = u16(record["treeId"], `${path}.treeId`);
+  const tree = checkedAddress(record["tree"], `${path}.tree`);
+  if (tree !== treeAddress(treeId)) {
+    return schemaFailure(
+      "INDEXER_SCHEMA_INVALID_TREE",
+      path,
+      "the address derived from treeId",
+      value,
+    );
+  }
   return {
+    treeId,
     hash: checkedHash(record["hash"], `${path}.hash`),
-    tree: checkedAddress(record["tree"], `${path}.tree`),
+    tree,
     leafIndex: u64(record["leafIndex"], `${path}.leafIndex`),
   };
 }
@@ -558,10 +570,18 @@ export function encodeShieldedTransactionsBySignatureRequest(
 }
 
 export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
-  const record = object(value, "$", ["context", "matches", "nextCursor", "scannedThrough"]);
+  const record = object(value, "$", [
+    "context",
+    "matches",
+    "nextCursor",
+    "scannedThrough",
+    "outputTreeId",
+  ]);
   const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
   const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
+  const outputTreeId = optional(record["outputTreeId"], "$.outputTreeId", u16);
   return {
+    ...(outputTreeId === undefined ? {} : { outputTreeId }),
     context: context(record["context"], "$.context"),
     matches: array(record["matches"], "$.matches", encryptedUtxoMatch),
     ...(nextCursor === undefined ? {} : { nextCursor }),
@@ -572,10 +592,18 @@ export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosB
 export function decodeShieldedTransactionsResponse(
   value: unknown,
 ): GetShieldedTransactionsByTagsResponse {
-  const record = object(value, "$", ["context", "transactions", "nextCursor", "scannedThrough"]);
+  const record = object(value, "$", [
+    "context",
+    "transactions",
+    "nextCursor",
+    "scannedThrough",
+    "outputTreeId",
+  ]);
   const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
   const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
+  const outputTreeId = optional(record["outputTreeId"], "$.outputTreeId", u16);
   return {
+    ...(outputTreeId === undefined ? {} : { outputTreeId }),
     context: context(record["context"], "$.context"),
     transactions: array(record["transactions"], "$.transactions", indexedTransaction),
     ...(nextCursor === undefined ? {} : { nextCursor }),
@@ -586,8 +614,10 @@ export function decodeShieldedTransactionsResponse(
 export function decodeShieldedTransactionsBySignatureResponse(
   value: unknown,
 ): GetShieldedTransactionsBySignatureResponse {
-  const record = object(value, "$", ["context", "transactions"]);
+  const record = object(value, "$", ["context", "transactions", "outputTreeId"]);
+  const outputTreeId = optional(record["outputTreeId"], "$.outputTreeId", u16);
   return {
+    ...(outputTreeId === undefined ? {} : { outputTreeId }),
     context: context(record["context"], "$.context"),
     transactions: array(record["transactions"], "$.transactions", signatureIndexedTransaction),
   };

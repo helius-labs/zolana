@@ -21,6 +21,7 @@ zolana-transaction = { workspace = true }
 zolana-wallet = { workspace = true }
 
 [dev-dependencies]
+zolana-test-utils.workspace = true
 groth16-solana = { workspace = true, features = ["bsb22"] }
 solana-keypair = { workspace = true }
 solana-signature = { workspace = true }

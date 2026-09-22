@@ -5,6 +5,13 @@ mod prover;
 mod proving;
 mod test_indexer;
 
+#[path = "common/authority.rs"]
+mod authority_fixture;
+#[path = "common/input.rs"]
+mod input_fixture;
+#[path = "common/transfer.rs"]
+mod transfer_fixture;
+
 use harness::{Asset, InputSpec, SendSpec, TransferHarness, TransferPlan, WithdrawSpec};
 
 // NOTE(pr164): the P256-owner and mixed-owner proof matrices were removed:

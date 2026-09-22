@@ -6,9 +6,8 @@ use custom_ring_sdk::{
     to_instruction_proof, AuditorMessage, CustomRingProofError, CustomRingProofParams,
     EncryptedAudit,
 };
-use zolana_client::Proof;
+use zolana_client::{Proof, ProofInputUtxo};
 use zolana_keypair::{P256Pubkey, ViewingKey};
-use zolana_transaction::utxo::ProofInputUtxo;
 
 /// The `custom-rings/sdk/tests/go_vectors.rs` fixture, which is the Go
 /// circuit test's own: byte `i` is `seed ^ i` with byte 0 forced to 0x01 so the

@@ -118,6 +118,28 @@ impl ZolanaProgramTest {
         deposit: &DepositOutput,
         owner: PublicKey,
     ) -> Result<Utxo, ProgramTestError> {
-        Ok(self.indexer().deposit_utxo(&deposit.utxo_hash, owner)?)
+        let mint = Pubkey::new_from_array(deposit.output.asset);
+        let asset_id = if mint == zolana_transaction::SOL_MINT {
+            zolana_transaction::SOL_ASSET_ID
+        } else {
+            let address = zolana_interface::pda::spl_asset_registry(&mint);
+            let account = self.svm.get_account(&address).ok_or_else(|| {
+                ProgramTestError::Litesvm(format!("missing asset registry {address}"))
+            })?;
+            let registry =
+                zolana_interface::state::SplAssetRegistry::from_account_bytes(&account.data)
+                    .map_err(|error| {
+                        ProgramTestError::Litesvm(format!("invalid asset registry: {error:?}"))
+                    })?;
+            if registry.mint != mint {
+                return Err(ProgramTestError::Litesvm(
+                    "asset registry mint mismatch".into(),
+                ));
+            }
+            registry.asset_id
+        };
+        Ok(self
+            .indexer()
+            .deposit_utxo(&deposit.utxo_hash, owner, asset_id)?)
     }
 }

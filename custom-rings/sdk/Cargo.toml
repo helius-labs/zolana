@@ -15,6 +15,7 @@ solana-rpc = ["dep:solana-rpc-client-api", "zolana-client/solana-rpc"]
 proofs = ["zolana-client/proofs"]
 
 [dependencies]
+zolana-event.workspace = true
 borsh = { workspace = true }
 num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }
@@ -58,6 +59,7 @@ zolana-tree = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 zolana-ring-head-map = { workspace = true }
+zolana-test-utils.workspace = true
 async-trait = { workspace = true }
 curve25519-dalek = "4.1"
 groth16-solana = { workspace = true, features = ["bsb22"] }

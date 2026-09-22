@@ -12,30 +12,18 @@ zolana-event = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program = { workspace = true }
-async-trait = { workspace = true }
 borsh = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 solana-address = { workspace = true }
-rand = { workspace = true }
-rayon = { workspace = true, optional = true }
 solana-signature = { workspace = true }
 num-bigint = { workspace = true }
 
-[features]
-parallel = ["dep:rayon"]
-
 [dev-dependencies]
-criterion = { workspace = true }
 hex = { workspace = true }
-proptest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 [[test]]
 name = "behavior"
 path = "tests/behavior.rs"
-
-[[bench]]
-name = "wallet_ops"
-harness = false

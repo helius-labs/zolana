@@ -3,15 +3,16 @@
 use solana_address::Address;
 use zolana_client::Shape;
 use zolana_interface::instruction::MessageData;
-use zolana_keypair::{random_blinding, PublicKey, ShieldedAddress, ViewingKey, ViewingKeyTrait};
+use zolana_keypair::{random_blinding, PublicKey, ShieldedAddress, ViewingKey};
 use zolana_ring_client::{find_counters_message, CountersSeal, SealedCounters};
 use zolana_ring_policy::{
     ListNamespace, Member, SpendCounters, SpendRecord, VelocityRow, MAX_VELOCITY_ASSETS,
 };
 use zolana_transaction::{
-    instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
-    utxo::derive_transact_output_blinding,
-    Data, Utxo, SOL_MINT,
+    instructions::transact::SppProofOutputUtxo,
+    keys::{ShieldedKeys, TransactionKeyRequest},
+    utxo::{derive_transact_output_blinding, SppProofInputUtxo},
+    Data, Mint, Utxo,
 };
 
 use crate::{
@@ -45,7 +46,7 @@ pub(crate) struct VelocityContext<'a> {
     pub entries_tree_id: u16,
     pub window_slots: u64,
     pub rows: Vec<VelocityRow>,
-    pub sender: &'a (dyn ViewingKeyTrait + Send + Sync),
+    pub sender: &'a (dyn ShieldedKeys + Send + Sync),
 }
 
 impl VelocityContext<'_> {
@@ -92,9 +93,15 @@ impl VelocityContext<'_> {
                 .origin
                 .salt
                 .ok_or(TransferError::SpendCountersUnknown)?;
-            let tx_key = self
-                .sender
-                .get_transaction_viewing_key(&live.origin.first_nullifier)?;
+            let sender = self.sender.address()?;
+            let keys = self.sender.transaction_keys(&[TransactionKeyRequest {
+                viewing_pubkey: sender.viewing_pubkey,
+                first_nullifier: live.origin.first_nullifier,
+            }])?;
+            let got = keys.len();
+            let tx_key = keys.into_iter().next().ok_or(
+                zolana_transaction::TransactionError::IncompleteDerivation { got, want: 1 },
+            )?;
             SealedCounters {
                 body: &message.data,
                 salt,
@@ -125,7 +132,7 @@ impl Outflows<'_> {
     fn outflow(&self, asset: &[u8; 32]) -> Result<u64, TransferError> {
         let mut inflow: u128 = 0;
         for input in self.inputs.iter().filter(|input| !input.is_dummy()) {
-            if Member::asset(&input.utxo.asset)
+            if Member::asset(&input.utxo.asset.asset)
                 .map_err(|_| TransferError::PolicyHashing)?
                 .as_bytes()
                 == asset
@@ -144,7 +151,7 @@ impl Outflows<'_> {
                 .signing_pubkey
                 .owner_proof_input_hash()
                 .map_err(|_| TransferError::PolicyHashing)?;
-            let same_asset = Member::asset(&output.asset)
+            let same_asset = Member::asset(&output.asset.asset)
                 .map_err(|_| TransferError::PolicyHashing)?
                 .as_bytes()
                 == asset;
@@ -292,22 +299,33 @@ impl VelocityPlanInput<'_> {
             .map_err(crate::witness::list_entry)?;
         let namespace_owner = PublicKey::from_pda(&facts.namespace);
         let zero_nullifier = zero_nullifier_key();
+        let input_utxo = Utxo {
+            owner: namespace_owner,
+            asset: Mint::SOL,
+            amount: 0,
+            blinding: spent.blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        };
+        let nullifier_pubkey = zero_nullifier.pubkey()?;
+        let utxo_hash = input_utxo.hash(
+            &nullifier_pubkey,
+            &spent_data_hash,
+            &[0; 32],
+            facts.entries_tree_id,
+        )?;
         let input = SppProofInputUtxo {
-            utxo: Utxo {
-                owner: namespace_owner,
-                asset: SOL_MINT,
-                amount: 0,
-                blinding: spent.blinding,
-                ring_program_id: None,
-                data: Data::default(),
-            },
-            nullifier_key: zero_nullifier.clone(),
+            utxo: input_utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            nullifier: zero_nullifier.nullifier(&utxo_hash, &spent.blinding)?,
             data_hash: Some(spent_data_hash),
             ring_data_hash: None,
             tree_id: facts.entries_tree_id,
+            leaf_index: 0,
         };
         let output = SppProofOutputUtxo {
-            asset: SOL_MINT,
+            asset: Mint::SOL,
             amount: 0,
             blinding: successor.blinding,
             ring_program_id: None,
@@ -431,28 +449,37 @@ mod tests {
         assert_eq!(context.recover_counters(&live, 9).unwrap(), None);
     }
 
-    fn mint() -> Address {
-        Address::new_from_array([9u8; 32])
+    fn mint() -> Mint {
+        Mint::new(Address::new_from_array([9u8; 32]), 9)
     }
 
     fn row_asset() -> [u8; 32] {
-        *Member::asset(&mint()).expect("asset member").as_bytes()
+        *Member::asset(&mint().asset)
+            .expect("asset member")
+            .as_bytes()
     }
 
     fn money_input(amount: u64) -> SppProofInputUtxo {
+        let utxo = Utxo {
+            owner: PublicKey::from_pda(&Address::new_from_array([7u8; 32])),
+            asset: mint(),
+            amount,
+            blinding: [0u8; 32],
+            ring_program_id: None,
+            data: Data::default(),
+        };
+        let key = zero_nullifier_key();
+        let nullifier_pubkey = key.pubkey().unwrap();
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 0).unwrap();
         SppProofInputUtxo {
-            utxo: Utxo {
-                owner: PublicKey::from_pda(&Address::new_from_array([7u8; 32])),
-                asset: mint(),
-                amount,
-                blinding: [0u8; 32],
-                ring_program_id: None,
-                data: Data::default(),
-            },
-            nullifier_key: zero_nullifier_key(),
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            nullifier: key.nullifier(&utxo_hash, &[0; 32]).unwrap(),
             data_hash: None,
             ring_data_hash: None,
             tree_id: 0,
+            leaf_index: 0,
         }
     }
 

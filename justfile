@@ -76,7 +76,7 @@ check:
 # test binaries in the type check without letting `cargo test` run them.
 check-all:
     cargo check --workspace --all-targets --features zolana-client/proofs
-    cargo check -p zolana-transaction --features parallel --all-targets
+    cargo check -p zolana-wallet --features parallel --all-targets
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
@@ -344,9 +344,10 @@ test-sdk-libs:
     cargo nextest run -p zolana-event-parser
     cargo nextest run -p zolana-transaction
     # `parallel` is off by default, so the default run compiles neither
-    # wallet::parallel nor the tests that hold the two scan strategies to the
-    # same results. Without this the strategies can drift unnoticed.
-    cargo nextest run -p zolana-transaction --features parallel
+    # zolana-wallet's parallel scan nor the case that holds the two scan
+    # strategies to the same results. Without this the strategies can drift
+    # unnoticed.
+    cargo nextest run -p zolana-wallet --features parallel
     cargo nextest run -p zolana-client --features client
     cargo nextest run -p zolana-wallet
     cargo nextest run -p zolana-ring-client
@@ -1642,7 +1643,7 @@ clippy:
     cargo clippy --workspace --all-targets --features zolana-client/proofs -- -D warnings
     # Not covered by `--workspace`: an optional feature's module is only
     # compiled when the feature is on.
-    cargo clippy -p zolana-transaction --features parallel --all-targets -- -D warnings
+    cargo clippy -p zolana-wallet --features parallel --all-targets -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh

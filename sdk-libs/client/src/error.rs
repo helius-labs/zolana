@@ -56,7 +56,7 @@ pub enum ClientError {
     #[error("transaction failed: {0}")]
     TransactionFailed(String),
 
-    #[error("spend amount must be greater than zero")]
+    #[error("input_utxo amount must be greater than zero")]
     ZeroSpendAmount,
 
     #[error("too many inputs: got {got}, shape holds at most {max}")]
@@ -103,6 +103,16 @@ pub enum ClientError {
     #[error("address resolution error: {0}")]
     AddressResolution(String),
 
+    /// The pool has no protocol config account, so its tree count cannot be
+    /// read and no tree id can be resolved.
+    #[error("protocol config account {0} does not exist")]
+    ProtocolConfigNotFound(solana_address::Address),
+
+    /// The protocol config account exists but does not parse, so its
+    /// `next_tree_id` cannot be trusted as the tree bound.
+    #[error("protocol config account is malformed: {0}")]
+    InvalidProtocolConfig(String),
+
     #[error(
         "interface transfers and settlement account groups must have equal lengths: {interface_transfers} transfers, {account_groups} account groups"
     )]
@@ -123,7 +133,7 @@ pub enum ClientError {
     #[error("a transaction supports a single withdrawal")]
     WithdrawalAlreadySet,
 
-    #[error("a transaction must spend at least one input")]
+    #[error("a transaction must input_utxo at least one input")]
     NoInputs,
 
     #[error(
@@ -196,7 +206,7 @@ pub enum ClientError {
     InputUtxoUnavailable { hash: [u8; 32] },
 
     #[error(
-        "input utxo {hash:?} is on tree {utxo_tree:?}, not the resolved spend tree {spend_tree:?}"
+        "input utxo {hash:?} is on tree {utxo_tree:?}, not the resolved input_utxo tree {spend_tree:?}"
     )]
     InputUtxoTreeMismatch {
         hash: [u8; 32],
@@ -230,6 +240,60 @@ pub enum ClientError {
 
     #[error("missing input merkle proof for input {index}")]
     MissingInputMerkleProof { index: usize },
+
+    #[error("missing nullifier proof for dummy input {index}")]
+    MissingDummyNullifierProof { index: usize },
+
+    #[error("input {index} has a proof for the wrong slot kind")]
+    UnexpectedInputProof { index: usize },
+
+    #[error("expected {real} real and {dummy} dummy proofs, got {real_proofs} and {dummy_proofs}")]
+    InputProofCountMismatch {
+        real: usize,
+        dummy: usize,
+        real_proofs: usize,
+        dummy_proofs: usize,
+    },
+
+    #[error("state proof {index} has the wrong leaf index")]
+    StateProofIndexMismatch { index: usize },
+
+    #[error("merge output does not match the finalized inputs")]
+    MergeOutputMismatch,
+
+    /// A real input reached the prover request without the secret its owner
+    /// proves ownership with, because no
+    /// [`ProofAuthority`](crate::authority::ProofAuthority) completed it.
+    /// Padding carries a genuine zero, so this names a real input, and the wire
+    /// has no way to say "absent": sending it would publish the padding secret
+    /// and prove the input as a dummy.
+    #[error(
+        "no nullifier secret for input {index}, which a real input_utxo needs to prove ownership"
+    )]
+    MissingNullifierSecret { index: usize },
+
+    /// The nullifier an input carries is not the one its completing secret
+    /// derives, so the input and the secret describe different spends.
+    ///
+    /// Nothing downstream reports this. The prover derives the nullifier from
+    /// the secret while the client published the stored one, and the first
+    /// nullifier seeds `derive_private_tx_blinding`, so the two would commit to
+    /// different private transaction hashes and only fail at authorization or
+    /// at proof verification.
+    #[error("input {index} carries a nullifier its completing secret does not derive")]
+    InputNullifierMismatch { index: usize },
+
+    /// A ring merge input names a ring other than the one being merged under.
+    /// `ring_program_id` is folded into the input's commitment and nullifier,
+    /// both of which are fixed at construction, so the input cannot be moved
+    /// into this ring here -- it has to be built under it.
+    #[error("input {index} belongs to a different ring program than the merge")]
+    InputRingProgramMismatch { index: usize },
+
+    /// A merge input carries a data hash. `Merge::new` rejects these, so
+    /// reaching the witness with one means the input was built elsewhere.
+    #[error("merge input {index} carries a data hash, which merge does not support")]
+    MergeInputHasData { index: usize },
 
     #[error(
         "indexer returned incomplete input proofs: expected {expected}, got {state} state and {nullifier} nullifier proofs"
@@ -312,14 +376,11 @@ pub enum ClientError {
     #[error("inputs span {got} trees, a proof resolves roots from at most {max}")]
     TooManyInputTrees { got: usize, max: usize },
 
-    #[error("two input trees share the raw pool tree id {tree_id}")]
-    DuplicateInputTreeId { tree_id: u16 },
-
     #[error("an input is hashed under pool tree id {tree_id}, which no input tree of this proof resolves roots for")]
     InputTreeUnresolved { tree_id: u16 },
 
     #[error(
-        "a proof cannot spend both a default-ring and a ring-bound P256 UTXO: the ring spend would name the shared owner"
+        "a proof cannot input_utxo both a default-ring and a ring-bound P256 UTXO: the ring input_utxo would name the shared owner"
     )]
     RingP256MixedDefaultAndRingSpend,
 
@@ -328,7 +389,9 @@ pub enum ClientError {
     )]
     RingP256PublishedOwnerLeaksIdentity { index: usize },
 
-    #[error("input {index} is not a real spend, and this transaction forbids dummy input slots")]
+    #[error(
+        "input {index} is not a real input_utxo, and this transaction forbids dummy input slots"
+    )]
     NonSpendInputNotAllowed { index: usize },
 
     #[error("deposit funding account not found: {address:?}")]

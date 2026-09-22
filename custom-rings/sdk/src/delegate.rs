@@ -6,15 +6,17 @@ use futures::future::try_join;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
-    AsyncRpc, Proof, ProofCompressed, RingAuthorityProofResult, RingAuthorityProver, Rpc,
-    SppProofInputUtxo, TransferInputs,
+    AsyncRpc, Proof, ProofCompressed, ProofInputUtxo, RingAuthorityProofResult,
+    RingAuthorityProver, Rpc, TransferInputs,
 };
 use zolana_interface::{
     instruction::{CircuitId, TransactIxData, TransactProof},
     N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{random_salt, ShieldedAddress, ViewingKey};
-use zolana_transaction::{instructions::transact::SppProofOutputUtxo, AssetRegistry};
+use zolana_transaction::{
+    instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo, AssetRegistry,
+};
 
 use crate::{
     instructions::spend::ReadEnvironment,
@@ -142,7 +144,7 @@ impl<'a> DelegateTransfer<'a> {
             inputs: RingSpendInputs {
                 indexer: env.indexer,
                 tree: input_tree,
-                spends: &staged.prepared.inputs,
+                input_utxos: &staged.prepared.inputs,
             }
             .load()?,
             allow_dummy_inputs: input_state.allows_dummy_inputs(&staged.prepared.inputs),
@@ -196,7 +198,7 @@ impl<'a> DelegateTransfer<'a> {
             inputs: RingSpendInputs {
                 indexer: env.indexer,
                 tree: input_tree,
-                spends: &staged.prepared.inputs,
+                input_utxos: &staged.prepared.inputs,
             }
             .load_async()
             .await?,
@@ -248,7 +250,7 @@ impl<'a> DelegateTransfer<'a> {
                 Ok(SppProofOutputUtxo {
                     owner_tag: Some(output.recipient.signing_pubkey.confidential_view_tag()?),
                     owner_address: Some(output.recipient),
-                    asset: output.asset,
+                    asset: assets.mint(&output.asset)?,
                     amount: output.amount,
                     ring_program_id: Some(program_id),
                     ..Default::default()
@@ -288,9 +290,7 @@ impl<'a> DelegateTransfer<'a> {
             outputs: prepared
                 .outputs
                 .iter()
-                .map(|output| {
-                    zolana_transaction::utxo::ProofInputUtxo::try_from((output, trees.output.id))
-                })
+                .map(|output| ProofInputUtxo::try_from((output, trees.output.id)))
                 .collect::<Result<Vec<_>, _>>()?,
         }
         .encrypt()?;
@@ -319,15 +319,19 @@ fn check_balance(
     inputs: &[SppProofInputUtxo],
     outputs: &[SppProofOutputUtxo],
 ) -> Result<(), TransferError> {
-    let mut assets: Vec<Address> = inputs
+    let mut assets: Vec<_> = inputs
         .iter()
         .filter(|input| !input.is_dummy())
         .map(|input| input.utxo.asset)
         .chain(outputs.iter().map(|output| output.asset))
         .collect();
-    assets.sort_unstable();
-    assets.dedup();
-    for asset in assets {
+    let mut unique = Vec::with_capacity(assets.len());
+    for asset in assets.drain(..) {
+        if !unique.contains(&asset) {
+            unique.push(asset);
+        }
+    }
+    for asset in unique {
         let moved_in: u128 = inputs
             .iter()
             .filter(|input| !input.is_dummy() && input.utxo.asset == asset)
@@ -339,7 +343,7 @@ fn check_balance(
             .map(|output| u128::from(output.amount))
             .sum();
         if moved_in != moved_out {
-            return Err(TransferError::UnbalancedMove(asset));
+            return Err(TransferError::UnbalancedMove(asset.asset));
         }
     }
     Ok(())
@@ -383,7 +387,7 @@ impl StagedDelegateTransfer {
             payer: self.prepared.payer,
             allow_dummy_inputs: spends.allow_dummy_inputs,
             ring_program_id: self.prepared.ring_program_id,
-            shape: Some(shape),
+            shape,
         }
         .build()?;
         let request = TierRequestInput {
@@ -497,32 +501,41 @@ mod tests {
         instruction::instruction_data::transact::ring_confidential_encrypted_output_body,
     };
     use zolana_keypair::{random_blinding, random_salt, ShieldedKeypair};
-    use zolana_transaction::{Data, Utxo, SOL_MINT};
+    use zolana_transaction::{Data, Mint, Utxo};
 
     use super::*;
 
     const RING: Address = Address::new_from_array([42u8; 32]);
 
     fn note(owner: &ShieldedKeypair, amount: u64) -> SppProofInputUtxo {
-        SppProofInputUtxo::new(
+        zolana_test_utils::utxo::wallet(
             Utxo {
                 owner: owner.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount,
                 blinding: random_blinding(),
                 ring_program_id: Some(RING),
                 data: Data::default(),
             },
-            owner,
+            &owner.nullifier_key,
+            0,
+            0,
+            None,
+            None,
         )
-        .in_tree(0)
+        .expect("wallet UTXO")
+        .into()
     }
 
     fn recipient(owner: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
         SppProofOutputUtxo {
             ring_program_id: Some(RING),
-            ..SppProofOutputUtxo::new(SOL_MINT, amount, owner.shielded_address().expect("address"))
-                .expect("output")
+            ..SppProofOutputUtxo::new(
+                Mint::SOL,
+                amount,
+                owner.shielded_address().expect("address"),
+            )
+            .expect("output")
         }
     }
 
@@ -567,7 +580,7 @@ mod tests {
         let outputs = vec![recipient(&member, 4)];
         assert!(matches!(
             check_balance(&[note(&member, 5)], &outputs),
-            Err(TransferError::UnbalancedMove(asset)) if asset == SOL_MINT
+            Err(TransferError::UnbalancedMove(asset)) if asset == Mint::SOL.asset
         ));
         check_balance(&[note(&member, 4)], &outputs).expect("balanced");
     }

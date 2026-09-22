@@ -355,6 +355,8 @@ mod tests {
                     tree,
                     TreeInfo {
                         tree,
+                        tree_id: 0,
+                        paused: false,
                         queue: tree,
                         height: RingsTreeKind::Nullifier.tree_height(),
                         root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),

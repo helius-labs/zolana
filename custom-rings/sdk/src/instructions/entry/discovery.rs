@@ -272,7 +272,9 @@ impl<'a, L: LineageLookup> LineageWalk<'a, L> {
             let successor = spender
                 .output_slots
                 .iter()
-                .filter(|slot| slot.output_context.tree == self.entries_tree)
+                .filter(|slot| {
+                    zolana_interface::pda::tree(slot.output_context.tree_id) == self.entries_tree
+                })
                 .find_map(|slot| {
                     head.lookup.decode(
                         &head.address,
@@ -312,7 +314,7 @@ pub(crate) mod tests {
     use super::*;
 
     pub(crate) fn tree() -> Address {
-        Address::new_from_array([7u8; 32])
+        zolana_interface::pda::tree(7)
     }
 
     pub(crate) fn namespace() -> Address {
@@ -398,7 +400,12 @@ pub(crate) mod tests {
             view_tag: namespace().to_bytes(),
             output_context: OutputContext {
                 hash: live.utxo_hash,
-                tree,
+                tree_id: if tree == zolana_interface::pda::tree(7) {
+                    7
+                } else {
+                    assert_eq!(tree, zolana_interface::pda::tree(9));
+                    9
+                },
                 leaf_index: live.entry.version,
             },
             payload: live.entry.to_output_data().to_vec(),
@@ -475,6 +482,7 @@ pub(crate) mod tests {
                 next_cursor: (!rows.is_empty()).then(|| vec![end as u8]),
                 scanned_through: (!truncated).then(|| vec![end as u8]),
                 transactions: rows,
+                output_tree_id: None,
             }
         }
     }
@@ -534,7 +542,7 @@ pub(crate) mod tests {
         );
         let mut spenders = lineage.spenders(tree());
         // A foreign tree republishes version 1 under version 0's nullifier.
-        let foreign = Address::new_from_array([9u8; 32]);
+        let foreign = zolana_interface::pda::tree(9);
         spenders[1]
             .output_slots
             .insert(0, slot(&lineage.versions[1], foreign));

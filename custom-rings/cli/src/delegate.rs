@@ -1,22 +1,23 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeSet, path::Path};
 
 use custom_ring_sdk::{
     CoSignScope, DelegateOutput, DelegateTransfer, DelegateTransferInput, KeyRegistrationError,
-    ReadSealedKey, SetDelegate, TransactSend, TransferError, TransferProofEnvironment,
+    ReadSealedKey, SetDelegate, TransactSend, TransferProofEnvironment,
     SET_DELEGATE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SppProofInputUtxo};
-use zolana_interface::{instruction::CircuitId, N_PUBLIC_SLOTS};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
+use zolana_interface::{instruction::CircuitId, pda, N_PUBLIC_SLOTS};
 use zolana_keypair::{ShieldedAddress, ViewingKey};
 use zolana_ring_client::{
     RecoveryEnvironment, RecoveryError, RingEnvironment, RingRecovery, SourceMember,
 };
 use zolana_ring_policy::Member;
 use zolana_ring_rpc::KeyFileError;
-use zolana_transaction::{Wallet, WalletUtxo, SOL_MINT};
+use zolana_transaction::{utxo::SppProofInputUtxo, WalletUtxo, SOL_MINT};
+use zolana_wallet::Wallet;
 
 use crate::{
     assets, file,
@@ -192,12 +193,6 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
                 origin: &ctx.rpc,
             },
             assets: &assets,
-            tree_ids: |tree| {
-                custom_ring_sdk::tree_id(&ctx.rpc, tree).map_err(|error| match error {
-                    TransferError::Client(source) => RecoveryError::Indexer(source),
-                    _ => RecoveryError::UnknownTree(tree),
-                })
-            },
         })
         .map_err(|error| DelegateError::Recovery(Box::new(error)))?;
     if !recovered.unopened.is_empty() {
@@ -222,28 +217,16 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         mint,
         amount,
     };
-    let tree = selection
-        .tree()
+    let tree_id = selection
+        .tree_id()
         .ok_or(DelegateError::NoFundedTree { needed: amount })?;
-    let tree_id = custom_ring_sdk::tree_id(&ctx.rpc, tree)?;
+    let tree = pda::tree(tree_id);
     let SelectedNotes { notes, total } = selection.notes(tree_id)?;
 
     let authority = ctx.authority_with_balance(SENDER_FEE_BUDGET + PAYER_FEE_BUDGET)?;
     ctx.ring_rpc().check_serves(ctx.ring.program_id())?;
 
-    let inputs: Vec<SppProofInputUtxo> = notes
-        .into_iter()
-        .map(|held| {
-            let mut input = SppProofInputUtxo::new(held.utxo, &nullifier_key).in_tree(tree_id);
-            if let Some(data_hash) = held.data_hash {
-                input = input.with_data_hash(data_hash);
-            }
-            if let Some(ring_data_hash) = held.ring_data_hash {
-                input = input.with_ring_data_hash(ring_data_hash);
-            }
-            input
-        })
-        .collect();
+    let inputs: Vec<SppProofInputUtxo> = notes.into_iter().map(SppProofInputUtxo::from).collect();
     let mut outputs = vec![DelegateOutput {
         recipient: to,
         asset: mint,
@@ -319,22 +302,19 @@ fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<ViewingKey, DelegateEr
 impl NoteSelection<'_> {
     fn held(&self) -> impl Iterator<Item = &WalletUtxo> {
         self.wallet.utxos.iter().filter(|held| {
-            !held.spent
+            !self.wallet.is_spent(held)
                 && held.utxo.ring_program_id == Some(self.ring)
-                && held.utxo.asset == self.mint
+                && held.utxo.asset.asset == self.mint
         })
     }
 
-    fn tree(&self) -> Option<Address> {
-        let trees: BTreeMap<_, _> = self
-            .held()
-            .map(|held| (held.output_context.tree, held.tree_id))
-            .collect();
+    fn tree_id(&self) -> Option<u16> {
+        let trees: BTreeSet<_> = self.held().map(|held| held.tree_id).collect();
         trees
             .into_iter()
-            .filter_map(|(tree, id)| self.notes(id).ok().map(|notes| (tree, notes)))
-            .min_by_key(|(tree, notes)| (notes.notes.len(), notes.total, *tree))
-            .map(|(tree, _)| tree)
+            .filter_map(|tree_id| self.notes(tree_id).ok().map(|notes| (tree_id, notes)))
+            .min_by_key(|(tree_id, notes)| (notes.notes.len(), notes.total, pda::tree(*tree_id)))
+            .map(|(tree_id, _)| tree_id)
     }
 
     /// Largest first, up to the amount.
@@ -382,24 +362,22 @@ mod tests {
     use solana_signature::Signature;
     use zolana_client::{
         rpc::GetShieldedTransactionsByNullifiersResponse, Context,
-        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ShieldedTransaction,
+        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
+        ShieldedTransaction,
     };
-    use zolana_interface::pda;
     use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair};
     use zolana_ring_client::{AuditorEncryption, OriginError, RingOrigin, TransactionOrigin};
     use zolana_transaction::{
         serialization::confidential::{
             Confidential, ConfidentialEncode, ConfidentialOutputPlaintext,
         },
-        utxo::ProofInputUtxo,
-        AssetRegistry, Data, OutputContext, OutputSlot, Utxo, UtxoSerialization, SOL_ASSET_ID,
+        AssetRegistry, Data, Mint, OutputContext, OutputSlot, Utxo, UtxoSerialization,
+        SOL_ASSET_ID,
     };
 
     use super::*;
 
     const SALT: [u8; SALT_LEN] = [5u8; SALT_LEN];
-    const TREE: Address = Address::new_from_array([4u8; 32]);
-
     fn ring() -> CustomRing {
         CustomRing::new(Address::new_from_array([9; 32]))
     }
@@ -409,29 +387,33 @@ mod tests {
         asset: Address,
         tree_id: u16,
         amount: u64,
-        spent: bool,
     }
 
     fn note(owner: &ShieldedKeypair, fixture: NoteFixture) -> WalletUtxo {
+        let asset = if fixture.asset == SOL_MINT {
+            Mint::SOL
+        } else {
+            Mint::new(fixture.asset, u64::from(fixture.asset.as_array()[0]))
+        };
         WalletUtxo {
             tree_id: fixture.tree_id,
             utxo: Utxo {
                 owner: owner.signing_pubkey(),
-                asset: fixture.asset,
+                asset,
                 amount: fixture.amount,
                 blinding: [fixture.amount as u8; 32],
                 ring_program_id: fixture.ring_id,
                 data: Data::default(),
             },
-            output_context: OutputContext {
-                hash: [fixture.amount as u8; 32],
-                tree: pda::tree(fixture.tree_id),
-                leaf_index: fixture.amount,
-            },
+            nullifier_pubkey: owner.nullifier_key.pubkey().expect("nullifier pubkey"),
+            utxo_hash: [fixture.amount as u8; 32],
             nullifier: [fixture.amount as u8; 32],
             data_hash: None,
             ring_data_hash: None,
-            spent: fixture.spent,
+            leaf_index: fixture.amount,
+            slot: 0,
+            tx_signature: Signature::default(),
+            slot_index: 0,
         }
     }
 
@@ -443,7 +425,6 @@ mod tests {
                 asset: SOL_MINT,
                 tree_id: 0,
                 amount,
-                spent: false,
             },
         )
     }
@@ -492,7 +473,6 @@ mod tests {
                     asset,
                     tree_id,
                     amount,
-                    spent: false,
                 },
             )
         };
@@ -504,8 +484,8 @@ mod tests {
                 ring_note(SOL_MINT, 0, 99),
             ],
         );
-        assert_eq!(selection(&wallet, mint, 5).tree(), Some(pda::tree(2)));
-        assert_eq!(selection(&wallet, mint, 9).tree(), None);
+        assert_eq!(selection(&wallet, mint, 5).tree_id(), Some(2));
+        assert_eq!(selection(&wallet, mint, 9).tree_id(), None);
         assert_eq!(amounts(&selection(&wallet, mint, 5).notes(2).unwrap()), [8]);
     }
 
@@ -521,10 +501,9 @@ mod tests {
                         asset: SOL_MINT,
                         tree_id: 1,
                         amount: 1,
-                        spent: false,
                     },
                 );
-                held.output_context.leaf_index = index;
+                held.leaf_index = index;
                 held
             })
             .collect();
@@ -535,12 +514,11 @@ mod tests {
                 asset: SOL_MINT,
                 tree_id: 2,
                 amount: 5,
-                spent: false,
             },
         ));
         let wallet = wallet_with(&owner, notes);
         let selection = selection(&wallet, SOL_MINT, 5);
-        assert_eq!(selection.tree(), Some(pda::tree(2)));
+        assert_eq!(selection.tree_id(), Some(2));
         assert_eq!(amounts(&selection.notes(2).unwrap()), [5]);
         assert!(matches!(
             selection.notes(1),
@@ -553,9 +531,9 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with(&owner, (0..6).map(|_| sol_note(&owner, 1)).collect());
         let supported = selection(&wallet, SOL_MINT, 4);
-        assert_eq!(supported.tree(), Some(pda::tree(0)));
+        assert_eq!(supported.tree_id(), Some(0));
         assert_eq!(supported.notes(0).unwrap().notes.len(), 4);
-        assert_eq!(selection(&wallet, SOL_MINT, 5).tree(), None);
+        assert_eq!(selection(&wallet, SOL_MINT, 5).tree_id(), None);
     }
 
     #[test]
@@ -569,7 +547,7 @@ mod tests {
             ],
         );
         let selection = selection(&wallet, SOL_MINT, u64::MAX);
-        assert_eq!(selection.tree(), Some(pda::tree(0)));
+        assert_eq!(selection.tree_id(), Some(0));
         let selected = selection.notes(0).unwrap();
         assert_eq!(selected.notes.len(), 2);
         assert_eq!(selected.total, 2 * u128::from(u64::MAX - 1));
@@ -584,7 +562,7 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let wallet = wallet_with(&owner, vec![sol_note(&owner, 1)]);
         let selection = selection(&wallet, SOL_MINT, 0);
-        assert_eq!(selection.tree(), None);
+        assert_eq!(selection.tree_id(), None);
         assert!(matches!(selection.notes(0), Err(DelegateError::ZeroAmount)));
     }
 
@@ -603,32 +581,28 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().expect("keypair");
         let other_ring = Address::new_from_array([7; 32]);
         let other_mint = Address::new_from_array([8; 32]);
-        let fixture = |ring_id, asset, tree_id, amount, spent| NoteFixture {
+        let fixture = |ring_id, asset, tree_id, amount| NoteFixture {
             ring_id,
             asset,
             tree_id,
             amount,
-            spent,
         };
-        let wallet = wallet_with(
+        let spent = note(&owner, fixture(Some(ring().program_id()), SOL_MINT, 0, 23));
+        let spent_nullifier = spent.nullifier;
+        let mut wallet = wallet_with(
             &owner,
             vec![
-                note(&owner, fixture(Some(other_ring), SOL_MINT, 0, 20, false)),
+                note(&owner, fixture(Some(other_ring), SOL_MINT, 0, 20)),
                 note(
                     &owner,
-                    fixture(Some(ring().program_id()), other_mint, 0, 21, false),
+                    fixture(Some(ring().program_id()), other_mint, 0, 21),
                 ),
-                note(
-                    &owner,
-                    fixture(Some(ring().program_id()), SOL_MINT, 1, 22, false),
-                ),
-                note(
-                    &owner,
-                    fixture(Some(ring().program_id()), SOL_MINT, 0, 23, true),
-                ),
-                note(&owner, fixture(None, SOL_MINT, 0, 24, false)),
+                note(&owner, fixture(Some(ring().program_id()), SOL_MINT, 1, 22)),
+                spent,
+                note(&owner, fixture(None, SOL_MINT, 0, 24)),
             ],
         );
+        wallet.nullifiers.insert(spent_nullifier);
         assert!(matches!(
             selection(&wallet, SOL_MINT, 5).notes(0),
             Err(DelegateError::InsufficientNotes { needed: 5, held: 0 })
@@ -674,15 +648,22 @@ mod tests {
             .expect("encode");
             let utxo = Utxo {
                 owner: self.source.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: Mint::SOL,
                 amount: self.amount,
                 blinding: [self.blinding; 32],
                 ring_program_id: Some(ring),
                 data: Data::default(),
             };
-            let audit_opening = utxo
-                .proof_input(&address.nullifier_pubkey, &[0u8; 32], &[0u8; 32], 0)
-                .expect("audit opening");
+            let audit_opening = ProofInputUtxo::new(
+                address.owner_hash().expect("owner hash"),
+                &utxo.asset.asset,
+                utxo.amount,
+                &utxo.blinding,
+                0,
+            )
+            .expect("audit opening")
+            .with_ring([0u8; 32], &utxo.ring_program_id)
+            .expect("ring opening");
             let commitment = audit_opening.hash().expect("commitment");
             let nullifier = utxo
                 .nullifier(&commitment, &self.source.nullifier_key)
@@ -692,7 +673,7 @@ mod tests {
                     view_tag: encoded.view_tag,
                     output_context: OutputContext {
                         hash: commitment,
-                        tree: TREE,
+                        tree_id: 0,
                         leaf_index: 0,
                     },
                     payload: encoded.data,
@@ -768,6 +749,7 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
+                output_tree_id: Some(0),
                 transactions: self.transactions.clone(),
                 next_cursor: None,
                 scanned_through: None,
@@ -786,6 +768,7 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
+                output_tree_id: Some(0),
                 transactions: self
                     .transactions
                     .iter()
@@ -828,7 +811,6 @@ mod tests {
                     origin: &AllRingInvoked,
                 },
                 assets: &AssetRegistry::default(),
-                tree_ids: |_tree| Ok(0u16),
             })
             .map(|recovered| recovered.utxos)
     }

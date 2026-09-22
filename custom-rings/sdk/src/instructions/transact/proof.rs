@@ -27,9 +27,8 @@
 use custom_ring_interface::{CustomRingBasePublicInput, CustomRingProof, PlainGroth16Proof};
 use thiserror::Error;
 use zeroize::Zeroizing;
-use zolana_client::{ClientError, Proof, ProofCompressed};
+use zolana_client::{ClientError, Proof, ProofCompressed, ProofInputUtxo};
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
-use zolana_transaction::utxo::ProofInputUtxo;
 
 use super::request::CustomRingPrivateTxHash;
 

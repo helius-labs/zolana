@@ -111,6 +111,7 @@ mod tests {
                 output_context: RingsOutputContext {
                     hash: hash(2),
                     tree: pubkey(3),
+                    tree_id: 7,
                     leaf_index: 2,
                 },
                 payload: Base64String(vec![4, 5, 6]),
@@ -135,6 +136,8 @@ mod tests {
         let output_context = &output_slot["outputContext"];
         assert!(output_context.get("hash").is_some());
         assert!(output_context.get("tree").is_some());
+        assert_eq!(output_context["treeId"], 7);
+        assert!(output_context.get("tree_id").is_none());
         assert!(output_context.get("leafIndex").is_some());
         assert!(output_context.get("leaf_index").is_none());
 
@@ -149,6 +152,7 @@ mod tests {
                 output_context: RingsOutputContext {
                     hash: hash(5),
                     tree: pubkey(6),
+                    tree_id: 9,
                     leaf_index: 3,
                 },
                 payload: Base64String(vec![7, 8, 9]),
@@ -229,6 +233,7 @@ mod tests {
                 block_time: 10,
                 slot: 1,
             },
+            output_tree_id: Some(4),
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1, 2, 3])),
             scanned_through: None,
@@ -238,5 +243,7 @@ mod tests {
         assert!(matches!(value, Value::Object(_)));
         assert!(value.get("nextCursor").is_some());
         assert!(value.get("next_cursor").is_none());
+        assert_eq!(value["outputTreeId"], 4);
+        assert!(value.get("output_tree_id").is_none());
     }
 }

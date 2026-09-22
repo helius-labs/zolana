@@ -12,10 +12,11 @@
 use crate::encryption::{auditor_view_tag, AuditorMessage};
 use p256::{elliptic_curve::ops::Reduce, FieldBytes, Scalar, U256};
 use zeroize::Zeroizing;
+use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
-use zolana_transaction::utxo::{program_id_proof_input_hash, ProofInputUtxo};
+use zolana_transaction::utxo::program_id_proof_input_hash;
 use zolana_transaction::{
     serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
     ShieldedTransaction, SOL_MINT,
@@ -226,7 +227,7 @@ impl OutputAudit<'_> {
                     asset_id: plaintext.asset_id,
                     source,
                 })?;
-        let asset_field = hash_bytes(asset.as_array())
+        let asset_field = hash_bytes(asset.asset.as_array())
             .map_err(|_| AuditError::OutputPlaintextMismatch(self.slot_index))?;
         let ring_program_id = program_id_proof_input_hash(&plaintext.ring_program_id)
             .map_err(|_| AuditError::OutputPlaintextMismatch(self.slot_index))?;
@@ -241,7 +242,7 @@ impl OutputAudit<'_> {
             slot_index: self.slot_index,
             recipient_viewing_pk,
             owner_tag: self.slot.view_tag,
-            asset,
+            asset: asset.asset,
             amount: plaintext.amount,
             blinding: Zeroizing::new(plaintext.blinding),
             ring_program_id: plaintext.ring_program_id,

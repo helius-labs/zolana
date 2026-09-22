@@ -2,7 +2,7 @@ use super::common::bind_u64_as_i64;
 use super::get_shielded_transactions_by_tags::{hydrate_shielded_transactions, MatchedRingsTxRow};
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
-use crate::common::indexer_context::extract as extract_context;
+use crate::common::indexer_context::{extract as extract_context, newest_unpaused_tree_id};
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, FromQueryResult, Statement,
     TransactionTrait,
@@ -18,6 +18,7 @@ pub async fn get_shielded_transactions_by_signature(
     request: GetShieldedTransactionsBySignatureRequest,
 ) -> Result<GetShieldedTransactionsBySignatureResponse, PhotonApiError> {
     let context = extract_context(conn).await?;
+    let output_tree_id = newest_unpaused_tree_id(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
@@ -27,6 +28,7 @@ pub async fn get_shielded_transactions_by_signature(
 
     Ok(GetShieldedTransactionsBySignatureResponse {
         context,
+        output_tree_id,
         transactions,
     })
 }
