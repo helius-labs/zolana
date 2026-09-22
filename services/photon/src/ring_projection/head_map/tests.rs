@@ -425,40 +425,63 @@ fn record_message_opens_the_confidential_successor_and_registration_stays_plaint
     );
 }
 
+fn transfer_refusal(event: &RingsTransactionUpdate, namespace: [u8; 32]) -> String {
+    parser::successor(event, &context(namespace, &Rail::Transfer))
+        .unwrap_err()
+        .to_string()
+}
+
 #[test]
 fn missing_duplicate_foreign_and_malformed_record_messages_are_refused() {
     let (event, namespace, _) = spend_fixture();
-    let rail = Rail::Transfer;
     let mut changed = event.clone();
     changed.messages.clear();
-    assert!(parser::successor(&changed, &context(namespace, &rail)).is_err());
+    assert_eq!(
+        transfer_refusal(&changed, namespace),
+        "spend-record message missing"
+    );
     let mut changed = event.clone();
     changed.messages.push(changed.messages[0].clone());
-    assert!(parser::successor(&changed, &context(namespace, &rail)).is_err());
+    assert_eq!(
+        transfer_refusal(&changed, namespace),
+        "duplicate spend-record messages"
+    );
     let mut changed = event.clone();
     changed.messages[0].view_tag = namespace;
-    assert!(parser::successor(&changed, &context(namespace, &rail)).is_err());
+    assert_eq!(
+        transfer_refusal(&changed, namespace),
+        "spend-record message missing"
+    );
     let mut changed = event;
     changed.messages[0].payload.pop();
-    assert!(parser::successor(&changed, &context(namespace, &rail)).is_err());
+    assert_eq!(
+        transfer_refusal(&changed, namespace),
+        "malformed spend-record message"
+    );
 }
 
 #[test]
 fn a_record_message_cannot_be_associated_with_another_output_or_tree() {
     let (event, namespace, record) = spend_fixture();
-    let rail = Rail::Transfer;
+    let unopened = "spend-record message does not open its successor output";
     let mut changed = event.clone();
     changed.outputs[0].utxo_hash = [0; 32];
-    assert!(parser::successor(&changed, &context(namespace, &rail)).is_err());
+    assert_eq!(transfer_refusal(&changed, namespace), unopened);
     let mut changed = event.clone();
     changed.outputs[0].output_tree = [0; 32];
-    assert!(parser::successor(&changed, &context(namespace, &rail)).is_err());
+    assert_eq!(transfer_refusal(&changed, namespace), unopened);
     let mut changed = event.clone();
     changed.outputs[0].view_tag = [0; 32];
-    assert!(parser::successor(&changed, &context(namespace, &rail)).is_err());
+    assert_eq!(
+        transfer_refusal(&changed, namespace),
+        "spend-record output belongs to another namespace"
+    );
     let mut changed = event;
     changed.outputs[0].payload = record.to_output_data().to_vec();
-    assert!(parser::successor(&changed, &context(namespace, &rail)).is_err());
+    assert_eq!(
+        transfer_refusal(&changed, namespace),
+        "transfer spend-record output is not confidential"
+    );
 }
 
 #[test]
