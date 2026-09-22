@@ -83,8 +83,14 @@ image="$registry/$repository"
 sha_image="$image:sha-$sha"
 tag_image="$image:$tag"
 
+build_args=(--platform linux/amd64)
+if [[ "$service" == prover ]]; then
+    source prover/server/release-build.env
+    build_args+=(--build-arg "GOAMD64=$PROVER_RELEASE_GOAMD64" --build-arg "PROVER_PGO=$PROVER_RELEASE_PGO")
+fi
+
 docker buildx build \
-    --platform linux/amd64 \
+    "${build_args[@]}" \
     --file "$file" \
     --tag "$sha_image" \
     --tag "$tag_image" \

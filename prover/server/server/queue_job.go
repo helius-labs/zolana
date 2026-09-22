@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
+	"zolana/prover/prover/indexed"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -79,22 +81,6 @@ func getMaxConcurrency() int {
 	return MinConcurrencyPerWorker
 }
 
-// getTransferMaxConcurrency returns how many transfer proofs the transfer worker
-// runs at once. Transfer proofs are far lighter than batch address-append, so the
-// operator can raise TRANSFER_WORKER_CONCURRENCY above the shared default (which
-// getMaxConcurrency keeps conservative for the heavy batch worker).
-func getTransferMaxConcurrency() int {
-	if val := os.Getenv("TRANSFER_WORKER_CONCURRENCY"); val != "" {
-		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
-			logging.Logger().Info().
-				Int("max_concurrency", concurrency).
-				Msg("Using TRANSFER_WORKER_CONCURRENCY")
-			return concurrency
-		}
-	}
-	return getMaxConcurrency()
-}
-
 func getCustomRingMaxConcurrency() int {
 	if val := os.Getenv("CUSTOM_RING_WORKER_CONCURRENCY"); val != "" {
 		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
@@ -129,6 +115,7 @@ func calculateConcurrency(totalMemGB int) int {
 }
 
 type ProofJob struct {
+	Indexed   bool            `json:"indexed,omitempty"`
 	ID        string          `json:"id"`
 	Type      string          `json:"type"`
 	Payload   json.RawMessage `json:"payload"`
@@ -152,6 +139,8 @@ type BaseQueueWorker struct {
 	done                chan struct{}
 	pending             sync.WaitGroup
 	stopOnce            sync.Once
+	indexer             *indexed.Resolver
+	transferExecution   *TransferExecution
 	queue               *RedisQueue
 	keyManager          *common.LazyKeyManager
 	stopChan            chan struct{}
@@ -297,94 +286,97 @@ func (w *BaseQueueWorker) processJobs() {
 	inputHash := ComputeInputHash(job.Payload)
 
 	// Check if we already have a successful result for this input
-	cachedProof, cachedJobID, err := w.queue.FindCachedResult(inputHash)
-	if err != nil {
-		logging.Logger().Warn().
-			Err(err).
-			Str("job_id", job.ID).
-			Str("input_hash", inputHash).
-			Msg("Error searching for cached result, continuing with processing")
-	} else if cachedProof != nil {
-		// Found a cached successful result, return it immediately
-		logging.Logger().Info().
-			Str("job_id", job.ID).
-			Str("cached_job_id", cachedJobID).
-			Str("input_hash", inputHash).
-			Msg("Returning cached successful proof result without re-processing")
-
-		// Store result for new job ID
-		resultData, _ := json.Marshal(cachedProof)
-		resultJob := &ProofJob{
-			ID:        job.ID,
-			Type:      "result",
-			Payload:   json.RawMessage(resultData),
-			CreatedAt: time.Now(),
-		}
-		err = w.queue.EnqueueProof("zk_results_queue", resultJob)
+	if !job.Indexed {
+		cachedProof, cachedJobID, err := w.queue.FindCachedResult(inputHash)
 		if err != nil {
-			logging.Logger().Error().Err(err).Str("job_id", job.ID).Msg("Failed to enqueue cached result")
-		}
-		w.queue.StoreResult(job.ID, cachedProof)
-		w.queue.StoreInputHash(job.ID, inputHash)
-		w.queue.IndexResultByHash(inputHash, job.ID)
-		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
-		return
-	}
-
-	cachedFailure, cachedFailedJobID, err := w.queue.FindCachedFailure(inputHash)
-	if err != nil {
-		logging.Logger().Warn().
-			Err(err).
-			Str("job_id", job.ID).
-			Str("input_hash", inputHash).
-			Msg("Error searching for cached failure, continuing with processing")
-	} else if cachedFailure != nil {
-		// Found a cached failure, return it immediately
-		logging.Logger().Info().
-			Str("job_id", job.ID).
-			Str("cached_job_id", cachedFailedJobID).
-			Str("input_hash", inputHash).
-			Msg("Returning cached failure without re-processing")
-
-		errorMsg := w.cachedFailureMessage(cachedFailure)
-
-		// Add to failed queue with new job ID (without full payload to save memory)
-		failedJob := map[string]interface{}{
-			"originalJob": map[string]interface{}{
-				"id":          job.ID,
-				"type":        job.Type,
-				"payloadSize": len(job.Payload),
-				"createdAt":   job.CreatedAt,
-			},
-			"error":      errorMsg,
-			"failedAt":   time.Now(),
-			"cachedFrom": cachedFailedJobID,
-		}
-
-		failedData, _ := json.Marshal(failedJob)
-		failedJobStruct := &ProofJob{
-			ID:        job.ID + "_failed",
-			Type:      "failed",
-			Payload:   json.RawMessage(failedData),
-			CreatedAt: time.Now(),
-		}
-
-		err = w.queue.EnqueueProof("zk_failed_queue", failedJobStruct)
-		if err != nil {
-			logging.Logger().Error().Err(err).Str("job_id", job.ID).Msg("Failed to enqueue cached failure")
-		}
-		// A replayed failure is still terminal for this job id, so it has to be
-		// visible to the status endpoint the same way a fresh one is.
-		if metaErr := w.queue.MarkJobFailed(job.ID, failedJob); metaErr != nil {
 			logging.Logger().Warn().
-				Err(metaErr).
+				Err(err).
 				Str("job_id", job.ID).
-				Msg("Failed to record cached failure in metadata")
+				Str("input_hash", inputHash).
+				Msg("Error searching for cached result, continuing with processing")
+		} else if cachedProof != nil {
+			// Found a cached successful result, return it immediately
+			logging.Logger().Info().
+				Str("job_id", job.ID).
+				Str("cached_job_id", cachedJobID).
+				Str("input_hash", inputHash).
+				Msg("Returning cached successful proof result without re-processing")
+
+			// Store result for new job ID
+			resultData, _ := json.Marshal(cachedProof)
+			resultJob := &ProofJob{
+				ID:        job.ID,
+				Type:      "result",
+				Payload:   json.RawMessage(resultData),
+				CreatedAt: time.Now(),
+			}
+			err = w.queue.EnqueueProof("zk_results_queue", resultJob)
+			if err != nil {
+				logging.Logger().Error().Err(err).Str("job_id", job.ID).Msg("Failed to enqueue cached result")
+			}
+			w.queue.StoreResult(job.ID, cachedProof)
+			w.queue.StoreInputHash(job.ID, inputHash)
+			w.queue.IndexResultByHash(inputHash, job.ID)
+			RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
+			return
 		}
-		w.queue.StoreInputHash(job.ID, inputHash)
-		w.queue.IndexFailureByHash(inputHash, job.ID)
-		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
-		return
+
+		cachedFailure, cachedFailedJobID, err := w.queue.FindCachedFailure(inputHash)
+		if err != nil {
+			logging.Logger().Warn().
+				Err(err).
+				Str("job_id", job.ID).
+				Str("input_hash", inputHash).
+				Msg("Error searching for cached failure, continuing with processing")
+		} else if cachedFailure != nil {
+			// Found a cached failure, return it immediately
+			logging.Logger().Info().
+				Str("job_id", job.ID).
+				Str("cached_job_id", cachedFailedJobID).
+				Str("input_hash", inputHash).
+				Msg("Returning cached failure without re-processing")
+
+			errorMsg := w.cachedFailureMessage(cachedFailure)
+
+			// Add to failed queue with new job ID (without full payload to save memory)
+			failedJob := map[string]interface{}{
+				"originalJob": map[string]interface{}{
+					"id":          job.ID,
+					"type":        job.Type,
+					"payloadSize": len(job.Payload),
+					"createdAt":   job.CreatedAt,
+				},
+				"error":      errorMsg,
+				"failedAt":   time.Now(),
+				"cachedFrom": cachedFailedJobID,
+			}
+
+			failedData, _ := json.Marshal(failedJob)
+			failedJobStruct := &ProofJob{
+				ID:        job.ID + "_failed",
+				Type:      "failed",
+				Payload:   json.RawMessage(failedData),
+				CreatedAt: time.Now(),
+			}
+
+			err = w.queue.EnqueueProof("zk_failed_queue", failedJobStruct)
+			if err != nil {
+				logging.Logger().Error().Err(err).Str("job_id", job.ID).Msg("Failed to enqueue cached failure")
+			}
+			// A replayed failure is still terminal for this job id, so it has to be
+			// visible to the status endpoint the same way a fresh one is.
+			if metaErr := w.queue.MarkJobFailed(job.ID, failedJob); metaErr != nil {
+				logging.Logger().Warn().
+					Err(metaErr).
+					Str("job_id", job.ID).
+					Msg("Failed to record cached failure in metadata")
+			}
+			w.queue.StoreInputHash(job.ID, inputHash)
+			w.queue.IndexFailureByHash(inputHash, job.ID)
+			RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
+			return
+		}
+
 	}
 
 	// No cached result found, proceed with normal processing
@@ -392,10 +384,37 @@ func (w *BaseQueueWorker) processJobs() {
 	w.queue.StoreInputHash(job.ID, inputHash)
 	RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 
+	work, err := w.prepareProof(job)
+	if err != nil {
+		err = w.redactJobError(job, err)
+		w.addToFailedQueue(job, inputHash, err)
+		if markErr := w.queue.MarkJobFailed(job.ID, w.failureDetails(job, err)); markErr != nil {
+			logging.Logger().Error().Err(markErr).Str("job_id", job.ID).Msg("Failed to record preparation failure")
+		}
+		if deleteErr := w.queue.DeleteInFlightJob(inputHash, job.ID); deleteErr != nil {
+			logging.Logger().Warn().Err(deleteErr).Str("job_id", job.ID).Msg("Failed to clear preparation marker")
+		}
+		return
+	}
+
 	// Blocking here means every worker is busy, which is the one healthy reason
 	// for the loop to stall. Separated from dedup so the two are never confused.
 	semaphoreStart := time.Now()
-	w.semaphore <- struct{}{}
+	release := func() { <-w.semaphore }
+	// 1. Keep queued and direct transfers inside one CPU budget.
+	if w.transferExecution != nil {
+		var acquired bool
+		release, acquired = w.transferExecution.acquireQueued(w.stopChan)
+		if !acquired {
+			// 2. Return the dequeued job before stopping its dispatcher.
+			if err := w.queue.EnqueueProof(w.queueName, job); err != nil {
+				logging.Logger().Error().Err(err).Str("job_id", job.ID).Msg("Failed to return waiting job")
+			}
+			return
+		}
+	} else {
+		w.semaphore <- struct{}{}
+	}
 	RecordDispatchStage(w.queueName, "semaphore", time.Since(semaphoreStart))
 
 	w.pending.Add(1)
@@ -417,7 +436,7 @@ func (w *BaseQueueWorker) processJobs() {
 				}
 				ProofPanicsTotal.WithLabelValues(circuitType).Inc()
 
-				panicErr := w.redactProofError(fmt.Errorf("panic: %v", r))
+				panicErr := w.redactJobError(job, fmt.Errorf("panic: %v", r))
 				logging.Logger().Error().
 					Err(panicErr).
 					Str("job_id", job.ID).
@@ -445,7 +464,7 @@ func (w *BaseQueueWorker) processJobs() {
 						Msg("Failed to record job failure in metadata")
 				}
 			}
-			<-w.semaphore
+			release()
 		}()
 
 		proofStartTime := time.Now()
@@ -456,6 +475,7 @@ func (w *BaseQueueWorker) processJobs() {
 			Msg("Starting proof generation")
 
 		processingJob := &ProofJob{
+			Indexed:   job.Indexed,
 			ID:        job.ID + "_processing",
 			Type:      "processing",
 			Payload:   job.Payload,
@@ -480,13 +500,13 @@ func (w *BaseQueueWorker) processJobs() {
 				Msg("Failed to mark job processing (status polls will still report queued)")
 		}
 
-		proof, err := w.generateProof(job)
+		proof, err := w.generatePreparedProof(work)
 		w.removeFromProcessingQueue(processingItem)
 
 		proofDuration := time.Since(proofStartTime)
 
 		if err != nil {
-			err = w.redactProofError(err)
+			err = w.redactJobError(job, err)
 			logging.Logger().Error().
 				Err(err).
 				Str("job_id", job.ID).
@@ -540,11 +560,17 @@ func (w *BaseQueueWorker) processJobs() {
 					Msg("Failed to store result")
 			}
 
-			if indexErr := w.queue.IndexResultByHash(inputHash, job.ID); indexErr != nil {
-				logging.Logger().Warn().
-					Err(indexErr).
-					Str("job_id", job.ID).
-					Msg("Failed to index result (non-critical)")
+			if job.Indexed {
+				if err := w.queue.DeleteInFlightJob(inputHash, job.ID); err != nil {
+					logging.Logger().Warn().Err(err).Str("job_id", job.ID).Msg("Failed to release indexed job marker")
+				}
+			} else {
+				if indexErr := w.queue.IndexResultByHash(inputHash, job.ID); indexErr != nil {
+					logging.Logger().Warn().
+						Err(indexErr).
+						Str("job_id", job.ID).
+						Msg("Failed to index result (non-critical)")
+				}
 			}
 
 			logging.Logger().Info().
@@ -591,12 +617,18 @@ type TransferQueueWorker struct {
 	*BaseQueueWorker
 }
 
-func NewTransferQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *TransferQueueWorker {
-	maxConcurrency := getTransferMaxConcurrency()
+func NewTransferQueueWorker(config TransferWorkerConfig) *TransferQueueWorker {
+	execution := config.Execution
+	if execution == nil {
+		execution = NewTransferExecution()
+	}
+	maxConcurrency := cap(execution.admission.permits)
 	return &TransferQueueWorker{
 		BaseQueueWorker: &BaseQueueWorker{
-			queue:               redisQueue,
-			keyManager:          keyManager,
+			indexer:             config.Indexer,
+			transferExecution:   execution,
+			queue:               config.Queue,
+			keyManager:          config.Keys,
 			stopChan:            make(chan struct{}),
 			done:                make(chan struct{}),
 			queueName:           "zk_transfer_queue",
@@ -615,10 +647,31 @@ func (w *TransferQueueWorker) Stop() {
 	w.BaseQueueWorker.Stop()
 }
 
+func (w *BaseQueueWorker) prepareProof(job *ProofJob) (*indexed.Resolved, error) {
+	if !job.Indexed {
+		return &indexed.Resolved{Payload: job.Payload}, nil
+	}
+	if w.indexer == nil {
+		return nil, fmt.Errorf("indexer proving is not configured")
+	}
+	ctx, cancel := context.WithTimeout(w.queue.Ctx, 30*time.Second)
+	defer cancel()
+	return w.indexer.Resolve(ctx, job.Payload)
+}
+
 // generateProof generates a proof for the given job and returns it.
 // Result storage is handled by the caller to include timing information.
 func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
-	proofRequestMeta, err := common.ParseProofRequestMeta(job.Payload)
+	work, err := w.prepareProof(job)
+	if err != nil {
+		return nil, err
+	}
+	return w.generatePreparedProof(work)
+}
+
+func (w *BaseQueueWorker) generatePreparedProof(work *indexed.Resolved) (*common.Proof, error) {
+	payload := work.Payload
+	proofRequestMeta, err := common.ParseProofRequestMeta(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse proof request: %w", err)
 	}
@@ -627,7 +680,7 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	}
 
 	timer := StartProofTimer(string(proofRequestMeta.CircuitType))
-	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(job.Payload))
+	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(payload))
 
 	var proof *common.Proof
 	var proofError error
@@ -636,19 +689,19 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
-		proof, proofError = w.processBatchAddressAppendProof(job.Payload)
+		proof, proofError = w.processBatchAddressAppendProof(payload)
 	case common.TransferConfidentialCircuitType,
 		common.TransferRingCircuitType,
 		common.TransferRingAuthorityCircuitType:
-		proof, proofError = w.processTransferEddsaProof(job.Payload)
+		proof, proofError = w.processTransferEddsaProof(payload)
 	case common.TransferP256RingCircuitType:
-		proof, proofError = w.processTransferP256Proof(job.Payload)
+		proof, proofError = w.processTransferP256Proof(payload)
 	case common.MergeCircuitType:
-		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
+		proof, proofError = w.processMergeProof(payload, common.MergeCircuitType)
 	case common.MergeRingCircuitType:
-		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
+		proof, proofError = w.processMergeProof(payload, common.MergeRingCircuitType)
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
-		proof, proofError = w.processCustomRingProof(job.Payload, proofRequestMeta.CircuitType)
+		proof, proofError = w.processCustomRingProof(payload, proofRequestMeta.CircuitType)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -667,6 +720,7 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		RecordProofSize(string(proofRequestMeta.CircuitType), len(proofBytes))
 	}
 
+	proof.Resolution = work.Resolution
 	return proof, nil
 }
 
@@ -796,6 +850,13 @@ func (w *BaseQueueWorker) redactProofError(err error) error {
 	return err
 }
 
+func (w *BaseQueueWorker) redactJobError(job *ProofJob, err error) error {
+	if job.Indexed {
+		return errors.New("indexed proof failed")
+	}
+	return w.redactProofError(err)
+}
+
 func (w *BaseQueueWorker) cachedFailureMessage(cachedFailure map[string]interface{}) string {
 	errorMessage, ok := cachedFailure["error"].(string)
 	if !ok {
@@ -819,7 +880,7 @@ func (w *BaseQueueWorker) failureDetails(job *ProofJob, err error) map[string]in
 		}
 	}
 
-	errorMessage := w.redactProofError(err).Error()
+	errorMessage := w.redactJobError(job, err).Error()
 
 	return map[string]interface{}{
 		"originalJob": map[string]interface{}{
@@ -852,7 +913,7 @@ func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err 
 	}
 
 	// Index the failure for O(1) cached lookups
-	if inputHash != "" {
+	if inputHash != "" && !job.Indexed {
 		if indexErr := w.queue.IndexFailureByHash(inputHash, job.ID); indexErr != nil {
 			logging.Logger().Warn().
 				Err(indexErr).

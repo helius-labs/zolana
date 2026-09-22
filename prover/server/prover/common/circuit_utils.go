@@ -6,7 +6,8 @@ import (
 )
 
 type Proof struct {
-	Proof groth16.Proof
+	Resolution *ProofResolution
+	Proof      groth16.Proof
 }
 
 // ProofWithTiming wraps a proof with timing information for metrics

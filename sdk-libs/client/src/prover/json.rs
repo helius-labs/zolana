@@ -178,7 +178,7 @@ pub(crate) struct TransferP256InputsJson {
     pub public_input_hash: String,
 }
 
-fn utxo_to_json(utxo: &ProofInputUtxo) -> UtxoParamsJson {
+pub(crate) fn utxo_to_json(utxo: &ProofInputUtxo) -> UtxoParamsJson {
     UtxoParamsJson {
         domain: fe_to_string(&utxo.domain),
         owner: fe_to_string(&utxo.owner_hash),
@@ -229,7 +229,7 @@ fn tree_slots_to_json(slots: &[TreeSlotFields]) -> Vec<TreeSlotJson> {
         .collect()
 }
 
-fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
+pub(crate) fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
     OutputParamsJson {
         utxo: utxo_to_json(&output.utxo),
         is_dummy: big_uint_to_string(&output.is_dummy),

@@ -15,7 +15,14 @@ import (
 
 	base "zolana/prover/circuits/custom_ring/base"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 )
+
+type BaseProof struct {
+	System     *common.RingProofSystem
+	Parameters *BaseParameters
+	Timing     *timing.Trace
+}
 
 // The audit-only rail proves just the audit block, the same eight-element
 // statement the folded circuit carries as its prefix.
@@ -127,6 +134,13 @@ func (p *BaseParameters) CreateWitness() (*base.CustomRingBaseCircuit, error) {
 }
 
 func ProveBase(ps *common.RingProofSystem, params *BaseParameters) (*common.Proof, error) {
+	return (BaseProof{System: ps, Parameters: params}).Prove()
+}
+
+func (request BaseProof) Prove() (*common.Proof, error) {
+	ps, params := request.System, request.Parameters
+	finishWitness := request.Timing.Start("witness")
+	defer finishWitness()
 	assignment, err := params.CreateWitness()
 	if err != nil {
 		return nil, err
@@ -135,7 +149,11 @@ func ProveBase(ps *common.RingProofSystem, params *BaseParameters) (*common.Proo
 	if err != nil {
 		return nil, fmt.Errorf("create witness: %w", err)
 	}
+	finishWitness()
+	finishProve := request.Timing.Start("prove")
+	defer finishProve()
 	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	finishProve()
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}

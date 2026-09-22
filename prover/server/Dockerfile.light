@@ -30,8 +30,9 @@ RUN go mod download && go mod verify
 
 COPY . .
 
-ENV CGO_ENABLED=0
-RUN go build -v -o /usr/local/bin/light-prover .
+ARG GOAMD64
+ARG PROVER_PGO
+RUN GOAMD64="$GOAMD64" PROVER_PGO="$PROVER_PGO" sh ./build-release.sh /usr/local/bin/light-prover
 
 # The runtime image is distroless and has no shell, so the writable key cache
 # directory has to be created here and copied in with the right ownership.
@@ -51,4 +52,4 @@ WORKDIR /
 EXPOSE 3001 9998
 
 ENTRYPOINT [ "light-prover" ]
-CMD [ "start" ]
+CMD [ "start", "--require-optimized-build" ]

@@ -13,9 +13,11 @@ import (
 
 func TestQueueWorkersDrainBeforeWaitReturns(t *testing.T) {
 	constructors := map[string]func(*RedisQueue) *BaseQueueWorker{
-		"append":   func(q *RedisQueue) *BaseQueueWorker { return NewAddressAppendQueueWorker(q, nil).BaseQueueWorker },
-		"ring":     func(q *RedisQueue) *BaseQueueWorker { return NewCustomRingQueueWorker(q, nil).BaseQueueWorker },
-		"transfer": func(q *RedisQueue) *BaseQueueWorker { return NewTransferQueueWorker(q, nil).BaseQueueWorker },
+		"append": func(q *RedisQueue) *BaseQueueWorker { return NewAddressAppendQueueWorker(q, nil).BaseQueueWorker },
+		"ring":   func(q *RedisQueue) *BaseQueueWorker { return NewCustomRingQueueWorker(q, nil).BaseQueueWorker },
+		"transfer": func(q *RedisQueue) *BaseQueueWorker {
+			return NewTransferQueueWorker(TransferWorkerConfig{Queue: q}).BaseQueueWorker
+		},
 	}
 	for name, create := range constructors {
 		t.Run(name, func(t *testing.T) {

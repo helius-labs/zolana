@@ -7,11 +7,18 @@ import (
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"zolana/prover/prover/backend"
 )
+
+type MergeProof struct {
+	System     *common.TransferProofSystem
+	Parameters *MergeParameters
+	Timing     *timing.Trace
+}
 
 // ValidateShape checks the parameter arity is a supported merge shape, and the
 // Merkle path heights and tree slot layout are right, before witness
@@ -47,6 +54,13 @@ func (p *MergeParameters) ValidateShape() error {
 }
 
 func ProveMerge(ps *common.TransferProofSystem, params *MergeParameters) (*common.Proof, error) {
+	return (MergeProof{System: ps, Parameters: params}).Prove()
+}
+
+func (request MergeProof) Prove() (*common.Proof, error) {
+	ps, params := request.System, request.Parameters
+	finishWitness := request.Timing.Start("witness")
+	defer finishWitness()
 	if params == nil {
 		panic("params cannot be nil")
 	}
@@ -70,7 +84,11 @@ func ProveMerge(ps *common.TransferProofSystem, params *MergeParameters) (*commo
 	if err != nil {
 		return nil, fmt.Errorf("error creating witness: %v", err)
 	}
+	finishWitness()
+	finishProve := request.Timing.Start("prove")
+	defer finishProve()
 	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	finishProve()
 	if err != nil {
 		return nil, fmt.Errorf("error proving: %v", err)
 	}

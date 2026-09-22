@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"zolana/prover/logging"
 )
@@ -78,6 +79,9 @@ func syncPermits() int {
 //
 // The error is nil iff a permit was taken.
 func (a *syncAdmission) admit(ctx context.Context) (func(), *Error) {
+	start := time.Now()
+	outcome := "rejected"
+	defer func() { SyncAdmissionWait.WithLabelValues(outcome).Observe(time.Since(start).Seconds()) }()
 	if waiting := a.waiting.Add(1); waiting > a.maxWait {
 		a.waiting.Add(-1)
 		SyncProofsShedTotal.Inc()
@@ -87,6 +91,7 @@ func (a *syncAdmission) admit(ctx context.Context) (func(), *Error) {
 
 	select {
 	case a.permits <- struct{}{}:
+		outcome = "admitted"
 		var once atomic.Bool
 		return func() {
 			// Guard the release so a double call cannot hand out a permit that

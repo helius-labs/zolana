@@ -11,9 +11,16 @@ import {
 } from "../transaction/wallet/keys.js";
 import { ClientError } from "./error.js";
 import { bytesField, hasProofMethods, poseidon } from "./internal.js";
-import type { ProofService, WalletKeys } from "./ports.js";
+import type {
+  ProofService,
+  WalletKeys,
+  IndexedProofInputs,
+  IndexedProofResult,
+  PreparedTransferInput,
+} from "./ports.js";
+import { decodeIndexedInputs, indexedAuthority } from "./prover/indexed.js";
 import { asField } from "./prover/assembly.js";
-import type { Field, MergeInputs, ProverInputs, TransferInput } from "./prover/types.js";
+import type { Field, MergeInputs, ProverInputs } from "./prover/types.js";
 
 /**
  * A wallet's privacy roles held in-process. Answers `ShieldedKeys` from the
@@ -104,6 +111,33 @@ export class LocalKeys implements WalletKeys {
     return this.#proofs.proveMerge(complete, context);
   }
 
+  async proveIndexed(
+    request: IndexedProofInputs,
+    context?: RequestContext,
+  ): Promise<IndexedProofResult> {
+    const inputs = decodeIndexedInputs(request);
+    const service = indexedAuthority(this.#proofs);
+    const complete = this.#keys.withNullifierKey((key): IndexedProofInputs => {
+      if (inputs.circuit === "merge") {
+        if (inputs.payload.userNullifierSecret !== undefined) return inputs;
+        if (
+          bytesField(key.publicKey(), "nullifier public key") !==
+          inputs.payload.userNullifierPublicKey
+        )
+          throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
+        return { ...inputs, payload: { ...inputs.payload, userNullifierSecret: secretField(key) } };
+      }
+      return {
+        ...inputs,
+        payload: {
+          ...inputs.payload,
+          inputs: inputs.payload.inputs.map((input) => completeInput(input, key)),
+        },
+      };
+    });
+    return service.proveIndexed(complete, context);
+  }
+
   destroy(): void {
     this.#keys.destroy();
   }
@@ -112,7 +146,7 @@ export class LocalKeys implements WalletKeys {
 type Proof = Awaited<ReturnType<ProofService["prove"]>>;
 
 /** Fills the secret on this wallet's own real inputs; everything else passes through untouched. */
-function completeInput(input: TransferInput, key: NullifierKey): TransferInput {
+function completeInput<T extends PreparedTransferInput>(input: T, key: NullifierKey): T {
   const nullifierPublicKey = bytesField(key.publicKey(), "nullifier public key");
   if (
     input.nullifierSecret !== undefined ||

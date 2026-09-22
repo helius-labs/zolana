@@ -8,9 +8,23 @@ import (
 	"zolana/prover/prover/backend"
 
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 )
 
+type PolicyProof struct {
+	System     *common.RingProofSystem
+	Parameters *PolicyParameters
+	Timing     *timing.Trace
+}
+
 func ProvePolicy(ps *common.RingProofSystem, params *PolicyParameters) (*common.Proof, error) {
+	return (PolicyProof{System: ps, Parameters: params}).Prove()
+}
+
+func (request PolicyProof) Prove() (*common.Proof, error) {
+	ps, params := request.System, request.Parameters
+	finishWitness := request.Timing.Start("witness")
+	defer finishWitness()
 	assignment, err := params.CreateWitness()
 	if err != nil {
 		return nil, err
@@ -19,7 +33,11 @@ func ProvePolicy(ps *common.RingProofSystem, params *PolicyParameters) (*common.
 	if err != nil {
 		return nil, fmt.Errorf("create witness: %w", err)
 	}
+	finishWitness()
+	finishProve := request.Timing.Start("prove")
+	defer finishProve()
 	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	finishProve()
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}

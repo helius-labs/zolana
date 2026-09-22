@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"zolana/prover/prover-test/poseidon"
+	prooftranscript "zolana/prover/prover/transcript"
 )
 
 // HashChain folds values from left to right:
@@ -42,51 +43,14 @@ func HashChain(inputs []*big.Int) (*big.Int, error) {
 // Every call is the 4-input permutation; a short trailing group is zero
 // padded. Only chains whose length the compiled circuit fixes may use it.
 func HashChain4(inputs []*big.Int) (*big.Int, error) {
-	if len(inputs) == 0 {
-		return new(big.Int), nil
-	}
-	for i, input := range inputs {
-		if err := validateFieldElement(fmt.Sprintf("input[%d]", i), input); err != nil {
-			return nil, fmt.Errorf("spp: hash chain 4: %w", err)
-		}
-	}
-
-	h := new(big.Int).Set(inputs[0])
-	for start := 1; start < len(inputs); start += 3 {
-		group := []*big.Int{h, new(big.Int), new(big.Int), new(big.Int)}
-		for j := 0; j < 3 && start+j < len(inputs); j++ {
-			group[1+j] = inputs[start+j]
-		}
-		next, err := poseidon.Hash(group)
-		if err != nil {
-			return nil, fmt.Errorf("spp: hash chain 4 step %d: %w", start, err)
-		}
-		h = next
-	}
-	return h, nil
+	return prooftranscript.HashChain4(inputs)
 }
 
 // RightHashChain folds values from right to left. The fixed-width signer
 // transcript uses this direction so the on-chain verifier can start from a
 // precomputed all-zero suffix.
 func RightHashChain(inputs []*big.Int) (*big.Int, error) {
-	if len(inputs) == 0 {
-		return new(big.Int), nil
-	}
-	for i, input := range inputs {
-		if err := validateFieldElement(fmt.Sprintf("input[%d]", i), input); err != nil {
-			return nil, fmt.Errorf("spp: right hash chain: %w", err)
-		}
-	}
-	h := new(big.Int).Set(inputs[len(inputs)-1])
-	for i := len(inputs) - 2; i >= 0; i-- {
-		next, err := poseidon.Hash([]*big.Int{inputs[i], h})
-		if err != nil {
-			return nil, fmt.Errorf("spp: right hash chain step %d: %w", i, err)
-		}
-		h = next
-	}
-	return h, nil
+	return prooftranscript.RightHashChain(inputs)
 }
 
 // PrivateTxHash mirrors PrivateTxHashGadget. addressNullifiers is the address

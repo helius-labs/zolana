@@ -45,19 +45,82 @@ pub fn verify_confidential_transfer_inputs(
     public_input_hash: [u8; 32],
     proof: &Proof,
 ) -> Result<(), ClientError> {
-    if proof.commitment.is_some() {
-        return Err(ClientError::ProofVerification(
-            "default-ring Ed25519 proof carries an unexpected commitment".to_owned(),
-        ));
+    ConfidentialProofStatement {
+        n_inputs: inputs.inputs.len(),
+        n_outputs: inputs.outputs.len(),
+        public_input_hash,
     }
+    .verify(proof)
+}
 
-    let verifying_key = confidential_verifying_key(inputs.inputs.len(), inputs.outputs.len())?;
-    let public_inputs = [public_input_hash];
-    let mut verifier =
-        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key).map_err(
-            |error| ClientError::ProofVerification(format!("invalid proof encoding: {error:?}")),
-        )?;
-    verifier
-        .verify()
-        .map_err(|error| ClientError::ProofVerification(format!("pairing check failed: {error:?}")))
+pub(crate) struct ConfidentialProofStatement {
+    pub n_inputs: usize,
+    pub n_outputs: usize,
+    pub public_input_hash: [u8; 32],
+}
+
+impl ConfidentialProofStatement {
+    pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
+        StatementVerification {
+            verifying_key: confidential_verifying_key(self.n_inputs, self.n_outputs)?,
+            public_input_hash: self.public_input_hash,
+        }
+        .verify(proof)
+    }
+}
+
+pub(crate) struct MergeProofStatement {
+    pub n_inputs: usize,
+    pub public_input_hash: [u8; 32],
+}
+
+impl MergeProofStatement {
+    pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
+        use zolana_interface::verifying_keys::{merge_36_1, merge_8_1};
+        let verifying_key = match self.n_inputs {
+            8 => &merge_8_1::VERIFYINGKEY,
+            36 => &merge_36_1::VERIFYINGKEY,
+            _ => {
+                return Err(ClientError::UnsupportedShape {
+                    n_in: self.n_inputs,
+                    n_out: 1,
+                })
+            }
+        };
+        StatementVerification {
+            verifying_key,
+            public_input_hash: self.public_input_hash,
+        }
+        .verify(proof)
+    }
+}
+
+struct StatementVerification {
+    verifying_key: &'static Groth16Verifyingkey<'static>,
+    public_input_hash: [u8; 32],
+}
+
+impl StatementVerification {
+    fn verify(self, proof: &Proof) -> Result<(), ClientError> {
+        if proof.commitment.is_some() {
+            return Err(ClientError::ProofVerification(
+                "unexpected proof commitment".to_owned(),
+            ));
+        }
+
+        let public_inputs = [self.public_input_hash];
+        let mut verifier = Groth16Verifier::new(
+            &proof.a,
+            &proof.b,
+            &proof.c,
+            &public_inputs,
+            self.verifying_key,
+        )
+        .map_err(|error| {
+            ClientError::ProofVerification(format!("invalid proof encoding: {error:?}"))
+        })?;
+        verifier.verify().map_err(|error| {
+            ClientError::ProofVerification(format!("pairing check failed: {error:?}"))
+        })
+    }
 }

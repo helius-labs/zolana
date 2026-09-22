@@ -277,6 +277,8 @@ Breaking
 
 Added
 
+- `ZolanaClientConfig.proofDataSource` accepts `"prover"` to fetch transfer and merge proof data on the prover, with `LocalKeys.proveIndexed` or a remote `IndexedProofAuthority` completing the request.
+
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
@@ -453,6 +455,8 @@ Changed
   into the tree it spends from.
 
 Fixed
+
+- `ProverClient` explicitly requests queued delivery after synchronous admission is refused.
 
 - `decryptTransactions` rejects malformed key-holder batches with
   `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and

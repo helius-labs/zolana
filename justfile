@@ -1514,7 +1514,7 @@ build-prover-server:
     #!/usr/bin/env bash
     [[ -z "${ZOLANA_PREBUILT:-}" ]] || exit 0
     mkdir -p target
-    cd prover/server && go build -o ../../target/prover-server .
+    cd prover/server && sh build-release.sh ../../target/prover-server
 
 # CI prebuild for the localnet matrix, with ZOLANA_PREBUILT and
 # ZOLANA_NEXTEST_ARCHIVE_DIR set the suite recipes run from it without building.

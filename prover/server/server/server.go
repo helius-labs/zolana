@@ -11,15 +11,16 @@ import (
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
+	"zolana/prover/prover/indexed"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
+	"zolana/prover/prover/timing"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gorilla/handlers"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type proofStatusHandler struct {
@@ -264,15 +265,23 @@ type QueueConfig struct {
 }
 
 type EnhancedConfig struct {
-	ProverAddress  string
-	MetricsAddress string
-	Queue          *QueueConfig
+	Readiness         *Readiness
+	Indexer           *indexed.Resolver
+	TransferExecution *TransferExecution
+	ProverAddress     string
+	MetricsAddress    string
+	Queue             *QueueConfig
 }
 
 type proveHandler struct {
-	keyManager  *common.LazyKeyManager
-	redisQueue  *RedisQueue
-	enableQueue bool
+	timing            *timing.Trace
+	readiness         *Readiness
+	indexer           *indexed.Resolver
+	indexed           bool
+	transferExecution *TransferExecution
+	keyManager        *common.LazyKeyManager
+	redisQueue        *RedisQueue
+	enableQueue       bool
 	// Bounds proving done inside a request. Shared across requests, so it must
 	// be the same instance for every one of them.
 	admission *syncAdmission
@@ -367,11 +376,26 @@ func (handler proofStatusHandler) checkJobExistsDetailed(
 }
 
 func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	handler.timing = timing.FromContext(r.Context())
+	finishDecode := handler.timing.Start("decode")
+	defer finishDecode()
+	if !handler.readiness.Ready() {
+		http.Error(w, "Proving keys are not ready", http.StatusServiceUnavailable)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
+	if handler.indexed {
+		if handler.indexer == nil {
+			(&Error{StatusCode: http.StatusServiceUnavailable, Code: "indexer_unconfigured", Message: "Indexer proving is not configured"}).send(w)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	}
 	buf, err := io.ReadAll(r.Body)
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("Error reading request body")
@@ -379,12 +403,19 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if handler.indexed {
+		if err := indexed.Validate(buf); err != nil {
+			malformedBodyError(err).send(w)
+			return
+		}
+	}
 	proofRequestMeta, err := common.ParseProofRequestMeta(buf)
 	if err != nil {
 		malformedBodyError(err).send(w)
 		return
 	}
 
+	finishDecode()
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
@@ -393,7 +424,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// `use_queue` is the decision, not the circuit's queueability: logging the
 	// latter under that name said use_queue=true on requests that were proved in
 	// the response, which is exactly the question the line exists to answer.
-	queued := useQueue(forceSync, forceAsync, circuitQueued, queueAvailable)
+	queued := useQueue(forceSync || isTransferCircuit(proofRequestMeta.CircuitType), forceAsync, circuitQueued, queueAvailable)
 
 	logging.Logger().Info().
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
@@ -575,8 +606,11 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 
 func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	return RunEnhanced(&EnhancedConfig{
-		ProverAddress:  config.ProverAddress,
-		MetricsAddress: config.MetricsAddress,
+		Readiness:         config.Readiness,
+		Indexer:           config.Indexer,
+		TransferExecution: config.TransferExecution,
+		ProverAddress:     config.ProverAddress,
+		MetricsAddress:    config.MetricsAddress,
 		Queue: &QueueConfig{
 			Enabled: redisQueue != nil,
 		},
@@ -584,6 +618,10 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 }
 
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
+	transferExecution := config.TransferExecution
+	if transferExecution == nil {
+		transferExecution = NewTransferExecution()
+	}
 	apiKey := getAPIKeyFromEnv()
 	if apiKey != "" {
 		logging.Logger().Info().Msg("API key authentication enabled for prover server")
@@ -591,20 +629,27 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		logging.Logger().Warn().Msg("No API key configured - server will accept all requests. Set PROVER_API_KEY environment variable to enable authentication.")
 	}
 	metricsMux := http.NewServeMux()
-	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsMux.Handle("/metrics", capacityMetrics(transferExecution, config.Readiness))
 	metricsServer := &http.Server{Addr: config.MetricsAddress, Handler: metricsMux}
 	metricsJob := spawnServerJob(metricsServer, "metrics server")
 	logging.Logger().Info().Str("addr", config.MetricsAddress).Msg("metrics server started")
 
 	proverMux := http.NewServeMux()
 
-	proverMux.Handle("/prove", proveHandler{
-		keyManager:  keyManager,
-		redisQueue:  redisQueue,
-		enableQueue: config.Queue != nil && config.Queue.Enabled,
-		admission:   newSyncAdmission(syncPermits()),
-	})
+	handler := proveHandler{
+		readiness:         config.Readiness,
+		indexer:           config.Indexer,
+		transferExecution: transferExecution,
+		keyManager:        keyManager,
+		redisQueue:        redisQueue,
+		enableQueue:       config.Queue != nil && config.Queue.Enabled,
+		admission:         newSyncAdmission(syncPermits()),
+	}
+	proverMux.Handle("/prove", observeProofHTTP("complete", handler))
+	handler.indexed = true
+	proverMux.Handle("/prove/indexed", observeProofHTTP("indexed", handler))
 
+	proverMux.Handle("/ready", config.Readiness)
 	proverMux.Handle("/health", healthHandler{
 		circuits: servedCircuits(),
 	})
@@ -740,6 +785,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	}
 
 	corsHandler := handlers.CORS(
+		handlers.MaxAge(600),
 		handlers.AllowedHeaders([]string{
 			"X-Requested-With",
 			"Content-Type",
@@ -747,8 +793,11 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			"X-API-Key",
 			"X-Async",
 			"X-Sync",
+			"X-Prover-Timing",
+			"X-Request-ID",
 		}),
 		handlers.AllowedOrigins([]string{"*"}),
+		handlers.ExposedHeaders([]string{"Server-Timing", "X-Prover-Timing", "X-Request-ID"}),
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 	)
 
@@ -813,8 +862,11 @@ func (error *Error) send(w http.ResponseWriter) {
 }
 
 type Config struct {
-	ProverAddress  string
-	MetricsAddress string
+	Readiness         *Readiness
+	Indexer           *indexed.Resolver
+	TransferExecution *TransferExecution
+	ProverAddress     string
+	MetricsAddress    string
 }
 
 func spawnServerJob(server *http.Server, label string) RunningJob {
@@ -903,6 +955,7 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 	jobID := dedupResult.JobID
 
 	job := &ProofJob{
+		Indexed:    handler.indexed,
 		ID:         jobID,
 		Type:       "zk_proof",
 		Payload:    json.RawMessage(buf),
@@ -990,11 +1043,30 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
+	var resolution *common.ProofResolution
+	if handler.indexed {
+		resolved, err := handler.indexer.Resolve(ctx, buf)
+		if err != nil {
+			failure := &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable"}
+			if ctx.Err() != nil {
+				failure = &Error{StatusCode: http.StatusRequestTimeout, Code: "proof_timeout", Message: "Proof request expired"}
+			}
+			failure.send(w)
+			return
+		}
+		buf, resolution = resolved.Payload, resolved.Resolution
+	}
 
 	// Wait for a permit before starting work. Doing this here rather than around
 	// the whole handler keeps parsing and validation off the bound: a malformed
 	// request should be rejected while the prover is busy, not queued behind it.
-	release, admitErr := handler.admission.admit(ctx)
+	admission := handler.admission
+	if isTransferCircuit(meta.CircuitType) && handler.transferExecution != nil {
+		admission = handler.transferExecution.admission
+	}
+	finishAdmission := handler.timing.Start("admission")
+	release, admitErr := admission.admit(ctx)
+	finishAdmission()
 	if admitErr != nil {
 		logging.Logger().Warn().
 			Str("circuit_type", string(meta.CircuitType)).
@@ -1015,6 +1087,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		// Recover from panics to prevent server crash from malformed input
 		defer func() {
 			if r := recover(); r != nil {
+				if handler.indexed {
+					r = "indexed proof failed"
+				}
 				ProofPanicsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
 				logging.Logger().Error().
 					Interface("panic", r).
@@ -1030,8 +1105,14 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		timer := StartProofTimer(string(meta.CircuitType))
 
 		proof, proofError := handler.processProofSync(buf)
+		if proof != nil {
+			proof.Resolution = resolution
+		}
 
 		if proofError != nil {
+			if handler.indexed {
+				proofError = provingError(errors.New("indexed proof failed"))
+			}
 			timer.ObserveError(proofError.Code)
 			RecordJobComplete(false)
 		} else {
@@ -1053,7 +1134,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
+		finishEncode := handler.timing.Start("encode")
 		responseBytes, err := json.Marshal(result.proof)
+		finishEncode()
 		if err != nil {
 			unexpectedError(err).send(w)
 			return
@@ -1183,6 +1266,8 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 }
 
 func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
+	finishParameters := handler.timing.Start("parameters")
+	defer finishParameters()
 	var params mergeprover.MergeParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		logging.Logger().Info().Msg("error Unmarshal")
@@ -1196,12 +1281,15 @@ func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
 	if err := params.ValidateShape(); err != nil {
 		return nil, malformedBodyError(err)
 	}
+	finishParameters()
+	finishKeys := handler.timing.Start("keys")
 	ps, err := handler.keyManager.GetTransferSystem(common.MergeCircuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
+	finishKeys()
 	if err != nil {
 		return nil, provingError(fmt.Errorf("merge: %w", err))
 	}
 
-	proof, err := mergeprover.ProveMerge(ps, &params)
+	proof, err := (mergeprover.MergeProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
@@ -1210,6 +1298,8 @@ func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
 }
 
 func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
+	finishParameters := handler.timing.Start("parameters")
+	defer finishParameters()
 	var params mergeprover.MergeParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		logging.Logger().Info().Msg("error Unmarshal")
@@ -1220,12 +1310,15 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 	if err := params.ValidateShape(); err != nil {
 		return nil, malformedBodyError(err)
 	}
+	finishParameters()
+	finishKeys := handler.timing.Start("keys")
 	ps, err := handler.keyManager.GetTransferSystem(common.MergeRingCircuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
+	finishKeys()
 	if err != nil {
 		return nil, provingError(fmt.Errorf("merge-ring: %w", err))
 	}
 
-	proof, err := mergeprover.ProveMerge(ps, &params)
+	proof, err := (mergeprover.MergeProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
@@ -1234,17 +1327,22 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 }
 
 func (handler proveHandler) customRingProof(buf []byte, circuitType common.CircuitType) (*common.Proof, *Error) {
+	finishParameters := handler.timing.Start("parameters")
+	defer finishParameters()
 	switch circuitType {
 	case common.CustomRingBaseCircuitType:
 		var params customring.BaseParameters
 		if err := json.Unmarshal(buf, &params); err != nil {
 			return nil, malformedBodyError(err)
 		}
+		finishParameters()
+		finishKeys := handler.timing.Start("keys")
 		ps, err := handler.keyManager.GetRingSystem(common.CustomRingBaseCircuitType)
+		finishKeys()
 		if err != nil {
 			return nil, provingError(fmt.Errorf("custom-ring base: %w", err))
 		}
-		proof, err := customring.ProveBase(ps, &params)
+		proof, err := (customring.BaseProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
 		if err != nil {
 			return nil, provingError(errors.New("custom ring proof failed"))
 		}
@@ -1255,12 +1353,15 @@ func (handler proveHandler) customRingProof(buf []byte, circuitType common.Circu
 			return nil, malformedBodyError(err)
 		}
 
+		finishParameters()
+		finishKeys := handler.timing.Start("keys")
 		ps, err := handler.keyManager.GetRingSystem(common.CustomRingPolicyCircuitType)
+		finishKeys()
 		if err != nil {
 			return nil, provingError(fmt.Errorf("custom-ring policy: %w", err))
 		}
 
-		proof, err := customring.ProvePolicy(ps, &params)
+		proof, err := (customring.PolicyProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
 		if err != nil {
 			return nil, provingError(errors.New("custom ring proof failed"))
 		}
@@ -1282,7 +1383,9 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 	treeHeight := params.TreeHeight
 	batchSize := params.BatchSize
 
+	finishKeys := handler.timing.Start("keys")
 	ps, err := handler.keyManager.GetBatchSystem(common.BatchAddressAppendCircuitType, treeHeight, batchSize)
+	finishKeys()
 	if err != nil {
 		return nil, provingError(fmt.Errorf("batch address append: %w", err))
 	}
@@ -1296,6 +1399,8 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 }
 
 func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Error) {
+	finishParameters := handler.timing.Start("parameters")
+	defer finishParameters()
 	var params transfereddsaonly.TransferParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		logging.Logger().Info().Msg("error Unmarshal")
@@ -1304,12 +1409,15 @@ func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Erro
 	}
 
 	circuitType := params.Variant.CircuitType()
+	finishParameters()
+	finishKeys := handler.timing.Start("keys")
 	ps, err := handler.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
+	finishKeys()
 	if err != nil {
 		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
 	}
 
-	proof, err := transfereddsaonly.ProveTransfer(ps, &params)
+	proof, err := (transfereddsaonly.TransferProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
@@ -1318,19 +1426,24 @@ func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Erro
 }
 
 func (handler proveHandler) transferP256Proof(buf []byte) (*common.Proof, *Error) {
+	finishParameters := handler.timing.Start("parameters")
+	defer finishParameters()
 	var params transfereddsaonly.P256TransferParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		return nil, malformedBodyError(err)
 	}
+	finishParameters()
+	finishKeys := handler.timing.Start("keys")
 	ps, err := handler.keyManager.GetTransferSystem(
 		common.TransferP256RingCircuitType,
 		params.NInputs,
 		params.NOutputs,
 	)
+	finishKeys()
 	if err != nil {
 		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
 	}
-	proof, err := transfereddsaonly.ProveP256Transfer(ps, &params)
+	proof, err := (transfereddsaonly.P256Proof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)

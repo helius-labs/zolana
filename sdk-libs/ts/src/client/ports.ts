@@ -28,6 +28,8 @@ import type {
   ProverInputs,
   RingTransactRoots,
   TransferInputs,
+  TransferInput,
+  Field,
 } from "./prover/types.js";
 import type {
   GetByNullifiersRequest,
@@ -102,6 +104,64 @@ export interface ProofReader {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<readonly SpendProof[]>;
+}
+
+export type PreparedTransferInput = Omit<
+  TransferInput,
+  | "statePathElements"
+  | "statePathIndex"
+  | "nullifierLowValue"
+  | "nullifierNextValue"
+  | "nullifierLowPathElements"
+  | "nullifierLowPathIndex"
+>;
+
+export type PreparedTransferInputs = Omit<
+  TransferInputs,
+  "inputs" | "treeSlots" | "publicInputHash"
+> & {
+  readonly inputs: readonly PreparedTransferInput[];
+};
+
+export type PreparedMergeInputs = Omit<MergeInputs, "inputs" | "treeSlots" | "publicInputHash"> & {
+  readonly inputs: readonly PreparedTransferInput[];
+};
+
+export interface IndexedTree {
+  readonly tree: Address;
+  readonly id: number;
+}
+
+export interface ResolvedProofTree extends IndexedTree {
+  readonly utxoRoot: Bytes32;
+  readonly nullifierRoot: Bytes32;
+  readonly utxoRootIndex: number;
+  readonly nullifierRootIndex: number;
+}
+
+export interface ProofResolution {
+  readonly trees: readonly ResolvedProofTree[];
+  readonly publicInputHash: Bytes32;
+}
+
+export type IndexedProofInputs = Readonly<{
+  readonly trees: readonly IndexedTree[];
+  readonly lookups: readonly Readonly<{ treeSlot: number; commitment: Bytes32 | null }>[];
+  readonly publicInputs: readonly Field[];
+  readonly minContextSlot?: bigint;
+}> &
+  (
+    | Readonly<{ circuit: "transfer" | "transferRing"; payload: PreparedTransferInputs }>
+    | Readonly<{ circuit: "merge"; payload: PreparedMergeInputs }>
+  );
+
+export interface IndexedProofResult {
+  readonly proof: Proof;
+  readonly resolution: ProofResolution;
+}
+
+export interface IndexedProofAuthority {
+  proveIndexed(inputs: IndexedProofInputs, context?: RequestContext): Promise<IndexedProofResult>;
 }
 
 /**

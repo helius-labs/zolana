@@ -30,11 +30,12 @@ func ToHex(i *big.Int) string {
 }
 
 type ProofJSON struct {
-	Ar                 [2]string    `json:"ar"`
-	Bs                 [2][2]string `json:"bs"`
-	Krs                [2]string    `json:"krs"`
-	ProofCommitment    []string     `json:"proofCommitment,omitempty"`
-	ProofCommitmentPok []string     `json:"proofCommitmentPok,omitempty"`
+	Resolution         *ProofResolution `json:"resolution,omitempty"`
+	Ar                 [2]string        `json:"ar"`
+	Bs                 [2][2]string     `json:"bs"`
+	Krs                [2]string        `json:"krs"`
+	ProofCommitment    []string         `json:"proofCommitment,omitempty"`
+	ProofCommitmentPok []string         `json:"proofCommitmentPok,omitempty"`
 }
 
 func (p *Proof) MarshalJSON() ([]byte, error) {
@@ -45,7 +46,7 @@ func (p *Proof) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	proofBytes := buf.Bytes()
-	proofJson := ProofJSON{}
+	proofJson := ProofJSON{Resolution: p.Resolution}
 	proofHexNumbers := [8]string{}
 	for i := 0; i < 8; i++ {
 		proofHexNumbers[i] = ToHex(new(big.Int).SetBytes(proofBytes[i*fpSize : (i+1)*fpSize]))
@@ -83,6 +84,7 @@ func (p *Proof) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &proofJson); err != nil {
 		return err
 	}
+	p.Resolution = proofJson.Resolution
 	proofHexNumbers := []string{
 		proofJson.Ar[0],
 		proofJson.Ar[1],

@@ -633,10 +633,12 @@ describe("prover request routing", () => {
 
   it("queues a transfer after sync admission is refused", async () => {
     const deliveries: (string | null)[] = [];
+    const queued: (string | null)[] = [];
     const refusal = new Response("busy", { status: 429 });
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       if (init?.method === "POST") {
         deliveries.push(new Headers(init.headers).get("X-Sync"));
+        queued.push(new Headers(init.headers).get("X-Async"));
         if (deliveries.length === 1) return refusal;
         return new Response(JSON.stringify({ jobId: "job-123" }), {
           status: 202,
@@ -652,6 +654,7 @@ describe("prover request routing", () => {
     await prover.prove(INPUTS);
 
     expect(deliveries).toEqual(["true", null]);
+    expect(queued).toEqual([null, "true"]);
     expect(refusal.bodyUsed).toBe(true);
   });
 

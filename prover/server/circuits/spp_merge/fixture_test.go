@@ -15,12 +15,12 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 )
 
-func buildValidWitness(t *testing.T) *merge.Circuit {
+func buildValidWitness(t testing.TB) *merge.Circuit {
 	t.Helper()
 	return buildWitness(t, false)
 }
 
-func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
+func buildWitness(t testing.TB, eddsa bool) *merge.Circuit {
 	t.Helper()
 	return buildDefaultWitness(t, mergeFixtureOptions{eddsa: eddsa})
 }
@@ -97,7 +97,7 @@ func publicTreeSlots(slots []transaction.TreeSlot) []protocol.TreeSlot {
 }
 
 // mergeUtxoHash hashes u under the raw id of the tree that holds it.
-func mergeUtxoHash(t *testing.T, u protocol.Utxo, treeID int64) *big.Int {
+func mergeUtxoHash(t testing.TB, u protocol.Utxo, treeID int64) *big.Int {
 	t.Helper()
 	return spptest.MustUtxoHash(t, u, big.NewInt(treeID))
 }
@@ -117,13 +117,13 @@ type mergeWitnessFixture struct {
 	publicInputHash     *big.Int
 }
 
-func buildDefaultWitness(t *testing.T, options mergeFixtureOptions) *merge.Circuit {
+func buildDefaultWitness(t testing.TB, options mergeFixtureOptions) *merge.Circuit {
 	t.Helper()
 	options.rail = defaultFixtureRail
 	return buildMergeFixture(t, options).defaultCircuit()
 }
 
-func buildRingWitness(t *testing.T, ringProgramID *big.Int) *merge.RingCircuit {
+func buildRingWitness(t testing.TB, ringProgramID *big.Int) *merge.RingCircuit {
 	t.Helper()
 	return buildMergeFixture(t, mergeFixtureOptions{
 		rail:           ringFixtureRail,
@@ -133,7 +133,7 @@ func buildRingWitness(t *testing.T, ringProgramID *big.Int) *merge.RingCircuit {
 	}).ringCircuit()
 }
 
-func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessFixture {
+func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessFixture {
 	t.Helper()
 	inputCount := options.inputCount
 	if inputCount == 0 {
@@ -511,7 +511,7 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	return assignment
 }
 
-func hashChain4(t *testing.T, in []*big.Int) *big.Int {
+func hashChain4(t testing.TB, in []*big.Int) *big.Int {
 	t.Helper()
 	h, err := protocol.HashChain4(in)
 	if err != nil {

@@ -1,0 +1,60 @@
+rule_files:
+  - alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: idle does not violate throughput target
+    interval: 1m
+    input_series:
+      - series: 'up{job="prover",instance="one"}'
+        values: '1x12'
+      - series: 'prover_queue_depth{job="prover",instance="one",queue="zk_transfer_queue"}'
+        values: '0x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProverTransferBelowTarget
+        exp_alerts: []
+  - name: stalled queue without a completed proof
+    interval: 1m
+    input_series:
+      - series: 'up{job="prover",instance="one"}'
+        values: '1x12'
+      - series: 'prover_queue_depth{job="prover",instance="one",queue="zk_transfer_queue"}'
+        values: '10x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProverTransferBelowTarget
+        exp_alerts:
+          - exp_labels:
+              job: prover
+              severity: warning
+            exp_annotations:
+              summary: Transfer throughput is below target while work waits
+  - name: indexer outage is visible before proof execution
+    interval: 1m
+    input_series:
+      - series: 'prover_indexer_preparation_duration_seconds_count{job="prover",instance="one",outcome="error"}'
+        values: '0+60x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProverIndexerFailures
+        exp_alerts:
+          - exp_labels:
+              job: prover
+              severity: critical
+            exp_annotations:
+              summary: Indexer proof preparation is failing
+  - name: busy workers with no waiting work
+    interval: 1m
+    input_series:
+      - series: 'prover_transfer_active{job="prover",instance="one"}'
+        values: '2x12'
+      - series: 'prover_transfer_capacity{job="prover",instance="one"}'
+        values: '2x12'
+      - series: 'prover_transfer_waiting{job="prover",instance="one"}'
+        values: '0x12'
+      - series: 'prover_queue_depth{job="prover",instance="one",queue="zk_transfer_queue"}'
+        values: '0x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProverTransferSaturated
+        exp_alerts: []

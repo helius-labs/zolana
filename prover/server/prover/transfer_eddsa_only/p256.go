@@ -9,6 +9,7 @@ import (
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -17,6 +18,12 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/std/math/emulated"
 )
+
+type P256Proof struct {
+	System     *common.TransferProofSystem
+	Parameters *P256TransferParameters
+	Timing     *timing.Trace
+}
 
 // P256TransferParameters is the flat witness for CustomRingP256Circuit.
 type P256TransferParameters struct {
@@ -316,6 +323,13 @@ func SetupP256Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSy
 }
 
 func ProveP256Transfer(ps *common.TransferProofSystem, params *P256TransferParameters) (*common.Proof, error) {
+	return (P256Proof{System: ps, Parameters: params}).Prove()
+}
+
+func (request P256Proof) Prove() (*common.Proof, error) {
+	ps, params := request.System, request.Parameters
+	finishWitness := request.Timing.Start("witness")
+	defer finishWitness()
 	if params == nil {
 		panic("params cannot be nil")
 	}
@@ -330,7 +344,11 @@ func ProveP256Transfer(ps *common.TransferProofSystem, params *P256TransferParam
 	if err != nil {
 		return nil, fmt.Errorf("error creating P256 witness: %w", err)
 	}
+	finishWitness()
+	finishProve := request.Timing.Start("prove")
+	defer finishProve()
 	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	finishProve()
 	if err != nil {
 		return nil, fmt.Errorf("error proving P256 transfer: %w", err)
 	}
