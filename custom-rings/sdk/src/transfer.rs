@@ -234,8 +234,6 @@ pub enum TransferError {
     MissingSourceOwner,
     #[error(transparent)]
     ListEntry(Box<crate::EntryProofError>),
-    #[error("transaction has padded change slots, build it with ConfidentialTransaction::with_compact_change")]
-    PaddedChange,
     #[error("asset registry is required")]
     MissingAssetRegistry,
     #[error("dummy output framing is invalid")]

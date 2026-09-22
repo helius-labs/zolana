@@ -3,13 +3,13 @@ pub mod key_registry;
 pub mod proof;
 
 use serde::{de::DeserializeOwned, Serialize};
-use solana_pubkey::Pubkey;
+use solana_address::Address;
 use std::fmt;
 use zolana_hasher::HasherError;
 
 pub struct InstructionView<'a> {
-    pub program_id: &'a Pubkey,
-    pub accounts: &'a [Pubkey],
+    pub program_id: &'a Address,
+    pub accounts: &'a [Address],
     pub data: &'a [u8],
 }
 

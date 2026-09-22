@@ -10,7 +10,7 @@ anyhow.workspace = true
 bytemuck.workspace = true
 custom-ring-interface.workspace = true
 serde.workspace = true
-solana-pubkey.workspace = true
+solana-address = { workspace = true, features = ["curve25519"] }
 wincode.workspace = true
 zolana-event.workspace = true
 zolana-hasher.workspace = true

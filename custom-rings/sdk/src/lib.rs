@@ -61,7 +61,7 @@ pub use crate::{
         merge::{
             AsyncCustomRingMergeProofEnvironment, CustomRingMerge, CustomRingMergeInstruction,
             CustomRingMergeProofEnvironment, MergeError, MergeProofInput, MergeRingProver,
-            MergeRingWitness, PreparedCustomRingMerge, ProvenCustomRingMerge, MAX_MERGE_INPUTS,
+            PreparedCustomRingMerge, ProvenCustomRingMerge, MAX_MERGE_INPUTS,
             MERGE_DEFAULT_INPUT_COUNT,
         },
         revoke_read_access::RevokeReadAccess,

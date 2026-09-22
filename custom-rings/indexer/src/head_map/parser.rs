@@ -4,7 +4,7 @@ use custom_ring_interface::{
     instruction::{accounts, tag},
     CustomRingTransactIxData, PolicyConfig, RegisterSpendIxData,
 };
-use solana_pubkey::Pubkey;
+use solana_address::Address;
 use zolana_indexer_api::{RingHeadRecord, ShieldedTransaction};
 use zolana_ring_policy::{entry_nullifier, spend_record_message_tag, ListNamespace, SpendRecord};
 
@@ -122,7 +122,7 @@ impl Reconstruction<'_> {
             .output_slots
             .last()
             .context("transition has no successor output")?;
-        let namespace = Pubkey::find_program_address(
+        let namespace = Address::find_program_address(
             &[zolana_ring_policy::NAMESPACE_PDA_SEED],
             instruction.program_id,
         )

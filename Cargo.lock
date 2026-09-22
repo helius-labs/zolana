@@ -11378,7 +11378,7 @@ dependencies = [
  "bytemuck",
  "custom-ring-interface",
  "serde",
- "solana-pubkey 4.2.1",
+ "solana-address 2.6.1",
  "wincode",
  "zolana-event",
  "zolana-hasher",
