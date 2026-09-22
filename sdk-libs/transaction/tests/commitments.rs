@@ -5,10 +5,7 @@ use solana_address::Address;
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
 use zolana_keypair::{hash::sha256, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    instructions::{
-        ring_authority::RingAuthorityProofInputs,
-        transact::{PrivateTxHash, PublicTransfers, Shape, SppProofInputs},
-    },
+    instructions::transact::{PrivateTxHash, SppProofInputs},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
         program_id_proof_input_hash, ring_program_id_proof_input_hash, SppProofInputUtxo,
@@ -402,45 +399,6 @@ fn derivation_domains_match_committed_cross_language_vectors_and_bind_each_param
             output
         );
     }
-    let mut input = SppProofInputUtxo::from(wallet_utxo(&keypair(7), Mint::SOL, 1, 0, 1));
-    input.nullifier = first;
-    let mut ring = RingAuthorityProofInputs {
-        input_utxos: vec![
-            input.clone(),
-            SppProofInputUtxo::dummy_with_blinding(field(8), 0).unwrap(),
-        ],
-        output_utxos: vec![],
-        blinding_seed: secret,
-        output_tree_id: 0,
-        public_transfers: PublicTransfers::default(),
-        external_data: proof().external_data,
-        payer: address(9),
-        ring_program_id: Some(address(4)),
-        shape: Shape::IN2_OUT3,
-    };
-    assert_eq!(ring.first_nullifier().unwrap(), first);
-    assert_eq!(ring.output_blinding_seed().unwrap(), seed);
-    assert_eq!(ring.private_tx_blinding().unwrap(), private);
-    assert_eq!(
-        ring.input_utxo_hashes()
-            .iter()
-            .map(|i| i.hash())
-            .collect::<Vec<_>>(),
-        vec![input.hash()]
-    );
-    ring.input_utxos.clear();
-    assert!(matches!(
-        ring.first_nullifier(),
-        Err(TransactionError::NoInputs)
-    ));
-    assert!(matches!(
-        ring.output_blinding_seed(),
-        Err(TransactionError::NoInputs)
-    ));
-    assert!(matches!(
-        ring.private_tx_blinding(),
-        Err(TransactionError::NoInputs)
-    ));
 }
 
 #[test]

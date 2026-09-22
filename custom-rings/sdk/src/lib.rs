@@ -84,7 +84,7 @@ pub use crate::{
     key_registry::{
         KeyRegistrationError, ProvenKeyRegistration, ReadSealedKey, RegisterKey, SealedKeyEntry,
     },
-    prepared_authority::{PreparedRingAuthority, RingAuthorityWitness},
+    prepared_authority::{RingAuthorityProofInputs, RingAuthorityProofs},
     shared::{
         client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
         CustomRingConfig, CustomRingDelegate, CustomRingSpendWindow, IndexedMapRoot, PinnedPolicy,
