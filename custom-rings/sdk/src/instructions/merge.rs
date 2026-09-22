@@ -6,38 +6,34 @@ use zolana_client::{
     ClientError, NonInclusionProof, ProofCompressed, ProverClient, Rpc, SpendProof,
 };
 use zolana_interface::instruction::{instruction_data::merge_ring::MergeRingIxData, MergeRing};
-use zolana_keypair::{NullifierKey, ShieldedKeypairTrait};
+use zolana_keypair::NullifierKey;
 use zolana_transaction::{
     error::TransactionError,
-    instructions::{
-        merge_ring::{MergeRing as MergePlan, PreparedMergeRing},
-        types::{InputUtxoContext, SppProofInputUtxo},
-    },
-    SppProofOutputUtxo,
+    instructions::merge::{MergeProofInputs, MergeTransaction},
+    utxo::SppProofInputUtxo,
+    ShieldedKeys, SppProofOutputUtxo, WalletUtxo,
 };
 
 use crate::CustomRing;
 
-pub use zolana_client::{
-    MergeRingProver as CustomRingMergeProver, MergeRingWitness as CustomRingMergeWitness,
-};
+use zolana_client::MergeProver;
 pub use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 
 /// A merge plan whose inputs and output are bound to one custom ring.
 #[must_use]
 pub struct CustomRingMerge {
     ring: CustomRing,
-    inner: MergePlan,
+    inner: MergeTransaction,
 }
 
 impl CustomRingMerge {
-    pub fn new<K: ShieldedKeypairTrait>(
+    pub fn new(
         ring: CustomRing,
-        keypair: &K,
-        inputs: Vec<SppProofInputUtxo>,
+        inputs: Vec<WalletUtxo>,
         output_ring_data_hash: Option<[u8; 32]>,
     ) -> Result<Self, TransactionError> {
-        let inner = MergePlan::new(keypair, inputs, ring.program_id(), output_ring_data_hash)?;
+        let inner =
+            MergeTransaction::new_with_ring(inputs, ring.program_id(), output_ring_data_hash)?;
         Ok(Self { ring, inner })
     }
 
@@ -46,11 +42,19 @@ impl CustomRingMerge {
         self
     }
 
-    pub fn prepare(self) -> PreparedCustomRingMerge {
-        PreparedCustomRingMerge {
+    pub fn with_output_tree_id(mut self, tree_id: u16) -> Self {
+        self.inner = self.inner.with_output_tree_id(tree_id);
+        self
+    }
+
+    pub fn encrypt<K: ShieldedKeys + ?Sized>(
+        self,
+        keys: &K,
+    ) -> Result<PreparedCustomRingMerge, TransactionError> {
+        Ok(PreparedCustomRingMerge {
             ring: self.ring,
-            inner: self.inner.prepare(),
-        }
+            inner: self.inner.encrypt(keys)?,
+        })
     }
 }
 
@@ -58,7 +62,7 @@ impl CustomRingMerge {
 #[must_use]
 pub struct PreparedCustomRingMerge {
     ring: CustomRing,
-    inner: PreparedMergeRing,
+    inner: MergeProofInputs,
 }
 
 pub struct CustomRingMergeProofEnvironment<'a, I> {
@@ -72,6 +76,9 @@ pub struct ProvenCustomRingMerge {
     pub output_hash: [u8; 32],
     pub input_count: usize,
     pub merged_amount: u64,
+    pub tx_viewing_pk: [u8; 33],
+    pub salt: [u8; 16],
+    pub output_data: zolana_event::MessageData,
 }
 
 impl PreparedCustomRingMerge {
@@ -80,22 +87,19 @@ impl PreparedCustomRingMerge {
     }
 
     pub fn inputs(&self) -> &[SppProofInputUtxo] {
-        &self.inner.inputs
+        &self.inner.input_utxos
     }
 
     pub const fn output(&self) -> &SppProofOutputUtxo {
-        &self.inner.output
+        &self.inner.output_utxo
     }
 
-    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<&SppProofInputUtxo>, TransactionError> {
         self.inner.input_utxo_hashes()
     }
 
-    pub fn dummy_nullifiers(
-        &self,
-        nullifier_key: &NullifierKey,
-    ) -> Result<Vec<[u8; 32]>, TransactionError> {
-        self.inner.dummy_nullifiers(nullifier_key)
+    pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
+        self.inner.dummy_nullifiers()
     }
 
     pub fn witness(
@@ -103,9 +107,9 @@ impl PreparedCustomRingMerge {
         nullifier_key: NullifierKey,
         proofs: Vec<SpendProof>,
         dummy_nullifier_proofs: Vec<NonInclusionProof>,
-    ) -> CustomRingMergeWitness {
-        CustomRingMergeWitness {
-            prepared: self.inner,
+    ) -> MergeProver {
+        MergeProver {
+            transaction: self.inner,
             nullifier_key,
             proofs,
             dummy_nullifier_proofs,
@@ -119,12 +123,11 @@ impl PreparedCustomRingMerge {
         env: CustomRingMergeProofEnvironment<'_, I>,
     ) -> Result<ProvenCustomRingMerge, ClientError> {
         let ring = self.ring;
-        let output_ring_data_hash = self.inner.output.ring_data_hash.unwrap_or_default();
-        let merged_amount = self.inner.output.amount;
+        let merged_amount = self.inner.output_utxo.amount;
         let commitments = self.input_utxo_hashes()?;
         let input_count = commitments.len();
         let proofs = fetch_spend_proofs(env.indexer, input_tree, &commitments)?;
-        let dummy_nullifiers = self.dummy_nullifiers(&nullifier_key)?;
+        let dummy_nullifiers = self.dummy_nullifiers();
         let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
             Vec::new()
         } else {
@@ -132,21 +135,21 @@ impl PreparedCustomRingMerge {
                 .get_non_inclusion_proofs(input_tree, dummy_nullifiers, None)?
                 .proofs
         };
-        let result = CustomRingMergeProver::try_from(self.witness(
-            nullifier_key,
-            proofs,
-            dummy_nullifier_proofs,
-        ))?
-        .build()?;
+        let result = self
+            .witness(nullifier_key, proofs, dummy_nullifier_proofs)
+            .build()?;
         let proof = env.prover.prove_merge_ring(&result.inputs)?;
         let proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
 
         Ok(ProvenCustomRingMerge {
             ring,
-            data: result.ring_instruction_data(proof, output_ring_data_hash),
+            data: result.ring_instruction_data(proof),
             output_hash: result.output_hash,
             input_count,
             merged_amount,
+            tx_viewing_pk: result.tx_viewing_pk,
+            salt: result.salt,
+            output_data: result.output_data,
         })
     }
 }
@@ -172,7 +175,7 @@ impl ProvenCustomRingMerge {
 fn fetch_spend_proofs<I: Rpc>(
     indexer: &I,
     tree: Address,
-    commitments: &[InputUtxoContext],
+    commitments: &[&SppProofInputUtxo],
 ) -> Result<Vec<SpendProof>, ClientError> {
     let state_proofs = indexer
         .get_merkle_proofs(
@@ -254,7 +257,7 @@ mod tests {
     use solana_address::Address;
     use zolana_interface::{instruction::instruction_data::merge_transact::MergeProof, pda};
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{instructions::types::SppProofInputUtxo, Utxo, SOL_MINT};
+    use zolana_transaction::{Mint, Utxo};
 
     use super::*;
 
@@ -263,27 +266,33 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
         let ring = CustomRing::new(Address::new_from_array([9; 32]));
         let inputs = [3, 5].map(|amount| {
-            SppProofInputUtxo::new(
+            zolana_test_utils::utxo::wallet(
                 Utxo {
                     owner: owner.signing_pubkey(),
-                    asset: SOL_MINT,
+                    asset: Mint::SOL,
                     amount,
                     blinding: [amount as u8; 32],
                     ring_program_id: Some(ring.program_id()),
                     data: Default::default(),
                 },
-                &owner,
+                &owner.nullifier_key,
+                0,
+                amount,
+                None,
+                None,
             )
+            .expect("input_utxo")
         });
 
-        let prepared = CustomRingMerge::new(ring, &owner, inputs.into(), None)
+        let prepared = CustomRingMerge::new(ring, inputs.into(), None)
             .expect("merge")
-            .prepare();
+            .encrypt(&owner)
+            .expect("prepare");
 
         assert_eq!(prepared.inputs().len(), MERGE_DEFAULT_INPUT_COUNT);
         assert_eq!(prepared.output().amount, 8);
         assert_eq!(prepared.output().ring_program_id, Some(ring.program_id()));
-        assert_eq!(prepared.output().asset, SOL_MINT);
+        assert_eq!(prepared.output().asset, Mint::SOL);
     }
 
     #[test]

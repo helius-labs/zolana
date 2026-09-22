@@ -1,28 +1,23 @@
 use num_bigint::BigUint;
-use zolana_interface::{
-    instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
-};
+use zolana_interface::instruction::instruction_data::transact::TreeContext;
 use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, PublicTransfers},
-    utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
-    ExternalData, SppProofOutputUtxo,
+    instructions::transact::PublicTransfers, ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
         field::be,
-        resolve_shape,
         transact::assembly::{
-            assemble_inputs, assemble_outputs, validate_output_blindings, OwnerMode, PublicInputs,
-            TransferSpendInput,
+            assemble_transaction, validate_shape, AssembledTransaction, OwnerMode, PublicInputs,
+            TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
     },
 };
 
 pub struct TransferProver {
-    pub inputs: Vec<TransferSpendInput>,
+    pub inputs: Vec<TransferInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     /// The transaction's private random root seed. The output blinding seed
     /// and the private transaction blinding derive from it and the first
@@ -34,7 +29,7 @@ pub struct TransferProver {
     pub public_transfers: PublicTransfers,
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
-    pub shape: Option<Shape>,
+    pub shape: Shape,
 }
 
 #[derive(Debug, Clone)]
@@ -47,41 +42,40 @@ pub struct TransferProofResult {
     /// One root-index pair per input tree, in the order the tree accounts are
     /// passed. An input selects its pair with its `tree_index`.
     pub tree_contexts: Vec<TreeContext>,
+    /// The raw ids of those trees, parallel to `tree_contexts`. The `Transact`
+    /// builder takes one tree account per context entry in the same order, and
+    /// `pda::tree` of these is where that list comes from. Nothing else carries
+    /// it: a `TreeContext` holds root indexes only.
+    pub tree_ids: Vec<u16>,
     /// Each input's index into `tree_contexts`, parallel to `nullifiers`.
     pub input_tree_indexes: Vec<u8>,
 }
 
 impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
-        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        let shape = self.shape;
+        validate_shape(shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.signer_width() {
             return Err(ClientError::WitnessInputCountMismatch {
                 got: self.signer_pk_hashes.len(),
                 expected: shape.signer_width(),
             });
         }
-        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
-        let input_flags = pack_input_flags(
+        let AssembledTransaction {
+            inputs: assembled_inputs,
+            outputs: assembled_outputs,
+            external_data_hash,
+            private_tx_hash: private_tx,
+            input_flags,
+        } = assemble_transaction(
+            &self.inputs,
+            &self.outputs,
+            &self.blinding_seed,
+            self.output_tree_id,
+            &self.external_data,
+            &OwnerMode::ConfidentialEddsa,
             self.allow_dummy_inputs,
-            assembled_inputs.input_tree_indexes.iter().copied(),
         )?;
-        let first_nullifier = assembled_inputs
-            .nullifiers
-            .first()
-            .ok_or(ClientError::NoInputs)?;
-        let output_blinding_seed =
-            derive_output_blinding_seed(first_nullifier, &self.blinding_seed)?;
-        validate_output_blindings(&self.outputs, first_nullifier, &output_blinding_seed)?;
-        let assembled_outputs = assemble_outputs(&self.outputs, self.output_tree_id)?;
-        let external_data_hash = self.external_data.hash()?;
-        let private_tx_blinding = derive_private_tx_blinding(first_nullifier, &self.blinding_seed)?;
-        let private_tx = PrivateTxHash::new(
-            &assembled_inputs.input_hashes,
-            &assembled_outputs.private_tx_output_hashes,
-            &external_data_hash,
-            &private_tx_blinding,
-        )
-        .hash()?;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
@@ -125,6 +119,7 @@ impl TransferProver {
             output_hashes: assembled_outputs.output_hashes,
             private_tx_hash: private_tx,
             tree_contexts: assembled_inputs.tree_contexts,
+            tree_ids: assembled_inputs.tree_ids,
             input_tree_indexes: assembled_inputs.input_tree_indexes,
         })
     }

@@ -39,7 +39,9 @@ use zolana_transaction::{
 };
 
 const SALT: [u8; SALT_LEN] = [3; SALT_LEN];
-const TREE: Address = Address::new_from_array([4; 32]);
+/// Raw id of the tree these fixtures publish into. A slot names the id, not the
+/// account; the account is `pda::tree(TREE_ID)` wherever one is needed.
+const TREE_ID: u16 = 4;
 const RING: Address = Address::new_from_array([5; 32]);
 const GENESIS: [u8; 32] = [9; 32];
 const OTHER_RING: Address = Address::new_from_array([6; 32]);
@@ -341,6 +343,7 @@ impl TransactionSource for StaticSource {
             transactions,
             next_cursor: self.next_cursor.clone(),
             scanned_through: None,
+            output_tree_id: Some(TREE_ID),
         };
         async move { Ok(response) }
     }
@@ -495,7 +498,7 @@ fn confidential_asset_slot(
         view_tag: encoded.view_tag,
         output_context: OutputContext {
             hash: [slot_index as u8; 32],
-            tree: TREE,
+            tree_id: TREE_ID,
             leaf_index: u64::from(slot_index),
         },
         payload: encoded.data,

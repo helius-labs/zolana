@@ -3,7 +3,7 @@ use borsh::BorshDeserialize;
 pub use compression_example_program::state::AccountState;
 use solana_address::Address;
 use zolana_keypair::{PublicKey, ShieldedAddress, ViewingKey};
-use zolana_transaction::{Data, DataRecord, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, DataRecord, Mint, SppProofOutputUtxo, Utxo};
 
 use crate::{err, shared::zero_nullifier_key};
 
@@ -21,7 +21,7 @@ impl AccountUtxo {
     pub fn utxo(&self) -> Result<Utxo> {
         Ok(Utxo {
             owner: PublicKey::from_pda(&self.pda),
-            asset: SOL_MINT,
+            asset: Mint::SOL,
             amount: 0,
             blinding: self.state.blinding,
             ring_program_id: None,
@@ -33,7 +33,7 @@ impl AccountUtxo {
 
     pub fn output_utxo(&self) -> Result<SppProofOutputUtxo> {
         Ok(SppProofOutputUtxo {
-            asset: SOL_MINT,
+            asset: Mint::SOL,
             amount: 0,
             blinding: self.state.blinding,
             data_hash: Some(self.state.data_hash().map_err(err)?),

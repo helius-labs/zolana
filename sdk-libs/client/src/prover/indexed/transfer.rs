@@ -3,14 +3,13 @@ use super::{
     IndexedTree,
 };
 use crate::{
+    authority::ProofAuthority,
     prover::{
-        field::right_align_slice,
+        field::{be, right_align_slice},
         json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
-        transact::assembly::{
-            assemble_outputs, input_utxos, validate_output_blindings, PublicInputs,
-        },
+        transact::assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
         verify::ConfidentialProofStatement,
-        ProofCompressed,
+        ProofCompressed, ProofInputUtxo, TransferInput,
     },
     ClientError,
 };
@@ -25,8 +24,9 @@ use zolana_transaction::{
     instructions::transact::{
         inputs_require_p256, validate_input_tree_order, PrivateTxHash, SppProofInputs,
     },
-    utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
-    ProofInputUtxo,
+    utxo::{
+        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+    },
 };
 
 pub struct PreparedIndexedTransfer {
@@ -37,13 +37,17 @@ pub struct PreparedIndexedTransfer {
 }
 
 pub struct ProvenIndexedTransfer {
+    pub input_tree_ids: Vec<u16>,
     pub data: TransactIxData,
     pub public_input_hash: [u8; 32],
     pub proof: ProofCompressed,
 }
 
 impl PreparedIndexedTransfer {
-    pub fn new(transaction: SppProofInputs) -> Result<Self, ClientError> {
+    pub fn new(
+        transaction: SppProofInputs,
+        authority: &dyn ProofAuthority,
+    ) -> Result<Self, ClientError> {
         let shape = transaction.check_shape()?;
         if inputs_require_p256(&transaction.input_utxos)? {
             return Err(ClientError::P256TransactUnsupported);
@@ -74,24 +78,33 @@ impl PreparedIndexedTransfer {
             let tree_slot = u8::try_from(trees.len() - 1).map_err(|_| ClientError::NoInputs)?;
             let utxo = ProofInputUtxo::try_from(input)?;
             let hash = utxo.hash()?;
-            let nullifier = input.nullifier_key.nullifier(&hash, &input.utxo.blinding)?;
+            let nullifier = input.nullifier;
+            if hash != input.utxo_hash {
+                return Err(
+                    zolana_transaction::TransactionError::InputCommitmentMismatch {
+                        index: local_inputs.len(),
+                    }
+                    .into(),
+                );
+            }
             let owner = if input.is_dummy() {
                 [0; 32]
             } else {
                 input.utxo.owner.owner_proof_input_hash()?
             };
-            let secret = if input.is_dummy() {
-                [0; 32]
-            } else {
-                right_align_slice(&*input.nullifier_key.secret())?
-            };
-            local_inputs.push(PreparedInputJson {
-                utxo: utxo_to_json(&utxo),
-                is_dummy: if input.is_dummy() { "0x1" } else { "0x0" },
-                tree_slot: format!("0x{tree_slot:x}"),
-                nullifier: hex_field(&nullifier),
-                owner_pk_hash: hex_field(&owner),
-                nullifier_secret: SecretField(Zeroizing::new(secret)),
+            local_inputs.push(TransferInput {
+                utxo,
+                is_dummy: u8::from(input.is_dummy()).into(),
+                state_path_elements: Vec::new(),
+                state_path_index: 0u8.into(),
+                nullifier_low_value: 0u8.into(),
+                nullifier_next_value: 0u8.into(),
+                nullifier_low_path_elements: Vec::new(),
+                nullifier_low_path_index: 0u8.into(),
+                tree_slot: tree_slot.into(),
+                nullifier: be(&nullifier),
+                owner_pk_hash: be(&owner),
+                nullifier_secret: input.is_dummy().then(|| 0u8.into()),
             });
             lookups.push(IndexedLookup {
                 tree_slot,
@@ -101,9 +114,15 @@ impl PreparedIndexedTransfer {
             input_hashes.push(if input.is_dummy() { [0; 32] } else { hash });
             nullifiers.push(nullifier);
         }
+        authority.complete_inputs(&mut local_inputs)?;
         let first = nullifiers.first().ok_or(ClientError::NoInputs)?;
         let seed = derive_output_blinding_seed(first, &transaction.blinding_seed)?;
-        validate_output_blindings(&transaction.output_utxos, first, &seed)?;
+        for (index, output) in transaction.output_utxos.iter().enumerate() {
+            let slot = u32::try_from(index).map_err(|_| super::invalid())?;
+            if output.blinding != derive_transact_output_blinding(first, &seed, slot)? {
+                return Err(ClientError::OutputBlindingMismatch { index });
+            }
+        }
         let outputs = assemble_outputs(&transaction.output_utxos, transaction.output_tree_id)?;
         let external_hash = transaction.external_data.hash()?;
         let blinding = derive_private_tx_blinding(first, &transaction.blinding_seed)?;
@@ -135,7 +154,10 @@ impl PreparedIndexedTransfer {
             circuit_type: IndexedCircuit::TransferConfidential,
             n_inputs: shape.n_inputs(),
             n_outputs: shape.n_outputs(),
-            inputs: local_inputs,
+            inputs: local_inputs
+                .iter()
+                .map(PreparedInputJson::try_from)
+                .collect::<Result<_, _>>()?,
             outputs: outputs.outputs.iter().map(output_to_json).collect(),
             output_tree_id: format!("0x{:x}", transaction.output_tree_id),
             blinding_seed: SecretField(Zeroizing::new(transaction.blinding_seed)),
@@ -170,7 +192,7 @@ impl PreparedIndexedTransfer {
                 u8::try_from(shape.n_outputs()).map_err(|_| super::invalid())?,
                 u8::try_from(N_PUBLIC_SLOTS).map_err(|_| super::invalid())?,
             ),
-            inputs: input_utxos(&nullifiers, &indexes)?,
+            inputs: input_utxos_from_nullifiers(&nullifiers, &indexes)?,
             tree_contexts: Vec::new(),
             interface_transfers: external.interface_transfers.iter().copied()
                 .map(zolana_transaction::instructions::transact::SettlementTransfer::interface_transfer).collect(),
@@ -215,9 +237,11 @@ impl PreparedIndexedTransfer {
             .iter()
             .map(|tree| tree.context)
             .collect();
+        let input_tree_ids = proof.resolution.trees.iter().map(|tree| tree.id).collect();
         let proof = ProofCompressed::try_from(proof.proof)?;
         self.data.proof = proof.to_transact_proof();
         Ok(ProvenIndexedTransfer {
+            input_tree_ids,
             data: self.data,
             public_input_hash,
             proof,
@@ -242,6 +266,28 @@ struct PreparedInputJson {
     nullifier: String,
     owner_pk_hash: String,
     nullifier_secret: SecretField,
+}
+
+impl TryFrom<&TransferInput> for PreparedInputJson {
+    type Error = ClientError;
+
+    fn try_from(input: &TransferInput) -> Result<Self, Self::Error> {
+        let secret = input.nullifier_secret.as_ref().ok_or_else(super::invalid)?;
+        Ok(Self {
+            utxo: utxo_to_json(&input.utxo),
+            is_dummy: if input.is_dummy == 0u8.into() {
+                "0x0"
+            } else {
+                "0x1"
+            },
+            tree_slot: format!("0x{:x}", input.tree_slot),
+            nullifier: format!("0x{:x}", input.nullifier),
+            owner_pk_hash: format!("0x{:x}", input.owner_pk_hash),
+            nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
+                &secret.to_bytes_be(),
+            )?)),
+        })
+    }
 }
 
 #[derive(Serialize)]

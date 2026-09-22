@@ -1,7 +1,8 @@
 //! Wallet synchronization and explicit UTXO assertions.
 
 use anyhow::Result;
-use zolana_transaction::{Address, KeypairWalletAuthority, Utxo, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{Address, Utxo};
+use zolana_wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 
 use super::LifecycleHarness;
 use crate::localnet::ZERO;
@@ -30,9 +31,8 @@ impl LifecycleHarness {
         }
         let newly_spendable: Vec<Utxo> = actor
             .wallet
-            .utxos
-            .iter()
-            .filter(|w| !w.spent && !spendable_hashes.contains(&w.output_context.hash))
+            .unspent()
+            .filter(|w| w.utxo.amount > 0 && !spendable_hashes.contains(&w.utxo_hash))
             .map(|w| w.utxo.clone())
             .collect();
         actor.spendable.extend(newly_spendable);
@@ -40,13 +40,13 @@ impl LifecycleHarness {
     }
 
     /// Full-struct assert that the actor's synced wallet holds exactly the UTXOs it
-    /// is expected to have decrypted (with `spent` flags). Run `sync` first.
+    /// is expected to have decrypted. Run `sync` first.
     pub fn assert_utxos(&self, name: &str) -> Result<()> {
         let actor = self.actor(name);
         let mut actual = actor.wallet.utxos.clone();
         let mut expected = actor.expected.clone();
-        actual.sort_by_key(|u| u.output_context.hash);
-        expected.sort_by_key(|u| u.output_context.hash);
+        actual.sort_by_key(|u| u.utxo_hash);
+        expected.sort_by_key(|u| u.utxo_hash);
         assert_eq!(
             actual, expected,
             "synced UTXOs for {name} do not match expected"

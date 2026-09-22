@@ -9,7 +9,7 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program_test::create_tree_instructions;
+use zolana_program_test::{create_tree_instructions, next_tree_id};
 use zolana_test_utils::{
     localnet::{LocalnetValidator, UpgradeableProgram},
     smart_account::{self, StandardSigners},
@@ -19,7 +19,9 @@ pub struct SetupContext {
     pub rpc_url: String,
     pub indexer_url: String,
     pub prover_url: String,
-    pub tree: Pubkey,
+    /// Raw id of the pool's only tree. The account is `pda::tree(tree_id)`,
+    /// derived where one is needed rather than carried alongside.
+    pub tree_id: u16,
     pub sender: ShieldedKeypair,
     pub recipient_address: ShieldedAddress,
 }
@@ -144,6 +146,8 @@ pub fn setup() -> Result<SetupContext> {
         ComputeBudgetConfig::for_instruction_count(1),
     )?;
 
+    // Read before the tree exists, so it is the id the creation will take.
+    let tree_id = next_tree_id(&rpc)?;
     let tree_creation = create_tree_instructions(
         &rpc,
         &payer.pubkey(),
@@ -164,7 +168,6 @@ pub fn setup() -> Result<SetupContext> {
         &[&payer, &tree_creation_authority],
         ComputeBudgetConfig::for_instruction_count(create_tree_syncs.len()),
     )?;
-    let tree = tree_creation.tree;
 
     let sender = new_wallet(&mut rpc)?;
     let recipient_address = new_wallet(&mut rpc)?.shielded_address()?;
@@ -173,7 +176,7 @@ pub fn setup() -> Result<SetupContext> {
         rpc_url,
         indexer_url,
         prover_url,
-        tree,
+        tree_id,
         sender,
         recipient_address,
     })

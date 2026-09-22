@@ -11,6 +11,7 @@ pub mod r20260617_000001_init;
 pub mod r20260624_000001_nullifier_queue_metadata;
 pub mod r20260810_000001_state_root_index;
 pub mod r20260810_000002_drop_state_root_columns;
+pub mod r20260916_000001_tree_metadata_tree_id_and_state;
 
 pub fn get_rings_migrations() -> Vec<Box<dyn MigrationTrait>> {
     vec![
@@ -25,5 +26,6 @@ pub fn get_rings_migrations() -> Vec<Box<dyn MigrationTrait>> {
         Box::new(r20260810_000002_drop_state_root_columns::Migration),
         Box::new(m20260818_000001_rings_transactions_ring_config::Migration),
         Box::new(m20260818_000002_add_ring_configs::Migration),
+        Box::new(r20260916_000001_tree_metadata_tree_id_and_state::Migration),
     ]
 }

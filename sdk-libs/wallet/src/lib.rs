@@ -23,6 +23,7 @@
 
 pub mod actions;
 pub mod user_registry;
+pub mod wallet;
 pub mod wallet_authority;
 pub mod wallet_sync;
 
@@ -33,7 +34,7 @@ pub use actions::{
     build_private_transaction_sync, create_associated_token_account,
     create_associated_token_account_with_program, create_deposit, create_merge, create_split,
     create_transfer, create_transfer_sync, create_withdrawal, is_default_ring_spendable,
-    is_plain_utxo, select_spend_inputs, select_spend_inputs_sync, sign_private_transaction,
+    is_plain_utxo, select_input_utxos, select_input_utxos_sync, sign_private_transaction,
     sign_private_transaction_sync, sign_private_transaction_sync_with_signers,
     sign_private_transaction_with_signers, submit_merge_transaction, CreatedMerge, CreatedSplit,
     CreatedTransfer, CreatedWithdrawal, Deposit, DepositParams, MergeParams, ResolvedAddress,
@@ -49,10 +50,15 @@ pub use user_registry::{
     resolve_registered_address, resolved_address_from_record, try_resolve_registered_address,
     try_resolve_registered_address_async, validate_registered_keypair, P256KeyBindingProof,
 };
+pub use wallet::{
+    CursorStream, Filter, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    PrivateTransactionKind, PrivateTransactionStatus, RingBalance, SyncConfig, SyncReport,
+    ViewingKeyEntry, Wallet, DEFAULT_TAG_WINDOW,
+};
 pub use wallet_authority::{
     AnonymousRecipientSlot, ApprovalRequest, ClientEd25519WalletAuthority, EncryptedEnvelope,
-    EncryptedSplit, EncryptedTransfer, KeypairWalletAuthority, P256Signature, SyncWalletAuthority,
-    WalletAuthority, WalletSyncMaterial,
+    EncryptedTransfer, KeypairWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority,
+    WalletSyncMaterial,
 };
 pub use wallet_sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,

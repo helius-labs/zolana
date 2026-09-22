@@ -20,9 +20,9 @@ use zolana_program_test::{
     ring_deposit_output_from_event, test_blinding, Rejection, RING_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{
-    owner_utxo_hash, serialization::RingDepositPlaintext, Data, KeypairWalletAuthority, Utxo,
-    Wallet, SOL_MINT,
+    owner_utxo_hash, serialization::RingDepositPlaintext, Data, Utxo, SOL_MINT,
 };
+use zolana_wallet::{KeypairWalletAuthority, Wallet};
 
 use super::{RingDepositRecord, RingHarness, SplRingDepositAccounts};
 use crate::{
@@ -125,7 +125,7 @@ impl RingHarness {
         let owner = self.actor(name).keypair.signing_pubkey();
         self.actor_mut(name).spendable.push(Utxo {
             owner,
-            asset: SOL_MINT,
+            asset: zolana_transaction::Mint::SOL,
             amount,
             blinding,
             ring_program_id: None,
@@ -160,9 +160,10 @@ impl RingHarness {
         let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
         let blinding = self.indexed_deposit_blinding(&data, signature)?;
         let owner = self.actor(name).keypair.signing_pubkey();
+        let asset = self.assets.mint(&spl.mint)?;
         self.actor_mut(name).spendable.push(Utxo {
             owner,
-            asset: Address::new_from_array(spl.mint.to_bytes()),
+            asset,
             amount,
             blinding,
             ring_program_id: None,
@@ -201,7 +202,7 @@ impl RingHarness {
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let utxo = Utxo {
             owner,
-            asset: SOL_MINT,
+            asset: zolana_transaction::Mint::SOL,
             amount,
             blinding,
             ring_program_id: Some(ring),
@@ -260,9 +261,10 @@ impl RingHarness {
 
         let owner = self.actor(name).keypair.signing_pubkey();
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
+        let asset = self.assets.mint(&mint)?;
         self.actor_mut(name).spendable.push(Utxo {
             owner,
-            asset: Address::new_from_array(mint.to_bytes()),
+            asset,
             amount,
             blinding,
             ring_program_id: Some(ring),

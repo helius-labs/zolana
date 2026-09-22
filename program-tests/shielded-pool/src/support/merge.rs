@@ -8,7 +8,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     MergeProver, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProverClient,
-    SpendProof, TransferSpendInput, STATE_TREE_HEIGHT,
+    SpendProof, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
@@ -25,12 +25,9 @@ use zolana_merkle_tree::indexed::{
     IndexedMerkleTree, NonInclusionProof as IndexedNonInclusionProof,
 };
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::{test_blinding, ZolanaProgramTest};
+use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::transact::nullifier_tree;
-use zolana_transaction::{
-    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
-    Data, SppProofOutputUtxo, Utxo, SOL_MINT,
-};
+use zolana_transaction::{instructions::merge::merge_dummy_nullifier, Utxo, SOL_MINT};
 use zolana_user_registry_interface::{
     state::{UserRecord, NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN},
     user_record_pda, USER_REGISTRY_PROGRAM_ID,
@@ -140,7 +137,7 @@ impl ZeroDeposits<'_> {
                 .rpc
                 .indexed_deposit_utxo(&event, self.owner)
                 .expect("indexed deposit UTXO");
-            assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
+            assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, 0));
             let utxo_hash = utxo
                 .hash(&nullifier_pk, &zero, &zero, self.tree_id)
                 .expect("utxo hash");
@@ -266,80 +263,74 @@ impl RealMergeProof {
                 root_index: 0,
             };
 
-        let first_nullifier = deposits
-            .deposits
-            .first()
-            .expect("at least one real input")
-            .nullifier;
-        let mut spends: Vec<TransferSpendInput> = deposits
+        let notes = deposits
             .deposits
             .iter()
-            .map(|deposit| TransferSpendInput {
-                utxo: deposit.utxo.clone(),
-                nullifier_key: nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                tree_id,
-                proof: Some(SpendProof {
-                    state: MerkleProof {
-                        leaf: deposit.utxo_hash,
-                        merkle_context: merkle_context.clone(),
-                        path: deposit.state_path.clone(),
-                        leaf_index: deposit.leaf_index,
-                        root: deposits.utxo_root,
-                        root_seq: 0,
-                        root_index: deposits.utxo_root_index,
-                    },
-                    nullifier: to_non_inclusion(deposit.nullifier, &deposit.non_inclusion),
-                }),
-                nullifier_proof: None,
+            .map(|deposit| {
+                zolana_test_utils::utxo::wallet(
+                    deposit.utxo.clone(),
+                    &nullifier_key,
+                    tree_id,
+                    deposit.leaf_index,
+                    None,
+                    None,
+                )
+                .expect("input")
             })
             .collect();
-        for slot in real_input_count..input_count {
-            let slot_tag = u8::try_from(slot).expect("merge slot fits a byte");
-            let dummy_nullifier = merge_dummy_nullifier(&nullifier_key, &first_nullifier, slot_tag)
+        let mut transaction = zolana_transaction::instructions::merge::MergeTransaction::new(notes)
+            .expect("merge")
+            .with_output_tree_id(tree_id)
+            .encrypt(&keypair)
+            .expect("encrypt merge");
+        let first_nullifier = transaction
+            .input_utxos
+            .first()
+            .expect("real input")
+            .nullifier;
+        // Explicit larger shapes exercise every supported verifier with real padding.
+        for slot in transaction.input_utxos.len()..input_count {
+            let mut dummy =
+                zolana_transaction::utxo::SppProofInputUtxo::dummy(tree_id).expect("dummy");
+            dummy.nullifier = merge_dummy_nullifier(&nullifier_key, &first_nullifier, slot as u8)
                 .expect("dummy nullifier");
-            let proof = deposits
-                .nullifier_tree
-                .get_non_inclusion_proof(&BigUint::from_bytes_be(&dummy_nullifier))
-                .expect("dummy non-inclusion proof");
-            spends.push(TransferSpendInput {
-                utxo: Utxo {
-                    owner: PublicKey::zeroed(),
-                    asset: SOL_MINT,
-                    amount: 0,
-                    blinding: test_blinding(slot_tag.checked_add(10).expect("dummy blinding tag")),
-                    ring_program_id: None,
-                    data: Data::default(),
-                },
-                nullifier_key: nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                tree_id,
-                proof: None,
-                nullifier_proof: Some(to_non_inclusion(dummy_nullifier, &proof)),
-            });
+            transaction.input_utxos.push(dummy);
         }
-
-        let mut output = SppProofOutputUtxo::new(
-            SOL_MINT,
-            0,
-            keypair.shielded_address().expect("shielded address"),
-        )
-        .expect("merge output");
-        output.blinding =
-            merge_output_blinding(&nullifier_key, &first_nullifier).expect("output blinding");
-
+        let proofs = deposits
+            .deposits
+            .iter()
+            .map(|deposit| SpendProof {
+                state: MerkleProof {
+                    leaf: deposit.utxo_hash,
+                    merkle_context: merkle_context.clone(),
+                    path: deposit.state_path.clone(),
+                    leaf_index: deposit.leaf_index,
+                    root: deposits.utxo_root,
+                    root_seq: 0,
+                    root_index: deposits.utxo_root_index,
+                },
+                nullifier: to_non_inclusion(deposit.nullifier, &deposit.non_inclusion),
+            })
+            .collect();
+        let dummy_nullifier_proofs = transaction
+            .dummy_nullifiers()
+            .into_iter()
+            .map(|nullifier| {
+                let proof = deposits
+                    .nullifier_tree
+                    .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+                    .expect("dummy proof");
+                to_non_inclusion(nullifier, &proof)
+            })
+            .collect();
         let result = MergeProver {
-            inputs: spends,
-            output,
-            expiry_unix_ts: u64::MAX,
-            signing_pubkey: owner_public_key,
+            transaction,
             nullifier_key,
-            output_tree_id: tree_id,
+            proofs,
+            dummy_nullifier_proofs,
         }
         .build()
-        .expect("build merge witness");
+        .expect("merge witness");
         assert_eq!(
             result.nullifiers.len(),
             input_count,

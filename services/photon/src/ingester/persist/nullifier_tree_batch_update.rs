@@ -421,6 +421,8 @@ mod tests {
 
     async fn insert_test_tree(db: &DatabaseConnection, tree: Pubkey) -> HashMap<Pubkey, TreeInfo> {
         let data = TreeAccountData {
+            tree_id: 0,
+            paused: false,
             queue_pubkey: tree,
             root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
             input_queue_zkp_batch_size: NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
@@ -434,6 +436,8 @@ mod tests {
             tree,
             TreeInfo {
                 tree,
+                tree_id: 0,
+                paused: false,
                 queue: tree,
                 height: RingsTreeKind::Nullifier.tree_height(),
                 root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),

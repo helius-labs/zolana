@@ -9,8 +9,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos, ConfidentialTransfer, ProofCompressed, ProverClient, RingTransferP256Prover,
-    RingTransferProver, Shape, SppProofInputUtxo, SppProofInputs, TransferSpendInput,
+    input_utxos_from_nullifiers, ProofAuthority, ProofCompressed, ProverClient,
+    RingTransferP256Prover, RingTransferProver, Shape, TransferInputUtxo,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -25,16 +25,17 @@ use zolana_interface::{
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
 };
 use zolana_program_test::Rejection;
+use zolana_transaction::instructions::transact::ConfidentialTransaction;
+use zolana_transaction::instructions::transact::SppProofInputs;
+use zolana_transaction::utxo::SppProofInputUtxo;
 use zolana_transaction::{
-    instructions::transact::SettlementTarget, Data, ShieldedTransaction, SyncWalletAuthority, Utxo,
-    SOL_MINT,
+    instructions::transact::canonical_shape, Data, ShieldedTransaction, Utxo, SOL_MINT,
 };
+use zolana_wallet::SyncWalletAuthority;
 
 use super::{decode_output_blinding, RingHarness, SpendSlot};
 use crate::{
-    localnet::{
-        send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
-    },
+    localnet::send_transaction,
     spl::create_token_account,
     test_validator_asserts::{
         assert_account_unchanged, assert_ring_transact, fetch_account,
@@ -121,19 +122,6 @@ enum RingWithdrawal {
 }
 
 impl RingWithdrawal {
-    fn settlement_target(&self) -> SettlementTarget {
-        match self {
-            Self::Sol { recipient } => SettlementTarget::Sol {
-                user_sol_account: Address::new_from_array(recipient.to_bytes()),
-            },
-            Self::Spl {
-                recipient_token, ..
-            } => SettlementTarget::Spl {
-                user_spl_token: Address::new_from_array(recipient_token.to_bytes()),
-            },
-        }
-    }
-
     fn interface_accounts(&self) -> TransactInterfaceTransferAccounts {
         match self {
             Self::Sol { recipient } => {
@@ -376,7 +364,7 @@ impl RingHarness {
             .wallet
             .utxos
             .iter()
-            .any(|w| w.output_context.hash == output_hash && !w.spent);
+            .any(|w| w.utxo_hash == output_hash);
         if !found {
             return Err(anyhow!(
                 "{name}'s synced wallet did not discover the {what} (hash {})",
@@ -395,7 +383,7 @@ impl RingHarness {
             let pos = actor
                 .spendable
                 .iter()
-                .position(|u| u.asset == asset)
+                .position(|u| u.asset.asset == asset)
                 .ok_or_else(|| anyhow!("{from} needs a spendable ring UTXO of {asset}"))?;
             taken.push(actor.spendable.remove(pos));
         }
@@ -445,23 +433,54 @@ impl RingHarness {
         // rail differs only in the prover and the instruction, plus the public
         // ring_program_id and the rebound discriminator.
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
-        let spends: Vec<SppProofInputUtxo> = inputs
+        let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
+        let hashes = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair).in_tree(self.tree_id))
-            .collect();
-        let mut transfer =
-            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address)
-                .with_output_tree_id(self.tree_id);
-        if let Some(output_ring) = rail.output_ring(ring) {
-            transfer = transfer.with_ring_program_id(output_ring);
+            .map(|input| input.hash(&nullifier_pk, &[0; 32], &[0; 32], self.tree_id))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let states = crate::test_validator_asserts::wait_for_merkle_proofs(
+            &self.indexer,
+            self.tree_address,
+            &hashes,
+        );
+        let notes = inputs
+            .iter()
+            .zip(states)
+            .map(|(input, state)| {
+                crate::utxo::wallet(
+                    input.clone(),
+                    &from_keypair.nullifier_key,
+                    self.tree_id,
+                    state.leaf_index,
+                    None,
+                    None,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let shape = canonical_shape(notes.len(), 2 + usize::from(to_address.is_some()))?;
+        let mut transfer = match rail.output_ring(ring) {
+            Some(ring) => ConfidentialTransaction::new_with_ring(notes, payer_address, ring)?,
+            None => ConfidentialTransaction::new(notes, payer_address)?,
         }
+        .with_output_tree_id(self.tree_id)?;
         match (&to_address, withdrawal) {
             (Some(addr), None) => {
-                transfer.send(addr, send_asset, amount)?;
+                if send_asset == SOL_MINT {
+                    transfer.transfer_sol(addr, amount)?;
+                } else {
+                    transfer.transfer(addr, send_asset, amount)?;
+                }
             }
-            (None, Some(withdrawal)) => {
-                transfer.withdraw(send_asset, amount, withdrawal.settlement_target())?;
-            }
+            (None, Some(withdrawal)) => match withdrawal {
+                RingWithdrawal::Sol { recipient } => {
+                    transfer.withdraw_sol(amount, recipient)?;
+                }
+                RingWithdrawal::Spl {
+                    recipient_token, ..
+                } => {
+                    transfer.withdraw(send_asset, amount, recipient_token)?;
+                }
+            },
             (Some(_), Some(_)) => {
                 return Err(anyhow!("a ring transfer cannot both send and withdraw"));
             }
@@ -469,10 +488,8 @@ impl RingHarness {
                 return Err(anyhow!("a ring transfer needs a recipient or a withdrawal"));
             }
         }
-        let mut proof_inputs = match rail {
-            RingRail::Eddsa => transfer.sign(&from_keypair, &self.assets)?,
-            RingRail::P256 => transfer.sign_ring_p256(&from_keypair, &self.assets)?,
-        };
+        transfer.pad_utxos(shape, &from_keypair.shielded_address()?)?;
+        let mut proof_inputs = transfer.encrypt(&from_keypair)?;
         // Rebind the discriminator to RING_TRANSACT before anything commits to
         // external_data: it is folded into external_data_hash and private_tx_hash, so
         // the proof and the on-chain recompute must agree on it.
@@ -535,7 +552,7 @@ impl RingHarness {
         rail: RingRail,
         tamper: ProofTamper,
     ) -> Result<TransactIxData> {
-        let spend_inputs = self.ring_spend_inputs(&proof_inputs.input_utxos)?;
+        let input_utxos = self.ring_input_utxos(&proof_inputs.input_utxos)?;
         let tx_shape = proof_inputs.check_shape()?;
         let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
         let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
@@ -545,16 +562,19 @@ impl RingHarness {
                 let prover = RingTransferProver {
                     blinding_seed: proof_inputs.blinding_seed,
                     output_tree_id: proof_inputs.output_tree_id,
-                    inputs: spend_inputs,
+                    inputs: input_utxos,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
                     public_transfers: proof_inputs.public_transfers()?,
                     signer_pk_hashes,
                     allow_dummy_inputs: true,
                     ring_program_id: Some(ring),
-                    shape: Some(shape),
+                    shape,
                 };
-                let result = prover.build()?;
+                let mut result = prover.build()?;
+                // The assembled witness carries no nullifier secrets; the signer
+                // is the authority that fills in the inputs it owns.
+                signer.complete_inputs(&mut result.inputs.inputs)?;
                 let proof = ProverClient::local().prove_transfer_ring(&result.inputs)?;
                 let proof = pack_transact_proof(&proof)?;
                 if tamper == ProofTamper::EddsaProofUnderP256Selector {
@@ -562,7 +582,10 @@ impl RingHarness {
                     // zeroed one is rejected at the encoding check.
                     assemble_ix_data(
                         proof_inputs,
-                        input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
+                        input_utxos_from_nullifiers(
+                            &result.nullifiers,
+                            &result.input_tree_indexes,
+                        )?,
                         result.private_tx_hash,
                         result.tree_contexts.clone(),
                         RingRail::P256,
@@ -576,7 +599,10 @@ impl RingHarness {
                 } else {
                     assemble_ix_data(
                         proof_inputs,
-                        input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
+                        input_utxos_from_nullifiers(
+                            &result.nullifiers,
+                            &result.input_tree_indexes,
+                        )?,
                         result.private_tx_hash,
                         result.tree_contexts.clone(),
                         RingRail::Eddsa,
@@ -592,7 +618,7 @@ impl RingHarness {
                 let prover = RingTransferP256Prover {
                     blinding_seed: proof_inputs.blinding_seed,
                     output_tree_id: proof_inputs.output_tree_id,
-                    inputs: spend_inputs,
+                    inputs: input_utxos,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
                     public_transfers: proof_inputs.public_transfers()?,
@@ -600,9 +626,10 @@ impl RingHarness {
                     allow_dummy_inputs: true,
                     authorization,
                     ring_program_id: Some(ring),
-                    shape: Some(shape),
+                    shape,
                 };
-                let result = prover.build()?;
+                let mut result = prover.build()?;
+                signer.complete_inputs(&mut result.inputs.inputs)?;
                 let proof = ProverClient::local().prove_transfer_p256_ring(&result.inputs)?;
                 let (proof, commitment) = p256_transact_proof(&proof)?;
                 let mut commitment = commitment;
@@ -621,7 +648,7 @@ impl RingHarness {
                 };
                 assemble_ix_data(
                     proof_inputs,
-                    input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
+                    input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
                     result.private_tx_hash,
                     result.tree_contexts.clone(),
                     wire_rail,
@@ -640,39 +667,26 @@ impl RingHarness {
     /// non-inclusion witness for its own nullifier: the circuit checks
     /// non-inclusion for every slot. All proofs come from one indexer snapshot
     /// per tree (see [`RingHarness::fetch_slot_proofs`]).
-    fn ring_spend_inputs(&self, spends: &[SppProofInputUtxo]) -> Result<Vec<TransferSpendInput>> {
-        let slots = spends
+    fn ring_input_utxos(
+        &self,
+        input_utxos: &[SppProofInputUtxo],
+    ) -> Result<Vec<TransferInputUtxo>> {
+        // Both the ring-bound commitment and the nullifier were computed when the
+        // spend was built, so the state proof is fetched against the same hash
+        // the witness carries.
+        let slots = input_utxos
             .iter()
-            .map(|spend| {
-                if spend.is_dummy() {
-                    return Ok(SpendSlot {
-                        utxo_hash: None,
-                        nullifier: spend.nullifier()?,
-                    });
-                }
-                let nullifier_pk = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend
-                    .utxo
-                    .hash(&nullifier_pk, &ZERO, &ZERO, spend.tree_id)?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(SpendSlot {
-                    utxo_hash: Some(utxo_hash),
-                    nullifier,
-                })
+            .map(|input_utxo| SpendSlot {
+                utxo_hash: (!input_utxo.is_dummy()).then_some(input_utxo.hash()),
+                nullifier: input_utxo.nullifier(),
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Vec<_>>();
         let proofs = self.fetch_slot_proofs(&slots)?;
-        Ok(spends
+        Ok(input_utxos
             .iter()
             .zip(proofs)
-            .map(|(spend, (proof, nullifier_proof))| TransferSpendInput {
-                utxo: spend.utxo.clone(),
-                nullifier_key: spend.nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                tree_id: spend.tree_id,
+            .map(|(input_utxo, (proof, nullifier_proof))| TransferInputUtxo {
+                utxo: input_utxo.clone(),
                 proof,
                 nullifier_proof,
             })
@@ -700,86 +714,64 @@ impl RingHarness {
         let from_keypair = self.actor(from).keypair.clone();
         let mut discovered = DiscoveredOutputs::default();
 
+        let mut expected = Vec::new();
         if let Some(to) = to {
-            let to_keypair = self.actor(to).keypair.clone();
-            let recipient_utxo = self.build_expected(
+            expected.push((
                 to,
+                self.actor(to).keypair.signing_pubkey(),
+                send_asset,
+                amount,
+                true,
+            ));
+        }
+        let mut assets = Vec::new();
+        for input in inputs {
+            if !assets.contains(&input.asset.asset) {
+                assets.push(input.asset.asset);
+            }
+        }
+        for asset in assets {
+            let total: u64 = inputs
+                .iter()
+                .filter(|input| input.asset.asset == asset)
+                .map(|input| input.amount)
+                .sum();
+            let change = total
+                .checked_sub(if asset == send_asset { amount } else { 0 })
+                .ok_or_else(|| anyhow!("change underflow"))?;
+            if change > 0 {
+                expected.push((from, from_keypair.signing_pubkey(), asset, change, false));
+            }
+        }
+        assert!(expected.len() <= indexed.output_slots.len());
+        expected.resize(
+            indexed.output_slots.len(),
+            (from, from_keypair.signing_pubkey(), SOL_MINT, 0, false),
+        );
+        for (position, (actor, owner, asset, amount, recipient)) in expected.into_iter().enumerate()
+        {
+            let note = self.build_expected(
+                actor,
                 Utxo {
-                    owner: to_keypair.signing_pubkey(),
-                    asset: send_asset,
+                    owner,
+                    asset: self.assets.mint(&asset)?,
                     amount,
                     blinding: decode_output_blinding(
                         &from_keypair.viewing_key,
                         indexed,
-                        RECIPIENT_POSITION_BASE as u32,
+                        position as u32,
                     )?,
                     ring_program_id: output_ring,
                     data: Data::default(),
                 },
                 indexed,
             )?;
-            discovered.recipient = Some(recipient_utxo.output_context.hash);
-            self.actor_mut(to).expected.push(recipient_utxo);
-        }
-
-        let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
-        let tree_id = self.tree_id;
-        for input in inputs {
-            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
-            if let Some(utxo) = self
-                .actor_mut(from)
-                .expected
-                .iter_mut()
-                .find(|n| n.output_context.hash == consumed_hash)
-            {
-                utxo.spent = true;
-            }
-        }
-
-        // Per-asset sender change: SPL change at output position 0, SOL change at
-        // position 1 (the fixed-position output layout). A withdrawal (no recipient
-        // slot) sends the public amount out of the pool; the rest is SOL change.
-        let spl_asset = inputs.iter().map(|u| u.asset).find(|a| *a != SOL_MINT);
-        for (change_asset, position) in [
-            (spl_asset, SPL_CHANGE_POSITION),
-            (Some(SOL_MINT), SOL_CHANGE_POSITION),
-        ] {
-            let Some(change_asset) = change_asset else {
-                continue;
-            };
-            let input_sum: u64 = inputs
-                .iter()
-                .filter(|u| u.asset == change_asset)
-                .map(|u| u.amount)
-                .sum();
-            let sent = if change_asset == send_asset {
-                amount
+            if recipient {
+                discovered.recipient = Some(note.utxo_hash);
             } else {
-                0
-            };
-            let change = input_sum
-                .checked_sub(sent)
-                .ok_or_else(|| anyhow!("{from} change underflow: sent {sent} of {change_asset}"))?;
-            if change > 0 {
-                let change_utxo = self.build_expected(
-                    from,
-                    Utxo {
-                        owner: from_keypair.signing_pubkey(),
-                        asset: change_asset,
-                        amount: change,
-                        blinding: decode_output_blinding(
-                            &from_keypair.viewing_key,
-                            indexed,
-                            position as u32,
-                        )?,
-                        ring_program_id: output_ring,
-                        data: Data::default(),
-                    },
-                    indexed,
-                )?;
-                discovered.change.push(change_utxo.output_context.hash);
-                self.actor_mut(from).expected.push(change_utxo);
+                discovered.change.push(note.utxo_hash);
             }
+            self.actor_mut(actor).expected.push(note);
         }
         Ok(discovered)
     }
@@ -805,7 +797,7 @@ impl RingHarness {
         let inputs: Vec<Utxo> = {
             let actor = self.actor(from);
             let mut taken = Vec::with_capacity(2);
-            for utxo in actor.spendable.iter().filter(|u| u.asset == asset) {
+            for utxo in actor.spendable.iter().filter(|u| u.asset.asset == asset) {
                 taken.push(utxo.clone());
                 if taken.len() == 2 {
                     break;
@@ -827,15 +819,40 @@ impl RingHarness {
             .unwrap_or_else(|| self.payer.insecure_clone());
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
 
-        let spends: Vec<SppProofInputUtxo> = inputs
+        let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
+        let hashes = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair).in_tree(self.tree_id))
-            .collect();
-        let mut transfer =
-            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address)
-                .with_output_tree_id(self.tree_id);
-        transfer.send(&to_address, asset, amount)?;
-        let mut proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
+            .map(|input| input.hash(&nullifier_pk, &[0; 32], &[0; 32], self.tree_id))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let states = crate::test_validator_asserts::wait_for_merkle_proofs(
+            &self.indexer,
+            self.tree_address,
+            &hashes,
+        );
+        let notes = inputs
+            .iter()
+            .zip(states)
+            .map(|(input, state)| {
+                crate::utxo::wallet(
+                    input.clone(),
+                    &from_keypair.nullifier_key,
+                    self.tree_id,
+                    state.leaf_index,
+                    None,
+                    None,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let shape = canonical_shape(notes.len(), 3)?;
+        let mut transfer = ConfidentialTransaction::new(notes, payer_address)?
+            .with_output_tree_id(self.tree_id)?;
+        if asset == SOL_MINT {
+            transfer.transfer_sol(&to_address, amount)?;
+        } else {
+            transfer.transfer(&to_address, asset, amount)?;
+        }
+        transfer.pad_utxos(shape, &from_keypair.shielded_address()?)?;
+        let mut proof_inputs = transfer.encrypt(&from_keypair)?;
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
 
         // Assemble the instruction data with real nullifiers / root indices but a
@@ -845,7 +862,7 @@ impl RingHarness {
         let prover = RingTransferProver {
             blinding_seed: proof_inputs.blinding_seed,
             output_tree_id: proof_inputs.output_tree_id,
-            inputs: self.ring_spend_inputs(&proof_inputs.input_utxos)?,
+            inputs: self.ring_input_utxos(&proof_inputs.input_utxos)?,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
             public_transfers: proof_inputs.public_transfers()?,
@@ -854,12 +871,12 @@ impl RingHarness {
             )?,
             allow_dummy_inputs: true,
             ring_program_id: Some(ring),
-            shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
+            shape: Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs()),
         };
         let result = prover.build()?;
         let data = assemble_ix_data(
             &proof_inputs,
-            input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
+            input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
             result.private_tx_hash,
             result.tree_contexts.clone(),
             RingRail::Eddsa,
@@ -903,7 +920,7 @@ impl RingHarness {
     /// (negative paths, where the spend never lands). `ring_only` selects the
     /// ring-owned set; `false` selects default-ring UTXOs (e.g. a default-ring
     /// P256 input, which exposes `default_owner_tag` on the wire).
-    fn peek_spendable_inputs(
+    fn peek_spendable_input_utxos(
         &self,
         from: &str,
         asset: Address,
@@ -913,7 +930,9 @@ impl RingHarness {
             .actor(from)
             .spendable
             .iter()
-            .filter(|utxo| utxo.asset == asset && (utxo.ring_program_id.is_some() == ring_only))
+            .filter(|utxo| {
+                utxo.asset.asset == asset && (utxo.ring_program_id.is_some() == ring_only)
+            })
             .take(2)
             .cloned()
             .collect();
@@ -945,7 +964,7 @@ impl RingHarness {
         }
         self.ensure_fresh_actor(from)?;
         self.ensure_fresh_actor(to)?;
-        let inputs = self.peek_spendable_inputs(from, asset, true)?;
+        let inputs = self.peek_spendable_input_utxos(from, asset, true)?;
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         match self.send_ring_transfer(RingTransferOperation {
             from,
@@ -1053,7 +1072,7 @@ impl RingHarness {
         }
         self.ensure_fresh_actor(from)?;
         self.ensure_fresh_actor(to)?;
-        let inputs = self.peek_spendable_inputs(from, asset, false)?;
+        let inputs = self.peek_spendable_input_utxos(from, asset, false)?;
         let sent = self.send_ring_transfer(RingTransferOperation {
             from,
             to: Some(to),
@@ -1100,7 +1119,7 @@ impl RingHarness {
         }
         self.ensure_fresh_actor(from)?;
         self.ensure_fresh_actor(to)?;
-        let inputs = self.peek_spendable_inputs(from, asset, false)?;
+        let inputs = self.peek_spendable_input_utxos(from, asset, false)?;
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         match self.send_ring_transfer(RingTransferOperation {
             from,

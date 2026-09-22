@@ -1,10 +1,13 @@
+use super::ProofInputUtxo;
 use num_bigint::BigUint;
 use serde::Serialize;
-use zolana_transaction::ProofInputUtxo;
 
-use crate::prover::inputs::{
-    BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs, TreeSlotFields,
+use crate::{
+    error::ClientError,
+    prover::inputs::{
+        BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+        TransferP256Inputs, TreeSlotFields,
+    },
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -191,8 +194,16 @@ pub(crate) fn utxo_to_json(utxo: &ProofInputUtxo) -> UtxoParamsJson {
     }
 }
 
-fn input_to_json(input: &TransferInput) -> InputParamsJson {
-    InputParamsJson {
+/// The wire shape has no room for an absent secret: a real input whose owner
+/// never completed it would serialize the same zero a padding slot does and
+/// prove as a dummy. Refuse it here, at the last point that can still name the
+/// slot.
+fn input_to_json(index: usize, input: &TransferInput) -> Result<InputParamsJson, ClientError> {
+    let nullifier_secret = input
+        .nullifier_secret
+        .as_ref()
+        .ok_or(ClientError::MissingNullifierSecret { index })?;
+    Ok(InputParamsJson {
         utxo: utxo_to_json(&input.utxo),
         is_dummy: big_uint_to_string(&input.is_dummy),
         state_path_elements: input
@@ -212,8 +223,18 @@ fn input_to_json(input: &TransferInput) -> InputParamsJson {
         tree_slot: big_uint_to_string(&input.tree_slot),
         nullifier: big_uint_to_string(&input.nullifier),
         owner_pk_hash: big_uint_to_string(&input.owner_pk_hash),
-        nullifier_secret: big_uint_to_string(&input.nullifier_secret),
-    }
+        nullifier_secret: big_uint_to_string(nullifier_secret),
+    })
+}
+
+/// Serialize every input slot, naming the first one that is still missing its
+/// secret.
+fn inputs_to_json(inputs: &[TransferInput]) -> Result<Vec<InputParamsJson>, ClientError> {
+    inputs
+        .iter()
+        .enumerate()
+        .map(|(index, input)| input_to_json(index, input))
+        .collect()
 }
 
 /// Encode the request's public tree slots. The count is fixed by the circuit
@@ -454,12 +475,15 @@ pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) ->
 /// Serialize a Solana-only transfer witness to the prover server's JSON request
 /// body under the given `circuit_type`. The eddsa transfer and ring-authority
 /// variants share the witness shape and differ only by the circuit type.
-fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
+fn transfer_inputs_json(
+    inputs: &TransferInputs,
+    circuit_type: &str,
+) -> Result<String, ClientError> {
     let json = TransferInputsJson {
         circuit_type: circuit_type.to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
-        inputs: inputs.inputs.iter().map(input_to_json).collect(),
+        inputs: inputs_to_json(&inputs.inputs)?,
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
         tree_slots: tree_slots_to_json(&inputs.tree_slots),
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
@@ -490,34 +514,34 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
             .collect(),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
-    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+    Ok(serde_json::to_string(&json).expect("JSON serialization failed for valid struct"))
 }
 
 /// Serialize the Solana-only confidential transfer witness to the prover server's
 /// JSON request body.
-pub(crate) fn to_json(inputs: &TransferInputs) -> String {
+pub(crate) fn to_json(inputs: &TransferInputs) -> Result<String, ClientError> {
     transfer_inputs_json(inputs, "transfer-confidential")
 }
 
 /// Serialize the ring-authority witness to the prover server's JSON request body.
 /// Shares the Solana-only witness shape with [`to_json`]; only the circuit type and
 /// the embedded `public_input_hash` differ.
-pub(crate) fn to_json_ring_authority(inputs: &TransferInputs) -> String {
+pub(crate) fn to_json_ring_authority(inputs: &TransferInputs) -> Result<String, ClientError> {
     transfer_inputs_json(inputs, "transfer-ring-authority")
 }
 
 /// Serialize the eddsa confidential policy-ring transfer witness.
-pub(crate) fn to_json_ring(inputs: &TransferInputs) -> String {
+pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientError> {
     transfer_inputs_json(inputs, "transfer-ring")
 }
 
 /// Serialize a custom-ring P256 transfer witness.
-pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
+pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> Result<String, ClientError> {
     let json = TransferP256InputsJson {
         circuit_type: "transfer-p256-ring".to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
-        inputs: inputs.inputs.iter().map(input_to_json).collect(),
+        inputs: inputs_to_json(&inputs.inputs)?,
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
         tree_slots: tree_slots_to_json(&inputs.tree_slots),
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
@@ -555,7 +579,7 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
             .collect(),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
-    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+    Ok(serde_json::to_string(&json).expect("JSON serialization failed for valid struct"))
 }
 
 #[cfg(test)]
@@ -614,7 +638,7 @@ mod merge_tests {
             tree_slot: BigUint::ZERO,
             nullifier: BigUint::from(99u8),
             owner_pk_hash: BigUint::from(7u8),
-            nullifier_secret: BigUint::from(4u8),
+            nullifier_secret: Some(BigUint::from(4u8)),
         }
     }
 
@@ -668,7 +692,8 @@ mod merge_tests {
         };
 
         let value: serde_json::Value =
-            serde_json::from_str(&to_json_p256_ring(&inputs)).expect("valid JSON");
+            serde_json::from_str(&to_json_p256_ring(&inputs).expect("p256 ring request"))
+                .expect("valid JSON");
         assert_eq!(value["circuitType"], "transfer-p256-ring");
         assert_eq!(value["p256PubX"], "0x3");
         assert_eq!(value["p256MessageHashHigh"], "0x8");
@@ -797,7 +822,8 @@ mod merge_tests {
         };
 
         let value: serde_json::Value =
-            serde_json::from_str(&to_json_ring_authority(&inputs)).unwrap();
+            serde_json::from_str(&to_json_ring_authority(&inputs).expect("ring authority request"))
+                .unwrap();
         assert_eq!(value["circuitType"], "transfer-ring-authority");
         for key in [
             "nInputs",
@@ -833,6 +859,38 @@ mod merge_tests {
         assert!(value.get("p256PubX").is_none());
         assert_eq!(value["ringProgramId"], "0x55");
         assert_eq!(value["nInputs"], 1);
+    }
+
+    /// An input the owner's authority never completed must not reach the
+    /// prover. Its `nullifierSecret` would serialize as the same `0x0` a
+    /// padding slot carries, and the circuit would prove it as a dummy.
+    #[test]
+    fn an_uncompleted_input_is_refused_rather_than_sent_as_a_zero_secret() {
+        let uncompleted = TransferInput {
+            nullifier_secret: None,
+            ..sample_input()
+        };
+        let inputs = TransferInputs {
+            inputs: vec![sample_input(), uncompleted],
+            outputs: Vec::new(),
+            tree_slots: sample_tree_slots(),
+            output_tree_id: BigUint::ZERO,
+            blinding_seed: BigUint::ZERO,
+            external_data_hash: BigUint::ZERO,
+            private_tx_hash: BigUint::ZERO,
+            public_assets: core::array::from_fn(|_| BigUint::ZERO),
+            public_amounts: core::array::from_fn(|_| BigUint::ZERO),
+            ring_program_id: BigUint::ZERO,
+            signer_pk_hashes: Vec::new(),
+            input_flags: BigUint::ZERO,
+            published_output_owner_pk_hashes: Vec::new(),
+            public_input_hash: BigUint::ZERO,
+        };
+
+        assert!(matches!(
+            to_json(&inputs),
+            Err(ClientError::MissingNullifierSecret { index: 1 })
+        ));
     }
 
     #[test]

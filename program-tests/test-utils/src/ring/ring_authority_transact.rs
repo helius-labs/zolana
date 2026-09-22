@@ -6,8 +6,8 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos, ProverClient, PublicTransfers, RingAuthorityProver, Shape, SpendProof,
-    TransferSpendInput,
+    input_utxos_from_nullifiers, ProofAuthority, ProverClient, PublicTransfers,
+    RingAuthorityProver, Shape, SpendProof, TransferInputUtxo,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -58,7 +58,7 @@ impl RingHarness {
         self.ensure_fresh_actor(recipient)?;
         self.sync(name)?;
 
-        let (ix_data, consumed_input, consumed_hash, reowned_utxo) =
+        let (ix_data, consumed_input, _consumed_hash, reowned_utxo) =
             self.build_ring_authority_transfer(name, recipient, asset)?;
 
         let tree = self.tree;
@@ -81,7 +81,7 @@ impl RingHarness {
             &payer.pubkey(),
             &[&payer],
         )?;
-        self.commit_ring_authority_spend(name, &consumed_input, consumed_hash)?;
+        self.commit_ring_authority_spend(name, &consumed_input)?;
 
         // The recipient actor's confidential view tag is the first output's inline
         // owner tag (ring flows resolve owner tags inline); Photon indexes the
@@ -138,7 +138,7 @@ impl RingHarness {
             .wallet
             .utxos
             .iter()
-            .any(|w| w.output_context.hash == output_hash);
+            .any(|w| w.utxo_hash == output_hash);
         assert!(
             discovered,
             "{recipient}'s synced wallet should hold the re-owned ring UTXO {output_hash:?}"
@@ -169,7 +169,7 @@ impl RingHarness {
             actor
                 .spendable
                 .iter()
-                .find(|u| u.asset == asset && u.ring_program_id == Some(ring))
+                .find(|u| u.asset.asset == asset && u.ring_program_id == Some(ring))
                 .cloned()
                 .ok_or_else(|| anyhow!("{name} needs a spendable ring UTXO of {asset}"))?
         };
@@ -185,12 +185,16 @@ impl RingHarness {
         let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
         let non_inclusion =
             wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
-        let spend_input = TransferSpendInput {
-            utxo: input_utxo.clone(),
-            nullifier_key: keypair.nullifier_key.clone(),
-            data_hash: None,
-            ring_data_hash: None,
-            tree_id,
+        let transfer_input = TransferInputUtxo {
+            utxo: crate::utxo::wallet(
+                input_utxo.clone(),
+                &keypair.nullifier_key,
+                tree_id,
+                state.leaf_index,
+                None,
+                None,
+            )?
+            .into(),
             proof: Some(SpendProof {
                 state,
                 nullifier: non_inclusion,
@@ -210,7 +214,7 @@ impl RingHarness {
         let output_blinding_seed = derive_output_blinding_seed(&nullifier, &blinding_seed)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(recipient_address),
-            asset,
+            asset: input_utxo.asset,
             amount,
             blinding: derive_transact_output_blinding(&nullifier, &output_blinding_seed, 0)?,
             ring_program_id: Some(ring),
@@ -237,7 +241,7 @@ impl RingHarness {
         // `SppProofOutputUtxo` above); both carry identical fields so their hashes agree.
         let output_plaintext = Utxo {
             owner: recipient_address.signing_pubkey,
-            asset,
+            asset: input_utxo.asset,
             amount,
             blinding: output.blinding,
             ring_program_id: Some(ring),
@@ -275,19 +279,24 @@ impl RingHarness {
             messages: vec![],
         };
 
-        let result = RingAuthorityProver {
+        let mut result = RingAuthorityProver {
             blinding_seed,
             output_tree_id: tree_id,
-            inputs: vec![spend_input],
+            inputs: vec![transfer_input],
             outputs: vec![output],
             external_data: external_data.clone(),
             public_transfers: PublicTransfers::default(),
             payer: Address::new_from_array(self.payer.pubkey().to_bytes()),
             allow_dummy_inputs: true,
             ring_program_id: Some(ring),
-            shape: Some(Shape::new(1, 1)),
+            shape: Shape::new(1, 1),
         }
         .build()?;
+        // The ring authority holds the owners' nullifier keys, so it is the
+        // authority that completes the assembled witness before proving.
+        keypair
+            .nullifier_key
+            .complete_inputs(&mut result.inputs.inputs)?;
         let proof = ProverClient::local().prove_ring_authority(&result.inputs)?;
 
         // Assemble the instruction inputs from the one prover build: the nullifier and
@@ -297,7 +306,7 @@ impl RingHarness {
         if result.nullifiers.is_empty() {
             return Err(anyhow!("ring-authority witness produced no nullifier"));
         }
-        let inputs = input_utxos(&result.nullifiers, &result.input_tree_indexes)?;
+        let inputs = input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?;
 
         let ix_data = TransactIxData {
             proof: pack_transact_proof(&proof)?,
@@ -326,12 +335,7 @@ impl RingHarness {
         Ok((ix_data, input_utxo, utxo_hash, output_plaintext))
     }
 
-    fn commit_ring_authority_spend(
-        &mut self,
-        name: &str,
-        consumed: &Utxo,
-        consumed_hash: [u8; 32],
-    ) -> Result<()> {
+    fn commit_ring_authority_spend(&mut self, name: &str, consumed: &Utxo) -> Result<()> {
         let actor = self.actor_mut(name);
         let position = actor
             .spendable
@@ -342,15 +346,10 @@ impl RingHarness {
                     && utxo.blinding == consumed.blinding
                     && utxo.ring_program_id == consumed.ring_program_id
             })
-            .ok_or_else(|| anyhow!("accepted authority spend input disappeared from fixture"))?;
+            .ok_or_else(|| {
+                anyhow!("accepted authority input_utxo input disappeared from fixture")
+            })?;
         actor.spendable.remove(position);
-        if let Some(utxo) = actor
-            .expected
-            .iter_mut()
-            .find(|utxo| utxo.output_context.hash == consumed_hash)
-        {
-            utxo.spent = true;
-        }
         Ok(())
     }
 

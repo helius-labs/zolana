@@ -1,9 +1,12 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::{deposit_blinding, AssetDeposit};
+use zolana_interface::{
+    instruction::{deposit_blinding, AssetDeposit},
+    state::read_tree_id,
+};
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{SyncWalletAuthority, Wallet};
+use zolana_wallet::{SyncWalletAuthority, Wallet};
 
 /// Verify a settled SPL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -105,10 +108,14 @@ pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
     crate::wallet_discovery::assert_wallet_discovers(
         recipient,
         authority,
-        event,
-        solana_signature::Signature::default(),
-        &data.memo,
-        Some(mint),
-        "SPL deposit",
+        crate::wallet_discovery::DiscoveredDeposit {
+            event,
+            signature: solana_signature::Signature::default(),
+            tree_id: read_tree_id(&program_test.account_data(tree).expect("tree account"))
+                .expect("tree id"),
+            memo: &data.memo,
+            expected_mint: Some(mint),
+            label: "SPL deposit",
+        },
     );
 }

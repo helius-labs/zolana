@@ -427,7 +427,7 @@ fn tx_size(args: Vec<String>) {
         },
         N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
-    use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
+    const HISTORICAL_SENDER_SLOT_COUNT: usize = 2;
 
     // Pre-spec sender: owner_pk(34)+amounts(24)+blinding(31)+viewing_pks(1+33R)+data(2) = 92+33R
     // sender_slot_data(R) = type_prefix(1) + plaintext + GCM-tag(16) = 109 + 33R
@@ -523,7 +523,7 @@ fn tx_size(args: Vec<String>) {
         }
     };
 
-    // Transfer layout: the sender bundle covers the leading SENDER_SLOT_COUNT
+    // Transfer layout: the sender bundle covers the leading HISTORICAL_SENDER_SLOT_COUNT
     // change positions (position 0 carries the ciphertext under the sender's tag,
     // the rest carry `None`), then R recipient positions each carry their own
     // Inline-tagged ciphertext. The sender tag is Account(0) when the owner is
@@ -537,7 +537,7 @@ fn tx_size(args: Vec<String>) {
             .map(|position| {
                 if position == 0 {
                     (sender_tag, Some(sender_len))
-                } else if position < SENDER_SLOT_COUNT {
+                } else if position < HISTORICAL_SENDER_SLOT_COUNT {
                     (sender_tag, None)
                 } else {
                     (OwnerTag::Inline([0u8; 32]), Some(recipient_len))
@@ -736,7 +736,7 @@ fn tx_size(args: Vec<String>) {
     print_shape_header();
 
     for &(n, m) in &shapes {
-        let r = m.saturating_sub(SENDER_SLOT_COUNT);
+        let r = m.saturating_sub(HISTORICAL_SENDER_SLOT_COUNT);
         let spec = transfer_layout(
             m,
             OwnerTag::Account(0),
@@ -752,7 +752,7 @@ fn tx_size(args: Vec<String>) {
     print_shape_header();
 
     for &(n, m) in &shapes {
-        let r = m.saturating_sub(SENDER_SLOT_COUNT);
+        let r = m.saturating_sub(HISTORICAL_SENDER_SLOT_COUNT);
         let spec = transfer_layout(
             m,
             OwnerTag::Account(0),

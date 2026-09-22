@@ -1,20 +1,21 @@
 use std::collections::HashMap;
 
 use num_bigint::BigUint;
-use solana_address::Address;
 use zolana_client::{
-    ClientError, InputUtxoContext, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
-    ProveResult, ProverClient, ProverInputs, Rpc, SpendProof, SppProofInputs,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    ClientError, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProveResult,
+    ProverClient, Rpc, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
+use zolana_transaction::{
+    instructions::transact::{SppProofInputs, BN254_MODULUS_DEC},
+    utxo::SppProofInputUtxo,
+};
 
 fn test_merkle_context() -> MerkleContext {
     MerkleContext {
         tree_type: 0,
-        tree: Address::default(),
+        tree: zolana_interface::pda::tree(0),
     }
 }
 
@@ -48,16 +49,20 @@ impl TestIndexer {
     }
 
     /// Append a UTXO hash as a state-tree leaf so its inclusion proof can be served.
-    pub fn add_utxo(&mut self, utxo_hash: [u8; 32]) {
+    pub fn add_utxo(&mut self, utxo_hash: [u8; 32]) -> u64 {
         let index = self.state_tree.leaves().len();
         self.state_tree
             .append(&utxo_hash)
             .expect("append state leaf");
         self.leaf_index.insert(utxo_hash, index);
+        index as u64
     }
 
     /// Build the state-inclusion + nullifier-non-inclusion proof for one input.
-    fn input_merkle_proof(&self, commitment: &InputUtxoContext) -> Result<SpendProof, ClientError> {
+    fn input_merkle_proof(
+        &self,
+        commitment: &SppProofInputUtxo,
+    ) -> Result<SpendProof, ClientError> {
         let leaf_index = *self
             .leaf_index
             .get(&commitment.utxo_hash)
@@ -126,7 +131,7 @@ impl Default for TestIndexer {
 impl Rpc for TestIndexer {
     fn get_input_merkle_proofs(
         &self,
-        input_utxo_commitments: &[InputUtxoContext],
+        input_utxo_commitments: &[&SppProofInputUtxo],
         _config: Option<zolana_client::IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         input_utxo_commitments
@@ -135,17 +140,22 @@ impl Rpc for TestIndexer {
             .collect()
     }
 
-    fn prove(&self, proof_inputs: SppProofInputs) -> Result<ProveResult, ClientError> {
+    fn prove(
+        &self,
+        proof_inputs: SppProofInputs,
+        authority: &dyn zolana_client::ProofAuthority,
+    ) -> Result<ProveResult, ClientError> {
         let commitments = proof_inputs.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
         let dummy_proofs: Vec<NonInclusionProof> = proof_inputs
-            .dummy_nullifiers()?
+            .dummy_nullifiers()
             .into_iter()
             .map(|nullifier| self.dummy_nullifier_proof(nullifier))
             .collect();
-        let assembled = zolana_client::assemble(proof_inputs, &input_merkle_proofs, &dummy_proofs)?;
-        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
-        let proof = ProverClient::local().prove_transfer(inputs)?;
+        let mut assembled =
+            zolana_client::assemble(proof_inputs, &input_merkle_proofs, &dummy_proofs)?;
+        let inputs = &mut assembled.prover_inputs;
+        let proof = authority.prove_transfer(&ProverClient::local(), inputs)?;
         let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,

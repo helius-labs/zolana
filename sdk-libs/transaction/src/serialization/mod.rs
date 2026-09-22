@@ -13,11 +13,9 @@ pub mod plaintext;
 pub mod proofless;
 pub mod ring_deposit;
 pub mod scheme;
-pub mod split;
 
 pub use proofless::{Proofless, ProoflessEncode};
 pub use ring_deposit::RingDepositPlaintext;
-pub use split::{Split, SplitBundlePlaintext, SplitEncryptedUtxos};
 
 pub struct DecodeCx<'a> {
     pub viewing_key: &'a ViewingKey,
@@ -89,12 +87,12 @@ pub trait UtxoSerialization {
         Self::encode_plaintext(&plaintext, view_tag, cx)
     }
 
-    /// Seal an already-built plaintext into a published data slot: serialize,
+    /// Compute an already-built plaintext into a published data slot: serialize,
     /// encrypt, prefix the scheme byte, and wrap in the borsh
     /// [`OutputDataEncoding`] the program expects. `encode` is `from_utxos`
     /// followed by this; a builder that owns plaintext construction calls this
     /// directly. The returned [`MessageData`] pairs the owner `view_tag` with the
-    /// sealed `data` bytes that become the on-chain output ciphertext.
+    /// computed `data` bytes that become the on-chain output ciphertext.
     fn encode_plaintext(
         plaintext: &Self::Plaintext,
         view_tag: [u8; 32],

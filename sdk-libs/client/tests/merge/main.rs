@@ -1,4 +1,6 @@
 mod harness;
+#[path = "../common/input.rs"]
+mod input_fixture;
 mod proving;
 
 #[path = "../prover_bootstrap.rs"]

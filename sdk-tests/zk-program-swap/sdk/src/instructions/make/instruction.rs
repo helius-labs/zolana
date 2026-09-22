@@ -87,15 +87,9 @@ mod tests {
     use solana_keypair::Keypair;
     use zolana_keypair::shielded::ShieldedKeypair;
     use zolana_transaction::{
-        instructions::{
-            transact::{
-                encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
-                ExternalData, PrivateTxHash, Shape, SppProofInputs, SppProofOutputUtxo,
-            },
-            types::SppProofInputUtxo,
-        },
-        utxo::Utxo,
-        AssetRegistry, Data, SOL_MINT,
+        instructions::transact::{PrivateTxHash, Shape, SppProofOutputUtxo},
+        utxo::{SppProofInputUtxo, Utxo},
+        Data,
     };
 
     use super::*;
@@ -117,24 +111,32 @@ mod tests {
             .expect("order keypair");
         let taker_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([13u8; 32]))
             .expect("market maker keypair");
-        let assets = AssetRegistry::default();
 
         let input_amount = 1_000_000u64;
         let order_utxo_amount = 400_000u64;
 
         let input_utxo = Utxo {
             owner: owner_keypair.signing_pubkey(),
-            asset: SOL_MINT,
+            asset: zolana_transaction::Mint::SOL,
             amount: input_amount,
             blinding: crate::shared::test_blinding(5),
             ring_program_id: None,
             data: Data::default(),
         };
-        let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
+        let input_utxo = zolana_test_utils::utxo::wallet(
+            input_utxo,
+            &owner_keypair.nullifier_key,
+            OUTPUT_TREE_ID,
+            0,
+            None,
+            None,
+        )
+        .unwrap()
+        .into();
 
         let order_utxo = SppProofOutputUtxo {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
-            asset: SOL_MINT,
+            asset: zolana_transaction::Mint::SOL,
             amount: order_utxo_amount,
             blinding: crate::shared::test_blinding(11),
             ..Default::default()
@@ -148,14 +150,22 @@ mod tests {
 
         let change_amount = input_amount - order_utxo_amount;
         let change =
-            SppProofOutputUtxo::new(SOL_MINT, change_amount, owner_address).expect("change output");
-        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
-        let mut transaction_outputs = vec![change, order_utxo];
-        let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
-            .expect("derive output blindings");
-        let [change, order_utxo]: [_; 2] = transaction_outputs
-            .try_into()
-            .expect("make transaction has two outputs");
+            SppProofOutputUtxo::new(zolana_transaction::Mint::SOL, change_amount, owner_address)
+                .expect("change output");
+        let input_utxos = vec![
+            input_utxo,
+            SppProofInputUtxo::dummy(OUTPUT_TREE_ID).unwrap(),
+        ];
+        let mut spp_proof_inputs = zolana_test_utils::utxo::finalized_transaction(
+            input_utxos,
+            vec![change, order_utxo],
+            &owner_keypair,
+            Address::default(),
+            OUTPUT_TREE_ID,
+            zolana_keypair::random_blinding(),
+            zolana_keypair::random_salt(),
+        );
+        let order_utxo = &spp_proof_inputs.output_utxos[1];
         let order_utxo_hash = order_utxo.hash(OUTPUT_TREE_ID).expect("order hash");
         let marker_message = OrderMarker {
             order_utxo_hash,
@@ -169,32 +179,7 @@ mod tests {
             maker_pubkey: Pubkey::default().to_bytes(),
         })
         .expect("marker bytes");
-        let transaction_viewing_key = get_transaction_viewing_key(&owner_keypair, &input_utxos)
-            .expect("transaction viewing key");
-
-        let encoded = encrypt_transaction_data(
-            &[change, order_utxo],
-            &assets,
-            &transaction_viewing_key,
-            OUTPUT_TREE_ID,
-        )
-        .expect("encode slots");
-
-        let external_data = ExternalData::new(
-            *transaction_viewing_key.pubkey().as_bytes(),
-            encoded.salt,
-            encoded.outputs,
-            encoded.resolved_owner_tags,
-            vec![marker_message],
-        );
-        let spp_proof_inputs = SppProofInputs::new(
-            input_utxos,
-            encoded.output_utxos,
-            external_data,
-            Address::default(),
-        )
-        .with_blinding_seed(blinding_seed)
-        .with_output_tree_id(OUTPUT_TREE_ID);
+        spp_proof_inputs.external_data.messages.push(marker_message);
 
         assert_eq!(
             spp_proof_inputs.check_shape().expect("shape"),
@@ -229,14 +214,14 @@ mod tests {
         assert_eq!(marker.data, expected_marker_bytes);
 
         assert_eq!(spp_proof_inputs.input_utxos.len(), 2);
-        let spend = spp_proof_inputs.input_utxos.first().expect("input");
-        assert!(!spend.is_dummy());
+        let input_utxo = spp_proof_inputs.input_utxos.first().expect("input");
+        assert!(!input_utxo.is_dummy());
         assert!(spp_proof_inputs
             .input_utxos
             .get(1)
             .expect("dummy input")
             .is_dummy());
-        let source_input_hash = spend.hash().expect("source input hash");
+        let source_input_hash = input_utxo.hash();
 
         let external_data_hash = spp_proof_inputs
             .external_data
@@ -266,22 +251,30 @@ mod tests {
             .expect("order keypair");
         let taker_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([14u8; 32]))
             .expect("market maker keypair");
-        let assets = AssetRegistry::default();
 
         let amount = 250_000u64;
         let input_utxo = Utxo {
             owner: owner_keypair.signing_pubkey(),
-            asset: SOL_MINT,
+            asset: zolana_transaction::Mint::SOL,
             amount,
             blinding: crate::shared::test_blinding(6),
             ring_program_id: None,
             data: Data::default(),
         };
-        let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
+        let input_utxo = zolana_test_utils::utxo::wallet(
+            input_utxo,
+            &owner_keypair.nullifier_key,
+            OUTPUT_TREE_ID,
+            0,
+            None,
+            None,
+        )
+        .unwrap()
+        .into();
 
         let order_utxo = SppProofOutputUtxo {
             owner_address: Some(order_keypair.shielded_address().expect("order address")),
-            asset: SOL_MINT,
+            asset: zolana_transaction::Mint::SOL,
             amount,
             blinding: crate::shared::test_blinding(12),
             ..Default::default()
@@ -293,14 +286,22 @@ mod tests {
             .expect("market maker address");
         let owner_address = owner_keypair.shielded_address().expect("owner address");
 
-        let change = SppProofOutputUtxo::new(SOL_MINT, 0, owner_address).expect("change output");
-        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
-        let mut transaction_outputs = vec![change, order_utxo];
-        let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
-            .expect("derive output blindings");
-        let [change, order_utxo]: [_; 2] = transaction_outputs
-            .try_into()
-            .expect("make transaction has two outputs");
+        let change = SppProofOutputUtxo::new(zolana_transaction::Mint::SOL, 0, owner_address)
+            .expect("change output");
+        let input_utxos = vec![
+            input_utxo,
+            SppProofInputUtxo::dummy(OUTPUT_TREE_ID).unwrap(),
+        ];
+        let mut spp_proof_inputs = zolana_test_utils::utxo::finalized_transaction(
+            input_utxos,
+            vec![change, order_utxo],
+            &owner_keypair,
+            Address::default(),
+            OUTPUT_TREE_ID,
+            zolana_keypair::random_blinding(),
+            zolana_keypair::random_salt(),
+        );
+        let order_utxo = &spp_proof_inputs.output_utxos[1];
         let order_utxo_hash = order_utxo.hash(OUTPUT_TREE_ID).expect("order hash");
         let marker_message = OrderMarker {
             order_utxo_hash,
@@ -309,32 +310,7 @@ mod tests {
         }
         .message()
         .expect("marker message");
-        let transaction_viewing_key = get_transaction_viewing_key(&owner_keypair, &input_utxos)
-            .expect("transaction viewing key");
-
-        let encoded = encrypt_transaction_data(
-            &[change, order_utxo],
-            &assets,
-            &transaction_viewing_key,
-            OUTPUT_TREE_ID,
-        )
-        .expect("encode slots");
-
-        let external_data = ExternalData::new(
-            *transaction_viewing_key.pubkey().as_bytes(),
-            encoded.salt,
-            encoded.outputs,
-            encoded.resolved_owner_tags,
-            vec![marker_message],
-        );
-        let spp_proof_inputs = SppProofInputs::new(
-            input_utxos,
-            encoded.output_utxos,
-            external_data,
-            Address::default(),
-        )
-        .with_blinding_seed(blinding_seed)
-        .with_output_tree_id(OUTPUT_TREE_ID);
+        spp_proof_inputs.external_data.messages.push(marker_message);
 
         let change = spp_proof_inputs
             .output_utxos
@@ -348,8 +324,8 @@ mod tests {
             .external_data
             .hash()
             .expect("external data hash");
-        let spend = spp_proof_inputs.input_utxos.first().expect("input");
-        let source_input_hash = spend.hash().expect("source input hash");
+        let input_utxo = spp_proof_inputs.input_utxos.first().expect("input");
+        let source_input_hash = input_utxo.hash();
         let expected = PrivateTxHash::new(
             &[source_input_hash, [0u8; 32]],
             &[

@@ -195,10 +195,11 @@ pub fn nullifier(utxo_hash: &[u8; 32], blinding: &[u8; 32]) -> Result<[u8; 32], 
 mod tests {
     use super::*;
     use solana_address::address;
+    use zolana_client::ProofInputUtxo;
     use zolana_interface::{event::OutputDataEncoding, tree_slot::tree_id_field};
     use zolana_keypair::hash::poseidon;
     use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
-    use zolana_transaction::{utxo, ProofInputUtxo, SOL_MINT};
+    use zolana_transaction::{utxo, SOL_MINT};
 
     const TEST_PDA: solana_address::Address =
         address!("6ZKEgsScJbL6JVDpbHLCFCUiPEVgmMSt1j6NudNLqEvh");

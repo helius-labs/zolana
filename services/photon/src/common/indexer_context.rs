@@ -1,5 +1,12 @@
-use crate::{api::error::PhotonApiError, dao::generated::blocks, migration::Expr};
-use sea_orm::{DatabaseConnection, EntityTrait, FromQueryResult, QueryOrder, QuerySelect, Select};
+use crate::{
+    api::error::PhotonApiError,
+    dao::generated::{blocks, tree_metadata},
+    migration::Expr,
+};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect, Select,
+};
 
 use zolana_indexer_api::Context;
 
@@ -7,6 +14,11 @@ use zolana_indexer_api::Context;
 struct ContextModel {
     block_time: i64,
     slot: i64,
+}
+
+#[derive(FromQueryResult)]
+struct TreeIdModel {
+    tree_id: Option<i32>,
 }
 
 #[derive(FromQueryResult)]
@@ -38,6 +50,36 @@ pub async fn extract(conn: &DatabaseConnection) -> Result<Context, PhotonApiErro
             ))
         })?,
     })
+}
+
+/// The tree a client should append its next output to: the highest tree id the
+/// pool has that is not paused.
+///
+/// A paused tree rejects every append -- the program's mutable tree load fails
+/// with `TreeError::Paused` -- so the newest tree is not always a usable one.
+/// `None` when no unpaused tree is known, which covers both "every tree is
+/// paused" and "this indexer has not synced tree metadata yet"; a `paused` of
+/// NULL is an unsynced row and is not counted as unpaused.
+pub async fn newest_unpaused_tree_id(
+    conn: &DatabaseConnection,
+) -> Result<Option<u16>, PhotonApiError> {
+    let model = tree_metadata::Entity::find()
+        .select_only()
+        .column_as(Expr::col(tree_metadata::Column::TreeId).max(), "tree_id")
+        .filter(tree_metadata::Column::Paused.eq(false))
+        .into_model::<TreeIdModel>()
+        .one(conn)
+        .await?;
+
+    // The aggregate returns one row even with nothing to aggregate, so both the
+    // missing row and the NULL maximum mean "no unpaused tree".
+    let Some(tree_id) = model.and_then(|model| model.tree_id) else {
+        return Ok(None);
+    };
+
+    u16::try_from(tree_id)
+        .map(Some)
+        .map_err(|_| PhotonApiError::UnexpectedError(format!("Invalid tree id in DB: {}", tree_id)))
 }
 
 pub async fn extract_slot(conn: &DatabaseConnection) -> Result<u64, PhotonApiError> {

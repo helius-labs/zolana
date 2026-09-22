@@ -162,7 +162,7 @@ impl OutputAudit<'_> {
             slot_index: self.slot_index,
             recipient_viewing_pk,
             owner_tag: self.slot.view_tag,
-            asset,
+            asset: asset.asset,
             amount: plaintext.amount,
             blinding: Zeroizing::new(plaintext.blinding),
             ring_program_id: plaintext.ring_program_id,

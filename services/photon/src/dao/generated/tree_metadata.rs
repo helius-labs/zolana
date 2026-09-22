@@ -19,6 +19,8 @@ pub struct Model {
     pub sequence_number: i64,
     pub next_index: i64,
     pub last_synced_slot: i64,
+    pub tree_id: Option<i32>,
+    pub paused: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

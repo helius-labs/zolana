@@ -1,9 +1,9 @@
 //! Post-instruction checks for `ring_deposit` (policy-ring deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::RingAssetDeposit;
+use zolana_interface::{instruction::RingAssetDeposit, state::read_tree_id};
 use zolana_program_test::{RingDepositOutput, ZolanaProgramTest};
-use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled `ring_deposit` against the integration-test
 /// expectations: the emitted owner-hidden event faithfully mirrors the
@@ -77,11 +77,15 @@ pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
         .collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
 
+    // The commitment folds the tree's raw id in, and the id lives in the tree
+    // account, so the assert reads it there rather than restating it.
+    let tree_id =
+        read_tree_id(&program_test.account_data(tree).expect("tree account")).expect("tree id");
     let before = recipient.utxos.len();
     recipient
         .sync(
             authority,
-            &[event.to_shielded_transaction(solana_signature::Signature::default())],
+            &[event.to_shielded_transaction(solana_signature::Signature::default(), tree_id)],
             0,
             DEFAULT_TAG_WINDOW,
         )
@@ -92,10 +96,7 @@ pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
         "recipient wallet must discover the ring deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(
-        utxo.output_context.hash, event.utxo_hash,
-        "wallet UTXO hash"
-    );
+    assert_eq!(utxo.utxo_hash, event.utxo_hash, "wallet UTXO hash");
     assert_eq!(
         utxo.utxo.ring_program_id.map(|id| id.to_bytes()),
         Some(expected_ring_program_id),

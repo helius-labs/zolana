@@ -9,9 +9,9 @@ use zolana_keypair::{
     PublicKey, ShieldedAddress,
 };
 use zolana_transaction::{
-    instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
-    utxo::{Blinding, Utxo},
-    Data,
+    instructions::transact::SppProofOutputUtxo,
+    utxo::{Blinding, SppProofInputUtxo, Utxo},
+    Data, Mint,
 };
 
 use crate::err;
@@ -51,7 +51,7 @@ pub struct PlainTextData {
 pub struct OrderUtxo {
     pub terms: OrderTerms,
     pub blinding: Blinding,
-    pub source_mint: Address,
+    pub source_mint: Mint,
     pub source_amount: u64,
     pub destination_asset_id: u64,
 }
@@ -193,9 +193,13 @@ impl OrderUtxo {
 // take, take_verifiable_encryption, cancel: spend the order utxo and pay out the
 // source funds (to the taker on take, back to the maker on cancel).
 impl OrderUtxo {
-    /// The order input spend: the opening (terms + blinding) is the full spend
-    /// capability; the swap program signs for the PDA via `invoke_signed`.
-    pub fn to_input_utxo(&self) -> Result<SppProofInputUtxo> {
+    /// The order input spend, committed under the tree with the raw id
+    /// `tree_id`: the opening (terms + blinding) is the full spend capability;
+    /// the swap program signs for the PDA via `invoke_signed`.
+    ///
+    /// `tree_id` is a parameter rather than something the caller sets
+    /// afterwards, because both the commitment and the nullifier fold it in.
+    pub fn to_input_utxo(&self, tree_id: u16, leaf_index: u64) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
             owner: Self::pda_owner(),
             asset: self.source_mint,
@@ -204,8 +208,21 @@ impl OrderUtxo {
             ring_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, Self::nullifier_key())
-            .with_data_hash(self.terms.data_hash()?))
+        let data_hash = self.terms.data_hash()?;
+        let key = Self::nullifier_key();
+        let nullifier_pubkey = key.pubkey()?;
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &data_hash, &[0; 32], tree_id)?;
+        let nullifier = key.nullifier(&utxo_hash, &utxo.blinding)?;
+        Ok(SppProofInputUtxo {
+            utxo,
+            utxo_hash,
+            nullifier,
+            nullifier_pubkey,
+            data_hash: Some(data_hash),
+            ring_data_hash: None,
+            tree_id,
+            leaf_index,
+        })
     }
 
     pub fn source_output(
@@ -231,7 +248,7 @@ impl OrderUtxo {
         blinding: Blinding,
     ) -> SppProofOutputUtxo {
         SppProofOutputUtxo {
-            asset: self.terms.destination_mint,
+            asset: Mint::new(self.terms.destination_mint, self.destination_asset_id),
             amount: self.terms.destination_amount,
             blinding,
             owner_address: Some(recipient),

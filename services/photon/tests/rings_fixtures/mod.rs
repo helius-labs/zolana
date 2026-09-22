@@ -18,6 +18,7 @@ use photon_indexer::{
         blocks, rings_output_payloads, rings_outputs, rings_transactions, transactions,
     },
     migration::RingsMigrator,
+    monitor::tree_metadata_sync::{upsert_tree_metadata, TreeAccountData},
 };
 use sea_orm::{Database, DatabaseConnection, EntityTrait, Set};
 use sea_orm_migration::MigratorTrait;
@@ -32,6 +33,10 @@ use zolana_interface::pda;
 pub const VIEW_TAG: [u8; 32] = [77u8; 32];
 /// The page size the confirmation path used before the signature lookup.
 pub const PAGE_LIMIT: u64 = 50;
+
+/// The tree every seeded output lands in, and the id its metadata row reports.
+pub const FIXTURE_TREE: [u8; 32] = [8u8; 32];
+pub const FIXTURE_TREE_ID: u16 = 3;
 
 const BASE_SLOT: u64 = 100_000;
 /// Keep each insert under the SQLite bound on statement parameters.
@@ -175,6 +180,32 @@ pub fn fixture_ring_config() -> Pubkey {
     pda::ring_auth(&fixture_ring_program()).0
 }
 
+pub fn fixture_tree() -> Pubkey {
+    Pubkey::new_from_array(FIXTURE_TREE)
+}
+
+/// Writes one tree's metadata row through the same upsert the monitor uses, so
+/// a fixture cannot describe a row shape the sync would never produce.
+pub async fn seed_tree_metadata(db: &DatabaseConnection, tree: Pubkey, tree_id: u16, paused: bool) {
+    let data = TreeAccountData {
+        tree_id,
+        paused,
+        queue_pubkey: tree,
+        root_history_capacity: 1,
+        input_queue_zkp_batch_size: 1,
+        height: 1,
+        sequence_number: 0,
+        next_index: 0,
+    };
+    upsert_tree_metadata(db, tree, &data, BASE_SLOT)
+        .await
+        .expect("seed tree metadata");
+}
+
+pub async fn seed_fixture_tree_metadata(db: &DatabaseConnection) {
+    seed_tree_metadata(db, fixture_tree(), FIXTURE_TREE_ID, false).await;
+}
+
 pub async fn seed_tagged_transaction_history(
     db: &DatabaseConnection,
     view_tag: [u8; 32],
@@ -185,6 +216,10 @@ pub async fn seed_tagged_transaction_history(
     let mut rings_rows = Vec::new();
     let mut output_rows = Vec::new();
     let mut payload_rows = Vec::new();
+
+    // The ingester refuses to persist an output whose tree has no metadata row,
+    // so seeding outputs without one is not a state production can reach.
+    seed_fixture_tree_metadata(db).await;
 
     for index in indexes {
         let slot = i64::try_from(BASE_SLOT + index).expect("slot fits in i64");
@@ -211,7 +246,7 @@ pub async fn seed_tagged_transaction_history(
             slot: Set(slot),
             ring_config: Set(Some(fixture_ring_config().to_bytes().to_vec())),
             source_instruction_tag: Set(0),
-            output_tree: Set(vec![8u8; 32]),
+            output_tree: Set(FIXTURE_TREE.to_vec()),
             first_output_leaf_index: Set(rings_tx_id),
             tx_viewing_pk: Set(Some(vec![2u8; 33])),
             salt: Set(Some(vec![3u8; 16])),
@@ -222,7 +257,7 @@ pub async fn seed_tagged_transaction_history(
             rings_tx_id: Set(rings_tx_id),
             slot: Set(slot),
             output_index: Set(0),
-            output_tree: Set(vec![8u8; 32]),
+            output_tree: Set(FIXTURE_TREE.to_vec()),
             leaf_index: Set(rings_tx_id),
             view_tag: Set(view_tag.to_vec()),
             utxo_hash: Set(rings_tx_id.to_be_bytes().repeat(4)),

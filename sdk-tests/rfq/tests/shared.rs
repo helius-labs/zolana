@@ -22,9 +22,9 @@ use zolana_test_utils::{
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
 };
-use zolana_transaction::{AssetRegistry, Wallet, SOL_MINT};
+use zolana_transaction::{AssetRegistry, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
-use zolana_wallet::{sync_wallet, Deposit, DepositParams};
+use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 
 // The whole per-transaction budget: the settlement verifies an SPP proof.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -306,7 +306,6 @@ pub fn setup() -> Result<TestEnv> {
         ProverClient::default(),
         AsyncZolanaIndexer::new(indexer_url),
         AsyncProverClient::default(),
-        tree,
     );
 
     Ok(TestEnv {

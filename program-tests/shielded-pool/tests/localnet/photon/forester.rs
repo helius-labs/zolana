@@ -179,7 +179,6 @@ struct QueueContext {
     payer_owner_field: [u8; 32],
     payer_address: Address,
     sender_address: ShieldedAddress,
-    assets: AssetRegistry,
     spendable_utxos: VecDeque<RealSpendUtxo>,
     queued_nullifiers: Vec<[u8; 32]>,
 }
@@ -196,7 +195,6 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
     let payer_owner_field = sender.owner_hash()?;
     let payer_address = Address::new_from_array(env.payer.pubkey().to_bytes());
     let sender_address = sender.shielded_address()?;
-    let assets = AssetRegistry::default();
 
     let queue_tx_count = LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT * LOCALNET_NULLIFIER_ZKP_BATCH_SIZE
         / LOCALNET_NULLIFIERS_PER_QUEUE_TX;
@@ -208,7 +206,6 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
         payer_owner_field,
         payer_address,
         sender_address,
-        assets,
         spendable_utxos: VecDeque::new(),
         queued_nullifiers: Vec::with_capacity(
             (queue_tx_count * LOCALNET_NULLIFIERS_PER_QUEUE_TX) as usize,
@@ -242,13 +239,13 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
             .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
         let utxo = Utxo {
             owner: ctx.payer_public_key,
-            asset: Address::new_from_array(deposited.asset),
+            asset: Mint::SOL,
             amount: deposited.amount,
             blinding: deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         };
-        assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, AMOUNT));
+        assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, AMOUNT));
         let spendable_utxo = RealSpendUtxo::new(
             utxo,
             &ctx.payer_nullifier_key,
@@ -327,16 +324,29 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     }
 
     let wait_tag = ctx.payer_public_key.confidential_view_tag()?;
-    let mut transfer = ConfidentialTransfer::new(
-        ctx.sender_address,
-        vec![
-            SppProofInputUtxo::new(first_utxo.utxo.clone(), &ctx.sender),
-            SppProofInputUtxo::new(second_utxo.utxo.clone(), &ctx.sender),
-        ],
-        ctx.payer_address,
-    );
-    transfer.send(&ctx.sender_address, SOL_MINT, TRANSFER_AMOUNT)?;
-    let proof_inputs = transfer.sign(&ctx.sender, &ctx.assets)?;
+    let notes = vec![
+        zolana_test_utils::utxo::wallet(
+            first_utxo.utxo.clone(),
+            &ctx.sender.nullifier_key,
+            env.tree_id,
+            first_state_proof.leaf_index,
+            None,
+            None,
+        )?,
+        zolana_test_utils::utxo::wallet(
+            second_utxo.utxo.clone(),
+            &ctx.sender.nullifier_key,
+            env.tree_id,
+            second_state_proof.leaf_index,
+            None,
+            None,
+        )?,
+    ];
+    let mut transfer =
+        ConfidentialTransaction::new(notes, ctx.payer_address)?.with_output_tree_id(env.tree_id)?;
+    transfer.transfer_sol(&ctx.sender_address, TRANSFER_AMOUNT)?;
+    transfer.pad_utxos(Shape::IN2_OUT3, &ctx.sender_address)?;
+    let proof_inputs = transfer.encrypt(&ctx.sender)?;
     let commitments = proof_inputs.input_utxo_hashes()?;
     assert_eq!(commitments.len(), 2);
     assert_eq!(
@@ -348,8 +358,12 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         second_utxo.nullifier
     );
 
+    let first_nullifier = commitments
+        .first()
+        .ok_or_else(|| anyhow!("queue tx missing input commitment"))?
+        .nullifier;
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
-    let assembled = zolana_client::assemble(
+    let mut assembled = zolana_client::assemble(
         proof_inputs,
         &[
             SpendProof {
@@ -363,8 +377,8 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         ],
         &[],
     )?;
-    let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
-    let proof = ProverClient::local().prove_transfer(inputs)?;
+    let inputs = &mut assembled.prover_inputs;
+    let proof = ctx.sender.prove_transfer(&ProverClient::local(), inputs)?;
     let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
 
     let tx_ix = Transact {
@@ -444,10 +458,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     let salt = indexed
         .salt
         .ok_or_else(|| anyhow!("indexed queue tx missing salt"))?;
-    let first_nullifier = commitments
-        .first()
-        .ok_or_else(|| anyhow!("queue tx missing input commitment"))?
-        .nullifier;
+
     // Every output slot carries its own ciphertext; the author re-derives the
     // transaction viewing key and decrypts the SOL change (slot 1) and the
     // recipient (slot 2) directly, reading each committed blinding back out.
@@ -482,11 +493,11 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         )?)
     };
     let change_plaintext = decode_output(1)?;
-    let recipient_plaintext = decode_output(2)?;
+    let recipient_plaintext = decode_output(0)?;
 
     let change_utxo = Utxo {
         owner: ctx.payer_public_key,
-        asset: SOL_MINT,
+        asset: Mint::SOL,
         amount: total_amount - TRANSFER_AMOUNT,
         blinding: change_plaintext.blinding,
         ring_program_id: None,
@@ -494,7 +505,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     };
     let recipient_utxo = Utxo {
         owner: ctx.payer_public_key,
-        asset: SOL_MINT,
+        asset: Mint::SOL,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_plaintext.blinding,
         ring_program_id: None,
@@ -528,7 +539,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         recipient_utxo.hash,
         indexed
             .output_slots
-            .get(2)
+            .first()
             .expect("recipient output slot")
             .output_context
             .hash,

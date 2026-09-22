@@ -1,6 +1,6 @@
-//! Zolana client SDK: RPC traits, concrete Solana RPC adapters, the prover
-//! client, and the high-level [`ZolanaClient`] that owns RPC, Photon, and the
-//! prover.
+//! Use [`ZolanaClient`] by default: it wraps Solana RPC, the indexer, and the prover.
+//! Use `SolanaRpc`, `ZolanaIndexer`, or `ProverClient` (or their async counterparts)
+//! when you need direct access to an individual service.
 //!
 //! Wallet state, syncing, transaction-building actions, and the user registry
 //! live in the `zolana-wallet` crate, which builds on this one.
@@ -15,20 +15,16 @@
 //! - `solana-rpc`: concrete Solana RPC adapters
 //! - `client`: `indexer-api` + `solana-rpc`
 
+pub mod authority;
 #[cfg(feature = "indexer-api")]
 pub mod client;
 pub mod error;
 #[cfg(feature = "indexer-api")]
 pub mod indexer;
 pub mod prover;
-pub mod retry;
 pub mod rpc;
-mod settlement;
-#[cfg(feature = "solana-rpc")]
-pub mod solana_rpc;
-pub mod timing;
-pub mod transaction_size;
 
+pub use authority::ProofAuthority;
 #[cfg(feature = "indexer-api")]
 pub use client::{
     ProofDataSource, SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
@@ -36,25 +32,28 @@ pub use client::{
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
+pub use prover::timing;
+#[cfg(feature = "indexer-api")]
+pub use prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 pub use prover::{
-    assign_spend_output_blindings, canonical_shape, input_utxos,
-    merge::MergeWitness,
-    resolve_shape, spawn_prover, spawn_prover_with_artifacts,
-    transact::{
-        assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,
-        AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
-    },
+    input_utxos_from_nullifiers, spawn_prover, spawn_prover_with_artifacts,
+    transact::{assemble, assemble_with_dummy_policy, AssembledTransfer, SpendProof},
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
     AsyncProverClient, BatchAddressAppendInputs, Commitments, CompressedCommitments, Delivery,
-    MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof, ProofCompressed,
-    ProofInputUtxo, ProveRequest, ProverClient, PublicInputs, PublicTransfers,
-    RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
-    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
-    RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
-    TransferProofResult, TransferProver, TransferSpendInput, TreeSlotFields, SPP_SUPPORTED_SHAPES,
+    MergeProofResult, MergeProver, Proof, ProofCompressed, ProofInputUtxo, ProveRequest,
+    ProverClient, PublicInputs, PublicTransfers, RingAuthorityProofResult, RingAuthorityProver,
+    RingAuthorityWitness, RingTransferP256ProofResult, RingTransferP256Prover,
+    RingTransferProofResult, RingTransferProver, Shape, TransferInput, TransferInputUtxo,
+    TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult, TransferProver,
+    TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
-pub use retry::{IndexerPollConfig, IndexerRpcConfig};
+#[cfg(feature = "solana-rpc")]
+pub use rpc::solana_rpc::{
+    AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
+};
+pub use rpc::SettlementAccountValidation;
 pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
+pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
@@ -63,26 +62,7 @@ pub use rpc::{
     OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
     MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-pub use settlement::SettlementAccountValidation;
-#[cfg(feature = "solana-rpc")]
-pub use solana_rpc::{
-    AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
-};
-pub use transaction_size::{transaction_size, TransactionSize};
+pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;
-pub use zolana_transaction::{
-    instructions::{
-        merge::{
-            merge_padded_input_count, Merge, PreparedMerge, MAX_MERGE_INPUTS,
-            MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
-        },
-        merge_ring::{MergeRing, PreparedMergeRing},
-        ring_authority::PreparedRingAuthority,
-        transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},
-        types::{InputUtxoContext, SppProofInputUtxo},
-    },
-    AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
-    PrivateTransactionKind, PrivateTransactionStatus,
-};

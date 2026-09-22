@@ -34,9 +34,19 @@ pub struct DepositOutput {
 impl DepositOutput {
     /// Wraps the deposit into a proofless [`ShieldedTransaction`] whose single
     /// output slot carries the encoded [`ProoflessOutput`] payload, so a wallet
-    /// can rediscover it via `Wallet::sync`.
-    pub fn to_shielded_transaction(&self, tx_signature: Signature) -> ShieldedTransaction {
-        shielded_transaction_from_general_event(tx_signature, &self.to_general_event(), true)
+    /// can rediscover it via `Wallet::sync`. `tree_id` is the raw id of
+    /// [`Self::output_tree`], which the published commitment folds in.
+    pub fn to_shielded_transaction(
+        &self,
+        tx_signature: Signature,
+        tree_id: u16,
+    ) -> ShieldedTransaction {
+        shielded_transaction_from_general_event(
+            tx_signature,
+            &self.to_general_event(),
+            true,
+            tree_id,
+        )
     }
 
     fn to_general_event(&self) -> GeneralEvent {
@@ -71,8 +81,18 @@ pub struct RingDepositOutput {
 }
 
 impl RingDepositOutput {
-    pub fn to_shielded_transaction(&self, tx_signature: Signature) -> ShieldedTransaction {
-        shielded_transaction_from_general_event(tx_signature, &self.to_general_event(), true)
+    /// As on [`DepositOutput::to_shielded_transaction`].
+    pub fn to_shielded_transaction(
+        &self,
+        tx_signature: Signature,
+        tree_id: u16,
+    ) -> ShieldedTransaction {
+        shielded_transaction_from_general_event(
+            tx_signature,
+            &self.to_general_event(),
+            true,
+            tree_id,
+        )
     }
 
     fn to_general_event(&self) -> GeneralEvent {
@@ -300,15 +320,12 @@ pub fn index_events(
     for event in events {
         match event_kind_from_indexed(event) {
             Some(EventKind::Deposit) => {
+                let general_event = general_event_from_indexed(event).map_err(|err| {
+                    ProgramTestError::Event(format!("deposit event decode failed: {err:?}"))
+                })?;
+                let tree_id = output_tree_id(&mut get_account, general_event, "deposit")?;
                 if let Ok(deposits) = deposit_outputs_from_event(event) {
                     for deposit in deposits {
-                        let tree = Address::new_from_array(deposit.output_tree);
-                        let account = get_account(tree)?.ok_or_else(|| {
-                            ProgramTestError::Event(format!("missing deposit tree {tree}"))
-                        })?;
-                        let tree_id = read_tree_id(&account.data).ok_or_else(|| {
-                            ProgramTestError::Event(format!("invalid deposit tree {tree}"))
-                        })?;
                         indexer.record_deposit(&deposit, tree_id)?;
                     }
                 } else {
@@ -316,25 +333,36 @@ pub fn index_events(
                         indexer.record_ring_deposit(&deposit)?;
                     }
                 }
-                indexer.record_transaction(
-                    signature,
-                    general_event_from_indexed(event).map_err(|err| {
-                        ProgramTestError::Event(format!("deposit event decode failed: {err:?}"))
-                    })?,
-                    true,
-                );
+                indexer.record_transaction(signature, general_event, true, tree_id);
             }
             Some(EventKind::Transact) | Some(EventKind::Merge) => {
                 let general_event = general_event_from_indexed(event).map_err(|err| {
                     ProgramTestError::Event(format!("state-change event decode failed: {err:?}"))
                 })?;
+                let tree_id = output_tree_id(&mut get_account, general_event, "state-change")?;
                 indexer.record_state_change(general_event)?;
-                indexer.record_transaction(signature, general_event, false);
+                indexer.record_transaction(signature, general_event, false, tree_id);
             }
             Some(EventKind::NullifierTreeUpdate) | None => {}
         }
     }
     Ok(())
+}
+
+/// Raw id of the tree an event appended to. The event names the tree account;
+/// the id its commitments fold in lives in that account, so the test indexer
+/// reads it there rather than guessing, exactly as Photon does through its tree
+/// metadata.
+fn output_tree_id(
+    get_account: &mut impl FnMut(Address) -> Result<Option<Account>, ClientError>,
+    event: &GeneralEvent,
+    label: &str,
+) -> Result<u16, ProgramTestError> {
+    let tree = Address::new_from_array(event.output_tree);
+    let account = get_account(tree)?
+        .ok_or_else(|| ProgramTestError::Event(format!("missing {label} tree {tree}")))?;
+    read_tree_id(&account.data)
+        .ok_or_else(|| ProgramTestError::Event(format!("invalid {label} tree {tree}")))
 }
 
 pub fn single_deposit_view(events: &[IndexedEvent]) -> Result<DepositOutput, ProgramTestError> {

@@ -12,6 +12,10 @@ use zolana_tree::TreeAccount;
 
 /// Tree account data extracted from on-chain account
 pub struct TreeAccountData {
+    /// The raw id the account carries; `pda::tree(tree_id)` is this account.
+    pub tree_id: u16,
+    /// A paused tree rejects every append, so it is not a valid output tree.
+    pub paused: bool,
     pub queue_pubkey: Pubkey,
     pub root_history_capacity: u64,
     pub input_queue_zkp_batch_size: u64,
@@ -93,10 +97,14 @@ where
 fn process_rings_tree_account(pubkey: Pubkey, account: &Account) -> Option<TreeAccountData> {
     let mut data = account.data.clone();
     let mut tree = parse_rings_tree_account(pubkey, account, &mut data)?;
+    let tree_id = tree.tree_id();
+    let paused = tree.is_paused();
     let nullifier = tree.nullifier_tree();
     let root_history_capacity = u64::try_from(nullifier.root_history.roots.len()).ok()?;
 
     Some(TreeAccountData {
+        tree_id,
+        paused,
         // Rings UTXO and nullifier trees live in the same account; there is
         // no separate queue account for Photon to reference.
         queue_pubkey: pubkey,
@@ -190,6 +198,11 @@ where
 
     let model = tree_metadata::ActiveModel {
         tree_pubkey: Set(tree_bytes),
+        // `u16` widens into `i32` without loss, so this needs no checked
+        // conversion; the column is nullable only for rows written before the
+        // id was recorded.
+        tree_id: Set(Some(i32::from(data.tree_id))),
+        paused: Set(Some(data.paused)),
         queue_pubkey: Set(data.queue_pubkey.to_bytes().to_vec()),
         height: Set(i32_from_u32(data.height, "tree height")?),
         root_history_capacity: Set(i64_from_u64(
@@ -209,6 +222,8 @@ where
         .on_conflict(
             sea_orm::sea_query::OnConflict::column(tree_metadata::Column::TreePubkey)
                 .update_columns([
+                    tree_metadata::Column::TreeId,
+                    tree_metadata::Column::Paused,
                     tree_metadata::Column::QueuePubkey,
                     tree_metadata::Column::Height,
                     tree_metadata::Column::RootHistoryCapacity,

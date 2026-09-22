@@ -458,6 +458,7 @@ Changed
 Fixed
 
 - `ProverClient` explicitly requests queued delivery after synchronous admission is refused.
+- `ZolanaClient` accepts Photon tree metadata while rejecting invalid tree IDs and tree addresses that disagree with them.
 
 - `decryptTransactions` rejects malformed key-holder batches with
   `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and

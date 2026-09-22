@@ -17,21 +17,30 @@
 
 mod test_indexer;
 
+#[path = "common/authority.rs"]
+mod authority_fixture;
+#[path = "common/input.rs"]
+mod input_fixture;
+#[path = "common/blindings.rs"]
+mod output_blindings;
+
 use rand::RngCore;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    assign_spend_output_blindings, spawn_prover, verify_confidential_transfer_proof,
-    InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferProver,
-    TransferSpendInput,
+    spawn_prover, verify_confidential_transfer_proof, ProverClient, PublicTransfers, Rpc, Shape,
+    TransferInputUtxo, TransferProver,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
-    instructions::types::SppProofInputUtxo, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    utxo::SppProofInputUtxo, Data, ExternalData, Mint, SppProofOutputUtxo, Utxo,
 };
 
-use crate::test_indexer::TestIndexer;
+use crate::{
+    authority_fixture::complete_inputs, input_fixture::wallet_utxo,
+    output_blindings::assign_output_blindings, test_indexer::TestIndexer,
+};
 
 /// Test fixtures live in the first localnet tree.
 // TODO(tree-id): resolve the tree id from the tree account.
@@ -116,7 +125,7 @@ fn dummy_external_data(owner_tag: [u8; 32], n_outputs: usize) -> ExternalData {
 
 /// A single zero-value Solana-owned input with its inclusion / non-inclusion
 /// proofs served by a fresh `TestIndexer`.
-fn real_input() -> TransferSpendInput {
+fn real_input() -> (TransferInputUtxo, NullifierKey) {
     let mut rng = rand::thread_rng();
     let mut owner_bytes = [0u8; 32];
     rng.fill_bytes(&mut owner_bytes);
@@ -128,74 +137,43 @@ fn real_input() -> TransferSpendInput {
 
     let utxo = Utxo {
         owner: PublicKey::from_ed25519(&owner_bytes),
-        asset: SOL_MINT,
+        asset: Mint::SOL,
         amount: 0,
         blinding,
         ring_program_id: None,
         data: Data::default(),
     };
 
-    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo_hash = utxo
-        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
-        .expect("utxo hash");
-    let nullifier = utxo
-        .nullifier(&utxo_hash, &nullifier_key)
-        .expect("nullifier");
-
     let mut indexer = TestIndexer::new();
-    indexer.add_utxo(utxo_hash);
+    let mut wallet = wallet_utxo(utxo, &nullifier_key, TEST_TREE_ID, 0, None, None);
+    wallet.leaf_index = indexer.add_utxo(wallet.utxo_hash);
+    let utxo = SppProofInputUtxo::from(wallet);
     let proof = indexer
-        .get_input_merkle_proofs(
-            &[InputUtxoContext {
-                index: 0,
-                utxo_hash,
-                nullifier,
-            }],
-            None,
-        )
-        .expect("input merkle proofs")
+        .get_input_merkle_proofs(&[&utxo], None)
+        .unwrap()
         .pop()
-        .expect("one proof");
-
-    TransferSpendInput {
-        utxo,
+        .unwrap();
+    (
+        TransferInputUtxo {
+            utxo,
+            proof: Some(proof),
+            nullifier_proof: None,
+        },
         nullifier_key,
-        data_hash: None,
-        ring_data_hash: None,
-        tree_id: TEST_TREE_ID,
-        proof: Some(proof),
-        nullifier_proof: None,
-    }
+    )
 }
 
 /// A padding input: zero owner, random blinding, no state proof. It sits in
 /// tree slot 0 with the real input; the non-inclusion witness for its own
 /// nullifier comes from the same empty nullifier tree, so it shares the one
 /// published nullifier root.
-fn dummy_input() -> TransferSpendInput {
-    let mut blinding = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut blinding[1..]);
-    let utxo = Utxo {
-        owner: PublicKey::zeroed(),
-        asset: SOL_MINT,
-        amount: 0,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let mut spend = SppProofInputUtxo::new_dummy().in_tree(TEST_TREE_ID);
-    spend.utxo.blinding = blinding;
-    let nullifier = spend.nullifier().expect("dummy nullifier");
-    let nullifier_proof = TestIndexer::new().dummy_nullifier_proof(nullifier);
-    TransferSpendInput {
+fn dummy_input() -> TransferInputUtxo {
+    let utxo = SppProofInputUtxo::dummy(TEST_TREE_ID).unwrap();
+    let nullifier_proof = Some(TestIndexer::new().dummy_nullifier_proof(utxo.nullifier));
+    TransferInputUtxo {
         utxo,
-        nullifier_key: NullifierKey::from_secret([0u8; 31]),
-        data_hash: None,
-        ring_data_hash: None,
-        tree_id: TEST_TREE_ID,
         proof: None,
-        nullifier_proof: Some(nullifier_proof),
+        nullifier_proof,
     }
 }
 
@@ -217,8 +195,9 @@ fn dummy_output(owner_tag: [u8; 32]) -> SppProofOutputUtxo {
 /// supported shape, not just (2,3) -- and, because it is the shipped path, the
 /// shape-to-key mapping the SDK will use in production rather than a copy.
 fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
-    let real_input = real_input();
+    let (real_input, key) = real_input();
     let owner_tag = real_input
+        .utxo
         .utxo
         .owner
         .confidential_view_tag()
@@ -229,8 +208,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
     }
     let mut outputs: Vec<_> = (0..n_out).map(|_| dummy_output(owner_tag)).collect();
     let blinding_seed = [42u8; 32];
-    assign_spend_output_blindings(&inputs, &mut outputs, &blinding_seed)
-        .expect("derive output blindings");
+    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
     let shape = Shape::new(n_in, n_out);
     let mut signer_pk_hashes = vec![[0u8; 32]; shape.signer_width()];
     signer_pk_hashes[1] = solana_owner_identity(&owner_tag).expect("owner signer hash");
@@ -244,12 +222,13 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes,
         allow_dummy_inputs: true,
-        shape: Some(shape),
+        shape,
     };
-    let result = prover
+    let mut result = prover
         .build()
         .unwrap_or_else(|e| panic!("build {n_in}x{n_out} witness: {e:?}"));
 
+    complete_inputs(&mut result.inputs.inputs, &[key]);
     let proof = ProverClient::local()
         .prove_transfer(&result.inputs)
         .unwrap_or_else(|e| panic!("prove {n_in}x{n_out}: {e:?}"));
@@ -285,8 +264,9 @@ fn dummy_transfer_2_3_proof_verifies() {
     start_prover();
     let queued_results_before = async_queue_result_count();
 
-    let real_input = real_input();
+    let (real_input, key) = real_input();
     let owner_tag = real_input
+        .utxo
         .utxo
         .owner
         .confidential_view_tag()
@@ -298,8 +278,7 @@ fn dummy_transfer_2_3_proof_verifies() {
         dummy_output(owner_tag),
     ];
     let blinding_seed = [43u8; 32];
-    assign_spend_output_blindings(&inputs, &mut outputs, &blinding_seed)
-        .expect("derive output blindings");
+    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
     let prover = TransferProver {
         blinding_seed,
         output_tree_id: TEST_TREE_ID,
@@ -313,10 +292,11 @@ fn dummy_transfer_2_3_proof_verifies() {
             [0u8; 32],
         ],
         allow_dummy_inputs: true,
-        shape: Some(Shape::new(2, 3)),
+        shape: Shape::new(2, 3),
     };
 
-    let result = prover.build().expect("build witness with one real input");
+    let mut result = prover.build().expect("build witness with one real input");
+    complete_inputs(&mut result.inputs.inputs, &[key]);
 
     // The queue is what this test covers, and transfers otherwise take the
     // faster in-response rail, so ask for the queued one where it is being

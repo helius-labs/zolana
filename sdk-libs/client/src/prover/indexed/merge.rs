@@ -11,14 +11,11 @@ use zolana_interface::{
     tree_slot::tree_id_field,
 };
 use zolana_keypair::{Curve, NullifierKey};
-use zolana_transaction::{
-    instructions::{
-        merge::{
-            merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, PreparedMerge,
-        },
-        transact::PrivateTxHash,
+use zolana_transaction::instructions::{
+    merge::{
+        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
     },
-    ProofInputUtxo,
+    transact::PrivateTxHash,
 };
 
 use super::{
@@ -29,12 +26,13 @@ use crate::{
     prover::{
         field::right_align_slice, json::MergeOutputParamsJson,
         transact::assembly::assemble_outputs, verify::MergeProofStatement, ProofCompressed,
+        ProofInputUtxo,
     },
     ClientError,
 };
 
 pub struct IndexedMergePreparation {
-    pub merge: PreparedMerge,
+    pub merge: MergeProofInputs,
     pub nullifier_key: NullifierKey,
 }
 
@@ -50,15 +48,18 @@ impl IndexedMergePreparation {
             nullifier_key,
         } = self;
         merge.input_utxo_hashes()?;
+        if merge.ring_program_id.is_some() {
+            return Err(invalid());
+        }
         let first = merge
-            .inputs
+            .input_utxos
             .first()
             .filter(|input| !input.is_dummy())
             .ok_or(ClientError::NoInputs)?;
         let tree_id = first.tree_id;
-        let first_nullifier = first.nullifier()?;
+        let first_nullifier = first.nullifier;
         let nullifier_pk = nullifier_key.pubkey()?;
-        if merge.output.blinding != merge_output_blinding(&nullifier_key, &first_nullifier)? {
+        if merge.output_utxo.blinding != merge_output_blinding(&nullifier_key, &first_nullifier)? {
             return Err(invalid());
         }
         let mut inputs = Vec::new();
@@ -67,13 +68,13 @@ impl IndexedMergePreparation {
         let mut input_hashes = Vec::new();
         let mut total = 0u64;
         let mut saw_dummy = false;
-        for (index, input) in merge.inputs.iter().enumerate() {
+        for (index, input) in merge.input_utxos.iter().enumerate() {
             let dummy = input.is_dummy();
             if !dummy {
                 if saw_dummy
                     || input.tree_id != tree_id
                     || input.utxo.owner != merge.signing_pubkey
-                    || input.nullifier_key.pubkey()? != nullifier_pk
+                    || input.nullifier_pubkey != nullifier_pk
                     || input.utxo.asset != first.utxo.asset
                     || input.utxo.ring_program_id.is_some()
                 {
@@ -90,9 +91,21 @@ impl IndexedMergePreparation {
                     u8::try_from(index).map_err(|_| invalid())?,
                 )?
             } else {
-                input.nullifier()?
+                input.nullifier
             };
-            let hash = if dummy { [0; 32] } else { utxo.hash()? };
+            let commitment = utxo.hash()?;
+            if commitment != input.utxo_hash {
+                return Err(
+                    zolana_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
+                );
+            }
+            if (!dummy
+                && nullifier_key.nullifier(&commitment, &input.utxo.blinding)? != input.nullifier)
+                || nullifier != input.nullifier
+            {
+                return Err(ClientError::InputNullifierMismatch { index });
+            }
+            let hash = if dummy { [0; 32] } else { commitment };
             inputs.push(PreparedMergeInputJson {
                 domain: hex_field(&utxo.domain),
                 amount: hex_field(&utxo.amount),
@@ -108,12 +121,15 @@ impl IndexedMergePreparation {
             input_hashes.push(hash);
             nullifiers.push(nullifier);
         }
-        let outputs = assemble_outputs(std::slice::from_ref(&merge.output), merge.output_tree_id)?;
+        let outputs = assemble_outputs(
+            std::slice::from_ref(&merge.output_utxo),
+            merge.output_tree_id,
+        )?;
         let output = outputs.outputs.first().ok_or(ClientError::MissingOutput)?;
         let output_hash = merge.output_hash()?;
         let owner_pk_hash = merge.signing_pubkey.owner_proof_input_hash()?;
-        if merge.output.amount != total
-            || merge.output.asset != first.utxo.asset
+        if merge.output_utxo.amount != total
+            || merge.output_utxo.asset != first.utxo.asset
             || output.utxo.ring_data_hash != [0; 32]
             || output.utxo.data_hash != [0; 32]
             || output.utxo.ring_program_id != [0; 32]
@@ -249,12 +265,37 @@ struct PreparedMergeJson {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use solana_address::Address;
     use zolana_keypair::{ShieldedKeypair, ShieldedKeypairTrait};
-    use zolana_transaction::{
-        instructions::{merge::Merge, types::SppProofInputUtxo},
-        Data, Utxo,
-    };
+    use zolana_transaction::{instructions::merge::MergeTransaction, Data, Mint, Utxo, WalletUtxo};
+
+    fn input(owner: &ShieldedKeypair) -> WalletUtxo {
+        let utxo = Utxo {
+            owner: owner.signing_pubkey(),
+            asset: Mint::SOL,
+            amount: 10,
+            blinding: [1; 32],
+            ring_program_id: None,
+            data: Data::default(),
+        };
+        let nullifier_pubkey = owner.nullifier_key.pubkey().unwrap();
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 3).unwrap();
+        WalletUtxo {
+            nullifier: owner
+                .nullifier_key
+                .nullifier(&utxo_hash, &utxo.blinding)
+                .unwrap(),
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: 3,
+            leaf_index: 0,
+            slot: 0,
+            tx_signature: Default::default(),
+            slot_index: 0,
+        }
+    }
 
     #[test]
     fn prepares_both_owner_rails_without_paths() {
@@ -262,23 +303,12 @@ mod tests {
             ShieldedKeypair::new_ed25519().unwrap(),
             ShieldedKeypair::new_p256().unwrap(),
         ] {
-            let input = SppProofInputUtxo::new(
-                Utxo {
-                    owner: owner.signing_pubkey(),
-                    asset: Address::default(),
-                    amount: 10,
-                    blinding: [1; 32],
-                    ring_program_id: None,
-                    data: Data::default(),
-                },
-                &owner,
-            )
-            .in_tree(3);
-            let merge = Merge::new(&owner, vec![input])
+            let merge = MergeTransaction::new(vec![input(&owner)])
                 .unwrap()
                 .with_output_tree_id(4)
-                .prepare();
-            let expected = merge.dummy_nullifiers(&owner.nullifier_key()).unwrap();
+                .encrypt(&owner)
+                .unwrap();
+            let expected = merge.dummy_nullifiers();
             let output = merge.output_hash().unwrap();
             let prepared = IndexedMergePreparation {
                 merge,
@@ -301,21 +331,46 @@ mod tests {
     }
 
     #[test]
+    fn rejects_changed_merge_input_commitments_and_nullifiers() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        for index in [0, 1] {
+            let mut merge = MergeTransaction::new(vec![input(&owner)])
+                .unwrap()
+                .encrypt(&owner)
+                .unwrap();
+            merge.input_utxos[index].utxo_hash[31] ^= 1;
+            assert!(matches!(
+                IndexedMergePreparation {
+                    merge,
+                    nullifier_key: owner.nullifier_key(),
+                }
+                .prepare(),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::InputCommitmentMismatch { .. }
+                ))
+            ));
+            let mut merge = MergeTransaction::new(vec![input(&owner)])
+                .unwrap()
+                .encrypt(&owner)
+                .unwrap();
+            merge.input_utxos[index].nullifier[31] ^= 1;
+            assert!(IndexedMergePreparation {
+                merge,
+                nullifier_key: owner.nullifier_key(),
+            }
+            .prepare()
+            .is_err());
+        }
+    }
+
+    #[test]
     fn rejects_changed_merge_output() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
-        let input = SppProofInputUtxo::new(
-            Utxo {
-                owner: owner.signing_pubkey(),
-                asset: Address::default(),
-                amount: 10,
-                blinding: [1; 32],
-                ring_program_id: None,
-                data: Data::default(),
-            },
-            &owner,
-        );
-        let mut merge = Merge::new(&owner, vec![input]).unwrap().prepare();
-        merge.output.amount += 1;
+        let mut merge = MergeTransaction::new(vec![input(&owner)])
+            .unwrap()
+            .encrypt(&owner)
+            .unwrap();
+        merge.output_utxo.amount += 1;
         assert!(IndexedMergePreparation {
             merge,
             nullifier_key: owner.nullifier_key()

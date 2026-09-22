@@ -6,7 +6,6 @@
 use anyhow::{anyhow, Context, Result};
 use groth16_solana::groth16::Groth16Verifier;
 use num_bigint::BigUint;
-use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -42,15 +41,19 @@ use zolana_merkle_tree::MerkleTree;
 use zolana_program::TransactExternalData;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
     instructions::transact::PrivateTxHash,
-    instructions::types::SppProofInputUtxo,
+    instructions::transact::{signed_magnitude_to_field, BN254_MODULUS_DEC},
+    utxo::SppProofInputUtxo,
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
-    SppProofOutputUtxo, Utxo, SOL_MINT,
+    SppProofOutputUtxo, Utxo,
 };
 use zolana_tree::TreeAccount;
+
+pub fn signed_to_field(value: i64) -> [u8; 32] {
+    signed_magnitude_to_field(value >= 0, value.unsigned_abs())
+}
 
 pub fn start_prover() -> Result<()> {
     static INIT: std::sync::Once = std::sync::Once::new();
@@ -525,7 +528,7 @@ fn expand_blinding(blinding: &[u8; 31]) -> [u8; 32] {
 pub fn real_output(
     signing_pubkey: PublicKey,
     nullifier_pubkey: [u8; 32],
-    asset: Address,
+    asset: zolana_transaction::Mint,
     amount: u64,
     blinding: [u8; 31],
 ) -> SppProofOutputUtxo {
@@ -563,7 +566,13 @@ pub fn change_and_dummy_outputs(
     dummy_blindings: &[[u8; 31]],
     output_tree_id: u16,
 ) -> Result<Vec<TransferOutput>> {
-    let change = real_output(owner, change_nullifier_pk, SOL_MINT, 0, change_blinding);
+    let change = real_output(
+        owner,
+        change_nullifier_pk,
+        zolana_transaction::Mint::SOL,
+        0,
+        change_blinding,
+    );
     let mut outputs = Vec::with_capacity(dummy_blindings.len() + 1);
     outputs.push(transfer_output(&change, output_tree_id)?);
     for blinding in dummy_blindings {
@@ -584,13 +593,12 @@ pub fn dummy_input(
     nf_tree: &IndexedMerkleTree<Poseidon, usize>,
     tree_id: u16,
 ) -> Result<(TransferInput, [u8; 32])> {
-    let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
-    spend.utxo.blinding = expand_blinding(blinding);
-    let nullifier = spend.nullifier()?;
+    let input_utxo = SppProofInputUtxo::dummy_with_blinding(expand_blinding(blinding), tree_id)?;
+    let nullifier = input_utxo.nullifier();
     let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
     let zero = [0u8; 32];
     let input = TransferInput {
-        utxo: ProofInputUtxo::try_from(&spend)?,
+        utxo: ProofInputUtxo::try_from(&input_utxo)?,
         is_dummy: be(&fe(1)),
         state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
         state_path_index: be(&zero),
@@ -601,7 +609,9 @@ pub fn dummy_input(
         tree_slot: BigUint::ZERO,
         nullifier: be(&nullifier),
         owner_pk_hash: be(&zero),
-        nullifier_secret: be(&zero),
+        // Padding nullifies under the zero secret, which is public, so the slot
+        // is complete as built.
+        nullifier_secret: Some(be(&zero)),
     };
     Ok((input, nullifier))
 }
@@ -610,9 +620,8 @@ pub fn dummy_input(
 /// hash with secret 0, under `tree_id`). Callers fetch this value's
 /// non-inclusion proof before building the input with [`dummy_input_with_proof`].
 pub fn dummy_nullifier(blinding: &[u8; 31], tree_id: u16) -> Result<[u8; 32]> {
-    let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
-    spend.utxo.blinding = expand_blinding(blinding);
-    Ok(spend.nullifier()?)
+    let input_utxo = SppProofInputUtxo::dummy_with_blinding(expand_blinding(blinding), tree_id)?;
+    Ok(input_utxo.nullifier())
 }
 
 /// [`dummy_input`] over an indexer-fetched non-inclusion proof for the dummy's
@@ -622,12 +631,11 @@ pub fn dummy_input_with_proof(
     non_inclusion: &zolana_client::NonInclusionProof,
     tree_id: u16,
 ) -> Result<TransferInput> {
-    let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
-    spend.utxo.blinding = expand_blinding(blinding);
-    let nullifier = spend.nullifier()?;
+    let input_utxo = SppProofInputUtxo::dummy_with_blinding(expand_blinding(blinding), tree_id)?;
+    let nullifier = input_utxo.nullifier();
     let zero = [0u8; 32];
     Ok(TransferInput {
-        utxo: ProofInputUtxo::try_from(&spend)?,
+        utxo: ProofInputUtxo::try_from(&input_utxo)?,
         is_dummy: be(&fe(1)),
         state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
         state_path_index: be(&zero),
@@ -638,7 +646,8 @@ pub fn dummy_input_with_proof(
         tree_slot: BigUint::ZERO,
         nullifier: be(&nullifier),
         owner_pk_hash: be(&zero),
-        nullifier_secret: be(&zero),
+        // See `dummy_input`: a padding slot's secret is zero and public.
+        nullifier_secret: Some(be(&zero)),
     })
 }
 
@@ -653,7 +662,7 @@ pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon, usize>> {
     )?)
 }
 
-pub struct SpendInputArgs<'a> {
+pub struct TransferInputArgs<'a> {
     pub utxo: &'a Utxo,
     pub owner_field: &'a [u8; 32],
     pub state_path: &'a [[u8; 32]],
@@ -667,11 +676,11 @@ pub struct SpendInputArgs<'a> {
     pub nullifier_key: &'a NullifierKey,
 }
 
-pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
+pub fn transfer_input(args: TransferInputArgs<'_>) -> Result<TransferInput> {
     Ok(TransferInput {
         utxo: ProofInputUtxo::new(
             *args.owner_field,
-            &args.utxo.asset,
+            &args.utxo.asset.asset,
             args.utxo.amount,
             &args.utxo.blinding,
             args.tree_id,
@@ -687,7 +696,9 @@ pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
         tree_slot: BigUint::ZERO,
         nullifier: be(args.nullifier),
         owner_pk_hash: be(args.owner_pk_hash),
-        nullifier_secret: be(&right_align_slice(&*args.nullifier_key.secret())?),
+        // Built straight from the key rather than assembled, so the slot
+        // arrives complete and no authority has anything to fill in.
+        nullifier_secret: Some(be(&right_align_slice(&*args.nullifier_key.secret())?)),
     })
 }
 
@@ -767,7 +778,7 @@ pub fn build_spl_withdrawal(
         .indexed_deposit_utxo(&event, owner)
         .context("indexed deposit UTXO")?;
     let blinding = utxo.blinding;
-    assert_eq!((utxo.asset, utxo.amount), (mint, amount));
+    assert_eq!((utxo.asset.asset, utxo.amount), (mint, amount));
     // The deposit, the spend and the outputs all live in `tree`, so one id
     // covers every commitment here.
     let tree_id = read_tree_id(&pt.account_data(tree).expect("tree account")).expect("tree id");
@@ -807,7 +818,7 @@ pub fn build_spl_withdrawal(
     let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
     let (withdraw_dummy_input, dummy_nullifier) =
         dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
-    let spend = spend_input(SpendInputArgs {
+    let withdraw_input = transfer_input(TransferInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
@@ -818,7 +829,7 @@ pub fn build_spl_withdrawal(
         owner_pk_hash: &owner_pk_hash,
         nullifier_key: &nullifier_key,
     })
-    .expect("spend input");
+    .expect("withdraw input");
 
     // The withdrawal drains the UTXO, so slot 0 is a real zero-amount change
     // output owned by the payer and slots 1-2 are dummies naming it: the payer
@@ -891,7 +902,7 @@ pub fn build_spl_withdrawal(
     .hash()
     .expect("public input hash");
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![spend, withdraw_dummy_input],
+        inputs: vec![withdraw_input, withdraw_dummy_input],
         outputs,
         tree_slots,
         output_tree_id: tree_id,

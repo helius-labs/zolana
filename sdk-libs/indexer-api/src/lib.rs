@@ -488,7 +488,7 @@ impl<'de> Deserialize<'de> for Limit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Context {
     pub block_time: i64,
@@ -523,7 +523,7 @@ pub struct GetRingsByNullifiersRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EncryptedUtxoMatch {
     pub slot: u64,
@@ -535,10 +535,20 @@ pub struct EncryptedUtxoMatch {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetEncryptedUtxosByTagsResponse {
     pub context: Context,
+    /// Where a new output should be appended: the newest tree the pool has that
+    /// is not paused. A property of the pool, not of any returned note, so it
+    /// is reported even when nothing matched -- a wallet that has never
+    /// transacted still learns where to append without a second call.
+    ///
+    /// `None` when every tree is paused, or when this indexer has not synced
+    /// tree metadata yet. Neither is an append target, and a reader that needs
+    /// one should refuse at that point rather than pick a doomed id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tree_id: Option<u16>,
     /// Output-level matches; every returned output slot has a view tag from the request.
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Base64String>,
@@ -548,16 +558,23 @@ pub struct GetEncryptedUtxosByTagsResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RingsOutputContext {
     pub hash: Hash,
+    /// The tree account the output was appended to.
+    ///
+    /// Deprecated: it is `pda::tree(tree_id)` and carries nothing `tree_id`
+    /// does not. Emitted for one release so readers can move over, then
+    /// dropped.
     pub tree: SerializablePubkey,
+    /// The raw tree id the output's commitment is hashed under.
+    pub tree_id: u16,
     pub leaf_index: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RingsOutputSlot {
     pub view_tag: Hash,
@@ -566,7 +583,7 @@ pub struct RingsOutputSlot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RingsMessage {
     pub view_tag: Hash,
@@ -574,7 +591,7 @@ pub struct RingsMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ShieldedTransaction {
     pub slot: u64,
@@ -602,10 +619,13 @@ pub struct ShieldedTransaction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
+    /// The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tree_id: Option<u16>,
     /// Transaction-level matches; each returned transaction has at least one requested
     /// output view tag and includes all of its output slots.
     pub transactions: Vec<ShieldedTransaction>,
@@ -623,7 +643,7 @@ pub struct GetShieldedTransactionsBySignatureRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct IndexedShieldedTransaction {
     pub event_index: u16,
@@ -631,18 +651,24 @@ pub struct IndexedShieldedTransaction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsBySignatureResponse {
     pub context: Context,
+    /// The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tree_id: Option<u16>,
     pub transactions: Vec<IndexedShieldedTransaction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsByNullifiersResponse {
     pub context: Context,
+    /// The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tree_id: Option<u16>,
     /// Transaction-level matches; each returned transaction spends at least one
     /// requested nullifier and includes all of its output and input slots.
     pub transactions: Vec<ShieldedTransaction>,
@@ -811,7 +837,23 @@ mod tests {
                 block_time: 3,
                 slot: 1,
             },
-            matches: Vec::new(),
+            output_tree_id: Some(4),
+            matches: vec![EncryptedUtxoMatch {
+                slot: 1,
+                tx_signature: SerializableSignature(Signature::from([9u8; 64])),
+                output_slot: RingsOutputSlot {
+                    view_tag: Hash::from([1; 32]),
+                    output_context: RingsOutputContext {
+                        hash: Hash::from([2; 32]),
+                        tree: SerializablePubkey::from([3; 32]),
+                        tree_id: 5,
+                        leaf_index: 2,
+                    },
+                    payload: Base64String(vec![4]),
+                },
+                tx_viewing_pk: None,
+                salt: None,
+            }],
             next_cursor: Some(Base64String(vec![1])),
             scanned_through: None,
         })
@@ -820,6 +862,15 @@ mod tests {
         assert!(value.get("next_cursor").is_none());
         assert!(value["context"].get("blockTime").is_some());
         assert!(value["context"].get("block_time").is_none());
+        assert_eq!(value["outputTreeId"], 4);
+        assert!(value.get("output_tree_id").is_none());
+
+        let output_context = &value["matches"][0]["outputSlot"]["outputContext"];
+        assert_eq!(output_context["treeId"], 5);
+        assert!(output_context.get("tree_id").is_none());
+        // The account stays alongside the id for one release, so a reader can
+        // move to the id before the account goes.
+        assert!(output_context.get("tree").is_some());
     }
 
     #[test]

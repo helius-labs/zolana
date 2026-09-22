@@ -25,6 +25,7 @@ use zolana_client::{
 };
 use zolana_interface::{
     instruction::{deposit_blinding, AssetDeposit},
+    pda,
     state::state_root_offset,
 };
 use zolana_program_test::DepositOutput;
@@ -103,8 +104,8 @@ pub fn assert_indexed_deposit_utxo(
         "indexed UTXO hash"
     );
     assert_eq!(
-        indexed.output_slot.output_context.tree,
-        to_address(tree),
+        pda::tree(indexed.output_slot.output_context.tree_id),
+        *tree,
         "indexed output tree"
     );
     assert_eq!(
