@@ -59,8 +59,8 @@ compiler flags, race instrumentation, and `purego` or `noasm` builds.
 `PROVER_PGO` can name a representative Go CPU profile at build time.
 Published images take these settings from `release-build.env`. Commit a
 selected profile and its metadata with the settings change. Local build
-and compose overrides are available for experiments. Follow the
-[latency experiment guide](benchmarks/TUNING.md) before selecting defaults.
+and compose overrides are available for experiments. The
+[Frankfurt measurements](benchmarks/frankfurt/README.md) show the GPU path.
 
 Use `/health` for liveness and `/ready` for load balancer readiness.
 `/ready` returns `503` until configured preloads succeed. Proof requests
