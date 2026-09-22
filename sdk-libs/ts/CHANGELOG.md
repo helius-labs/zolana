@@ -277,6 +277,8 @@ Breaking
 
 Added
 
+- `@heliuslabs/zolana/idl/*` exports Codama IDLs for the shielded-pool and user-registry programs.
+
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for

@@ -11172,6 +11172,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-idl-fixtures"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "bytemuck",
+ "serde_json",
+ "solana-address 2.6.1",
+ "zolana-event",
+ "zolana-interface",
+ "zolana-tree",
+ "zolana-user-registry-interface",
+]
+
+[[package]]
 name = "zolana-indexed-array"
 version = "0.3.0"
 dependencies = [
