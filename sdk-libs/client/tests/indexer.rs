@@ -13,15 +13,17 @@ use serde_json::{json, Value};
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    indexer::ZolanaIndexer,
+    indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     rpc::{
-        Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
-        OutputContext, OutputSlot, Rpc, ShieldedTransaction,
+        AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        GetMerkleProofsResponse, GetNonInclusionProofsResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
+        MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
+        RingMemberProofRequest, Rpc, ShieldedTransaction,
     },
     ClientError,
 };
+use zolana_indexer_api::{Hash as ApiHash, SerializablePubkey};
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 
 #[test]
@@ -572,6 +574,57 @@ fn by_signature_error_path_includes_transaction_nesting() {
     assert!(err
         .to_string()
         .contains("transactions[0].transaction.txViewingPk"));
+}
+
+fn head_query() -> RingMemberProofRequest {
+    RingMemberProofRequest {
+        ring_program_id: SerializablePubkey::from(bytes32(1)),
+        member: ApiHash(bytes32(2)),
+        expected_root: ApiHash(bytes32(3)),
+        expected_next_index: 19,
+    }
+}
+
+fn head_registration() -> Value {
+    let hash = encode_hash_string(bytes32(4));
+    json!({
+        "context": {"blockTime": 90, "slot": 20},
+        "root": encode_hash_string(bytes32(3)), "member": encode_hash_string(bytes32(2)),
+        "nextIndex": 19, "lowMember": hash, "lowNext": hash, "lowNullifier": hash,
+        "lowIndex": 7, "lowProof": vec![hash.clone(); 40], "newProof": vec![hash; 40],
+    })
+}
+
+#[test]
+fn head_registration_transport_preserves_the_exact_root_and_cursor() {
+    let server = MockServer::respond_once(rpc_result(head_registration()));
+    let query = head_query();
+    let response = ZolanaIndexer::new(server.url())
+        .get_ring_head_register_proof(query.clone())
+        .unwrap();
+    let request = server.request();
+    assert_eq!(request.path, "/getRingHeadRegisterProof");
+    assert_json_rpc_request(&request.body, "getRingHeadRegisterProof");
+    assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
+    assert_eq!(response.next_index, 19);
+    assert_eq!(response.low_index, 7);
+    assert_eq!(response.low_proof.len(), 40);
+    assert_eq!(response.new_proof.len(), 40);
+}
+
+#[tokio::test]
+async fn async_head_registration_uses_the_same_contract() {
+    let server = MockServer::respond_once(rpc_result(head_registration()));
+    let query = head_query();
+    let response = AsyncZolanaIndexer::new(server.url())
+        .get_ring_head_register_proof(query.clone())
+        .await
+        .unwrap();
+    let request = server.request();
+    assert_json_rpc_request(&request.body, "getRingHeadRegisterProof");
+    assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
+    assert_eq!(response.root.0, bytes32(3));
+    assert_eq!(response.member.0, bytes32(2));
 }
 
 fn assert_json_rpc_request(body: &Value, method: &str) {

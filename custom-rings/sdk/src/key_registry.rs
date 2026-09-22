@@ -691,7 +691,13 @@ mod tests {
             opened.secret().as_slice(),
             fixture.nullifier_key.secret().as_slice()
         );
-        assert!(entry.open(&ViewingKey::new()).is_err());
+        assert!(matches!(
+            entry.open(&ViewingKey::new()),
+            Err(
+                KeyRegistrationError::Envelope(AuditEncryptionError::NullifierPad)
+                    | KeyRegistrationError::InvalidEntryProof
+            )
+        ));
     }
 
     #[test]

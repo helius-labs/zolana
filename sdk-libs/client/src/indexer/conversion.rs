@@ -235,3 +235,27 @@ fn fixed_bytes<const N: usize>(
 fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
     ClientError::Rpc(format!("invalid indexer field {field}: {error}"))
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn ring_history_request_pins_the_ring_without_a_view_tag() {
+        let ring = solana_address::Address::new_from_array([19; 32]);
+        let request = super::ring_history_request(crate::rpc::RingHistoryOptions {
+            ring_program_id: ring,
+            cursor: Some(vec![7]),
+            limit: Some(17),
+        })
+        .unwrap();
+        assert!(request.tags.is_empty());
+        assert_eq!(request.ring_program_id.unwrap().0, ring);
+        assert_eq!(request.cursor.unwrap().0, vec![7]);
+        assert_eq!(request.limit.unwrap().value(), 17);
+        assert!(super::ring_history_request(crate::rpc::RingHistoryOptions {
+            ring_program_id: ring,
+            cursor: None,
+            limit: Some(0)
+        })
+        .is_err());
+    }
+}
