@@ -15,7 +15,7 @@ use crate::{
             assembly::{input_utxos_from_nullifiers, TransferInputUtxo},
             eddsa::TransferProver,
         },
-        ProofCompressed, ProverClient, TransferInputs,
+        ProofCompressed, Prover, TransferInputs,
     },
     rpc::{MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
@@ -156,51 +156,16 @@ impl AssembledTransfer {
     /// One call rather than "complete, then prove": the two belong together, and
     /// nothing between assembly and the prover has any use for a witness
     /// carrying key material.
-    pub fn prove(
+    pub fn prove<P: Prover + ?Sized>(
         &mut self,
-        prover: &ProverClient,
+        prover: &P,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactProof, ClientError> {
         let inputs = &mut self.prover_inputs;
-        let proof = authority.prove_transfer(prover, inputs)?;
+        authority.complete_inputs(&mut inputs.inputs)?;
+        let proof = prover.prove_transfer(inputs)?;
         crate::verify_confidential_transfer_inputs(inputs, self.public_input_hash, &proof)?;
         Ok(ProofCompressed::try_from(proof)?.to_transact_proof())
-    }
-}
-
-impl ProverClient {
-    pub fn prove_transact(
-        &self,
-        proof_inputs: SppProofInputs,
-        input_proofs: &[SpendProof],
-        dummy_nullifier_proofs: &[NonInclusionProof],
-        authority: &dyn ProofAuthority,
-    ) -> Result<TransactIxData, ClientError> {
-        self.prove_transact_with_dummy_policy(
-            proof_inputs,
-            input_proofs,
-            dummy_nullifier_proofs,
-            true,
-            authority,
-        )
-    }
-
-    pub fn prove_transact_with_dummy_policy(
-        &self,
-        proof_inputs: SppProofInputs,
-        input_proofs: &[SpendProof],
-        dummy_nullifier_proofs: &[NonInclusionProof],
-        allow_dummy_inputs: bool,
-        authority: &dyn ProofAuthority,
-    ) -> Result<TransactIxData, ClientError> {
-        let mut assembled = assemble_with_dummy_policy(
-            proof_inputs,
-            input_proofs,
-            dummy_nullifier_proofs,
-            allow_dummy_inputs,
-        )?;
-        let proof = assembled.prove(self, authority)?;
-        Ok(assembled.with_proof(proof))
     }
 }
 

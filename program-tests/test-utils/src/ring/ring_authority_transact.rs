@@ -6,7 +6,7 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos_from_nullifiers, ProofAuthority, ProverClient, PublicTransfers,
+    input_utxos_from_nullifiers, ProofAuthority, Prover, ProverClient, PublicTransfers,
     RingAuthorityProver, Shape, SpendProof, TransferInputUtxo,
 };
 use zolana_interface::{

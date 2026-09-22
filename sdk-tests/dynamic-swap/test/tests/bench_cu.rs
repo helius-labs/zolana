@@ -41,7 +41,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{
-    transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof,
+    transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof, Prover,
     ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;

@@ -15,6 +15,7 @@ use zeroize::Zeroizing;
 use crate::{
     error::ClientError,
     prover::{
+        backend::Prover,
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
             to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
@@ -264,59 +265,6 @@ impl ProverClient {
         self
     }
 
-    /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
-    /// Call [`Proof::compress`] for the wire format.
-    pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs)?, self.delivery)
-    }
-
-    /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
-    /// Call [`Proof::compress`] for the wire format.
-    pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs), self.delivery)
-    }
-
-    /// Prove a ring-authority transfer (anonymous, no signature), returning the
-    /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
-    /// call [`Proof::compress`] for the wire format.
-    pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs)?, self.delivery)
-    }
-
-    /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
-    /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
-    /// wire format.
-    pub fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs), self.delivery)
-    }
-
-    /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
-    pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs)?, self.delivery)
-    }
-
-    /// Prove a custom-ring P256 transfer.
-    pub fn prove_transfer_p256_ring(
-        &self,
-        inputs: &TransferP256Inputs,
-    ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs)?, self.delivery)
-    }
-
-    pub fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
-        self.send(request.body()?, request.delivery())
-    }
-
-    /// Prove a nullifier-tree batch address-append update, returning the
-    /// uncompressed negated proof. Call [`ProofCompressed::try_from`] for the
-    /// SPP instruction wire format.
-    pub fn prove_batch_address_append(
-        &self,
-        inputs: &BatchAddressAppendInputs,
-    ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs), Delivery::Queued)
-    }
-
     /// One POST to `/prove`, retried for transport failures and for a queued
     /// request the prover shed. Returns the status alongside the body so the
     /// caller can act on a shed request.
@@ -505,6 +453,18 @@ impl ProverClient {
             .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
         proof_from_gnark_json(&proof_json)
             .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
+    }
+}
+
+impl Prover for ProverClient {
+    /// A transfer-shaped request asks for the proof in the response unless
+    /// [`ProverClient::with_queued_proofs`] configured the queue instead.
+    fn prove_body(&self, body: &str, delivery: Delivery) -> Result<Proof, ClientError> {
+        let delivery = match delivery {
+            Delivery::InResponse => self.delivery,
+            Delivery::Queued => Delivery::Queued,
+        };
+        self.send(body, delivery)
     }
 }
 

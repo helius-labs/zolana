@@ -9,7 +9,7 @@ use std::{
 use serde_json::{json, Value};
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{AsyncProverClient, Delivery, ProveRequest, ProverClient},
+    prover::{AsyncProverClient, Delivery, ProveRequest, Prover, ProverClient},
     ClientError,
 };
 

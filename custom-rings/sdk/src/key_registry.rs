@@ -12,7 +12,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{Delivery, ProveRequest},
+    prover::{Delivery, ProveRequest, Prover},
     AsyncRpc, ClientError, Rpc,
 };
 use zolana_hasher::primitives::right_align;
