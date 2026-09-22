@@ -38,7 +38,7 @@ pub use prover::{
     transact::{assemble, assemble_with_dummy_policy, AssembledTransfer, SpendProof},
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
     AsyncProverClient, BatchAddressAppendInputs, Commitments, CompressedCommitments, Delivery,
-    MergeProofResult, MergeProver, Proof, ProofCompressed, ProofInputUtxo, ProveRequest,
+    MergeProofResult, MergeProver, Proof, ProofCompressed, ProofInputUtxo, ProveRequest, Prover,
     ProverClient, PublicInputs, PublicTransfers, RingAuthorityProofResult, RingAuthorityProver,
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
     RingTransferProver, Shape, TransferInput, TransferInputUtxo, TransferInputs, TransferOutput,

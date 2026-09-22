@@ -12,7 +12,7 @@ use zolana_transaction::instructions::transact::SppProofInputs;
 use crate::{
     authority::ProofAuthority,
     error::ClientError,
-    prover::{witness::WitnessReader, ProverClient},
+    prover::{witness::WitnessReader, Prover, ProverClient},
     rpc::{
         Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,

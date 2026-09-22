@@ -2,7 +2,7 @@
 
 use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
-use zolana_client::{MergeProver, ProverClient, Rpc};
+use zolana_client::{MergeProver, Prover, ProverClient, Rpc};
 use zolana_interface::verifying_keys::{merge_36_1, merge_8_1};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};

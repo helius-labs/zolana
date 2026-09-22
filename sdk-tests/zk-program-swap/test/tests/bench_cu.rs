@@ -34,7 +34,7 @@ use swap_sdk::{
     state::{OrderTerms, OrderUtxo},
 };
 use zolana_client::{
-    transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof,
+    transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof, Prover,
     ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;

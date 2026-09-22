@@ -38,7 +38,7 @@ impl<R> ZolanaClient<R> {
         &self,
         result: &TransferProofResult,
     ) -> Result<ProofCompressed, ClientError> {
-        let proof = self.async_prover.prove_transfer(&result.inputs).await?;
+        let proof = self.prove_transfer_async(&result.inputs).await?;
         verify_confidential_transfer_proof(result, &proof)?;
         ProofCompressed::try_from(proof)
     }
@@ -150,7 +150,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         )?;
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = self.async_prover.prove_transfer(inputs).await?;
+        let proof = self.prove_transfer_async(inputs).await?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         let trees = transact_trees(&assembled, &signed.transaction);

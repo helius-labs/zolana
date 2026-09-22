@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{MergeProver, ProverClient, SpendProof};
+use zolana_client::{MergeProver, Prover, ProverClient, SpendProof};
 use zolana_interface::error::ShieldedPoolError;
 use zolana_program::instruction::MergeTransact;
 use zolana_program_test::Rejection;
