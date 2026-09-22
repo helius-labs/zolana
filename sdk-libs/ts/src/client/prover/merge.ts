@@ -221,7 +221,16 @@ interface PreparedMergeAssembly {
 export function prepareMerge(prepared: PreparedMerge, tree: Address): PreparedMergeAssembly {
   validateMergeTree(prepared, tree);
   const expiryUnixTs = prepared.expiryUnixTs;
-  prepared.inputUtxoHashes();
+  // 1. Reuse commitments within one call to keep mutable input bytes bound to the statement.
+  const realCommitments = new Map(
+    prepared.inputUtxoHashes().map(({ index, utxoHash }) => [index, utxoHash]),
+  );
+  const commitments = prepared.inputs.map((input, index) => {
+    if (input.isDummy()) return null;
+    const commitment = realCommitments.get(index);
+    if (commitment === undefined) throw new ClientError("CLIENT_INVALID_MERGE");
+    return commitment;
+  });
   const dummyNullifiers = prepared.dummyNullifiers();
   let dummyIndex = 0;
   const inputs = prepared.inputs.map((input) => {
@@ -233,8 +242,8 @@ export function prepareMerge(prepared: PreparedMerge, tree: Address): PreparedMe
         : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
     return prepareInput(input, { owner, treeSlot: 0, nullifier });
   });
-  const inputHashes = prepared.inputs.map((input) =>
-    input.isDummy() ? 0n : bytesToBigInt(input.hash()),
+  const inputHashes = commitments.map((commitment) =>
+    commitment === null ? 0n : bytesToBigInt(commitment),
   );
   const nullifiers = inputs.map((input) =>
     checkedBytes(bigintToBytes(input.nullifier), 32, "nullifier"),
@@ -297,9 +306,7 @@ export function prepareMerge(prepared: PreparedMerge, tree: Address): PreparedMe
       payload,
       trees: Object.freeze([{ tree, id: prepared.inputTreeId }]),
       lookups: Object.freeze(
-        prepared.inputs.map((input) =>
-          Object.freeze({ treeSlot: 0, commitment: input.isDummy() ? null : input.hash() }),
-        ),
+        commitments.map((commitment) => Object.freeze({ treeSlot: 0, commitment })),
       ),
       publicInputs: Object.freeze(publicInputs),
     }),

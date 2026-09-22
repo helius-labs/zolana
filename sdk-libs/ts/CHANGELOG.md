@@ -430,6 +430,7 @@ Added
 
 Changed
 
+- `ZolanaClient.proveMerge` prepares merge proofs with less local hashing.
 - `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 25,000, so
   `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100. The state tree retains one
   final root for each of the latest 500 slots that updated it, exported as

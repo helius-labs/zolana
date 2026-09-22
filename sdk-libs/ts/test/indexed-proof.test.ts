@@ -23,6 +23,46 @@ const STANDARD_PROOF = {
 
 const decode = wireDecoder(() => new Error("invalid shared vector"));
 
+it.each([1, 8])("hashes each real merge input once with %i real inputs", (count) => {
+  const owner = ShieldedKeypair.generate();
+  try {
+    const inputs = Array.from({ length: count }, () =>
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
+          owner: owner.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 5n,
+          blinding: randomBlinding(),
+        }),
+        owner,
+      ),
+    );
+    const prepared = Merge.fromKeypair(owner, inputs).prepare();
+    const expected = inputs.map((input) => input.hash());
+    const hashes = inputs.map((input) => vi.spyOn(input, "hash"));
+    try {
+      const tree = treeAddress(prepared.inputTreeId);
+      const first = prepareMerge(prepared, tree);
+      hashes.forEach((hash) => expect(hash).toHaveBeenCalledTimes(1));
+      expect(first.inputs.lookups.map((lookup) => lookup.commitment)).toEqual([
+        ...expected,
+        ...Array.from({ length: 8 - count }, () => null),
+      ]);
+      const input = inputs[0];
+      if (input === undefined) throw new Error("missing test input");
+      input.utxo.blinding.fill(0);
+      const second = prepareMerge(prepared, tree);
+      expect(second.inputs.lookups[0]?.commitment).not.toEqual(expected[0]);
+      expect(second.inputs.payload.privateTxHash).not.toBe(first.inputs.payload.privateTxHash);
+      expect(first.inputs.lookups[0]?.commitment).toEqual(expected[0]);
+    } finally {
+      hashes.forEach((hash) => hash.mockRestore());
+    }
+  } finally {
+    owner.destroy();
+  }
+});
+
 describe("indexed proof transcript", () => {
   it("matches the Go and Rust transcript vector", () => {
     const json: unknown = JSON.parse(
