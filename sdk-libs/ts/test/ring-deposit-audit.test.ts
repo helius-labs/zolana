@@ -113,15 +113,21 @@ describe("deposit disclosure", () => {
         expect(opened.blinding).toEqual(openings[index]?.blinding);
         opened.ownerHash.fill(0);
         opened.blinding.fill(0);
-        expect(() => openRingDepositOpening(capsule, auditor, field(0n))).toThrow();
+        expect(() => openRingDepositOpening(capsule, auditor, field(0n))).toThrow(
+          expect.objectContaining({ code: "RING_AUDIT_MESSAGE" }),
+        );
       }
       expect(new Set(sealed.capsules.map((capsule) => capsule.ciphertext.join())).size).toBe(8);
       const first = sealed.capsules[0];
       if (first === undefined) throw new Error("missing capsule");
       expect(() =>
         readRingDepositCapsule(sealed.payloads[0]?.slice(0, 105) ?? new Uint8Array()),
-      ).toThrow();
-      expect(() => encodeRingDepositCapsule({ ...first, slotIndex: 8 })).toThrow();
+      ).toThrow(
+        expect.objectContaining({ code: "INTERFACE_CODEC", details: { field: "deposit capsule" } }),
+      );
+      expect(() => encodeRingDepositCapsule({ ...first, slotIndex: 8 })).toThrow(
+        expect.objectContaining({ code: "INTERFACE_CODEC", details: { field: "deposit slot" } }),
+      );
       expect(readRingDepositCapsule(Uint8Array.of(1, 2, 3))).toBeUndefined();
     } finally {
       sealed.ephemeralSecret.fill(0);
@@ -260,17 +266,20 @@ describe("deposit disclosure", () => {
           proof: new Uint8Array(192),
           deposits: [...deposits, deposits[0]!],
         }),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ code: "INTERFACE_CODEC", details: { field: "deposit count" } });
       await expect(
         ringDepositInstruction({ ...input, proof: new Uint8Array(191) }),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({
+        code: "INTERFACE_INVALID_LENGTH",
+        details: { name: "deposit proof", expected: 192, actual: 191 },
+      });
       await expect(
         ringDepositInstruction({
           ...input,
           proof: new Uint8Array(192),
           deposits: [...deposits].reverse(),
         }),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ code: "INTERFACE_CODEC", details: { field: "deposit capsule" } });
     } finally {
       sealed.ephemeralSecret.fill(0);
       auditor.destroy();
@@ -296,23 +305,24 @@ describe("deposit disclosure", () => {
         ownerHashes: input.ownerHashes.map((bytes) => `0x${Buffer.from(bytes).toString("hex")}`),
         ephSk: `0x${Buffer.from(input.ephemeralSecret).toString("hex")}`,
       });
+      const invalidInputs = expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" });
       expect(() =>
         customRingDepositProofRequest({ ...input, publicInputHash: field(BN254_SCALAR_ORDER) }),
-      ).toThrow();
-      expect(() => customRingDepositProofRequest({ ...input, count: 0 })).toThrow();
-      expect(() => customRingDepositProofRequest({ ...input, count: 9 })).toThrow();
-      expect(() =>
-        customRingDepositProofRequest({ ...input, ephemeralSecret: field(0n) }),
-      ).toThrow();
+      ).toThrow(invalidInputs);
+      expect(() => customRingDepositProofRequest({ ...input, count: 0 })).toThrow(invalidInputs);
+      expect(() => customRingDepositProofRequest({ ...input, count: 9 })).toThrow(invalidInputs);
+      expect(() => customRingDepositProofRequest({ ...input, ephemeralSecret: field(0n) })).toThrow(
+        invalidInputs,
+      );
       expect(() =>
         customRingDepositProofRequest({ ...input, auditorPublicKey: new Uint8Array(65) }),
-      ).toThrow();
+      ).toThrow(invalidInputs);
       expect(() =>
         customRingDepositProofRequest({
           ...input,
           blindings: [...input.blindings.slice(0, 7), field(1n)],
         }),
-      ).toThrow();
+      ).toThrow(invalidInputs);
       const fetch = vi.fn<typeof globalThis.fetch>(async (_url, options) => {
         expect(new Headers(options?.headers).get("X-Sync")).toBeNull();
         expect(JSON.parse(String(options?.body))).toEqual(customRingDepositProofRequest(input));

@@ -1,6 +1,6 @@
 {
   "name": "@heliuslabs/zolana",
-  "version": "0.2.0-alpha",
+  "version": "0.3.0-alpha",
   "description": "TypeScript SDK for the Zolana shielded protocol.",
   "license": "Apache-2.0",
   "files": [
@@ -26,8 +26,8 @@
       "import": "./dist/instructions.js"
     },
     "./interface": {
-      "types": "./dist/interface-compat.d.ts",
-      "import": "./dist/interface-compat.js"
+      "types": "./dist/interface/index.d.ts",
+      "import": "./dist/interface/index.js"
     },
     "./keypair": {
       "types": "./dist/keypair/index.d.ts",
