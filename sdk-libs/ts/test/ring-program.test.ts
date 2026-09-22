@@ -402,6 +402,7 @@ describe("deployment", () => {
     readonly balance?: bigint;
     readonly bufferContent?: Uint8Array;
     readonly failFirstConfirmation?: boolean;
+    readonly failFirstStatusLookup?: boolean;
     readonly failFirstSend?: boolean;
     readonly rejectOnChain?: boolean;
     readonly rejectInPreflight?: boolean;
@@ -433,6 +434,7 @@ describe("deployment", () => {
     let slot = 10n;
     let confirmations = 0;
     let sendCalls = 0;
+    let statusCalls = 0;
     const bufferData = () => {
       const size = options.buffer?.size ?? 37 + binary.bytes.length;
       const data = new Uint8Array(size);
@@ -451,13 +453,17 @@ describe("deployment", () => {
       }),
       getSlot: () => ({ send: async () => (slot += 1n) }),
       getSignatureStatuses: () => ({
-        send: async () => ({
-          value: [
-            options.landLate && confirmations === 1
-              ? { err: null, confirmationStatus: "confirmed" as const, slot: 3n }
-              : null,
-          ],
-        }),
+        send: async () => {
+          statusCalls += 1;
+          if (options.failFirstStatusLookup && statusCalls === 1) throw new Error("rate limited");
+          return {
+            value: [
+              options.landLate && confirmations === 1
+                ? { err: null, confirmationStatus: "confirmed" as const, slot: 3n }
+                : null,
+            ],
+          };
+        },
       }),
       sendTransaction: (encoded: string) => ({
         send: async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
@@ -511,6 +517,7 @@ describe("deployment", () => {
       writes,
       rents,
       maxInFlight: () => maxInFlight,
+      statusCalls: () => statusCalls,
       getLatestBlockhash: vi.fn(async () => BLOCKHASH),
       getBalance: vi.fn(async () => options.balance ?? 1_000_000_000_000n),
       getAccount: vi.fn(async (account: Address) => {
@@ -635,6 +642,16 @@ describe("deployment", () => {
         attempts: 1,
       }),
     ).rejects.toMatchObject({ code: "RING_DEPLOY_PROGRAM", causeCode: "CLIENT_RPC" });
+  });
+
+  it("keeps retrying when the recovery status lookup is transiently unavailable", async () => {
+    const keys = await signers();
+    const client = chain(keys, { failFirstConfirmation: true, failFirstStatusLookup: true });
+    await expect(deployRingProgram(params(keys, client))).resolves.toMatchObject({
+      kind: "deployed",
+    });
+    expect(client.statusCalls()).toBe(1);
+    expect(client.confirmTransaction.mock.calls.length).toBeGreaterThan(1);
   });
 
   it("stops at a transaction the chain refused without re-signing it", async () => {
