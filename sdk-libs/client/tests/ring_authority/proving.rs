@@ -3,9 +3,8 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    assign_spend_output_blindings, InputUtxoContext, PreparedRingAuthority, ProverClient,
-    PublicTransfers, RingAuthorityProver, RingAuthorityWitness, Rpc, Shape, SppProofInputUtxo,
-    TransferSpendInput,
+    assign_spend_output_blindings, InputUtxoContext, ProverClient, PublicTransfers,
+    RingAuthorityProver, Rpc, Shape, SppProofInputUtxo, TransferSpendInput,
 };
 use zolana_interface::{
     instruction::{
@@ -18,10 +17,7 @@ use zolana_interface::{
     },
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
-use zolana_transaction::{
-    instructions::transact::{prepare_output_blindings, shape::Shape as TxShape},
-    Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
-};
+use zolana_transaction::{Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use crate::{
     harness::{Mode, RingAuthorityHarness},
@@ -42,7 +38,6 @@ impl RingAuthorityHarness {
             Mode::MultiReal => prove_and_verify(multi_real(), 3, 3),
             Mode::P256Input => prove_and_verify(p256_input(), 1, 1),
             Mode::MixedOwners => prove_and_verify(mixed_owners(), 2, 2),
-            Mode::Boundary => prove_and_verify(boundary_prover(), 2, 2),
         }
     }
 }
@@ -87,65 +82,6 @@ fn mixed_owners() -> RingAuthorityProver {
     let mut indexer = TestIndexer::new();
     let inputs = build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0), (p256_keypair(), 0)]);
     assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2)
-}
-
-/// #5: build through the transaction-crate boundary: `PreparedRingAuthority` ->
-/// `RingAuthorityWitness` -> `RingAuthorityProver` (shape 2x2).
-fn boundary_prover() -> RingAuthorityProver {
-    let ring = ring_program();
-    let mut indexer = TestIndexer::new();
-    let kp = eddsa_keypair();
-    let utxo = Utxo {
-        owner: kp.signing_pubkey(),
-        asset: SOL_MINT,
-        amount: 0,
-        blinding: random_blinding(),
-        ring_program_id: Some(ring),
-        data: Data::default(),
-    };
-    let nullifier_pk = kp.nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo_hash = utxo
-        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
-        .expect("utxo hash");
-    indexer.add_utxo(utxo_hash);
-
-    let inputs = vec![
-        SppProofInputUtxo::new(utxo, &kp).in_tree(TEST_TREE_ID),
-        SppProofInputUtxo::new_dummy().in_tree(TEST_TREE_ID),
-    ];
-    let mut outputs = vec![dummy_output(), dummy_output()];
-    let blinding_seed =
-        prepare_output_blindings(&inputs, &mut outputs).expect("derive output blindings");
-    let prepared = PreparedRingAuthority {
-        blinding_seed,
-        output_tree_id: TEST_TREE_ID,
-        inputs,
-        outputs,
-        public_transfers: PublicTransfers::default(),
-        external_data: ring_external_data(2),
-        payer: Address::new_from_array([0u8; 32]),
-        ring_program_id: Some(ring),
-        shape: TxShape::IN2_OUT2,
-    };
-    let commitments = prepared.input_utxo_hashes().expect("input commitments");
-    let proofs = indexer
-        .get_input_merkle_proofs(&commitments, None)
-        .expect("merkle proofs");
-    let dummy_nullifier_proofs = prepared
-        .inputs
-        .iter()
-        .filter(|input| input.is_dummy())
-        .map(|input| {
-            let nullifier = input.nullifier().expect("dummy nullifier");
-            TestIndexer::new().dummy_nullifier_proof(nullifier)
-        })
-        .collect();
-    RingAuthorityProver::try_from(RingAuthorityWitness {
-        prepared,
-        proofs,
-        dummy_nullifier_proofs,
-    })
-    .expect("ring-authority prover")
 }
 
 // ---- shared helpers -----------------------------------------------------------

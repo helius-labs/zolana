@@ -37,7 +37,7 @@ pub use error::ClientError;
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use input_proofs::InputProofs;
 pub use prover::{
-    assign_spend_output_blindings, canonical_shape, input_utxos,
+    assign_spend_output_blindings, attach_input_proofs, canonical_shape, input_utxos,
     merge::MergeWitness,
     resolve_shape, spawn_prover, spawn_prover_with_artifacts,
     transact::{
@@ -48,10 +48,10 @@ pub use prover::{
     AsyncProverClient, BatchAddressAppendInputs, Commitments, CompressedCommitments, Delivery,
     MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof, ProofCompressed,
     ProofInputUtxo, ProveRequest, ProverClient, PublicInputs, PublicTransfers,
-    RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
-    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
-    RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
-    TransferProofResult, TransferProver, TransferSpendInput, TreeSlotFields, SPP_SUPPORTED_SHAPES,
+    RingAuthorityProofResult, RingAuthorityProver, RingTransferP256ProofResult,
+    RingTransferP256Prover, RingTransferProofResult, RingTransferProver, Shape, TransferInput,
+    TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult, TransferProver,
+    TransferSpendInput, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
@@ -80,7 +80,6 @@ pub use zolana_transaction::{
             MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
         },
         merge_ring::{MergeRing, PreparedMergeRing},
-        ring_authority::PreparedRingAuthority,
         transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},
         types::{InputUtxoContext, SppProofInputUtxo},
     },

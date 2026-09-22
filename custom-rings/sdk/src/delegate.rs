@@ -1,4 +1,7 @@
-use crate::authority::{AuthoritySeal, RingAuthorityMove};
+use crate::{
+    authority::{AuthoritySeal, RingAuthorityMove},
+    PreparedRingAuthority,
+};
 use futures::future::try_join;
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -11,10 +14,7 @@ use zolana_interface::{
     N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{random_salt, ShieldedAddress, ViewingKey};
-use zolana_transaction::{
-    instructions::{ring_authority::PreparedRingAuthority, transact::SppProofOutputUtxo},
-    AssetRegistry,
-};
+use zolana_transaction::{instructions::transact::SppProofOutputUtxo, AssetRegistry};
 
 use crate::{
     instructions::spend::ReadEnvironment,

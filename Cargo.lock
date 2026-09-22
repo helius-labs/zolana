@@ -2109,6 +2109,7 @@ dependencies = [
  "zolana-indexer-api",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-merkle-tree",
  "zolana-ring-client",
  "zolana-ring-head-map",
  "zolana-ring-policy",

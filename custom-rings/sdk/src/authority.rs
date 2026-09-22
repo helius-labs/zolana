@@ -8,7 +8,6 @@ use zolana_keypair::{constants::SALT_LEN, ViewingKey};
 use zolana_transaction::{
     error::TransactionError,
     instructions::{
-        ring_authority::PreparedRingAuthority,
         transact::{
             shape::Shape,
             slots::encode_confidential_slots,
@@ -19,6 +18,8 @@ use zolana_transaction::{
     },
     AssetRegistry, ExternalData, SppProofOutputUtxo,
 };
+
+use crate::PreparedRingAuthority;
 
 const MAX_AUTHORITY_SLOTS: usize = 4;
 

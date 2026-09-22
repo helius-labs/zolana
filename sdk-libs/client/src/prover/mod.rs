@@ -20,9 +20,9 @@ pub use inputs::{
 pub use merge::{MergeProofResult, MergeProver};
 pub use merge_ring::{MergeRingProver, MergeRingWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
-pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness};
+pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
 pub use transact::{
-    assign_spend_output_blindings, input_utxos, PublicInputs, PublicTransfers,
+    assign_spend_output_blindings, attach_input_proofs, input_utxos, PublicInputs, PublicTransfers,
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
     RingTransferProver, TransferProofResult, TransferProver, TransferSpendInput,
 };

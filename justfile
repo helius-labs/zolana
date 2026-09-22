@@ -314,6 +314,7 @@ test-program-proofs-programs-only: build-programs build-prover-server build-cli
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
 test-program-proofs: test-program-proofs-programs-only
     cargo nextest run -p zolana-client --features proofs --test transaction_proving --test merge_proving --test merge_ring_proving --test ring_authority_proving --test ring_transfer_proving --test-threads 1
+    cargo nextest run -p custom-ring-sdk --features proofs --test ring_authority_boundary --test-threads 1
 
 # Export Mollusk's exact-error cases as replayable fuzz fixtures. Only the
 # Mollusk-backed cases in tests/deposit/rejection.rs (the `deposit_rejection`
@@ -582,6 +583,7 @@ coverage-report *args="--summary-only":
 # prover binary and the zolana CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
     cargo nextest run -p zolana-client --all-features --test-threads 1
+    cargo nextest run -p custom-ring-sdk --features proofs --test ring_authority_boundary --test-threads 1
     cargo test --doc -p zolana-client --all-features
 
 # One real transfer proof through Redis, TransferQueueWorker, and the Rust

@@ -12,6 +12,7 @@ publish = false
 # instruction builders, proof inputs, and auditor codec, none of which need RPC.
 default = ["solana-rpc"]
 solana-rpc = ["dep:solana-rpc-client-api", "zolana-client/solana-rpc"]
+proofs = ["zolana-client/proofs"]
 
 [dependencies]
 borsh = { workspace = true }
@@ -64,3 +65,8 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
+zolana-merkle-tree = { workspace = true }
+
+[[test]]
+name = "ring_authority_boundary"
+required-features = ["proofs"]

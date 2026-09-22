@@ -9,6 +9,7 @@ mod delegate;
 mod head_map;
 mod instructions;
 mod key_registry;
+mod prepared_authority;
 mod shared;
 #[cfg(feature = "solana-rpc")]
 mod submission;
@@ -83,6 +84,7 @@ pub use crate::{
     key_registry::{
         KeyRegistrationError, ProvenKeyRegistration, ReadSealedKey, RegisterKey, SealedKeyEntry,
     },
+    prepared_authority::{PreparedRingAuthority, RingAuthorityWitness},
     shared::{
         client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
         CustomRingConfig, CustomRingDelegate, CustomRingSpendWindow, IndexedMapRoot, PinnedPolicy,

@@ -13,10 +13,7 @@ use zolana_interface::{
     instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
 };
 use zolana_transaction::{
-    instructions::{
-        ring_authority::PreparedRingAuthority,
-        transact::{PrivateTxHash, PublicTransfers},
-    },
+    instructions::transact::{PrivateTxHash, PublicTransfers},
     utxo::{derive_output_blinding_seed, derive_private_tx_blinding, program_id_proof_input_hash},
     ExternalData, SppProofOutputUtxo,
 };
@@ -26,16 +23,12 @@ use crate::{
     prover::{
         field::be,
         resolve_shape,
-        transact::{
-            assembly::{
-                assemble_inputs, assemble_outputs, validate_output_blindings, OwnerMode,
-                PublicInputs, TransferSpendInput,
-            },
-            witness::{attach_input_proofs, SpendProof},
+        transact::assembly::{
+            assemble_inputs, assemble_outputs, validate_output_blindings, OwnerMode, PublicInputs,
+            TransferSpendInput,
         },
         Shape, TransferInputs, TreeSlotFields,
     },
-    rpc::NonInclusionProof,
 };
 
 /// Ring-authority state transition over ring-owned UTXOs. The ring authority is
@@ -156,56 +149,6 @@ impl RingAuthorityProver {
             private_tx_hash: private_tx,
             tree_contexts: assembled_inputs.tree_contexts,
             input_tree_indexes: assembled_inputs.input_tree_indexes,
-        })
-    }
-}
-
-/// A [`PreparedRingAuthority`] plus the fetched Merkle proofs, ready to fold into a
-/// [`RingAuthorityProver`]. Mirrors the merge `MergeWitness` pattern: one
-/// [`SpendProof`] per real (non-dummy) input, in input order.
-pub struct RingAuthorityWitness {
-    pub prepared: PreparedRingAuthority,
-    pub proofs: Vec<SpendProof>,
-    /// One nullifier non-inclusion proof per dummy input, in dummy-slot order.
-    /// Unlike merge, the shared transfer circuit checks non-inclusion for every
-    /// slot, including padding.
-    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
-}
-
-impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
-    type Error = ClientError;
-
-    fn try_from(witness: RingAuthorityWitness) -> Result<Self, Self::Error> {
-        let RingAuthorityWitness {
-            prepared,
-            proofs,
-            dummy_nullifier_proofs,
-        } = witness;
-        let PreparedRingAuthority {
-            inputs,
-            outputs,
-            blinding_seed,
-            output_tree_id,
-            public_transfers,
-            external_data,
-            payer,
-            ring_program_id,
-            shape,
-        } = prepared;
-
-        let spends = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
-
-        Ok(RingAuthorityProver {
-            inputs: spends,
-            outputs,
-            blinding_seed,
-            output_tree_id,
-            external_data,
-            public_transfers,
-            payer,
-            allow_dummy_inputs: true,
-            ring_program_id,
-            shape: Some(shape),
         })
     }
 }

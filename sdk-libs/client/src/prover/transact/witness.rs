@@ -31,7 +31,7 @@ pub struct SpendProof {
 /// the next dummy non-inclusion proof (the transact circuit checks non-inclusion
 /// for every slot). Shared by every witness builder (transact, merge,
 /// merge-ring, ring-authority).
-pub(crate) fn attach_input_proofs(
+pub fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
