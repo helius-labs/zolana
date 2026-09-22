@@ -1154,6 +1154,7 @@ mod tests {
                 ring,
                 delegate: sender.pubkey(),
                 payer: sender.pubkey(),
+                source_nullifier_key: &sender.nullifier_key,
                 inputs,
                 outputs: vec![crate::DelegateOutput {
                     recipient: sender.shielded_address().unwrap(),

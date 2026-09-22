@@ -6,14 +6,14 @@ use futures::future::try_join;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
-    AsyncRpc, Proof, ProofCompressed, ProofInputUtxo, RingAuthorityProofResult,
+    AsyncRpc, Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, RingAuthorityProofResult,
     RingAuthorityProver, Rpc, TransferInputs,
 };
 use zolana_interface::{
     instruction::{CircuitId, TransactIxData, TransactProof},
     N_PUBLIC_SLOTS,
 };
-use zolana_keypair::{random_salt, ShieldedAddress, ViewingKey};
+use zolana_keypair::{random_salt, NullifierKey, ShieldedAddress, ViewingKey};
 use zolana_transaction::{
     instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo, AssetRegistry,
 };
@@ -37,11 +37,14 @@ pub struct DelegateOutput {
     pub amount: u64,
 }
 
-pub struct DelegateTransferInput {
+pub struct DelegateTransferInput<'a> {
     pub ring: CustomRing,
     /// Signs the transaction beside the payer.
     pub delegate: Address,
     pub payer: Address,
+    /// The recovered source member key completes ownership witnesses without
+    /// making the member sign the delegated transaction.
+    pub source_nullifier_key: &'a NullifierKey,
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<DelegateOutput>,
 }
@@ -52,6 +55,7 @@ pub struct DelegateTransfer<'a> {
     ring: CustomRing,
     delegate: Address,
     payer: Address,
+    source_nullifier_key: NullifierKey,
     inputs: Vec<SppProofInputUtxo>,
     outputs: Vec<DelegateOutput>,
     input_tree: Option<Address>,
@@ -80,11 +84,12 @@ pub struct ProvenDelegateTransfer {
 }
 
 impl<'a> DelegateTransfer<'a> {
-    pub fn new(input: DelegateTransferInput) -> Self {
+    pub fn new(input: DelegateTransferInput<'a>) -> Self {
         Self {
             ring: input.ring,
             delegate: input.delegate,
             payer: input.payer,
+            source_nullifier_key: input.source_nullifier_key.clone(),
             inputs: input.inputs,
             outputs: input.outputs,
             input_tree: None,
@@ -300,6 +305,7 @@ impl<'a> DelegateTransfer<'a> {
             tx_viewing_key,
             pending_proof,
             prepared,
+            source_nullifier_key: self.source_nullifier_key,
             delegate: self.delegate,
             input_tree: trees.input.address,
             output_tree: trees.output.address,
@@ -353,6 +359,7 @@ struct StagedDelegateTransfer {
     tx_viewing_key: ViewingKey,
     pending_proof: PendingCustomRingProof,
     prepared: PreparedRingAuthority,
+    source_nullifier_key: NullifierKey,
     delegate: Address,
     input_tree: Address,
     output_tree: Address,
@@ -377,7 +384,7 @@ impl StagedDelegateTransfer {
         tier: Tier,
     ) -> Result<WitnessedDelegateTransfer, TransferError> {
         let shape = self.prepared.shape;
-        let result = RingAuthorityProver {
+        let mut result = RingAuthorityProver {
             inputs: spends.inputs,
             outputs: self.prepared.outputs.clone(),
             blinding_seed: self.prepared.blinding_seed,
@@ -390,6 +397,8 @@ impl StagedDelegateTransfer {
             shape,
         }
         .build()?;
+        self.source_nullifier_key
+            .complete_inputs(&mut result.inputs.inputs)?;
         let request = TierRequestInput {
             tier,
             pending: self.pending_proof,

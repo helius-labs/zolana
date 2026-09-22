@@ -250,6 +250,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         ring: ctx.ring,
         delegate: delegate.pubkey(),
         payer: authority.pubkey(),
+        source_nullifier_key: &nullifier_key,
         inputs,
         outputs,
     })

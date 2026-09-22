@@ -1902,6 +1902,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
             ring,
             delegate: delegate.pubkey(),
             payer: env.payer.pubkey(),
+            source_nullifier_key: &recipient.nullifier_key,
             inputs: vec![Note {
                 owner: recipient,
                 asset: usdc,
@@ -2348,6 +2349,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         ring,
         delegate: delegate.pubkey(),
         payer: env.payer.pubkey(),
+        source_nullifier_key: &sender.nullifier_key,
         inputs: vec![delegated_input],
         outputs: vec![DelegateOutput {
             recipient,
@@ -2857,6 +2859,7 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
         ring,
         delegate: delegate.pubkey(),
         payer: env.payer.pubkey(),
+        source_nullifier_key: &nullifier_key,
         inputs: vec![SppProofInputUtxo::from(moved)],
         outputs: vec![DelegateOutput {
             recipient: env.recipient.keypair.shielded_address()?,
