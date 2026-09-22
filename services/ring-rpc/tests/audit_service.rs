@@ -14,7 +14,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse};
+use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse, ProofInputUtxo};
 use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
@@ -34,7 +34,6 @@ use zolana_ring_rpc::{
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-    utxo::ProofInputUtxo,
     AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, UtxoSerialization,
     SOL_ASSET_ID, SOL_MINT,
 };
@@ -521,14 +520,8 @@ fn proof_output(asset_id: u64, amount: u64, slot_index: u32) -> ProofInputUtxo {
     };
     let mut owner_hash = [0u8; 32];
     owner_hash[31] = slot_index as u8 + 1;
-    ProofInputUtxo::new(
-        owner_hash,
-        &asset,
-        amount,
-        &[slot_index as u8; 32],
-        u16::from(TREE.to_bytes()[0]),
-    )
-    .expect("proof output")
+    ProofInputUtxo::new(owner_hash, &asset, amount, &[slot_index as u8; 32], TREE_ID)
+        .expect("proof output")
 }
 
 fn auditor_message(

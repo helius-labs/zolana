@@ -105,7 +105,9 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/EncryptedUtxoMatch'
-                        description: All outputs in the selected ring when tags are empty.
+                        description: |-
+                          Output-level matches. With tags these carry a requested view tag; with
+                          an empty tag set they contain all outputs in the selected ring.
                       nextCursor:
                         oneOf:
                         - type: 'null'
@@ -914,9 +916,9 @@ paths:
                         items:
                           $ref: '#/components/schemas/ShieldedTransaction'
                         description: |-
-                          All slots of each matched transaction, including full ring history when
-                          tags are empty.
-                    additionalProperties: false
+                          Transaction-level matches with all output slots. With tags, each
+                          transaction has at least one requested view tag; with an empty tag set,
+                          the response contains the selected ring's full history.
         '429':
           description: Exceeded rate limit.
           content:
