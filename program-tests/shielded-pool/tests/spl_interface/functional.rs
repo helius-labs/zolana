@@ -8,7 +8,8 @@ use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit, SplDepositAssertArgs,
 };
-use zolana_transaction::{AssetRegistry, KeypairWalletAuthority, Wallet};
+use zolana_transaction::AssetRegistry;
+use zolana_wallet::{KeypairWalletAuthority, Wallet};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_depositor, Pool};
 
@@ -139,12 +140,18 @@ fn permissionless_spl_interface_creation_accepts_outsider() {
 #[test]
 fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
     let mut pool = Pool::initialized();
-    let (mint, _, vault) = register_mint(&mut pool);
+    let (mint, registry_address, vault) = register_mint(&mut pool);
+    let registry_data = pool
+        .rpc
+        .account_data(&registry_address)
+        .expect("asset registry");
+    let asset = zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
+        .expect("asset registry");
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
     let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_key.shielded_address().expect("shielded address"),
-        AssetRegistry::default(),
+        AssetRegistry::new([(asset.asset_id, mint)]).expect("registered asset"),
     )
     .expect("recipient wallet");
     let data =

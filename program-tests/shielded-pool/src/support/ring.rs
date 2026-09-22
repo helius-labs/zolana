@@ -30,10 +30,11 @@ use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
     dummy_transfer_output, external_data_hash_for_discriminator, inline_outputs, input_utxo,
     new_transact_ix_data, output_owner_pk_hashes, pack_transact_proof, set_output_owner_tags,
-    single_tree_slots, sol_public_slots, spend_input, test_private_tx_blinding, SpendInputArgs,
-    TransferProverInputsArgs, TEST_BLINDING_SEED,
+    single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_input,
+    TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, SyncWalletAuthority};
+use zolana_transaction::instructions::transact::PrivateTxHash;
+use zolana_wallet::SyncWalletAuthority;
 
 use super::fixtures::Pool;
 use super::merge::ZeroDeposits;
@@ -151,7 +152,7 @@ impl RealRingTransact {
         let utxo_hash = real.utxo_hash;
         let nullifier = real.nullifier;
 
-        let mut inputs = vec![spend_input(SpendInputArgs {
+        let mut inputs = vec![transfer_input(TransferInputArgs {
             utxo: &real.utxo,
             owner_field: &deposits.owner_field,
             state_path: &real.state_path,

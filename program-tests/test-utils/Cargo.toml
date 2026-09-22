@@ -40,6 +40,7 @@ zolana-merkle-tree = { workspace = true }
 zolana-program = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-wallet = { workspace = true }
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 

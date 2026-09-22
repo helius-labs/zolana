@@ -1,3 +1,7 @@
+use zolana_test_utils::utxo::{
+    encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+};
+use zolana_transaction::utxo::SppProofInputUtxo;
 mod shared;
 
 use anyhow::{anyhow, Result};
@@ -6,16 +10,10 @@ use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::instruction::Transact;
 use zolana_transaction::{
-    instructions::{
-        transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
-            ExternalData, SppProofInputs, SppProofOutputUtxo,
-        },
-        types::SppProofInputUtxo,
-    },
-    Address, AssetBalance, Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
+    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
+    Data, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
-use zolana_wallet::sync_wallet;
+use zolana_wallet::{sync_wallet, Filter};
 
 // `Transact` places the shielded-pool and System Program accounts after the
 // payer/tree prefix, so the additional taker signer lands at account index 5,
@@ -50,19 +48,20 @@ fn cosigned_rfq_settlement() -> Result<()> {
         .cloned()
         .ok_or_else(|| anyhow!("no taker usdc utxo >= {BUY_USDC}"))?;
 
-    let maker_spend = SppProofInputUtxo::new(maker_sol_utxo, &maker.keypair).in_tree(tree_id);
-    let taker_spend = SppProofInputUtxo::new(taker_usdc_utxo, &taker.keypair).in_tree(tree_id);
-    let inputs = vec![maker_spend, taker_spend];
+    let maker_input_utxo = SppProofInputUtxo::from(maker_sol_utxo);
+    let taker_input_utxo = SppProofInputUtxo::from(taker_usdc_utxo);
+    let inputs = vec![maker_input_utxo, taker_input_utxo];
 
-    let sol_to_taker = SppProofOutputUtxo::new(SOL_MINT, SELL_SOL, taker_address)?;
-    let usdc_to_maker = SppProofOutputUtxo::new(usdc_mint, BUY_USDC, maker_address)?;
+    let sol_to_taker =
+        SppProofOutputUtxo::new(zolana_transaction::Mint::SOL, SELL_SOL, taker_address)?;
+    let usdc_to_maker =
+        SppProofOutputUtxo::new(maker.registry.mint(&usdc_mint)?, BUY_USDC, maker_address)?;
     let mut outputs = vec![sol_to_taker, usdc_to_maker];
     let blinding_seed = prepare_output_blindings(&inputs, &mut outputs)?;
 
     let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &inputs)
         .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-    let encoded =
-        encrypt_transaction_data(&outputs, &maker.registry, &transaction_viewing_key, tree_id)?;
+    let encoded = encrypt_transaction_data(&outputs, &transaction_viewing_key, tree_id)?;
 
     let external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -71,17 +70,24 @@ fn cosigned_rfq_settlement() -> Result<()> {
         encoded.resolved_owner_tags,
         vec![],
     );
-    let proof_inputs = SppProofInputs::new(
-        inputs,
-        encoded.output_utxos,
+    let proof_inputs = SppProofInputs {
+        input_utxos: inputs,
+        output_utxos: encoded.output_utxos,
         external_data,
-        maker_address.solana_address()?,
-    )
-    .with_blinding_seed(blinding_seed)
-    .with_output_tree_id(tree_id);
+        payer: maker_address.solana_address()?,
+        blinding_seed,
+        output_tree_id: tree_id,
+    };
 
     let data = client
-        .prove_transact(Address::new_from_array(tree.to_bytes()), proof_inputs, None)
+        .prove_transact(
+            proof_inputs,
+            None,
+            &zolana_test_utils::utxo::ProofKeys(&[
+                &maker.keypair.nullifier_key,
+                &taker.keypair.nullifier_key,
+            ]),
+        )
         .map_err(|e| anyhow!("prove transact: {e:?}"))?;
     let ix = Transact {
         payer: maker_solana.pubkey(),
@@ -122,37 +128,61 @@ fn cosigned_rfq_settlement() -> Result<()> {
 
     let usdc_asset_id = maker.registry.asset_id(&usdc_mint)?;
     assert_eq!(
-        taker.balance(SOL_MINT, None)?,
-        AssetBalance {
-            asset_id: SOL_ASSET_ID,
-            mint: SOL_MINT,
-            amount: SELL_SOL,
-            utxos: vec![Utxo {
+        {
+            let balance = taker.balance(SOL_MINT, None)?;
+            (
+                balance.asset_id,
+                balance.mint,
+                balance.amount,
+                balance
+                    .utxos
+                    .into_iter()
+                    .map(|note| note.utxo)
+                    .collect::<Vec<_>>(),
+            )
+        },
+        (
+            SOL_ASSET_ID,
+            SOL_MINT,
+            SELL_SOL,
+            vec![Utxo {
                 owner: taker_address.signing_pubkey,
-                asset: SOL_MINT,
+                asset: zolana_transaction::Mint::SOL,
                 amount: SELL_SOL,
                 blinding: sol_output.blinding,
                 ring_program_id: None,
                 data: Data::default(),
             }],
-        },
+        ),
         "taker received the settled SOL utxo"
     );
     assert_eq!(
-        maker.balance(usdc_mint, None)?,
-        AssetBalance {
-            asset_id: usdc_asset_id,
-            mint: usdc_mint,
-            amount: BUY_USDC,
-            utxos: vec![Utxo {
+        {
+            let balance = maker.balance(usdc_mint, None)?;
+            (
+                balance.asset_id,
+                balance.mint,
+                balance.amount,
+                balance
+                    .utxos
+                    .into_iter()
+                    .map(|note| note.utxo)
+                    .collect::<Vec<_>>(),
+            )
+        },
+        (
+            usdc_asset_id,
+            usdc_mint,
+            BUY_USDC,
+            vec![Utxo {
                 owner: maker_address.signing_pubkey,
-                asset: usdc_mint,
+                asset: maker.registry.mint(&usdc_mint)?,
                 amount: BUY_USDC,
                 blinding: usdc_output.blinding,
                 ring_program_id: None,
                 data: Data::default(),
             }],
-        },
+        ),
         "maker received the settled USDC utxo"
     );
     assert_eq!(

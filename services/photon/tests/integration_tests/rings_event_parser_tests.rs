@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-#[path = "../rings_fixtures/mod.rs"]
-mod rings_fixtures;
-
-use rings_fixtures::{
+use crate::rings_fixtures::{
     fixture_ring_program, fresh_rings_database, resolve_by_signature, resolve_by_tags,
     seed_tagged_transaction_history, signature_at, tag_page, LookupCost, PAGE_LIMIT, VIEW_TAG,
 };
@@ -1866,6 +1863,8 @@ async fn insert_known_rings_tree_accounts(
         .on_conflict(
             OnConflict::column(tree_metadata::Column::TreePubkey)
                 .update_columns([
+                    tree_metadata::Column::TreeId,
+                    tree_metadata::Column::Paused,
                     tree_metadata::Column::QueuePubkey,
                     tree_metadata::Column::Height,
                     tree_metadata::Column::RootHistoryCapacity,
@@ -1884,6 +1883,8 @@ async fn insert_known_rings_tree_accounts(
 fn known_rings_tree_account_metadata(tree: [u8; 32]) -> tree_metadata::ActiveModel {
     tree_metadata::ActiveModel {
         tree_pubkey: Set(tree.to_vec()),
+        tree_id: Set(Some(0)),
+        paused: Set(Some(false)),
         queue_pubkey: Set(tree.to_vec()),
         height: Set(RingsTreeKind::Nullifier.tree_height() as i32),
         root_history_capacity: Set(RingsTreeKind::Nullifier.root_history_capacity() as i64),
@@ -1902,6 +1903,8 @@ fn test_tree_info_cache(tree: Pubkey) -> HashMap<Pubkey, TreeInfo> {
         tree,
         TreeInfo {
             tree,
+            tree_id: 0,
+            paused: false,
             queue: tree,
             height: RingsTreeKind::Nullifier.tree_height(),
             root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),

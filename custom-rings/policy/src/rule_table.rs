@@ -130,7 +130,9 @@ impl RuleTableError {
             Self::MissingAssetLimit => "every inline asset needs a nonzero limit",
             Self::AssetLimitWithoutGuard => "asset limits need a per-asset guard",
             Self::DuplicateInlineAsset => "inline assets must be unique",
-            Self::TooManyAnswers => "a one-key spend at the output width exceeds the answer slots",
+            Self::TooManyAnswers => {
+                "a one-key input_utxo at the output width exceeds the answer slots"
+            }
             Self::UnknownSubject => "unknown subject",
             Self::UnknownMode => "unknown mode",
             Self::UnknownGuardTag => "unknown guard tag",

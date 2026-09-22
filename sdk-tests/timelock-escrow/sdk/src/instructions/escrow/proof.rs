@@ -1,8 +1,8 @@
 use anyhow::{bail, Result};
 use timelock_escrow_prover::{EscrowProofInputs, EscrowTermsProofInput};
-use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, SppProofInputs, SppProofOutputUtxo},
-    ProofInputUtxo,
+use zolana_client::ProofInputUtxo;
+use zolana_transaction::instructions::transact::{
+    PrivateTxHash, SppProofInputs, SppProofOutputUtxo,
 };
 
 use crate::{err, state::EscrowUtxo};
@@ -28,7 +28,7 @@ impl SppTxHashes {
             .first()
             .ok_or_else(|| err("missing source input"))?;
         Ok(Self {
-            source_input_hash: source_input.hash().map_err(err)?,
+            source_input_hash: source_input.hash(),
             external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
             private_tx_blinding: spp_proof_inputs.private_tx_blinding().map_err(err)?,
             output_tree_id: spp_proof_inputs.output_tree_id,
@@ -62,7 +62,7 @@ impl EscrowProofInputParams {
         // tree's id.
         let output_tree_id = self.spp_tx_hashes.output_tree_id;
         let escrow_utxo =
-            ProofInputUtxo::try_from(&self.escrow_utxo.to_input_utxo()?.in_tree(output_tree_id))
+            ProofInputUtxo::try_from((&self.escrow_utxo.output_utxo()?, output_tree_id))
                 .map_err(err)?;
         let change = ProofInputUtxo::try_from((&self.change, output_tree_id)).map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(

@@ -5,7 +5,7 @@ use super::common::{
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
-use crate::common::indexer_context::extract as extract_context;
+use crate::common::indexer_context::{extract as extract_context, newest_unpaused_tree_id};
 use bincode::{Decode, Encode};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, FromQueryResult,
@@ -26,6 +26,7 @@ struct EncryptedUtxoRow {
     output_index: i16,
     view_tag: Vec<u8>,
     output_tree: Vec<u8>,
+    tree_id: Option<i32>,
     leaf_index: i64,
     utxo_hash: Vec<u8>,
     tx_viewing_pk: Option<Vec<u8>>,
@@ -62,6 +63,7 @@ pub async fn get_encrypted_utxos_by_tags(
         .transpose()?;
 
     let context = extract_context(conn).await?;
+    let output_tree_id = newest_unpaused_tree_id(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
@@ -89,6 +91,7 @@ pub async fn get_encrypted_utxos_by_tags(
                     row.view_tag,
                     row.utxo_hash,
                     row.output_tree,
+                    row.tree_id,
                     row.leaf_index,
                     row.payload,
                 )?,
@@ -102,6 +105,7 @@ pub async fn get_encrypted_utxos_by_tags(
 
     Ok(GetEncryptedUtxosByTagsResponse {
         context,
+        output_tree_id,
         matches,
         next_cursor,
         scanned_through,
@@ -173,6 +177,7 @@ async fn fetch_encrypted_utxo_rows(
             po.output_index AS output_index,
             po.view_tag AS view_tag,
             po.output_tree AS output_tree,
+            tm.tree_id AS tree_id,
             po.leaf_index AS leaf_index,
             po.utxo_hash AS utxo_hash,
             pt.tx_viewing_pk AS tx_viewing_pk,
@@ -181,6 +186,7 @@ async fn fetch_encrypted_utxo_rows(
          FROM rings_outputs po
          JOIN rings_transactions pt ON pt.rings_tx_id = po.rings_tx_id
          JOIN rings_output_payloads pop ON pop.output_id = po.output_id
+         LEFT JOIN tree_metadata tm ON tm.tree_pubkey = po.output_tree
          WHERE po.view_tag IN ({tag_filter})
          {ring_filter}
          {cursor_filter}

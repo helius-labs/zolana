@@ -1,14 +1,13 @@
 use anyhow::Result;
-use solana_address::Address;
 use timelock_escrow_program::instructions::shared::u64_right_align;
 use timelock_escrow_prover::EscrowTermsProofInput;
 use zolana_keypair::{
     constants::BLINDING_LEN, hash::poseidon, NullifierKey, PublicKey, ShieldedAddress,
 };
 use zolana_transaction::{
-    instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
-    utxo::{Blinding, Utxo},
-    Data,
+    instructions::transact::SppProofOutputUtxo,
+    utxo::{Blinding, SppProofInputUtxo, Utxo},
+    Data, Mint,
 };
 
 use crate::err;
@@ -54,7 +53,7 @@ impl DataHash for EscrowTermsProofInput {
 pub struct EscrowUtxo {
     pub terms: EscrowTerms,
     pub blinding: Blinding,
-    pub asset: Address,
+    pub asset: Mint,
     pub amount: u64,
 }
 
@@ -101,7 +100,10 @@ impl EscrowUtxo {
     /// The escrow input spend: the opening (terms + blinding) is the full
     /// spend capability; the timelock escrow program signs for the PDA via
     /// `invoke_signed`.
-    pub fn to_input_utxo(&self) -> Result<SppProofInputUtxo> {
+    /// Takes the tree because the commitment and the nullifier both fold it
+    /// in; choosing it afterwards would leave the pair describing a UTXO in a
+    /// different tree.
+    pub fn to_input_utxo(&self, tree_id: u16, leaf_index: u64) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
             owner: Self::pda_owner(),
             asset: self.asset,
@@ -110,8 +112,21 @@ impl EscrowUtxo {
             ring_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, Self::nullifier_key())
-            .with_data_hash(self.terms.data_hash()?))
+        let data_hash = self.terms.data_hash()?;
+        let key = &Self::nullifier_key();
+        let nullifier_pubkey = key.pubkey()?;
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &data_hash, &[0; 32], tree_id)?;
+        let nullifier = key.nullifier(&utxo_hash, &utxo.blinding)?;
+        Ok(SppProofInputUtxo {
+            utxo,
+            utxo_hash,
+            nullifier,
+            nullifier_pubkey,
+            data_hash: Some(data_hash),
+            ring_data_hash: None,
+            tree_id,
+            leaf_index,
+        })
     }
 
     pub fn source_output(

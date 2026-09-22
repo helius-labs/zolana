@@ -38,7 +38,6 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let tree_address = Address::new_from_array(tree_pubkey.to_bytes());
     let zero = [0u8; 32];
 
-    let assets = AssetRegistry::default();
     let sender = shielded_ed25519_from_solana(&payer)?;
     let recipient = shielded_ed25519_from_solana(&Keypair::new())?;
     let recipient_address = recipient.shielded_address()?;
@@ -49,7 +48,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     // ---- shield two sender-owned UTXOs (read back from Photon, since a
     // proofless deposit publishes them in the clear) ----
     let half = AMOUNT / 2;
-    let mut spends = Vec::new();
+    let mut input_utxos = Vec::new();
     let sender_owner = sender.signing_pubkey();
     let owner_field = owner_hash(&sender_owner, &sender_nullifier_pk)?;
     for _ in 0..2 {
@@ -69,25 +68,38 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
             .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
         let utxo = Utxo {
             owner: sender_owner,
-            asset: Address::new_from_array(deposited.asset),
+            asset: Mint::SOL,
             amount: deposited.amount,
             blinding: deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         };
-        assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, half));
+        assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, half));
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero, tree_id)?;
-        wait_for_merkle_proof(&indexer, tree_address, utxo_hash);
-        spends.push(SppProofInputUtxo::new(utxo, &sender));
+        let state = wait_for_merkle_proof(&indexer, tree_address, utxo_hash);
+        input_utxos.push(zolana_test_utils::utxo::wallet(
+            utxo,
+            &sender.nullifier_key,
+            tree_id,
+            state.leaf_index,
+            None,
+            None,
+        )?);
     }
 
     // ---- build the encrypted transfer with the high-level client builder ----
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let mut transfer = ConfidentialTransfer::new(sender.shielded_address()?, spends, payer_address);
-    transfer.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
-    let proof_inputs = transfer.sign(&sender, &assets)?;
+    let mut transfer =
+        ConfidentialTransaction::new(input_utxos, payer_address)?.with_output_tree_id(tree_id)?;
+    transfer.transfer_sol(&recipient_address, TRANSFER_AMOUNT)?;
+    transfer.pad_utxos(Shape::IN2_OUT3, &sender.shielded_address()?)?;
+    let proof_inputs = transfer.encrypt(&sender)?;
 
     let commitments = proof_inputs.input_utxo_hashes()?;
+    let first_nullifier = commitments
+        .first()
+        .ok_or_else(|| anyhow!("no input"))?
+        .nullifier;
     let mut spend_proofs = Vec::new();
     for commitment in &commitments {
         let state = wait_for_merkle_proof(&indexer, tree_address, commitment.utxo_hash);
@@ -96,9 +108,9 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     }
 
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
-    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &[])?;
-    let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
-    let proof = ProverClient::local().prove_transfer(inputs)?;
+    let mut assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &[])?;
+    let inputs = &mut assembled.prover_inputs;
+    let proof = sender.prove_transfer(&ProverClient::local(), inputs)?;
     let packed = pack_transact_proof(&proof)?;
     let ix_data = assembled.with_proof(packed);
 
@@ -141,14 +153,10 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let salt = indexed
         .salt
         .ok_or_else(|| anyhow!("indexed transfer missing salt"))?;
-    let first_nullifier = commitments
-        .first()
-        .ok_or_else(|| anyhow!("no input commitment"))?
-        .nullifier;
 
     // Independently reconstruct the expected recipient UTXO: the author re-derives
     // the transaction viewing key and decrypts the recipient slot (output position
-    // 2) directly, reading its committed blinding out. Each slot's borsh
+    // 0) directly, reading its committed blinding out. Each slot's borsh
     // `OutputDataEncoding` carries a scheme byte plus the per-scheme ciphertext
     // body.
     let tx_key = sender
@@ -159,7 +167,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     }
     let recipient_slot = indexed
         .output_slots
-        .get(2)
+        .first()
         .ok_or_else(|| anyhow!("indexed transfer missing recipient slot"))?;
     let recipient_blob = match recipient_slot
         .output_data()
@@ -173,10 +181,10 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         .split_first()
         .ok_or_else(|| anyhow!("recipient slot missing scheme byte"))?;
     let recipient_plaintext =
-        Confidential::decrypt_with_tx_key(&tx_key, recipient_ciphertext, salt, 2)?;
+        Confidential::decrypt_with_tx_key(&tx_key, recipient_ciphertext, salt, 0)?;
     let expected_utxo = Utxo {
         owner: recipient_address.signing_pubkey,
-        asset: SOL_MINT,
+        asset: Mint::SOL,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_plaintext.blinding,
         ring_program_id: None,
@@ -219,18 +227,22 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         expected_utxo.nullifier(&output_context.hash, &recipient.nullifier_key)?;
     let expected = WalletUtxo {
         utxo: expected_utxo,
-        output_context,
+        utxo_hash: output_context.hash,
+        nullifier_pubkey: nullifier_pk,
+        leaf_index: output_context.leaf_index,
+        slot: indexed.slot,
+        tx_signature: indexed.tx_signature,
+        slot_index: 0,
         nullifier: expected_nullifier,
         data_hash: None,
         ring_data_hash: None,
         tree_id,
-        spent: false,
     };
     assert_eq!(*recovered, expected);
 
     // The decrypted UTXO is the exact committed on-chain output, so its hash is
     // Merkle-provable (and therefore spendable by the recipient).
-    wait_for_merkle_proof(&indexer, tree_address, recovered.output_context.hash);
+    wait_for_merkle_proof(&indexer, tree_address, recovered.utxo_hash);
 
     println!(
         "encrypted shield-transfer rail=eddsa recovered by decryption via rpc={rpc_url} indexer={indexer_url}"

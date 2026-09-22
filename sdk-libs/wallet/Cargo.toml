@@ -9,6 +9,7 @@ autotests = false
 
 [dependencies]
 zolana-client = { workspace = true, features = ["indexer-api"] }
+zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
@@ -27,15 +28,49 @@ solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true, features = ["serde"] }
+rayon = { workspace = true, optional = true }
+
+[features]
+parallel = ["dep:rayon"]
 
 [dev-dependencies]
+bytemuck = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 rand = { workspace = true }
 p256 = { workspace = true }
 num-bigint = { workspace = true }
-zolana-event = { workspace = true }
+criterion = { workspace = true }
+proptest = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-merkle-tree = { workspace = true }
 
 [[test]]
 name = "transaction"
+
+[[test]]
+name = "wallet_unified"
+
+[[test]]
+name = "wallet_history"
+
+[[test]]
+name = "wallet_prop"
+
+[[test]]
+name = "wallet_proofless"
+
+[[test]]
+name = "wallet_behavior"
+
+[[test]]
+name = "remote_authority"
+
+[[test]]
+name = "tamper"
+
+[[test]]
+name = "bench_scenarios"
+
+[[bench]]
+name = "wallet_ops"
+harness = false

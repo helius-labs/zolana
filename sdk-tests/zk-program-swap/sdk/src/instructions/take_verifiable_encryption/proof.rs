@@ -3,10 +3,8 @@ use swap_program::instructions::take_verifiable_encryption::TakeVerifiableEncryp
 use swap_prover::{
     OrderTermsProofInput, TakeVerifiableEncryptionProofInputs, TAKE_MODE_VERIFIABLE,
 };
-use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
-    ProofInputUtxo,
-};
+use zolana_client::ProofInputUtxo;
+use zolana_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
 
 use super::encryption::destination_ciphertext_with_hash;
 use crate::{err, shared::check_output_utxo, state::OrderUtxo};
@@ -38,7 +36,7 @@ impl TakeVerifiableEncryptionProofInputParams {
         let source_owner = check_output_utxo(
             "source_output",
             &self.source_output,
-            &self.order_utxo.source_mint,
+            &self.order_utxo.source_mint.asset,
             self.order_utxo.source_amount,
         )?;
         if source_owner != taker {
@@ -57,9 +55,13 @@ impl TakeVerifiableEncryptionProofInputParams {
             bail!("order take_mode does not authorize the verifiable-encryption take");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
-        let order_utxo =
-            ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?.in_tree(self.input_tree_id))
-                .map_err(err)?;
+        let order_utxo = ProofInputUtxo::try_from((
+            &self
+                .order_utxo
+                .output_utxo(self.order_utxo.terms.destination.viewing_pubkey)?,
+            self.input_tree_id,
+        ))
+        .map_err(err)?;
         let taker_in =
             ProofInputUtxo::try_from((&self.taker_in, self.input_tree_id)).map_err(err)?;
         let source_output =

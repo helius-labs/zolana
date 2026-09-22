@@ -1,4 +1,10 @@
+#[path = "../common/authority.rs"]
+mod authority_fixture;
 mod harness;
+#[path = "../common/input.rs"]
+mod input_fixture;
+#[path = "../common/blindings.rs"]
+mod output_blindings;
 mod proving;
 
 #[path = "../prover_bootstrap.rs"]

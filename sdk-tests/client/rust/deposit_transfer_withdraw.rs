@@ -3,18 +3,48 @@ use client_example::{setup, SetupContext};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
-use zolana_interface::instruction::{
-    AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
-    TransactSolTransferAccounts,
+use zolana_interface::{
+    instruction::{
+        AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
+        TransactSolTransferAccounts,
+    },
+    pda,
 };
 use zolana_transaction::{
-    decrypt_transactions,
-    instructions::{
-        transact::{ConfidentialTransfer, SettlementTarget},
-        types::SppProofInputUtxo,
-    },
-    AssetRegistry, SOL_MINT,
+    decrypt_spendable,
+    instructions::transact::{ConfidentialTransaction, Shape},
+    Address, AssetBalance, AssetRegistry, Balances, WalletUtxo, SOL_MINT,
 };
+
+/// Step 2 of the flow for the single-input case: the largest note that covers
+/// `amount`.
+///
+/// Not `utxos.first()`. A padded transfer leaves the sender a zero-amount note
+/// in slot 0 -- the SPL change slot, empty because the transfer moves no SPL
+/// asset -- and notes come back in publication order, so `first()` picks the
+/// one worth nothing and the next transaction spends an input slot on it.
+/// Zero-amount notes are real UTXOs the balance reports; they are just never
+/// what you want to spend.
+fn select_input_utxo(balances: &Balances, mint: Address, amount: u64) -> Result<WalletUtxo> {
+    balances
+        .get_balance(mint)
+        .into_iter()
+        .flat_map(|balance| balance.utxos.iter())
+        .filter(|utxo| utxo.utxo.amount >= amount)
+        .max_by_key(|utxo| utxo.utxo.amount)
+        .cloned()
+        .ok_or_else(|| anyhow!("no private note covers {amount} of {mint}"))
+}
+
+/// How many of a balance's notes are worth nothing. A padded confidential
+/// transaction leaves one behind every time, and no path reclaims them.
+fn zero_amount_notes(balance: &AssetBalance) -> usize {
+    balance
+        .utxos
+        .iter()
+        .filter(|utxo| utxo.utxo.amount == 0)
+        .count()
+}
 
 const DEPOSIT_AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 300_000_000;
@@ -25,13 +55,13 @@ fn main() -> Result<()> {
         rpc_url,
         indexer_url,
         prover_url,
-        tree,
+        tree_id,
         sender,
         recipient_address,
     } = setup()?;
 
     // Load the funded fee payer and localnet settings, then connect.
-    let client = ZolanaClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url, tree)?;
+    let client = ZolanaClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url)?;
 
     // Mints that are registered with Solana Rings for privacy.
     let assets = AssetRegistry::default();
@@ -47,10 +77,14 @@ fn main() -> Result<()> {
     // sender, recipient, asset and amount.
     // Alternatively, you can onramp fiat directly to a private balance.
 
-    // 1. Move public SOL into the sender's private balance.
+    // A deposit is public, so it has no UTXOs to select and nothing to
+    // encrypt: it starts at step 6 of the flow, building the instruction.
+    // 6. Build the deposit instruction.
     let sender_balances_after_deposit = {
         let deposit_ix = Deposit {
-            tree,
+            // The tree's only representation is its raw id; the account is
+            // derived here, where the derivation is visible.
+            tree: pda::tree(tree_id),
             depositor: sender.pubkey(),
             deposits: vec![AssetDeposit {
                 asset: DepositAsset::Sol,
@@ -68,7 +102,8 @@ fn main() -> Result<()> {
         }
         .instruction()?;
 
-        // 2. Send and confirm like any Solana transaction; the landed slot gates
+        // 7 and 8. Sign, send and confirm. One call does all three here, and
+        // the landed slot gates
         // the indexer fetch below.
         let signature = client.create_and_send_transaction(
             &[deposit_ix],
@@ -78,7 +113,7 @@ fn main() -> Result<()> {
         )?;
         let slot = landed_slot(&client, signature)?;
 
-        // 3. Fetch transaction outputs from the indexer, gated on the deposit's slot.
+        // 1.1. Request the encrypted UTXOs by view tag, gated on that slot.
         // The indexer returns encrypted outputs by view tag, the sender's public key in Confidential Rings.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
@@ -88,15 +123,19 @@ fn main() -> Result<()> {
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
 
-        // 4. The sender decrypts the transaction outputs locally to update the private balance.
-        let balances = decrypt_transactions(&sender, &response.transactions, &assets)
-            .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
+        // 1.2. Decrypt them. Each note comes back as a `WalletUtxo`
+        // carrying its commitment, nullifier, tree id and leaf index, so
+        // nothing downstream needs a key, or a second lookup, to spend it.
+        let balances = decrypt_spendable(&sender, &response.transactions, &assets)
+            .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
+            .balances;
 
         let sender_balance = balances
             .get_balance(SOL_MINT)
             // SPL: .get_balance(spl.mint)
             .expect("failed to fetch sender's utxo");
         assert_eq!(sender_balance.amount, DEPOSIT_AMOUNT);
+        // A proofless deposit publishes one output, so one note.
         assert_eq!(sender_balance.utxos.len(), 1);
 
         balances
@@ -106,43 +145,37 @@ fn main() -> Result<()> {
     // A confidential transfer reveals only sender and recipient,
     // not the asset or amount.
     let sender_balances_after_transfer = {
-        // 1. Select UTXOs that make up the private balance for the transfer.
-        let transfer_utxo = sender_balances_after_deposit
-            .get_balance(SOL_MINT)
-            // SPL: .get_balance(spl.mint)
-            .and_then(|balance| balance.utxos.first())
-            .expect("failed to fetch deposited utxo")
-            .clone();
+        // 2. Select the input UTXOs, by value rather than by position.
+        let transfer_utxo =
+            select_input_utxo(&sender_balances_after_deposit, SOL_MINT, TRANSFER_AMOUNT)?;
+        // SPL: select_input_utxo(&sender_balances_after_deposit, spl.mint, TRANSFER_AMOUNT)?;
 
-        // 2. Prepare the selected UTXOs as inputs for the zero-knowledge proof.
-        let transfer_input_utxo = SppProofInputUtxo::new(transfer_utxo, &sender);
+        // 3. Create the output, then finalize both input and output slots.
+        let mut transfer =
+            ConfidentialTransaction::new(vec![transfer_utxo.clone()], sender.pubkey())?
+                .with_output_tree_id(tree_id)?;
+        transfer.transfer_sol(&recipient_address, TRANSFER_AMOUNT)?;
+        transfer.pad_utxos(Shape::IN2_OUT3, &sender_shielded_address)?;
+        // 4. Encrypt each output for its owner.
+        let proof_inputs = transfer.encrypt(&sender)?;
 
-        // 3. Build and sign the confidential transfer.
-        // Signing encrypts the asset and amount and produces the proof inputs for the ZK prover.
-        let mut transfer = ConfidentialTransfer::new(
-            sender_shielded_address,
-            vec![transfer_input_utxo],
-            sender.pubkey(),
-        );
-        transfer.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
-        // SPL: transfer.send(&recipient_address, spl.mint, TRANSFER_AMOUNT)?;
-        let proof_inputs = transfer.sign(&sender, &assets)?;
+        // 5. Prove. The witnesses are fetched inside this call, each under the
+        // tree id its input carries, so no tree is named here.
+        let transfer_data = client.prove_transact(proof_inputs, None, &sender)?;
 
-        // 4. Fetch the zk proof to prove the sender can spend the balance without revealing asset and amount.
-        let transfer_data = client.prove_transact(tree, proof_inputs, None)?;
-
-        // 5. Construct the instruction.
+        // 6. Build the instruction. The accounts come from the ids: one input
+        // tree per spent note, and the tree the outputs were hashed under.
         let transfer_ix = Transact {
             payer: sender.pubkey(),
-            input_trees: vec![tree],
-            output_tree: tree,
+            input_trees: vec![pda::tree(transfer_utxo.tree_id())],
+            output_tree: pda::tree(tree_id),
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: transfer_data,
         }
         .instruction();
 
-        // 6. Send and confirm like any Solana transaction; confirmation yields the landed slot.
+        // 7 and 8. Sign, send and confirm; confirmation yields the landed slot.
         let signature = client.create_and_send_transaction(
             &[transfer_ix],
             sender.pubkey(),
@@ -151,8 +184,8 @@ fn main() -> Result<()> {
         )?;
         let slot = landed_slot(&client, signature)?;
 
-        // 7. Sync the sender's wallet, gated on the transfer's slot, and read
-        // the remaining private balance.
+        // 1 again. Sync, gated on the transfer's slot, and read the remaining
+        // private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
             vec![sender_tag],
@@ -160,14 +193,17 @@ fn main() -> Result<()> {
             Some(50),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
-        let sender_balances = decrypt_transactions(&sender, &response.transactions, &assets)
-            .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
+        let sender_balances = decrypt_spendable(&sender, &response.transactions, &assets)
+            .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
+            .balances;
         let sender_balance = sender_balances
             .get_balance(SOL_MINT)
             // SPL: .get_balance(spl.mint)
             .expect("failed to fetch sender's utxo");
         assert_eq!(sender_balance.amount, DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
-        assert_eq!(sender_balance.utxos.len(), 1);
+        // The sender owns the change and the trailing zero-value padding note.
+        assert_eq!(sender_balance.utxos.len(), 2);
+        assert_eq!(zero_amount_notes(sender_balance), 1);
 
         sender_balances
     };
@@ -176,48 +212,28 @@ fn main() -> Result<()> {
     // A withdrawal from a confidential balance reveals
     // sender, recipient, asset and amount.
     {
-        // 1. Select UTXOs that make up the private balance for the withdrawal.
-        let withdrawal_utxo = sender_balances_after_transfer
-            .get_balance(SOL_MINT)
-            // SPL: .get_balance(spl.mint)
-            .and_then(|balance| balance.utxos.first())
-            .expect("failed to fetch sender's utxo")
-            .clone();
+        // 2. Select the input UTXOs by value.
+        let withdrawal_utxo =
+            select_input_utxo(&sender_balances_after_transfer, SOL_MINT, WITHDRAW_AMOUNT)?;
+        // SPL: select_input_utxo(&sender_balances_after_transfer, spl.mint, WITHDRAW_AMOUNT)?;
 
-        // 2. Prepare the selected UTXOs as inputs for the zero-knowledge proof.
-        let withdrawal_input_utxo = SppProofInputUtxo::new(withdrawal_utxo, &sender);
+        // 3. Add the public withdrawal and finalize its private change.
+        let mut withdrawal =
+            ConfidentialTransaction::new(vec![withdrawal_utxo.clone()], sender.pubkey())?
+                .with_output_tree_id(tree_id)?;
+        withdrawal.withdraw_sol(WITHDRAW_AMOUNT, sender.pubkey())?;
+        withdrawal.pad_utxos(Shape::IN2_OUT2, &sender_shielded_address)?;
+        // 4. Encrypt the outputs.
+        let proof_inputs = withdrawal.encrypt(&sender)?;
 
-        // 3. Build and sign the confidential withdrawal.
-        // Signing encrypts the private change and produces the ZK prover inputs.
-        let mut withdrawal = ConfidentialTransfer::new(
-            sender_shielded_address,
-            vec![withdrawal_input_utxo],
-            sender.pubkey(),
-        );
-        withdrawal.withdraw(
-            SOL_MINT,
-            WITHDRAW_AMOUNT,
-            SettlementTarget::Sol {
-                user_sol_account: sender.pubkey(),
-            },
-        )?;
-        // SPL: withdrawal.withdraw(
-        // SPL:     spl.mint,
-        // SPL:     WITHDRAW_AMOUNT,
-        // SPL:     SettlementTarget::Spl {
-        // SPL:         user_spl_token: spl.user_token_account,
-        // SPL:     },
-        // SPL: )?;
-        let proof_inputs = withdrawal.sign(&sender, &assets)?;
+        // 5. Prove.
+        let withdrawal_data = client.prove_transact(proof_inputs, None, &sender)?;
 
-        // 4. Fetch the ZK proof to prove the sender can spend the balance.
-        let withdrawal_data = client.prove_transact(tree, proof_inputs, None)?;
-
-        // 5. Combine the proof and withdrawal accounts in a single instruction.
+        // 6. Build the instruction, proof and settlement accounts together.
         let withdraw_ix = Transact {
             payer: sender.pubkey(),
-            input_trees: vec![tree],
-            output_tree: tree,
+            input_trees: vec![pda::tree(withdrawal_utxo.tree_id())],
+            output_tree: pda::tree(tree_id),
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
@@ -238,7 +254,7 @@ fn main() -> Result<()> {
         }
         .instruction();
 
-        // 6. Send and confirm like any Solana transaction.
+        // 7 and 8. Sign, send and confirm.
         let signature = client.create_and_send_transaction(
             &[withdraw_ix],
             sender.pubkey(),
@@ -247,8 +263,8 @@ fn main() -> Result<()> {
         )?;
         let slot = landed_slot(&client, signature)?;
 
-        // 7. Sync the sender's wallet, gated on the withdrawal's slot, and read
-        // the remaining private balance.
+        // 1 again. Sync, gated on the withdrawal's slot, and read the
+        // remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
             vec![sender_tag],
@@ -256,8 +272,9 @@ fn main() -> Result<()> {
             Some(50),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
-        let sender_balances = decrypt_transactions(&sender, &response.transactions, &assets)
-            .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
+        let sender_balances = decrypt_spendable(&sender, &response.transactions, &assets)
+            .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
+            .balances;
         let sender_balance = sender_balances
             .get_balance(SOL_MINT)
             // SPL: .get_balance(spl.mint)
@@ -266,9 +283,13 @@ fn main() -> Result<()> {
             sender_balance.amount,
             DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT
         );
-        assert_eq!(sender_balance.utxos.len(), 1);
+        // Three: the change, plus one zero-amount note from each of the two
+        // confidential transactions. Nothing reclaims them, so they accumulate
+        // one per transfer for as long as the wallet keeps transacting.
+        assert_eq!(sender_balance.utxos.len(), 3);
+        assert_eq!(zero_amount_notes(sender_balance), 2);
 
-        // 8. Read remaining private balance and the public SOL balance.
+        // The public side, for comparison: the withdrawal moved value out.
         let solana_balance = client.get_balance(sender.pubkey())?;
         println!("withdraw solana_balance={solana_balance} tx={signature}");
         // SPL: println!(

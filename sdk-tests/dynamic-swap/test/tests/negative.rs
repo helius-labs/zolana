@@ -10,7 +10,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc};
-use zolana_transaction::{instructions::transact::spp_proof_inputs::asset_field, SOL_MINT};
+use zolana_transaction::{instructions::transact::asset_field, SOL_MINT};
 
 const PRICE: u64 = 5;
 

@@ -6,6 +6,7 @@ use num_bigint::BigUint;
 use rand::{rngs::OsRng, RngCore};
 use solana_address::Address;
 use thiserror::Error;
+use zolana_client::ProofInputUtxo;
 use zolana_client::{
     prover::{field::be, ProofCompressed},
     ClientError, MerkleProof, NonInclusionProof, ProverClient, PublicInputs, PublicTransfers, Rpc,
@@ -26,7 +27,6 @@ use zolana_transaction::{
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
-    ProofInputUtxo,
 };
 use zolana_tree::TreeAccount;
 
@@ -43,7 +43,7 @@ pub enum EntryProofError {
     InvalidTree { address: Address },
     #[error("indexer returned no proof for the entry")]
     MissingProof,
-    #[error("the spend of the {list_id:?} entry published no version {version}")]
+    #[error("the input_utxo of the {list_id:?} entry published no version {version}")]
     BrokenLineage {
         list_id: ListId,
         member: [u8; 32],
@@ -110,7 +110,7 @@ impl EntryWitness<'_> {
                 address,
                 tree_id,
             )?,
-            Some(spent) => InputSlot::spend(
+            Some(spent) => InputSlot::input_utxo(
                 indexer,
                 self.entries_tree,
                 self.owner,
@@ -229,7 +229,10 @@ impl EntryWitness<'_> {
             tree_slot: BigUint::ZERO,
             nullifier: be(&slot.nullifier),
             owner_pk_hash: be(&owner_pk_hash),
-            nullifier_secret: BigUint::ZERO,
+            // An entry slot nullifies under the zero secret (`entry_nullifier`),
+            // so it is complete as built and no authority has anything to fill
+            // in.
+            nullifier_secret: Some(BigUint::ZERO),
         };
         let transfer_output = TransferOutput {
             utxo: ProofInputUtxo {
@@ -316,7 +319,7 @@ impl InputSlot {
         })
     }
 
-    fn spend<I: Rpc>(
+    fn input_utxo<I: Rpc>(
         indexer: &I,
         tree: Address,
         owner: &ListNamespace,

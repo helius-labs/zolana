@@ -25,9 +25,9 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     prover::field::{be, right_align_slice},
-    ConfidentialTransfer, EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
-    NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, ProverInputs, Rpc,
-    SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, ZolanaIndexer,
+    EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
+    NonInclusionProof as IndexedNonInclusionProof, ProofAuthority, ProofInputUtxo, ProverClient,
+    Rpc, SolanaRpc, SpendProof, TransferInput, ZolanaIndexer,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_hasher::primitives::solana_owner_identity;
@@ -61,11 +61,15 @@ use zolana_test_utils::{
     },
 };
 use zolana_transaction::{
+    instructions::transact::{ConfidentialTransaction, Shape},
+    Mint, WalletUtxo,
+};
+use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
-    AssetRegistry, Data, KeypairWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
-    SOL_MINT,
+    AssetRegistry, Data, Utxo, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
+use zolana_wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use zolana_test_utils::transact::{
     change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe,
@@ -111,11 +115,11 @@ struct IndexedSpendInputArgs<'a> {
     tree_id: u16,
 }
 
-fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferInput> {
+fn indexed_transfer_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferInput> {
     Ok(TransferInput {
         utxo: ProofInputUtxo::new(
             *args.owner_field,
-            &args.utxo.asset,
+            &args.utxo.asset.asset,
             args.utxo.amount,
             &args.utxo.blinding,
             args.tree_id,
@@ -133,7 +137,7 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
         tree_slot: num_bigint::BigUint::ZERO,
         nullifier: be(args.nullifier),
         owner_pk_hash: be(args.owner_pk_hash),
-        nullifier_secret: be(&right_align_slice(&*args.nullifier_key.secret())?),
+        nullifier_secret: Some(be(&right_align_slice(&*args.nullifier_key.secret())?)),
     })
 }
 

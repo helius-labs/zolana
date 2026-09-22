@@ -1,10 +1,8 @@
 use anyhow::{bail, Result};
 use timelock_escrow_program::instructions::withdraw::WithdrawPublicInput;
 use timelock_escrow_prover::{EscrowTermsProofInput, WithdrawProofInputs};
-use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
-    ProofInputUtxo,
-};
+use zolana_client::ProofInputUtxo;
+use zolana_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
 
 use crate::{err, shared::check_output_utxo, state::EscrowUtxo};
 
@@ -27,7 +25,7 @@ impl WithdrawProofInputParams {
         let creator = check_output_utxo(
             "source_output",
             &self.source_output,
-            &self.escrow_utxo.asset,
+            &self.escrow_utxo.asset.asset,
             self.escrow_utxo.amount,
         )?;
         if creator != terms.creator {
@@ -38,13 +36,9 @@ impl WithdrawProofInputParams {
             .signing_pubkey
             .owner_proof_input_hash()
             .map_err(err)?;
-        let escrow_utxo = ProofInputUtxo::try_from(
-            &self
-                .escrow_utxo
-                .to_input_utxo()?
-                .in_tree(self.input_tree_id),
-        )
-        .map_err(err)?;
+        let escrow_utxo =
+            ProofInputUtxo::try_from((&self.escrow_utxo.output_utxo()?, self.input_tree_id))
+                .map_err(err)?;
         let source_output =
             ProofInputUtxo::try_from((&self.source_output, self.output_tree_id)).map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(

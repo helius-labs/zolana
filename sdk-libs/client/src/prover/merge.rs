@@ -1,76 +1,52 @@
-//! High-level builder for the n-in/1-out merge proof, where n is the padded
-//! shape the prepared merge chose. It reuses the spp transfer
-//! input/output assembly verbatim ([`assemble_inputs`]/[`assemble_outputs`]);
-//! only the deterministic output-blinding / dummy-nullifier derivations and the
-//! public-input-hash element set are merge-specific.
-
 use num_bigint::BigUint;
+use solana_address::Address;
+use zolana_event::MessageData;
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::{
-    instruction::instruction_data::{
-        merge_ring::MergeRingIxData,
-        merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
+    instruction::{
+        instruction_data::{
+            merge_ring::MergeRingIxData,
+            merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
+        },
+        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::{tree_id_field, tree_slots_hash_chain},
-    INPUT_TREES,
 };
-use zolana_keypair::{Curve, NullifierKey, PublicKey};
+use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
-    instructions::{
-        merge::{merge_dummy_nullifier, merge_private_tx_blinding, PreparedMerge},
-        transact::PrivateTxHash,
+    instructions::merge::{
+        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
+        MERGE_SUPPORTED_INPUT_COUNTS,
     },
-    SppProofOutputUtxo,
+    utxo::program_id_proof_input_hash,
 };
 
 use crate::{
     error::ClientError,
     prover::{
-        field::be,
+        field::{be, right_align, right_align_slice},
         transact::{
-            assembly::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
+            assembly::{assemble_inputs, assemble_outputs, private_tx_hash, OwnerMode},
             witness::{attach_input_proofs, SpendProof},
         },
-        MergeInputs, TransferInput, TransferOutput, TreeSlotFields,
+        MergeInputs, TreeSlotFields,
     },
     rpc::NonInclusionProof,
 };
 
-/// Merge consolidates up to `MAX_MERGE_INPUTS` inputs sharing one owner, asset, and nullifier
-/// secret into one output whose blinding is derived from the owner's nullifier
-/// secret and the first input's nullifier, so the owner recovers it by
-/// reconstruction rather than decryption. The owner is either rail: a P256
-/// signing key recomputes its pk_field from the witnessed point, a Solana
-/// (ed25519) signing key feeds its pk_field directly. The input slots reuse
-/// [`TransferSpendInput`] (a `None` proof is a dummy); there is exactly one
-/// real output.
 pub struct MergeProver {
-    pub inputs: Vec<TransferSpendInput>,
-    pub output: SppProofOutputUtxo,
-    /// Validity deadline; bound into `external_data_hash`, which the circuit treats
-    /// as opaque and `merge_transact` recomputes from the instruction.
-    pub expiry_unix_ts: u64,
-    /// Owner identity shared by every input: the scheme-tagged signing pubkey
-    /// (recomputes `user_owner_hash`) and the nullifier key (recomputes the shared
-    /// `nullifier_pk` and every input nullifier).
-    pub signing_pubkey: PublicKey,
+    pub transaction: MergeProofInputs,
     pub nullifier_key: NullifierKey,
-    /// Raw id of the tree the merged output is appended to.
-    pub output_tree_id: u16,
+    pub proofs: Vec<SpendProof>,
+    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
-/// The built merge witness and the instruction-data ingredients, produced by
-/// both [`MergeProver`] (default) and
-/// [`crate::prover::merge_ring::MergeRingProver`] (policy ring); the two rails
-/// differ only in their public-input tail and the ring binding inside `inputs`.
 #[derive(Debug, Clone)]
 pub struct MergeProofResult {
     pub inputs: MergeInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
-    /// Indexes into `input_tree`'s UTXO and nullifier root caches. Every
-    /// input, dummies included, is proven against the same pair of roots;
-    /// [`Self::instruction_data`] repeats them per input.
+    /// Root cache indexes shared by all input slots.
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
     pub output_hash: [u8; 32],
@@ -82,6 +58,11 @@ pub struct MergeProofResult {
     /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
     /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
     pub eddsa_owner: bool,
+    pub ring_program_id: Option<Address>,
+    pub output_ring_data_hash: [u8; 32],
+    pub tx_viewing_pk: [u8; 33],
+    pub salt: [u8; 16],
+    pub output_data: MessageData,
 }
 
 impl MergeProofResult {
@@ -106,13 +87,9 @@ impl MergeProofResult {
     /// body wrapped in a [`MergeRingIxData`] with the output `ring_data_hash`
     /// the ring program selected. The caller passes the result to the
     /// `MergeRing` builder with the tree / ring_config accounts.
-    pub fn ring_instruction_data(
-        &self,
-        proof: MergeProof,
-        output_ring_data_hash: [u8; 32],
-    ) -> MergeRingIxData {
+    pub fn ring_instruction_data(&self, proof: MergeProof) -> MergeRingIxData {
         MergeRingIxData {
-            output_ring_data_hash,
+            output_ring_data_hash: self.output_ring_data_hash,
             merge: self.instruction_data(proof),
         }
     }
@@ -120,258 +97,172 @@ impl MergeProofResult {
 
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
-        let merge = self.common(zolana_interface::instruction::tag::MERGE_TRANSACT)?;
-
-        // Owner identity public input: SPP checks the signing pk_field against
-        // the owner's registry record; the owner recombines it with their
-        // nullifier_pk to get user_owner_hash.
-        let mut elements = merge.head.to_vec();
-        elements.push(merge.user_signing_pk_hash);
-        let public_input = create_hash_chain_4_from_slice(&elements)?;
-
-        // Default merge is non-ring; the merge-ring builder sets the ring binding.
-        Ok(merge.finish(public_input, BigUint::ZERO, BigUint::ZERO))
-    }
-}
-
-/// Everything the default ([`MergeProver`]) and policy-ring
-/// ([`crate::prover::merge_ring::MergeRingProver`]) merges compute identically:
-/// input/output assembly, the deterministic dummy nullifiers, and the shared
-/// public-input prefix. Each rail appends its own public-input tail to
-/// [`Self::head`] and calls [`Self::finish`].
-pub(crate) struct CommonMerge {
-    inputs: Vec<TransferInput>,
-    output: TransferOutput,
-    nullifiers: Vec<[u8; 32]>,
-    tree_slots: [TreeSlotFields; INPUT_TREES],
-    output_tree_id: u16,
-    utxo_tree_root_index: u16,
-    nullifier_tree_root_index: u16,
-    /// The public-input prefix both merge circuits share:
-    /// `[nullifiers_chain, output_hash, tree_slots_chain, output_tree_id,
-    /// private_tx_hash, external_data_hash, allow_dummy_inputs]`.
-    pub head: [[u8; 32]; 7],
-    output_hash: [u8; 32],
-    private_tx_hash: [u8; 32],
-    external_data_hash: [u8; 32],
-    expiry_unix_ts: u64,
-    pub user_signing_pk_hash: [u8; 32],
-    eddsa_owner: bool,
-    owner_pk_hash: BigUint,
-    user_nullifier_pk: [u8; 32],
-    user_nullifier_secret: [u8; 32],
-}
-
-impl MergeProver {
-    /// The computation both merge rails share, parameterized only by the
-    /// instruction tag (`merge_transact` or `merge_ring`) bound into
-    /// `external_data_hash`. Callers append their rail's public-input tail to
-    /// [`CommonMerge::head`] and call [`CommonMerge::finish`].
-    pub(crate) fn common(
-        &self,
-        spp_instruction_discriminator: u8,
-    ) -> Result<CommonMerge, ClientError> {
-        // Slot zero must be real: its single-use nullifier seeds the
-        // deterministic output blinding and dummy nullifiers.
-        if !self
-            .inputs
-            .first()
-            .is_some_and(|first| first.proof.is_some())
-        {
-            return Err(ClientError::NoInputs);
+        let tx = &self.transaction;
+        let n_inputs = tx.input_utxos.len();
+        if !MERGE_SUPPORTED_INPUT_COUNTS.contains(&n_inputs) {
+            return Err(ClientError::UnsupportedShape {
+                n_in: n_inputs,
+                n_out: 1,
+            });
         }
-        let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
-        // Merge resolves roots from one input tree per instruction, so the
-        // whole padded run shares a single root-index pair.
-        let input_tree_context = assembled_inputs.single_tree_context()?;
-
-        // Dummy slots publish deterministic nullifiers derived from the
-        // owner's nullifier secret and the first real nullifier; override the
-        // placeholder nullifiers the generic assembly computed from the
-        // dummies' blindings.
-        let first_nullifier = *assembled_inputs
-            .nullifiers
+        let first = tx
+            .input_utxos
             .first()
+            .filter(|input| !input.is_dummy())
             .ok_or(ClientError::NoInputs)?;
-        for ((slot, nullifier), input) in self
-            .inputs
-            .iter()
-            .enumerate()
-            .zip(assembled_inputs.nullifiers.iter_mut())
-            .zip(assembled_inputs.inputs.iter_mut())
-        {
-            let (index, spend) = slot;
-            if spend.proof.is_some() {
+        let first_nullifier = first.nullifier;
+        let nullifier_pubkey = self.nullifier_key.pubkey()?;
+        let mut total = 0u64;
+        tx.input_utxo_hashes()?;
+        for (index, input) in tx.input_utxos.iter().enumerate() {
+            if input.is_dummy() {
+                let slot = u8::try_from(index).map_err(|_| ClientError::TooManyInputs {
+                    got: n_inputs,
+                    max: usize::from(u8::MAX),
+                })?;
+                if input.nullifier
+                    != merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, slot)?
+                {
+                    return Err(ClientError::InputNullifierMismatch { index });
+                }
                 continue;
             }
-            let index = u8::try_from(index).map_err(|_| ClientError::TooManyInputs {
-                got: self.inputs.len(),
-                max: usize::from(u8::MAX),
-            })?;
-            let dummy = merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, index)?;
-            *nullifier = dummy;
-            input.nullifier = BigUint::from_bytes_be(&dummy);
+            if input.utxo.owner != tx.signing_pubkey {
+                return Err(ClientError::MergeSigningKeyMismatch);
+            }
+            if input.nullifier_pubkey != nullifier_pubkey {
+                return Err(ClientError::MergeNullifierKeyMismatch);
+            }
+            if input.utxo.ring_program_id != tx.ring_program_id {
+                return Err(ClientError::InputRingProgramMismatch { index });
+            }
+            if input.utxo.asset != first.utxo.asset {
+                return Err(ClientError::MergeInputAssetMismatch { index });
+            }
+            if input.nullifier
+                != self
+                    .nullifier_key
+                    .nullifier(&input.utxo_hash, &input.utxo.blinding)?
+            {
+                return Err(ClientError::InputNullifierMismatch { index });
+            }
+            total = total
+                .checked_add(input.utxo.amount)
+                .ok_or(ClientError::SelectedBalanceOverflow)?;
         }
-
+        let output = &tx.output_utxo;
+        if output.is_dummy()
+            || output.asset != first.utxo.asset
+            || output.amount != total
+            || output.ring_program_id != tx.ring_program_id
+            || output.data_hash.is_some()
+            || (tx.ring_program_id.is_none() && output.ring_data_hash.is_some())
+            || !output.owner_address.is_some_and(|owner| {
+                owner.signing_pubkey == tx.signing_pubkey
+                    && owner.nullifier_pubkey == nullifier_pubkey
+            })
+        {
+            return Err(ClientError::MergeOutputMismatch);
+        }
+        if output.blinding != merge_output_blinding(&self.nullifier_key, &first_nullifier)? {
+            return Err(ClientError::OutputBlindingMismatch { index: 0 });
+        }
+        let MergeProofInputs {
+            input_utxos,
+            output_utxo,
+            expiry_unix_ts,
+            signing_pubkey,
+            output_tree_id,
+            ring_program_id,
+            tx_viewing_pk,
+            salt,
+            output_data,
+        } = self.transaction;
+        let inputs = attach_input_proofs(input_utxos, &self.proofs, &self.dummy_nullifier_proofs)?;
+        let assembled_inputs = assemble_inputs(&inputs, &OwnerMode::Merge)?;
+        let input_tree_context = assembled_inputs.single_tree_context()?;
         let assembled_outputs =
-            assemble_outputs(std::slice::from_ref(&self.output), self.output_tree_id)?;
+            assemble_outputs(std::slice::from_ref(&output_utxo), output_tree_id)?;
         let output_hash = *assembled_outputs
             .output_hashes
             .first()
             .ok_or(ClientError::MissingOutput)?;
-
-        // external_data_hash binds the instruction's discriminator, expiry, and
-        // output commitment to the proof; the program recomputes it identically.
         let external_data_hash = MergeExternalDataHash {
-            spp_instruction_discriminator,
-            expiry_unix_ts: self.expiry_unix_ts,
+            spp_instruction_discriminator: if ring_program_id.is_some() {
+                RING_MERGE_TRANSACT
+            } else {
+                MERGE_TRANSACT
+            },
+            expiry_unix_ts,
             output_utxo_hash: &output_hash,
         }
         .hash()?;
-
-        // Merge has no blinding seed: the owner's nullifier secret is
-        // already owner-only, and the first nullifier makes the blinding unique
-        // to one accepted merge.
         let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
-        let private_tx = PrivateTxHash::new(
-            &assembled_inputs.input_hashes,
-            &assembled_outputs.private_tx_output_hashes,
+        let private_tx = private_tx_hash(
+            &assembled_inputs,
+            &assembled_outputs,
             &external_data_hash,
             &private_tx_blinding,
-        )
-        .hash()?;
-
-        let user_signing_pk_hash = self.signing_pubkey.owner_proof_input_hash()?;
-        let head = [
+        )?;
+        let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
+        let mut elements = vec![
             create_hash_chain_4_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
             tree_slots_hash_chain(&assembled_inputs.tree_slots)?,
-            tree_id_field(self.output_tree_id),
+            tree_id_field(output_tree_id),
             private_tx,
             external_data_hash,
-            super::transact::assembly::bool_field(true),
+            right_align(&[1u8]),
         ];
-
-        let eddsa_owner = match self.signing_pubkey.curve()? {
+        let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
+        let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
+        if ring_program_id.is_some() {
+            elements.extend([output_ring_data_hash, ring_hash]);
+        } else {
+            elements.push(user_signing_pk_hash);
+        }
+        let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
+        let eddsa_owner = match signing_pubkey.curve()? {
             Curve::Ed25519 | Curve::Pda => true,
             Curve::P256 => false,
         };
-        let owner_pk_hash = BigUint::from_bytes_be(&user_signing_pk_hash);
-        let user_nullifier_pk = self.nullifier_key.pubkey()?;
-        let mut user_nullifier_secret = [0u8; 32];
-        user_nullifier_secret[1..].copy_from_slice(&*self.nullifier_key.secret());
-
+        let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
         let output = assembled_outputs
             .outputs
             .into_iter()
             .next()
-            .ok_or(ClientError::NoInputs)?;
-
-        Ok(CommonMerge {
+            .ok_or(ClientError::MissingOutput)?;
+        let inputs = MergeInputs {
             inputs: assembled_inputs.inputs,
             output,
-            nullifiers: assembled_inputs.nullifiers,
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
-            output_tree_id: self.output_tree_id,
+            output_tree_id: BigUint::from(output_tree_id),
+            owner_pk_hash: be(&user_signing_pk_hash),
+            user_nullifier_pk: be(&nullifier_pubkey),
+            user_nullifier_secret: be(&user_nullifier_secret),
+            external_data_hash: be(&external_data_hash),
+            private_tx_hash: be(&private_tx),
+            allow_dummy_inputs: BigUint::from(1u8),
+            public_input_hash: be(&public_input_hash),
+            output_ring_data_hash: be(&output_ring_data_hash),
+            ring_program_id: be(&ring_hash),
+        };
+        Ok(MergeProofResult {
+            inputs,
+            public_input_hash,
+            nullifiers: assembled_inputs.nullifiers,
             utxo_tree_root_index: input_tree_context.utxo_tree_root_index,
             nullifier_tree_root_index: input_tree_context.nullifier_tree_root_index,
-            head,
             output_hash,
             private_tx_hash: private_tx,
             external_data_hash,
-            expiry_unix_ts: self.expiry_unix_ts,
-            user_signing_pk_hash,
+            expiry_unix_ts,
             eddsa_owner,
-            owner_pk_hash,
-            user_nullifier_pk,
-            user_nullifier_secret,
-        })
-    }
-}
-
-impl CommonMerge {
-    /// Fold the rail's completed public-input hash, ring binding, and output
-    /// ring-data hash (both zero for the default merge) into the final witness
-    /// and proof result.
-    pub(crate) fn finish(
-        self,
-        public_input: [u8; 32],
-        ring_program_id: BigUint,
-        output_ring_data_hash: BigUint,
-    ) -> MergeProofResult {
-        let inputs = MergeInputs {
-            inputs: self.inputs,
-            output: self.output,
-            tree_slots: self.tree_slots,
-            output_tree_id: BigUint::from(self.output_tree_id),
-            owner_pk_hash: self.owner_pk_hash,
-            user_nullifier_pk: be(&self.user_nullifier_pk),
-            user_nullifier_secret: be(&self.user_nullifier_secret),
-            external_data_hash: be(&self.external_data_hash),
-            private_tx_hash: be(&self.private_tx_hash),
-            allow_dummy_inputs: BigUint::from(1u8),
-            public_input_hash: be(&public_input),
-            output_ring_data_hash,
             ring_program_id,
-        };
-        MergeProofResult {
-            inputs,
-            public_input_hash: public_input,
-            nullifiers: self.nullifiers,
-            utxo_tree_root_index: self.utxo_tree_root_index,
-            nullifier_tree_root_index: self.nullifier_tree_root_index,
-            output_hash: self.output_hash,
-            private_tx_hash: self.private_tx_hash,
-            external_data_hash: self.external_data_hash,
-            expiry_unix_ts: self.expiry_unix_ts,
-            eddsa_owner: self.eddsa_owner,
-        }
-    }
-}
-
-/// A prepared merge plus the owner nullifier key and the fetched Merkle proofs,
-/// ready to fold into a [`MergeProver`]. The nullifier key is the secret the merge
-/// circuit proves ownership from; it is not carried on [`PreparedMerge`], so the
-/// caller supplies it from the keypair.
-pub struct MergeWitness {
-    pub prepared: PreparedMerge,
-    pub nullifier_key: NullifierKey,
-    pub proofs: Vec<SpendProof>,
-    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
-}
-
-impl TryFrom<MergeWitness> for MergeProver {
-    type Error = ClientError;
-
-    fn try_from(witness: MergeWitness) -> Result<Self, Self::Error> {
-        let MergeWitness {
-            prepared,
-            nullifier_key,
-            proofs,
-            dummy_nullifier_proofs,
-        } = witness;
-        let PreparedMerge {
-            inputs,
-            output,
-            expiry_unix_ts,
-            signing_pubkey,
-            output_tree_id,
-        } = prepared;
-
-        let mut spends = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
-        // Default-merge inputs are plain utxos; no data hashes ride along.
-        for spend in &mut spends {
-            spend.data_hash = None;
-            spend.ring_data_hash = None;
-        }
-
-        Ok(MergeProver {
-            inputs: spends,
-            output,
-            expiry_unix_ts,
-            signing_pubkey,
-            nullifier_key,
-            output_tree_id,
+            output_ring_data_hash,
+            tx_viewing_pk,
+            salt,
+            output_data,
         })
     }
 }

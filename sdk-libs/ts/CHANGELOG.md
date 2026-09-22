@@ -454,6 +454,8 @@ Changed
 
 Fixed
 
+- `ZolanaClient` accepts Photon tree metadata while rejecting invalid tree IDs and tree addresses that disagree with them.
+
 - `decryptTransactions` rejects malformed key-holder batches with
   `TRANSACTION_KEYS_BATCH_MISMATCH`, destroys returned transaction keys, and
   leaves wallet state unchanged on failure.

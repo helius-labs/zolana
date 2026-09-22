@@ -39,7 +39,6 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         rpc,
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
-        Address::new_from_array(network.tree.to_bytes()),
     )?;
     let recipient = parse_pubkey(&opts.to)?;
 
@@ -89,7 +88,7 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         .wallet
         .utxos
         .iter()
-        .filter(|entry| !entry.spent && entry.utxo.asset == asset)
+        .filter(|entry| !ctx.wallet.is_spent(entry) && entry.utxo.asset.asset == asset)
     {
         count += 1;
         // Classify with the exact predicates the spend paths enforce, so a
@@ -104,7 +103,7 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         };
         println!(
             "ok utxo hash={} amount={} mint={} kind={}",
-            hex::encode(entry.output_context.hash),
+            hex::encode(entry.utxo_hash),
             entry.utxo.amount,
             format_address(asset),
             kind
@@ -124,7 +123,6 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
         rpc,
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
-        Address::new_from_array(network.tree.to_bytes()),
     )?;
     let input = opts
         .input
@@ -198,7 +196,6 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         rpc,
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
-        Address::new_from_array(tree.to_bytes()),
     )?;
     // Submit only needs the owner's public identity plus the nullifier secret;
     // no signing/viewing/funding secret crosses the submit boundary.

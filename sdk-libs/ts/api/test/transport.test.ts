@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { treeAddress } from "../../src/interface/pda/index.js";
+
 import { ApiError, ZolanaApi } from "../../src/api/index.js";
 
 const HASH = "11111111111111111111111111111111";
@@ -308,7 +310,7 @@ describe("integers past the safe-integer bound", () => {
 
   it("does not rewrite a digit run inside a string payload", async () => {
     const payload = "99999999999999999999";
-    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"matches":[{"slot":0,"txSignature":"${SIGNATURE}","outputSlot":{"viewTag":"${HASH}","outputContext":{"hash":"${HASH}","tree":"${HASH}","leafIndex":0},"payload":"${payload}"}}]}}`;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"matches":[{"slot":0,"txSignature":"${SIGNATURE}","outputSlot":{"viewTag":"${HASH}","outputContext":{"hash":"${HASH}","tree":"${treeAddress(0)}","treeId":0,"leafIndex":0},"payload":"${payload}"}}]}}`;
     const api = respondWith(body);
 
     const response = await api.getEncryptedUtxosByTags({ tags: [HASH] } as never);

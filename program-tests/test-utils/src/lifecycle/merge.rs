@@ -5,15 +5,11 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
+use zolana_client::{MergeProver, ProverClient, SpendProof};
 use zolana_interface::{error::ShieldedPoolError, instruction::MergeTransact};
-use zolana_keypair::random_blinding;
 use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
-use zolana_transaction::{
-    instructions::merge::{merge_dummy_nullifier, merge_output_blinding, merge_padded_input_count},
-    Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo,
-};
+use zolana_transaction::{Utxo, WalletUtxo};
 use zolana_user_registry_interface::{
     instruction::{register, set_merging_enabled, RegisterData},
     user_record_pda,
@@ -96,7 +92,7 @@ impl LifecycleHarness {
                 .spendable
                 .iter()
                 .enumerate()
-                .filter(|(_, utxo)| utxo.asset == asset)
+                .filter(|(_, utxo)| utxo.asset.asset == asset)
                 .take(count)
                 .map(|(index, utxo)| (utxo.clone(), index))
                 .collect::<Vec<_>>();
@@ -106,107 +102,55 @@ impl LifecycleHarness {
             selected.into_iter().unzip()
         };
 
-        // Per-input SpendProof. Every input of one merge must be proven against
-        // the same UTXO root and the same nullifier root, so both proof sets come
-        // from ONE indexer call each: fetching them a leaf at a time lets the tree
-        // advance between calls and the client rejects the witness with
-        // `InputTreeRootMismatch` / `NullifierRootMismatch`.
-        let input_count = merge_padded_input_count(inputs.len())
-            .ok_or_else(|| anyhow!("{count} inputs exceed the widest merge shape"))?;
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let mut total: u64 = 0;
-        let mut utxo_hashes = Vec::with_capacity(inputs.len());
-        let mut nullifiers = Vec::with_capacity(input_count);
-        for utxo in &inputs {
-            total += utxo.amount;
-            let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
-            nullifiers.push(
-                keypair
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &utxo.blinding)?,
-            );
-            utxo_hashes.push(utxo_hash);
-        }
-        let first_nullifier = *nullifiers
-            .first()
-            .ok_or_else(|| anyhow!("{name} merge needs at least one input"))?;
-
-        // Pad to the smallest supported shape with dummies. A dummy mirrors the first real
-        // input's UTXO root but carries a non-inclusion proof for its own
-        // deterministic nullifier.
-        for slot in inputs.len()..input_count {
-            nullifiers.push(merge_dummy_nullifier(
-                &keypair.nullifier_key,
-                &first_nullifier,
-                u8::try_from(slot).map_err(|_| anyhow!("merge slot index out of range"))?,
-            )?);
-        }
-
-        let state_proofs = wait_for_merkle_proofs(&self.indexer, self.tree_address, &utxo_hashes);
-        let nullifier_proofs =
-            wait_for_non_inclusion_proofs(&self.indexer, self.tree_address, &nullifiers);
-
-        let owner = keypair.signing_pubkey();
-        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(input_count);
-        for (slot, nullifier_proof) in nullifier_proofs.into_iter().enumerate() {
-            let real = inputs.get(slot).zip(state_proofs.get(slot));
-            let (utxo, proof, nullifier_proof) = match real {
-                Some((utxo, state)) => (
+        let hashes = inputs
+            .iter()
+            .map(|utxo| utxo.hash(&nullifier_pk, &[0; 32], &[0; 32], self.tree_id))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let states = crate::test_validator_asserts::wait_for_merkle_proofs(
+            &self.indexer,
+            self.tree_address,
+            &hashes,
+        );
+        let notes = inputs
+            .iter()
+            .zip(&states)
+            .map(|(utxo, state)| {
+                crate::utxo::wallet(
                     utxo.clone(),
-                    Some(SpendProof {
-                        state: state.clone(),
-                        nullifier: nullifier_proof,
-                    }),
+                    &keypair.nullifier_key,
+                    self.tree_id,
+                    state.leaf_index,
                     None,
-                ),
-                None => (
-                    Utxo {
-                        owner,
-                        asset,
-                        amount: 0,
-                        blinding: random_blinding(),
-                        ring_program_id: None,
-                        data: Data::default(),
-                    },
                     None,
-                    Some(nullifier_proof),
-                ),
-            };
-            spend_inputs.push(TransferSpendInput {
-                utxo,
-                nullifier_key: keypair.nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                tree_id,
-                proof,
-                nullifier_proof,
-            });
-        }
-
-        // The circuit derives the consolidated output blinding from the first
-        // real input and its published nullifier.
-        let output_blinding = merge_output_blinding(&keypair.nullifier_key, &first_nullifier)?;
-        let output = SppProofOutputUtxo {
-            owner_address: Some(keypair.shielded_address()?),
-            asset,
-            amount: total,
-            blinding: output_blinding,
-            ring_program_id: None,
-            ring_data_hash: None,
-            data_hash: None,
-            owner_tag: None,
-            data: Data::default(),
-        };
-
-        let expiry_unix_ts = u64::MAX;
-
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let transaction = zolana_transaction::instructions::merge::MergeTransaction::new(notes)?
+            .with_output_tree_id(tree_id)
+            .encrypt(&keypair)?;
+        let total = transaction.output_utxo.amount;
+        let output_blinding = transaction.output_utxo.blinding;
+        let input_count = transaction.input_utxos.len();
+        let commitments = transaction.input_utxo_hashes()?;
+        let utxo_hashes: Vec<_> = commitments.iter().map(|input| input.utxo_hash).collect();
+        let real_nullifiers: Vec<_> = commitments.iter().map(|input| input.nullifier).collect();
+        let state_proofs = wait_for_merkle_proofs(&self.indexer, self.tree_address, &utxo_hashes);
+        let mut nullifiers = real_nullifiers.clone();
+        nullifiers.extend(transaction.dummy_nullifiers());
+        let mut nullifier_proofs =
+            wait_for_non_inclusion_proofs(&self.indexer, self.tree_address, &nullifiers);
+        let dummy_nullifier_proofs = nullifier_proofs.split_off(real_nullifiers.len());
+        let proofs = state_proofs
+            .into_iter()
+            .zip(nullifier_proofs)
+            .map(|(state, nullifier)| SpendProof { state, nullifier })
+            .collect();
         let result = MergeProver {
-            inputs: spend_inputs,
-            output: output.clone(),
-            expiry_unix_ts,
-            signing_pubkey: owner,
+            transaction,
             nullifier_key: keypair.nullifier_key.clone(),
-            output_tree_id: tree_id,
+            proofs,
+            dummy_nullifier_proofs,
         }
         .build()?;
 
@@ -293,23 +237,28 @@ impl LifecycleHarness {
                 .wallet
                 .utxos
                 .iter()
-                .any(|note| note.output_context.hash == input_hash)
+                .any(|note| note.utxo_hash == input_hash)
             {
                 continue;
             }
             let proof = wait_for_merkle_proof(&self.indexer, self.tree_address, input_hash);
+            // The harness never indexed the deposit that published this note, so
+            // its publication coordinates are placeholders. Only the commitment,
+            // the nullifier and the amounts feed merge reconstruction, and the
+            // same value is seeded into the wallet and into `expected`, so the
+            // full-struct assert still compares like for like.
             let note = WalletUtxo {
                 utxo: input.clone(),
-                output_context: OutputContext {
-                    hash: input_hash,
-                    tree: proof.merkle_context.tree,
-                    leaf_index: proof.leaf_index,
-                },
+                nullifier_pubkey: nullifier_pk,
+                utxo_hash: input_hash,
                 nullifier: input.nullifier(&input_hash, &keypair.nullifier_key)?,
                 data_hash: None,
                 ring_data_hash: None,
                 tree_id,
-                spent: true,
+                leaf_index: proof.leaf_index,
+                slot: 0,
+                tx_signature: solana_signature::Signature::default(),
+                slot_index: 0,
             };
             let actor = self.actor_mut(name);
             actor.wallet.utxos.push(note.clone());
@@ -327,19 +276,6 @@ impl LifecycleHarness {
             &indexed,
         )?;
         self.actor_mut(name).expected.push(merged_utxo);
-
-        // Mark consumed inputs spent if they were decrypted (tracked) UTXOs.
-        for input in &inputs {
-            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
-            if let Some(utxo) = self
-                .actor_mut(name)
-                .expected
-                .iter_mut()
-                .find(|n| n.output_context.hash == consumed_hash)
-            {
-                utxo.spent = true;
-            }
-        }
 
         self.indexed.push(indexed);
 
@@ -374,7 +310,7 @@ impl LifecycleHarness {
             .wallet
             .utxos
             .iter()
-            .any(|w| w.output_context.hash == output_hash);
+            .any(|w| w.utxo_hash == output_hash);
         assert!(
             merged_present,
             "{name}'s synced wallet should hold the consolidated output"

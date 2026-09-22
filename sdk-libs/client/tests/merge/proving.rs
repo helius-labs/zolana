@@ -1,14 +1,12 @@
 //! Merge proof construction and verification cases.
 
+use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
-use solana_address::Address;
-use zolana_client::{
-    prover::merge::MergeProver, Merge, MergeWitness, ProverClient, Rpc, SppProofInputUtxo,
-    MAX_MERGE_INPUTS,
-};
+use zolana_client::{MergeProver, ProverClient, Rpc};
 use zolana_interface::verifying_keys::{merge_36_1, merge_8_1};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
-use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Utxo};
+use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
+use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
 
 use crate::{harness::MergeHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
@@ -33,7 +31,7 @@ impl MergeHarness {
         } else {
             ShieldedKeypair::new_p256().expect("sender keypair")
         };
-        let asset = Address::default(); // SOL
+        let asset = Mint::SOL;
         let owner = sender.signing_pubkey();
         let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pk");
 
@@ -54,34 +52,39 @@ impl MergeHarness {
             let utxo_hash = utxo
                 .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
                 .expect("utxo hash");
-            indexer.add_utxo(utxo_hash);
-            inputs.push(SppProofInputUtxo::new(utxo, &sender));
+            let leaf_index = indexer.add_utxo(utxo_hash);
+            inputs.push(wallet_utxo(
+                utxo,
+                &sender.nullifier_key,
+                TEST_TREE_ID,
+                leaf_index,
+                None,
+                None,
+            ));
         }
         // The plan derives the merged output and owner identity; preparing it pads to
         // MERGE_INPUTS, and the MergeWitness folds in the owner nullifier key and the
         // proofs. The prover never sees the high-level plan.
-        let merge = Merge::new(&sender, inputs)
+        let merge = MergeTransaction::new(inputs)
             .expect("build merge plan")
             .with_expiry(0);
-        let prepared = merge.prepare();
-        let expected_output = prepared.output.clone();
+        let prepared = merge.encrypt(&sender).expect("encrypt merge");
+        let expected_output = prepared.output_utxo.clone();
         let commitments = prepared.input_utxo_hashes().expect("input commitments");
         let proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
             .expect("merkle proofs");
         let dummy_nullifier_proofs = prepared
-            .dummy_nullifiers(&sender.nullifier_key)
-            .expect("dummy nullifiers")
+            .dummy_nullifiers()
             .into_iter()
             .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
             .collect();
-        let result = MergeProver::try_from(MergeWitness {
-            prepared,
+        let result = MergeProver {
+            transaction: prepared,
             nullifier_key: sender.nullifier_key.clone(),
             proofs,
             dummy_nullifier_proofs,
-        })
-        .expect("merge prover")
+        }
         .build()
         .expect("build merge proof");
 

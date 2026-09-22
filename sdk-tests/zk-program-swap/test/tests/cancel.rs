@@ -1,3 +1,7 @@
+use zolana_test_utils::utxo::{
+    encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+};
+use zolana_transaction::utxo::SppProofInputUtxo;
 mod shared;
 
 use std::time::Duration;
@@ -17,13 +21,7 @@ use swap_sdk::{
 use zolana_client::Rpc;
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
-    instructions::{
-        transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
-            ExternalData, SppProofInputs, SppProofOutputUtxo,
-        },
-        types::SppProofInputUtxo,
-    },
+    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::ensure_registered;
@@ -83,20 +81,17 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let mut order_utxo = OrderUtxo {
             terms,
             blinding: random_blinding(),
-            source_mint: spl_mint,
+            source_mint: maker.registry.mint(&spl_mint)?,
             source_amount: SOURCE_AMOUNT,
             destination_asset_id: SOL_ASSET_ID,
         };
-        let order_output_utxo = order_utxo.output_utxo(taker_address.viewing_pubkey)?;
+        let order_output_utxo = order_utxo.output_utxo(maker_address.viewing_pubkey)?;
 
-        let input_utxos = vec![
-            maker_input.in_tree(tree_id),
-            SppProofInputUtxo::new_dummy().in_tree(tree_id),
-        ];
+        let input_utxos = vec![maker_input, SppProofInputUtxo::dummy(tree_id)?];
 
         let order_utxo_asset = order_output_utxo.asset;
         let leftover =
-            input_sum(&input_utxos, &order_utxo_asset) - i128::from(order_output_utxo.amount);
+            input_sum(&input_utxos, &order_utxo_asset.asset) - i128::from(order_output_utxo.amount);
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient order balance: {leftover}"))?;
         let change = SppProofOutputUtxo::new(order_utxo_asset, change_amount, maker_address)?;
@@ -122,7 +117,6 @@ fn make_and_cancel_swap_inline() -> Result<()> {
 
         let encoded = encrypt_transaction_data(
             &[change.clone(), order_output_utxo],
-            &maker.registry,
             &transaction_viewing_key,
             tree_id,
         )
@@ -135,18 +129,21 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             encoded.resolved_owner_tags,
             vec![marker_message],
         );
-        let spp_proof_inputs = SppProofInputs::new(
+        let spp_proof_inputs = SppProofInputs {
             input_utxos,
-            encoded.output_utxos,
+            output_utxos: encoded.output_utxos,
             external_data,
-            maker_address.solana_address()?,
-        )
-        .with_blinding_seed(blinding_seed)
-        .with_output_tree_id(tree_id);
+            payer: maker_address.solana_address()?,
+            blinding_seed,
+            output_tree_id: tree_id,
+        };
 
         let spp_proof = client
             .indexer()
-            .prove_transact(tree, spp_proof_inputs.clone())
+            .prove_transact(
+                spp_proof_inputs.clone(),
+                &zolana_keypair::NullifierKey::from_secret([0; 31]),
+            )
             .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
         let make_proof_inputs = MakeProofInputParams {
@@ -189,10 +186,17 @@ fn make_and_cancel_swap_inline() -> Result<()> {
 
         let mut source_output = order_utxo.source_output(maker_address, random_blinding());
 
+        let order_hash = order_utxo
+            .output_utxo(maker_address.viewing_pubkey)?
+            .hash(tree_id)?;
+        let order_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
+            client.indexer(),
+            tree,
+            order_hash,
+        );
         let order_input_utxo = order_utxo
-            .to_input_utxo()
-            .map_err(|e| anyhow!("order spend: {e:?}"))?
-            .in_tree(tree_id);
+            .to_input_utxo(tree_id, order_state.leaf_index)
+            .map_err(|e| anyhow!("order input_utxo: {e:?}"))?;
 
         let input_utxos = vec![order_input_utxo];
         let blinding_seed =
@@ -205,7 +209,6 @@ fn make_and_cancel_swap_inline() -> Result<()> {
 
         let encoded = encrypt_transaction_data(
             std::slice::from_ref(&source_output),
-            &maker.registry,
             &transaction_viewing_key,
             tree_id,
         )
@@ -219,14 +222,14 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             vec![],
         );
         external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-        let cancel_spp_proof_inputs = SppProofInputs::new(
+        let cancel_spp_proof_inputs = SppProofInputs {
             input_utxos,
-            encoded.output_utxos,
+            output_utxos: encoded.output_utxos,
             external_data,
-            maker_address.solana_address()?,
-        )
-        .with_blinding_seed(blinding_seed)
-        .with_output_tree_id(tree_id);
+            payer: maker_address.solana_address()?,
+            blinding_seed,
+            output_tree_id: tree_id,
+        };
 
         let cancel_proof_inputs = CancelProofInputParams {
             order_utxo: order_utxo.clone(),
@@ -245,7 +248,10 @@ fn make_and_cancel_swap_inline() -> Result<()> {
 
         let spp_proof = client
             .indexer()
-            .prove_transact(tree, cancel_spp_proof_inputs)
+            .prove_transact(
+                cancel_spp_proof_inputs,
+                &zolana_keypair::NullifierKey::from_secret([0; 31]),
+            )
             .map_err(|e| anyhow!("cancel transact proof: {e:?}"))?;
 
         let cancel_proof = swap_prover_client

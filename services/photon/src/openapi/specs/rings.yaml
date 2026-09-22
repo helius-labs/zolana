@@ -109,12 +109,26 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
+                      outputTreeId:
+                        type:
+                        - integer
+                        - 'null'
+                        format: u-int16
+                        description: |-
+                          Where a new output should be appended: the newest tree the pool has that
+                          is not paused. A property of the pool, not of any returned note, so it
+                          is reported even when nothing matched -- a wallet that has never
+                          transacted still learns where to append without a second call.
+
+                          `None` when every tree is paused, or when this indexer has not synced
+                          tree metadata yet. Neither is an append target, and a reader that needs
+                          one should refuse at that point rather than pick a doomed id.
+                        minimum: 0
                       scannedThrough:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
                           description: Where the scan reached on a terminal page, including an empty page.
-                    additionalProperties: false
         '429':
           description: Exceeded rate limit.
           content:
@@ -603,6 +617,13 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
+                      outputTreeId:
+                        type:
+                        - integer
+                        - 'null'
+                        format: u-int16
+                        description: The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
+                        minimum: 0
                       scannedThrough:
                         oneOf:
                         - type: 'null'
@@ -622,7 +643,6 @@ paths:
                         description: |-
                           Transaction-level matches; each returned transaction spends at least one
                           requested nullifier and includes all of its output and input slots.
-                    additionalProperties: false
         '429':
           description: Exceeded rate limit.
           content:
@@ -733,11 +753,17 @@ paths:
                     properties:
                       context:
                         $ref: '#/components/schemas/Context'
+                      outputTreeId:
+                        type:
+                        - integer
+                        - 'null'
+                        format: u-int16
+                        description: The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
+                        minimum: 0
                       transactions:
                         type: array
                         items:
                           $ref: '#/components/schemas/IndexedShieldedTransaction'
-                    additionalProperties: false
         '429':
           description: Exceeded rate limit.
           content:
@@ -869,6 +895,13 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
+                      outputTreeId:
+                        type:
+                        - integer
+                        - 'null'
+                        format: u-int16
+                        description: The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
+                        minimum: 0
                       scannedThrough:
                         oneOf:
                         - type: 'null'
@@ -881,7 +914,6 @@ paths:
                         description: |-
                           Transaction-level matches; each returned transaction has at least one requested
                           output view tag and includes all of its output slots.
-                    additionalProperties: false
         '429':
           description: Exceeded rate limit.
           content:
@@ -937,7 +969,6 @@ components:
           format: u-int64
           description: Highest slot the indexer has persisted, for slot-based freshness checks.
           minimum: 0
-      additionalProperties: false
     EncryptedUtxoMatch:
       type: object
       required:
@@ -962,7 +993,6 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/Base64String'
-      additionalProperties: false
     Hash:
       type: string
       description: A 32-byte hash represented as a base58 string.
@@ -978,7 +1008,6 @@ components:
           minimum: 0
         transaction:
           $ref: '#/components/schemas/ShieldedTransaction'
-      additionalProperties: false
     Limit:
       type: integer
       format: u-int64
@@ -1110,12 +1139,12 @@ components:
           $ref: '#/components/schemas/Base64String'
         viewTag:
           $ref: '#/components/schemas/Hash'
-      additionalProperties: false
     RingsOutputContext:
       type: object
       required:
       - hash
       - tree
+      - treeId
       - leafIndex
       properties:
         hash:
@@ -1126,7 +1155,17 @@ components:
           minimum: 0
         tree:
           $ref: '#/components/schemas/SerializablePubkey'
-      additionalProperties: false
+          description: |-
+            The tree account the output was appended to.
+
+            Deprecated: it is `pda::tree(tree_id)` and carries nothing `tree_id`
+            does not. Emitted for one release so readers can move over, then
+            dropped.
+        treeId:
+          type: integer
+          format: u-int16
+          description: The raw tree id the output's commitment is hashed under.
+          minimum: 0
     RingsOutputSlot:
       type: object
       required:
@@ -1140,7 +1179,6 @@ components:
           $ref: '#/components/schemas/Base64String'
         viewTag:
           $ref: '#/components/schemas/Hash'
-      additionalProperties: false
     SerializablePubkey:
       type: string
       description: A Solana public key represented as a base58 string.
@@ -1205,4 +1243,3 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/Base64String'
-      additionalProperties: false

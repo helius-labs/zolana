@@ -10,6 +10,10 @@ use std::str::FromStr;
 #[derive(Debug, Clone)]
 pub struct TreeInfo {
     pub tree: Pubkey,
+    /// The raw id the tree account carries; `pda::tree(tree_id)` is `tree`.
+    pub tree_id: u16,
+    /// A paused tree rejects every append, so it is not a valid output tree.
+    pub paused: bool,
     pub queue: Pubkey,
     pub height: u32,
     pub root_history_capacity: u64,
@@ -106,8 +110,28 @@ impl TreeInfo {
         })?;
         let queue_pubkey = Pubkey::from(queue_bytes);
 
+        // A NULL id is a row written before the columns existed, not tree 0 and
+        // not an unpaused tree. Defaulting would hand every caller a plausible
+        // wrong answer; the next startup sync fills both columns in.
+        let tree_id = metadata.tree_id.ok_or_else(|| {
+            PhotonApiError::UnexpectedError(format!(
+                "Tree {} has no tree id in DB; metadata has not been synced",
+                tree_pubkey
+            ))
+        })?;
+        let paused = metadata.paused.ok_or_else(|| {
+            PhotonApiError::UnexpectedError(format!(
+                "Tree {} has no tree state in DB; metadata has not been synced",
+                tree_pubkey
+            ))
+        })?;
+
         Ok(TreeInfo {
             tree: tree_pubkey,
+            tree_id: u16::try_from(tree_id).map_err(|_| {
+                PhotonApiError::UnexpectedError(format!("Invalid tree id in DB: {}", tree_id))
+            })?,
+            paused,
             queue: queue_pubkey,
             height: u32::try_from(metadata.height).map_err(|_| {
                 PhotonApiError::UnexpectedError(format!(

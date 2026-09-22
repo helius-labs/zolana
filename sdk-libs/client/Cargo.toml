@@ -9,6 +9,7 @@ autotests = false
 
 [features]
 default = []
+socks = ["reqwest/socks"]
 indexer-api = ["dep:zolana-api"]
 solana-rpc = ["dep:bs58", "dep:base64", "dep:solana-rpc-client", "dep:solana-commitment-config"]
 client = ["indexer-api", "solana-rpc"]
@@ -49,7 +50,6 @@ solana-rpc-client-api = { workspace = true }
 solana-rpc-client = { workspace = true, optional = true }
 solana-commitment-config = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
-solana-signer = { workspace = true }
 solana-transaction = { workspace = true, features = ["serde"] }
 solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["time", "rt", "macros"] }
@@ -63,6 +63,32 @@ zolana-merkle-tree = { workspace = true }
 rand = { workspace = true }
 serial_test = { workspace = true }
 wincode = { workspace = true }
+
+[[test]]
+name = "rpc"
+
+[[test]]
+name = "transaction_size"
+
+[[test]]
+name = "indexer"
+required-features = ["indexer-api"]
+
+[[test]]
+name = "client"
+required-features = ["indexer-api"]
+
+# Hermetic: pure witness assembly, no prover server, so no `proofs` gate.
+[[test]]
+name = "assembly_vectors"
+
+# Hermetic: pure witness assembly across two input trees.
+[[test]]
+name = "multi_tree_spend"
+
+# Hermetic: a loopback mock indexer, no prover server.
+[[test]]
+name = "witness_trees"
 
 [[test]]
 name = "transaction_proving"

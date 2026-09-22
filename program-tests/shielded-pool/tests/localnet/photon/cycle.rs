@@ -126,13 +126,16 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
         .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
     let payer_utxo = Utxo {
         owner: payer_owner,
-        asset: Address::new_from_array(deposited.asset),
+        asset: Mint::SOL,
         amount: deposited.amount,
         blinding: deposited.blinding,
         ring_program_id: None,
         data: Data::default(),
     };
-    assert_eq!((payer_utxo.asset, payer_utxo.amount), (SOL_MINT, AMOUNT));
+    assert_eq!(
+        (payer_utxo.asset.asset, payer_utxo.amount),
+        (SOL_MINT, AMOUNT)
+    );
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero, env.tree_id)?;
     assert_eq!(indexed_deposit.output_slot.view_tag, shield_view_tag);
     assert_eq!(indexed_deposit.tx_signature, shield_sig);
@@ -141,8 +144,8 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
         payer_utxo_hash
     );
     assert_eq!(
-        indexed_deposit.output_slot.output_context.tree,
-        env.tree_address
+        indexed_deposit.output_slot.output_context.tree_id,
+        env.tree_id
     );
     assert!(indexed_deposit.tx_viewing_pk.is_none());
     let unknown_utxos =
@@ -165,7 +168,7 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
 struct PayerProofs {
     state_proof: IndexedMerkleProof,
     nullifier_proof: IndexedNonInclusionProof,
-    spend_input: TransferInput,
+    input_utxo: TransferInput,
 }
 
 /// Wait for Photon's merkle/non-inclusion proofs of the payer UTXO, gate them
@@ -231,7 +234,7 @@ fn phase_indexer_sync(env: &CycleEnv, shield: &PayerShield) -> TestResult<PayerP
         rpc_state_root(&env.rpc, &env.tree_pubkey)?,
         payer_state_proof.root
     );
-    let payer_spend_input = indexed_spend_input(IndexedSpendInputArgs {
+    let payer_input_utxo = indexed_transfer_input(IndexedSpendInputArgs {
         utxo: &shield.utxo,
         owner_field: &payer_owner_field,
         state_proof: &payer_state_proof,
@@ -245,7 +248,7 @@ fn phase_indexer_sync(env: &CycleEnv, shield: &PayerShield) -> TestResult<PayerP
     Ok(PayerProofs {
         state_proof: payer_state_proof,
         nullifier_proof: payer_nullifier_proof,
-        spend_input: payer_spend_input,
+        input_utxo: payer_input_utxo,
     })
 }
 
@@ -268,7 +271,7 @@ fn phase_shielded_transfer(
     let PayerProofs {
         state_proof: payer_state_proof,
         nullifier_proof: payer_nullifier_proof,
-        spend_input: payer_spend_input,
+        input_utxo: payer_input_utxo,
     } = payer_proofs;
     let payer_utxo = &shield.utxo;
     let payer_nullifier_pk = shield.nullifier_key.pubkey()?;
@@ -284,14 +287,14 @@ fn phase_shielded_transfer(
     let change_output = real_output(
         payer_utxo.owner,
         payer_nullifier_pk,
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         CHANGE_AMOUNT,
         [13u8; 31],
     );
     let recipient_output = real_output(
         recipient_public_key,
         recipient_nullifier_pk,
-        SOL_MINT,
+        zolana_transaction::Mint::SOL,
         TRANSFER_AMOUNT,
         [17u8; 31],
     );
@@ -317,8 +320,8 @@ fn phase_shielded_transfer(
         output_hashes: transfer_output_hashes,
         output_blindings: transfer_output_blindings,
     } = build_sol_transfer_witness(SolTransferWitnessArgs {
-        spend_inputs: vec![
-            payer_spend_input,
+        input_utxos: vec![
+            payer_input_utxo,
             dummy_input_with_proof(&[20u8; 31], &transfer_dummy_nf, tree_id)
                 .map_err(|err| anyhow!("transfer dummy input: {err}"))?,
         ],
@@ -395,7 +398,7 @@ fn phase_shielded_transfer(
 
     let recipient_utxo = Utxo {
         owner: recipient_public_key,
-        asset: SOL_MINT,
+        asset: zolana_transaction::Mint::SOL,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_blinding,
         ring_program_id: None,
@@ -481,7 +484,7 @@ fn phase_unshield(
         "transfer root gate"
     );
     assert_eq!(recipient_nullifier_proof.root, transfer_nullifier_root);
-    let recipient_spend_input = indexed_spend_input(IndexedSpendInputArgs {
+    let recipient_input_utxo = indexed_transfer_input(IndexedSpendInputArgs {
         utxo: recipient_utxo,
         owner_field: &recipient_owner_field,
         state_proof: &recipient_state_proof,
@@ -529,8 +532,8 @@ fn phase_unshield(
         ix_data: withdraw_ix_data,
         ..
     } = build_sol_transfer_witness(SolTransferWitnessArgs {
-        spend_inputs: vec![
-            recipient_spend_input,
+        input_utxos: vec![
+            recipient_input_utxo,
             dummy_input_with_proof(&[21u8; 31], &withdraw_dummy_nf, tree_id)
                 .map_err(|err| anyhow!("withdraw dummy input: {err}"))?,
         ],

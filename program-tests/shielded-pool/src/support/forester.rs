@@ -14,7 +14,7 @@ use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifi
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::localnet::send_transaction;
-use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
+use zolana_transaction::instructions::transact::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
 type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon, usize>;

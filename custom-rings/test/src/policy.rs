@@ -18,8 +18,8 @@ use zolana_ring_policy::{
 };
 use zolana_test_utils::test_validator_asserts::{wait_for_indexed_utxo, wait_for_merkle_proof};
 use zolana_transaction::{
-    instructions::{transact::ConfidentialTransfer, types::SppProofInputUtxo},
-    Utxo, SOL_MINT,
+    instructions::transact::{ConfidentialTransaction, Shape},
+    Utxo,
 };
 
 use crate::shared::{custom_ring_program_id, setup_with_extra_rings, RegisterRing, TestEnv, Tier};
@@ -115,7 +115,13 @@ impl RingNotes<'_> {
                     amount: self.amount,
                 }
                 .send(rpc)?;
-                let leaf = SppProofInputUtxo::new(utxo.clone(), self.owner).hash()?;
+                let tree_id = custom_ring_sdk::tree_id(rpc, self.env.tree)?;
+                let leaf = utxo.hash(
+                    &self.owner.nullifier_key.pubkey()?,
+                    &[0; 32],
+                    &[0; 32],
+                    tree_id,
+                )?;
                 wait_for_merkle_proof(indexer, self.env.tree, leaf);
                 Ok(utxo)
             })
@@ -135,21 +141,38 @@ pub struct PolicyTransfer<'a> {
 
 impl PolicyTransfer<'_> {
     pub fn prove(self, prover: &ProverClient) -> Result<ProvenTransfer, TransferError> {
-        let mut transfer = ConfidentialTransfer::new(
-            self.sender.shielded_address()?,
-            vec![SppProofInputUtxo::new(self.note, self.sender)],
-            self.sender.pubkey(),
+        let tree_id = custom_ring_sdk::tree_id(self.env.client.rpc(), self.env.tree)?;
+        let hash = self.note.hash(
+            &self.sender.nullifier_key.pubkey()?,
+            &[0; 32],
+            &[0; 32],
+            tree_id,
+        )?;
+        let state = wait_for_merkle_proof(self.env.client.indexer(), self.env.tree, hash);
+        let note = zolana_test_utils::utxo::wallet(
+            self.note,
+            &self.sender.nullifier_key,
+            tree_id,
+            state.leaf_index,
+            None,
+            None,
         )
-        .with_compact_change()
-        .with_ring_program_id(self.ring.program_id());
-        transfer.send(&self.recipient.shielded_address()?, SOL_MINT, self.amount)?;
+        .map_err(|error| zolana_client::ClientError::Rpc(error.to_string()))?;
+        let mut transfer = ConfidentialTransaction::new_with_ring(
+            vec![note],
+            self.sender.pubkey(),
+            self.ring.program_id(),
+        )?
+        .with_output_tree_id(tree_id)?;
+        transfer.transfer_sol(&self.recipient.shielded_address()?, self.amount)?;
+        transfer.pad_utxos(Shape::IN1_OUT2, &self.sender.shielded_address()?)?;
         CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: self.sender,
-            prepared: transfer.prepare()?,
+            nullifier_key: Some(&self.sender.nullifier_key),
+            transaction: transfer,
         })
         .with_tree(self.env.tree)
-        .with_assets(&self.env.assets)
         .prove(TransferProofEnvironment {
             indexer: self.env.client.indexer(),
             rpc: self.env.client.rpc(),

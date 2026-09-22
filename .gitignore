@@ -37,3 +37,4 @@ target-linux-x64/
 /lcov.info
 /coverage.json
 /coverage-html/
+sdk-libs/transaction/type-lifecycle.md

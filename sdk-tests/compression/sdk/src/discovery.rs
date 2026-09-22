@@ -5,7 +5,7 @@ use zolana_interface::event::OutputDataEncoding;
 use zolana_transaction::WalletUtxo;
 
 use crate::{
-    shared::{zero_nullifier_key, DEFAULT_TREE_ID},
+    shared::zero_nullifier_key,
     state::{decode_state, AccountUtxo},
 };
 
@@ -33,8 +33,9 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
     let data_hash = account_utxo.state.data_hash()?;
     let utxo = account_utxo.utxo()?;
     let nullifier_key = zero_nullifier_key();
-    // TODO(tree-id): resolve the tree id from the tree the leaf was indexed in.
-    let tree_id = DEFAULT_TREE_ID;
+    // This example publishes into one tree; the commitment check below is what
+    // makes that an assertion rather than an assumption.
+    let tree_id = indexed.output_slot.output_context.tree_id;
     let hash = utxo.hash(&nullifier_key.pubkey()?, &data_hash, &[0u8; 32], tree_id)?;
     if hash != indexed.output_slot.output_context.hash {
         bail!("decoded UTXO commitment does not match indexed output");
@@ -43,12 +44,16 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
     Ok(DiscoveredAccount {
         utxo: WalletUtxo {
             utxo,
-            output_context: indexed.output_slot.output_context,
+            nullifier_pubkey: nullifier_key.pubkey()?,
+            utxo_hash: hash,
             nullifier,
             data_hash: Some(data_hash),
             ring_data_hash: None,
             tree_id,
-            spent: false,
+            leaf_index: indexed.output_slot.output_context.leaf_index,
+            slot: indexed.slot,
+            tx_signature: indexed.tx_signature,
+            slot_index: 0,
         },
         version,
     })
@@ -67,13 +72,13 @@ pub fn discover_account(indexer: &ZolanaIndexer, pda: Address) -> Result<Discove
         }
     }
     discover_from_matches(matches, &pda, |nullifier| {
-        let spend = indexer.get_shielded_transactions_by_nullifiers(
+        let input_utxo = indexer.get_shielded_transactions_by_nullifiers(
             vec![*nullifier],
             None,
             Some(1),
             None,
         )?;
-        Ok(!spend.transactions.is_empty())
+        Ok(!input_utxo.transactions.is_empty())
     })
 }
 
@@ -102,6 +107,7 @@ fn discover_from_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::DEFAULT_TREE_ID;
     use crate::{account_pda, state::AccountState};
     use compression_example_program::state::output_blinding;
     use zolana_transaction::{OutputContext, OutputSlot};
@@ -156,7 +162,7 @@ mod tests {
                 view_tag: pda.to_bytes(),
                 output_context: OutputContext {
                     hash,
-                    tree: Address::default(),
+                    tree_id: DEFAULT_TREE_ID,
                     leaf_index,
                 },
                 payload: state.to_output_data().unwrap(),
@@ -174,7 +180,7 @@ mod tests {
                 view_tag: pda.to_bytes(),
                 output_context: OutputContext {
                     hash: [0u8; 32],
-                    tree: Address::default(),
+                    tree_id: DEFAULT_TREE_ID,
                     leaf_index,
                 },
                 payload: borsh::to_vec(&OutputDataEncoding::Plaintext(vec![0xff; 3])).unwrap(),
