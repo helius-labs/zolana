@@ -7,7 +7,7 @@ import (
 	"os"
 	"strconv"
 
-	aeglos "github.com/Atamanov/helius-aeglos"
+	aeglos "github.com/helius-labs/aeglos"
 )
 
 func newGPU() (prover, error) {

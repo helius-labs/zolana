@@ -5,7 +5,7 @@ package backend
 import (
 	"time"
 
-	aeglos "github.com/Atamanov/helius-aeglos"
+	aeglos "github.com/helius-labs/aeglos"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )

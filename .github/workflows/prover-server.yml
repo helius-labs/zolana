@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "prover/**"
+      - "tools/gpu/**"
       - "xtask/**"
       - ".github/workflows/prover-server.yml"
       - ".github/actions/setup-rust/**"
@@ -12,6 +13,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "prover/**"
+      - "tools/gpu/**"
       - "xtask/**"
       - ".github/workflows/prover-server.yml"
       - ".github/actions/setup-rust/**"
@@ -26,6 +28,15 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
+  gpu-deploy-scripts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: shellcheck tools/gpu/*.sh
+      - run: python3 -m unittest discover -s tools/gpu -p 'test_*.py'
+
   go-tests:
     name: prover-server / go test
     runs-on: ubuntu-latest
