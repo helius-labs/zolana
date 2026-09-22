@@ -146,3 +146,50 @@ At the checked on-demand rate, the L4 host costs $892.42 for 730 hours. The same
 database brings the total to $1,185.15 before storage and traffic. Host cost is
 78.6% lower than Blackwell. See [the L4 measurements](l4-measurements.json) for
 all samples, request stages and verification results.
+
+## L4 merge tuning
+
+The experimental build keeps shifted G2 bases in GPU memory and limits registers
+in the G2 accumulation kernel. It also uses 17 bit G1 windows. The release source
+and devnet-c deployment remain unchanged. The L4 host stays running. Its test endpoint uses the prototype. The original
+prover container remains available for rollback.
+
+Four live proofs passed standard Gnark verification. Each merge shape ran twice
+through the local Photon and prover. The table uses the second request, with
+prepared keys cached. Values are milliseconds.
+
+| Merge | Witness | FFT | MSM | Witness and proof | Indexer fetch | Full server | Client receipt |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 8×1 | 18.26 | 2.46 | 36.76 | 59.18 | 16.47 | 84.25 | 183.12 |
+| 36×1 | 19.83 | 11.36 | 120.61 | 157.18 | 17.04 | 208.26 | 381.03 |
+
+For 36×1, witness and proof fell from 196.38 ms to 157.18 ms, a 20.0% reduction.
+Client receipt fell from 443.77 ms to 381.03 ms, a 14.1% reduction. Network and
+client variation contribute to the receipt difference. There is no prior L4
+8×1 sample. Its Blackwell reference is 36.91 ms for witness and proof and
+175.1 ms to receipt.
+
+The 8×1 server path is below 100 ms. The 36×1 proof remains above 100 ms.
+Neither client receipt reaches that target. The wide merge still has two real
+notes and 34 dummy inputs. Indexer path validation takes 27.96 ms for that shape,
+in addition to the 17.04 ms fetch. Client work takes 84.82 ms and transport takes
+87.94 ms.
+
+The isolated 36×1 fixture improved from 210.55 ms to 166.05 ms. Each candidate
+ran two proofs and rejected a changed public input. Those fixtures exclude the
+indexer and network. Wider G2 windows and the existing cooperative G2 kernel
+were slower. Their results remain in [the trial records](l4-hillclimb.json).
+
+Nsight Compute measured 255 registers per thread and 16.62% occupancy in the
+G2 accumulation kernel before the register limit. DRAM throughput was 12.72%.
+The tested limit reduced register use to 168 per thread. Profiler timings are
+excluded because profiling changed the GPU clock and replayed kernels.
+
+Preparing the 36×1 GPU key took 2.92 seconds on first use, compared with
+2.22 seconds before tuning. Warm requests exclude that cost. In the isolated
+fixture, cached device allocations rose from 5.58 GiB to 6.71 GiB.
+
+The prototype uses fixed precomputation and launch settings for these L4 tests.
+It is not part of the release source. Its source archive hash, complete proof
+records and stage measurements are in [the evidence](l4-hillclimb.json).
+The samples do not establish sustained TPS or p95 latency.
