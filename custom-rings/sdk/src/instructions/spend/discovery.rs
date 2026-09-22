@@ -25,6 +25,7 @@ pub struct LiveSpendRecord {
     pub record: SpendRecord,
     pub utxo_hash: [u8; 32],
     pub nullifier: [u8; 32],
+    pub leaf_index: u64,
     pub origin: RecordOrigin,
 }
 
@@ -145,6 +146,7 @@ impl LineageLookup for SpendLookup {
             record,
             utxo_hash,
             nullifier,
+            leaf_index: slot.output_context.leaf_index,
             origin: RecordOrigin {
                 first_nullifier: transaction.nullifiers.first().copied()?,
                 tx_viewing_pk: transaction.tx_viewing_pk,
@@ -303,6 +305,7 @@ mod tests {
         let live = read(&rpc).expect("walk").expect("registered");
         assert_eq!(live.record, second);
         assert_eq!(live.nullifier, second_nullifier);
+        assert_eq!(live.leaf_index, 1);
         assert_eq!(live.origin.first_nullifier, first_nullifier);
         assert_eq!(live.origin.salt, Some([9u8; SALT_LEN]));
         assert_eq!(live.origin.messages.len(), 2);

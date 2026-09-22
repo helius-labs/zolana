@@ -322,7 +322,7 @@ impl VelocityPlanInput<'_> {
             data_hash: Some(spent_data_hash),
             ring_data_hash: None,
             tree_id: facts.entries_tree_id,
-            leaf_index: 0,
+            leaf_index: facts.live.leaf_index,
         };
         let output = SppProofOutputUtxo {
             asset: Mint::SOL,
@@ -422,6 +422,7 @@ mod tests {
             },
             utxo_hash: [0; 32],
             nullifier: [0; 32],
+            leaf_index: 0,
             origin: crate::RecordOrigin {
                 first_nullifier: [0; 32],
                 tx_viewing_pk: None,

@@ -2166,12 +2166,14 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
 
     // Failed SPP verification rolls back the head before a valid send advances both.
     let prepared = prepare(notes, FIRST_SEND)?;
-    let change = prepared
+    let (change_slot, mut change) = prepared
         .outputs()
         .iter()
-        .find(|output| output.amount == DEPOSITS[0] + DEPOSITS[1] - FIRST_SEND)
-        .cloned()
+        .enumerate()
+        .find(|(_, output)| output.amount == DEPOSITS[0] + DEPOSITS[1] - FIRST_SEND)
+        .map(|(slot, output)| (slot, output.clone()))
         .ok_or_else(|| anyhow!("change output"))?;
+    change.blinding = output_blinding(&prepared, u32::try_from(change_slot)?)?;
     let mut proven = prove(prepared, None)?;
     assert!(
         !proven.approval_required,
@@ -2269,12 +2271,14 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         .at(0)
         .assert_client(&rejection);
     let prepared = prepare(vec![change_note], SECOND_SEND)?;
-    let second_change = prepared
+    let (second_change_slot, mut second_change) = prepared
         .outputs()
         .iter()
-        .find(|output| output.amount == change.amount - SECOND_SEND)
-        .cloned()
+        .enumerate()
+        .find(|(_, output)| output.amount == change.amount - SECOND_SEND)
+        .map(|(slot, output)| (slot, output.clone()))
         .ok_or_else(|| anyhow!("second change output"))?;
+    second_change.blinding = output_blinding(&prepared, u32::try_from(second_change_slot)?)?;
     let proven = prove(prepared, Some(cosigner.pubkey()))?;
     let signature = TransactSend {
         payer: sender,

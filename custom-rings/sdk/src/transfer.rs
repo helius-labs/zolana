@@ -53,6 +53,7 @@ use zolana_tree::{TreeAccount, TreeError};
 use crate::{
     head_map::HeadWitness,
     instructions::{
+        entry::zero_nullifier_key,
         spend::{ReadEnvironment, ReadSpendRecord},
         transact::{
             request::json_body, CustomRingPolicyProofRequestJson, HeadTransitionJson, RingIdentity,
@@ -1123,6 +1124,18 @@ impl StagedTransfer {
             shape: tx_shape,
         }
         .build()?;
+        // A windowed velocity transfer appends the namespace-owned spend
+        // record as its final input. Its fixed zero authority is distinct from
+        // the sender, so complete it first and let the sender authority skip
+        // the now-complete slot.
+        if self.head_witness.is_some() {
+            let record = ring_result
+                .inputs
+                .inputs
+                .last_mut()
+                .ok_or(TransactionError::NoInputs)?;
+            zero_nullifier_key().complete_inputs(std::slice::from_mut(record))?;
+        }
         // Proof assembly deliberately leaves every real input's nullifier secret
         // absent. The caller's authority completes the inputs it owns and the
         // prover request rejects anything still incomplete.
