@@ -780,11 +780,18 @@ async function landedSignature(
   context: RequestContext | undefined,
 ): Promise<Signature | undefined> {
   if (signatures.length === 0) return undefined;
-  const { value } = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
-    params.client.solanaRpc
-      .getSignatureStatuses(signatures, { searchTransactionHistory: true })
-      .send({ abortSignal }),
-  );
+  let value: readonly (Readonly<{ err: unknown; confirmationStatus?: string | null }> | null)[];
+  try {
+    ({ value } = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
+      params.client.solanaRpc
+        .getSignatureStatuses(signatures, { searchTransactionHistory: true })
+        .send({ abortSignal }),
+    ));
+  } catch (error) {
+    // An unreachable status leaves the attempt to the deploy retry.
+    if (retryable(error)) return undefined;
+    throw error;
+  }
   const index = value.findIndex(
     (status) =>
       status !== null &&

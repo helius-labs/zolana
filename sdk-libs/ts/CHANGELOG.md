@@ -107,6 +107,8 @@ Fixed
   `RingPolicyConfig`, and `RingProgramBinary.bytes` handed out its internal
   buffer, the upgrade is now refused with `RING_POLICY_CONFIG_INCOMPATIBLE`
   before any transaction is sent and the accessors return copies.
+- `deployRingProgram` aborted when a signature status lookup failed
+  transiently after a failed confirmation, it now retries the deploy step.
 
 ## 0.2.0-alpha — 2026-09-21
 
