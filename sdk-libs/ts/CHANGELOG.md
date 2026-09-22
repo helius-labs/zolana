@@ -1,13 +1,11 @@
 # Changelog
 
-## 0.1.6-alpha — unreleased
+## 0.2.0-alpha — 2026-09-21
 
 Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated
 entries tree, and a ring transfer can land its outputs in a tree other than
-the one it spends from. Wallet replay keeps merge outputs when their inputs
-arrive in the same sync, and selection and approval text use UTXO terminology
-with saved pending transactions across restarts.
+the one it spends from. Wallets save pending transactions across restarts.
 A tree derives from its id instead of one fixed address, holds its own fee
 schedule, and takes four instructions in one transaction to create. Every
 spent nullifier gets its own account, and the transact, merge, and ring
@@ -18,8 +16,7 @@ blinding seed per proof derives every output blinding and the private
 transaction hash blinding. Every builder now returns a version 1 transaction,
 which holds 4,096 bytes instead of 1,232, carries its compute budget and
 priority fee in the message itself, and uses no address lookup tables. Wallet
-builders and sync now use a batched key interface that a remote holder can
-answer without releasing long-lived secrets.
+builders can send value across multiple trees.
 A ring gains a scoped co-signer, a permanent delegate, public spend windows
 and private per-window velocity caps kept in compressed member spend records,
 and transfer submissions settle their broadcast before releasing the notes
@@ -38,35 +35,15 @@ Breaking
   versions 2 and 3 remain readable.
 - `proveRingTransact` accepts `RingProvingConfig` → put indexer settings under `indexer` and supply `outputTree` when the destination differs from the client tree.
 
-- `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
-  `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
-  `WalletSyncMaterial` are removed → build
-  `LocalKeys.fromKeypair(keypair, client.proofService)`, or
-  `LocalKeys.fromDerivationSeed({ solanaPublicKey, derivationSeed }, client.proofService)`,
-  and pass it as `keys`.
-- Wallet transaction builders take `keys: WalletKeys` and an optional
-  `approve: ApprovalHandler` instead of `authority`; sync functions take
-  `keys: ShieldedKeys`. `proveTransact`, `proveRingTransact`,
-  `proveRingAuthorityTransact`, `proveMerge`, and authorized transaction
-  assembly require a `ProofAuthority`.
-- `ProofInputUtxo` carries `nullifierPublicKey`, the derived nullifier, and its
-  `treeId` instead of a `NullifierKey` → construct it with
-  `ProofInputUtxo.fromKeypair` or `ProofInputUtxo.fromNullifierKey`.
-- `proveCustomRingTransfer`, the ring transfer, exit and withdrawal builders
-  and their submissions, `readRingVelocityState` and `openSpendCounters` take
-  `keys` instead of `session` or `authority`, and `proveCustomRingDelegateTransfer`
-  takes `spender: RingDelegateSpender` → pass the member's `WalletKeys`, and
+- Ring transfer, exit and withdrawal submissions, `readRingVelocityState` and
+  `openSpendCounters` take `keys`, and `proveCustomRingDelegateTransfer` takes
+  `spender: RingDelegateSpender` → pass the member's `WalletKeys`, and
   for a delegate move `source: WalletKeys` or the recovered
   `nullifierKey` with a client that exposes `proofService`.
 - `prepareRingKeyRegistration` and `createRingKeyRegistrationSubmission` take
   `member: { address, nullifierKey }` instead of `authority` → pass the
   member's `ShieldedAddress` and `NullifierKey`, the one place a nullifier
   secret leaves its holder.
-- Prover input slots carry the nullifier secret only after `ProofAuthority`
-  fills it; an owned input still missing it fails with
-  `CLIENT_MISSING_NULLIFIER_SECRET` before the prover request.
-- `TRANSACTION_WALLET_AUTHORITY_MISMATCH` is renamed
-  `TRANSACTION_KEYS_IDENTITY_MISMATCH`.
 - `ringDepositInstruction` adds the canonical deposit-audit account, and
   `buildRingDepositTransaction` takes `RingDepositClient` with a deposit prover
   → upgrade ring deposit callers with the program even when auditing is disabled.
@@ -670,9 +647,6 @@ Changed
   longer when slots contain no update. `TREE_ACCOUNT_SIZE` is 39,952,
   `TREE_CREATION_STEP_COUNT` is 4 at a `TREE_ALLOCATION_STEP` of 10,240 bytes,
   `STATE_ROOT_OFFSET` is 80, and `PROTOCOL_CONFIG_SIZE` is 166.
-- `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
-  `buildRingExitTransaction` use UTXO terminology in approval summaries, while
-  version 3 `SerializedWalletState` reservation field names remain unchanged.
 - A built transaction carries its compute unit limit, a 64 MiB loaded accounts
   data size limit and its priority fee in the message header, so it holds no
   compute budget instruction and its instruction list is the setup and payload
@@ -714,8 +688,6 @@ Fixed
   them into v1 transactions; `writeBufferInstruction` rejects payloads above
   1,216 bytes with `RING_PROGRAM_WRITE_TOO_LARGE`.
 - `decodeRingPolicyConfig` returns the stored per-asset limits without reversing their bytes.
-- `decryptTransactions` no longer omits a merge when its inputs arrive in the
-  same sync because merge dependencies resolve before wallet commit.
 - A deposit could be given a blinding that already belonged to another deposit,
   which produced a duplicate UTXO hash and nullifier and left the second UTXO
   unspendable; the shielded pool now derives every deposit blinding from the
@@ -743,6 +715,124 @@ Dependencies
 - `@solana-program/compute-budget` removed (was ^0.17.0).
 - `@solana-program/token` ^0.16.1 (was ^0.15.0).
 - `@solana-program/system` ^0.14.1 (new).
+
+## 0.1.6-alpha — 2026-09-03
+
+The wallet authority is replaced by a key interface a remote holder can
+answer: `WalletKeys` exposes the derivations a wallet needs and proving,
+never a long-lived secret, and every build and sync takes it. Proof inputs
+carry the nullifier instead of the nullifier key, so a transaction is
+prepared and encrypted without the spending secret in the process. Wallet
+replay keeps merge outputs when their inputs arrive in the same sync.
+
+Breaking
+
+- `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
+  `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
+  `WalletSyncMaterial` are removed → build
+  `LocalKeys.fromKeypair(keypair, client.proofService)`, or from a browser
+  wallet's signature
+  `LocalKeys.fromDerivationSeed({ solanaPublicKey, derivationSeed }, client.proofService)`,
+  and pass it as `keys`.
+- `buildTransferTransaction`, `buildWithdrawalTransaction`,
+  `buildSplitTransaction`, `buildMergeTransaction`, `buildRingEntryTransaction`,
+  `buildRingTransferTransaction`, `buildRingExitTransaction`, and
+  `buildRingWithdrawalTransaction` take `keys: WalletKeys` and an optional
+  `approve: ApprovalHandler` instead of `authority` → pass the keys, and move
+  a `requestUserApproval` implementation into `approve`, which receives the
+  same `ApprovalRequest` and returns `approveIntent(request.intent)`; builds
+  without `approve` are approved unattended, and a P256 owner's
+  `solanaPublicKey` and registry record are the fee payer's.
+- `syncWallet`, `syncPersistedWallet`, and `decryptTransactions` take
+  `keys: ShieldedKeys` instead of `authority` → pass `LocalKeys` or
+  `LocalShieldedKeys.fromKeypair(keypair)`; keys for another wallet fail with
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH` before any indexer query.
+- `ProofInputUtxo` carries `nullifierPublicKey` and the derived nullifier
+  instead of a `NullifierKey`, its constructor takes
+  `{ utxo, nullifierPublicKey, nullifier, dataHash?, ringDataHash? }`, and
+  `destroy()` is removed → build inputs with
+  `ProofInputUtxo.fromKeypair(utxo, keypair, hashes?)` or the new
+  `ProofInputUtxo.fromNullifierKey(utxo, key, hashes?)`; wallet entries
+  already hold their nullifier.
+- `ZolanaClient.proveTransact(proofInputs, keys, config?)`,
+  `proveRingTransact(proofInputs, ringProgramId, keys, config?)`,
+  `proveMerge({ prepared, keys })`, and
+  `assembleAuthorizedPrivateTransaction({ authorized, feePayer, keys })`
+  require a `ProofAuthority`, and `MergeMaterialInput` is removed with its
+  `CLIENT_INVALID_MERGE_MATERIAL` code → pass the same `keys` object; a value
+  that cannot prove fails with `CLIENT_INVALID_PROOF_AUTHORITY`.
+- `proveCustomRingTransfer` takes `keys: WalletKeys` instead of `session` →
+  pass the keys.
+- `ProverInputs` input slots and `MergeInputs` carry the nullifier secret only
+  once a `ProofAuthority` fills it in → a prover call whose own real input still
+  lacks it fails with `CLIENT_MISSING_NULLIFIER_SECRET`.
+- `TRANSACTION_WALLET_AUTHORITY_MISMATCH` is renamed
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH`, what the check compares → match the new
+  code.
+
+Added
+
+- `ShieldedKeys` (`address`, `viewingPublicKeys`, `decrypt`, `derive`,
+  `transactionKeys`) and `ProofAuthority` (`prove`, `proveMerge`) describe a
+  wallet's privacy roles as batched functions, `WalletKeys` is both, and a
+  remote key holder implements them to drive every build and sync; every
+  method receives the `RequestContext` the sync or build was called with, so
+  the holder's round trip stops when the caller's signal fires.
+- `LocalKeys` and `LocalShieldedKeys` answer those interfaces from keys held
+  in-process, with `fromKeypair`,
+  `fromKeys({ address, viewingKeys, nullifierKey })` for a wallet holding
+  retired viewing keys, and `fromDerivationSeed`, which verifies the seed is
+  the wallet's signature and fails otherwise with
+  `TRANSACTION_INVALID_DERIVATION_SEED`.
+- `ZolanaClient.proofService` is the prover behind the client, what
+  `LocalKeys` forwards completed proof inputs to.
+- `encryptConfidentialTransfer`, `encryptCustomRingTransfer`,
+  `encryptAnonymousTransfer`, and `encryptSplit` seal a prepared transaction
+  under the per-transaction key `ShieldedKeys.transactionKeys` returns.
+- `approveUnattended` is the default `ApprovalHandler`, and `checkKeysIdentity`
+  refuses keys that do not describe a wallet's address.
+- `proverRequestBody(inputs)` and `mergeProverRequestBody(inputs)` return the
+  prover's request body with `null` in every nullifier secret slot a key
+  holder has yet to fill, for a remote `ProofAuthority` to send it.
+- `DecryptRequest`, `DeriveRequest`, `TransactionKeyRequest`, `DecryptLabel`,
+  `ProofService`, `ProverInputs`, `MergeInputs`, `TransferInputs`,
+  `TransferInput`, `TransferOutput`, `CircuitUtxo`, `Field`, and
+  `ProverRequestBody` are exported for key holder implementations.
+- `ViewingKey.clone()` and `NullifierKey.clone()` return an independent copy of
+  a key, so a holder can lend one without exposing the secret bytes.
+- `keyedWalletSnapshotCipher(identity, key)` seals wallet snapshots in the
+  `walletSnapshotCipher` envelope under an AES-GCM key the caller supplies,
+  and `walletSnapshotKey(secret)` derives that key from 32 bytes a key holder
+  handed out, for a wallet whose viewing secret never enters the process.
+
+Changed
+
+- `CLIENT_PROVER_HTTP` carries the prover's own error code and message in
+  `details.reason` when the prover sent them, so a refused proof says whether
+  the circuit is unknown, a field is malformed, or a key is missing.
+- A sync asks the key holder for every ciphertext, nullifier, and
+  per-transaction key it needs in one batch per method and per dependency
+  round, as many rounds as the merges in the batch chain, and a sync or merge
+  fails with `TRANSACTION_KEYS_BATCH_MISMATCH`, `WALLET_KEYS_BATCH_MISMATCH`,
+  or `TRANSACTION_KEYS_UNRESOLVED` when a holder does not answer in full.
+- `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
+  `buildRingExitTransaction` use UTXO terminology in approval summaries, while
+  version 3 `SerializedWalletState` reservation field names remain unchanged.
+
+Fixed
+
+- `decryptTransactions` no longer omits a merge when its inputs arrive in the
+  same sync because merge dependencies resolve before wallet commit.
+- `walletSnapshotCipher` and `keyedWalletSnapshotCipher` seal snapshots of any
+  size in a browser: the ciphertext is base64-encoded in chunks instead of
+  spreading every byte into one `String.fromCharCode` call, which overflowed
+  the stack past roughly a hundred kilobytes and surfaced as `WALLET_SNAPSHOT`
+  with a `RangeError` cause.
+- A private-transaction row is identified by its transaction, slot and index.
+  Re-recording it, as a sync does when a transaction it saw earlier is decoded
+  again with the wallet's change now known, replaces the row; before, a row
+  whose amount, kind or counterparty differed was kept beside the stale one and
+  `privateTransactions()` listed the same transfer twice.
 
 ## 0.1.5-alpha — 2026-09-01
 
