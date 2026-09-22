@@ -28,8 +28,14 @@ they spend.
 Breaking
 
 - Windowed ring transfers require the new counter proof and keys → deploy matching programs and prover keys, pass `transactionSalt` in low level compressed proof requests, and provide `countersDisclosureHash` when hashing a head transition.
-- Custom deposit codecs and `ringDepositInstruction` move from `/interface` to `/ring` → update imports and pass `customRingDepositPayload` as the wallet sync `depositPayloadDecoder`.
-- `serializeWallet` writes version 4 snapshots → upgrade snapshot readers before saving, while versions 2 and 3 remain readable.
+- Custom ring deposits wrap recipient ciphertext in an audit capsule while the
+  `/interface` reexports remain available → pass `customRingDepositPayload` as
+  the wallet sync `depositPayloadDecoder` before syncing deposits from this
+  release.
+- `serializeWallet` writes version 4 snapshots, preserves `pendingSubmissions`,
+  and permits `SerializedNoteReservation.expiresAtMs` to be `null` → upgrade
+  snapshot readers before saving and treat `null` as no local expiry, while
+  versions 2 and 3 remain readable.
 - `proveRingTransact` accepts `RingProvingConfig` → put indexer settings under `indexer` and supply `outputTree` when the destination differs from the client tree.
 
 - `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
@@ -188,20 +194,30 @@ Breaking
   a window without rows, a zero or repeated mint and a row without a bound →
   pass `windowSlots: 0n` and `velocity: []` for a table without amount
   controls.
+- `AuditorMessage` appends 36 output disclosure fields and is now 1,217 bytes,
+  `CustomRingBasePublicInput` requires `outputHashes` and `salt`, and
+  `CustomRingBaseProofRequest` requires `salt`, `nOut` and `outputs` → size
+  parsers with `AUDITOR_MESSAGE_LENGTH`, provide the transaction salt and
+  output openings, and use the matching prover and program.
 - `policyPublicInputHash` takes `ringId`, `namespaceOwnerHash`, `windowIndex`
-  and `approvalRequired`, and `CustomRingPolicyProofRequest` carries a
-  `velocity` proof input → build it with
-  `velocityProofInputOff({ ringId, namespaceOwnerHash })` when the ring has no
-  amount controls.
+  and `approvalRequired`, and `CustomRingPolicyProofRequest` carries `salt`
+  and a `velocity` proof input → pass the transaction salt and build velocity
+  with `velocityProofInputOff({ ringId, namespaceOwnerHash })` when the ring has
+  no amount controls.
 - `proveCustomRingTransfer` charges the sender's outflow on a velocity ring,
   spends a windowed ring's record into its successor and returns
-  `approvalRequired` and `headTransition` on `ProvenRingTransfer`, and
+  `approvalRequired`, `revocationTargets` and `headTransition` on
+  `ProvenRingTransfer`, and
   `CustomRingTransferParams.keys` mints the transaction keys that open the
   sender's counters while the client needs `getSlot` and
   `getRingHeadTransferProof` → create the ring's
   head map root with `createRingHeadMapRootInstruction`, register each sender
   before its first windowed transfer, and run the Photon and prover of this
   release.
+- `PolicyAnswers` requires `revocationTargets` → custom policy answer providers
+  must return the hashes that the transfer should revoke.
+- `encryptCustomRingTransfer` requires `outputTreeId` → pass the destination
+  tree id so the disclosed output openings bind to the correct commitments.
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - `extendProgramInstruction` uses the extension supported by Agave 4.2 → pass
   `payer` and remove the `authority` argument; upgrading still requires the
@@ -223,20 +239,28 @@ Breaking
   account for a policy ring → pass the value given to
   `createRingConfigInstruction`, a policy ring registers only after its policy
   config exists.
-- `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
-  data beside the `RingTransactRoots` the ring statement binds, and `Prover`
-  gains `proveCustomRingBase` and `proveTransferInputs` over caller-assembled
-  `TransferInputs` → read `.data` where the instruction data was used and add
-  both methods to a custom prover.
+- `Prover.proveRingTransact` resolves to `ProvenRingTransact`, and every custom
+  `Prover` gains `proveCustomRingBase`, `proveTransferInputs`,
+  `proveCustomRingDeposit`, `proveRingAuthorityTransact`,
+  `proveCustomRingDelegatePolicy`, `proveCustomRingCompressedPolicy`,
+  `proveCustomRingRegister` and `proveCustomRingRegisterKey` → read `.data`
+  where the instruction data was used and implement each new proof method.
 - `RingTransferClient` reads entries and their proofs through
   `getEncryptedUtxosByTags`, `getShieldedTransactionsByNullifiers`,
-  `getMerkleProofs` and `getNonInclusionProofs` → add the four methods to a
-  custom client.
-- `customRingPublicInputHash` is retired, `auditPublicInputHash` hashes the
-  audit statement and `policyPublicInputHash` takes `policyHash`, `stateRoot`,
-  `nullifierRoot` and `entriesTreeId` beside it, and `CustomRingBasePublicInput`
-  leaves `@heliuslabs/zolana/ring` → call the function of the ring's tier and
-  import the type from `@heliuslabs/zolana/keypair`.
+  `getMerkleProofs`, `getNonInclusionProofs`, `getSlot` and
+  `getRingHeadTransferProof`, and proves compressed policies through
+  `proveCustomRingCompressedPolicy` → add those capabilities to a custom
+  client.
+- `TransactionOrigin.ringInvoked` takes `eventIndex` between `signature` and
+  `ring` → pass the indexed event's position so two ring events in one Solana
+  transaction are distinguished.
+- `customRingPublicInputHash` now aliases `policyPublicInputHash`, while
+  `auditPublicInputHash` hashes the audit-only statement → call the function
+  for the ring tier and supply the policy fields to the compatibility alias.
+- `SignatureType`, `ProverInputs["circuit"]`, `TransactionIntent`,
+  `TransactionErrorCode` and `RingErrorCode` gain custom-ring variants → update
+  exhaustive switches for `"pda"`, `"transferRingAuthority"`, `"ringDelegate"`,
+  `"ringMerge"` and the new error codes.
 - `UTXO_ROOT_HISTORY_LEN_OFFSET` and `UTXO_ROOT_HISTORY_CAPACITY_OFFSET` leave
   `@heliuslabs/zolana/interface` → read the root history through
   `decodeTreeHeadRoots`.
