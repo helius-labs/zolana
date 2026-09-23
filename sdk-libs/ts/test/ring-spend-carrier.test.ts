@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { getAddressDecoder, type Signature } from "@solana/kit";
 import { initializePoseidon } from "../src/hasher/index.js";
+import type { RpcAccount } from "../src/client/rpc.js";
 import type { Bytes31, Bytes32 } from "../src/interface/types.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { ShieldedAddress } from "../src/keypair/shielded.js";
@@ -255,6 +256,31 @@ describe("compressed spend record carrier", () => {
     }
   });
 
+  it("waits while the served record is already spent", async () => {
+    const f = fixture();
+    try {
+      let spentReads = 1;
+      const live = await readCurrentSpendRecord({
+        client: {
+          getRingSpendRecord: async () => ({
+            context: { slot: 1n, blockTime: 0n },
+            record: { transaction: f.transaction, outputIndex: 0 },
+          }),
+          getAccount: async () => (spentReads-- > 0 ? ({} as RpcAccount) : undefined),
+        },
+        ringProgramId: ADDRESS,
+        namespace: ADDRESS,
+        entriesTree: TREE,
+        entriesTreeId: 4,
+        sender: f.record.member,
+      });
+      expect(live.record).toEqual(f.record);
+      expect(spentReads).toBe(-1);
+    } finally {
+      f.auditor.destroy();
+    }
+  });
+
   it("reads the indexed record for the requested member only", async () => {
     const f = fixture();
     try {
@@ -268,6 +294,7 @@ describe("compressed spend record carrier", () => {
               record: found ? { transaction: f.transaction, outputIndex: 0 } : null,
             };
           },
+          getAccount: async () => undefined,
         },
         ringProgramId: ADDRESS,
         namespace: ADDRESS,

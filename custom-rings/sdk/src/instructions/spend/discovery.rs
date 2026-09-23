@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_client::{indexer::decode_shielded_transaction, AsyncRpc, Rpc};
+use zolana_client::{indexer::decode_shielded_transaction, AsyncRpc, ClientError, Rpc};
 use zolana_indexer_api::{Hash, RingSpendRecord, RingSpendRecordRequest, SerializablePubkey};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey};
@@ -50,27 +50,38 @@ pub struct ReadSpendRecord {
 }
 
 impl ReadSpendRecord {
-    /// `None` until the member registers, a stale answer fails only on chain.
-    pub fn read_current<I: Rpc>(
+    /// `None` until the member registers.
+    pub fn read_current<I: Rpc, R: Rpc>(
         self,
-        indexer: &I,
+        env: ReadEnvironment<'_, I, R>,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
-        let response = indexer.get_ring_spend_record(self.request())?;
-        response
-            .record
-            .map(|record| self.decode_current(record))
-            .transpose()
+        let Some(record) = env.indexer.get_ring_spend_record(self.request())?.record else {
+            return Ok(None);
+        };
+        let live = self.decode_current(record)?;
+        let spent = env.rpc.get_account(self.nullifier_pda(&live))?;
+        live_unless_spent(live, spent)
     }
 
-    pub async fn read_current_async<I: AsyncRpc>(
+    pub async fn read_current_async<I: AsyncRpc, R: AsyncRpc>(
         self,
-        indexer: &I,
+        env: ReadEnvironment<'_, I, R>,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
-        let response = indexer.get_ring_spend_record(self.request()).await?;
-        response
+        let Some(record) = env
+            .indexer
+            .get_ring_spend_record(self.request())
+            .await?
             .record
-            .map(|record| self.decode_current(record))
-            .transpose()
+        else {
+            return Ok(None);
+        };
+        let live = self.decode_current(record)?;
+        let spent = env.rpc.get_account(self.nullifier_pda(&live)).await?;
+        live_unless_spent(live, spent)
+    }
+
+    fn nullifier_pda(&self, live: &LiveSpendRecord) -> Address {
+        zolana_interface::pda::nullifier_pda(&self.entries_tree, &live.nullifier).0
     }
 
     /// Unauthenticated history, unsuitable for transfer preparation.
@@ -198,6 +209,17 @@ impl LineageLookup for SpendLookup {
             version,
         }
     }
+}
+
+/// A spent record means the projection has not reached its successor.
+fn live_unless_spent<A>(
+    live: LiveSpendRecord,
+    nullifier_pda: Option<A>,
+) -> Result<Option<LiveSpendRecord>, EntryProofError> {
+    if nullifier_pda.is_some() {
+        return Err(ClientError::RingSpendRecordOutOfSync.into());
+    }
+    Ok(Some(live))
 }
 
 #[cfg(test)]

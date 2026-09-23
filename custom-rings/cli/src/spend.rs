@@ -2,8 +2,8 @@
 
 use custom_ring_sdk::{
     policy_config_table, AccountReadError, CustomRing, EntryError, EntryProofError,
-    LiveSpendRecord, PolicyConfig, PolicyMatchError, ReadSpendRecord, RegisterSpend,
-    TransferProofEnvironment, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+    LiveSpendRecord, PolicyConfig, PolicyMatchError, ReadEnvironment, ReadSpendRecord,
+    RegisterSpend, TransferProofEnvironment, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 };
 use solana_signer::Signer;
 use thiserror::Error;
@@ -103,7 +103,10 @@ pub fn run(ctx: &mut Context, command: SpendCommand) -> Result<(), SpendError> {
                 config: &config,
                 member: Member::owner_tag(sender.pubkey().as_array())?,
             }
-            .read(&ctx.indexer())?;
+            .read(ReadEnvironment {
+                indexer: &ctx.indexer(),
+                rpc: &ctx.rpc,
+            })?;
             ui::heading(
                 Icon::Policy,
                 &format!("spend record of {}", sender.pubkey()),
@@ -139,7 +142,11 @@ impl Registration<'_> {
             config: self.config,
             member: Member::owner_tag(member.as_array())?,
         };
-        if let Some(live) = query.read(self.indexer)? {
+        let env = ReadEnvironment {
+            indexer: self.indexer,
+            rpc: self.rpc,
+        };
+        if let Some(live) = query.read(env)? {
             return Ok(RegistrationOutcome::Present {
                 version: live.record.version,
             });
@@ -164,7 +171,7 @@ impl Registration<'_> {
         .ensure_present(Observed::Absent, &[proven.instruction()?])?;
         wait_for(format!("spend record of {member}"), || {
             query
-                .read(self.indexer)
+                .read(env)
                 .map(|record| record.map_or(Probe::NotYet, |_| Probe::Ready(())))
         })
         .map_err(timed_out)?;
@@ -184,7 +191,10 @@ pub(crate) fn windowed_config(
 }
 
 impl RecordQuery<'_> {
-    fn read(&self, indexer: &ZolanaIndexer) -> Result<Option<LiveSpendRecord>, SpendError> {
+    fn read(
+        &self,
+        env: ReadEnvironment<'_, ZolanaIndexer, SolanaRpc>,
+    ) -> Result<Option<LiveSpendRecord>, SpendError> {
         wait_for(
             format!("spend record projection of {:?}", self.member),
             || {
@@ -194,7 +204,7 @@ impl RecordQuery<'_> {
                     entries_tree_id: self.config.entries_tree_id(),
                     member: self.member,
                 };
-                match read.read_current(indexer) {
+                match read.read_current(env) {
                     Ok(live) => Ok(Probe::Ready(live)),
                     Err(EntryProofError::Client(error))
                         if matches!(*error, ClientError::RingSpendRecordOutOfSync) =>

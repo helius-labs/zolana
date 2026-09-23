@@ -4,8 +4,8 @@ use anyhow::Result;
 use custom_ring_cli::transact;
 use custom_ring_sdk::{
     tree_id, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
-    DepositProofEnvironment, ReadSpendRecord, RegisterSpend, RingDeposit, TransactSend,
-    TransferProofEnvironment,
+    DepositProofEnvironment, ReadEnvironment, ReadSpendRecord, RegisterSpend, RingDeposit,
+    TransactSend, TransferProofEnvironment,
 };
 use custom_ring_test_validator::shared::{
     custom_ring_program_id, send, setup, wait_for_spend_record, RegisterRing, Tier,
@@ -54,7 +54,7 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
             entries_tree_id,
             member,
         }
-        .read_current(indexer)
+        .read_current(ReadEnvironment { indexer, rpc })
     };
     let members = [
         ShieldedKeypair::new_ed25519()?,
