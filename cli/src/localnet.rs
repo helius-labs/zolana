@@ -6,9 +6,7 @@ use crate::{
     args::TestValidatorOptions,
     config::{READINESS_TIMEOUT, TERMINATION_GRACE_PERIOD},
     http::{wait_for_photon_indexing_with_child, wait_for_port_closed, wait_for_rpc_with_child},
-    process::{
-        find_binary, path_string, remove_launchd_validators, spawn_service, stop_name, stop_port,
-    },
+    process::{find_binary, path_string, remove_launchd_validators, spawn_service, stop_port},
     prover::start_prover_service,
     release::Release,
 };
@@ -22,7 +20,7 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
     }
 
     println!("Starting local validator");
-    stop_test_validator(opts.rpc_port);
+    stop_test_validator(&opts);
     wait_for_port_closed(opts.rpc_port, TERMINATION_GRACE_PERIOD)?;
 
     // Default rail: fetch version-pinned programs, initialized account snapshots,
@@ -55,7 +53,7 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
             surfpool.display(),
             args.join(" ")
         );
-        spawn_service(&surfpool, &args, "surfpool", &opts.log_dir)?
+        spawn_service(&surfpool, &args, &[], "surfpool", &opts.log_dir)?
     } else {
         let validator = find_binary(&[], &[], &["solana-test-validator"])?;
         let args = solana_validator_args(&opts)?;
@@ -64,7 +62,13 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
             validator.display(),
             args.join(" ")
         );
-        spawn_service(&validator, &args, "solana-test-validator", &opts.log_dir)?
+        spawn_service(
+            &validator,
+            &args,
+            &[],
+            "solana-test-validator",
+            &opts.log_dir,
+        )?
     };
 
     wait_for_rpc_with_child(
@@ -122,6 +126,8 @@ pub(crate) fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> 
         opts.rpc_port.to_string(),
         "--host".to_string(),
         opts.gossip_host.clone(),
+        "--ws-port".to_string(),
+        opts.ws_port().to_string(),
     ];
     if let Some(slot_time) = opts.slot_time {
         args.push("--slot-time".to_string());
@@ -221,27 +227,26 @@ fn add_account_dir_args(args: &mut Vec<String>, opts: &TestValidatorOptions) {
     }
 }
 
+// Services are stopped by the ports this environment uses, never by process
+// name: other environments on other ports (parallel tests, other clones) keep
+// running.
 fn stop_test_env(opts: &TestValidatorOptions) {
     if !opts.skip_prover {
-        stop_name("prover-server");
         stop_port(opts.prover_port);
     }
     if opts.start_indexer() {
-        stop_name("photon");
         stop_port(opts.photon_port);
     }
-    stop_test_validator(opts.rpc_port);
+    stop_test_validator(opts);
 }
 
-fn stop_test_validator(rpc_port: u16) {
+fn stop_test_validator(opts: &TestValidatorOptions) {
     remove_launchd_validators();
-    stop_name("solana-test-validator");
-    stop_name("surfpool");
-    stop_port(rpc_port);
+    stop_port(opts.rpc_port);
+    stop_port(opts.ws_port());
 }
 
 fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> Result<()> {
-    stop_name("photon");
     stop_port(opts.photon_port);
 
     let photon = match binary {
@@ -265,11 +270,23 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
         args.push("--db-url".to_string());
         args.push(db_url.clone());
     }
+    // Without a database URL Photon recreates one fixed SQLite file in its temp
+    // dir, which Photons on other ports would share. A temp dir per port keeps
+    // each one's database its own.
+    let temp_dir = std::env::temp_dir().join(format!("zolana-photon-{}", opts.photon_port));
+    std::fs::create_dir_all(&temp_dir)
+        .with_context(|| format!("failed to create {}", temp_dir.display()))?;
 
     const START_ATTEMPTS: u32 = 3;
     for attempt in 1..=START_ATTEMPTS {
         println!("Starting Photon: {} {}", photon.display(), args.join(" "));
-        let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
+        let mut child = spawn_service(
+            &photon,
+            &args,
+            &[("TMPDIR", &temp_dir)],
+            "photon",
+            &opts.log_dir,
+        )?;
         let readiness = wait_for_photon_indexing_with_child(
             opts.photon_port,
             READINESS_TIMEOUT,
@@ -293,7 +310,6 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
                 );
                 let _ = child.kill();
                 let _ = child.wait();
-                stop_name("photon");
                 stop_port(opts.photon_port);
                 thread::sleep(Duration::from_secs(1));
             }
@@ -379,6 +395,8 @@ mod tests {
             "8899",
             "--host",
             "127.0.0.1",
+            "--ws-port",
+            "8900",
             "--bpf-program",
             "Pool111111111111111111111111111111111111111",
             "target/deploy/pool.so",
@@ -490,10 +508,24 @@ mod tests {
             "8899",
             "--host",
             "127.0.0.1",
+            "--ws-port",
+            "8900",
             "--slot-time",
             "50",
         ]);
         assert_eq!(actual, expected);
+    }
+
+    /// surfpool's WebSocket default is a fixed 8900, so a localnet on a shifted
+    /// RPC port binds its own one above it, as solana-test-validator does.
+    #[test]
+    fn binds_the_surfpool_websocket_above_the_rpc_port() {
+        let opts = parse_validator(&["--rpc-port", "9899"]);
+        let actual = surfpool_args(&opts).expect("build surfpool args");
+        assert!(
+            actual.windows(2).any(|args| args == ["--ws-port", "9900"]),
+            "{actual:?}"
+        );
     }
 
     #[test]

@@ -743,6 +743,13 @@ impl TestValidatorOptions {
         !self.skip_indexer
     }
 
+    /// One above the RPC port, where solana-test-validator binds it. surfpool
+    /// is told explicitly: its own default is a fixed 8900, which localnets on
+    /// other RPC ports would contend for.
+    pub(crate) fn ws_port(&self) -> u16 {
+        self.rpc_port.saturating_add(1)
+    }
+
     /// Fetch programs, account snapshots, and helper binaries from the pinned
     /// release unless the user opted into local builds or passed explicit
     /// programs (in which case those local artifacts take precedence).

@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use crate::{
     args::StartProverOptions,
     config::{DEFAULT_LOG_DIR, DEFAULT_METRICS_PORT, DEFAULT_PROVER_PORT, READINESS_TIMEOUT},
-    http::wait_for_http_get_with_child,
+    http::{http_get_ok, wait_for_http_get_with_child},
     process::{find_binary, path_string_with_trailing_separator, spawn_service, stop_port},
 };
 
@@ -34,6 +34,12 @@ pub(crate) fn start_prover_service(
     let offset = prover_port.saturating_sub(DEFAULT_PROVER_PORT);
     let metrics_port = DEFAULT_METRICS_PORT.saturating_add(offset);
 
+    // Environments started in parallel share one prover. When another start won
+    // the race, reuse its prover rather than stopping it.
+    if http_get_ok(prover_port, "/health") {
+        println!("Prover already running on port {prover_port}");
+        return Ok(());
+    }
     stop_port(prover_port);
     stop_port(metrics_port);
 
@@ -57,15 +63,21 @@ pub(crate) fn start_prover_service(
         &keys_dir,
     )?;
     println!("Starting prover: {} {}", prover.display(), args.join(" "));
-    let mut child = spawn_service(&prover, &args, "prover-server", log_dir)?;
-    wait_for_http_get_with_child(
+    let mut child = spawn_service(&prover, &args, &[], "prover-server", log_dir)?;
+    let ready = wait_for_http_get_with_child(
         prover_port,
         "/health",
         READINESS_TIMEOUT,
         &mut child,
         "prover",
-    )
-    .with_context(|| format!("prover on port {prover_port} did not become ready"))?;
+    );
+    // A parallel start can bind the port between the check above and this
+    // spawn, so ours exits; its prover serves both environments.
+    if ready.is_err() && http_get_ok(prover_port, "/health") {
+        println!("Prover already running on port {prover_port}");
+        return Ok(());
+    }
+    ready.with_context(|| format!("prover on port {prover_port} did not become ready"))?;
     println!("Prover started successfully");
     std::mem::forget(child);
     Ok(())

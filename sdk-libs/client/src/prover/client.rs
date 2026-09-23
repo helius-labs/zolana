@@ -806,7 +806,9 @@ fn spawn_prover_inner(
     cli_override: Option<String>,
     keys_dir: Option<&Path>,
 ) -> Result<(), ClientError> {
-    if health_check(10, 1) {
+    // One probe: a prover that is not up yet is started below, and the CLI
+    // reuses one a parallel start brought up in the meantime.
+    if health_check(1, 1) {
         return Ok(());
     }
 

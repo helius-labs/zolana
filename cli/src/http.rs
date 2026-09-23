@@ -124,6 +124,11 @@ fn json_rpc_request(port: u16, path: &str, method: &str) -> Result<Value> {
     serde_json::from_str(http_body(&response)).context("failed to parse JSON-RPC response")
 }
 
+/// Whether `path` on `port` answers with a 2xx status right now.
+pub(crate) fn http_get_ok(port: u16, path: &str) -> bool {
+    http_get_status(port, path).is_ok_and(|status| (200..300).contains(&status))
+}
+
 fn http_get_status(port: u16, path: &str) -> Result<u16> {
     let response = http_request(port, "GET", path, None)?;
     http_status(&response).ok_or_else(|| anyhow!("invalid HTTP response"))
