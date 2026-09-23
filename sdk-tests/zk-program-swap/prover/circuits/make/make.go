@@ -5,7 +5,7 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	spp "zolana/prover/circuits/spp_transaction/shared"
+	"zolana/gnarksdk"
 )
 
 type Circuit struct {
@@ -13,12 +13,8 @@ type Circuit struct {
 
 	Order orderterms.OrderTerms
 
-	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
-	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
-	OrderUtxo       spp.UtxoCircuitFields
-	OrderUtxoTreeID frontend.Variable
-	Change          spp.UtxoCircuitFields
-	ChangeTreeID    frontend.Variable
+	OrderUtxo gnarksdk.Utxo
+	Change    gnarksdk.Utxo
 
 	SourceInputHash   frontend.Variable
 	ExternalDataHash  frontend.Variable
@@ -32,58 +28,28 @@ func (c *Circuit) Define(api frontend.API) error {
 	orderOutputUtxoHash := c.checkOrderOutputUtxo(api, makerAddressFe)
 	changeOutputUtxoHash := c.checkChangeOutputUtxo(api)
 
-	privateTxHashInputs{
-		SourceInputHash:      c.SourceInputHash,
-		ChangeOutputUtxoHash: changeOutputUtxoHash,
-		OrderOutputUtxoHash:  orderOutputUtxoHash,
-		ExternalDataHash:     c.ExternalDataHash,
-		PrivateTxBlinding:    c.PrivateTxBlinding,
-		PrivateTxHash:        c.PrivateTxHash,
-	}.Check(api)
-
+	privateTxHash := gnarksdk.PrivateTxHash(
+		api,
+		[]frontend.Variable{c.SourceInputHash, 0},
+		[]frontend.Variable{changeOutputUtxoHash, orderOutputUtxoHash},
+		c.ExternalDataHash,
+		c.PrivateTxBlinding,
+	)
+	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)
 	return nil
 }
 
-type privateTxHashInputs struct {
-	SourceInputHash      frontend.Variable
-	ChangeOutputUtxoHash frontend.Variable
-	OrderOutputUtxoHash  frontend.Variable
-	ExternalDataHash     frontend.Variable
-	PrivateTxBlinding    frontend.Variable
-	PrivateTxHash        frontend.Variable
-}
-
-func (t privateTxHashInputs) Check(api frontend.API) {
-	inputHashes := []frontend.Variable{t.SourceInputHash, frontend.Variable(0)}
-	outputHashes := []frontend.Variable{t.ChangeOutputUtxoHash, t.OrderOutputUtxoHash}
-	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
-
-	privateTxHash := spp.PrivateTxHashCircuit(
-		api,
-		inputHashes,
-		outputHashes,
-		addressHashes,
-		t.ExternalDataHash,
-		t.PrivateTxBlinding,
-	)
-	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
-}
-
 func (c *Circuit) checkOrderOutputUtxo(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {
-	api.AssertIsEqual(c.OrderUtxo.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.OrderUtxo.RingDataHash, 0)
-	api.AssertIsEqual(c.OrderUtxo.RingProgramID, 0)
+	c.OrderUtxo.AssertDefaultRing(api)
 	api.AssertIsEqual(c.OrderUtxo.DataHash, c.Order.DataHash(api, makerAddressFe))
 	api.AssertIsDifferent(c.OrderUtxo.Amount, 0)
-	return spp.UtxoHashCircuit(api, c.OrderUtxo, c.OrderUtxoTreeID)
+	return c.OrderUtxo.Hash(api)
 }
 
 func (c *Circuit) checkChangeOutputUtxo(api frontend.API) frontend.Variable {
-	api.AssertIsEqual(c.Change.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.Change.RingDataHash, 0)
-	api.AssertIsEqual(c.Change.RingProgramID, 0)
+	c.Change.AssertDefaultRing(api)
 	api.AssertIsEqual(c.Change.DataHash, 0)
 	api.AssertIsEqual(c.Change.Asset, c.OrderUtxo.Asset)
 	api.AssertIsEqual(c.Change.Owner, c.Order.MakerOwnerHash)
-	return spp.UtxoHashCircuit(api, c.Change, c.ChangeTreeID)
+	return c.Change.Hash(api)
 }

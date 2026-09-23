@@ -3,7 +3,7 @@ package escrowterms
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
+	"zolana/gnarksdk"
 )
 
 type EscrowTerms struct {
@@ -12,5 +12,5 @@ type EscrowTerms struct {
 }
 
 func (t EscrowTerms) DataHash(api frontend.API) frontend.Variable {
-	return gadget.PoseidonHash(api, []frontend.Variable{t.OwnerHash, t.Unlock})
+	return gnarksdk.Poseidon(api, t.OwnerHash, t.Unlock)
 }

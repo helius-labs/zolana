@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/consensys/gnark v0.16.3
 	zolana/gnarkffiprover v0.0.0
-	zolana/prover v0.0.0
+	zolana/gnarksdk v0.0.0
 )
 
 require (
@@ -24,7 +24,10 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
+	zolana/prover v0.0.0 // indirect
 )
+
+replace zolana/gnarksdk => ../../../../sdk-libs/gnark-sdk
 
 replace zolana/prover => ../../../../prover/server
 

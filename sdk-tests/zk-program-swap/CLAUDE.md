@@ -37,8 +37,11 @@ instructions, and circuits.
   `pub static PROVER = zolana_gnark_ffi_prover::prover!(<key root>)`, whose
   `setup` / `preload` / `prove` the rest of the crate and the tests call.
   Proof input structs are pure containers whose only logic is witness-map
-  encoding and a `prove()` method. Go tooling in `circuits/` needs the bridge
-  replace too: `just example-circuits-go vet ./...`.
+  encoding and a `prove()` method. Circuits take UTXOs as `gnarksdk.Utxo` and
+  build their hashes, the private tx hash and the blinding checks from
+  `zolana/gnarksdk` (`sdk-libs/gnark-sdk`); `circuits/go.mod` replaces it and
+  `zolana/prover` with their directories. Go tooling in `circuits/` needs the
+  bridge replace too: `just example-circuits-go vet ./...`.
 - sdk: one directory per instruction with `instruction.rs` (builder struct
   with a consuming `instruction()` method, not free functions) and
   `proof.rs` (a params struct with `to_proof_inputs()` doing validation and
