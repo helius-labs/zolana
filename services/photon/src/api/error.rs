@@ -11,9 +11,6 @@ use zolana_indexer_api::error_code::{
 };
 use zolana_indexer_api::ParseHashError;
 
-#[cfg(feature = "ring-projection")]
-use crate::ring_projection::ProjectionKind;
-
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum PhotonApiError {
     #[error("Validation Error: {0}")]
@@ -40,49 +37,37 @@ pub enum PhotonApiError {
 #[cfg(feature = "ring-projection")]
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum RingProjectionError {
-    #[error("{kind} is out of sync ({reason})")]
-    OutOfSync {
-        kind: ProjectionKind,
-        reason: String,
-    },
-    #[error("{0} root changed")]
-    RootChanged(ProjectionKind),
-    #[error("member is not registered in the {0}")]
-    MemberUnregistered(ProjectionKind),
-    #[error("member is already registered in the {0}")]
-    MemberAlreadyRegistered(ProjectionKind),
+    #[error("key registry is out of sync ({0})")]
+    OutOfSync(String),
+    #[error("key registry root changed")]
+    RootChanged,
+    #[error("member is not registered in the key registry")]
+    MemberUnregistered,
+    #[error("member is already registered in the key registry")]
+    MemberAlreadyRegistered,
     #[error("spend records are out of sync ({0})")]
     SpendRecordOutOfSync(String),
 }
 
 #[cfg(feature = "ring-projection")]
-const KEY_REGISTRY_CODES: [i32; 4] = [
-    wire_code(RING_KEY_REGISTRY_OUT_OF_SYNC),
-    wire_code(RING_KEY_REGISTRY_ROOT_CHANGED),
-    wire_code(RING_KEY_REGISTRY_MEMBER_UNREGISTERED),
-    wire_code(RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED),
-];
+impl RingProjectionError {
+    pub fn code(&self) -> i32 {
+        match self {
+            Self::OutOfSync(_) => const { wire_code(RING_KEY_REGISTRY_OUT_OF_SYNC) },
+            Self::RootChanged => const { wire_code(RING_KEY_REGISTRY_ROOT_CHANGED) },
+            Self::MemberUnregistered => const { wire_code(RING_KEY_REGISTRY_MEMBER_UNREGISTERED) },
+            Self::MemberAlreadyRegistered => {
+                const { wire_code(RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED) }
+            }
+            Self::SpendRecordOutOfSync(_) => const { wire_code(RING_SPEND_RECORD_OUT_OF_SYNC) },
+        }
+    }
+}
 
 #[cfg(feature = "ring-projection")]
 const fn wire_code(code: i64) -> i32 {
     assert!(code >= i32::MIN as i64 && code <= i32::MAX as i64);
     code as i32
-}
-
-#[cfg(feature = "ring-projection")]
-impl RingProjectionError {
-    pub fn code(&self) -> i32 {
-        let (kind, cause) = match self {
-            Self::OutOfSync { kind, .. } => (*kind, 0),
-            Self::RootChanged(kind) => (*kind, 1),
-            Self::MemberUnregistered(kind) => (*kind, 2),
-            Self::MemberAlreadyRegistered(kind) => (*kind, 3),
-            Self::SpendRecordOutOfSync(_) => return wire_code(RING_SPEND_RECORD_OUT_OF_SYNC),
-        };
-        match kind {
-            ProjectionKind::KeyRegistry => KEY_REGISTRY_CODES[cause],
-        }
-    }
 }
 
 impl From<PhotonApiError> for ErrorObjectOwned {

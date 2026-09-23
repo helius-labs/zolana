@@ -1,94 +1,122 @@
-use custom_ring_interface::{
-    instruction::{accounts, tag},
-    pda, KeyRegistryRoot, KEY_REGISTRY_ROOT,
-};
+use anyhow::Context;
+use custom_ring_interface::KEY_REGISTRY_CAPACITY;
 use sea_orm::{DatabaseConnection, DatabaseTransaction};
-use solana_pubkey::Pubkey;
 use zolana_indexer_api::{
     Base64String, GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse, Hash,
     RingMemberProofRequest,
 };
+use zolana_ring_indexer::key_registry::Spliced;
 
 use super::{
     api::{self, Insertion, MemberPath},
-    append, fault,
-    storage::{RingStore, Undo},
-    Append, BlockEnv, Invocation, ProjectError, Projection, ProjectionKind, Step,
+    fault, instruction_view, proof,
+    storage::{LeafWrite, MemberRestore, RingRoot, RingStore, Undo},
+    Invocation, ProjectError, Step,
 };
 use crate::{api::error::PhotonApiError, rpc::RpcClient};
 
-pub(crate) struct KeyRegistry;
-
 pub(crate) use zolana_ring_indexer::key_registry::{MemberKey, Registration};
 
-impl Projection for KeyRegistry {
-    const KIND: ProjectionKind = ProjectionKind::KeyRegistry;
-    const INIT_TAG: u8 = tag::CREATE_KEY_REGISTRY_ROOT;
-    const INIT_ROOT_SLOT: usize = accounts::CREATE_KEY_REGISTRY_ROOT_ROOT;
-    const TRANSITION_TAGS: &'static [u8] = &[tag::REGISTER_KEY];
-    const ROOT_DISCRIMINATOR: u8 = KEY_REGISTRY_ROOT;
-    type Root = KeyRegistryRoot;
-    type Leaf = MemberKey;
-    type Transition = Registration;
-
-    fn undos(block: &mut super::storage::BlockUndo) -> &mut Vec<Undo<MemberKey>> {
-        &mut block.key_registry
-    }
-
-    fn root_address(program: &Pubkey) -> (Pubkey, u8) {
-        pda::key_registry_root(program)
-    }
-
-    async fn transition(
-        invocation: &Invocation<'_>,
-        _env: &mut BlockEnv<'_>,
-    ) -> Result<Option<Registration>, ProjectError> {
-        zolana_ring_indexer::key_registry::registration(super::instruction_view(
-            invocation.instruction,
-        ))
+pub(crate) fn transition(
+    invocation: &Invocation<'_>,
+) -> Result<Option<Registration>, ProjectError> {
+    zolana_ring_indexer::key_registry::registration(instruction_view(invocation.instruction))
         .map_err(|error| fault(format!("{error:#}")))
-    }
+}
 
-    async fn apply(
-        store: &RingStore<'_, DatabaseTransaction, Self>,
-        step: Step<'_, Registration>,
-    ) -> Result<Undo<MemberKey>, ProjectError> {
-        let Step {
-            root,
-            transition,
-            revision,
-        } = step;
-        let Registration {
-            old_root,
-            new_root,
-            next_index,
-            member,
-            key_hash,
-            eph_pk,
-            ciphertext,
-        } = transition;
-        append::<Self>(
-            store,
-            Step {
-                root,
-                transition: Append {
-                    old_root,
-                    new_root,
-                    next_index,
-                    leaf: MemberKey {
-                        member,
-                        index: next_index,
-                        next: [0; 32],
-                        key_hash,
-                        eph_pk,
-                        ciphertext,
-                    },
-                },
-                revision,
-            },
-        )
-        .await
+pub(crate) async fn apply(
+    store: &RingStore<'_, DatabaseTransaction>,
+    step: Step<'_>,
+) -> Result<Undo, ProjectError> {
+    let Step {
+        root,
+        transition,
+        revision,
+    } = step;
+    let &Registration {
+        old_root,
+        new_root,
+        next_index,
+        member,
+        ..
+    } = &transition;
+    // 1. Require the current root, append cursor and an absent member.
+    if next_index != root.next_index || next_index >= KEY_REGISTRY_CAPACITY {
+        return Err(fault("append cursor mismatch"));
     }
+    if old_root != root.root {
+        return Err(fault("old root mismatch"));
+    }
+    if store.member(&member).await?.is_some() {
+        return Err(fault("duplicate member"));
+    }
+    let low = store.predecessor(&member).await?;
+    if proof::path(store.conn(), root, next_index).await?.leaf != [0; 32] {
+        return Err(fault("append slot occupied"));
+    }
+    // 2. Rollback needs both leaves before the ordered chain changes.
+    let undo = Undo {
+        program: root.program,
+        before: Some(root.clone()),
+        members: vec![
+            MemberRestore {
+                member: low.member,
+                before: Some(low.clone()),
+            },
+            MemberRestore {
+                member,
+                before: None,
+            },
+        ],
+        leaves: vec![
+            LeafWrite {
+                index: low.index,
+                hash: low.hash()?,
+            },
+            LeafWrite {
+                index: next_index,
+                hash: [0; 32],
+            },
+        ],
+    };
+    let Spliced {
+        predecessor: spliced,
+        added,
+    } = transition
+        .splice(low)
+        .map_err(|error| fault(error.to_string()))?;
+    let computed = store
+        .write_leaves(
+            &root.address,
+            &[
+                LeafWrite {
+                    index: spliced.index,
+                    hash: spliced.hash()?,
+                },
+                LeafWrite {
+                    index: added.index,
+                    hash: added.hash()?,
+                },
+            ],
+            revision,
+        )
+        .await?;
+    // 3. Reconstructed leaves must match the proven root before publication.
+    if computed != new_root {
+        return Err(fault("new root mismatch"));
+    }
+    store.save_member(&spliced).await?;
+    store.save_member(&added).await?;
+    store
+        .save_root(&RingRoot {
+            root: new_root,
+            next_index: next_index
+                .checked_add(1)
+                .context("append cursor overflow")?,
+            ..root.clone()
+        })
+        .await?;
+    Ok(undo)
 }
 
 pub(crate) async fn register(
@@ -102,7 +130,7 @@ pub(crate) async fn register(
         low,
         low_proof,
         new_proof,
-    } = api::insertion::<KeyRegistry>(db, rpc, &request).await?;
+    } = api::insertion(db, rpc, &request).await?;
     Ok(GetRingKeyRegistryRegisterProofResponse {
         context,
         root: Hash(root.root),
@@ -127,7 +155,7 @@ pub(crate) async fn lookup(
         root,
         leaf,
         proof,
-    } = api::member_path::<KeyRegistry>(db, rpc, &request).await?;
+    } = api::member_path(db, rpc, &request).await?;
     Ok(GetRingKeyRegistryEntryResponse {
         context,
         root: Hash(root.root),
@@ -155,7 +183,7 @@ mod tests {
     };
     use custom_ring_interface::RegisteredKey;
     use sea_orm::TransactionTrait;
-    use zolana_ring_indexer::Leaf;
+    use solana_pubkey::Pubkey;
     use zolana_ring_key_registry::KeyRegistryTree;
 
     fn key_hash(seed: u8) -> [u8; 32] {
@@ -181,19 +209,15 @@ mod tests {
 
     #[tokio::test]
     async fn key_insert_path_matches_reference_without_mutating_reads() {
-        let (db, mut root, mut cursor) = fixture::<KeyRegistry>().await;
+        let (db, mut root, mut cursor) = fixture().await;
         let mut reference = KeyRegistryTree::new().unwrap();
         for seed in [5u8, 9, 2, 8] {
             let subject = member(seed);
             let tx = db.begin().await.unwrap();
-            let store = RingStore::<_, KeyRegistry>::new(&tx, root.program);
+            let store = RingStore::new(&tx, root.program);
             let low = store.predecessor(&subject).await.unwrap();
-            let low_path = proof::path::<KeyRegistry>(&tx, &root, low.index)
-                .await
-                .unwrap();
-            let slot = proof::path::<KeyRegistry>(&tx, &root, root.next_index)
-                .await
-                .unwrap();
+            let low_path = proof::path(&tx, &root, low.index).await.unwrap();
+            let slot = proof::path(&tx, &root, root.next_index).await.unwrap();
             assert_eq!(slot.leaf, [0; 32]);
             let inputs = reference
                 .register(zolana_ring_key_registry::Registration {
@@ -203,7 +227,7 @@ mod tests {
                 .unwrap();
             assert_eq!(low_path.siblings, inputs.low_proof);
             assert_eq!(store.root().await.unwrap().unwrap().root, root.root);
-            KeyRegistry::apply(
+            apply(
                 &store,
                 Step {
                     root: &root,
@@ -214,7 +238,7 @@ mod tests {
             .await
             .unwrap();
             tx.commit().await.unwrap();
-            root = RingStore::<_, KeyRegistry>::new(&db, root.program)
+            root = RingStore::new(&db, root.program)
                 .root()
                 .await
                 .unwrap()
@@ -225,7 +249,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_key_registration_rolls_back_and_committed_block_rewinds_and_replays() {
-        let (db, root, mut cursor) = fixture::<KeyRegistry>().await;
+        let (db, root, mut cursor) = fixture().await;
         let subject = member(8);
         let mut reference = KeyRegistryTree::new().unwrap();
         let registered = reference
@@ -235,7 +259,7 @@ mod tests {
             })
             .unwrap();
         let tx = db.begin().await.unwrap();
-        assert!(KeyRegistry::apply(
+        assert!(apply(
             &RingStore::new(&tx, root.program),
             Step {
                 root: &root,
@@ -246,12 +270,12 @@ mod tests {
         .await
         .is_err());
         tx.rollback().await.unwrap();
-        let store = RingStore::<_, KeyRegistry>::new(&db, root.program);
+        let store = RingStore::new(&db, root.program);
         assert!(store.member(&subject).await.unwrap().is_none());
         assert_eq!(store.root().await.unwrap().unwrap().root, root.root);
 
         let tx = db.begin().await.unwrap();
-        let undo = KeyRegistry::apply(
+        let undo = apply(
             &RingStore::new(&tx, root.program),
             Step {
                 root: &root,
@@ -294,15 +318,15 @@ mod tests {
         assert!(!restarted.is_ready());
 
         let tx = db.begin().await.unwrap();
-        let path = proof::path::<KeyRegistry>(&tx, &root, 0).await.unwrap();
-        let sentinel = RingStore::<_, KeyRegistry>::new(&tx, root.program)
+        let path = proof::path(&tx, &root, 0).await.unwrap();
+        let sentinel = RingStore::new(&tx, root.program)
             .member(&[0; 32])
             .await
             .unwrap()
             .unwrap();
         assert_eq!(sentinel.hash().unwrap(), path.leaf);
         assert_eq!(path.root(0).unwrap(), root.root);
-        KeyRegistry::apply(
+        apply(
             &RingStore::new(&tx, root.program),
             Step {
                 root: &root,
@@ -321,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn key_lookup_fails_closed_before_rpc_when_projection_or_root_is_stale() {
-        let (db, root, mut cursor) = fixture::<KeyRegistry>().await;
+        let (db, root, mut cursor) = fixture().await;
         let rpc = RpcClient::new("http://127.0.0.1:1".into());
         let request = RingMemberProofRequest {
             ring_program_id: Pubkey::new_from_array(root.program).into(),
@@ -332,10 +356,7 @@ mod tests {
         assert!(matches!(
             lookup(&db, &rpc, request.clone()).await,
             Err(PhotonApiError::RingProjection(
-                RingProjectionError::OutOfSync {
-                    kind: ProjectionKind::KeyRegistry,
-                    ..
-                }
+                RingProjectionError::OutOfSync(_)
             ))
         ));
         cursor.resume(&db).await.unwrap();
@@ -343,11 +364,11 @@ mod tests {
         stale.expected_next_index = 2;
         assert_eq!(
             lookup(&db, &rpc, stale).await,
-            Err(RingProjectionError::RootChanged(ProjectionKind::KeyRegistry).into())
+            Err(RingProjectionError::RootChanged.into())
         );
         assert_eq!(
             lookup(&db, &rpc, request).await,
-            Err(RingProjectionError::MemberUnregistered(ProjectionKind::KeyRegistry).into())
+            Err(RingProjectionError::MemberUnregistered.into())
         );
     }
 }

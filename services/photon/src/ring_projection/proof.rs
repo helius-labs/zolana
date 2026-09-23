@@ -1,19 +1,22 @@
-use super::{storage::RingRoot, Projection};
-use crate::ingester::persist::persisted_state_tree::{get_proof_nodes, zero_hash_for_level};
+use super::storage::RingRoot;
+use crate::{
+    common::rings_tree::RingsTreeKind,
+    ingester::persist::persisted_state_tree::{get_proof_nodes, zero_hash_for_level},
+};
 use anyhow::{bail, Context, Result};
 use custom_ring_interface::{KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT};
 use sea_orm::DatabaseTransaction;
 pub(crate) use zolana_ring_indexer::proof::{LeafPath, PathOverlay};
 
-pub(crate) async fn path<P: Projection>(
+pub(crate) async fn path(
     tx: &DatabaseTransaction,
     root: &RingRoot,
     index: u64,
 ) -> Result<LeafPath> {
     if index >= KEY_REGISTRY_CAPACITY {
-        bail!("{} index out of range", P::KIND);
+        bail!("key registry index out of range");
     }
-    let kind = P::KIND.tree();
+    let kind = RingsTreeKind::KeyRegistry;
     let mut node = i64::try_from(KEY_REGISTRY_CAPACITY + index)?;
     let values = get_proof_nodes(
         tx,
@@ -29,9 +32,8 @@ pub(crate) async fn path<P: Projection>(
                 .hash
                 .clone()
                 .try_into()
-                .map_err(|_| anyhow::anyhow!("invalid {} node", P::KIND)),
-            None => zero_hash_for_level(level)
-                .with_context(|| format!("{} zero level out of range", P::KIND)),
+                .map_err(|_| anyhow::anyhow!("invalid key registry node")),
+            None => zero_hash_for_level(level).context("key registry zero level out of range"),
         }
     };
     let leaf = lookup(node, 0)?;
@@ -42,7 +44,7 @@ pub(crate) async fn path<P: Projection>(
     }
     let path = LeafPath { leaf, siblings };
     if path.root(index)? != root.root {
-        bail!("persisted {} path does not match its root", P::KIND);
+        bail!("persisted key registry path does not match its root");
     }
     Ok(path)
 }

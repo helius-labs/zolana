@@ -13,7 +13,7 @@ use crate::{
     ring_projection::{
         storage::{BlockJournal, BlockUndo},
         tests::{field, member, projector},
-        Invocations, ProjectionKind, StartSlot,
+        Invocations, StartSlot,
     },
 };
 use jsonrpsee::server::ServerHandle;
@@ -312,25 +312,10 @@ async fn lookups_report_the_projection_tip_and_refuse_unindexed_state() {
 #[test]
 fn projection_errors_keep_their_wire_codes() {
     for (error, code) in [
-        (
-            RingProjectionError::OutOfSync {
-                kind: ProjectionKind::KeyRegistry,
-                reason: String::new(),
-            },
-            -32070,
-        ),
-        (
-            RingProjectionError::RootChanged(ProjectionKind::KeyRegistry),
-            -32071,
-        ),
-        (
-            RingProjectionError::MemberUnregistered(ProjectionKind::KeyRegistry),
-            -32072,
-        ),
-        (
-            RingProjectionError::MemberAlreadyRegistered(ProjectionKind::KeyRegistry),
-            -32073,
-        ),
+        (RingProjectionError::OutOfSync(String::new()), -32070),
+        (RingProjectionError::RootChanged, -32071),
+        (RingProjectionError::MemberUnregistered, -32072),
+        (RingProjectionError::MemberAlreadyRegistered, -32073),
         (
             RingProjectionError::SpendRecordOutOfSync(String::new()),
             -32074,

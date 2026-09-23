@@ -128,14 +128,11 @@ Late activation resumes from the ring's durable checkpoint after interruption.
 Lookups wait until replay reaches the global projection tip.
 
 Use a persistent `--db-url` and run migrations before starting a new binary.
-The spend-record migration drops the head-map tables and replays every ring
-projection from the stored start slot, so RPC history must still cover it.
-Indexed SPP data is preserved. The default temporary database is discarded on
-startup. For a fresh ring, `--ring-projection-start-slot` may name its creation
-slot and must repeat the stored value on every restart. Do not start after the
-ring's first `register_spend` or its `CREATE_KEY_REGISTRY_ROOT` instruction.
-Keep RPC history available from that slot, and back up the database and its
-undo journal.
+The default temporary database is discarded on startup. For a fresh ring,
+`--ring-projection-start-slot` may name its creation slot and must repeat the
+stored value on every restart. Do not start after the ring's first
+`register_spend` or its `CREATE_KEY_REGISTRY_ROOT` instruction. Keep RPC history
+available from that slot, and back up the database and its undo journal.
 
 Error `-32074` means the spend-record projection is unavailable, quarantined,
 or ahead of the SPP indexer. Wait for indexing or recovery. The key registry

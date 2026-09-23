@@ -37,9 +37,9 @@ fn ensure_zeroeth_element_exists(
                 get_zeroeth_nullifier_exclusion_range(tree.to_bytes().to_vec())
             }
             _ => {
-                return Err(IngesterError::ParserError(
-                    "State trees do not use indexed-tree zeroeth elements".to_string(),
-                ));
+                return Err(IngesterError::ParserError(format!(
+                    "{tree_kind:?} trees do not use indexed-tree zeroeth elements"
+                )));
             }
         };
         let zeroeth_hash = compute_hash_by_tree_kind(&zeroeth_leaf, tree_kind).map_err(|e| {
