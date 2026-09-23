@@ -11036,7 +11036,6 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-program",
- "zolana-test-utils",
  "zolana-transaction",
  "zolana-user-registry-interface",
 ]
