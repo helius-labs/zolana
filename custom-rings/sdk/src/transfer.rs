@@ -807,7 +807,7 @@ impl VelocityLookup<'_> {
     ) -> Result<VelocityFacts, TransferError> {
         let live = self
             .read
-            .read_current(env.indexer)
+            .read_current(env)
             .map_err(list_entry)?
             .ok_or(TransferError::SpendRecordMissing)?;
         self.context.facts(live, env.rpc.get_slot()?)
@@ -819,7 +819,7 @@ impl VelocityLookup<'_> {
     ) -> Result<VelocityFacts, TransferError> {
         let live = self
             .read
-            .read_current_async(env.indexer)
+            .read_current_async(env)
             .await
             .map_err(list_entry)?
             .ok_or(TransferError::SpendRecordMissing)?;

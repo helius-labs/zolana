@@ -36,9 +36,10 @@ use custom_ring_sdk::{
     CoSignScope, CoSignThreshold, CreateConfig, CreateKeyRegistryRoot, CustomRing,
     CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
     DelegateTransfer, DelegateTransferInput, DepositError, KeyRegistrationError,
-    ProvenDelegateTransfer, ProvenTransfer, ReadSealedKey, ReadSpendRecord, RegisterKey,
-    RegisterSpend, RingDeposit, RingDepositReceipt, SealedCounters, SetAuthority, SetCoSigner,
-    SetDelegate, SetPaused, SetSpendWindow, TransactSend, TransferError, TransferProofEnvironment,
+    ProvenDelegateTransfer, ProvenTransfer, ReadEnvironment, ReadSealedKey, ReadSpendRecord,
+    RegisterKey, RegisterSpend, RingDeposit, RingDepositReceipt, SealedCounters, SetAuthority,
+    SetCoSigner, SetDelegate, SetPaused, SetSpendWindow, TransactSend, TransferError,
+    TransferProofEnvironment,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
@@ -2071,7 +2072,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             entries_tree_id: 0,
             member,
         }
-        .read_current(indexer)
+        .read_current(ReadEnvironment { indexer, rpc })
     };
 
     // Nothing moves before the sender registers.
@@ -2134,7 +2135,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
                 entries_tree_id: 0,
                 member: other_member,
             }
-            .read_current(indexer)
+            .read_current(ReadEnvironment { indexer, rpc })
         },
         0,
     )?;

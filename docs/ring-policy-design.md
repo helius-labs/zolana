@@ -471,7 +471,8 @@ A member cannot mint a zero-counter record to reset the meter.
 Photon's spend record projection maps each member to the transaction
 holding its latest record and serves it through `getRingSpendRecord`. The
 client re-hashes the record under the member's spend address before
-proving. A stale answer names a spent record and fails in SPP.
+proving. A record whose nullifier PDA exists is spent, the client waits for
+the projection to reach its successor.
 
 Registration publishes its record opening as plaintext output data. The
 transfer's successor is a standard SPP confidential output exposing

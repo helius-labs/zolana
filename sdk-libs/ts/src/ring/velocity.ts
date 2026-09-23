@@ -16,7 +16,12 @@ import { U64_MAX, decodeAddress } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
 import type { SealedMessageInput } from "../transaction/wallet/encrypt-rails.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
-import type { SlotReader, ProofAuthority, RingSpendRecordReader } from "../client/ports.js";
+import type {
+  ChainReader,
+  SlotReader,
+  ProofAuthority,
+  RingSpendRecordReader,
+} from "../client/ports.js";
 import { bytesField } from "../client/internal.js";
 import { asField } from "../client/prover/assembly.js";
 import {
@@ -72,7 +77,7 @@ export interface VelocityFacts {
 
 /** Locates the sender's compressed record under the configured entries tree. */
 export interface ReadVelocityFactsInput {
-  readonly client: RingSpendRecordReader & SlotReader;
+  readonly client: RingSpendRecordReader & Pick<ChainReader, "getAccount"> & SlotReader;
   readonly ringProgramId: Address;
   readonly keys: ShieldedKeys;
   readonly namespace: Address;
