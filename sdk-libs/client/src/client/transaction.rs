@@ -24,7 +24,7 @@ use super::{validation::validate_fee_payer_pubkey, TransferPreparation, ZolanaCl
 
 /// A signed shielded transaction ready for proof assembly and submission.
 ///
-/// Produced by `zolana_wallet::sign_shielded_transaction`; consumed by
+/// Produced by signing a `ConfidentialTransaction`; consumed by
 /// [`ZolanaClient`]'s submission helpers.
 pub struct SignedPrivateTransaction {
     pub transaction: SppProofInputs,

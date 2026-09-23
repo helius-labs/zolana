@@ -1988,8 +1988,8 @@ dependencies = [
  "zolana-ring-client",
  "zolana-ring-policy",
  "zolana-ring-rpc",
+ "zolana-test-utils",
  "zolana-transaction",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -2122,7 +2122,6 @@ dependencies = [
  "zolana-transaction",
  "zolana-tree",
  "zolana-user-registry-interface",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -2484,7 +2483,6 @@ dependencies = [
  "zolana-transaction",
  "zolana-tree",
  "zolana-user-registry-interface",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -5696,7 +5694,7 @@ dependencies = [
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
- "zolana-wallet",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -6524,7 +6522,6 @@ dependencies = [
  "zolana-transaction",
  "zolana-tree",
  "zolana-user-registry-interface",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -9269,7 +9266,6 @@ dependencies = [
  "zolana-program",
  "zolana-test-utils",
  "zolana-transaction",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -9304,7 +9300,6 @@ dependencies = [
  "zolana-transaction",
  "zolana-tree",
  "zolana-user-registry-interface",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -9568,7 +9563,6 @@ dependencies = [
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -10840,7 +10834,6 @@ dependencies = [
  "zolana-transaction",
  "zolana-tree",
  "zolana-user-registry-interface",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -11044,9 +11037,9 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-program",
+ "zolana-test-utils",
  "zolana-transaction",
  "zolana-user-registry-interface",
- "zolana-wallet",
 ]
 
 [[package]]
@@ -11080,6 +11073,7 @@ dependencies = [
  "solana-rpc-client",
  "solana-rpc-client-api",
  "solana-signature",
+ "solana-signer",
  "solana-transaction",
  "solana-transaction-status-client-types",
  "thiserror 2.0.20",
@@ -11097,6 +11091,7 @@ dependencies = [
  "zolana-program",
  "zolana-transaction",
  "zolana-tree",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -11431,9 +11426,11 @@ name = "zolana-test-utils"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64",
  "borsh",
  "bytemuck",
+ "futures",
  "groth16-solana",
  "mollusk-svm",
  "num-bigint 0.4.8",
@@ -11441,15 +11438,19 @@ dependencies = [
  "sha2 0.10.9",
  "solana-account 4.3.2",
  "solana-address 2.6.1",
+ "solana-hash",
  "solana-instruction",
  "solana-instruction-error",
  "solana-keypair",
+ "solana-message",
  "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-rpc-client-api",
  "solana-signature",
  "solana-signer",
+ "solana-transaction",
  "solana-transaction-error",
+ "tokio",
  "zolana-client",
  "zolana-event",
  "zolana-event-parser",
@@ -11463,21 +11464,26 @@ dependencies = [
  "zolana-transaction",
  "zolana-tree",
  "zolana-user-registry-interface",
- "zolana-wallet",
 ]
 
 [[package]]
 name = "zolana-transaction"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "borsh",
+ "criterion",
  "hex",
  "num-bigint 0.4.8",
+ "proptest",
+ "rand 0.8.8",
+ "rayon",
  "serde",
  "serde_json",
  "solana-address 2.6.1",
  "solana-signature",
  "thiserror 2.0.20",
+ "tokio",
  "wincode",
  "zolana-event",
  "zolana-hasher",
@@ -11532,43 +11538,6 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.1",
  "solana-secp256r1-program",
-]
-
-[[package]]
-name = "zolana-wallet"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "borsh",
- "bytemuck",
- "criterion",
- "futures",
- "num-bigint 0.4.8",
- "p256",
- "proptest",
- "rand 0.8.8",
- "rayon",
- "solana-account 4.3.2",
- "solana-address 2.6.1",
- "solana-hash",
- "solana-instruction",
- "solana-keypair",
- "solana-message",
- "solana-pubkey 4.2.1",
- "solana-signature",
- "solana-signer",
- "solana-transaction",
- "tokio",
- "zolana-client",
- "zolana-event",
- "zolana-event-parser",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-transaction",
- "zolana-user-registry-interface",
 ]
 
 [[package]]

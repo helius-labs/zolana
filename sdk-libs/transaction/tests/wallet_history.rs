@@ -1,11 +1,11 @@
-mod common;
+mod wallet_common;
 
-use common::{
+use wallet_common::{
     build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, wallet_for,
     TransferSpec,
 };
 use zolana_transaction::{AssetRegistry, TransactionError, SOL_MINT};
-use zolana_wallet::{PrivateTransactionDirection, PrivateTransactionKind};
+use zolana_transaction::{PrivateTransactionDirection, PrivateTransactionKind};
 
 const WINDOW: u64 = 8;
 
@@ -73,7 +73,7 @@ fn sync_records_inbound_and_outbound_transfer_history() {
             &spent_nullifier_pk,
             &[0u8; 32],
             &[0u8; 32],
-            common::TEST_TREE_ID,
+            wallet_common::TEST_TREE_ID,
         )
         .unwrap();
     let spend_nullifier = spent_utxo

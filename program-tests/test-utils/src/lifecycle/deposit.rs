@@ -8,7 +8,7 @@ use zolana_event_parser::indexed_events_from_instruction_groups;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 use zolana_program_test::deposit_output_from_event;
 use zolana_transaction::{Address, SOL_MINT};
-use zolana_wallet::{KeypairWalletAuthority, Wallet};
+use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 use super::{Deposit, DepositRecord, LifecycleHarness, SplDepositAccounts};
 use crate::{

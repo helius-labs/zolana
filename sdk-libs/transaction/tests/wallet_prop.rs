@@ -1,16 +1,16 @@
-mod common;
+mod wallet_common;
 
 use std::collections::HashMap;
 
-use common::{
+use proptest::{prelude::*, test_runner::TestCaseError};
+use wallet_common::{
     build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, TransferSpec,
 };
-use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
 #[cfg(feature = "parallel")]
-use zolana_wallet::SyncReport;
-use zolana_wallet::Wallet;
+use zolana_transaction::SyncReport;
+use zolana_transaction::Wallet;
+use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
 
 const NUM_CPS: usize = 3;
 const WINDOW: u64 = 8;
@@ -169,7 +169,12 @@ impl Harness {
 
         let nullifier_pk = self.alice.nullifier_key.pubkey().unwrap();
         let input_hash = input
-            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], common::TEST_TREE_ID)
+            .hash(
+                &nullifier_pk,
+                &[0u8; 32],
+                &[0u8; 32],
+                wallet_common::TEST_TREE_ID,
+            )
             .unwrap();
         let first_nullifier = input
             .nullifier(&input_hash, &self.alice.nullifier_key)

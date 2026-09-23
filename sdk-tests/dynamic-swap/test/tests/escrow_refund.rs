@@ -26,10 +26,12 @@ use shared::{
     SOURCE_ASSET_ID, USER_SPL_SHIELD,
 };
 use solana_signer::Signer;
+use zolana_client::user_registry::resolve_registered_address;
 use zolana_client::{ComputeBudgetConfig, Rpc};
 use zolana_keypair::random_blinding;
 use zolana_program::instruction::Transact;
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
+use zolana_test_utils::wallet::{Deposit, DepositParams};
 use zolana_transaction::{
     instructions::transact::{asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
@@ -39,7 +41,6 @@ use zolana_transaction::{
     },
     Data, SOL_MINT,
 };
-use zolana_wallet::{resolve_registered_address, Deposit, DepositParams};
 
 const PRICE: u64 = 10;
 const MAX_PRICE: u64 = 3;

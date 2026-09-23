@@ -16,8 +16,7 @@ use zolana_ring_client::{
 };
 use zolana_ring_policy::Member;
 use zolana_ring_rpc::KeyFileError;
-use zolana_transaction::{utxo::SppProofInputUtxo, WalletUtxo, SOL_MINT};
-use zolana_wallet::Wallet;
+use zolana_transaction::{utxo::SppProofInputUtxo, Wallet, WalletUtxo, SOL_MINT};
 
 use crate::{
     assets, file,

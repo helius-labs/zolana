@@ -6,8 +6,8 @@ use zolana_client::Rpc;
 use zolana_interface::{
     pda, state::ProtocolConfig, PROGRAM_ID_PUBKEY, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
+use zolana_test_utils::wallet::create_associated_token_account_with_program;
 use zolana_transaction::{Address, SOL_MINT};
-use zolana_wallet::create_associated_token_account_with_program;
 
 pub(super) use crate::cli_config::parse_pubkey;
 use crate::cli_config::CliConfigFile;

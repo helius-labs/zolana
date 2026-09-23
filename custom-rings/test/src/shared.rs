@@ -45,8 +45,8 @@ use zolana_test_utils::{
     spl::{create_mint, RegisterSplAsset},
 };
 use zolana_transaction::AssetRegistry;
+use zolana_transaction::Wallet;
 use zolana_user_registry_interface::user_registry_program_id;
-use zolana_wallet::Wallet;
 
 /// Funds the fee payer for the whole bootstrap (smart accounts, protocol
 /// config, tree allocation) plus every deposit a test drives through it.

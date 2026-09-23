@@ -18,13 +18,14 @@ use swap_sdk::{
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
 };
+use zolana_client::user_registry::ensure_registered;
 use zolana_client::Rpc;
 use zolana_keypair::random_blinding;
+use zolana_transaction::Filter;
 use zolana_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     SOL_ASSET_ID, SOL_MINT,
 };
-use zolana_wallet::{ensure_registered, Filter};
 
 const EXPIRY: u64 = 2_000_000_000;
 

@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use zolana_interface::state::read_tree_id;
 use zolana_program::instruction::RingAssetDeposit;
 use zolana_program_test::{RingDepositOutput, ZolanaProgramTest};
-use zolana_wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled `ring_deposit` against the integration-test
 /// expectations: the emitted owner-hidden event faithfully mirrors the

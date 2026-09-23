@@ -35,7 +35,7 @@ use zolana_test_utils::transact::{
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
-use zolana_wallet::SyncWalletAuthority;
+use zolana_transaction::SyncWalletAuthority;
 
 use super::fixtures::Pool;
 use super::merge::ZeroDeposits;

@@ -1,8 +1,10 @@
-mod common;
+mod wallet_common;
 
-use common::{
+use wallet_common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
+#[cfg(feature = "parallel")]
+use zolana_transaction::PrivateTransactionDirection;
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
@@ -10,9 +12,7 @@ use zolana_transaction::{
     Address, AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
 };
-#[cfg(feature = "parallel")]
-use zolana_wallet::PrivateTransactionDirection;
-use zolana_wallet::{KeypairWalletAuthority, Wallet};
+use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 const WINDOW: u64 = 8;
 
@@ -113,7 +113,12 @@ fn fresh_sync_resolves_merge_dependencies() {
             view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
             output_context: OutputContext {
                 hash: output
-                    .hash(&nullifier_pk, &[0; 32], &[0; 32], common::TEST_TREE_ID)
+                    .hash(
+                        &nullifier_pk,
+                        &[0; 32],
+                        &[0; 32],
+                        wallet_common::TEST_TREE_ID,
+                    )
                     .unwrap(),
                 tree_id: 0,
                 leaf_index: 2,
@@ -154,7 +159,12 @@ fn fresh_sync_resolves_merge_dependencies() {
             view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
             output_context: OutputContext {
                 hash: chained_output
-                    .hash(&nullifier_pk, &[0; 32], &[0; 32], common::TEST_TREE_ID)
+                    .hash(
+                        &nullifier_pk,
+                        &[0; 32],
+                        &[0; 32],
+                        wallet_common::TEST_TREE_ID,
+                    )
                     .unwrap(),
                 tree_id: 0,
                 leaf_index: 3,

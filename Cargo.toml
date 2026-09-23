@@ -39,7 +39,6 @@ members = [
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
-    "sdk-libs/wallet",
     "services/photon",
     "services/ring-rpc",
     "sdk-tests/client/rust",
@@ -95,7 +94,6 @@ zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
-zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
 zolana-gnark-ffi-prover = { path = "sdk-libs/gnark-ffi-prover", version = "0.1.0" }
 zolana-gnark-ffi-prover-build = { path = "sdk-libs/gnark-ffi-prover/build-helper", version = "0.1.0" }

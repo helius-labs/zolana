@@ -8,7 +8,7 @@ use zolana_keypair::{
     Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
 };
 
-use zolana_transaction::{
+use crate::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
@@ -379,7 +379,7 @@ fn encrypt_confidential_transfer_with<K: ViewingKeyTrait>(
                     return Err(TransactionError::MissingOutput);
                 };
                 *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                    zolana_transaction::EncryptedScheme::RingConfidential.as_byte();
+                    crate::EncryptedScheme::RingConfidential.as_byte();
                 message.data = borsh::to_vec(&zolana_event::OutputDataEncoding::Encrypted(blob))
                     .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
             }

@@ -3,18 +3,16 @@
 //! These cases build the published transactions by hand, keep the notes each
 //! participant should end up with in a small world, and then assert that a
 //! fresh wallet syncing the same batch reaches exactly that state: balances,
-//! spends, counterparty counters and history rows. They live here rather than
-//! in `zolana-transaction` because they drive `Wallet`, and a wallet-using test
-//! in that crate makes it depend on this one.
+//! spends, counterparty counters and history rows.
 
-mod common;
+mod wallet_common;
 
 use std::collections::HashMap;
 
-use common::{build_transfer, local_authority, wallet_for, TransferSpec, TEST_TREE_ID};
+use wallet_common::{build_transfer, local_authority, wallet_for, TransferSpec, TEST_TREE_ID};
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, SOL_ASSET_ID, SOL_MINT};
-use zolana_wallet::{PrivateTransactionDirection, PrivateTransactionKind, Wallet};
+use zolana_transaction::{PrivateTransactionDirection, PrivateTransactionKind, Wallet};
 
 /// The notes and counters a batch of published transactions should leave
 /// behind, tracked independently of the wallet so the sync has something to be
@@ -192,7 +190,8 @@ fn recorded_split(world: &mut SyncWorld, owner: String, parts: u8) {
         .expect("no utxo to split");
 
     let owner_kp = world.fresh_keypair(&owner);
-    let (transaction, outputs) = common::split_transaction(&owner_kp, &input, parts, [seq; 32]);
+    let (transaction, outputs) =
+        wallet_common::split_transaction(&owner_kp, &input, parts, [seq; 32]);
     world.sync_transactions.push(transaction);
     world.sent_counts.insert(owner.clone(), tx_count + 1);
     world.owned_utxos.entry(owner).or_default().extend(outputs);

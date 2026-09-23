@@ -20,7 +20,7 @@ use zolana_transaction::{
     Address, AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, OwnerCx,
     ShieldedTransaction, Utxo, UtxoSerialization,
 };
-use zolana_wallet::{KeypairWalletAuthority, Wallet};
+use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     let mut signing_bytes = [0u8; 32];

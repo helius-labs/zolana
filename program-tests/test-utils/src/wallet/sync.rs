@@ -15,7 +15,7 @@ use zolana_transaction::{
     AssetBalance, OutputContext, OutputSlot, ShieldedTransaction, TransactionError,
 };
 
-use crate::wallet::{
+use zolana_transaction::{
     CursorStream, PrivateTransaction, SyncReport, SyncWalletAuthority, Wallet, WalletAuthority,
     WalletSyncMaterial, DEFAULT_TAG_WINDOW,
 };
@@ -1045,7 +1045,7 @@ mod tests {
         Address, AssetRegistry, Data, OwnerCx, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
-    use crate::wallet::{
+    use zolana_transaction::{
         KeypairWalletAuthority, PrivateTransaction, PrivateTransactionDirection,
         PrivateTransactionKind, PrivateTransactionStatus,
     };
@@ -2594,10 +2594,10 @@ mod tests {
         assert!(!wallet.is_spent(&wallet.utxos[0]));
         assert_eq!(wallet.private_transactions().len(), 1);
         let tx = &wallet.private_transactions()[0];
-        assert_eq!(tx.kind, crate::wallet::PrivateTransactionKind::Deposit);
+        assert_eq!(tx.kind, zolana_transaction::PrivateTransactionKind::Deposit);
         assert_eq!(
             tx.direction,
-            crate::wallet::PrivateTransactionDirection::Inbound
+            zolana_transaction::PrivateTransactionDirection::Inbound
         );
         assert_eq!(tx.amount, 42);
         assert_eq!(tx.id.slot, 1);
@@ -2651,7 +2651,10 @@ mod tests {
 
         let txs = get_private_transactions(&wallet);
         assert_eq!(txs.len(), 1);
-        assert_eq!(txs[0].kind, crate::wallet::PrivateTransactionKind::Deposit);
+        assert_eq!(
+            txs[0].kind,
+            zolana_transaction::PrivateTransactionKind::Deposit
+        );
         assert_eq!(txs[0].amount, 7);
     }
 

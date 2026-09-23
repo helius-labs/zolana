@@ -2,10 +2,10 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
+use zolana_client::user_registry::build_registration_transaction_sync;
 use zolana_client::{ClientError, Rpc};
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_user_registry_interface::user_record_pda;
-use zolana_wallet::build_registration_transaction_sync;
 
 struct RegistryAbsent;
 

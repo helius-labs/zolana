@@ -36,11 +36,11 @@ use solana_signer::Signer;
 // trait method rather than an inherent one on SolanaRpc.
 use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{Address, AssetRegistry};
-use zolana_wallet::{
-    create_transfer_sync, sign_private_transaction_sync, sync_wallet, KeypairWalletAuthority,
-    TransferParams, Wallet,
+use zolana_test_utils::wallet::{
+    create_transfer_sync, sign_private_transaction_sync, sync_wallet, TransferParams,
 };
+use zolana_transaction::{Address, AssetRegistry};
+use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 /// One completed transfer, broken into the phases that can each be slow for a
 /// different reason.

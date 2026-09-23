@@ -3,11 +3,11 @@ use std::time::Duration;
 use anyhow::Result;
 use zolana_client::Rpc;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
+use zolana_transaction::Wallet;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     AssetRegistry, ShieldedTransaction,
 };
-use zolana_wallet::Wallet;
 
 use super::{
     poll::{collect_tagged, index_until},

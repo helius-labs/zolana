@@ -21,7 +21,7 @@ use zolana_transaction::{
     derive_output_blinding_seed, utxo::derive_transact_output_blinding, AssetRegistry,
     ShieldedTransaction,
 };
-use zolana_wallet::{KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use shielded_pool_tests::support::localnet::{
     initialize_indexed_pool, print_signature, send_indexed, LocalnetPool,

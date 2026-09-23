@@ -3,8 +3,9 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Result};
 use zolana_client::Rpc;
 use zolana_keypair::ShieldedKeypair;
+use zolana_test_utils::wallet::sync_wallet;
 use zolana_transaction::ShieldedTransaction;
-use zolana_wallet::{sync_wallet, KeypairWalletAuthority, Wallet};
+use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 use crate::err;
 

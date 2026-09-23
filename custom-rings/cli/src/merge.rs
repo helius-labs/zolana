@@ -12,8 +12,8 @@ use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
 use zolana_interface::pda;
 use zolana_keypair::{KeypairError, ShieldedKeypair};
-use zolana_transaction::{TransactionError, WalletUtxo, SOL_MINT};
-use zolana_wallet::{sync_wallet, Wallet};
+use zolana_test_utils::wallet::sync_wallet;
+use zolana_transaction::{TransactionError, Wallet, WalletUtxo, SOL_MINT};
 
 use crate::{
     assets::{self, AssetError},

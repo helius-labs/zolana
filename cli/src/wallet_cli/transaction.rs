@@ -1,8 +1,7 @@
 use anyhow::Result;
 use solana_signer::Signer;
 use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
-use zolana_transaction::Address;
-use zolana_wallet::{
+use zolana_test_utils::wallet::{
     actions::{
         submit::MergeMaterial,
         transaction::{is_default_ring_spendable, is_plain_utxo},
@@ -10,6 +9,7 @@ use zolana_wallet::{
     create_merge, create_split, create_transfer_sync, sign_private_transaction_sync,
     submit_merge_transaction, MergeParams, SplitParams, SubmitMergeTransaction, TransferParams,
 };
+use zolana_transaction::Address;
 
 use super::{
     material::WalletMaterial,
