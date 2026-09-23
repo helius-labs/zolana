@@ -30,6 +30,10 @@ bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
 
 cd "$server_dir"
 source scripts/ring_keys.sh
+# keys_dir may be relative to prover/server; some steps below run from the repo
+# root, so pin it to an absolute path first.
+mkdir -p "$keys_dir"
+keys_dir="$(cd "$keys_dir" && pwd)"
 echo "==> building light-prover"
 go build -o light-prover .
 
@@ -68,6 +72,7 @@ for spec in "10" "250"; do
     ./light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
     (cd "$repo_root" && cargo run -q -p xtask -- bsb22-vk \
         "$tmp_dir/${stem}.vkbin" \
+        "$keys_dir/${stem}.key" \
         "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
         "${module}.rs")
 done
@@ -106,6 +111,8 @@ Still MANUAL (one reviewed PR, so pk <-> vk <-> lock all move together):
   3. commit the regenerated
      prover/server/prover/provingkeys/proving-keys.lock
      (its hash drives the CI cache key automatically -- no tag bump)
-  4. publish ${ring_keys[*]} with
+  4. update PROVING_KEY_SHA256S in sdk-libs/ts/src/interface/proving-keys.ts
+     to the new lockfile digests (test/proving-keys.test.ts pins it)
+  5. publish ${ring_keys[*]} with
      just release-custom-rings <tag> --upload --prerelease
 EOF

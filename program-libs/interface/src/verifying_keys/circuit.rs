@@ -7,6 +7,109 @@ use wincode::{
 
 const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 
+/// Selects `$item` from the verifying key module a [`CircuitId`] names, or
+/// returns `None` from the enclosing function. One table serves both the
+/// verifying key and the proving-key sha256 generated next to it.
+#[cfg(feature = "verifying-keys")]
+macro_rules! circuit_key_item {
+    ($circuit:expr, $item:ident) => {{
+        use super::*;
+
+        match $circuit {
+            CircuitId::ConfidentialEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_1_1::$item
+            }
+            CircuitId::ConfidentialEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_1_2::$item
+            }
+            CircuitId::ConfidentialEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_1_8::$item
+            }
+            CircuitId::ConfidentialEddsa(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_2_2::$item
+            }
+            CircuitId::ConfidentialEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_2_3::$item
+            }
+            CircuitId::ConfidentialEddsa(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_3_3::$item
+            }
+            CircuitId::ConfidentialEddsa(4, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_4_3::$item
+            }
+            CircuitId::ConfidentialEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_4_4::$item
+            }
+            CircuitId::ConfidentialEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_5_3::$item
+            }
+            CircuitId::ConfidentialEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_5_4::$item
+            }
+            CircuitId::ConfidentialEddsa(36, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_36_2::$item
+            }
+            CircuitId::RingEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_1::$item,
+            CircuitId::RingEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_2::$item,
+            CircuitId::RingEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_8::$item,
+            CircuitId::RingEddsa(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_2_2::$item,
+            CircuitId::RingEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_2_3::$item,
+            CircuitId::RingEddsa(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_3_3::$item,
+            CircuitId::RingEddsa(4, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_3::$item,
+            CircuitId::RingEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_4::$item,
+            CircuitId::RingEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_3::$item,
+            CircuitId::RingEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_4::$item,
+            CircuitId::RingEddsa(36, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_36_2::$item,
+            CircuitId::RingP256(1, 1, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_1_1::$item
+            }
+            CircuitId::RingP256(1, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_1_2::$item
+            }
+            CircuitId::RingP256(1, 8, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_1_8::$item
+            }
+            CircuitId::RingP256(2, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_2_2::$item
+            }
+            CircuitId::RingP256(2, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_2_3::$item
+            }
+            CircuitId::RingP256(3, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_3_3::$item
+            }
+            CircuitId::RingP256(4, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_4_3::$item
+            }
+            CircuitId::RingP256(4, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_4_4::$item
+            }
+            CircuitId::RingP256(5, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_5_3::$item
+            }
+            CircuitId::RingP256(5, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_5_4::$item
+            }
+            CircuitId::RingP256(36, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_36_2::$item
+            }
+            CircuitId::RingAuthority(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_ring_authority_1_1::$item
+            }
+            CircuitId::RingAuthority(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_ring_authority_2_2::$item
+            }
+            CircuitId::RingAuthority(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_ring_authority_3_3::$item
+            }
+            CircuitId::RingAuthority(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_ring_authority_4_4::$item
+            }
+            _ => return None,
+        }
+    }};
+}
+
 /// The compressed BSB22 commitment carried by a committed Groth16 proof.
 ///
 /// This lives in [`CircuitId::RingP256`] so the existing `TransactProof` and
@@ -223,100 +326,13 @@ impl CircuitId {
     pub fn verifying_key(
         self,
     ) -> Option<&'static groth16_solana::groth16::Groth16Verifyingkey<'static>> {
-        use super::*;
+        Some(circuit_key_item!(self, VERIFYINGKEY))
+    }
 
-        let key = match self {
-            Self::ConfidentialEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_1_1::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_1_2::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_1_8::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_2_2::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_2_3::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_3_3::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(4, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_4_3::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_4_4::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_5_3::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_5_4::VERIFYINGKEY
-            }
-            Self::ConfidentialEddsa(36, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_confidential_36_2::VERIFYINGKEY
-            }
-            Self::RingEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_1::VERIFYINGKEY,
-            Self::RingEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_2::VERIFYINGKEY,
-            Self::RingEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_8::VERIFYINGKEY,
-            Self::RingEddsa(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_2_2::VERIFYINGKEY,
-            Self::RingEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_2_3::VERIFYINGKEY,
-            Self::RingEddsa(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_3_3::VERIFYINGKEY,
-            Self::RingEddsa(4, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_3::VERIFYINGKEY,
-            Self::RingEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_4::VERIFYINGKEY,
-            Self::RingEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_3::VERIFYINGKEY,
-            Self::RingEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_4::VERIFYINGKEY,
-            Self::RingEddsa(36, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_36_2::VERIFYINGKEY,
-            Self::RingP256(1, 1, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_1_1::VERIFYINGKEY
-            }
-            Self::RingP256(1, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_1_2::VERIFYINGKEY
-            }
-            Self::RingP256(1, 8, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_1_8::VERIFYINGKEY
-            }
-            Self::RingP256(2, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_2_2::VERIFYINGKEY
-            }
-            Self::RingP256(2, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_2_3::VERIFYINGKEY
-            }
-            Self::RingP256(3, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_3_3::VERIFYINGKEY
-            }
-            Self::RingP256(4, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_4_3::VERIFYINGKEY
-            }
-            Self::RingP256(4, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_4_4::VERIFYINGKEY
-            }
-            Self::RingP256(5, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_5_3::VERIFYINGKEY
-            }
-            Self::RingP256(5, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_5_4::VERIFYINGKEY
-            }
-            Self::RingP256(36, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_ring_36_2::VERIFYINGKEY
-            }
-            Self::RingAuthority(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_ring_authority_1_1::VERIFYINGKEY
-            }
-            Self::RingAuthority(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_ring_authority_2_2::VERIFYINGKEY
-            }
-            Self::RingAuthority(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_ring_authority_3_3::VERIFYINGKEY
-            }
-            Self::RingAuthority(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_ring_authority_4_4::VERIFYINGKEY
-            }
-            _ => return None,
-        };
-        Some(key)
+    /// SHA-256 of the proving key file this circuit's verifying key was
+    /// generated from. A prover reports the same digest with every proof.
+    #[cfg(feature = "verifying-keys")]
+    pub fn proving_key_sha256(self) -> Option<&'static [u8; 32]> {
+        Some(circuit_key_item!(self, VERIFYINGKEY_PROVING_KEY_SHA256))
     }
 }

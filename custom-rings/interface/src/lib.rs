@@ -23,6 +23,36 @@ pub mod policy_verifying_key;
 pub mod register_key_verifying_key;
 pub mod state;
 
+/// Proving key file name, as in proving-keys.lock and the prover's
+/// `/proving-keys`, and the sha256 its committed verifying key pins.
+#[cfg(feature = "verifying-keys")]
+pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
+    (
+        "custom_ring_base.key",
+        base_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_compressed_policy.key",
+        compressed_policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_delegate_policy.key",
+        delegate_policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_deposit.key",
+        deposit_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy.key",
+        policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_register_key.key",
+        register_key_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+];
+
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use deposit::{DepositContext, DepositPublicInput};
 pub use instruction::{

@@ -114,6 +114,21 @@ deploy_with_retry() {
     return 1
 }
 
+# Program bytes the ProgramData account holds today. A loader-v3 upgrade needs
+# the new binary to fit; `solana program deploy` extends on its own, a buffer
+# upgrade through Squads does not.
+program_data_len() {
+    solana program show "$1" --output json-compact 2>/dev/null \
+        | sed -n 's/.*"dataLen"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p'
+}
+
+# Check the verifying keys embedded in a shielded-pool binary: every one a
+# production setup of a proving key this build pins, none missing. See
+# `zolana vks check --help`.
+check_verifying_keys() {
+    cargo run -q -p zolana-cli -- vks check "$@"
+}
+
 program_authority() {
     local pid="$1"
     local info
@@ -136,6 +151,20 @@ upgrade_shielded_pool_via_squads() {
     fi
     if [[ ! -f "$payer_keypair" || ! -f "$signer_1" || ! -f "$signer_2" ]]; then
         echo "Squads upgrade requires filesystem keypairs for the payer and both protocol signers" >&2
+        return 1
+    fi
+
+    local pid so_size capacity
+    pid=$(program_id shielded-pool)
+    so_size=$(wc -c <"$so_path" | tr -d '[:space:]')
+    capacity=$(program_data_len "$pid")
+    if [[ -z "$capacity" ]]; then
+        echo "could not read the shielded-pool ProgramData size" >&2
+        return 1
+    fi
+    if ((so_size > capacity)); then
+        echo "$so_path is $so_size bytes, the shielded-pool ProgramData holds $capacity" >&2
+        echo "extend it by $((so_size - capacity)) bytes through the protocol Squads vault, then rerun" >&2
         return 1
     fi
 
@@ -177,6 +206,11 @@ for target in $targets; do
         echo "missing $so_path -- run 'just build-programs' first" >&2
         exit 1
     fi
+    if [[ "$target" == "shielded-pool" ]]; then
+        # Refuse an insecure test setup or a verifying key the prover does not
+        # pin before any lamports move.
+        check_verifying_keys --so "$so_path"
+    fi
 
     current_authority=""
     if current_authority=$(program_authority "$pid"); then
@@ -193,6 +227,15 @@ for target in $targets; do
     else
         echo "$target upgrade authority is $current_authority, not local signer $deploy_authority" >&2
         exit 1
+    fi
+    if [[ "$target" == "shielded-pool" ]]; then
+        # The deployed binary, read back from its ProgramData account; with
+        # ZOLANA_PROVER_URL, the prover is checked against the same keys.
+        vks_args=(--program-id "$pid" --rpc-url "$cluster_url")
+        if [[ -n "${ZOLANA_PROVER_URL:-}" ]]; then
+            vks_args+=(--prover-url "$ZOLANA_PROVER_URL")
+        fi
+        check_verifying_keys "${vks_args[@]}"
     fi
     echo "Deployed $target to https://explorer.solana.com/address/$pid?cluster=devnet"
     echo

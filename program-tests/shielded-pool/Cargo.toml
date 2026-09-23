@@ -61,6 +61,9 @@ mollusk-svm = { workspace = true }
 
 [dev-dependencies]
 wincode = { workspace = true }
+# vk::setup reads the verifying key setup markers back from the built program.
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
+zolana-tree = { workspace = true, features = ["verify"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
@@ -286,3 +289,7 @@ path = "tests/spl_interface/validation.rs"
 [[test]]
 name = "dispatch_validation"
 path = "tests/dispatch/validation.rs"
+
+[[test]]
+name = "verifying_keys_setup_markers"
+path = "tests/verifying_keys/setup_markers.rs"

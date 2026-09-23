@@ -80,5 +80,5 @@ func ProveBatchAddressAppend(ps *common.BatchProofSystem, params *BatchAddressAp
 		return nil, fmt.Errorf("error proving: %v", err)
 	}
 
-	return &common.Proof{Proof: proof}, nil
+	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

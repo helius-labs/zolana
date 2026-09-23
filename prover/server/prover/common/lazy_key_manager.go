@@ -16,6 +16,9 @@ type LazyKeyManager struct {
 	keysDir           string
 	downloadConfig    *DownloadConfig
 	loadingInProgress map[string]chan struct{}
+	// loadedDigests maps a loaded key's file name to the sha256 of the bytes
+	// read, for GET /proving-keys.
+	loadedDigests map[string][32]byte
 }
 
 func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyManager {
@@ -29,6 +32,7 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 		keysDir:           keysDir,
 		downloadConfig:    downloadConfig,
 		loadingInProgress: make(map[string]chan struct{}),
+		loadedDigests:     make(map[string][32]byte),
 	}
 }
 
@@ -71,6 +75,7 @@ func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType) (*RingProofSyste
 	}
 	m.mu.Lock()
 	m.ringSystems[key] = ps
+	m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 	m.mu.Unlock()
 	return ps, nil
 }
@@ -147,6 +152,7 @@ func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, tr
 
 	m.mu.Lock()
 	m.batchSystems[key] = ps
+	m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 	m.mu.Unlock()
 
 	logging.Logger().Info().
@@ -199,6 +205,7 @@ func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType,
 
 	m.mu.Lock()
 	m.transferSystems[key] = ps
+	m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 	m.mu.Unlock()
 
 	logging.Logger().Info().
@@ -435,7 +442,7 @@ func (m *LazyKeyManager) preloadKeys(keyPaths []string) error {
 			return fmt.Errorf("failed to load key %s: %w", keyPath, err)
 		}
 
-		if err := m.cacheSystem(system); err != nil {
+		if err := m.cacheSystem(keyPath, system); err != nil {
 			return fmt.Errorf("failed to cache key %s: %w", keyPath, err)
 		}
 	}
@@ -447,7 +454,7 @@ func (m *LazyKeyManager) preloadKeys(keyPaths []string) error {
 	return nil
 }
 
-func (m *LazyKeyManager) cacheSystem(system interface{}) error {
+func (m *LazyKeyManager) cacheSystem(keyPath string, system interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -455,6 +462,7 @@ func (m *LazyKeyManager) cacheSystem(system interface{}) error {
 	case *BatchProofSystem:
 		key := fmt.Sprintf("%s_%d_%d", ps.CircuitType, ps.TreeHeight, ps.BatchSize)
 		m.batchSystems[key] = ps
+		m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 		logging.Logger().Debug().
 			Str("cache_key", key).
 			Msg("Cached BatchProofSystem")
@@ -462,12 +470,14 @@ func (m *LazyKeyManager) cacheSystem(system interface{}) error {
 	case *TransferProofSystem:
 		key := fmt.Sprintf("%s_%d_%d", ps.CircuitType, ps.NInputs, ps.NOutputs)
 		m.transferSystems[key] = ps
+		m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 		logging.Logger().Debug().
 			Str("cache_key", key).
 			Msg("Cached TransferProofSystem")
 
 	case *RingProofSystem:
 		m.ringSystems[string(ps.CircuitType)] = ps
+		m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 
 	default:
 		return fmt.Errorf("unknown system type: %T", system)

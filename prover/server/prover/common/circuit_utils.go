@@ -7,6 +7,10 @@ import (
 
 type Proof struct {
 	Proof groth16.Proof
+	// ProvingKeySha256 is the sha256 of the proving key file the proof was
+	// generated with (zero when the system was not loaded from a file). Clients
+	// compare it with the proving-key sha256 pinned next to their verifying key.
+	ProvingKeySha256 [32]byte
 }
 
 // ProofWithTiming wraps a proof with timing information for metrics
@@ -22,6 +26,9 @@ type BatchProofSystem struct {
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey
 	ConstraintSystem constraint.ConstraintSystem
+	// ProvingKeySha256 is the sha256 of the key file this system was read
+	// from, computed while reading it (see ReadSystemFromFile).
+	ProvingKeySha256 [32]byte
 }
 
 type RingProofSystem struct {
@@ -29,6 +36,9 @@ type RingProofSystem struct {
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey
 	ConstraintSystem constraint.ConstraintSystem
+	// ProvingKeySha256 is the sha256 of the key file this system was read
+	// from, computed while reading it (see ReadSystemFromFile).
+	ProvingKeySha256 [32]byte
 }
 
 // TransferProofSystem holds the keys and constraints for one spp_transaction
@@ -46,4 +56,7 @@ type TransferProofSystem struct {
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey
 	ConstraintSystem constraint.ConstraintSystem
+	// ProvingKeySha256 is the sha256 of the key file this system was read
+	// from, computed while reading it (see ReadSystemFromFile).
+	ProvingKeySha256 [32]byte
 }

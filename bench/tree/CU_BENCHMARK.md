@@ -26,8 +26,8 @@ Regenerate with `just bench-tree`.
 
 | Function                            |   Total CU |     Net CU |
 | ----------------------------------- | ---------- | ---------- |
-| `apply_cached_tree_updates`         |     16,131 |     16,131 |
-| `bench_batch_update_nullifier_tree` |     97,361 |     81,230 |
+| `apply_cached_tree_updates`         |     16,011 |     16,011 |
+| `bench_batch_update_nullifier_tree` |     97,184 |     81,173 |
 
 ## 2. Deserialize
 
@@ -39,13 +39,13 @@ Regenerate with `just bench-tree`.
 
 | Function                            |   Total CU |     Net CU |
 | ----------------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`            |         99 |         99 |
+| `bench_nullifier_insert`            |        101 |        101 |
 
 ## 4. Nullifier insert x10
 
 | Function                            |   Total CU |     Net CU |
 | ----------------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`            |      5,790 |      5,790 |
+| `bench_nullifier_insert`            |      5,735 |      5,735 |
 
 ## 5. Tree init
 

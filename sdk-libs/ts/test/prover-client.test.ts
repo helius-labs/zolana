@@ -19,8 +19,11 @@ import {
   customRingRegisterKeyProofRequest,
   mergeProverRequestBody,
 } from "../src/client/prover/client.js";
+import { proofFor } from "./helpers/proofs.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
+import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
+import { PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
 import { disabledRuleAnswer, velocityProofInputOff } from "../src/client/prover/types.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
@@ -68,12 +71,16 @@ const INPUTS: ProverInputs = {
     publicInputHash: asField(0n),
   },
 };
-const ZERO_POINT = ["0x0", "0x0"];
-const STANDARD_PROOF = {
-  ar: ZERO_POINT,
-  bs: [ZERO_POINT, ZERO_POINT],
-  krs: ZERO_POINT,
-};
+/** The proof a prover returns for `transferInputs()`. */
+const TRANSFER_PROOF = proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 1 });
+
+/** A 1-in/1-out transfer, the smallest shape with a committed verifying key. */
+function transferInputs(): ProverInputs {
+  return {
+    ...INPUTS,
+    payload: { ...INPUTS.payload, inputs: [dummyTransferInput()], outputs: [mergeInputs().output] },
+  };
+}
 
 /** The uncompressed P-256 point of the scalar [4; 32]. */
 const AUDITOR_PK_HEX =
@@ -208,7 +215,7 @@ describe("compressed ring prover contracts", () => {
       url: "https://prover.example",
       fetch: async (_url, init) => {
         bodies.push(JSON.parse(String(init?.body)));
-        return Response.json(STANDARD_PROOF);
+        return Response.json(proofFor(String(init?.body)));
       },
     });
     const request = ringRequest(p256.getPublicKey(bytes(4), false));
@@ -346,7 +353,7 @@ const EXPECTED_RING_BODY = {
 
 function mergeInputs(): MergeInputs {
   return {
-    inputs: [],
+    inputs: Array.from({ length: MERGE_INPUT_COUNT }, () => dummyTransferInput()),
     output: createOutput(
       createProofOutput({
         asset: address("11111111111111111111111111111111"),
@@ -417,7 +424,7 @@ async function sentBody(
   const raw: string[] = [];
   const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
     raw.push(String(init?.body));
-    return new Response(JSON.stringify(STANDARD_PROOF), {
+    return new Response(JSON.stringify(proofFor(JSON.parse(String(init?.body)))), {
       headers: { "content-type": "application/json" },
     });
   }) as typeof globalThis.fetch;
@@ -460,7 +467,7 @@ describe("queued prover polling", () => {
       asyncPoll: { pollIntervalCapMs: 1_000, maxWaitMs: 2_000 },
     });
 
-    const settled = prover.prove(INPUTS);
+    const settled = prover.prove(transferInputs());
     let rejected = false;
     const assertion = settled.catch((error: unknown) => {
       rejected = true;
@@ -528,7 +535,7 @@ describe("prover request routing", () => {
       bodies.push(JSON.parse(String(init?.body)));
       deliveries.push(new Headers(init?.headers).get("X-Sync"));
       redirects.push(init?.redirect);
-      return new Response(JSON.stringify(STANDARD_PROOF), {
+      return new Response(JSON.stringify(proofFor(bodies.at(-1))), {
         headers: { "content-type": "application/json" },
       });
     }) as typeof globalThis.fetch;
@@ -553,7 +560,7 @@ describe("prover request routing", () => {
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       raw.push(String(init?.body));
       deliveries.push(new Headers(init?.headers).get("X-Sync"));
-      return new Response(JSON.stringify(STANDARD_PROOF), {
+      return new Response(JSON.stringify(proofFor(JSON.parse(String(init?.body)))), {
         headers: { "content-type": "application/json" },
       });
     }) as typeof globalThis.fetch;
@@ -684,7 +691,7 @@ describe("prover request routing", () => {
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       raw.push(String(init?.body));
       deliveries.push(new Headers(init?.headers).get("X-Sync"));
-      return new Response(JSON.stringify(STANDARD_PROOF), {
+      return new Response(JSON.stringify(proofFor(JSON.parse(String(init?.body)))), {
         headers: { "content-type": "application/json" },
       });
     }) as typeof globalThis.fetch;
@@ -720,9 +727,7 @@ describe("prover request routing", () => {
   });
 
   it("pins the merge request keys to the Go `MergeParametersJSON` tags", async () => {
-    const body = await sentBody((prover) =>
-      prover.proveMerge({ ...mergeInputs(), inputs: [dummyTransferInput()] }),
-    );
+    const body = await sentBody((prover) => prover.proveMerge(mergeInputs()));
     const [input] = body["inputs"] as unknown[];
 
     expect(keysOf(body)).toEqual(
@@ -848,13 +853,13 @@ describe("prover request routing", () => {
           headers: { "content-type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ status: "completed", result: STANDARD_PROOF }), {
+      return new Response(JSON.stringify({ status: "completed", result: TRANSFER_PROOF }), {
         headers: { "content-type": "application/json" },
       });
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({ url: "https://prover.example", fetch });
 
-    await prover.prove(INPUTS);
+    await prover.prove(transferInputs());
 
     expect(deliveries).toEqual(["true", null]);
     expect(refusal.bodyUsed).toBe(true);
@@ -870,7 +875,7 @@ describe("prover request routing", () => {
     ) as typeof globalThis.fetch;
     const prover = new ProverClient({ url: "https://prover.example", fetch });
 
-    await expect(prover.prove(INPUTS)).rejects.toMatchObject({
+    await expect(prover.prove(transferInputs())).rejects.toMatchObject({
       code: "CLIENT_PROVER_HTTP",
       details: {
         method: "prove",
@@ -885,7 +890,7 @@ describe("prover request routing", () => {
       async () => new Response("<html>502</html>", { status: 502 }),
     ) as typeof globalThis.fetch;
     await expect(
-      new ProverClient({ url: "https://prover.example", fetch: html }).prove(INPUTS),
+      new ProverClient({ url: "https://prover.example", fetch: html }).prove(transferInputs()),
     ).rejects.toMatchObject({
       code: "CLIENT_PROVER_HTTP",
       details: { method: "prove", status: 502 },
@@ -924,7 +929,7 @@ describe("prover request routing", () => {
             status: 202,
             headers: { "content-type": "application/json" },
           })
-        : new Response(JSON.stringify({ status: "completed", result: STANDARD_PROOF }), {
+        : new Response(JSON.stringify({ status: "completed", result: TRANSFER_PROOF }), {
             headers: { "content-type": "application/json" },
           });
     }) as typeof globalThis.fetch;
@@ -933,12 +938,235 @@ describe("prover request routing", () => {
       fetch,
     });
 
-    await prover.prove(INPUTS);
+    await prover.prove(transferInputs());
 
     expect(urls.map((url) => url.pathname)).toEqual(["/zolana/prove", "/zolana/prove/status"]);
     expect(urls[1]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
     expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
+  });
+});
+
+describe("proving key check", () => {
+  const json = { "content-type": "application/json" };
+  const expected = TRANSFER_PROOF["provingKeySha256"] as string;
+
+  /** Prove `transferInputs()` against a prover answering with `proof`, in the response or queued. */
+  async function proveAgainst(proof: unknown, queued: boolean): Promise<unknown> {
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+      if (queued && init?.method === "POST") {
+        return new Response(JSON.stringify({ jobId: "job-key" }), { status: 202, headers: json });
+      }
+      const body = queued ? { status: "completed", result: proof } : proof;
+      return new Response(JSON.stringify(body), { headers: json });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    try {
+      return await prover.prove(transferInputs());
+    } catch (error) {
+      return error;
+    }
+  }
+
+  it("accepts a proof from the key the verifying key pins", async () => {
+    for (const queued of [false, true]) {
+      const proof = await proveAgainst(TRANSFER_PROOF, queued);
+      expect(proof).not.toBeInstanceOf(Error);
+      expect(proof).toHaveProperty("a");
+    }
+  });
+
+  it("rejects a proof from another proving key on both rails", async () => {
+    const foreign = "ab".repeat(32);
+    for (const queued of [false, true]) {
+      const error = await proveAgainst({ ...TRANSFER_PROOF, provingKeySha256: foreign }, queued);
+      expect(error).toBeInstanceOf(ClientError);
+      expect(error).toMatchObject({
+        code: "CLIENT_PROVING_KEY_MISMATCH",
+        details: {
+          keyName: "transfer_confidential_1_1.key",
+          expectedSha256: expected,
+          reportedSha256: foreign,
+        },
+      });
+    }
+  });
+
+  it("fails closed when the prover does not report its key", async () => {
+    const { provingKeySha256: _omitted, ...unreported } = TRANSFER_PROOF;
+    for (const queued of [false, true]) {
+      const error = await proveAgainst(unreported, queued);
+      expect(error).toMatchObject({
+        code: "CLIENT_PROVING_KEY_MISSING",
+        details: { keyName: "transfer_confidential_1_1.key" },
+      });
+    }
+  });
+
+  it("rejects a malformed digest without echoing it", async () => {
+    for (const reported of [
+      "AB".repeat(32),
+      "ab".repeat(31),
+      "ab".repeat(33),
+      `0x${"ab".repeat(31)}`,
+      "<script>",
+      7,
+      null,
+    ]) {
+      const error = await proveAgainst({ ...TRANSFER_PROOF, provingKeySha256: reported }, false);
+      expect(error).toMatchObject({
+        code: "CLIENT_PROOF_PARSE",
+        details: { path: "$.proof.provingKeySha256" },
+      });
+      expect(JSON.stringify((error as ClientError).details)).not.toContain(String(reported));
+    }
+  });
+
+  it("refuses a shape without a committed verifying key before any request", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    await expect(prover.prove(INPUTS)).rejects.toMatchObject({ code: "CLIENT_PROVER_INPUT" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("prover proving keys check", () => {
+  const json = { "content-type": "application/json" };
+
+  /** What a prover built from this commit reports before it loads anything. */
+  function matchingReport(): { prefix: string; keys: Record<string, unknown>[] } {
+    return {
+      prefix: "proving-keys/test",
+      keys: Object.entries(PROVING_KEY_SHA256S).map(([name, sha256]) => ({
+        name,
+        expectedSha256: sha256,
+        loadedSha256: null,
+        available: true,
+      })),
+    };
+  }
+
+  function entry(report: ReturnType<typeof matchingReport>, name: string): Record<string, unknown> {
+    const found = report.keys.find((key) => key["name"] === name);
+    if (found === undefined) throw new Error(`${name} is not listed`);
+    return found;
+  }
+
+  async function check(body: unknown, init: ResponseInit = {}): Promise<unknown> {
+    const urls: URL[] = [];
+    const fetch = vi.fn(async (input: URL | string) => {
+      urls.push(new URL(String(input)));
+      return new Response(JSON.stringify(body), { headers: json, ...init });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({
+      url: "https://gateway.example/zolana?api-key=k%2B1",
+      fetch,
+    });
+    try {
+      return await prover.checkProvingKeys();
+    } catch (error) {
+      return error;
+    } finally {
+      expect(urls.map((url) => `${url.pathname}?${url.searchParams.toString()}`)).toEqual([
+        "/zolana/proving-keys?api-key=k%2B1",
+      ]);
+    }
+  }
+
+  it("reports every known key of a prover on the same key set", async () => {
+    const report = matchingReport();
+    const loaded = entry(report, "transfer_ring_2_2.key");
+    loaded["loadedSha256"] = loaded["expectedSha256"];
+
+    expect(await check(report)).toEqual({
+      prefix: "proving-keys/test",
+      keys: Object.keys(PROVING_KEY_SHA256S).map((name) => ({
+        name,
+        served: true,
+        available: true,
+        loaded: name === "transfer_ring_2_2.key",
+      })),
+    });
+  });
+
+  it("names every key whose expected or loaded digest differs", async () => {
+    const report = matchingReport();
+    entry(report, "merge_8_1.key")["expectedSha256"] = "ab".repeat(32);
+    entry(report, "custom_ring_base.key")["loadedSha256"] = "cd".repeat(32);
+
+    expect(await check(report)).toMatchObject({
+      code: "CLIENT_PROVER_PROVING_KEYS_MISMATCH",
+      details: { keyNames: "custom_ring_base.key,merge_8_1.key" },
+    });
+  });
+
+  it("reports a key the prover lacks or cannot load without failing", async () => {
+    const report = matchingReport();
+    report.keys = report.keys.filter((key) => key["name"] !== "merge_36_1.key");
+    entry(report, "transfer_ring_36_2.key")["available"] = false;
+
+    const result = (await check(report)) as {
+      keys: { name: string; served: boolean; available: boolean }[];
+    };
+    expect(
+      result.keys.filter((key) => ["merge_36_1.key", "transfer_ring_36_2.key"].includes(key.name)),
+    ).toEqual([
+      { name: "merge_36_1.key", served: false, available: false, loaded: false },
+      { name: "transfer_ring_36_2.key", served: true, available: false, loaded: false },
+    ]);
+  });
+
+  it("rejects a malformed report instead of skipping keys", async () => {
+    const malformed: unknown[] = [
+      [],
+      { keys: [] },
+      { prefix: "p", keys: {} },
+      { prefix: "p", keys: [{ name: "merge_8_1.key", loadedSha256: null, available: true }] },
+      {
+        prefix: "p",
+        keys: [
+          {
+            name: "merge_8_1.key",
+            expectedSha256: "AB".repeat(32),
+            loadedSha256: null,
+            available: true,
+          },
+        ],
+      },
+      {
+        prefix: "p",
+        keys: [{ name: "merge_8_1.key", expectedSha256: null, loadedSha256: 7, available: true }],
+      },
+      {
+        prefix: "p",
+        keys: [
+          { name: "merge_8_1.key", expectedSha256: null, loadedSha256: null, available: "yes" },
+        ],
+      },
+    ];
+    for (const body of malformed) {
+      expect(await check(body)).toMatchObject({ code: "CLIENT_PROVER_JSON" });
+    }
+  });
+
+  it("fails on a prover without the endpoint", async () => {
+    expect(await check({}, { status: 404 })).toMatchObject({
+      code: "CLIENT_PROVER_HTTP",
+      details: { method: "provingKeys", status: 404 },
+    });
+  });
+
+  it("honours cancellation", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+      init?.signal?.throwIfAborted();
+      return new Response(JSON.stringify(matchingReport()), { headers: json });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    await expect(prover.checkProvingKeys({ signal: controller.signal })).rejects.toBeInstanceOf(
+      ClientError,
+    );
   });
 });
 

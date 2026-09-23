@@ -111,11 +111,17 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or("rust-vk path has no UTF-8 file name")?;
+    // Every key this CLI sets up backs an example program nobody vouches for,
+    // so its verifying key is an insecure test setup: the generated file only
+    // compiles with the program's `insecure-test-setup` feature and pins the
+    // sha256 of the `pk.bin` written next to `vk.bin`.
     groth16_solana::vk::gnark::generate_bsb22_vk_file(
         &vk_bin,
         out_dir,
         out_filename,
         "VERIFYINGKEY",
+        groth16_solana::vk::setup::SetupKind::InsecureTest,
+        groth16_solana::vk::setup::ProvingKeySource::File(&build_dir.join("pk.bin")),
     )
     .map_err(|e| format!("failed to emit Rust verifying key source: {e:?}"))?;
     if insecure_test_keys {

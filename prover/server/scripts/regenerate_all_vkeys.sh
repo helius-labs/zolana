@@ -33,8 +33,8 @@ for key in $keys; do
     fi
 
     if "$xtask" bsb22-vk \
-        "$vk_bin" "$vkey_dir" "${module}.rs"; then
-        modules="${modules}${module}"$'\n'
+        "$vk_bin" "$key" "$vkey_dir" "${module}.rs"; then
+        modules="${modules}${module} ${stem}"$'\n'
     else
         echo "WARN: vk codegen failed, skipping $stem"
     fi
@@ -48,12 +48,23 @@ done
     echo "mod circuit;"
     echo "pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData};"
     echo
-    echo "$modules" | sort -u | while read -r module; do
+    echo "$modules" | sort -u | while read -r module _stem; do
         if [ -n "$module" ]; then
             echo '#[cfg(feature = "verifying-keys")]'
             echo "pub mod $module;"
         fi
     done
+    echo
+    echo "/// Proving key file name, as in proving-keys.lock and the prover's"
+    echo '/// `/proving-keys`, and the sha256 its committed verifying key pins.'
+    echo '#[cfg(feature = "verifying-keys")]'
+    echo 'pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &['
+    echo "$modules" | sort -u | while read -r module stem; do
+        if [ -n "$module" ]; then
+            echo "    (\"${stem}.key\", ${module}::VERIFYINGKEY_PROVING_KEY_SHA256),"
+        fi
+    done
+    echo '];'
 } >"$vkey_dir/mod.rs"
 
 rustfmt "$vkey_dir"/*.rs

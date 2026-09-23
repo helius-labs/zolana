@@ -33,6 +33,7 @@ import {
 } from "../src/ring/deposit-audit.js";
 import { depositClient, ringAuditReader, transactionsPage } from "./helpers/clients.js";
 import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
+import { proofFor } from "./helpers/proofs.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const TREE = treeAddress(0);
@@ -349,14 +350,7 @@ describe("deposit disclosure", () => {
       const fetch = vi.fn<typeof globalThis.fetch>(async (_url, options) => {
         expect(new Headers(options?.headers).get("X-Sync")).toBeNull();
         expect(JSON.parse(String(options?.body))).toEqual(customRingDepositProofRequest(input));
-        return Response.json({
-          ar: ["0x0", "0x0"],
-          bs: [
-            ["0x0", "0x0"],
-            ["0x0", "0x0"],
-          ],
-          krs: ["0x0", "0x0"],
-        });
+        return Response.json(proofFor(String(options?.body)));
       });
       const prover = new ProverClient({ url: "https://prover.example", fetch });
       await prover.proveCustomRingDeposit(input);

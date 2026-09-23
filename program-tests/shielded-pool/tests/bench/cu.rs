@@ -26,7 +26,7 @@ use zolana_interface::{
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
+use zolana_transaction::{instructions::transact::PrivateTxHash, Mint, SOL_MINT};
 
 use shielded_pool_tests::support::{
     fixtures::Pool,
@@ -48,8 +48,8 @@ use zolana_test_utils::{
         external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree,
         output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, public_sol_field,
         real_output, set_output_owner_tags, single_tree_slots, sol_leg, sol_public_slots,
-        test_private_tx_blinding, transfer_output, TransferInputArgs, TransferProverInputsArgs,
-        TEST_BLINDING_SEED,
+        test_private_tx_blinding, transfer_input, transfer_output, TransferInputArgs,
+        TransferProverInputsArgs, TEST_BLINDING_SEED,
     },
 };
 
@@ -543,7 +543,7 @@ fn bench_transfer_shape(
     let nullifier_key = NullifierKey::from_secret([21u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner = PublicKey::from_ed25519(&payer_bytes);
-    let real = real_output(owner, nullifier_pk, SOL_MINT, 0, [23u8; 31]);
+    let real = real_output(owner, nullifier_pk, Mint::SOL, 0, [23u8; 31]);
     let mut outputs = vec![transfer_output(&real, tree_id).expect("real transfer output")];
     for index in 1..n_outputs {
         let (output, _) = dummy_transfer_output(&[index as u8; 31], tree_id).expect("dummy output");
@@ -750,7 +750,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
         .indexed_deposit_utxo(&event, owner)
         .expect("indexed deposit UTXO");
     let blinding = utxo.blinding;
-    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, AMOUNT));
+    assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, AMOUNT));
     let utxo_hash = utxo
         .hash(&nullifier_pk, &zero, &zero, tree_id)
         .expect("utxo hash");

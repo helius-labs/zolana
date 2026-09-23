@@ -609,6 +609,8 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		circuits: servedCircuits(),
 	})
 
+	proverMux.Handle("/proving-keys", provingKeysHandler{keyManager: keyManager})
+
 	if redisQueue != nil {
 		proverMux.Handle("/prove/status", proofStatusHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/stats", queueStatsHandler{redisQueue: redisQueue})
@@ -837,6 +839,37 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 
 type healthHandler struct {
 	circuits []common.CircuitType
+}
+
+// provingKeysHandler serves GET /proving-keys: per key, the sha256 the
+// lockfile pins, the sha256 of the loaded bytes, and whether it is available,
+// so clients can check the prover against their verifying keys at startup.
+type provingKeysHandler struct {
+	keyManager *common.LazyKeyManager
+}
+
+func (handler provingKeysHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	report, err := handler.keyManager.ProvingKeysReport()
+	if err != nil {
+		logging.Logger().Error().Err(err).Msg("error building proving key report")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	responseBytes, err := json.Marshal(report)
+	if err != nil {
+		logging.Logger().Error().Err(err).Msg("error marshaling proving key report")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(responseBytes); err != nil {
+		logging.Logger().Error().Err(err).Msg("error writing response")
+	}
 }
 
 func servedCircuits() []common.CircuitType {

@@ -257,7 +257,7 @@ ring-rpc-derived:
 ensure-custom-ring-live-keys: && check-custom-ring-keys
     #!/usr/bin/env bash
     set -euo pipefail
-    keys_dir="prover/server/proving-keys"
+    keys_dir="{{spp-keys-dir}}"
     mkdir -p "$keys_dir"
     temp_dir="$(mktemp -d)"
     trap 'rm -rf "$temp_dir"' EXIT
@@ -298,12 +298,12 @@ check-custom-ring-keys: build-prover-server
     for key in {{custom-ring-keys}}; do
         module="${key#custom_ring_}"
         module="${module%.key}_verifying_key.rs"
-        if [[ ! -f "prover/server/proving-keys/$key" ]]; then
-            echo "prover/server/proving-keys/$key is missing, run just ensure-custom-ring-live-keys" >&2
+        if [[ ! -f "{{spp-keys-dir}}/$key" ]]; then
+            echo "{{spp-keys-dir}}/$key is missing, run just ensure-custom-ring-live-keys" >&2
             exit 1
         fi
-        target/prover-server export-vk --keys-file "prover/server/proving-keys/$key" --output "$export_dir/$key.vkbin" >/dev/null
-        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "$export_dir" "$module" >/dev/null
+        target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
+        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
         rustfmt --config-path rustfmt.toml "$export_dir/$module"
         diff -u "custom-rings/interface/src/$module" "$export_dir/$module"
     done
@@ -1419,6 +1419,7 @@ build-spp-keys:
         prover/server/light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
         cargo run -q -p xtask -- bsb22-vk \
             "$tmp_dir/${stem}.vkbin" \
+            "$keys_dir/${stem}.key" \
             "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done

@@ -26,6 +26,7 @@ import {
   outputBlindingSeed,
   transactOutputBlinding,
 } from "../src/transaction/index.js";
+import { proofFor } from "./helpers/proofs.js";
 
 const OWNER_TAG = fill(8);
 
@@ -289,15 +290,8 @@ describe("input tree grouping", () => {
 describe("a client proving from two trees", () => {
   it("asks each input tree once for its real and padding leaves and proves every slot", async () => {
     const fixture = twoTreeFixture();
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      Response.json({
-        ar: ["0x0", "0x0"],
-        bs: [
-          ["0x0", "0x0"],
-          ["0x0", "0x0"],
-        ],
-        krs: ["0x0", "0x0"],
-      }),
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) =>
+      Response.json(proofFor(String(init?.body))),
     );
     const client = new ZolanaClient({
       solanaRpcUrl: "http://127.0.0.1:8899",
