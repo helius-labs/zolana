@@ -3,6 +3,7 @@ import type { Address, RequestContext } from "../interface/types.js";
 import type { TreeId } from "../transaction/utxo.js";
 import { RingError } from "./error.js";
 import { currentRingSpendRecord, type LiveSpendRecord, type Member } from "./policy.js";
+import { SPEND_RECORD_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
 
 export interface ReadCurrentSpendRecordInput {
   readonly client: RingSpendRecordReader;
@@ -18,8 +19,13 @@ export async function findCurrentSpendRecord(
   input: ReadCurrentSpendRecordInput,
   context?: RequestContext,
 ): Promise<LiveSpendRecord | undefined> {
-  const { record } = await input.client.getRingSpendRecord(
-    { ringProgramId: input.ringProgramId, member: input.sender },
+  const { record } = await waitForRingProjection(
+    (attempt) =>
+      input.client.getRingSpendRecord(
+        { ringProgramId: input.ringProgramId, member: input.sender },
+        attempt,
+      ),
+    SPEND_RECORD_PROJECTION_ERRORS,
     context,
   );
   if (record === null) return undefined;

@@ -13,6 +13,10 @@ export const KEY_REGISTRY_PROJECTION_ERRORS: ReadonlySet<ClientErrorCode> = new 
   "CLIENT_KEY_REGISTRY_ROOT_CHANGED",
 ]);
 
+export const SPEND_RECORD_PROJECTION_ERRORS: ReadonlySet<ClientErrorCode> = new Set([
+  "CLIENT_SPEND_RECORD_OUT_OF_SYNC",
+]);
+
 // Match the Rust CLI's bounded wait: projection lag must not make a valid ring
 // transaction fail, and a bad indexer must not hold a caller forever.
 const PROJECTION_TIMEOUT_MS = 120_000;

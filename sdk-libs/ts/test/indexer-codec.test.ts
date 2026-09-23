@@ -157,6 +157,7 @@ describe("key registry wire", () => {
       [-32075, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
       [-32076, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
       [-32077, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
+      [-32078, "CLIENT_SPEND_RECORD_OUT_OF_SYNC"],
     ] as const) {
       const indexer = indexerFor({ error: { code: rpcCode, message: "private diagnostics" } });
       await expect(indexer.getRingKeyRegistryEntry(request)).rejects.toMatchObject({ code });
