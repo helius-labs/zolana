@@ -70,6 +70,8 @@ instructions, and circuits.
 ## Key Artifacts
 
 - `build/gnark/<circuit>/{pk,vk}.bin`: generated proving/verifying keys,
-  pinned by checksum.
+  pinned by checksum. They are insecure deterministic test keys, UNSAFE for
+  production: `just ensure-swap-keys` generates them locally, and
+  `just regen-swap-keys` rewrites the committed verifying keys and checksums.
 - `program/src/verifying_keys/`: committed Rust vk constants; must match the
   generated keys.

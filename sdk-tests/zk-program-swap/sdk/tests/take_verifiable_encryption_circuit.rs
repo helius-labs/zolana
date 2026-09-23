@@ -40,7 +40,7 @@ fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
         PROVER
-            .setup(CircuitId::TakeVerifiableEncryption, &dir)
+            .setup_insecure_test_keys(CircuitId::TakeVerifiableEncryption, &dir)
             .expect("setup failed");
     }
 }
@@ -242,12 +242,6 @@ fn verify_with_generated_vk(
     verifier.verify().is_ok()
 }
 
-fn keys_in_sync(vk: &Groth16VerifyingkeyOwned) -> bool {
-    let borrowed = vk.as_borrowed();
-    borrowed.vk_ic.len() == VERIFYINGKEY.vk_ic.len()
-        && borrowed.vk_alpha_g1 == VERIFYINGKEY.vk_alpha_g1
-}
-
 #[test]
 fn program_vk_has_bsb22_commitment() {
     assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
@@ -289,36 +283,30 @@ fn take_prove_verify_and_round_trip() {
         "program-side ctHash must match the sdk's destination ciphertext hash"
     );
 
-    if keys_in_sync(&vk) {
-        let public_input_hash = TakeVerifiableEncryptionPublicInput {
-            private_tx_hash: &inputs.private_tx_hash,
-            expiry: inputs.order.expiry,
-            destination_ciphertext: &ciphertext,
-        }
-        .hash()
-        .expect("program take public input hash");
-        let proof: TakeVerifiableEncryptionProof = proof
-            .try_into()
-            .expect("tve proof carries a BSB22 commitment");
-        verify_groth16(
-            CompressedGroth16Proof {
-                a: &proof.proof_a,
-                b: &proof.proof_b,
-                c: &proof.proof_c,
-                commitment: Some((&proof.commitment, &proof.commitment_pok)),
-            },
-            public_input_hash,
-            &VERIFYINGKEY,
-        )
-        .expect("program take verify must accept a valid proof");
-    } else {
-        eprintln!(
-            "SKIP: committed take_verifiable_encryption VERIFYINGKEY does not match the locally \
-             generated build/gnark/take_verifiable_encryption/vk.bin (keys are gitignored and \
-             groth16 setup is randomized), so the on-chain verify_groth16 path was not exercised. \
-             Download the pinned keys matching swap-keys.CHECKSUM to run it."
-        );
+    let public_input_hash = TakeVerifiableEncryptionPublicInput {
+        private_tx_hash: &inputs.private_tx_hash,
+        expiry: inputs.order.expiry,
+        destination_ciphertext: &ciphertext,
     }
+    .hash()
+    .expect("program take public input hash");
+    let proof: TakeVerifiableEncryptionProof = proof
+        .try_into()
+        .expect("tve proof carries a BSB22 commitment");
+    verify_groth16(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: Some((&proof.commitment, &proof.commitment_pok)),
+        },
+        public_input_hash,
+        &VERIFYINGKEY,
+    )
+    .expect(
+        "the committed take_verifiable_encryption VERIFYINGKEY must accept the proof; \
+         run `just ensure-swap-keys`",
+    );
 
     let (asset, amount, recovered_blinding) =
         decrypt_destination(&blinding(7), &ciphertext).expect("decrypt destination ciphertext");

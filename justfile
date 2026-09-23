@@ -654,6 +654,75 @@ bench-shielded-pool: build-programs
         solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo test -p shielded-pool-tests --features proofs --test bench_cu -- --ignored --nocapture
 
+# The example programs (swap, timelock escrow, dynamic swap) verify against
+# INSECURE TEST KEYS -- UNSAFE FOR PRODUCTION. They come from the setup CLI's
+# `--insecure-test-keys`, whose Groth16 randomness is a fixed public seed, so
+# anyone can forge proofs against them. That seed makes them deterministic: the
+# same circuit and gnark version always yield the same keys, so they are
+# generated locally instead of published, and each example's checksum manifest
+# pins them to its committed Rust verifying keys.
+
+# Generate an example's keys into build/gnark unless they already match its
+# checksum manifest. Keys that still differ after a fresh setup mean the
+# circuit or gnark changed without the matching regen recipe.
+_ensure-example-keys base package manifest regen circuits:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for c in {{circuits}}; do
+        dir="{{base}}/build/gnark/$c"
+        pinned() {
+            for kind in pk vk; do
+                [ -f "$dir/$kind.bin" ] || return 1
+                want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "{{base}}/{{manifest}}")
+                got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+                [ "$want" = "$got" ] || return 1
+            done
+        }
+        pinned && continue
+        cargo run -q -p {{package}} --bin {{package}}-setup -- "$c" "$dir" --insecure-test-keys
+        if ! pinned; then
+            echo "$dir does not match {{base}}/{{manifest}} after an insecure test setup:" >&2
+            echo "the circuit or gnark changed; run 'just {{regen}}' and commit its output" >&2
+            exit 1
+        fi
+    done
+
+# Regenerate an example's insecure test keys, its committed Rust verifying keys
+# (each headed by the UNSAFE FOR PRODUCTION warning) and its checksum manifest.
+# Commit the verifying keys and the manifest together.
+_regen-example-keys base package manifest circuits:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for c in {{circuits}}; do
+        cargo run -q -p {{package}} --bin {{package}}-setup -- \
+            "$c" "{{base}}/build/gnark/$c" --insecure-test-keys \
+            --rust-vk "{{base}}/program/src/verifying_keys/$c.rs"
+    done
+    : > "{{base}}/{{manifest}}"
+    for c in {{circuits}}; do
+        for kind in pk vk; do
+            shasum -a 256 "{{base}}/build/gnark/$c/$kind.bin" \
+                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "{{base}}/{{manifest}}"
+        done
+    done
+
+ensure-swap-keys: (_ensure-example-keys "sdk-tests/zk-program-swap" "swap-prover" "swap-keys.CHECKSUM" "regen-swap-keys" "make take cancel take_verifiable_encryption")
+
+regen-swap-keys: (_regen-example-keys "sdk-tests/zk-program-swap" "swap-prover" "swap-keys.CHECKSUM" "make take cancel take_verifiable_encryption")
+
+ensure-escrow-keys: (_ensure-example-keys "sdk-tests/timelock-escrow" "timelock-escrow-prover" "timelock-escrow-keys.CHECKSUM" "regen-escrow-keys" "escrow withdraw")
+
+regen-escrow-keys: (_regen-example-keys "sdk-tests/timelock-escrow" "timelock-escrow-prover" "timelock-escrow-keys.CHECKSUM" "escrow withdraw")
+
+ensure-dynamic-swap-keys: (_ensure-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "regen-dynamic-swap-keys" "escrow_open escrow_settle")
+
+regen-dynamic-swap-keys: (_regen-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "escrow_open escrow_settle")
+
+# Rotate both ring proving keys with their verifying keys and lock entries,
+# then repin vk_fingerprint.rs and run release-custom-rings.
+regen-custom-ring-keys:
+    prover/server/scripts/generate_keys_custom_ring.sh prover/server/proving-keys
+
 # Profile the confidential swap create/fill/cancel instructions and record proving
 # times. The bench builds the shielded-pool tree account directly and replays one
 # swap instruction under mollusk. Only the swap program is built with profiling; the
@@ -661,112 +730,6 @@ bench-shielded-pool: build-programs
 # uninstrumented black box and its functions do not pollute the swap CU table.
 # SOL-only, so no SPL Token clone is needed. Regenerates
 # sdk-tests/zk-program-swap/BENCHMARK.md.
-# Fetch the pinned swap proving keys from the swap-keys release and verify them
-# against the committed manifest. groth16.Setup is non-deterministic, so the
-# published keys are the only set matching the committed Rust verifying keys;
-# regenerating locally (regen-swap-keys) requires publishing a new release and
-# updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v9"
-
-# Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
-# (escrow_open/escrow_settle). The release assets are
-# the only key set matching the committed Rust verifying keys; rotating locally
-# (regen-dynamic-swap-keys) requires publishing a new release and updating
-# dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v10"
-
-ensure-swap-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/zk-program-swap"
-    for c in make take cancel take_verifiable_encryption; do
-        dir="$base/build/gnark/$c"
-        for kind in pk vk; do
-            if [ ! -f "$dir/$kind.bin" ]; then
-                mkdir -p "$dir"
-                gh release download "{{swap-keys-tag}}" --repo helius-labs/zolana \
-                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
-            fi
-            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/swap-keys.CHECKSUM")
-            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
-            if [ "$want" != "$got" ]; then
-                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "refresh from the {{swap-keys-tag}} release (delete the file and rerun)," >&2
-                echo "or rotate keys with 'just regen-swap-keys' and publish a new release" >&2
-                exit 1
-            fi
-        done
-    done
-
-# Rotate the swap proving keys: regenerate every circuit, rewriting the committed
-# Rust verifying keys and the checksum manifest. Publish the new build/gnark
-# key files to a fresh swap-keys release and bump swap-keys-tag afterwards.
-regen-swap-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/zk-program-swap"
-    for c in make take cancel take_verifiable_encryption; do
-        cargo run --release -p swap-prover --bin swap-prover-setup -- \
-            "$c" "$base/build/gnark/$c" \
-            --rust-vk "$base/program/src/verifying_keys/$c.rs"
-    done
-    : > "$base/swap-keys.CHECKSUM"
-    for c in make take cancel take_verifiable_encryption; do
-        for kind in pk vk; do
-            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
-                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/swap-keys.CHECKSUM"
-        done
-    done
-
-# Rotate both ring proving keys with their verifying keys and lock entries,
-# then repin vk_fingerprint.rs and run release-custom-rings.
-regen-custom-ring-keys:
-    prover/server/scripts/generate_keys_custom_ring.sh prover/server/proving-keys
-
-ensure-dynamic-swap-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/dynamic-swap"
-    for c in escrow_open escrow_settle; do
-        dir="$base/build/gnark/$c"
-        for kind in pk vk; do
-            if [ ! -f "$dir/$kind.bin" ]; then
-                mkdir -p "$dir"
-                gh release download "{{dynamic-swap-keys-tag}}" --repo helius-labs/zolana \
-                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
-            fi
-            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/dynamic-swap-keys.CHECKSUM")
-            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
-            if [ "$want" != "$got" ]; then
-                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "refresh from the {{dynamic-swap-keys-tag}} release (delete the file and rerun)," >&2
-                echo "or rotate keys with 'just regen-dynamic-swap-keys' and publish a new release" >&2
-                exit 1
-            fi
-        done
-    done
-
-# Rotate the dynamic-swap proving keys: regenerate every circuit, rewriting the
-# committed Rust verifying keys and the checksum manifest. Publish the new
-# build/gnark key files to a fresh dynamic-swap-keys release and bump
-# dynamic-swap-keys-tag afterwards.
-regen-dynamic-swap-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/dynamic-swap"
-    for c in escrow_open escrow_settle; do
-        cargo run --release -p dynamic-swap-prover --bin dynamic-swap-prover-setup -- \
-            "$c" "$base/build/gnark/$c" \
-            --rust-vk "$base/program/src/verifying_keys/$c.rs"
-    done
-    : > "$base/dynamic-swap-keys.CHECKSUM"
-    for c in escrow_open escrow_settle; do
-        for kind in pk vk; do
-            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
-                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/dynamic-swap-keys.CHECKSUM"
-        done
-    done
-
 # The profiling swap build calls a profiler syscall that solana-test-validator
 # does not register, so it must never land in target/deploy (validator/CI load
 # the plain program from there). Build the bench programs into a dedicated dir,
@@ -795,58 +758,6 @@ bench-rfq:
         -- --features bpf-entrypoint,profile-program
     cargo test -p rfq-test --test bench_cu -- --ignored --nocapture
 
-# Fetch the pinned escrow/withdraw proving keys from the escrow-keys release
-# and verify them against the committed manifest. groth16.Setup is
-# non-deterministic, so the published keys are the only set matching the
-# committed Rust verifying keys; regenerating locally (regen-escrow-keys)
-# requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
-# plus the committed verifying keys together.
-escrow-keys-tag := "escrow-keys-v6"
-
-ensure-escrow-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/timelock-escrow"
-    for c in escrow withdraw; do
-        dir="$base/build/gnark/$c"
-        for kind in pk vk; do
-            if [ ! -f "$dir/$kind.bin" ]; then
-                mkdir -p "$dir"
-                gh release download "{{escrow-keys-tag}}" --repo helius-labs/zolana \
-                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
-            fi
-            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/timelock-escrow-keys.CHECKSUM")
-            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
-            if [ "$want" != "$got" ]; then
-                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "refresh from the {{escrow-keys-tag}} release (delete the file and rerun)," >&2
-                echo "or rotate keys with 'just regen-escrow-keys' and publish a new release" >&2
-                exit 1
-            fi
-        done
-    done
-
-# Rotate the escrow/withdraw proving keys: regenerate both circuits, rewriting
-# the committed Rust verifying keys and the checksum manifest. Publish the new
-# build/gnark key files to a fresh escrow-keys release and bump
-# escrow-keys-tag afterwards.
-regen-escrow-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/timelock-escrow"
-    for c in escrow withdraw; do
-        cargo run --release -p timelock-escrow-prover --bin timelock-escrow-prover-setup -- \
-            "$c" "$base/build/gnark/$c" \
-            --rust-vk "$base/program/src/verifying_keys/$c.rs"
-    done
-    : > "$base/timelock-escrow-keys.CHECKSUM"
-    for c in escrow withdraw; do
-        for kind in pk vk; do
-            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
-                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/timelock-escrow-keys.CHECKSUM"
-        done
-    done
-
 # The profiling escrow build calls a profiler syscall that solana-test-validator
 # does not register, so it must never land in target/deploy (validator/CI load
 # the plain program from there). Build the bench programs into a dedicated dir,
@@ -866,11 +777,8 @@ bench-escrow: ensure-escrow-keys
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in
 # target/deploy either -- build the bench programs into their own dedicated
-# dir, matching PROFILING_SBF_DIR in dynamic-swap's bench_cu.rs. dynamic-swap's
-# own gnark keys (build/gnark/{escrow_open,escrow_settle}) are
-# generated locally and gitignored; there is no release download step for them
-# yet, so this assumes they already exist.
-bench-dynamic-swap:
+# dir, matching PROFILING_SBF_DIR in dynamic-swap's bench_cu.rs.
+bench-dynamic-swap: ensure-dynamic-swap-keys
     cargo build-sbf --tools-version {{sbf-tools-version}} \
         --sbf-out-dir target/dynamic-swap-bench \
         --manifest-path programs/shielded-pool/Cargo.toml \
@@ -1448,7 +1356,9 @@ build-prover-server:
 
 # CI prebuild for the localnet matrix, with ZOLANA_PREBUILT and
 # ZOLANA_NEXTEST_ARCHIVE_DIR set the suite recipes run from it without building.
-build-localnet-archives dir="target/nextest-archives": build-programs build-cli build-prover-server
+# The example keys are generated here too, so the matrix jobs find them pinned
+# and never build a setup binary.
+build-localnet-archives dir="target/nextest-archives": build-programs build-cli build-prover-server ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p {{dir}}

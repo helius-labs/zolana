@@ -8,6 +8,15 @@ use std::{path::PathBuf, process::ExitCode};
 
 use crate::{Circuit, Prover};
 
+/// Heads a Rust verifying key emitted from `--insecure-test-keys`, so the
+/// warning travels with every copy of the key.
+const INSECURE_TEST_KEY_HEADER: &str = "\
+// INSECURE TEST KEY -- UNSAFE FOR PRODUCTION.
+// Generated with `--insecure-test-keys`: the Groth16 setup randomness comes
+// from a fixed public seed, so anyone can forge proofs this key accepts. Use
+// it only in tests and never deploy a program that verifies against it.
+";
+
 struct Command<C> {
     circuit: C,
     build_dir: PathBuf,
@@ -109,6 +118,12 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
         "VERIFYINGKEY",
     )
     .map_err(|e| format!("failed to emit Rust verifying key source: {e:?}"))?;
+    if insecure_test_keys {
+        let source = std::fs::read_to_string(&rust_vk)
+            .map_err(|e| format!("failed to read {}: {e}", rust_vk.display()))?;
+        std::fs::write(&rust_vk, format!("{INSECURE_TEST_KEY_HEADER}{source}"))
+            .map_err(|e| format!("failed to write {}: {e}", rust_vk.display()))?;
+    }
     let formatted = std::process::Command::new("rustfmt")
         .arg("--edition")
         .arg("2021")

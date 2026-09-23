@@ -28,7 +28,9 @@ fn build_dir() -> std::path::PathBuf {
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        PROVER.setup(CircuitId::Make, &dir).expect("setup failed");
+        PROVER
+            .setup_insecure_test_keys(CircuitId::Make, &dir)
+            .expect("setup failed");
     }
 }
 
@@ -144,12 +146,6 @@ fn verify_with_generated_vk(
     verifier.verify().is_ok()
 }
 
-fn keys_in_sync(vk: &Groth16VerifyingkeyOwned) -> bool {
-    let borrowed = vk.as_borrowed();
-    borrowed.vk_ic.len() == VERIFYINGKEY.vk_ic.len()
-        && borrowed.vk_alpha_g1 == VERIFYINGKEY.vk_alpha_g1
-}
-
 #[test]
 fn program_vk_has_no_commitment() {
     assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
@@ -186,27 +182,18 @@ fn make_prove_verify() {
         "groth16 proof must verify against the make verifying key with private_tx_hash as the sole public input"
     );
 
-    if keys_in_sync(&vk) {
-        let proof: MakeProof = proof.into();
-        verify_groth16(
-            CompressedGroth16Proof {
-                a: &proof.proof_a,
-                b: &proof.proof_b,
-                c: &proof.proof_c,
-                commitment: None,
-            },
-            inputs.private_tx_hash,
-            &VERIFYINGKEY,
-        )
-        .expect("program verify_groth16 must accept a valid proof");
-    } else {
-        eprintln!(
-            "SKIP: committed make VERIFYINGKEY does not match the locally generated \
-             build/gnark/make/vk.bin (keys are gitignored and groth16 setup is randomized), \
-             so the on-chain verify_groth16 path was not exercised. Download the pinned keys \
-             matching swap-keys.CHECKSUM to run it."
-        );
-    }
+    let proof: MakeProof = proof.into();
+    verify_groth16(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        inputs.private_tx_hash,
+        &VERIFYINGKEY,
+    )
+    .expect("the committed make VERIFYINGKEY must accept the proof; run `just ensure-swap-keys`");
 }
 
 #[test]

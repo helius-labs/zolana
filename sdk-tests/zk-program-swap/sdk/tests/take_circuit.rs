@@ -30,7 +30,9 @@ fn build_dir() -> std::path::PathBuf {
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        PROVER.setup(CircuitId::Take, &dir).expect("setup failed");
+        PROVER
+            .setup_insecure_test_keys(CircuitId::Take, &dir)
+            .expect("setup failed");
     }
 }
 

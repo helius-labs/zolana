@@ -28,7 +28,7 @@ fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
         PROVER
-            .setup(CircuitId::Withdraw, &dir)
+            .setup_insecure_test_keys(CircuitId::Withdraw, &dir)
             .expect("setup failed");
     }
 }
@@ -144,12 +144,6 @@ fn verify_with_generated_vk(
     verifier.verify().is_ok()
 }
 
-fn keys_in_sync(vk: &Groth16VerifyingkeyOwned) -> bool {
-    let borrowed = vk.as_borrowed();
-    borrowed.vk_ic.len() == VERIFYINGKEY.vk_ic.len()
-        && borrowed.vk_alpha_g1 == VERIFYINGKEY.vk_alpha_g1
-}
-
 #[test]
 fn program_vk_has_no_commitment() {
     assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
@@ -186,34 +180,27 @@ fn withdraw_prove_verify() {
         "groth16 proof must verify against the withdraw verifying key"
     );
 
-    if keys_in_sync(&vk) {
-        let public_input_hash = WithdrawPublicInput {
-            private_tx_hash: &inputs.private_tx_hash,
-            unlock: inputs.terms.unlock,
-            owner_pk_field: &inputs.owner_pk_field,
-        }
-        .hash()
-        .expect("program withdraw public input hash");
-        let proof: WithdrawProof = proof.into();
-        verify_groth16(
-            CompressedGroth16Proof {
-                a: &proof.proof_a,
-                b: &proof.proof_b,
-                c: &proof.proof_c,
-                commitment: None,
-            },
-            public_input_hash,
-            &VERIFYINGKEY,
-        )
-        .expect("program withdraw verify must accept a valid proof");
-    } else {
-        eprintln!(
-            "SKIP: committed withdraw VERIFYINGKEY does not match the locally generated \
-             build/gnark/withdraw/vk.bin (keys are gitignored and groth16 setup is randomized), \
-             so the on-chain verify_groth16 path was not exercised. Regenerate the keys with \
-             timelock-escrow-prover-setup to run it."
-        );
+    let public_input_hash = WithdrawPublicInput {
+        private_tx_hash: &inputs.private_tx_hash,
+        unlock: inputs.terms.unlock,
+        owner_pk_field: &inputs.owner_pk_field,
     }
+    .hash()
+    .expect("program withdraw public input hash");
+    let proof: WithdrawProof = proof.into();
+    verify_groth16(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        public_input_hash,
+        &VERIFYINGKEY,
+    )
+    .expect(
+        "the committed withdraw VERIFYINGKEY must accept the proof; run `just ensure-escrow-keys`",
+    );
 }
 
 #[test]
