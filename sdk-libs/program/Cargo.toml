@@ -10,10 +10,9 @@ repository.workspace = true
 name = "zolana_program"
 
 [features]
-# Builders for the instructions only the protocol can send: protocol-authority
-# and fee-authority administration, ring activation, and the forester's
-# nullifier tree maintenance. Off by default so programs and wallets never
-# compile them.
+# Builders for protocol operations: protocol-authority and fee-authority
+# administration, tree creation, ring activation, and the forester's nullifier
+# tree maintenance. Off by default so programs and wallets never compile them.
 protocol = []
 
 [dependencies]
