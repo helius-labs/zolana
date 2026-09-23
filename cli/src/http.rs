@@ -34,6 +34,23 @@ pub(crate) fn wait_for_http_get_with_child(
     })
 }
 
+/// Wait until Photon has indexed at least one slot. Its `/readiness` only checks
+/// the database connection, and until the first block is indexed every query
+/// fails with "No data has been indexed".
+pub(crate) fn wait_for_photon_indexing_with_child(
+    port: u16,
+    timeout: Duration,
+    child: &mut Child,
+    label: &str,
+) -> Result<()> {
+    wait_until_with_child(timeout, child, label, || {
+        rpc_request(port, "getIndexerSlot")
+            .ok()
+            .and_then(|value| value.get("result").and_then(Value::as_u64))
+            .is_some()
+    })
+}
+
 /// Wait until nothing accepts connections on `port`, so a service started next
 /// can bind it.
 pub(crate) fn wait_for_port_closed(port: u16, timeout: Duration) -> Result<()> {

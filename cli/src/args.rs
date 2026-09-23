@@ -267,6 +267,13 @@ pub(crate) struct TestValidatorOptions {
 
     #[arg(
         long,
+        help = "Surfpool slot time; surfpool defaults to 400ms",
+        value_name = "MILLISECONDS"
+    )]
+    pub(crate) slot_time: Option<u64>,
+
+    #[arg(
+        long,
         default_value_t = DEFAULT_PROVER_PORT,
         help = "Prover server port"
     )]

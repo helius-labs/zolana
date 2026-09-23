@@ -5,7 +5,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use crate::{
     args::TestValidatorOptions,
     config::{READINESS_TIMEOUT, TERMINATION_GRACE_PERIOD},
-    http::{wait_for_http_get_with_child, wait_for_port_closed, wait_for_rpc_with_child},
+    http::{wait_for_photon_indexing_with_child, wait_for_port_closed, wait_for_rpc_with_child},
     process::{
         find_binary, path_string, remove_launchd_validators, spawn_service, stop_name, stop_port,
     },
@@ -123,6 +123,10 @@ pub(crate) fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> 
         "--host".to_string(),
         opts.gossip_host.clone(),
     ];
+    if let Some(slot_time) = opts.slot_time {
+        args.push("--slot-time".to_string());
+        args.push(slot_time.to_string());
+    }
 
     // `--ledger` and `--limit-ledger-size` are dropped rather than refused.
     // surfpool keeps its state in memory, so a caller asking for a ledger
@@ -165,6 +169,9 @@ fn surfpool_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
 }
 
 pub(crate) fn solana_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
+    if opts.slot_time.is_some() {
+        bail!("--slot-time is only supported with surfpool");
+    }
     let mut args = Vec::new();
     if !opts.skip_reset {
         args.push("--reset".to_string());
@@ -263,9 +270,8 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
     for attempt in 1..=START_ATTEMPTS {
         println!("Starting Photon: {} {}", photon.display(), args.join(" "));
         let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
-        let readiness = wait_for_http_get_with_child(
+        let readiness = wait_for_photon_indexing_with_child(
             opts.photon_port,
-            "/readiness",
             READINESS_TIMEOUT,
             &mut child,
             "photon",
@@ -468,5 +474,33 @@ mod tests {
         let opts = parse_validator(&["--faucet-port", "9900"]);
         let error = surfpool_args(&opts).expect_err("surfpool should reject --faucet-port");
         assert!(error.to_string().contains("--faucet-port"));
+    }
+
+    #[test]
+    fn forwards_the_slot_time_to_surfpool() {
+        let opts = parse_validator(&["--rpc-port", "8899", "--slot-time", "50"]);
+        let actual = surfpool_args(&opts).expect("build surfpool args");
+        let expected = strings(&[
+            "start",
+            "--offline",
+            "--no-tui",
+            "--no-deploy",
+            "--no-studio",
+            "--port",
+            "8899",
+            "--host",
+            "127.0.0.1",
+            "--slot-time",
+            "50",
+        ]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn rejects_the_slot_time_with_solana_test_validator() {
+        let opts = parse_validator(&["--no-use-surfpool", "--slot-time", "50"]);
+        let error = solana_validator_args(&opts)
+            .expect_err("solana-test-validator should reject --slot-time");
+        assert!(error.to_string().contains("--slot-time"));
     }
 }
