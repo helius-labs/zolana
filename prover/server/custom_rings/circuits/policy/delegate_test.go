@@ -23,6 +23,7 @@ func TestDelegatePolicyKeepsRulesButExemptsVelocity(t *testing.T) {
 		change func(*fixture, *statement, *[]int)
 		fails  bool
 	}{
+		{"key escrow off", 0, func(_ *fixture, s *statement, _ *[]int) { s.keyEscrow, s.keyRegistryRoot = false, nil }, true},
 		{"over per-transfer cap and threshold", 0, nil, false},
 		{"over windowed cap without record", 100, nil, false},
 		{"allow fact still required", 100, func(_ *fixture, _ *statement, facts *[]int) { *facts = []int{senderNotFrozen} }, true},
@@ -44,6 +45,7 @@ func TestDelegatePolicyKeepsRulesButExemptsVelocity(t *testing.T) {
 			s.windowSlots = tc.window
 			s.velocity = []velocityRow{{asset: assetField(t, f.transferred), cap: 1, cosign: 1}}
 			facts := f.listFacts
+			s.escrowOutputs(t)
 			if tc.change != nil {
 				tc.change(&f, s, &facts)
 			}

@@ -316,3 +316,21 @@ func TestMergeCircuitRejectsDuplicateRealInput(t *testing.T) {
 		t.Fatal("expected nullifier-distinctness failure, got solved")
 	}
 }
+
+// A merge cannot move notes to a fresh nullifier key, the ring key escrow relies on it.
+func TestMergeOutputKeepsTheInputNullifierKey(t *testing.T) {
+	fresh, err := protocol.NullifierPk(big.NewInt(23))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		nullifierPk *big.Int
+		passes      bool
+	}{{buildMergeFixture(t, mergeFixtureOptions{}).userNullifierPk, true}, {fresh, false}} {
+		a := buildDefaultWitness(t, mergeFixtureOptions{outputNullifierPk: tc.nullifierPk})
+		err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField())
+		if (err == nil) != tc.passes {
+			t.Fatalf("passes=%v, solve=%v", tc.passes, err)
+		}
+	}
+}

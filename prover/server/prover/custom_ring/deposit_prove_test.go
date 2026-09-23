@@ -16,6 +16,7 @@ import (
 	ve "zolana/prover/circuits/verifiable-encryption"
 	"zolana/prover/custom_rings/circuits/base"
 	"zolana/prover/custom_rings/circuits/deposit"
+	"zolana/prover/custom_rings/circuits/registry"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
@@ -41,10 +42,13 @@ func depositFixture(t *testing.T, count uint32) (depositVector, []*big.Int) {
 		t.Fatal(err)
 	}
 	copy(p.AuditorPk[:], auditor.PublicKey().Bytes())
-	for i := range p.OwnerHashes {
-		p.OwnerHashes[i], p.Blindings[i] = big.NewInt(0), big.NewInt(0)
+	p.KeyEscrow = KeyEscrow{Root: big.NewInt(0)}
+	for i := range p.OwnerPkHashes {
+		p.OwnerPkHashes[i], p.NullifierPks[i], p.Blindings[i] = big.NewInt(0), big.NewInt(0), big.NewInt(0)
 		if i < int(count) {
-			p.OwnerHashes[i], p.Blindings[i] = big.NewInt(int64(11+i)), big.NewInt(int64(91+i))
+			p.OwnerPkHashes[i] = big.NewInt(int64(11 + i))
+			p.NullifierPks[i] = spptest.MustNullifierPk(t, big.NewInt(int64(51+i)))
+			p.Blindings[i] = big.NewInt(int64(91 + i))
 		}
 	}
 	// Values near the field modulus must retain their full encoding.
@@ -53,6 +57,19 @@ func depositFixture(t *testing.T, count uint32) (depositVector, []*big.Int) {
 }
 
 func encryptDepositVector(t *testing.T, p *DepositParameters) (depositVector, []*big.Int) {
+	t.Helper()
+	owners := make([]*big.Int, deposit.MaxDeposits)
+	for i := range owners {
+		owners[i] = big.NewInt(0)
+		if i < int(p.Count) {
+			owners[i] = spptest.MustOwnerHash(t, p.OwnerPkHashes[i], p.NullifierPks[i])
+		}
+	}
+	return sealDeposits(t, p, owners)
+}
+
+// Seals the owner hashes as given, the shared vector pins raw values.
+func sealDeposits(t *testing.T, p *DepositParameters, owners []*big.Int) (depositVector, []*big.Int) {
 	t.Helper()
 	auditor, err := ecdh.P256().NewPublicKey(p.AuditorPk[:])
 	if err != nil {
@@ -88,17 +105,17 @@ func encryptDepositVector(t *testing.T, p *DepositParameters) (depositVector, []
 	copy(iv, nonce[20:])
 	iv[15] = 2
 	plaintext := make([]byte, deposit.MaxDeposits*deposit.OpeningBytes)
-	for i := range p.OwnerHashes {
-		p.OwnerHashes[i].FillBytes(plaintext[i*64 : i*64+32])
+	for i := range owners {
+		owners[i].FillBytes(plaintext[i*64 : i*64+32])
 		p.Blindings[i].FillBytes(plaintext[i*64+32 : (i+1)*64])
 	}
 	ciphertext := make([]byte, len(plaintext))
 	cipher.NewCTR(block, iv).XORKeyStream(ciphertext, plaintext)
 	vector := depositVector{Params: p, AuditorPk: hex.EncodeToString(auditorPk), EphPk: hex.EncodeToString(ephemeralPk)}
 	chain := []*big.Int{new(big.Int).SetUint64(uint64(deposit.Domain)), p.ContextHash, new(big.Int).SetUint64(uint64(p.Count))}
-	for i := range p.OwnerHashes {
+	for i := range owners {
 		if i < int(p.Count) {
-			owner := spptest.MustPoseidon(t, 3, []*big.Int{p.OwnerHashes[i], p.Blindings[i]})
+			owner := spptest.MustPoseidon(t, 3, []*big.Int{owners[i], p.Blindings[i]})
 			ct := ciphertext[i*64 : (i+1)*64]
 			hash, err := protocol.HashBytes(ct)
 			if err != nil {
@@ -111,7 +128,11 @@ func encryptDepositVector(t *testing.T, p *DepositParameters) (depositVector, []
 			chain = append(chain, big.NewInt(0), big.NewInt(0))
 		}
 	}
-	chain = append(chain, auditorLo, auditorHi, ephLo, ephHi)
+	keyEscrow := big.NewInt(0)
+	if p.KeyEscrow.Enabled {
+		keyEscrow.SetInt64(1)
+	}
+	chain = append(chain, auditorLo, auditorHi, ephLo, ephHi, keyEscrow, p.KeyEscrow.Root)
 	p.PublicInputHash = spptest.MustHashChain(t, chain)
 	return vector, chain
 }
@@ -131,13 +152,15 @@ func TestDepositMatchesSharedHostVector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := range p.OwnerHashes {
-		p.OwnerHashes[i], p.Blindings[i] = big.NewInt(0), big.NewInt(0)
+	p.KeyEscrow = KeyEscrow{Root: big.NewInt(0)}
+	owners := make([]*big.Int, deposit.MaxDeposits)
+	for i := range owners {
+		owners[i], p.Blindings[i] = big.NewInt(0), big.NewInt(0)
 		if i < 2 {
-			p.OwnerHashes[i], p.Blindings[i] = big.NewInt(int64(i+1)), big.NewInt(int64(i+3))
+			owners[i], p.Blindings[i] = big.NewInt(int64(i+1)), big.NewInt(int64(i+3))
 		}
 	}
-	vector, _ := encryptDepositVector(t, p)
+	vector, _ := sealDeposits(t, p, owners)
 	want := []string{
 		"146b393f9c81cad9bc22887e500644f69ea8293e2253f55869e88127e5483e9b12a46abadf0068bd73c83584a8e47a550e88a35558642ba87646ff0765c5e3b5",
 		"74e42b590ba76cfee5c6d8e3e05e03a460e0c02c7330fd977dc4eb71e34645616f616fb39595f1ecadfdd87feffd48fb4177741341dd2d507c474094e252f89c",
@@ -147,8 +170,8 @@ func TestDepositMatchesSharedHostVector(t *testing.T) {
 			t.Fatalf("ciphertext %d differs from the Rust/TypeScript vector", i)
 		}
 	}
-	if common.ToHex(p.PublicInputHash) != "0x04e0d6b0aceea6193897ffaf36076003b2d2257615b18a67c85a83a61218fa01" {
-		t.Fatal("public hash differs from the Rust/TypeScript vector")
+	if common.ToHex(p.PublicInputHash) != "0x0bc3f76e72b6d6bd1a557447da49e445dafb11e6d9168005742013130b45e030" {
+		t.Fatalf("public hash %s differs from the Rust/TypeScript vector", common.ToHex(p.PublicInputHash))
 	}
 }
 
@@ -177,13 +200,15 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 		vector, _ := depositFixture(t, count)
 		check(vector.Params, true)
 	}
-	for _, name := range []string{"owner", "blinding", "context", "count", "padding", "auditor", "ephemeral", "ciphertext", "order"} {
+	for _, name := range []string{"owner", "nullifier key", "blinding", "context", "count", "padding", "auditor", "ephemeral", "ciphertext", "order", "key escrow"} {
 		t.Run(name, func(t *testing.T) {
 			vector, chain := depositFixture(t, 2)
 			p := vector.Params
 			switch name {
 			case "owner":
-				p.OwnerHashes[0] = big.NewInt(99)
+				p.OwnerPkHashes[0] = big.NewInt(99)
+			case "nullifier key":
+				p.NullifierPks[0] = big.NewInt(99)
 			case "blinding":
 				p.Blindings[0] = big.NewInt(99)
 			case "context":
@@ -191,7 +216,7 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 			case "count":
 				p.Count = 1
 			case "padding":
-				p.OwnerHashes[7] = big.NewInt(99)
+				p.NullifierPks[7] = big.NewInt(99)
 			case "auditor":
 				sk := testScalar(0x44)
 				key, err := ecdh.P256().NewPrivateKey(sk[:])
@@ -208,6 +233,9 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 				chain[3], chain[5] = chain[5], chain[3]
 				chain[4], chain[6] = chain[6], chain[4]
 				p.PublicInputHash = spptest.MustHashChain(t, chain)
+			case "key escrow":
+				chain[len(chain)-2] = big.NewInt(1)
+				p.PublicInputHash = spptest.MustHashChain(t, chain)
 			}
 			check(p, false)
 		})
@@ -216,7 +244,7 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 
 func TestDepositParametersRejectAliasesAndMalformedShapes(t *testing.T) {
 	vector, _ := depositFixture(t, 2)
-	for _, name := range []string{"count", "short", "long", "alias", "padding", "zero_ephemeral", "off_curve"} {
+	for _, name := range []string{"count", "short", "long", "alias", "padding", "zero_ephemeral", "off_curve", "short_keys", "padding_key", "unescrowed", "zero_key_unescrowed", "root_without_escrow"} {
 		t.Run(name, func(t *testing.T) {
 			encoded, err := json.Marshal(vector.Params)
 			if err != nil {
@@ -230,13 +258,24 @@ func TestDepositParametersRejectAliasesAndMalformedShapes(t *testing.T) {
 			case "count":
 				raw.Count = 9
 			case "short":
-				raw.OwnerHashes = raw.OwnerHashes[:7]
+				raw.NullifierPks = raw.NullifierPks[:7]
 			case "long":
 				raw.Blindings = append(raw.Blindings, "0x0")
 			case "alias":
-				raw.OwnerHashes[0] = common.ToHex(ecc.BN254.ScalarField())
+				raw.OwnerPkHashes[0] = common.ToHex(ecc.BN254.ScalarField())
 			case "padding":
-				raw.OwnerHashes[7] = common.ToHex(big.NewInt(1))
+				raw.OwnerPkHashes[7] = common.ToHex(big.NewInt(1))
+			case "short_keys":
+				raw.Keys = raw.Keys[:7]
+			case "padding_key":
+				raw.Keys[7] = writeRegistryKey(&RegistryKey{Next: big.NewInt(1), CtHash: big.NewInt(1), Path: zeroedKeyPath()})
+			case "unescrowed":
+				raw.KeyEscrow = true
+			case "zero_key_unescrowed":
+				raw.KeyEscrow = true
+				raw.NullifierPks[0] = common.ToHex(registry.ZeroNullifierPk)
+			case "root_without_escrow":
+				raw.KeyRegistryRoot = raw.ContextHash
 			case "zero_ephemeral":
 				raw.EphSk = "0x" + hex.EncodeToString(make([]byte, 32))
 			case "off_curve":

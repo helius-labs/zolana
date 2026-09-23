@@ -13,7 +13,9 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
+	"zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/custom_rings/circuits/base/audittest"
+	"zolana/prover/custom_rings/circuits/registry"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 )
@@ -237,7 +239,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "stale state root",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.StateRoot = new(big.Int).Add(spptest.AsBigInt(c.StateRoot), big.NewInt(1))
+				c.TreeSlots[0].UtxoRoot = new(big.Int).Add(spptest.AsBigInt(c.TreeSlots[0].UtxoRoot), big.NewInt(1))
 				return c
 			},
 		},
@@ -481,8 +483,8 @@ func TestPrintPolicyVectors(t *testing.T) {
 		fmt.Printf("%s.utxo_hash %s\n", name, hex32(d.utxoHash))
 		fmt.Printf("%s.nullifier %s\n", name, hex32(d.nullifier))
 	}
-	fmt.Printf("state_root           %s\n", hex32(s.stateRoot))
-	fmt.Printf("nullifier_root       %s\n", hex32(s.nullifierRoot))
+	fmt.Printf("state_root           %s\n", hex32(s.trees[0].stateRoot))
+	fmt.Printf("nullifier_root       %s\n", hex32(s.trees[0].nullifierRoot))
 	fmt.Printf("private_tx_hash      %s\n", hex32(s.privateTxHash))
 	fmt.Printf("public_input_hash    %s\n", hex32(s.publicInputHash))
 
@@ -546,12 +548,14 @@ func TestNonzeroRevocationTailVector(t *testing.T) {
 		}
 		return new(big.Int).SetBytes(data)
 	}
+	// Fact 1 reads slot 2, fact 0 slot 0.
 	elements := []*big.Int{
-		baseHash, filled(0x2a), filled(6), filled(7), big.NewInt(9), filled(8), filled(10),
-		big.NewInt(3), big.NewInt(1), big.NewInt(0x42), repeatedTarget,
+		baseHash, filled(0x2a), filled(6), big.NewInt(9), filled(8), filled(10),
+		big.NewInt(3), big.NewInt(1), big.NewInt(1), filled(0x0b), big.NewInt(2 << shared.TreeIndexBits),
+		big.NewInt(0x42), repeatedTarget,
 	}
 	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), NListFacts-2)...)
-	if got := hex32(spptest.MustHashChain(t, elements)); got != "15f667068a6366740e0cf6565708977d75a885347a08ccd47c6bd204d8096456" {
+	if got := hex32(spptest.MustHashChain(t, elements)); got != "0fea02bf7a8cfb1a2b99d9d69f90008e278e9d6fb56e94a253fafba9880fe31e" {
 		t.Fatalf("nonzero revocation tail %s", got)
 	}
 }
@@ -722,6 +726,8 @@ func emptySources() [NSources]source {
 
 // entry is one host-side policy entry, mirroring ring_policy::ListEntry.
 type entry struct {
+	// Index of the policy tree holding the entry, slot 0 is the address tree.
+	slot     int
 	listId   int64
 	member   *big.Int
 	state    int64
@@ -801,11 +807,14 @@ type statement struct {
 	// Spent nullifiers beside the entry addresses, tamper fixtures only.
 	twinAddresses []*big.Int
 
-	stateRoot     *big.Int
-	nullifierRoot *big.Int
-	stateLeaf     map[int]uint64
-	stateProofs   map[uint64]protocol.StateTreeWitness
-	nonInclusion  []protocol.NonInclusionWitness
+	trees        []hostTree
+	stateLeaf    map[int]uint64
+	nonInclusion []protocol.NonInclusionWitness
+
+	keyEscrow       bool
+	keyRegistryRoot *big.Int
+	// Aligned with outputs, nil opens nothing.
+	outputKeys []*registry.KeyOpening
 
 	inputs  []UtxoWires
 	outputs []UtxoWires
@@ -1056,12 +1065,12 @@ func (s *statement) hostOutflow(asset *big.Int) uint64 {
 	return inflow - change
 }
 
-// Spend records use the namespace owner with zero SOL in the entries tree.
+// Spend records use the namespace owner with zero SOL in the address tree.
 func (s *statement) recordOpening(t *testing.T, dataHash *big.Int, blinding int64) UtxoWires {
 	t.Helper()
 	return UtxoWires{
 		Domain:        big.NewInt(protocol.UtxoDomain),
-		TreeID:        big.NewInt(entriesTreeID),
+		TreeID:        big.NewInt(addressTreeID),
 		OwnerPkHash:   pkField(t, fill(0x11)),
 		NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(0)),
 		Asset:         solAssetField,
@@ -1073,16 +1082,32 @@ func (s *statement) recordOpening(t *testing.T, dataHash *big.Int, blinding int6
 	}
 }
 
+// hostTree is one policy tree, its id is addressTreeID plus its slot.
+type hostTree struct {
+	stateRoot     *big.Int
+	nullifierRoot *big.Int
+	stateProofs   map[uint64]protocol.StateTreeWitness
+}
+
 // buildTrees seeds the SPP roots the entry proofs open against, the created
-// entries as state tree leaves and their addresses as spent nullifiers.
+// entries as leaves of their own tree and their addresses as spent nullifiers
+// of the address tree.
 func (s *statement) buildTrees(t *testing.T) {
 	t.Helper()
-	leaves := map[uint64]*big.Int{}
-	tree := spptest.MustNewNullifierTree(t)
+	count := 1
+	for _, r := range s.entries {
+		count = max(count, r.slot+1)
+	}
+	leaves := make([]map[uint64]*big.Int, count)
+	nullifiers := make([]*protocol.NullifierTree, count)
+	for k := range leaves {
+		leaves[k] = map[uint64]*big.Int{}
+		nullifiers[k] = spptest.MustNewNullifierTree(t)
+	}
 	s.stateLeaf = map[int]uint64{}
 	s.nonInclusion = nil
 	for _, twin := range s.twinAddresses {
-		if err := tree.Insert(twin); err != nil {
+		if err := nullifiers[0].Insert(twin); err != nil {
 			t.Fatalf("insert twin address: %v", err)
 		}
 	}
@@ -1090,22 +1115,38 @@ func (s *statement) buildTrees(t *testing.T) {
 		if r.state == 0 {
 			continue
 		}
-		s.stateLeaf[i] = uint64(len(leaves))
-		leaves[s.stateLeaf[i]] = s.derived[i].utxoHash
-		if err := tree.Insert(s.derived[i].address); err != nil {
+		s.stateLeaf[i] = uint64(len(leaves[r.slot]))
+		leaves[r.slot][s.stateLeaf[i]] = s.derived[i].utxoHash
+		if err := nullifiers[0].Insert(s.derived[i].address); err != nil {
 			t.Fatalf("insert entry address: %v", err)
 		}
 	}
-	s.stateRoot, s.stateProofs = spptest.MustBuildSparseStateTree(t, leaves)
-	s.nullifierRoot = tree.Root()
+	s.trees = make([]hostTree, count)
+	for k := range s.trees {
+		root, proofs := spptest.MustBuildSparseStateTree(t, leaves[k])
+		s.trees[k] = hostTree{stateRoot: root, nullifierRoot: nullifiers[k].Root(), stateProofs: proofs}
+	}
 	// A created entry is unspent, a never created one has no address.
 	for i, r := range s.entries {
 		target := s.derived[i].nullifier
 		if r.state == 0 {
 			target = s.derived[i].address
 		}
-		s.nonInclusion = append(s.nonInclusion, spptest.MustNonInclusion(t, tree, target))
+		s.nonInclusion = append(s.nonInclusion, spptest.MustNonInclusion(t, nullifiers[r.slot], target))
 	}
+}
+
+func (s *statement) treeSlots(t *testing.T) []protocol.TreeSlot {
+	t.Helper()
+	populated := make([]protocol.TreeSlot, len(s.trees))
+	for k, tree := range s.trees {
+		populated[k] = protocol.TreeSlot{ID: big.NewInt(addressTreeID + int64(k)), UtxoRoot: tree.stateRoot, NullifierRoot: tree.nullifierRoot}
+	}
+	slots, err := protocol.PadTreeSlots(populated...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slots
 }
 
 func (s *statement) buildTransaction(
@@ -1184,13 +1225,13 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 		AddressChain:       s.addressChain,
 		ExternalDataHash:   s.externalDataHash,
 		PrivateTxBlinding:  s.privateTxBlinding,
-		StateRoot:          s.stateRoot,
-		NullifierRoot:      s.nullifierRoot,
-		EntriesTreeID:      big.NewInt(entriesTreeID),
+		AddressTreeID:      big.NewInt(addressTreeID),
 		RingID:             s.ringID,
 		NamespaceOwnerHash: s.ownOwnerHash,
 		WindowIndex:        new(big.Int).SetUint64(s.windowIndex),
 		ApprovalRequired:   boolVar(s.approval),
+		KeyEscrow:          boolVar(s.keyEscrow),
+		KeyRegistryRoot:    s.registryRoot(),
 		WindowSlots:        new(big.Int).SetUint64(s.windowSlots),
 		Record:             s.recordWires(),
 	}
@@ -1220,12 +1261,19 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	}
 	c.InputCountSelected[len(s.inputs)-1] = big.NewInt(1)
 
+	for k, slot := range s.treeSlots(t) {
+		c.TreeSlots[k] = shared.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
+	}
 	for i := range c.Outputs {
 		c.Outputs[i] = zeroOpening()
 		c.OutputCountSelected[i] = big.NewInt(0)
+		c.OutputKeys[i] = zeroKeyOpening()
 	}
 	for i, opening := range s.outputs {
 		c.Outputs[i] = opening
+		if i < len(s.outputKeys) && s.outputKeys[i] != nil {
+			c.OutputKeys[i] = *s.outputKeys[i]
+		}
 	}
 	c.OutputCountSelected[len(s.outputs)-1] = big.NewInt(1)
 
@@ -1261,7 +1309,7 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	for e, index := range listFacts {
 		c.ListFacts[e] = s.listFactForEntry(t, index)
 	}
-	s.publicInputHash = s.publicInputHashForTargets(t, s.revocationTargets(listFacts))
+	s.publicInputHash = s.publicInputHashFor(t, listFacts)
 	c.PublicInputHash = s.publicInputHash
 	return c
 }
@@ -1278,6 +1326,7 @@ func (s *statement) listFactForEntry(t *testing.T, index int) ListFactWires {
 	}
 	fact := ListFactWires{
 		Enabled:               big.NewInt(1),
+		TreeSlot:              big.NewInt(int64(entry.slot)),
 		Mode:                  big.NewInt(mode),
 		ListId:                big.NewInt(entry.listId),
 		Member:                entry.member,
@@ -1307,7 +1356,7 @@ func (s *statement) listFactForEntry(t *testing.T, index int) ListFactWires {
 	if entry.state == 0 {
 		return fact
 	}
-	proof, ok := s.stateProofs[s.stateLeaf[index]]
+	proof, ok := s.trees[entry.slot].stateProofs[s.stateLeaf[index]]
 	if !ok {
 		t.Fatalf("missing state proof for entry %d", index)
 	}
@@ -1357,8 +1406,8 @@ func boolVar(value bool) *big.Int {
 	return big.NewInt(0)
 }
 
-// entriesTreeID is the raw id of the fixture's entries tree.
-const entriesTreeID = 7
+// addressTreeID is the raw id of the fixture's address tree, policy slot 0.
+const addressTreeID = 7
 
 // hostSpendAddress mirrors ring_policy::ListNamespace::spend_address.
 func hostSpendAddress(t *testing.T, ownerHash, sender *big.Int) *big.Int {
@@ -1366,7 +1415,7 @@ func hostSpendAddress(t *testing.T, ownerHash, sender *big.Int) *big.Int {
 	seed := spptest.MustPoseidon(t, 3, []*big.Int{SpendAddressDomain, sender})
 	addressUtxoHash := spptest.MustPoseidon(t, 8, []*big.Int{
 		big.NewInt(protocol.AddressDomain),
-		big.NewInt(entriesTreeID),
+		big.NewInt(addressTreeID),
 		big.NewInt(0),
 		big.NewInt(0),
 		big.NewInt(0),
@@ -1411,7 +1460,7 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 	seed := spptest.MustPoseidon(t, 4, []*big.Int{policyAddressDomain, big.NewInt(r.listId), r.member})
 	addressUtxoHash := spptest.MustPoseidon(t, 8, []*big.Int{
 		big.NewInt(protocol.AddressDomain),
-		big.NewInt(entriesTreeID),
+		big.NewInt(addressTreeID),
 		big.NewInt(0),
 		big.NewInt(0),
 		big.NewInt(0),
@@ -1430,7 +1479,7 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 	})
 	utxoHash := spptest.MustPoseidon(t, 8, []*big.Int{
 		big.NewInt(protocol.UtxoDomain),
-		big.NewInt(entriesTreeID),
+		big.NewInt(addressTreeID + int64(r.slot)),
 		solAssetField,
 		big.NewInt(0),
 		dataHash,
@@ -1535,6 +1584,7 @@ func zeroOpening() UtxoWires {
 func disabledListFact() ListFactWires {
 	fact := ListFactWires{
 		Enabled:               big.NewInt(0),
+		TreeSlot:              big.NewInt(0),
 		Mode:                  big.NewInt(0),
 		ListId:                big.NewInt(0),
 		Member:                big.NewInt(0),
@@ -1555,6 +1605,21 @@ func disabledListFact() ListFactWires {
 		fact.StatePathElements[i] = big.NewInt(0)
 	}
 	return fact
+}
+
+func zeroKeyOpening() registry.KeyOpening {
+	opening := registry.KeyOpening{Next: 0, CtHash: 0, Index: 0}
+	for i := range opening.Path {
+		opening.Path[i] = 0
+	}
+	return opening
+}
+
+func (s *statement) registryRoot() *big.Int {
+	if s.keyRegistryRoot == nil {
+		return big.NewInt(0)
+	}
+	return s.keyRegistryRoot
 }
 
 func fill(b byte) [32]byte {

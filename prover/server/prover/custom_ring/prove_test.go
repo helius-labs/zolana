@@ -93,13 +93,14 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		AddressChain:       big.NewInt(0x77),
 		ExternalDataHash:   big.NewInt(0x5eed),
 		PrivateTxBlinding:  big.NewInt(0x5b1d),
-		StateRoot:          big.NewInt(0x0d),
-		NullifierRoot:      big.NewInt(0x0e),
-		EntriesTreeID:      big.NewInt(0x0f),
+		TreeSlots:          zeroedTreeSlots(),
+		AddressTreeID:      big.NewInt(0x0f),
 		RingID:             big.NewInt(0x5a),
 		NamespaceOwnerHash: big.NewInt(0x99),
+		KeyEscrow:          KeyEscrow{Root: big.NewInt(0)},
 		Record:             zeroedRecord(),
 	}
+	p.TreeSlots[0] = TreeSlot{ID: p.AddressTreeID, UtxoRoot: big.NewInt(0x0d), NullifierRoot: big.NewInt(0x0e)}
 	for i := range p.Sources {
 		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
 	}
@@ -183,8 +184,17 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int)
 	}
 	policyHash := spptest.MustHashChain(t, preimage)
 	elements := audittest.DefaultKeys(t).ChainElementsFor(t, policyAuditWires(t, p), int(p.NOut))
-	elements = append(elements, policyHash, p.StateRoot, p.NullifierRoot, p.EntriesTreeID,
-		p.RingID, p.NamespaceOwnerHash, new(big.Int).SetUint64(p.WindowIndex), big.NewInt(0))
+	slots := make([]protocol.TreeSlot, len(p.TreeSlots))
+	for i, slot := range p.TreeSlots {
+		slots[i] = protocol.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
+	}
+	keyEscrow := big.NewInt(0)
+	if p.KeyEscrow.Enabled {
+		keyEscrow.SetInt64(1)
+	}
+	elements = append(elements, policyHash, spptest.MustTreeSlotsHashChain(t, slots), p.AddressTreeID,
+		p.RingID, p.NamespaceOwnerHash, new(big.Int).SetUint64(p.WindowIndex), big.NewInt(0),
+		keyEscrow, p.KeyEscrow.Root, big.NewInt(0))
 	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), policy.NListFacts)...)
 	p.PublicInputHash = spptest.MustHashChain(t, append(elements, tail...))
 }

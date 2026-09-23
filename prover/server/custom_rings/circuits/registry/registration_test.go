@@ -1,6 +1,7 @@
-package policy
+package registry
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -19,51 +20,51 @@ func proofVars(proof []big.Int) []frontend.Variable {
 	return vars
 }
 
-type headRegistrationCircuit struct {
+type insertionCircuit struct {
 	OldRoot        frontend.Variable `gnark:",public"`
 	RegisteredRoot frontend.Variable `gnark:",public"`
 
-	LowMember, LowNext, LowNullifier, LowIndex frontend.Variable
-	LowProof                                   []frontend.Variable
-	Member, Genesis, NewIndex                  frontend.Variable
-	NewProof                                   []frontend.Variable
+	LowMember, LowNext, LowKey, LowIndex frontend.Variable
+	LowProof                             []frontend.Variable
+	Member, Key, NewIndex                frontend.Variable
+	NewProof                             []frontend.Variable
 }
 
-func (c *headRegistrationCircuit) Define(api frontend.API) error {
-	registered := headRegistration{
-		oldRoot:  c.OldRoot,
-		low:      headLeaf{member: c.LowMember, next: c.LowNext, nullifier: c.LowNullifier},
-		lowIndex: c.LowIndex,
-		lowProof: c.LowProof,
-		member:   c.Member,
-		genesis:  c.Genesis,
-		newIndex: c.NewIndex,
-		newProof: c.NewProof,
-	}.newRoot(api)
+func (c *insertionCircuit) Define(api frontend.API) error {
+	registered := Insertion{
+		OldRoot:  c.OldRoot,
+		Low:      Leaf{Member: c.LowMember, Next: c.LowNext, Key: c.LowKey},
+		LowIndex: c.LowIndex,
+		LowProof: c.LowProof,
+		Member:   c.Member,
+		Key:      c.Key,
+		NewIndex: c.NewIndex,
+		NewProof: c.NewProof,
+	}.NewRoot(api)
 	api.AssertIsEqual(registered, c.RegisteredRoot)
 	return nil
 }
 
-func registrationCircuit() *headRegistrationCircuit {
-	return &headRegistrationCircuit{
-		LowProof: make([]frontend.Variable, HeadMapHeight),
-		NewProof: make([]frontend.Variable, HeadMapHeight),
+func registrationCircuit() *insertionCircuit {
+	return &insertionCircuit{
+		LowProof: make([]frontend.Variable, Height),
+		NewProof: make([]frontend.Variable, Height),
 	}
 }
 
-func registrationAssignment(t *testing.T, member, genesis *big.Int) *headRegistrationCircuit {
+func registrationAssignment(t *testing.T, member, key *big.Int) *insertionCircuit {
 	t.Helper()
-	insertion := spptest.NewHeadMap(t, HeadMapHeight).Register(t, member, genesis)
-	return &headRegistrationCircuit{
+	insertion := spptest.NewHeadMap(t, Height).Register(t, member, key)
+	return &insertionCircuit{
 		OldRoot:        insertion.OldRoot,
 		RegisteredRoot: insertion.NewRoot,
 		LowMember:      insertion.Low.Member,
 		LowNext:        insertion.Low.Next,
-		LowNullifier:   insertion.Low.Nullifier,
+		LowKey:         insertion.Low.Nullifier,
 		LowIndex:       insertion.LowIndex,
 		LowProof:       proofVars(insertion.LowProof),
 		Member:         member,
-		Genesis:        genesis,
+		Key:            key,
 		NewIndex:       insertion.NewIndex,
 		NewProof:       proofVars(insertion.NewProof),
 	}
@@ -72,18 +73,18 @@ func registrationAssignment(t *testing.T, member, genesis *big.Int) *headRegistr
 // custom-rings/interface/src/state.rs HEAD_MAP_EMPTY_ROOT.
 func TestSentinelRootMatchesProgram(t *testing.T) {
 	const programEmptyRoot = "03a753cd12b351201070a629c59b9a162c53a1fd33a138cbd6be814bfcfe980e"
-	if got := hex32(spptest.NewHeadMap(t, HeadMapHeight).Root()); got != programEmptyRoot {
+	if got := fmt.Sprintf("%064x", spptest.NewHeadMap(t, Height).Root()); got != programEmptyRoot {
 		t.Fatalf("sentinel root %s, the program pins %s", got, programEmptyRoot)
 	}
 }
 
-func TestHeadMapRegisters(t *testing.T) {
+func TestInsertionRegisters(t *testing.T) {
 	assignment := registrationAssignment(t, big.NewInt(0x1234), big.NewInt(0x5e))
 	test.NewAssert(t).SolvingSucceeded(registrationCircuit(), assignment, test.WithCurves(ecc.BN254))
 }
 
 // The host roots stay consistent, only the ordering assertion refuses.
-func TestHeadMapRejectsMisorderedRegistration(t *testing.T) {
+func TestInsertionRejectsMisorderedMember(t *testing.T) {
 	cases := []struct {
 		name   string
 		member *big.Int
@@ -99,7 +100,7 @@ func TestHeadMapRejectsMisorderedRegistration(t *testing.T) {
 	}
 }
 
-func TestHeadMapRejectsIndexAliases(t *testing.T) {
+func TestInsertionRejectsIndexAliases(t *testing.T) {
 	for _, name := range []string{"predecessor", "insertion"} {
 		t.Run(name, func(t *testing.T) {
 			assignment := registrationAssignment(t, big.NewInt(0x1234), big.NewInt(0x5e))
@@ -110,7 +111,7 @@ func TestHeadMapRejectsIndexAliases(t *testing.T) {
 			if name == "insertion" {
 				index = &assignment.NewIndex
 			}
-			*index = new(big.Int).Add(new(big.Int).SetUint64((*index).(uint64)), new(big.Int).Lsh(big.NewInt(1), HeadMapHeight))
+			*index = new(big.Int).Add(new(big.Int).SetUint64((*index).(uint64)), new(big.Int).Lsh(big.NewInt(1), Height))
 			if err := test.IsSolved(registrationCircuit(), assignment, ecc.BN254.ScalarField()); err == nil {
 				t.Fatal("index alias above the tree capacity was accepted")
 			}

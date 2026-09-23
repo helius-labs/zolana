@@ -43,6 +43,9 @@ func (p *DelegatePolicyParameters) UnmarshalJSON(data []byte) error {
 	if p.Policy.WindowIndex != 0 || p.Policy.ApprovalRequired {
 		return fmt.Errorf("%s: windowIndex and approvalRequired must be zero", rail)
 	}
+	if !p.Policy.KeyEscrow.Enabled {
+		return fmt.Errorf("%s: keyEscrow must be on", rail)
+	}
 	return nil
 }
 

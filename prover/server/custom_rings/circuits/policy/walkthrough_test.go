@@ -7,6 +7,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
+	"zolana/prover/circuits/spp_transaction/shared"
 	base "zolana/prover/custom_rings/circuits/base"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -108,7 +109,7 @@ func TestDisabledListFactsNeedNotBeZero(t *testing.T) {
 	s := reviewedRecipients(t)
 	c := s.assignment(t, []int{bobNotBlocked, aliceApproved, aliceBlocked})
 	c.ListFacts[2].Enabled = big.NewInt(0)
-	c.PublicInputHash = s.publicInputHashForTargets(t, s.revocationTargets([]int{bobNotBlocked, aliceApproved}))
+	c.PublicInputHash = s.publicInputHashFor(t, []int{bobNotBlocked, aliceApproved})
 	solve(t, testConstraintSystem(t), c)
 }
 
@@ -145,7 +146,7 @@ func (s *statement) updateHashes(t *testing.T) {
 		s.externalDataHash,
 		s.privateTxBlinding,
 	})
-	s.publicInputHash = s.publicInputHashForTargets(t, s.revocationTargets(nil))
+	s.publicInputHash = s.publicInputHashFor(t, nil)
 }
 
 func (s *statement) revocationTargets(listFacts []int) []*big.Int {
@@ -160,15 +161,30 @@ func (s *statement) revocationTargets(listFacts []int) []*big.Int {
 	return targets
 }
 
-func (s *statement) publicInputHashForTargets(t *testing.T, targets []*big.Int) *big.Int {
+// Mirrors the Rust revocation_tree_indexes packing.
+func (s *statement) revocationTreeIndexes(listFacts []int) *big.Int {
+	packed := uint64(0)
+	for slot, index := range listFacts {
+		packed |= uint64(s.entries[index].slot) << (shared.TreeIndexBits * slot)
+	}
+	return new(big.Int).SetUint64(packed)
+}
+
+// Mirrors CustomRingPolicyPublicInput, the compressed rail appends its tail.
+func (s *statement) policyChainElements(t *testing.T, listFacts []int) []*big.Int {
 	t.Helper()
 	elements := s.auditChainElements(t)
 	elements = append(elements,
-		s.policyHash, s.stateRoot, s.nullifierRoot, big.NewInt(entriesTreeID),
+		s.policyHash, spptest.MustTreeSlotsHashChain(t, s.treeSlots(t)), big.NewInt(addressTreeID),
 		s.ringID, s.ownOwnerHash, new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval),
+		boolVar(s.keyEscrow), s.registryRoot(), s.revocationTreeIndexes(listFacts),
 	)
-	elements = append(elements, targets...)
-	return spptest.MustHashChain(t, elements)
+	return append(elements, s.revocationTargets(listFacts)...)
+}
+
+func (s *statement) publicInputHashFor(t *testing.T, listFacts []int) *big.Int {
+	t.Helper()
+	return spptest.MustHashChain(t, s.policyChainElements(t, listFacts))
 }
 
 func (s *statement) auditChainElements(t *testing.T) []*big.Int {

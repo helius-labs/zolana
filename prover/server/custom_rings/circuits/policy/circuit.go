@@ -8,7 +8,9 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 
 	"zolana/prover/circuits/gadget"
+	"zolana/prover/circuits/spp_transaction/shared"
 	base "zolana/prover/custom_rings/circuits/base"
+	"zolana/prover/custom_rings/circuits/registry"
 )
 
 // SourceWires binds a list to its namespace owner through the policy hash.
@@ -59,12 +61,10 @@ type CustomRingPolicyCircuit struct {
 	// Exactly one flag selects count index.
 	VelocityCountSelected [NVelocityAssets + 1]frontend.Variable `gnark:"VelocityCountOneHot"`
 
-	// The program selects roots from the configured entries tree's history.
-	StateRoot frontend.Variable
-	// Any live root, a revocation target PDA check covers queued nullifiers.
-	NullifierRoot frontend.Variable
-	// The raw id of the entries tree, every leaf and address hashes under it.
-	EntriesTreeID frontend.Variable
+	// Any live root per slot, a revocation target PDA check covers queued nullifiers.
+	TreeSlots [shared.InputTrees]shared.TreeSlot
+	// Every list and spend record address hashes under it.
+	AddressTreeID frontend.Variable
 	// The ring program id field, a change output stays in it.
 	RingID frontend.Variable
 	// The owner hash of the ring's namespace PDA, only spend record slots open to it.
@@ -73,6 +73,10 @@ type CustomRingPolicyCircuit struct {
 	WindowIndex frontend.Variable
 	// Set when an outflow exceeds its co-sign threshold, the program then demands the co-signer.
 	ApprovalRequired frontend.Variable
+	// Set with the delegate, every new output key must be escrowed.
+	KeyEscrow       frontend.Variable
+	KeyRegistryRoot frontend.Variable
+	OutputKeys      [NOutputs]registry.KeyOpening
 
 	// Counter openings are required only within the predecessor's window.
 	Record RecordWires
@@ -121,7 +125,7 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 	c.constrainNamespace(api, txContext)
 
 	// 4. Authenticate the shared list facts.
-	listFacts := c.checkListFacts(api, rangeChecker)
+	listFacts, revocationTreeIndexes := c.checkListFacts(api, rangeChecker)
 
 	// 5. Require every applicable rule to pass.
 	c.constrainRules(api, txContext, listFacts, checked.ruleEnabled, checked.inlineEnabled)
@@ -130,13 +134,18 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 	if rail == delegateRail {
 		api.AssertIsEqual(c.WindowIndex, 0)
 		api.AssertIsEqual(c.ApprovalRequired, 0)
+		api.AssertIsEqual(c.KeyEscrow, 1)
 	} else {
 		counters = c.constrainVelocity(api, rangeChecker, checked.velocity, txContext)
 	}
 
+	// 6. Require escrowed nullifier keys on new outputs.
+	c.constrainOutputKeys(api, txContext)
+
 	chain := append(elements[:],
-		checked.hash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
+		checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,
+		c.KeyEscrow, c.KeyRegistryRoot, revocationTreeIndexes,
 	)
 	for _, fact := range listFacts {
 		chain = append(chain, fact.revocationTarget)
