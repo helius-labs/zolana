@@ -70,6 +70,12 @@ Breaking
   nullable `SerializedNoteReservation.expiresAtMs` → upgrade snapshot readers
   before saving and treat `null` as no local expiry, versions 2 and 3 stay
   readable.
+- Every `ProverClient` prove method rejects a proof from a prover that does not
+  report its proving key with `CLIENT_PROVING_KEY_MISSING`, or reports another
+  key than the SDK's verifying key pins with `CLIENT_PROVING_KEY_MISMATCH`, and
+  refuses a shape without a verifying key with `CLIENT_PROVER_INPUT` before any
+  request → prove against a prover from this release.
+- `Prover` requires `checkProverProvingKeys` → implement it in a custom `Prover`.
 
 Added
 
@@ -123,6 +129,11 @@ Added
   attempt before broadcast, `reconcileRingSubmissions` resolves saved
   signatures after a restart without paying twice, and `savePersistedWallet`
   saves wallet state on the sync queue.
+- `ZolanaClient.checkProverProvingKeys` and `ProverClient.checkProvingKeys` check
+  a prover's proving keys against the SDK's verifying keys before the first
+  proof, return a `ProvingKeyReport` with one `ProvingKeyCheck` per key, and
+  throw `CLIENT_PROVER_PROVING_KEYS_MISMATCH` naming every key whose digest
+  differs.
 
 Fixed
 
@@ -387,22 +398,10 @@ Breaking
   address nullifier list three elements per Poseidon call (was one) → prove
   with this release's prover, a private transaction hash or ring proof request
   produced by an earlier release no longer matches its proof.
-- `ProverClient.prove`, `proveMerge`, `proveCustomRingPolicy`, and
-  `proveCustomRingBase` reject a proof from a prover that does not report its
-  proving key with `CLIENT_PROVING_KEY_MISSING`, or reports another key than the
-  SDK's verifying key pins with `CLIENT_PROVING_KEY_MISMATCH`, and refuse a shape
-  without a verifying key with `CLIENT_PROVER_INPUT` before any request → prove
-  against a prover from this release.
-- `Prover` requires `checkProverProvingKeys` → implement it in a custom `Prover`.
 
 Added
 
 - `Bytes128` is exported as the type of the `b` proof point.
-- `ZolanaClient.checkProverProvingKeys` and `ProverClient.checkProvingKeys` check
-  a prover's proving keys against the SDK's verifying keys before the first
-  proof, return a `ProvingKeyReport` with one `ProvingKeyCheck` per key, and
-  throw `CLIENT_PROVER_PROVING_KEYS_MISMATCH` naming every key whose digest
-  differs.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
   a policy ring, the rule table over the list entries the rules name, and
