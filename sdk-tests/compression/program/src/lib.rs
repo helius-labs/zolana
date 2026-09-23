@@ -1,14 +1,16 @@
 pub mod error;
 pub mod instructions;
 pub mod state;
+pub mod verifying_keys;
 
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
-use crate::instructions::{process_create_ix, process_update_ix};
+use crate::instructions::{process_create_ix, process_read_ix, process_update_ix};
 
 pub mod tag {
     pub const CREATE: u8 = 0;
     pub const UPDATE: u8 = 1;
+    pub const READ: u8 = 2;
 }
 
 pub const ACCOUNT_PDA_SEED: &[u8] = b"compressed-account";
@@ -36,6 +38,7 @@ pub fn process_instruction(
     match *ix_tag {
         tag::CREATE => process_create_ix(accounts, ix_data),
         tag::UPDATE => process_update_ix(accounts, ix_data),
+        tag::READ => process_read_ix(accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
