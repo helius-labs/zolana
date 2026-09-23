@@ -265,7 +265,9 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
     fetch() {
         name="$1" url="$2"
         want="$(pinned "$name")"
-        curl -fsSL "$url" -o "$temp_dir/$name"
+        echo "Downloading $name" >&2
+        curl -fsSL --retry 3 --retry-max-time 60 --connect-timeout 10 --max-time 300 \
+            "$url" -o "$temp_dir/$name"
         got="$(digest "$temp_dir/$name")"
         if [[ "$got" != "$want" ]]; then
             echo "$url hashes to $got, proving-keys.lock pins $want" >&2
