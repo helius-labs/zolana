@@ -55,3 +55,9 @@ test-group = "serial-validator"
 filter = "package(spp-test-validator) | package(ring-test-program) | package(custom-ring-test-validator) | (package(shielded-pool-tests) & binary_id(/localnet/))"
 test-group = "serial-validator"
 retries = 2
+
+# The FixtureLocalnet suites run in parallel outside the serial group; in CI
+# they get the same two retries against localnet and prover flakiness.
+[[profile.ci.overrides]]
+filter = "package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | package(rfq-test) | package(compression-example-test)"
+retries = 2

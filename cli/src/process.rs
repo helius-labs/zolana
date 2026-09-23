@@ -20,7 +20,7 @@ pub(crate) fn spawn_service(
 ) -> Result<Child> {
     std::fs::create_dir_all(log_dir)
         .with_context(|| format!("failed to create log directory {log_dir}"))?;
-    let log_path = Path::new(log_dir).join(format!("{log_name}.log"));
+    let log_path = log_path(log_dir, log_name);
     println!("Writing {log_name} logs to {}", log_path.display());
     let log = OpenOptions::new()
         .create(true)
@@ -39,6 +39,24 @@ pub(crate) fn spawn_service(
         .stderr(Stdio::from(stderr))
         .spawn()
         .with_context(|| format!("failed to spawn {}", binary.display()))
+}
+
+fn log_path(log_dir: &str, log_name: &str) -> PathBuf {
+    Path::new(log_dir).join(format!("{log_name}.log"))
+}
+
+/// The last `lines` lines a service started by [`spawn_service`] logged. A
+/// service that exits early says why only there, so errors about it quote this.
+pub(crate) fn log_tail(log_dir: &str, log_name: &str, lines: usize) -> String {
+    let path = log_path(log_dir, log_name);
+    match std::fs::read_to_string(&path) {
+        Ok(log) => {
+            let skip = log.lines().count().saturating_sub(lines);
+            let tail: Vec<&str> = log.lines().skip(skip).collect();
+            format!("last lines of {}:\n{}", path.display(), tail.join("\n"))
+        }
+        Err(error) => format!("could not read {}: {error}", path.display()),
+    }
 }
 
 pub(crate) fn remove_launchd_validators() {

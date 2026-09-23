@@ -6,7 +6,9 @@ use crate::{
     args::TestValidatorOptions,
     config::{READINESS_TIMEOUT, TERMINATION_GRACE_PERIOD},
     http::{wait_for_photon_indexing_with_child, wait_for_port_closed, wait_for_rpc_with_child},
-    process::{find_binary, path_string, remove_launchd_validators, spawn_service, stop_port},
+    process::{
+        find_binary, log_tail, path_string, remove_launchd_validators, spawn_service, stop_port,
+    },
     prover::start_prover_service,
     release::Release,
 };
@@ -313,7 +315,7 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
                 stop_port(opts.photon_port);
                 thread::sleep(Duration::from_secs(1));
             }
-            Err(error) => return Err(error),
+            Err(error) => bail!("{error:#}\n{}", log_tail(&opts.log_dir, "photon", 30)),
         }
     }
 
