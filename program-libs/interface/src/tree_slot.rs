@@ -17,6 +17,8 @@ use zolana_hasher::{
     Poseidon,
 };
 
+#[cfg(feature = "tree")]
+use crate::instruction::instruction_data::transact::TreeContext;
 use crate::{error::ShieldedPoolError, INPUT_TREES, MAX_TRANSACT_INPUTS};
 
 /// One tree slot: the raw `u16` tree id as a field element and the two roots
@@ -49,6 +51,18 @@ impl TreeSlot {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         Poseidon::hashv(&[&self.id, &self.utxo_root, &self.nullifier_root])
     }
+}
+
+#[cfg(feature = "tree")]
+pub fn resolve_tree_slot(
+    tree: &zolana_tree::TreeAccount<'_>,
+    context: &TreeContext,
+) -> Result<TreeSlot, zolana_tree::TreeError> {
+    Ok(TreeSlot {
+        id: tree.tree_id_array(),
+        utxo_root: tree.get_utxo_tree_root(context.utxo_tree_root_index)?,
+        nullifier_root: tree.get_nullifier_tree_root(context.nullifier_tree_root_index)?,
+    })
 }
 
 /// The field element of a raw `u16` tree id: right-aligned big-endian.
