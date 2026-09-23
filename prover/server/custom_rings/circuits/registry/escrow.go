@@ -1,5 +1,5 @@
-// Package registry proves that a UTXO owner's nullifier key is escrowed in the
-// ring's key registry.
+// Package registry proves insertions into the ring's key registry and that a
+// UTXO owner's nullifier key is escrowed in it.
 package registry
 
 import (

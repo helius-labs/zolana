@@ -31,7 +31,7 @@ func (c *escrowCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// Host leaves hash as head map leaves, the shape register_key inserts.
+// Host leaves hash as registry leaves, the shape register_key inserts.
 func TestEscrowOpensTheRegisteredLeaf(t *testing.T) {
 	keys := spptest.NewKeyRegistry(t, Height)
 	owner, nullifierPk := big.NewInt(0x0a), big.NewInt(0x0b)

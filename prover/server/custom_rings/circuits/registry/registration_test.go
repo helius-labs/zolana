@@ -24,20 +24,20 @@ type insertionCircuit struct {
 	OldRoot        frontend.Variable `gnark:",public"`
 	RegisteredRoot frontend.Variable `gnark:",public"`
 
-	LowMember, LowNext, LowNullifier, LowIndex frontend.Variable
-	LowProof                                   []frontend.Variable
-	Member, Genesis, NewIndex                  frontend.Variable
-	NewProof                                   []frontend.Variable
+	LowMember, LowNext, LowKey, LowIndex frontend.Variable
+	LowProof                             []frontend.Variable
+	Member, Key, NewIndex                frontend.Variable
+	NewProof                             []frontend.Variable
 }
 
 func (c *insertionCircuit) Define(api frontend.API) error {
 	registered := Insertion{
 		OldRoot:  c.OldRoot,
-		Low:      Leaf{Member: c.LowMember, Next: c.LowNext, Key: c.LowNullifier},
+		Low:      Leaf{Member: c.LowMember, Next: c.LowNext, Key: c.LowKey},
 		LowIndex: c.LowIndex,
 		LowProof: c.LowProof,
 		Member:   c.Member,
-		Key:      c.Genesis,
+		Key:      c.Key,
 		NewIndex: c.NewIndex,
 		NewProof: c.NewProof,
 	}.NewRoot(api)
@@ -52,19 +52,19 @@ func registrationCircuit() *insertionCircuit {
 	}
 }
 
-func registrationAssignment(t *testing.T, member, genesis *big.Int) *insertionCircuit {
+func registrationAssignment(t *testing.T, member, key *big.Int) *insertionCircuit {
 	t.Helper()
-	insertion := spptest.NewHeadMap(t, Height).Register(t, member, genesis)
+	insertion := spptest.NewHeadMap(t, Height).Register(t, member, key)
 	return &insertionCircuit{
 		OldRoot:        insertion.OldRoot,
 		RegisteredRoot: insertion.NewRoot,
 		LowMember:      insertion.Low.Member,
 		LowNext:        insertion.Low.Next,
-		LowNullifier:   insertion.Low.Nullifier,
+		LowKey:         insertion.Low.Nullifier,
 		LowIndex:       insertion.LowIndex,
 		LowProof:       proofVars(insertion.LowProof),
 		Member:         member,
-		Genesis:        genesis,
+		Key:            key,
 		NewIndex:       insertion.NewIndex,
 		NewProof:       proofVars(insertion.NewProof),
 	}
@@ -78,13 +78,13 @@ func TestSentinelRootMatchesProgram(t *testing.T) {
 	}
 }
 
-func TestHeadMapRegisters(t *testing.T) {
+func TestInsertionRegisters(t *testing.T) {
 	assignment := registrationAssignment(t, big.NewInt(0x1234), big.NewInt(0x5e))
 	test.NewAssert(t).SolvingSucceeded(registrationCircuit(), assignment, test.WithCurves(ecc.BN254))
 }
 
 // The host roots stay consistent, only the ordering assertion refuses.
-func TestHeadMapRejectsMisorderedRegistration(t *testing.T) {
+func TestInsertionRejectsMisorderedMember(t *testing.T) {
 	cases := []struct {
 		name   string
 		member *big.Int
@@ -100,7 +100,7 @@ func TestHeadMapRejectsMisorderedRegistration(t *testing.T) {
 	}
 }
 
-func TestHeadMapRejectsIndexAliases(t *testing.T) {
+func TestInsertionRejectsIndexAliases(t *testing.T) {
 	for _, name := range []string{"predecessor", "insertion"} {
 		t.Run(name, func(t *testing.T) {
 			assignment := registrationAssignment(t, big.NewInt(0x1234), big.NewInt(0x5e))

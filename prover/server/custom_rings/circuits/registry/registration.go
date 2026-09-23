@@ -10,14 +10,12 @@ import (
 	merkletree "zolana/prover/merkle-tree"
 )
 
-// Leaf links members in ascending order, Key is Poseidon(nullifierPk, ctHash).
 type Leaf struct {
 	Member frontend.Variable
 	Next   frontend.Variable
 	Key    frontend.Variable
 }
 
-// Insertion places Member between Low and its successor at the append slot NewIndex.
 type Insertion struct {
 	OldRoot  frontend.Variable
 	Low      Leaf
