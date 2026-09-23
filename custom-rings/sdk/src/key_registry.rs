@@ -29,8 +29,8 @@ use crate::{
     escrow::RegistryKeyOpening,
     instructions::transact::request::{bytes_to_hex, field_hex, index_hex, json_body, SecretHex},
     projection::{retry_projection_lag, retry_projection_lag_async, ProjectionLag},
-    to_instruction_proof, AccountReadError, AsyncTransferProofEnvironment, CustomRing,
-    CustomRingProofError, IndexedMapRoot, TransferProofEnvironment,
+    to_instruction_proof, AccountReadError, AsyncTransferProofEnvironment, CurrentKeyRegistryRoot,
+    CustomRing, CustomRingProofError, TransferProofEnvironment,
 };
 
 #[derive(Debug, Error)]
@@ -167,7 +167,7 @@ impl RegisterKey<'_> {
     fn stage(
         self,
         auditor: P256Pubkey,
-        root: IndexedMapRoot,
+        root: CurrentKeyRegistryRoot,
     ) -> Result<StagedKeyRegistration, KeyRegistrationError> {
         let address = Address::new_from_array(self.member.signing_pubkey().as_ed25519()?);
         if self.member.nullifier_key.pubkey()? != self.member.shielded_address()?.nullifier_pubkey {
@@ -280,7 +280,7 @@ impl ProvenKeyRegistration {
 pub struct ReadSealedKey {
     pub ring: CustomRing,
     pub member: Member,
-    pub root: IndexedMapRoot,
+    pub root: CurrentKeyRegistryRoot,
 }
 
 /// Membership requires the recovered or expected nullifier public key to verify
@@ -423,7 +423,11 @@ impl SealedKeyEntry {
 }
 
 impl CustomRing {
-    fn member_proof_request(self, member: &Member, root: IndexedMapRoot) -> RingMemberProofRequest {
+    fn member_proof_request(
+        self,
+        member: &Member,
+        root: CurrentKeyRegistryRoot,
+    ) -> RingMemberProofRequest {
         RingMemberProofRequest {
             ring_program_id: SerializablePubkey::from(self.program_id().to_bytes()),
             member: Hash(*member.as_bytes()),
@@ -632,7 +636,7 @@ mod tests {
                 .expect("register");
             let query = ring.member_proof_request(
                 &member,
-                IndexedMapRoot {
+                CurrentKeyRegistryRoot {
                     root: proof_inputs.old_root,
                     next_index: proof_inputs.new_index,
                     history_index: 0,
@@ -679,7 +683,7 @@ mod tests {
                 .expect("inclusion");
             let query = self.ring.member_proof_request(
                 &self.member,
-                IndexedMapRoot {
+                CurrentKeyRegistryRoot {
                     root: self.new_root,
                     next_index: 2,
                     history_index: 1,
@@ -703,7 +707,7 @@ mod tests {
             ReadSealedKey {
                 ring: self.ring,
                 member: self.member,
-                root: IndexedMapRoot {
+                root: CurrentKeyRegistryRoot {
                     root: self.new_root,
                     next_index: 2,
                     history_index: 1,
@@ -882,7 +886,6 @@ mod tests {
             history[1] = self.entry.1.root.0;
             let root = custom_ring_interface::KeyRegistryRoot {
                 discriminator: custom_ring_interface::KEY_REGISTRY_ROOT,
-                root: self.entry.1.root.0,
                 next_index: self.entry.1.next_index.to_le_bytes(),
                 bump,
                 history_cursor: 1,

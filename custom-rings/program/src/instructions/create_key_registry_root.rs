@@ -1,14 +1,15 @@
+use custom_ring_interface::KeyRegistryRoot;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
 use crate::{
     error::CustomRingError,
     instructions::{loader::load_authorized_config, shared::PdaCreate},
-    state::{AppendRoot, SentinelRootInit},
+    state::KeyRegistryRootInit,
 };
 
 #[inline(never)]
-pub fn process_create_indexed_root_ix<T: AppendRoot>(
+pub fn process_create_key_registry_root_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
@@ -20,7 +21,7 @@ pub fn process_create_indexed_root_ix<T: AppendRoot>(
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
     let config_account = iter.next_account("config")?;
-    let root_account = iter.next_mut("indexed_root")?;
+    let root_account = iter.next_mut("key_registry_root")?;
     let system_program = iter.next_account("system_program")?;
 
     // 1. Require the config authority before initializing shared compressed
@@ -34,9 +35,9 @@ pub fn process_create_indexed_root_ix<T: AppendRoot>(
     let bump = PdaCreate {
         program_id,
         payer,
-        seeds: &[T::SEED],
-        mismatch: T::NOT_INITIALIZED,
+        seeds: &[KeyRegistryRoot::SEED],
+        mismatch: CustomRingError::InvalidKeyRegistryRoot,
     }
-    .create::<T>(root_account)?;
-    SentinelRootInit { bump }.init::<T>(root_account)
+    .create::<KeyRegistryRoot>(root_account)?;
+    KeyRegistryRootInit { bump }.init(root_account)
 }

@@ -318,7 +318,7 @@ mod tests {
     use super::super::{CustomRingOpening, RingIdentity, SourceOwnerEntry, VelocityProofInput};
     use super::*;
     use crate::witness::{CustomRingWitness, PolicyTree, TransactRoots};
-    use crate::{IndexedMapRoot, PoolTree};
+    use crate::{CurrentKeyRegistryRoot, PoolTree};
     use custom_ring_interface::CustomRingPolicyPublicInput;
     use zolana_interface::tree_slot::TreeSlot;
     use zolana_ring_policy::{
@@ -378,7 +378,7 @@ mod tests {
                 namespace_owner_hash: [11u8; 32],
             }),
             answers: Vec::new(),
-            key_registry_root: Some(IndexedMapRoot {
+            key_registry_root: Some(CurrentKeyRegistryRoot {
                 root: REGISTRY_ROOT,
                 next_index: 2,
                 history_index: 3,

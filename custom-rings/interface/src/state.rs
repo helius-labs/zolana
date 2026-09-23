@@ -220,16 +220,14 @@ pub const KEY_REGISTRY_ROOT_PDA_SEED: &[u8] = b"keyreg";
 pub const KEY_REGISTRY_ROOT: u8 = 9;
 pub const KEY_REGISTRY_ROOT_HISTORY: usize = 32;
 
-/// Shared commitment to member nullifier keys encrypted to the ring auditor.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct KeyRegistryRoot {
     pub discriminator: u8,
-    pub root: [u8; 32],
     /// Little endian, the next free leaf index a registration appends at.
     pub next_index: [u8; 8],
     pub bump: u8,
-    /// Slot of `root` in `history`.
+    /// Slot of the current root in `history`.
     pub history_cursor: u8,
     /// Every root stays sound, an enrolled leaf never changes.
     pub history: [[u8; 32]; KEY_REGISTRY_ROOT_HISTORY],
@@ -243,6 +241,10 @@ impl KeyRegistryRoot {
         u64::from_le_bytes(self.next_index)
     }
 
+    pub fn root(&self) -> Option<[u8; 32]> {
+        self.root_at(self.history_cursor)
+    }
+
     /// `None` past the history or for a slot no root was written to.
     pub fn root_at(&self, index: u8) -> Option<[u8; 32]> {
         self.history
@@ -252,10 +254,10 @@ impl KeyRegistryRoot {
     }
 }
 
-const _: () = assert!(KeyRegistryRoot::SIZE == 1067);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, root) == 1);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, next_index) == 33);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, bump) == 41);
+const _: () = assert!(KeyRegistryRoot::SIZE == 1035);
+const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, next_index) == 1);
+const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history_cursor) == 10);
+const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history) == 11);
 const _: () = assert!(KEY_REGISTRY_ROOT_HISTORY <= u8::MAX as usize);
 const _: () = assert!(core::mem::align_of::<KeyRegistryRoot>() == 1);
 

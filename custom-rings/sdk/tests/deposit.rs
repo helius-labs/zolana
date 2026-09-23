@@ -151,7 +151,6 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_before_proving() {
     history[0] = [5; 32];
     let registry = KeyRegistryRoot {
         discriminator: KEY_REGISTRY_ROOT,
-        root: [5; 32],
         next_index: 1u64.to_le_bytes(),
         bump: custom_ring_interface::pda::key_registry_root(&ring.program_id()).1,
         history_cursor: 0,

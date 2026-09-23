@@ -12,12 +12,12 @@ mod state;
 
 pub use error::CustomRingError;
 
-use custom_ring_interface::{tag, KeyRegistryRoot};
+use custom_ring_interface::tag;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
     forward::Forward, process_clear_cosigner_ix, process_clear_spend_window_ix,
-    process_create_config_ix, process_create_entry_ix, process_create_indexed_root_ix,
+    process_create_config_ix, process_create_entry_ix, process_create_key_registry_root_ix,
     process_create_policy_ix, process_delegate_transact_ix, process_grant_read_access_ix,
     process_init_spp_ring_config_ix, process_register_key_ix, process_register_spend_ix,
     process_revoke_read_access_ix, process_set_authority_ix, process_set_cosigner_ix,
@@ -69,7 +69,7 @@ pub fn process_instruction(
         tag::DELEGATE_TRANSACT => process_delegate_transact_ix(program_id, accounts, ix_data),
         tag::REGISTER_SPEND => process_register_spend_ix(program_id, accounts, ix_data),
         tag::CREATE_KEY_REGISTRY_ROOT => {
-            process_create_indexed_root_ix::<KeyRegistryRoot>(program_id, accounts, ix_data)
+            process_create_key_registry_root_ix(program_id, accounts, ix_data)
         }
         tag::REGISTER_KEY => process_register_key_ix(program_id, accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),

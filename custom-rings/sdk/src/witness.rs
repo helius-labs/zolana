@@ -30,7 +30,7 @@ use crate::{
         SourceOwnerEntry, VelocityProofInput, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
     },
     shared::source_map,
-    IndexedMapRoot, PoolTree, TransferError,
+    CurrentKeyRegistryRoot, PoolTree, TransferError,
 };
 
 /// Roots the statement binds, with the history entries they were read from.
@@ -85,7 +85,7 @@ pub struct CustomRingWitness {
     pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
     pub revocation_tree_indexes: [u8; ANSWER_SLOTS],
     /// `None` with escrow off.
-    pub key_registry_root: Option<IndexedMapRoot>,
+    pub key_registry_root: Option<CurrentKeyRegistryRoot>,
 }
 
 impl CustomRingWitness {

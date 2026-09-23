@@ -84,8 +84,8 @@ impl OnChainRoot for KeyRegistryRoot {
         self.discriminator
     }
 
-    fn root(&self) -> [u8; 32] {
-        self.root
+    fn root(&self) -> Option<[u8; 32]> {
+        KeyRegistryRoot::root(self)
     }
 
     fn next_index(&self) -> u64 {

@@ -242,7 +242,7 @@ export interface RingKeyRegistryRoot {
 /** Rust `KEY_REGISTRY_ROOT`, `KEY_REGISTRY_ROOT_HISTORY` and `KeyRegistryRoot::SIZE`. */
 const RING_KEY_REGISTRY_ROOT_DISCRIMINATOR = 9;
 export const RING_KEY_REGISTRY_ROOT_HISTORY = 32;
-const RING_KEY_REGISTRY_ROOT_SIZE = 42 + 1 + 32 * RING_KEY_REGISTRY_ROOT_HISTORY;
+const RING_KEY_REGISTRY_ROOT_SIZE = 1 + 8 + 1 + 1 + 32 * RING_KEY_REGISTRY_ROOT_HISTORY;
 
 export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot {
   if (
@@ -255,7 +255,6 @@ export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot
   }
   const reader = new Reader(data);
   reader.u8("discriminator");
-  const root = checkedRegistryField(reader.bytes(32, "root"));
   const nextIndex = reader.u64("nextIndex");
   const bump = reader.u8("bump");
   const historyCursor = reader.u8("historyCursor");
@@ -269,10 +268,12 @@ export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot
   if (nextIndex < 1n || nextIndex > KEY_REGISTRY_CAPACITY) {
     throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { nextIndex } });
   }
-  // Rust `advance_to` keeps `history[history_cursor] == root`.
-  if (!equalBytes(history[historyCursor] ?? ZERO_32, root)) {
+  // Mirrors Rust `KeyRegistryRoot::root`.
+  const current = history[historyCursor];
+  if (current === undefined || equalBytes(current, ZERO_32)) {
     throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { historyCursor } });
   }
+  const root = checkedRegistryField(current.slice());
   return Object.freeze({ root, nextIndex, bump, historyCursor, history });
 }
 

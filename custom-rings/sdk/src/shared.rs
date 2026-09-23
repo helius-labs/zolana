@@ -52,7 +52,7 @@ pub struct CustomRingDelegate {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct IndexedMapRoot {
+pub struct CurrentKeyRegistryRoot {
     pub root: [u8; 32],
     pub next_index: u64,
     /// The history slot a statement names `root` by.
@@ -236,24 +236,23 @@ impl CustomRing {
         self,
         pda: Pda,
         account: Option<Account>,
-    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
+    ) -> Result<Option<CurrentKeyRegistryRoot>, AccountReadError> {
         let Some(root) =
             AccountRead::decode_optional::<KeyRegistryRoot>(self.program_id, pda.address, account)?
         else {
             return Ok(None);
         };
         let next_index = root.next_index();
-        if root.bump != pda.bump
-            || next_index == 0
-            || next_index > KEY_REGISTRY_CAPACITY
-            || root.root_at(root.history_cursor) != Some(root.root)
-        {
+        let current = root.root().filter(|_| {
+            root.bump == pda.bump && next_index != 0 && next_index <= KEY_REGISTRY_CAPACITY
+        });
+        let Some(current) = current else {
             return Err(AccountReadError::InvalidAccount {
                 address: pda.address,
             });
-        }
-        Ok(Some(IndexedMapRoot {
-            root: root.root,
+        };
+        Ok(Some(CurrentKeyRegistryRoot {
+            root: current,
             next_index,
             history_index: root.history_cursor,
         }))
@@ -443,7 +442,7 @@ impl CustomRing {
     pub fn read_key_registry_root<R: Rpc>(
         self,
         rpc: &R,
-    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
+    ) -> Result<Option<CurrentKeyRegistryRoot>, AccountReadError> {
         let pda = self.key_registry_root_pda_with_bump();
         self.decode_key_registry_root(pda, rpc.get_account(pda.address)?)
     }
@@ -452,7 +451,7 @@ impl CustomRing {
     pub async fn read_key_registry_root_async<R: AsyncRpc>(
         self,
         rpc: &R,
-    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
+    ) -> Result<Option<CurrentKeyRegistryRoot>, AccountReadError> {
         let pda = self.key_registry_root_pda_with_bump();
         self.decode_key_registry_root(pda, rpc.get_account(pda.address).await?)
     }
