@@ -1,5 +1,67 @@
 # GPU prover and indexer
 
+## New AWS deployment
+
+From a checkout of `main`, with Python 3.9+, AWS CLI v2 and an active AWS session:
+
+```sh
+AWS_PROFILE=YOUR_PROFILE tools/gpu/aws.py deploy my-prover --with-indexer
+```
+
+This creates an L4 `g6.2xlarge` in Frankfurt with the Aeglos prover, Photon,
+and PostgreSQL on one host. Photon starts from a copy of devnet-c and resumes
+indexing through its RPC. The command prints the HTTPS prover URL, `/indexer`
+URL, API key secret ARN, instance ID, and CloudWatch log group.
+
+The profile must use account `558215002830` and permit CloudFormation, EC2/VPC,
+IAM role creation and passing, CloudFront, SSM, S3, Secrets Manager, ECR reads,
+and CloudWatch Logs. Copying the cache also needs ECS task access in devnet-c.
+AdministratorAccess covers these operations. Log in with `aws sso login
+--profile YOUR_PROFILE` if the session has expired. GPU quota and capacity are
+required in the selected region.
+
+`publish-gpu` publishes images after merge using the existing image publisher
+role and `PRIVATE_LIBS_TOKEN`, with read access to Aeglos. Wait for that workflow
+to finish. Deployment selects the newest complete release, pins both images by
+digest, and requires the same source commit. `--revision FULL_SHA` selects a
+specific published commit. Local CUDA, Docker, Go, Rust, and Aeglos access are
+not required.
+
+For a prover with an existing indexer:
+
+```sh
+AWS_PROFILE=YOUR_PROFILE tools/gpu/aws.py deploy my-prover --indexer-url https://INDEXER
+```
+
+Use `--indexer-key-secret ARN` if the external indexer requires a key. The secret
+must contain the raw key in `--source-region`. The deployment generates its own
+API key. Read it through Secrets Manager and send it in `X-API-Key` or as a
+Bearer token. Both public APIs require it. Only CloudFront can reach the gateway;
+SSH, PostgreSQL, Photon, and prover metrics have no public ingress. Use SSM for
+host access and port forwarding.
+
+`--plan` resolves images and validates the template without creating resources.
+Repeat the same deploy command to resume after a failure. Completed deployments
+only run endpoint checks. Changing settings requires a new name. `status NAME`
+prints the stack and endpoints. `destroy NAME` deletes that deployment, including
+its copied database and keys. Instances stay running until destroyed.
+
+The cache export runs as a separate Fargate task in the source network, with a
+read-only database connection, a short lock timeout, and a bounded runtime.
+It adds database read load. It does not restart Photon or change source services,
+secrets, or security groups. Source database credentials never reach the new EC2.
+Restoration runs in one transaction against an empty local database. A marker
+prevents a second restore over indexed data. The S3 dump expires after seven days.
+The encrypted gp3 volume defaults to 200 GiB. Increase `--disk-gb` for larger data.
+
+Startup waits for both readiness endpoints and checks authentication through
+CloudFront. Proving keys load on demand, so the first proof is not warm.
+Install failures leave the stack available for inspection. Logs are in CloudWatch;
+the SSM command ID is printed during installation. Use one deployment command
+at a time per name. CloudFront setup can take several minutes.
+
+## Existing Vast or EC2 host
+
 These scripts install the Aeglos prover and Photon on an existing Vast or EC2
 host. Prover requests reach Photon over loopback. PostgreSQL stays on the same
 host. Deployment does not allocate cloud instances or change devnet services.
