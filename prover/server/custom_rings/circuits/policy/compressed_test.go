@@ -10,92 +10,51 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 )
 
-func compressedRoundTrip(t *testing.T) *CompressedPolicyCircuit {
-	return compressedAssignment(t, nil)
-}
-
-func compressedAssignment(t *testing.T, change func(member, spent, successor *big.Int)) *CompressedPolicyCircuit {
+func compressedAssignment(t *testing.T, chain func(policy []*big.Int, disclosure *big.Int) []*big.Int) *CompressedPolicyCircuit {
 	t.Helper()
 	f := velocityDefault()
 	s := newStatement(t, f)
 	c := s.assignment(t, f.facts())
 
-	zero := big.NewInt(0)
-	member := spptest.AsBigInt(c.Inputs[0].OwnerPkHash)
-	recordIn := s.inputs[len(s.inputs)-1]
-	recordOut := s.outputs[len(s.outputs)-1]
-	spent := spptest.MustNullifier(t, hostUtxoHash(t, recordIn), spptest.AsBigInt(recordIn.Blinding), zero)
-	successor := spptest.MustNullifier(t, hostUtxoHash(t, recordOut), spptest.AsBigInt(recordOut.Blinding), zero)
-	member = new(big.Int).Set(member)
-	if change != nil {
-		change(member, spent, successor)
-	}
-
-	heads := spptest.NewHeadMap(t, HeadMapHeight)
-	transition := heads.Transfer(t, heads.Register(t, member, spent).NewIndex, successor)
-
 	var secret [32]byte
 	for i, b := range c.TxViewingSk {
 		secret[i] = byte(spptest.AsBigInt(b).Uint64())
 	}
-	c.PublicInputHash = spptest.MustHashChain(t, append(s.policyChainElements(t, f.facts()),
-		transition.OldRoot, transition.NewRoot, spptest.CounterDisclosure{
-			Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent,
-		}.Hash(t),
-	))
+	disclosure := spptest.CounterDisclosure{
+		Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent,
+	}.Hash(t)
+	c.PublicInputHash = spptest.MustHashChain(t, chain(s.policyChainElements(t, f.facts()), disclosure))
 
-	assignment := &CompressedPolicyCircuit{
-		Policy:      *c,
-		HeadOldRoot: transition.OldRoot,
-		HeadNewRoot: transition.NewRoot,
-		HeadNext:    transition.Leaf.Next,
-		HeadIndex:   transition.Index,
-	}
+	assignment := &CompressedPolicyCircuit{Policy: *c}
 	for i := range assignment.TransactionSalt {
 		assignment.TransactionSalt[i] = 0
-	}
-	for i := range assignment.HeadProof {
-		assignment.HeadProof[i] = transition.Proof[i]
 	}
 	return assignment
 }
 
-func TestCompressedCircuitBindsRecordToHeadTransition(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		change func(member, spent, successor *big.Int)
-	}{
-		{"foreign member", func(member, _, _ *big.Int) { member.Add(member, big.NewInt(1)) }},
-		{"different consumed record", func(_, spent, _ *big.Int) { spent.Add(spent, big.NewInt(1)) }},
-		{"different successor record", func(_, _, successor *big.Int) { successor.Add(successor, big.NewInt(1)) }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			assignment := compressedAssignment(t, tc.change)
-			if err := test.IsSolved(&CompressedPolicyCircuit{}, assignment, ecc.BN254.ScalarField()); err == nil {
-				t.Fatal("record and head transition were accepted with different bindings")
-			}
-		})
-	}
+// The program hashes the policy elements, then the counters disclosure hash.
+func programChain(policy []*big.Int, disclosure *big.Int) []*big.Int {
+	return append(policy, disclosure)
 }
 
-func TestCompressedCircuitSolvesHeadTransition(t *testing.T) {
+func TestCompressedCircuitSolves(t *testing.T) {
 	test.NewAssert(t).SolvingSucceeded(
-		&CompressedPolicyCircuit{}, compressedRoundTrip(t), test.WithCurves(ecc.BN254),
+		&CompressedPolicyCircuit{}, compressedAssignment(t, programChain), test.WithCurves(ecc.BN254),
 	)
 }
 
-// Rejects a head proof off the member's own leaf.
-func TestCompressedCircuitRejectsForeignRecord(t *testing.T) {
-	assignment := compressedRoundTrip(t)
-	assignment.HeadProof[0] = big.NewInt(0x1234)
+func TestCompressedCircuitBindsTransactionSalt(t *testing.T) {
+	assignment := compressedAssignment(t, programChain)
+	assignment.TransactionSalt[0] = 1
 	test.NewAssert(t).SolvingFailed(
 		&CompressedPolicyCircuit{}, assignment, test.WithCurves(ecc.BN254),
 	)
 }
 
-func TestCompressedCircuitRejectsWrongNewRoot(t *testing.T) {
-	assignment := compressedRoundTrip(t)
-	assignment.HeadNewRoot = big.NewInt(0xbad)
+func TestCompressedCircuitRejectsReorderedChain(t *testing.T) {
+	assignment := compressedAssignment(t, func(policy []*big.Int, disclosure *big.Int) []*big.Int {
+		return append([]*big.Int{disclosure}, policy...)
+	})
 	test.NewAssert(t).SolvingFailed(
 		&CompressedPolicyCircuit{}, assignment, test.WithCurves(ecc.BN254),
 	)

@@ -10,7 +10,7 @@ export { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT };
 /** @internal The sentinel high member closing the list. */
 export const HEAD_MAP_FIELD_MAX = bigIntBytes(BN254_SCALAR_ORDER - 1n) as Bytes32;
 
-/** @internal Root of the sentinel-only tree, a fresh ring's head-map root. */
+/** @internal Root of the sentinel-only tree, a fresh ring's key registry root. */
 export const HEAD_MAP_EMPTY_ROOT = Uint8Array.from([
   3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51, 161,
   56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
@@ -18,7 +18,7 @@ export const HEAD_MAP_EMPTY_ROOT = Uint8Array.from([
 
 const EMPTY_LEAF = new Uint8Array(32) as Bytes32;
 
-/** Commits one member's current record nullifier and ordered successor. */
+/** Ordered member link and the value committed for that member. */
 export interface HeadMapLeaf {
   readonly member: Bytes32;
   readonly next: Bytes32;
@@ -44,17 +44,6 @@ export interface HeadMapInsertProofInput {
   readonly lowIndex: bigint;
   readonly lowProof: readonly Bytes32[];
   readonly newProof: readonly Bytes32[];
-}
-
-/** Replaces one authenticated member head without changing the member order. */
-export interface HeadMapTransferProofInput {
-  readonly root: Bytes32;
-  readonly member: Bytes32;
-  readonly next: Bytes32;
-  readonly spent: Bytes32;
-  readonly successor: Bytes32;
-  readonly index: bigint;
-  readonly proof: readonly Bytes32[];
 }
 
 export function checkedHeadMapField(field: Uint8Array): Bytes32 {
@@ -130,30 +119,6 @@ export function verifyHeadMapInsert(input: HeadMapInsertProofInput): Bytes32 {
     nullifier: input.genesis,
   });
   return headMapRootFromProof({ leaf: memberLeaf, ...newPath });
-}
-
-export function verifyHeadMapTransfer(input: HeadMapTransferProofInput): Bytes32 {
-  checkedIndex(input.index);
-  checkedHeadMapField(input.root);
-  if (
-    bytesToBigInt(input.member) === 0n ||
-    bytesToBigInt(input.member) >= bytesToBigInt(input.next)
-  )
-    invalid("memberRange");
-  if (input.proof.length !== HEAD_MAP_HEIGHT) {
-    invalid("proofLength");
-  }
-  const path = { index: input.index, proof: input.proof };
-  const spent = headMapLeaf({ member: input.member, next: input.next, nullifier: input.spent });
-  if (!equalBytes(headMapRootFromProof({ leaf: spent, ...path }), input.root)) {
-    invalid("headRoot");
-  }
-  const successor = headMapLeaf({
-    member: input.member,
-    next: input.next,
-    nullifier: input.successor,
-  });
-  return headMapRootFromProof({ leaf: successor, ...path });
 }
 
 function checkedIndex(index: bigint): void {

@@ -2,52 +2,18 @@ use crate::InstructionView;
 use anyhow::{bail, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    CustomRingTransactIxData, PolicyConfig, RegisterSpendIxData,
+    PolicyConfig, RegisterSpendIxData,
 };
 use solana_address::Address;
-use zolana_indexer_api::{RingHeadRecord, ShieldedTransaction};
+use zolana_indexer_api::ShieldedTransaction;
 use zolana_ring_policy::{entry_nullifier, spend_record_message_tag, ListNamespace, SpendRecord};
 
-#[derive(Debug)]
-pub enum Transition {
-    Register(Registration),
-    Transfer(Transfer),
-}
-
-#[derive(Debug)]
-pub struct Registration {
-    pub old_root: [u8; 32],
-    pub new_root: [u8; 32],
-    pub next_index: u64,
-    pub member: [u8; 32],
-    pub nullifier: [u8; 32],
-    pub record: RingHeadRecord,
-}
-
-#[derive(Debug)]
-pub struct Transfer {
-    pub old_root: [u8; 32],
-    pub new_root: [u8; 32],
-    pub member: [u8; 32],
-    /// The member's head must be one of them.
-    pub nullifiers: Vec<[u8; 32]>,
-    pub nullifier: [u8; 32],
-    pub record: RingHeadRecord,
-}
-
 pub enum Rail {
-    Register { blinding: [u8; 32], next_index: u64 },
+    Register { blinding: [u8; 32] },
     Transfer,
 }
 
 impl Rail {
-    pub fn root_slot(&self) -> usize {
-        match self {
-            Self::Register { .. } => accounts::REGISTER_SPEND_HEAD_ROOT,
-            Self::Transfer => accounts::TRANSACT_HEAD_ROOT,
-        }
-    }
-
     fn source_tag(&self) -> u8 {
         match self {
             Self::Register { .. } => zolana_event::tag::TRANSACT,
@@ -56,72 +22,52 @@ impl Rail {
     }
 }
 
-pub struct Decoded {
-    pub rail: Rail,
-    pub old_root: [u8; 32],
-    pub new_root: [u8; 32],
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Successor {
+    pub member: [u8; 32],
+    /// Revealed by the transfer that spends it.
+    pub nullifier: [u8; 32],
+    pub output_index: u16,
 }
 
-pub fn decode(instruction: InstructionView<'_>) -> Result<Option<Decoded>> {
+pub fn decode(instruction: InstructionView<'_>) -> Result<Option<Rail>> {
     match instruction.data.first() {
         Some(&tag::REGISTER_SPEND) => {
             let data: RegisterSpendIxData = wincode::deserialize_exact(&instruction.data[1..])
-                .context("invalid compressed registration wire")?;
-            Ok(Some(Decoded {
-                rail: Rail::Register {
-                    blinding: data.blinding,
-                    next_index: data.head_next_index,
-                },
-                old_root: data.head_old_root,
-                new_root: data.head_new_root,
+                .context("invalid spend registration wire")?;
+            Ok(Some(Rail::Register {
+                blinding: data.blinding,
             }))
         }
-        Some(&tag::TRANSACT) => {
-            let data: CustomRingTransactIxData = wincode::deserialize_exact(&instruction.data[1..])
-                .context("invalid custom-ring transfer wire")?;
-            Ok(data.head_transition.map(|head| Decoded {
-                rail: Rail::Transfer,
-                old_root: head.old_root,
-                new_root: head.new_root,
-            }))
-        }
+        Some(&tag::TRANSACT) => Ok(Some(Rail::Transfer)),
         _ => Ok(None),
     }
 }
 
 pub struct Reconstruction<'a> {
     pub instruction: InstructionView<'a>,
-    pub decoded: Decoded,
+    pub rail: Rail,
     pub policy: &'a PolicyConfig,
     pub event: &'a ShieldedTransaction,
     pub source_instruction_tag: u8,
 }
 
 impl Reconstruction<'_> {
-    pub fn reconstruct(self) -> Result<Transition> {
+    pub fn reconstruct(self) -> Result<Successor> {
         let Self {
             instruction,
-            decoded,
+            rail,
             policy,
             event,
             source_instruction_tag,
         } = self;
-        let root = custom_ring_interface::pda::head_map_root(instruction.program_id).0;
-        if instruction.accounts.get(decoded.rail.root_slot()) != Some(&root) {
-            bail!("transition does not name its canonical root");
-        }
-        let Decoded {
-            rail,
-            old_root,
-            new_root,
-        } = decoded;
         if source_instruction_tag != rail.source_tag() {
-            bail!("transition used the wrong SPP rail");
+            bail!("record update used the wrong SPP rail");
         }
         let output = event
             .output_slots
             .last()
-            .context("transition has no successor output")?;
+            .context("record update has no successor output")?;
         let namespace = Address::find_program_address(
             &[zolana_ring_policy::NAMESPACE_PDA_SEED],
             instruction.program_id,
@@ -139,16 +85,9 @@ impl Reconstruction<'_> {
         )?;
         let nullifier = entry_nullifier(&output.output_context.hash.0, &spend.blinding)
             .map_err(|error| anyhow::anyhow!("record nullifier derivation failed ({error:?})"))?;
-        let record = RingHeadRecord {
-            transaction: event.clone(),
-            output_index: u16::try_from(event.output_slots.len() - 1)?,
-        };
         let member = *spend.member.as_bytes();
         match rail {
-            Rail::Register {
-                blinding,
-                next_index,
-            } => {
+            Rail::Register { blinding } => {
                 let payer = instruction
                     .accounts
                     .get(accounts::REGISTER_SPEND_PAYER)
@@ -164,14 +103,6 @@ impl Reconstruction<'_> {
                 {
                     bail!("registration successor disagrees with authorized member");
                 }
-                Ok(Transition::Register(Registration {
-                    old_root,
-                    new_root,
-                    next_index,
-                    member,
-                    nullifier,
-                    record,
-                }))
             }
             Rail::Transfer => {
                 let ring_auth = zolana_interface::pda::ring_auth(instruction.program_id)
@@ -180,24 +111,13 @@ impl Reconstruction<'_> {
                 if event.ring_config.as_ref().map(|key| key.0.to_bytes()) != Some(ring_auth) {
                     bail!("SPP event belongs to another ring");
                 }
-                let nullifiers = event
-                    .nullifiers
-                    .iter()
-                    .map(|input| input.0)
-                    .collect::<Vec<_>>();
-                if nullifiers.is_empty() {
-                    bail!("transfer has no consumed record");
-                }
-                Ok(Transition::Transfer(Transfer {
-                    old_root,
-                    new_root,
-                    member,
-                    nullifiers,
-                    nullifier,
-                    record,
-                }))
             }
         }
+        Ok(Successor {
+            member,
+            nullifier,
+            output_index: u16::try_from(event.output_slots.len() - 1)?,
+        })
     }
 }
 

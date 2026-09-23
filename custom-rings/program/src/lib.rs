@@ -11,9 +11,8 @@ mod instructions;
 mod state;
 
 pub use error::CustomRingError;
-pub use instructions::NULLIFIER_ROOT_WINDOW;
 
-use custom_ring_interface::{tag, HeadMapRoot, KeyRegistryRoot};
+use custom_ring_interface::{tag, KeyRegistryRoot};
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
@@ -69,9 +68,6 @@ pub fn process_instruction(
         tag::SET_DEPOSIT_AUDIT => process_set_deposit_audit_ix(program_id, accounts, ix_data),
         tag::DELEGATE_TRANSACT => process_delegate_transact_ix(program_id, accounts, ix_data),
         tag::REGISTER_SPEND => process_register_spend_ix(program_id, accounts, ix_data),
-        tag::CREATE_HEAD_MAP_ROOT => {
-            process_create_indexed_root_ix::<HeadMapRoot>(program_id, accounts, ix_data)
-        }
         tag::CREATE_KEY_REGISTRY_ROOT => {
             process_create_indexed_root_ix::<KeyRegistryRoot>(program_id, accounts, ix_data)
         }

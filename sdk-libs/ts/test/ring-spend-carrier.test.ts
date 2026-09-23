@@ -17,6 +17,7 @@ import {
 import { auditRingTransaction } from "../src/ring/audit.js";
 import { frameDummyOutputs } from "../src/ring/transfer.js";
 import { sealedSpendCounters } from "../src/ring/counters.js";
+import { findCurrentSpendRecord, readCurrentSpendRecord } from "../src/ring/spend-record-reader.js";
 import {
   RingListNamespace,
   currentRingSpendRecord,
@@ -214,19 +215,9 @@ describe("compressed spend record carrier", () => {
   it("rebuilds the exact current leaf from its message, not the encrypted body", () => {
     const f = fixture();
     try {
-      const proof = {
-        context: { slot: 77n, blockTime: 0n },
-        root: field(1),
-        nextIndex: 2n,
-        member: f.record.member,
-        next: field(2),
-        nullifier: f.hashes.nullifier,
-        index: 1n,
-        proof: Array.from({ length: 40 }, () => field(0)),
-        record: { transaction: f.transaction, outputIndex: 0 },
-      };
+      const record = { transaction: f.transaction, outputIndex: 0 };
       const input = {
-        proof,
+        record,
         entriesTree: TREE,
         entriesTreeId: 4,
         namespace: ADDRESS,
@@ -237,23 +228,62 @@ describe("compressed spend record carrier", () => {
       expect(() =>
         currentRingSpendRecord({
           ...input,
-          proof: {
-            ...proof,
-            record: {
-              ...proof.record,
-              transaction: {
-                ...f.transaction,
-                messages: [
-                  {
-                    viewTag: spendRecordMessageTag(NAMESPACE),
-                    data: encodeSpendRecord(altered),
-                  },
-                ],
-              },
+          record: {
+            ...record,
+            transaction: {
+              ...f.transaction,
+              messages: [
+                {
+                  viewTag: spendRecordMessageTag(NAMESPACE),
+                  data: encodeSpendRecord(altered),
+                },
+              ],
             },
           },
         }),
       ).toThrow("RING_SPEND_RECORD_INVALID");
+      for (const changed of [
+        { member: memberOfIdentity(field(3)) },
+        { entriesTree: ADDRESS },
+        { entriesTreeId: 5 },
+      ])
+        expect(() => currentRingSpendRecord({ ...input, ...changed })).toThrow(
+          "RING_SPEND_RECORD_INVALID",
+        );
+    } finally {
+      f.auditor.destroy();
+    }
+  });
+
+  it("reads the indexed record for the requested member only", async () => {
+    const f = fixture();
+    try {
+      const requests: unknown[] = [];
+      const reader = (found: boolean) => ({
+        client: {
+          getRingSpendRecord: async (request: unknown) => {
+            requests.push(request);
+            return {
+              context: { slot: 1n, blockTime: 0n },
+              record: found ? { transaction: f.transaction, outputIndex: 0 } : null,
+            };
+          },
+        },
+        ringProgramId: ADDRESS,
+        namespace: ADDRESS,
+        entriesTree: TREE,
+        entriesTreeId: 4,
+        sender: f.record.member,
+      });
+      expect((await readCurrentSpendRecord(reader(true))).record).toEqual(f.record);
+      expect(requests).toEqual([{ ringProgramId: ADDRESS, member: f.record.member }]);
+      expect(await findCurrentSpendRecord(reader(false))).toBeUndefined();
+      await expect(readCurrentSpendRecord(reader(false))).rejects.toMatchObject({
+        code: "RING_SPEND_RECORD_MISSING",
+      });
+      await expect(
+        readCurrentSpendRecord({ ...reader(true), sender: memberOfIdentity(field(3)) }),
+      ).rejects.toMatchObject({ code: "RING_SPEND_RECORD_INVALID" });
     } finally {
       f.auditor.destroy();
     }

@@ -209,34 +209,7 @@ impl Delegate {
 const _: () = assert!(Delegate::SIZE == 34);
 const _: () = assert!(core::mem::align_of::<Delegate>() == 1);
 
-pub const HEAD_MAP_ROOT_PDA_SEED: &[u8] = b"headmap";
-/// First byte of an initialized head map root account.
-pub const HEAD_MAP_ROOT: u8 = 8;
-
-/// Shared commitment to every member's current spend-record nullifier.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
-#[repr(C)]
-pub struct HeadMapRoot {
-    pub discriminator: u8,
-    pub root: [u8; 32],
-    /// Little endian, the next free leaf index a registration appends at.
-    pub next_index: [u8; 8],
-    pub bump: u8,
-}
-
-impl HeadMapRoot {
-    pub const SEED: &'static [u8] = HEAD_MAP_ROOT_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-
-    pub const fn next_index(&self) -> u64 {
-        u64::from_le_bytes(self.next_index)
-    }
-}
-
-const _: () = assert!(HeadMapRoot::SIZE == 42);
-const _: () = assert!(core::mem::align_of::<HeadMapRoot>() == 1);
-
-/// Root of the sentinel-only head map, the value a fresh ring initializes to.
+/// Root of the sentinel-only indexed tree, the value a fresh registry initializes to.
 pub const HEAD_MAP_EMPTY_ROOT: [u8; 32] = [
     3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51,
     161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,

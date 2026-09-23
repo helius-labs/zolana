@@ -8,9 +8,10 @@
 //! with the mint authority parked on the payer.
 
 use anyhow::{anyhow, Context, Result};
+use custom_ring_cli::transact::{self, Probe};
 use custom_ring_sdk::{
-    CreateConfig, CreateHeadMapRoot, CreatePolicy, CustomRing, InitSppRingConfig, TransactSend,
-    TRANSACT_COMPUTE_UNIT_LIMIT,
+    CreateConfig, CreatePolicy, CustomRing, EntryProofError, InitSppRingConfig, LiveSpendRecord,
+    TransactSend, TRANSACT_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -284,18 +285,6 @@ impl<'a> ConfiguredRing<'a> {
                 }
                 .instruction()?],
             )?;
-            if rules.window_slots() != 0 {
-                send(
-                    rpc,
-                    self.payer,
-                    &[CreateHeadMapRoot {
-                        ring: self.ring,
-                        payer: authority,
-                        authority,
-                    }
-                    .instruction()],
-                )?;
-            }
         }
         Ok(PinnedRing {
             payer: self.payer,
@@ -558,6 +547,22 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
         Wallet::new(address, assets.clone()).map_err(|e| anyhow!("actor wallet failed {e:?}"))?;
     let wallet = wallet.with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
     Ok(TestWallet { wallet, keypair })
+}
+
+pub fn wait_for_spend_record(
+    read: impl Fn() -> Result<Option<LiveSpendRecord>, EntryProofError>,
+    version: u64,
+) -> Result<LiveSpendRecord> {
+    Ok(transact::wait_for(
+        format!("spend record v{version}"),
+        || {
+            Ok(match read() {
+                Ok(Some(live)) if live.record.version == version => Probe::Ready(live),
+                Ok(_) => Probe::NotYet,
+                Err(error) => Probe::Retry(error),
+            })
+        },
+    )?)
 }
 
 /// Send instructions as a transaction **v1** message paid and signed by

@@ -170,15 +170,6 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
     #[cfg(feature = "ring-projection")]
     if ring_projection {
         module.register_async_method(
-            zolana_indexer_api::GET_RING_HEAD_REGISTER_PROOF,
-            |params, context, _| async move {
-                context
-                    .get_ring_head_register_proof(params.parse()?)
-                    .await
-                    .map_err(ErrorObjectOwned::from)
-            },
-        )?;
-        module.register_async_method(
             zolana_indexer_api::GET_RING_KEY_REGISTRY_ENTRY,
             |params, context, _| async move {
                 context
@@ -197,10 +188,10 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
             },
         )?;
         module.register_async_method(
-            zolana_indexer_api::GET_RING_HEAD_TRANSFER_PROOF,
+            zolana_indexer_api::GET_RING_SPEND_RECORD,
             |params, context, _| async move {
                 context
-                    .get_ring_head_transfer_proof(params.parse()?)
+                    .get_ring_spend_record(params.parse()?)
                     .await
                     .map_err(ErrorObjectOwned::from)
             },
@@ -231,10 +222,9 @@ mod tests {
         assert!(methods.contains(&"getMerkleProofs"));
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
-        assert!(!methods.contains(&"getRingHeadRegisterProof"));
         assert!(!methods.contains(&"getRingKeyRegistryEntry"));
         assert!(!methods.contains(&"getRingKeyRegistryRegisterProof"));
-        assert!(!methods.contains(&"getRingHeadTransferProof"));
+        assert!(!methods.contains(&"getRingSpendRecord"));
     }
 
     #[cfg(feature = "ring-projection")]
@@ -243,10 +233,9 @@ mod tests {
         let module = build_rpc_module(test_api().await.with_ring_projection()).unwrap();
         let methods = module.method_names().collect::<Vec<_>>();
         for method in [
-            "getRingHeadRegisterProof",
-            "getRingHeadTransferProof",
             "getRingKeyRegistryEntry",
             "getRingKeyRegistryRegisterProof",
+            "getRingSpendRecord",
         ] {
             assert!(methods.contains(&method));
         }

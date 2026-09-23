@@ -6,7 +6,10 @@ use zolana_interface::tree_slot::{populated_tree_slots_hash_chain, tree_id_field
 use crate::base_public_input::CustomRingBasePublicInput;
 use zolana_ring_policy::ANSWER_SLOTS;
 
-const POLICY_ELEMENTS: usize = 21 + ANSWER_SLOTS;
+const AUDIT_LEN: usize = 11;
+const POLICY_PREFIX_LEN: usize = 21;
+const POLICY_LEN: usize = POLICY_PREFIX_LEN + ANSWER_SLOTS;
+const COMPRESSED_POLICY_LEN: usize = POLICY_LEN + 1;
 const REVOCATION_TREE_INDEX_BITS: usize = 3;
 const _: () = assert!(ANSWER_SLOTS * REVOCATION_TREE_INDEX_BITS <= u64::BITS as usize);
 
@@ -35,12 +38,12 @@ pub struct CustomRingPolicyPublicInput<'a> {
 
 impl CustomRingPolicyPublicInput<'_> {
     /// The audit prefix and policy tail share one circuit-defined field order.
-    fn elements(&self) -> Result<[[u8; 32]; POLICY_ELEMENTS], HasherError> {
+    fn elements(&self) -> Result<[[u8; 32]; POLICY_LEN], HasherError> {
         let audit = self.audit.elements()?;
         let [key_escrow, key_registry_root] = key_escrow_elements(self.key_registry_root);
-        let mut elements = [[0u8; 32]; POLICY_ELEMENTS];
-        elements[..11].copy_from_slice(&audit);
-        elements[11..21].copy_from_slice(&[
+        let mut elements = [[0u8; 32]; POLICY_LEN];
+        elements[..AUDIT_LEN].copy_from_slice(&audit);
+        elements[AUDIT_LEN..POLICY_PREFIX_LEN].copy_from_slice(&[
             *self.policy_hash,
             populated_tree_slots_hash_chain(self.tree_slots)?,
             tree_id_field(self.address_tree_id),
@@ -52,7 +55,7 @@ impl CustomRingPolicyPublicInput<'_> {
             key_registry_root,
             pack_revocation_tree_indexes(self.revocation_tree_indexes)?,
         ]);
-        elements[21..].copy_from_slice(self.revocation_targets);
+        elements[POLICY_PREFIX_LEN..].copy_from_slice(self.revocation_targets);
         Ok(elements)
     }
 
@@ -83,26 +86,18 @@ fn pack_revocation_tree_indexes(indexes: &[u8; ANSWER_SLOTS]) -> Result<[u8; 32]
     Ok(right_align(&packed.to_be_bytes()))
 }
 
-/// Extends policy verification with the current and successor spend-history
-/// roots.
 pub struct CompressedPolicyPublicInput<'a> {
     pub counters_disclosure_hash: &'a [u8; 32],
     pub policy: CustomRingPolicyPublicInput<'a>,
-    /// The head-map root the transition reads, checked equal to the on-chain root.
-    pub head_old_root: &'a [u8; 32],
-    /// The head-map root the transition writes, the on-chain root advances to it.
-    pub head_new_root: &'a [u8; 32],
 }
 
 impl CompressedPolicyPublicInput<'_> {
-    /// Root order must match the compressed policy circuit.
+    /// Field order must match the compressed policy circuit.
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         let policy = self.policy.elements()?;
-        let mut chain = [[0u8; 32]; POLICY_ELEMENTS + 3];
-        chain[..POLICY_ELEMENTS].copy_from_slice(&policy);
-        chain[POLICY_ELEMENTS] = *self.head_old_root;
-        chain[POLICY_ELEMENTS + 1] = *self.head_new_root;
-        chain[POLICY_ELEMENTS + 2] = *self.counters_disclosure_hash;
+        let mut chain = [[0u8; 32]; COMPRESSED_POLICY_LEN];
+        chain[..POLICY_LEN].copy_from_slice(&policy);
+        chain[POLICY_LEN] = *self.counters_disclosure_hash;
         create_hash_chain_from_slice(&chain)
     }
 }

@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    AccountReadError, CreateConfig, CreateConfigError, CreateHeadMapRoot, CreateKeyRegistryRoot,
-    CreatePolicy, CustomRing, CustomRingConfig, EntryError, InitSppRingConfig, PolicyConfig,
-    SetAuthority, SetDepositAudit, SetSourceOwner, SourceOwner, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT, CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT,
-    CREATE_POLICY_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    AccountReadError, CreateConfig, CreateConfigError, CreateKeyRegistryRoot, CreatePolicy,
+    CustomRing, CustomRingConfig, EntryError, InitSppRingConfig, PolicyConfig, SetAuthority,
+    SetDepositAudit, SetSourceOwner, SourceOwner, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
+    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -536,23 +536,6 @@ impl Init<'_> {
             config
         };
         verify_sources(self.ring, policy, &config).map_err(policy_drift)?;
-        if policy.rules.window_slots() != 0 {
-            self.step(
-                rpc,
-                "create_head_map_root",
-                &[],
-                CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
-            )
-            .ensure_present(
-                Observed::of(&self.ring.read_head_map_root(rpc)?),
-                &[CreateHeadMapRoot {
-                    ring: self.ring,
-                    payer: self.config_authority.pubkey(),
-                    authority: self.config_authority.pubkey(),
-                }
-                .instruction()],
-            )?;
-        }
         Ok(outcome)
     }
 

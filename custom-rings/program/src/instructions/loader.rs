@@ -19,7 +19,7 @@ use zolana_tree::TreeAccount;
 
 use crate::{
     error::CustomRingError,
-    instructions::{policy_trees::within_window, shared::PdaCheck},
+    instructions::shared::PdaCheck,
     state::{Account, AppendRoot},
 };
 
@@ -304,16 +304,11 @@ pub fn load_policy_tree_slot(
     let pubkey = account.address().to_bytes();
     let mut data = account.try_borrow_mut().map_err(|_| invalid)?;
     check_tree_discriminator(&data, invalid)?;
-    let mut tree = TreeAccount::from_bytes(&mut data, pubkey).map_err(|_| invalid)?;
+    let tree = TreeAccount::from_bytes(&mut data, pubkey).map_err(|_| invalid)?;
     if tree.is_paused() {
         return Err(invalid.into());
     }
-    let slot = resolve_tree_slot(&tree, context).map_err(|_| CustomRingError::StalePolicyRoot)?;
-    let cursor = tree.nullifier_tree().get_root_index();
-    if !within_window(u32::from(context.nullifier_tree_root_index), cursor) {
-        return Err(CustomRingError::StalePolicyRoot.into());
-    }
-    Ok(slot)
+    resolve_tree_slot(&tree, context).map_err(|_| CustomRingError::StalePolicyRoot.into())
 }
 
 fn check_spp_tree_owner(

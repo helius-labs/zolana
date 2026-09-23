@@ -9,12 +9,6 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 )
 
-func TestRegistryHeightIsTheHeadMapHeight(t *testing.T) {
-	if registry.Height != HeadMapHeight {
-		t.Fatalf("registry height %d, head map height %d", registry.Height, HeadMapHeight)
-	}
-}
-
 // Registers every UTXO output's key and turns escrow on.
 func (s *statement) escrowOutputs(t *testing.T) *spptest.KeyRegistry {
 	t.Helper()

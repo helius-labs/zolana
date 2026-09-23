@@ -987,7 +987,7 @@ mod tests {
     #[test]
     fn the_program_codes_the_submission_retries_on_are_pinned() {
         use custom_ring_program::CustomRingError;
-        assert_eq!(CustomRingError::StaleHeadMapRoot as u32, 8166);
+        assert_eq!(CustomRingError::StaleKeyRegistryRoot as u32, 8169);
         assert_eq!(CustomRingError::ProofVerificationFailed as u32, 8101);
     }
 }

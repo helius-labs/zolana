@@ -1,9 +1,6 @@
 //! Pins compressed velocity validation before proof verification or SPP execution.
 
-use custom_ring_interface::{
-    tag, CoSignScope, CustomRingTransactIxData, HeadMapTransition, HEAD_MAP_CAPACITY,
-    HEAD_MAP_EMPTY_ROOT,
-};
+use custom_ring_interface::{tag, CoSignScope};
 use custom_ring_program::CustomRingError;
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
@@ -17,12 +14,10 @@ use zolana_interface::{
 
 use crate::common::{
     account, address_tree, auditor_pubkey, authority, cosigner_account, custom,
-    head_map_root_account, head_map_root_slot, initialized_config_account,
-    initialized_other_tree_account, initialized_policy_config_account, namespace_pda, other_tree,
-    payer, policy_delegate_transact_fixture, register_spend_fixture, setup_mollusk,
-    spend_record_output, spend_record_output_in, transact_fixture,
-    uninitialized_head_map_root_account, velocity_policy_config_account, window_slot, Fixture,
-    Slot, ADDRESS_TREE_ID, OTHER_TREE_ID,
+    initialized_config_account, initialized_other_tree_account, initialized_policy_config_account,
+    namespace_pda, other_tree, payer, policy_delegate_transact_fixture, register_spend_fixture,
+    setup_mollusk, spend_record_output, spend_record_output_in, transact_fixture,
+    velocity_policy_config_account, window_slot, Fixture, Slot, ADDRESS_TREE_ID, OTHER_TREE_ID,
 };
 use crate::transact::{body, confidential_output, transact_data};
 
@@ -62,16 +57,6 @@ fn velocity_transact() -> TransactIxData {
 }
 
 fn velocity_fixture(approval_required: u8, transact: TransactIxData) -> Fixture {
-    velocity_fixture_with_root(approval_required, transact, || {
-        head_map_root_account(HEAD_MAP_EMPTY_ROOT, 1)
-    })
-}
-
-fn velocity_fixture_with_root(
-    approval_required: u8,
-    transact: TransactIxData,
-    root_account: impl FnOnce() -> solana_account::Account,
-) -> Fixture {
     let mut fixture = transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(2)),
         body(0, 0, approval_required, transact),
@@ -79,18 +64,6 @@ fn velocity_fixture_with_root(
     fixture.set_account("policy_config", velocity_policy_config_account());
     fixture.substitute("input_tree", address_tree());
     fixture.substitute("output_tree", address_tree());
-    let mut decoded: CustomRingTransactIxData =
-        wincode::deserialize_exact(&fixture.data_mut()[1..]).expect("body");
-    decoded.head_transition = Some(HeadMapTransition {
-        old_root: HEAD_MAP_EMPTY_ROOT,
-        new_root: [1; 32],
-    });
-    *fixture.data_mut() = [
-        &[tag::TRANSACT][..],
-        &wincode::serialize(&decoded).expect("body"),
-    ]
-    .concat();
-    fixture.insert(6, head_map_root_slot(root_account()));
     fixture
 }
 
@@ -99,22 +72,6 @@ fn a_velocity_transfer_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
     velocity_fixture(0, velocity_transact())
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-}
-
-#[test]
-fn an_uninitialized_map_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    velocity_fixture_with_root(0, velocity_transact(), uninitialized_head_map_root_account)
-        .expect_err(&mollusk, custom(CustomRingError::InvalidHeadMapRoot));
-}
-
-#[test]
-fn a_stale_head_map_is_rejected_before_the_proof() {
-    let (mollusk, _) = setup_mollusk();
-    velocity_fixture_with_root(0, velocity_transact(), || {
-        head_map_root_account([0x11u8; 32], 1)
-    })
-    .expect_err(&mollusk, custom(CustomRingError::StaleHeadMapRoot));
 }
 
 /// The successor record lands in the money tree and hashes under its id.
@@ -274,75 +231,7 @@ fn register_spend_needs_a_velocity_window() {
 }
 
 #[test]
-fn register_spend_requires_the_head_insertion_proof() {
+fn register_spend_reaches_the_cpi() {
     let (mollusk, _) = setup_mollusk();
-    register_spend_fixture(velocity_policy_config_account(), payer())
-        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-}
-
-#[test]
-fn register_spend_refuses_a_stale_registration_root() {
-    let (mollusk, _) = setup_mollusk();
-    let mut fixture = register_spend_fixture(velocity_policy_config_account(), payer());
-    fixture.set_account("head_map_root", head_map_root_account([0x11u8; 32], 2));
-    fixture.expect_err(&mollusk, custom(CustomRingError::StaleHeadMapRoot));
-}
-
-#[test]
-fn register_spend_requires_the_live_append_cursor() {
-    let (mollusk, _) = setup_mollusk();
-    for cursor in [0, 2, HEAD_MAP_CAPACITY] {
-        let mut fixture = register_spend_fixture(velocity_policy_config_account(), payer());
-        fixture.set_account(
-            "head_map_root",
-            head_map_root_account(HEAD_MAP_EMPTY_ROOT, cursor),
-        );
-        fixture.expect_err(&mollusk, custom(CustomRingError::InvalidHeadMapCursor));
-    }
-}
-
-#[test]
-fn a_windowed_transfer_cannot_drop_the_compressed_statement() {
-    let (mollusk, _) = setup_mollusk();
-    let mut fixture = velocity_fixture(0, velocity_transact());
-    let mut decoded: CustomRingTransactIxData =
-        wincode::deserialize_exact(&fixture.data_mut()[1..]).expect("body");
-    decoded.head_transition = None;
-    *fixture.data_mut() = [
-        &[tag::TRANSACT][..],
-        &wincode::serialize(&decoded).expect("body"),
-    ]
-    .concat();
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
-}
-
-#[test]
-fn a_member_cannot_attach_a_head_transition_to_an_ordinary_policy() {
-    let (mollusk, _) = setup_mollusk();
-    let mut fixture = velocity_fixture(0, velocity_transact());
-    fixture.set_account("policy_config", initialized_policy_config_account());
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
-}
-
-#[test]
-fn transfer_head_accounts_are_canonical_and_initialized() {
-    let (mollusk, _) = setup_mollusk();
-    let mut substituted = velocity_fixture(0, velocity_transact());
-    substituted.substitute("head_map_root", Pubkey::new_from_array([29; 32]));
-    substituted.set_account(
-        "head_map_root",
-        head_map_root_account(HEAD_MAP_EMPTY_ROOT, 1),
-    );
-    substituted.expect_err(&mollusk, custom(CustomRingError::InvalidHeadMapRoot));
-    for truncated in [false, true] {
-        let mut fixture = velocity_fixture(0, velocity_transact());
-        let mut root = head_map_root_account(HEAD_MAP_EMPTY_ROOT, 1);
-        if truncated {
-            root.data.pop();
-        } else {
-            root.owner = Pubkey::new_from_array([29; 32]);
-        }
-        fixture.set_account("head_map_root", root);
-        fixture.expect_err(&mollusk, custom(CustomRingError::InvalidHeadMapRoot));
-    }
+    register_spend_fixture(velocity_policy_config_account(), payer()).expect_spp_cpi(&mollusk);
 }

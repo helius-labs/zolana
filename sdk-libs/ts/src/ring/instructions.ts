@@ -27,7 +27,6 @@ import {
   ringCoSignerAddress,
   ringConfigAddress,
   ringDelegateAddress,
-  ringHeadMapRootAddress,
   ringKeyRegistryRootAddress,
   ringPolicyConfigAddress,
 } from "../interface/pda/index.js";
@@ -197,7 +196,6 @@ type RingTransactCommon = Readonly<{
   cosigner?: SignerAccount;
   /** Must equal the proof's approval bit. */
   approvalRequired?: boolean;
-  headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
   revocationTargets?: readonly Bytes32[];
 }>;
 
@@ -254,14 +252,6 @@ export async function ringTransactInstruction(
       { address: config, role: AccountRole.READONLY },
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
       ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
-      ...(input.headTransition === undefined
-        ? []
-        : [
-            {
-              address: await ringHeadMapRootAddress(input.ringProgramId),
-              role: AccountRole.WRITABLE,
-            },
-          ]),
       ...revocationPdas.map((address) => ({ address, role: AccountRole.READONLY })),
       ...windows,
       ...pool,
@@ -277,7 +267,6 @@ function transactData(
     stateRootIndex: number;
     nullifierRootIndex: number;
     approvalRequired?: boolean;
-    headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
     revocationTargets?: readonly Bytes32[];
     data: TransactInstructionData;
   }>,
@@ -286,12 +275,7 @@ function transactData(
   const prefix = new Writer()
     .u16(input.stateRootIndex, "stateRootIndex")
     .u16(input.nullifierRootIndex, "nullifierRootIndex")
-    .u8(input.approvalRequired === true ? 1 : 0, "approvalRequired")
-    .u8(input.headTransition === undefined ? 0 : 1, "headTransition");
-  if (input.headTransition !== undefined)
-    prefix
-      .bytes(input.headTransition.oldRoot, 32, "headOldRoot")
-      .bytes(input.headTransition.newRoot, 32, "headNewRoot");
+    .u8(input.approvalRequired === true ? 1 : 0, "approvalRequired");
   const targets = input.revocationTargets ?? [];
   if (targets.length !== 0 && targets.length !== 10) {
     throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED", {
@@ -318,12 +302,9 @@ function transactData(
 export async function ringDelegateTransactInstruction(
   input: RingTransactCommon & Readonly<{ delegate: SignerAccount }>,
 ): Promise<Instruction> {
-  if (input.headTransition !== undefined || input.approvalRequired === true) {
+  if (input.approvalRequired === true) {
     throw new RingError("RING_DELEGATE_ON_VELOCITY_RING", {
-      details: {
-        headTransition: input.headTransition !== undefined,
-        approvalRequired: input.approvalRequired === true,
-      },
+      details: { approvalRequired: true },
     });
   }
   if (input.data.interfaceTransfers.length > 0) {
@@ -548,10 +529,6 @@ export async function registerRingSpendInstruction(
     /** The SPP output blinding the registration proof derived. */
     blinding: Bytes32;
     proof: RingEntryProof;
-    headOldRoot: Bytes32;
-    headNewRoot: Bytes32;
-    headNextIndex: bigint;
-    headProof: Uint8Array;
   }>,
 ): Promise<Instruction> {
   const data = new Writer()
@@ -562,17 +539,8 @@ export async function registerRingSpendInstruction(
     .u16(input.proof.utxoTreeRootIndex, "utxoTreeRootIndex")
     .bytes(input.proof.proof.a, 32, "proof.a")
     .bytes(input.proof.proof.b, 128, "proof.b")
-    .bytes(input.proof.proof.c, 32, "proof.c")
-    .bytes(input.headOldRoot, 32, "headOldRoot")
-    .bytes(input.headNewRoot, 32, "headNewRoot")
-    .u64(input.headNextIndex, "headNextIndex")
-    .bytes(input.headProof, 128, "headProof");
-  const instruction = await entryInstruction(input, data.finish());
-  const headMapRoot = await ringHeadMapRootAddress(input.ringProgramId);
-  return {
-    ...instruction,
-    accounts: [...(instruction.accounts ?? []), meta(headMapRoot, false, true)],
-  };
+    .bytes(input.proof.proof.c, 32, "proof.c");
+  return entryInstruction(input, data.finish());
 }
 
 /** Mirrors Rust `ProvenKeyRegistration::instruction`, the member signs and pays. */

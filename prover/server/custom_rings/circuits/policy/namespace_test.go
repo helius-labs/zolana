@@ -171,27 +171,15 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	if spptest.AsBigInt(assignment.Public.PrivateTxHash).Cmp(spptest.AsBigInt(policy.PrivateTxHash)) != 0 {
 		t.Fatal("SPP and policy transaction hashes differ")
 	}
-	member := spptest.AsBigInt(s.inputs[0].OwnerPkHash)
-	successor := spptest.MustNullifier(t, outputs[1], spptest.AsBigInt(s.outputs[1].Blinding), zero)
-	heads := spptest.NewHeadMap(t, HeadMapHeight)
-	transition := heads.Transfer(t, heads.Register(t, member, nullifiers[2]).NewIndex, successor)
 	var secret [32]byte
 	for i, b := range policy.TxViewingSk {
 		secret[i] = byte(spptest.AsBigInt(b).Uint64())
 	}
 	disclosure := spptest.CounterDisclosure{Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent}.Hash(t)
-	policy.PublicInputHash = spptest.MustHashChain(t, append(s.policyChainElements(t, nil),
-		transition.OldRoot, transition.NewRoot, disclosure,
-	))
-	compressed := &CompressedPolicyCircuit{
-		Policy: *policy, HeadOldRoot: transition.OldRoot, HeadNewRoot: transition.NewRoot,
-		HeadNext: transition.Leaf.Next, HeadIndex: transition.Index,
-	}
+	policy.PublicInputHash = spptest.MustHashChain(t, append(s.policyChainElements(t, nil), disclosure))
+	compressed := &CompressedPolicyCircuit{Policy: *policy}
 	for i := range compressed.TransactionSalt {
 		compressed.TransactionSalt[i] = 0
-	}
-	for i := range compressed.HeadProof {
-		compressed.HeadProof[i] = transition.Proof[i]
 	}
 	if err := test.IsSolved(&CompressedPolicyCircuit{}, compressed, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("windowed policy authorizes a namespace address claim hidden as padding")

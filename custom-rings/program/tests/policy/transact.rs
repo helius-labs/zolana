@@ -2,7 +2,7 @@ use custom_ring_interface::{
     tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, PolicyConfig,
     AUDITOR_MESSAGE_LEN, KEY_REGISTRY_ROOT_HISTORY,
 };
-use custom_ring_program::{CustomRingError, NULLIFIER_ROOT_WINDOW};
+use custom_ring_program::CustomRingError;
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
@@ -27,8 +27,8 @@ use crate::common::{
     initialized_address_tree_account_with_state_roots, initialized_config_account,
     initialized_policy_config_account, initialized_tree_account, insert_after_policy_trees,
     key_registry_root_slot, nullifier_root_cursor, other_tree, other_tree_slot,
-    paused_address_tree_account, policy_ix_data, setup_mollusk, transact_fixture, utxo_root_cursor,
-    Fixture, Slot,
+    paused_address_tree_account, policy_delegate_transact_fixture, policy_ix_data, setup_mollusk,
+    transact_fixture, utxo_root_cursor, Fixture, Slot,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -162,12 +162,28 @@ fn revocation_fixture(nullifier_root_index: u16, target: RevocationTarget) -> Fi
     revocation_fixture_with(ix_data(0, nullifier_root_index, 0, transact_data()), target)
 }
 
-fn revocation_fixture_with(mut ix: CustomRingTransactIxData, target: RevocationTarget) -> Fixture {
-    ix.revocation_targets[0] = revocation_target_bytes();
-    let mut fixture = transact_fixture(
+fn revocation_fixture_with(ix: CustomRingTransactIxData, target: RevocationTarget) -> Fixture {
+    let fixture = transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(2)),
-        encode_transact(tag::TRANSACT, &ix),
+        encode_transact(tag::TRANSACT, &revoking(ix)),
     );
+    with_target(fixture, target)
+}
+
+fn delegate_revocation_fixture(target: RevocationTarget) -> Fixture {
+    let mut content = transact_data();
+    content.circuit = CircuitId::RingAuthority(1, 1, N_PUBLIC_SLOTS as u8);
+    let ix = revoking(ix_data(0, 0, 0, content));
+    let fixture = policy_delegate_transact_fixture(encode_transact(tag::DELEGATE_TRANSACT, &ix));
+    with_target(fixture, target)
+}
+
+fn revoking(mut ix: CustomRingTransactIxData) -> CustomRingTransactIxData {
+    ix.revocation_targets[0] = revocation_target_bytes();
+    ix
+}
+
+fn with_target(mut fixture: Fixture, target: RevocationTarget) -> Fixture {
     fixture.insert_windows(vec![Slot {
         label: "revocation_target",
         meta: AccountMeta::new_readonly(target.address, false),
@@ -202,14 +218,32 @@ fn a_queued_revocation_target_is_rejected_exactly() {
 }
 
 #[test]
+fn a_prefunded_system_revocation_target_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    revocation_fixture(0, canonical_target(account(1_000_000)))
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn the_delegate_rail_refuses_a_queued_revocation_target() {
+    let (mollusk, _) = setup_mollusk();
+    delegate_revocation_fixture(queued_target())
+        .expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
+    delegate_revocation_fixture(canonical_target(account(0)))
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
 fn a_revocation_behind_an_older_admitted_root_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let tree = initialized_address_tree_account_with_roots(NULLIFIER_ROOT_WINDOW as u16 + 1);
-    let edge = nullifier_root_cursor(&tree) - NULLIFIER_ROOT_WINDOW as u16;
-    let mut fixture = revocation_fixture(edge, queued_target());
+    let tree = initialized_address_tree_account_with_roots(NULLIFIER_ROTATIONS);
+    let oldest = nullifier_root_cursor(&tree) - NULLIFIER_ROTATIONS;
+    let mut fixture = revocation_fixture(oldest, queued_target());
     fixture.set_account("policy_tree", tree);
     fixture.expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
 }
+
+const NULLIFIER_ROTATIONS: u16 = 12;
 
 fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
     transact_fixture(
@@ -477,31 +511,27 @@ fn a_stale_nullifier_root_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::StalePolicyRoot));
 }
 
-/// The oldest admitted root is `NULLIFIER_ROOT_WINDOW` rotations behind the cursor.
 #[test]
-fn a_nullifier_root_at_the_window_edge_reaches_the_proof() {
+fn an_old_live_nullifier_root_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
-    let tree = initialized_address_tree_account_with_roots(NULLIFIER_ROOT_WINDOW as u16 + 1);
-    let edge = nullifier_root_cursor(&tree) - NULLIFIER_ROOT_WINDOW as u16;
-    let mut fixture = policy_fixture(0, edge);
+    let tree = initialized_address_tree_account_with_roots(NULLIFIER_ROTATIONS);
+    let oldest = nullifier_root_cursor(&tree) - NULLIFIER_ROTATIONS;
+    let mut fixture = policy_fixture(0, oldest);
     fixture.set_account("policy_tree", tree);
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 #[test]
-fn a_nullifier_root_one_rotation_past_the_window_is_rejected_exactly() {
+fn a_nullifier_root_index_past_the_history_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let tree = initialized_address_tree_account_with_roots(NULLIFIER_ROOT_WINDOW as u16 + 1);
-    let past = nullifier_root_cursor(&tree) - NULLIFIER_ROOT_WINDOW as u16 - 1;
-    let mut fixture = policy_fixture(0, past);
-    fixture.set_account("policy_tree", tree);
+    let fixture = policy_fixture(0, u16::MAX);
     fixture.expect_err(&mollusk, custom(CustomRingError::StalePolicyRoot));
 }
 
-/// The history wraps, a slot inside the window that no rotation has written
-/// holds zero and is refused.
+/// The history wraps, a slot no rotation has written holds zero and is
+/// refused.
 #[test]
-fn an_unwritten_slot_inside_the_window_is_rejected_exactly() {
+fn an_unwritten_history_slot_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let last = u16::try_from(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY - 1).unwrap();
     let fixture = policy_fixture(0, last);
@@ -545,7 +575,6 @@ fn the_address_tree_is_the_configured_one() {
     );
 }
 
-/// State roots use history bounds without the nullifier freshness window.
 #[test]
 fn a_state_root_index_past_the_history_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();

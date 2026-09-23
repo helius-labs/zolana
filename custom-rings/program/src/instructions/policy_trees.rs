@@ -1,8 +1,7 @@
 use pinocchio::{error::ProgramError, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    instruction::instruction_data::transact::TreeContext,
-    state::NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, tree_slot::TreeSlot, INPUT_TREES,
+    instruction::instruction_data::transact::TreeContext, tree_slot::TreeSlot, INPUT_TREES,
     NULLIFIER_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::ANSWER_SLOTS;
@@ -11,10 +10,6 @@ use crate::{
     error::CustomRingError,
     instructions::{loader::load_policy_tree_slot, shared::PdaCheck},
 };
-
-/// Liveness bound only, the revocation target PDA check keeps older roots sound.
-pub const NULLIFIER_ROOT_WINDOW: u32 = 8;
-const _: () = assert!(NULLIFIER_ROOT_WINDOW < NULLIFIER_TREE_ROOT_HISTORY_CAPACITY);
 
 /// Distinct SPP trees a policy statement reads list facts from, in slot order.
 pub(crate) struct PolicyTrees {
@@ -94,41 +89,5 @@ impl RevocationTargets<'_> {
             return Err(CustomRingError::InvalidRevocationTreeIndex.into());
         }
         Ok(())
-    }
-}
-
-pub(crate) fn within_window(index: u32, cursor: u32) -> bool {
-    let capacity = NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
-    if index >= capacity || cursor >= capacity {
-        return false;
-    }
-    (cursor + capacity - index) % capacity <= NULLIFIER_ROOT_WINDOW
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const CAPACITY: u32 = NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
-
-    #[test]
-    fn the_window_admits_the_cursor_and_the_last_entries() {
-        assert!(within_window(40, 40));
-        assert!(within_window(40 - NULLIFIER_ROOT_WINDOW, 40));
-        assert!(!within_window(40 - NULLIFIER_ROOT_WINDOW - 1, 40));
-        assert!(!within_window(41, 40));
-    }
-
-    #[test]
-    fn the_window_wraps_with_the_buffer() {
-        assert!(within_window(CAPACITY - 1, 2));
-        assert!(within_window(CAPACITY - NULLIFIER_ROOT_WINDOW + 1, 1));
-        assert!(!within_window(CAPACITY / 2, 1));
-    }
-
-    #[test]
-    fn an_index_past_the_history_is_refused() {
-        assert!(!within_window(CAPACITY, 0));
-        assert!(!within_window(0, CAPACITY));
     }
 }

@@ -1,9 +1,9 @@
 //! Seals a member's nullifier key to the ring auditor and appends it to the key registry.
 
 use custom_ring_interface::{
-    tag, CustomRingProof, HeadMapLeaf, HeadMapTransition, MerklePath, RegisterKeyIxData,
-    RegisterKeyPublicInput, RegisteredKey, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
-    HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT,
+    tag, CustomRingProof, HeadMapInsert, HeadMapLeaf, HeadMapTransition, MerklePath,
+    RegisterKeyIxData, RegisterKeyPublicInput, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
+    COMPRESSED_P256_KEY_LEN, HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT,
 };
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use serde::Serialize;
@@ -17,15 +17,14 @@ use zolana_client::{
 };
 use zolana_hasher::primitives::right_align;
 use zolana_indexer_api::{
-    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    RingMemberProofRequest,
+    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse, Hash,
+    RingMemberProofRequest, SerializablePubkey,
 };
 use zolana_keypair::{KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{AuditEncryptionError, NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_policy::Member;
 
 use crate::{
-    head_map::{IndexedInsert, VerifiedInsert},
     instructions::transact::request::{bytes_to_hex, field_hex, index_hex, json_body, SecretHex},
     to_instruction_proof, AccountReadError, AsyncTransferProofEnvironment, CustomRing,
     CustomRingProofError, IndexedMapRoot, TransferProofEnvironment,
@@ -353,6 +352,17 @@ impl SealedKeyEntry {
     }
 }
 
+impl CustomRing {
+    fn member_proof_request(self, member: &Member, root: IndexedMapRoot) -> RingMemberProofRequest {
+        RingMemberProofRequest {
+            ring_program_id: SerializablePubkey::from(self.program_id().to_bytes()),
+            member: Hash(*member.as_bytes()),
+            expected_root: Hash(root.root),
+            expected_next_index: root.next_index,
+        }
+    }
+}
+
 pub(crate) struct KeySeal<'a> {
     pub envelope: &'a NullifierKeyEnvelope,
     pub auditor: P256Pubkey,
@@ -377,17 +387,33 @@ impl KeySeal<'_> {
         }
         .commitment()
         .map_err(|_| KeyRegistrationError::Hashing)?;
-        let VerifiedInsert {
-            transition,
-            low_proof,
-            new_proof,
-        } = IndexedInsert {
-            query,
-            response: (&response).into(),
+        if response.root != query.expected_root
+            || response.member != query.member
+            || response.next_index != query.expected_next_index
+            || response.low_index >= response.next_index
+        {
+            return Err(KeyRegistrationError::InvalidRegisterProof);
+        }
+        let low_proof: Vec<_> = response.low_proof.iter().map(|hash| hash.0).collect();
+        let new_proof: Vec<_> = response.new_proof.iter().map(|hash| hash.0).collect();
+        let new_root = HeadMapInsert {
+            root: &response.root.0,
+            append_index: response.next_index,
+            member: &response.member.0,
             genesis: &genesis,
+            low_member: &response.low_member.0,
+            low_next: &response.low_next.0,
+            low_nullifier: &response.low_ct_commitment.0,
+            low_index: response.low_index,
+            low_proof: &low_proof,
+            new_proof: &new_proof,
         }
         .verify()
         .map_err(|_| KeyRegistrationError::InvalidRegisterProof)?;
+        let transition = HeadMapTransition {
+            old_root: response.root.0,
+            new_root,
+        };
         let public_input = RegisterKeyPublicInput {
             registry_old_root: &transition.old_root,
             registry_new_root: &transition.new_root,
@@ -489,7 +515,7 @@ struct RegisterKeyProofRequestJson<'a> {
 
 #[cfg(test)]
 mod tests {
-    use zolana_indexer_api::{Base64String, Context, Hash};
+    use zolana_indexer_api::{Base64String, Context};
     use zolana_keypair::{NullifierKey, ViewingKey};
     use zolana_ring_head_map::{HeadMap, HeadTransfer, Registration};
 

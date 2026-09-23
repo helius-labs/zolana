@@ -451,7 +451,6 @@ impl WitnessedDelegateTransfer {
             nullifier_root_index,
             approval_required: _,
             revocation_targets,
-            head_transition: _,
         } = self.request.proven(ring_proof)?;
         let width = self.prepared.shape.n_inputs() as u8;
         Ok(ProvenDelegateTransfer {

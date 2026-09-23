@@ -53,12 +53,12 @@ pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingHeadRegisterProofResponse,
-    GetRingHeadTransferProofResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
-    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
-    RingMemberProofRequest, Rpc, ShieldedTransaction, ShieldedTransactionStream,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
+    OutputSlot, ProveResult, RingHistoryOptions, RingMemberProofRequest, RingSpendRecord,
+    RingSpendRecordRequest, Rpc, ShieldedTransaction, ShieldedTransactionStream,
     MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};

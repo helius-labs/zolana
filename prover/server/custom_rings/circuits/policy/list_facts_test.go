@@ -81,3 +81,27 @@ func TestListFactRequiresStrictNullifierInterval(t *testing.T) {
 		})
 	}
 }
+
+func TestRevocationTargetsExportOnlyEnabledFacts(t *testing.T) {
+	s := newStatement(t, defaultFixture())
+	s.rules = []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}}
+	s.inlineAssets = nil
+	fact := s.listFactForEntry(t, allowedActive)
+	assign := func(targets []*big.Int) *CustomRingPolicyCircuit {
+		c := s.assignment(t, nil)
+		c.ListFacts[0] = fact
+		elements := s.policyChainElements(t, []int{allowedActive})
+		copy(elements[len(elements)-NListFacts:], targets)
+		c.PublicInputHash = spptest.MustHashChain(t, elements)
+		return c
+	}
+	solve(t, testConstraintSystem(t), assign(s.revocationTargets([]int{allowedActive})))
+
+	hidden := s.revocationTargets([]int{allowedActive})
+	hidden[0] = big.NewInt(0)
+	rejectAssignment(t, assign(hidden))
+
+	extra := s.revocationTargets([]int{allowedActive})
+	extra[1] = big.NewInt(1)
+	rejectAssignment(t, assign(extra))
+}

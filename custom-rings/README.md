@@ -29,15 +29,16 @@ are data `init` pins from `ring.toml`.
    proves entry state, and [`evaluate.go`](../prover/server/custom_rings/circuits/policy/evaluate.go)
    applies the rules to those openings.
 3. [`velocity.go`](../prover/server/custom_rings/circuits/policy/velocity.go)
-   accounts for outflow. [`head_map.go`](../prover/server/custom_rings/circuits/policy/head_map.go)
-   binds windowed counters to the current record, preventing history rollback.
+   accounts for outflow and binds windowed counters to the spent record and its
+   successor.
 4. [`transact.rs`](program/src/instructions/transact.rs) binds the proof to
-   trusted accounts and the clock, checks public controls, and commits the head
-   transition atomically with SPP settlement.
+   trusted accounts and the clock, checks public controls, and forwards the
+   settlement to SPP.
 5. [`transfer.rs`](sdk/src/transfer.rs) assembles the client proof inputs.
-   [`indexer`](indexer/src/lib.rs) validates head and key transitions and builds
-   their Merkle overlays. Photon owns block fetching, persistence and replay.
-   Clients validate its exact-root proofs before using them.
+   [`indexer`](indexer/src/lib.rs) validates spend-record and key transitions
+   and builds the key registry's Merkle overlay. Photon owns block fetching,
+   persistence and replay. Clients validate its exact-root key-registry proofs
+   before using them.
 
 ## Roles
 
@@ -151,10 +152,9 @@ program requires exactly one matching namespace message. Its statement binds
 the transaction salt and complete ciphertext under `CRING/spend-counters/v1`.
 The sender and auditor reject a missing or malformed disclosure on a
 non-genesis record. The record publishes their commitment, member,
-version and window. One 42-byte head-map PDA authenticates every member's
-current record. Photon stores the indexed leaves and supplies exact-root
-proofs. The `transact` and `transfer` commands register the sender on first
-use and refuse to send a transfer the proof marks for approval without
+version and window. Photon serves each member's latest record through
+`getRingSpendRecord`, and SPP refuses any spent record. The `transact` and
+`transfer` commands register the sender on first use and refuse to send a transfer the proof marks for approval without
 `--cosigner-keypair`.
 
 Ring controls require a fresh deployment. No state migration is provided.
@@ -333,7 +333,7 @@ count.
 
 On devnet, configure the prover, indexer and ring RPC URLs in `ring.toml`.
 They must run the matching release, including its proving keys and Photon
-head-map and key-registry projections. The CLI probes these services and does
+spend-record and key-registry projections. The CLI probes these services and does
 not start them. A healthy HTTP endpoint alone does not prove key compatibility.
 The hosted ring RPC derives one auditor key per
 ring from a root secret, so it serves any ring that asks and a new ring needs
@@ -373,10 +373,8 @@ up to twice the cap across one boundary.
 
 Windowed transfers reserve one of five input slots and one of four output
 slots for the record. Address claims use the separate registration instruction.
-A concurrent update to their shared head root makes
-the other proof stale. The client waits for the indexer and proves again.
-Compression keeps
-rent constant per ring. Transaction history and indexer storage still grow.
+Records are compressed state, so a ring pays no rent per member. Transaction
+history and indexer storage still grow.
 
 ## Reading a ring
 
@@ -408,16 +406,16 @@ caller's with the stored rows. `prove_async` serves both tiers. `TransactSend`
 submits a V1 message with a 4096-byte limit and compute ceilings in its header.
 The opt-in `RingSubmission` accepts member transfers, delegate moves, spend
 registration, key registration and merges through `RingOperation`. Its
-`send` and `send_async` paths retain intent across eligible stale-root,
-window-boundary and verified blockhash-expiry retries, with at most three
-signed attempts. Unknown send outcomes retain the original signature for
-status checks. Rust pending state is in memory. `RingTransferSubmission`
+`send` and `send_async` paths retain intent across eligible stale
+key-registry root, window-boundary and verified blockhash-expiry retries, with
+at most three signed attempts. Unknown send outcomes retain the original
+signature for status checks. Rust pending state is in memory. `RingTransferSubmission`
 remains an alias. A merge uses `RingMergeOperation` and `MergeProofInput`,
 binding the input and output tree accounts before proving.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
 its transactions, the ring RPC and the lifecycle test both use it. Auditor
-discovery matches the auditor view tag. Compressed spend-record discovery
-additionally requires Photon's ring head-map projection. A transaction
+discovery matches the auditor view tag. Spend-record discovery additionally
+requires Photon's ring spend-record projection. A transaction
 belongs to the ring when, in its confirmed call stack read from Solana RPC,
 the shielded pool instruction has the ring program as direct caller. A member
 escrows its nullifier key with `RegisterKey`, `ReadSealedKey` reads the sealed
@@ -440,14 +438,14 @@ builds unsigned V1 transfers, withdrawals, exits, delegate moves and merges. Bui
 read the ring's tier and policy, fetch list proofs from its entries tree, and
 include the required audit and policy proofs. Money inputs come from
 `client.tree`, and `outputTree` defaults to it. Windowed member transfers
-require both to match the entries tree. Initialize the shared head map once,
-then use `prepareRingSpendRegistration` for each windowed member.
+require both to match the entries tree. Use `prepareRingSpendRegistration`
+once for each windowed member.
 `createRingKeyRegistryRootInstruction` creates the key registry once,
 `prepareRingKeyRegistration` enrols a member, `fetchRingSealedKey` and
 `openRingSealedKey` read its key with the auditor key, and
 `recoverRingMemberNotes` feeds `buildRingDelegateRecoveredTransaction`. Explicit
-submission APIs handle signing and eligible stale-root, window-boundary and
-verified blockhash-expiry retries. `createRingMergeSubmission` consolidates
+submission APIs handle signing and eligible stale key-registry root,
+window-boundary and verified blockhash-expiry retries. `createRingMergeSubmission` consolidates
 two to eight clean notes of one owner, asset and ring, preserving their
 value and enforcing the configured transfer co-signer. A windowed merge
 must send its output to the entries tree.

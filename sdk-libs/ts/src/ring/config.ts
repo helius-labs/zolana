@@ -1,9 +1,4 @@
-import {
-  getProgramDerivedAddress,
-  type Address,
-  type Instruction,
-  type ProgramDerivedAddress,
-} from "@solana/kit";
+import { getProgramDerivedAddress, type Address, type Instruction } from "@solana/kit";
 
 import type { ChainReader } from "../client/ports.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
@@ -18,7 +13,6 @@ import {
   ringDelegatePda,
   ringDepositAuditAddress,
   ringDepositAuditPda,
-  ringHeadMapRootPda,
   ringKeyRegistryRootPda,
   ringPolicyConfigPda,
   ringSpendWindowAddress,
@@ -41,12 +35,10 @@ import {
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
   decodeRingSpendWindow,
-  decodeRingHeadMapRoot,
   decodeRingKeyRegistryRoot,
-  type RingHeadMapRoot,
   type RingKeyRegistryRoot,
 } from "./codecs.js";
-import { RingError, type RingErrorCode } from "./error.js";
+import { RingError } from "./error.js";
 
 const encoder = new TextEncoder();
 export const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
@@ -57,7 +49,6 @@ const CLEAR_CO_SIGNER_TAG = 21;
 const SET_SPEND_WINDOW_TAG = 22;
 const CLEAR_SPEND_WINDOW_TAG = 23;
 const SET_DELEGATE_TAG = 24;
-const CREATE_HEAD_MAP_ROOT_TAG = 27;
 const CREATE_KEY_REGISTRY_ROOT_TAG = 29;
 const SET_DEPOSIT_AUDIT_TAG = 31;
 
@@ -102,82 +93,27 @@ export async function setRingDepositAuditInstruction(
   };
 }
 
-/** Shares account validation across the head map and key registry roots. */
-interface IndexedRootKind {
-  readonly pda: (ringProgramId: Address) => Promise<ProgramDerivedAddress>;
-  readonly decode: (data: Uint8Array) => RingHeadMapRoot;
-  readonly createTag: number;
-  readonly missing: RingErrorCode;
-  readonly invalid: RingErrorCode;
-}
-
-const HEAD_MAP_ROOT: IndexedRootKind = {
-  pda: ringHeadMapRootPda,
-  decode: decodeRingHeadMapRoot,
-  createTag: CREATE_HEAD_MAP_ROOT_TAG,
-  missing: "RING_HEAD_MAP_MISSING",
-  invalid: "RING_HEAD_MAP_INVALID",
-};
-
-const KEY_REGISTRY_ROOT: IndexedRootKind = {
-  pda: ringKeyRegistryRootPda,
-  decode: decodeRingKeyRegistryRoot,
-  createTag: CREATE_KEY_REGISTRY_ROOT_TAG,
-  missing: "RING_KEY_REGISTRY_MISSING",
-  invalid: "RING_KEY_REGISTRY_INVALID",
-};
-
 /** The stored bump must be canonical. */
-export function fetchRingHeadMapRoot(
-  client: Pick<ChainReader, "getAccount">,
-  ringProgramId: Address,
-  context?: RequestContext,
-): Promise<RingHeadMapRoot> {
-  return fetchIndexedRoot(HEAD_MAP_ROOT, client, ringProgramId, context);
-}
-
-export function fetchRingKeyRegistryRoot(
+export async function fetchRingKeyRegistryRoot(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
   context?: RequestContext,
 ): Promise<RingKeyRegistryRoot> {
-  return fetchIndexedRoot(KEY_REGISTRY_ROOT, client, ringProgramId, context);
-}
-
-export function createRingHeadMapRootInstruction(
-  input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
-): Promise<Instruction> {
-  return createIndexedRootInstruction(HEAD_MAP_ROOT, input);
-}
-
-export function createRingKeyRegistryRootInstruction(
-  input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
-): Promise<Instruction> {
-  return createIndexedRootInstruction(KEY_REGISTRY_ROOT, input);
-}
-
-async function fetchIndexedRoot(
-  kind: IndexedRootKind,
-  client: Pick<ChainReader, "getAccount">,
-  ringProgramId: Address,
-  context?: RequestContext,
-): Promise<RingHeadMapRoot> {
-  const [address, bump] = await kind.pda(ringProgramId);
+  const [address, bump] = await ringKeyRegistryRootPda(ringProgramId);
   const account = await client.getAccount(address, context);
-  if (account === undefined) throw new RingError(kind.missing);
-  if (account.owner !== ringProgramId) throw new RingError(kind.invalid);
-  const root = kind.decode(account.data);
-  if (root.bump !== bump) throw new RingError(kind.invalid);
+  if (account === undefined) throw new RingError("RING_KEY_REGISTRY_MISSING");
+  if (account.owner !== ringProgramId) throw new RingError("RING_KEY_REGISTRY_INVALID");
+  const root = decodeRingKeyRegistryRoot(account.data);
+  if (root.bump !== bump) throw new RingError("RING_KEY_REGISTRY_INVALID");
   return root;
 }
 
-async function createIndexedRootInstruction(
-  kind: IndexedRootKind,
+export async function createRingKeyRegistryRootInstruction(
   input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
 ): Promise<Instruction> {
   const [config, [root]] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
-    kind.pda(input.ringProgramId),
+    ringKeyRegistryRootPda(input.ringProgramId),
   ]);
   return {
     programAddress: input.ringProgramId,
@@ -188,7 +124,7 @@ async function createIndexedRootInstruction(
       meta(root, false, true),
       meta(SYSTEM_PROGRAM, false, false),
     ],
-    data: Uint8Array.of(kind.createTag),
+    data: Uint8Array.of(CREATE_KEY_REGISTRY_ROOT_TAG),
   };
 }
 

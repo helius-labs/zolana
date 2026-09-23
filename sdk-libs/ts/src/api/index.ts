@@ -11,9 +11,9 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
+  GetRingSpendRecordResponse,
   RingMemberProofRequest,
-  RingHeadRegisterProof,
-  RingHeadTransferProof,
+  RingMemberRequest,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
 } from "../indexer/types.js";
@@ -26,8 +26,7 @@ import {
   getShieldedTransactionsBySignatureMethod,
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
-  getRingHeadRegisterProofMethod,
-  getRingHeadTransferProofMethod,
+  getRingSpendRecordMethod,
   getRingKeyRegistryEntryMethod,
   getRingKeyRegistryRegisterProofMethod,
 } from "../indexer/methods/index.js";
@@ -105,18 +104,11 @@ export class ZolanaApi {
     return this.#call(getShieldedTransactionsByNullifiersMethod, request, context);
   }
 
-  getRingHeadRegisterProof(
-    request: RingMemberProofRequest,
+  getRingSpendRecord(
+    request: RingMemberRequest,
     context?: RequestContext,
-  ): Promise<RingHeadRegisterProof> {
-    return this.#call(getRingHeadRegisterProofMethod, request, context);
-  }
-
-  getRingHeadTransferProof(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingHeadTransferProof> {
-    return this.#call(getRingHeadTransferProofMethod, request, context);
+  ): Promise<GetRingSpendRecordResponse> {
+    return this.#call(getRingSpendRecordMethod, request, context);
   }
 
   getRingKeyRegistryEntry(

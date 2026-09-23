@@ -2,10 +2,10 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, HeadMapRoot, KeyRegistryRoot,
-    PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE,
-    DEPOSIT_AUDIT, HEAD_MAP_CAPACITY, HEAD_MAP_ROOT, KEY_REGISTRY_ROOT, POLICY_CONFIG,
-    READ_ACCESS_RECORD, RING_PROGRAM_CONFIG, SPEND_WINDOW,
+    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig,
+    ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE, DEPOSIT_AUDIT,
+    HEAD_MAP_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -49,7 +49,6 @@ pub struct CustomRingDelegate {
     pub delegate: Address,
 }
 
-/// The head map and the key registry share one root layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IndexedMapRoot {
     pub root: [u8; 32],
@@ -196,49 +195,26 @@ impl CustomRing {
         Address::find_program_address(&[Delegate::SEED], &self.program_id).into()
     }
 
-    pub fn head_map_root_pda(self) -> Address {
-        self.head_map_root_pda_with_bump().address
-    }
-
-    fn head_map_root_pda_with_bump(self) -> Pda {
-        ring_pda::head_map_root(&self.program_id).into()
-    }
-
-    pub fn read_head_map_root<R: Rpc>(
-        self,
-        rpc: &R,
-    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
-        let pda = self.head_map_root_pda_with_bump();
-        self.decode_indexed_root::<HeadMapRoot>(pda, rpc.get_account(pda.address)?)
-    }
-
-    pub async fn read_head_map_root_async<R: AsyncRpc>(
-        self,
-        rpc: &R,
-    ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
-        let pda = self.head_map_root_pda_with_bump();
-        self.decode_indexed_root::<HeadMapRoot>(pda, rpc.get_account(pda.address).await?)
-    }
-
     /// Slot 0 holds the sentinel, the cursor never reads zero.
-    fn decode_indexed_root<T: IndexedRootAccount>(
+    fn decode_key_registry_root(
         self,
         pda: Pda,
         account: Option<Account>,
     ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
-        let Some(root) = AccountRead::decode_optional::<T>(self.program_id, pda.address, account)?
+        let Some(root) =
+            AccountRead::decode_optional::<KeyRegistryRoot>(self.program_id, pda.address, account)?
         else {
             return Ok(None);
         };
-        let root = root.indexed_root();
-        if root.bump != pda.bump || root.next_index == 0 || root.next_index > HEAD_MAP_CAPACITY {
+        let next_index = root.next_index();
+        if root.bump != pda.bump || next_index == 0 || next_index > HEAD_MAP_CAPACITY {
             return Err(AccountReadError::InvalidAccount {
                 address: pda.address,
             });
         }
         Ok(Some(IndexedMapRoot {
             root: root.root,
-            next_index: root.next_index,
+            next_index,
         }))
     }
 
@@ -427,7 +403,7 @@ impl CustomRing {
         rpc: &R,
     ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
         let pda = self.key_registry_root_pda_with_bump();
-        self.decode_indexed_root::<KeyRegistryRoot>(pda, rpc.get_account(pda.address)?)
+        self.decode_key_registry_root(pda, rpc.get_account(pda.address)?)
     }
 
     /// The async twin of [`Self::read_key_registry_root`], over [`AsyncRpc`].
@@ -436,7 +412,7 @@ impl CustomRing {
         rpc: &R,
     ) -> Result<Option<IndexedMapRoot>, AccountReadError> {
         let pda = self.key_registry_root_pda_with_bump();
-        self.decode_indexed_root::<KeyRegistryRoot>(pda, rpc.get_account(pda.address).await?)
+        self.decode_key_registry_root(pda, rpc.get_account(pda.address).await?)
     }
 
     /// `None` when the mint is uncapped.
@@ -702,49 +678,11 @@ impl ReadableAccount for SpendWindow {
     }
 }
 
-impl ReadableAccount for HeadMapRoot {
-    const DISCRIMINATOR: u8 = HEAD_MAP_ROOT;
-
-    fn discriminator(self) -> u8 {
-        self.discriminator
-    }
-}
-
 impl ReadableAccount for KeyRegistryRoot {
     const DISCRIMINATOR: u8 = KEY_REGISTRY_ROOT;
 
     fn discriminator(self) -> u8 {
         self.discriminator
-    }
-}
-
-struct StoredIndexedRoot {
-    bump: u8,
-    root: [u8; 32],
-    next_index: u64,
-}
-
-trait IndexedRootAccount: ReadableAccount {
-    fn indexed_root(self) -> StoredIndexedRoot;
-}
-
-impl IndexedRootAccount for HeadMapRoot {
-    fn indexed_root(self) -> StoredIndexedRoot {
-        StoredIndexedRoot {
-            bump: self.bump,
-            root: self.root,
-            next_index: self.next_index(),
-        }
-    }
-}
-
-impl IndexedRootAccount for KeyRegistryRoot {
-    fn indexed_root(self) -> StoredIndexedRoot {
-        StoredIndexedRoot {
-            bump: self.bump,
-            root: self.root,
-            next_index: self.next_index(),
-        }
     }
 }
 

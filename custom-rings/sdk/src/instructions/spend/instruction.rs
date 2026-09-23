@@ -1,23 +1,15 @@
 #[cfg(feature = "solana-rpc")]
 use crate::instructions::transact::ProvedWindow;
-use custom_ring_interface::{
-    tag, HeadMapTransition, PlainGroth16Proof, PolicyConfig, RegisterSpendIxData,
-};
+use custom_ring_interface::{tag, PolicyConfig, RegisterSpendIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_client::{AsyncRpc, Rpc};
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
-use zolana_ring_policy::{
-    entry_nullifier, spend_seed, ListNamespace, Member, SpendCounters, SpendRecord,
-};
+use zolana_ring_policy::{spend_seed, ListNamespace, Member, SpendCounters, SpendRecord};
 
 use crate::{
-    head_map::{HeadRegistration, RegisterHead},
-    instructions::entry::{
-        AddressClaim, EntryError, EntryProof, EntryProofError, NamespaceProof, NamespaceWrite,
-    },
-    policy_config_table, to_plain_proof, AsyncTransferProofEnvironment, CustomRing,
-    TransferProofEnvironment,
+    instructions::entry::{AddressClaim, EntryError, EntryProof, NamespaceProof, NamespaceWrite},
+    policy_config_table, AsyncTransferProofEnvironment, CustomRing, TransferProofEnvironment,
 };
 
 #[must_use]
@@ -33,97 +25,34 @@ impl RegisterSpend {
         self,
         env: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenSpendRegistration, EntryError> {
-        let TransferProofEnvironment {
-            indexer,
-            rpc,
-            prover,
-        } = env;
         let policy = self
             .ring
-            .read_policy_config(rpc)?
+            .read_policy_config(env.rpc)?
             .ok_or(EntryError::MissingPolicyConfig)?;
-        let draft = self.draft(policy, rpc.get_slot()?)?;
-        let head = self
-            .ring
-            .read_head_map_root(rpc)?
-            .ok_or(EntryProofError::MissingHeadMap)?;
-        let query = self.ring.member_proof_request(&draft.record.member, head);
-        let head_witness = indexer.get_ring_head_register_proof(query.clone())?;
-        let entry = draft.write()?.prove(
-            TransferProofEnvironment {
-                indexer,
-                rpc,
-                prover,
-            },
-            |blinding| draft.record(blinding).to_output_data().to_vec(),
-        )?;
-        let HeadRegistration {
-            request,
-            transition,
-        } = RegisterHead {
-            query: &query,
-            response: head_witness,
-            genesis: draft.genesis(entry.blinding)?,
-        }
-        .prepare()?;
-        let head_proof = to_plain_proof(prover.prove(&request)?)?;
-        Ok(draft.finish(RegistrationProofs {
-            entry,
-            head_transition: transition,
-            head_next_index: head.next_index,
-            head_proof,
-        }))
+        let draft = self.draft(policy, env.rpc.get_slot()?)?;
+        let entry = draft.write()?.prove(env, |blinding| {
+            draft.record(blinding).to_output_data().to_vec()
+        })?;
+        Ok(draft.finish(entry))
     }
 
     pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         env: AsyncTransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenSpendRegistration, EntryError> {
-        let AsyncTransferProofEnvironment {
-            indexer,
-            rpc,
-            prover,
-        } = env;
         let policy = self
             .ring
-            .read_policy_config_async(rpc)
+            .read_policy_config_async(env.rpc)
             .await?
             .ok_or(EntryError::MissingPolicyConfig)?;
-        let draft = self.draft(policy, rpc.get_slot().await?)?;
-        let head = self
-            .ring
-            .read_head_map_root_async(rpc)
-            .await?
-            .ok_or(EntryProofError::MissingHeadMap)?;
-        let query = self.ring.member_proof_request(&draft.record.member, head);
-        let head_witness = indexer.get_ring_head_register_proof(query.clone()).await?;
+        let draft = self.draft(policy, env.rpc.get_slot().await?)?;
         let entry = draft
             .write()?
-            .prove_async(
-                AsyncTransferProofEnvironment {
-                    indexer,
-                    rpc,
-                    prover,
-                },
-                |blinding| draft.record(blinding).to_output_data().to_vec(),
-            )
+            .prove_async(env, |blinding| {
+                draft.record(blinding).to_output_data().to_vec()
+            })
             .await?;
-        let HeadRegistration {
-            request,
-            transition,
-        } = RegisterHead {
-            query: &query,
-            response: head_witness,
-            genesis: draft.genesis(entry.blinding)?,
-        }
-        .prepare()?;
-        let head_proof = to_plain_proof(prover.prove(&request).await?)?;
-        Ok(draft.finish(RegistrationProofs {
-            entry,
-            head_transition: transition,
-            head_next_index: head.next_index,
-            head_proof,
-        }))
+        Ok(draft.finish(entry))
     }
 
     fn draft(self, policy: PolicyConfig, slot: u64) -> Result<RegistrationDraft, EntryError> {
@@ -168,13 +97,6 @@ struct RegistrationDraft {
     record: SpendRecord,
 }
 
-struct RegistrationProofs {
-    entry: NamespaceProof,
-    head_transition: HeadMapTransition,
-    head_next_index: u64,
-    head_proof: PlainGroth16Proof,
-}
-
 impl RegistrationDraft {
     fn record(&self, blinding: [u8; 32]) -> SpendRecord {
         SpendRecord {
@@ -205,15 +127,7 @@ impl RegistrationDraft {
         })
     }
 
-    fn genesis(&self, blinding: [u8; 32]) -> Result<[u8; 32], EntryError> {
-        let hash = self
-            .record(blinding)
-            .utxo_hash(&self.owner, &self.address, self.policy.address_tree_id())
-            .map_err(|_| EntryError::Hashing)?;
-        entry_nullifier(&hash, &blinding).map_err(|_| EntryError::Hashing)
-    }
-
-    fn finish(self, proofs: RegistrationProofs) -> ProvenSpendRegistration {
+    fn finish(self, entry: NamespaceProof) -> ProvenSpendRegistration {
         ProvenSpendRegistration {
             #[cfg(feature = "solana-rpc")]
             window: ProvedWindow {
@@ -223,11 +137,8 @@ impl RegistrationDraft {
             ring: self.registration.ring,
             payer: self.registration.payer,
             entries_tree: self.policy.address_tree,
-            record: self.record(proofs.entry.blinding),
-            proof: proofs.entry.proof,
-            head_transition: proofs.head_transition,
-            head_next_index: proofs.head_next_index,
-            head_proof: proofs.head_proof,
+            record: self.record(entry.blinding),
+            proof: entry.proof,
         }
     }
 }
@@ -241,9 +152,6 @@ pub struct ProvenSpendRegistration {
     entries_tree: Address,
     record: SpendRecord,
     proof: EntryProof,
-    head_transition: HeadMapTransition,
-    head_next_index: u64,
-    head_proof: PlainGroth16Proof,
 }
 
 impl ProvenSpendRegistration {
@@ -258,9 +166,6 @@ impl ProvenSpendRegistration {
             entries_tree,
             record,
             proof,
-            head_transition,
-            head_next_index,
-            head_proof,
             #[cfg(feature = "solana-rpc")]
                 window: _,
         } = self;
@@ -271,10 +176,6 @@ impl ProvenSpendRegistration {
             nullifier_tree_root_index: proof.nullifier_tree_root_index,
             utxo_tree_root_index: proof.utxo_tree_root_index,
             proof: proof.proof,
-            head_old_root: head_transition.old_root,
-            head_new_root: head_transition.new_root,
-            head_next_index,
-            head_proof,
         })?);
         Ok(Instruction {
             program_id: ring.program_id(),
@@ -288,7 +189,6 @@ impl ProvenSpendRegistration {
                 AccountMeta::new(entries_tree, false),
                 AccountMeta::new(pda::nullifier_pda(&entries_tree, &proof.nullifier).0, false),
                 AccountMeta::new_readonly(ring.namespace_pda(), false),
-                AccountMeta::new(ring.head_map_root_pda(), false),
             ],
             data,
         })

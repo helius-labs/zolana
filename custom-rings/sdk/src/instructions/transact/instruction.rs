@@ -42,8 +42,6 @@ pub struct CustomRingTransact {
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring
     /// whose layout drops the policy_config and entries_tree accounts.
     pub entries_tree: Option<Address>,
-    /// The ring's shared current-record root, present only for windowed transfers.
-    pub head_map_root: Option<Address>,
     pub cosigner: Option<Address>,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
@@ -62,7 +60,6 @@ pub struct CustomRingTransact {
     /// The dual control bit the velocity statement proves, the co-signer then signs.
     pub approval_required: bool,
     pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
-    pub head_transition: Option<custom_ring_interface::HeadMapTransition>,
 }
 
 impl CustomRingTransact {
@@ -73,7 +70,6 @@ impl CustomRingTransact {
             input_tree,
             output_tree,
             entries_tree,
-            head_map_root,
             cosigner,
             owner_signers,
             interface_transfer_accounts,
@@ -83,7 +79,6 @@ impl CustomRingTransact {
             nullifier_root_index,
             approval_required,
             revocation_targets,
-            head_transition,
         } = self;
 
         let windows: Vec<AccountMeta> = window_metas(
@@ -124,9 +119,6 @@ impl CustomRingTransact {
             }
             .metas(),
         );
-        if let Some(head_map_root) = head_map_root.filter(|_| entries_tree.is_some()) {
-            accounts.push(AccountMeta::new(head_map_root, false));
-        }
         if let Some(entries_tree) = entries_tree {
             accounts.extend(
                 revocation_targets
@@ -154,7 +146,6 @@ impl CustomRingTransact {
                 .collect(),
             key_registry_root_index: 0,
             approval_required: u8::from(approval_required),
-            head_transition,
             revocation_targets,
             revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
             transact,

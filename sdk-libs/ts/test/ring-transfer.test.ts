@@ -435,7 +435,7 @@ describe("delegate policy rail", () => {
     expect(finalized?.outputs.filter((output) => !output.isDummy())).toHaveLength(2);
     expect(finalized?.externalData.messages).toHaveLength(1);
     expect(proved.ownerSigners).toEqual([]);
-    expect(proved.headTransition).toBeUndefined();
+    expect(proved.window).toBeUndefined();
     expect(proved.approvalRequired).toBe(false);
     auditor.destroy();
   });

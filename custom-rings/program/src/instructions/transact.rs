@@ -2,12 +2,10 @@ use core::num::NonZeroU64;
 
 use custom_ring_interface::{
     CompressedPolicyPublicInput, CustomRingBasePublicInput, CustomRingPolicyPublicInput,
-    CustomRingProof, CustomRingTransactIxData, FixedWindow, HeadMapRoot, HeadMapTransition,
-    KeyEscrow, AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_DISCLOSURE_LEN,
-    COMPRESSED_P256_KEY_LEN,
+    CustomRingProof, CustomRingTransactIxData, FixedWindow, KeyEscrow, AUDIT_CIPHERTEXT_LEN,
+    AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_DISCLOSURE_LEN, COMPRESSED_P256_KEY_LEN,
 };
 use pinocchio::{
-    account::RefMut,
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
@@ -26,17 +24,13 @@ use crate::{
     instructions::{
         cosign::{approval_signer, require_cosigner, CoSignerRequirement},
         key_escrow::EscrowRoot,
-        loader::{
-            load_append_root_mut, load_config, load_policy_config, load_spp_tree_id,
-            validate_spp_program,
-        },
+        loader::{load_config, load_policy_config, load_spp_tree_id, validate_spp_program},
         policy_shared::{namespace_address, RecordNamespace, SpendRecordCarrier},
         policy_trees::{PolicyTrees, RevocationTargets},
         public_legs::PublicLegs,
         shared::{cpi_spp_signed, SppSigners},
         verifier::verify_groth16,
     },
-    state::{Advance, RootTransition},
 };
 
 #[inline(never)]
@@ -115,7 +109,6 @@ impl TransactRail {
             policy_trees,
             key_registry_root_index,
             approval_required,
-            head_transition,
             revocation_targets,
             revocation_tree_indexes,
             transact,
@@ -134,7 +127,7 @@ impl TransactRail {
         };
 
         // 2. Select the verifier from ring state, read the policy trees and the
-        // escrow registry, and pin windowed history to the current head.
+        // escrow registry.
         let config = *load_config(program_id, config_account)?;
         let policy = if config.has_policy != 0 {
             let policy_config_account = rest.next_account("policy_config")?;
@@ -177,12 +170,10 @@ impl TransactRail {
         if approval_required && !amount_controls_active {
             return Err(CustomRingError::InvalidInstructionData.into());
         }
-        let statement = match (self, head_transition) {
-            (TransactRail::Delegate, None) => PolicyStatement::Delegate,
-            (TransactRail::Member, None) if !windowed_policy => PolicyStatement::Member,
-            (TransactRail::Member, Some(transition)) if windowed_policy => {
-                let account = rest.next_mut("head_map_root")?;
-                let root = load_append_root_mut::<HeadMapRoot>(program_id, account)?;
+        let statement = match self {
+            TransactRail::Delegate => PolicyStatement::Delegate,
+            TransactRail::Member if !windowed_policy => PolicyStatement::Member,
+            TransactRail::Member => {
                 let reads = policy.as_ref().ok_or(CustomRingError::InvalidPolicyRules)?;
                 let namespace = namespace_address(program_id, reads.binding.namespace_bump)?;
                 let counters_disclosure_hash = CountersDisclosure {
@@ -192,16 +183,10 @@ impl TransactRail {
                     messages: &transact.messages,
                 }
                 .hash()?;
-                if root.root != transition.old_root {
-                    return Err(CustomRingError::StaleHeadMapRoot.into());
-                }
                 PolicyStatement::Windowed {
-                    transition: *transition,
-                    root,
                     counters_disclosure_hash,
                 }
             }
-            _ => return Err(CustomRingError::InvalidInstructionData.into()),
         };
         match policy.as_ref() {
             Some(reads) => revocations.verify(&reads.trees, &mut rest)?,
@@ -341,7 +326,7 @@ impl TransactRail {
                     revocation_tree_indexes,
                     revocation_targets,
                 };
-                statement.verify_and_advance(proof, policy_input)?;
+                statement.verify(proof, policy_input)?;
                 signers
             }
             None => {
@@ -355,7 +340,7 @@ impl TransactRail {
         };
 
         // 6. Settle the verified bytes through SPP, any failure rolls back
-        // counters and head updates.
+        // counters.
         let transact_bytes = transact
             .serialize()
             .map_err(|_| CustomRingError::InvalidInstructionData)?;
@@ -368,50 +353,33 @@ impl TransactRail {
 
 /// Proof variants separating member limits, compressed history and delegate
 /// exemptions.
-enum PolicyStatement<'a> {
+enum PolicyStatement {
     Member,
-    Windowed {
-        transition: HeadMapTransition,
-        counters_disclosure_hash: [u8; 32],
-        root: RefMut<'a, HeadMapRoot>,
-    },
+    Windowed { counters_disclosure_hash: [u8; 32] },
     Delegate,
 }
 
-impl PolicyStatement<'_> {
+impl PolicyStatement {
     /// Inlining exceeds the SBF stack frame limit.
     #[inline(never)]
-    fn verify_and_advance(
+    fn verify(
         self,
         proof: &CustomRingProof,
         policy_input: CustomRingPolicyPublicInput<'_>,
     ) -> ProgramResult {
         match self {
             Self::Windowed {
-                transition,
-                mut root,
                 counters_disclosure_hash,
-            } => {
-                let public_input = CompressedPolicyPublicInput {
+            } => verify_groth16(
+                proof,
+                CompressedPolicyPublicInput {
                     policy: policy_input,
                     counters_disclosure_hash: &counters_disclosure_hash,
-                    head_old_root: &transition.old_root,
-                    head_new_root: &transition.new_root,
                 }
                 .hash()
-                .map_err(|_| CustomRingError::HashingFailed)?;
-                verify_groth16(
-                    proof,
-                    public_input,
-                    &custom_ring_interface::compressed_policy_verifying_key::VERIFYINGKEY,
-                )?;
-                RootTransition {
-                    expected_root: &transition.old_root,
-                    new_root: transition.new_root,
-                    advance: Advance::Transfer,
-                }
-                .apply(&mut *root)
-            }
+                .map_err(|_| CustomRingError::HashingFailed)?,
+                &custom_ring_interface::compressed_policy_verifying_key::VERIFYINGKEY,
+            ),
             Self::Delegate => verify_groth16(
                 proof,
                 policy_input

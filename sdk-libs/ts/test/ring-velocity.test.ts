@@ -1,8 +1,7 @@
-import { AccountRole, getAddressDecoder } from "@solana/kit";
+import { getAddressDecoder } from "@solana/kit";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { initializePoseidon } from "../src/hasher/index.js";
-import { ringHeadMapRootAddress } from "../src/interface/pda/index.js";
 import type { Bytes31, Bytes32, Bytes128, TransactProof } from "../src/interface/types.js";
 import { ShieldedAddress } from "../src/keypair/shielded.js";
 import { ShieldedPublicKey } from "../src/keypair/public-key.js";
@@ -145,16 +144,12 @@ describe("spend registration", () => {
     };
   }
 
-  it("pins the shared compressed root as the trailing account", async () => {
+  it("mirrors Rust `RegisterSpendIxData` with no shared root account", async () => {
     const instruction = await registerRingSpendInstruction({
       ringProgramId: RING,
       payer: PAYER,
       entriesTree: TREE,
       blinding: filled(7),
-      headOldRoot: filled(1),
-      headNewRoot: filled(2),
-      headNextIndex: 1n,
-      headProof: new Uint8Array(128),
       proof: {
         proof: proof(),
         utxoTreeRootIndex: 0,
@@ -163,10 +158,9 @@ describe("spend registration", () => {
         privateTxBlinding: filled(0),
       },
     });
-    const head = await ringHeadMapRootAddress(RING);
-    const accounts = instruction.accounts ?? [];
-    const last = accounts[accounts.length - 1];
-    expect(last?.address).toBe(head);
-    expect(last?.role).toBe(AccountRole.WRITABLE);
+    const data = instruction.data ?? new Uint8Array();
+    expect(data).toHaveLength(1 + 32 + 32 + 2 + 2 + 32 + 128 + 32);
+    expect(data.subarray(1, 33)).toEqual(filled(7));
+    expect(data.subarray(data.length - 32)).toEqual(filled(3));
   });
 });

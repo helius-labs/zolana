@@ -9,8 +9,6 @@ import type {
   MerkleProof as WireMerkleProof,
   NonInclusionProof as WireNonInclusionProof,
   RingsOutputSlot as WireOutputSlot,
-  RingKeyRegistryRegisterProof as WireRingKeyRegistryRegisterProof,
-  RingHeadRegisterProof as WireRingHeadRegisterProof,
 } from "../indexer/types.js";
 import type {
   Address,
@@ -26,8 +24,8 @@ import type { IndexedShieldedTransaction } from "../transaction/instructions/tra
 import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
 import type {
   RingMemberProofRequest,
-  RingHeadRegisterProof,
-  RingHeadTransferProof,
+  RingMemberRequest,
+  RingSpendRecordLookup,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
 } from "./ports.js";
@@ -138,50 +136,30 @@ export class ZolanaIndexer {
     });
   }
 
-  async getRingHeadRegisterProof(
-    request: RingMemberProofRequest,
+  async getRingSpendRecord(
+    request: RingMemberRequest,
     context?: RequestContext,
-  ): Promise<RingHeadRegisterProof> {
-    const method = "getRingHeadRegisterProof";
+  ): Promise<RingSpendRecordLookup> {
+    const method = "getRingSpendRecord";
     try {
-      const wire = memberRequest(request);
-      const response = await this.#api.getRingHeadRegisterProof(wire, context);
-      checkMemberResponse(wire, response);
-      return Object.freeze({
-        ...insertionProof(response),
-        lowNullifier: hashBytes(response.lowNullifier),
-      });
-    } catch (cause) {
-      throw wrapIndexer(cause, method);
-    }
-  }
-
-  async getRingHeadTransferProof(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingHeadTransferProof> {
-    const method = "getRingHeadTransferProof";
-    try {
-      const wire = memberRequest(request);
-      const response = await this.#api.getRingHeadTransferProof(wire, context);
-      checkMemberResponse(wire, response);
+      const response = await this.#api.getRingSpendRecord(
+        { ringProgramId: request.ringProgramId, member: hash(request.member) },
+        context,
+      );
+      const record = response.record;
       return Object.freeze({
         context: response.context,
-        root: hashBytes(response.root),
-        member: hashBytes(response.member),
-        nextIndex: response.nextIndex,
-        next: hashBytes(response.next),
-        nullifier: hashBytes(response.nullifier),
-        index: response.index,
-        proof: Object.freeze(response.proof.map(hashBytes)),
-        record: Object.freeze({
-          transaction: convertShieldedTransaction(
-            response.record.transaction,
-            method,
-            "record.transaction",
-          ),
-          outputIndex: response.record.outputIndex,
-        }),
+        record:
+          record === null
+            ? null
+            : Object.freeze({
+                transaction: convertShieldedTransaction(
+                  record.transaction,
+                  method,
+                  "record.transaction",
+                ),
+                outputIndex: record.outputIndex,
+              }),
       });
     } catch (cause) {
       throw wrapIndexer(cause, method);
@@ -223,8 +201,16 @@ export class ZolanaIndexer {
       const response = await this.#api.getRingKeyRegistryRegisterProof(wire, context);
       checkMemberResponse(wire, response);
       return Object.freeze({
-        ...insertionProof(response),
+        context: response.context,
+        root: hashBytes(response.root),
+        member: hashBytes(response.member),
+        nextIndex: response.nextIndex,
+        lowMember: hashBytes(response.lowMember),
+        lowNext: hashBytes(response.lowNext),
         lowCtCommitment: hashBytes(response.lowCtCommitment),
+        lowIndex: response.lowIndex,
+        lowProof: Object.freeze(response.lowProof.map(hashBytes)),
+        newProof: Object.freeze(response.newProof.map(hashBytes)),
       });
     } catch (cause) {
       throw wrapIndexer(cause, method);
@@ -327,24 +313,6 @@ function checkMemberResponse(
       details: { method: "ringMemberProof", path: "$.result" },
     });
   }
-}
-
-function insertionProof(
-  response:
-    | Omit<WireRingHeadRegisterProof, "lowNullifier">
-    | Omit<WireRingKeyRegistryRegisterProof, "lowCtCommitment">,
-) {
-  return {
-    context: response.context,
-    root: hashBytes(response.root),
-    member: hashBytes(response.member),
-    nextIndex: response.nextIndex,
-    lowMember: hashBytes(response.lowMember),
-    lowNext: hashBytes(response.lowNext),
-    lowIndex: response.lowIndex,
-    lowProof: Object.freeze(response.lowProof.map(hashBytes)),
-    newProof: Object.freeze(response.newProof.map(hashBytes)),
-  };
 }
 
 function decodeCiphertext(value: string, method: string, path: string): Bytes32 {
@@ -630,16 +598,13 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
 /** Photon's ring projection codes, `zolana_indexer_api::error_code`. */
 const RING_PROJECTION_CODES: ReadonlyMap<
   number,
-  Extract<ClientErrorCode, `CLIENT_HEAD_${string}` | `CLIENT_KEY_REGISTRY_${string}`>
+  Extract<ClientErrorCode, `CLIENT_KEY_REGISTRY_${string}` | "CLIENT_SPEND_RECORD_OUT_OF_SYNC">
 > = new Map([
-  [-32070, "CLIENT_HEAD_MAP_OUT_OF_SYNC"],
-  [-32071, "CLIENT_HEAD_ROOT_CHANGED"],
-  [-32072, "CLIENT_HEAD_MEMBER_UNREGISTERED"],
-  [-32073, "CLIENT_HEAD_MEMBER_ALREADY_REGISTERED"],
   [-32074, "CLIENT_KEY_REGISTRY_OUT_OF_SYNC"],
   [-32075, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
   [-32076, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
   [-32077, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
+  [-32078, "CLIENT_SPEND_RECORD_OUT_OF_SYNC"],
 ]);
 
 function wrapIndexer(cause: unknown, method: string): ClientError {

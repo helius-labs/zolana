@@ -16,7 +16,6 @@ import {
   ProverClient,
   customRingCompressedPolicyProofRequest,
   customRingRegisterKeyProofRequest,
-  customRingRegisterProofRequest,
   mergeProverRequestBody,
 } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
@@ -147,54 +146,17 @@ function auditRequest(auditorPublicKey: Uint8Array): CustomRingBaseProofRequest 
 }
 
 describe("compressed ring prover contracts", () => {
-  it("nests the member policy and rejects a forty-bit index alias", () => {
+  it("nests the member policy beside the transaction salt only", () => {
     const request = {
       policy: ringRequest(p256.getPublicKey(bytes(4), false)),
       transactionSalt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
-      headOldRoot: bytes(1),
-      headNewRoot: bytes(2),
-      headNext: bytes(3),
-      headIndex: 1n,
-      headProof: Array.from({ length: 40 }, () => bytes(0)),
     };
-    expect(customRingCompressedPolicyProofRequest(request)).toMatchObject({
+    const body = customRingCompressedPolicyProofRequest(request);
+    expect(body).toMatchObject({
       circuitType: "custom-ring-compressed-policy",
       policy: { circuitType: "custom-ring-policy" },
-      headIndex: `0x${"0".repeat(63)}1`,
-      headOldRoot: fieldHex(1),
-      headNewRoot: fieldHex(2),
     });
-    expect(() =>
-      customRingCompressedPolicyProofRequest({ ...request, headIndex: 1n << 40n }),
-    ).toThrow("CLIENT_INVALID_INTEGER");
-    expect(() => customRingCompressedPolicyProofRequest({ ...request, headProof: [] })).toThrow();
-  });
-
-  it("serializes the separate registration statement and both forty-level paths", () => {
-    const request = {
-      publicInputHash: bytes(0),
-      headOldRoot: bytes(1),
-      headNewRoot: bytes(2),
-      member: bytes(3),
-      genesis: bytes(4),
-      newIndex: 1n,
-      lowMember: bytes(0),
-      lowNext: bytes(5),
-      lowNullifier: bytes(0),
-      lowIndex: 0n,
-      lowProof: Array.from({ length: 40 }, () => bytes(0)),
-      newProof: Array.from({ length: 40 }, () => bytes(0)),
-    };
-    expect(customRingRegisterProofRequest(request)).toMatchObject({
-      circuitType: "custom-ring-compressed-register",
-      newIndex: `0x${"0".repeat(63)}1`,
-      lowIndex: `0x${"0".repeat(64)}`,
-      member: fieldHex(3),
-      genesis: fieldHex(4),
-    });
-    expect(() => customRingRegisterProofRequest({ ...request, lowIndex: -1n })).toThrow(
-      "CLIENT_INVALID_INTEGER",
-    );
+    expect(Object.keys(body).sort()).toEqual(["circuitType", "policy", "transactionSalt"]);
   });
 
   it("serializes the key registration like Rust `RegisterKeyProofRequest::body`", () => {
@@ -230,6 +192,12 @@ describe("compressed ring prover contracts", () => {
     high[0] = 1;
     expect(() => customRingRegisterKeyProofRequest({ ...request, nullifierSecret: high })).toThrow(
       "CLIENT_INVALID_PROOF_INPUTS",
+    );
+    expect(() => customRingRegisterKeyProofRequest({ ...request, lowIndex: -1n })).toThrow(
+      "CLIENT_INVALID_INTEGER",
+    );
+    expect(() => customRingRegisterKeyProofRequest({ ...request, newIndex: 1n << 40n })).toThrow(
+      "CLIENT_INVALID_INTEGER",
     );
   });
 

@@ -10,10 +10,12 @@ export interface IndexerContext {
   readonly slot: bigint;
 }
 
-/** Selects a member and expected root for a projection proof. */
-export interface RingMemberProofRequest {
+export interface RingMemberRequest {
   readonly ringProgramId: Address;
   readonly member: Hash;
+}
+
+export interface RingMemberProofRequest extends RingMemberRequest {
   readonly expectedRoot: Hash;
   readonly expectedNextIndex: bigint;
 }
@@ -26,23 +28,13 @@ export interface RingMemberProofContext {
   readonly member: Hash;
 }
 
-/** Carries the predecessor and append paths for a new member. */
-export interface RingHeadRegisterProof extends RingMemberProofContext {
-  readonly lowMember: Hash;
-  readonly lowNext: Hash;
-  readonly lowNullifier: Hash;
-  readonly lowIndex: bigint;
-  readonly lowProof: readonly Hash[];
-  readonly newProof: readonly Hash[];
-}
-
-/** Links a member head to the transaction carrying its record. */
-export interface RingHeadTransferProof extends RingMemberProofContext {
-  readonly next: Hash;
-  readonly nullifier: Hash;
-  readonly index: bigint;
-  readonly proof: readonly Hash[];
-  readonly record: Readonly<{ transaction: IndexedShieldedTransaction; outputIndex: number }>;
+/** `record` is `null` until the member registers. */
+export interface GetRingSpendRecordResponse {
+  readonly context: IndexerContext;
+  readonly record: Readonly<{
+    transaction: IndexedShieldedTransaction;
+    outputIndex: number;
+  }> | null;
 }
 
 /** Carries the insertion paths for a member's key commitment. */

@@ -2,8 +2,8 @@
 
 use custom_ring_sdk::{
     policy_config_table, AccountReadError, CustomRing, EntryError, EntryProofError,
-    LiveSpendRecord, PolicyConfig, PolicyMatchError, ReadEnvironment, ReadSpendRecord,
-    RegisterSpend, TransferProofEnvironment, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+    LiveSpendRecord, PolicyConfig, PolicyMatchError, ReadSpendRecord, RegisterSpend,
+    TransferProofEnvironment, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 };
 use solana_signer::Signer;
 use thiserror::Error;
@@ -51,8 +51,6 @@ pub enum SpendError {
     NoPolicy,
     #[error("the ring has no velocity window, nothing to register")]
     NotVelocity,
-    #[error("the ring has no head map, its authority must run `zolana-ring init` first")]
-    MissingHeadMap,
 }
 
 boxed_from!(SpendError {
@@ -105,10 +103,7 @@ pub fn run(ctx: &mut Context, command: SpendCommand) -> Result<(), SpendError> {
                 config: &config,
                 member: Member::owner_tag(sender.pubkey().as_array())?,
             }
-            .read(ReadEnvironment {
-                indexer: &ctx.indexer(),
-                rpc: &ctx.rpc,
-            })?;
+            .read(&ctx.indexer())?;
             ui::heading(
                 Icon::Policy,
                 &format!("spend record of {}", sender.pubkey()),
@@ -136,22 +131,15 @@ impl RegistrationOutcome {
 }
 
 impl Registration<'_> {
-    /// The record is claimed once, an existing head is kept.
+    /// The record is claimed once, an existing record is kept.
     pub(crate) fn ensure(self) -> Result<RegistrationOutcome, SpendError> {
-        if self.ring.read_head_map_root(self.rpc)?.is_none() {
-            return Err(SpendError::MissingHeadMap);
-        }
         let member = self.sender.pubkey();
         let query = RecordQuery {
             ring: self.ring,
             config: self.config,
             member: Member::owner_tag(member.as_array())?,
         };
-        let env = ReadEnvironment {
-            indexer: self.indexer,
-            rpc: self.rpc,
-        };
-        if let Some(live) = query.read(env)? {
+        if let Some(live) = query.read(self.indexer)? {
             return Ok(RegistrationOutcome::Present {
                 version: live.record.version,
             });
@@ -176,7 +164,7 @@ impl Registration<'_> {
         .ensure_present(Observed::Absent, &[proven.instruction()?])?;
         wait_for(format!("spend record of {member}"), || {
             query
-                .read(env)
+                .read(self.indexer)
                 .map(|record| record.map_or(Probe::NotYet, |_| Probe::Ready(())))
         })
         .map_err(timed_out)?;
@@ -196,24 +184,27 @@ pub(crate) fn windowed_config(
 }
 
 impl RecordQuery<'_> {
-    /// Waits out a head map Photon has not caught up with.
-    fn read(
-        &self,
-        env: ReadEnvironment<'_, ZolanaIndexer, SolanaRpc>,
-    ) -> Result<Option<LiveSpendRecord>, SpendError> {
-        wait_for("current compressed spend record".to_owned(), || {
-            let read = ReadSpendRecord {
-                ring: self.ring,
-                entries_tree: self.config.address_tree,
-                entries_tree_id: self.config.address_tree_id(),
-                member: self.member,
-            };
-            match read.read_current(env) {
-                Ok(record) => Ok(Probe::Ready(record)),
-                Err(error) if is_head_map_retryable(&error) => Ok(Probe::Retry(error)),
-                Err(error) => Err(error),
-            }
-        })
+    fn read(&self, indexer: &ZolanaIndexer) -> Result<Option<LiveSpendRecord>, SpendError> {
+        wait_for(
+            format!("spend record projection of {:?}", self.member),
+            || {
+                let read = ReadSpendRecord {
+                    ring: self.ring,
+                    entries_tree: self.config.address_tree,
+                    entries_tree_id: self.config.address_tree_id(),
+                    member: self.member,
+                };
+                match read.read_current(indexer) {
+                    Ok(live) => Ok(Probe::Ready(live)),
+                    Err(EntryProofError::Client(error))
+                        if matches!(*error, ClientError::RingSpendRecordOutOfSync) =>
+                    {
+                        Ok(Probe::Retry(EntryProofError::Client(error)))
+                    }
+                    Err(error) => Err(error),
+                }
+            },
+        )
         .map_err(timed_out)
     }
 }
@@ -226,10 +217,4 @@ fn timed_out<E: Into<SpendError> + std::error::Error + 'static>(error: WaitError
             last: last.map(|error| Box::new((*error).into())),
         },
     }
-}
-
-fn is_head_map_retryable(error: &EntryProofError) -> bool {
-    matches!(error, EntryProofError::Client(error) if matches!(
-        error.as_ref(), ClientError::RingHeadMapOutOfSync | ClientError::RingHeadRootChanged
-    ))
 }

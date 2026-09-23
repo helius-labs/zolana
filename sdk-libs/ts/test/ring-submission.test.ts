@@ -14,10 +14,10 @@ import { BLOCKHASH, kitReads } from "./helpers/clients.js";
 
 const HASH = new Uint8Array(32) as Bytes32;
 const MEMO = address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
-const STALE_HEAD: RingSubmissionStatus = {
+const STALE_ROOT: RingSubmissionStatus = {
   kind: "failed",
   instructionIndex: 0,
-  customCode: RingProgramError.staleHeadMapRoot,
+  customCode: RingProgramError.staleKeyRegistryRoot,
 };
 
 async function fixture() {
@@ -103,12 +103,12 @@ describe("ring submission ownership", () => {
     expect(f.extend).toHaveBeenCalledTimes(1);
   });
 
-  it("rebuilds and re-signs only after a confirmed stale-head failure, at most three times", async () => {
+  it("rebuilds and re-signs only after a confirmed stale-root failure, at most three times", async () => {
     const f = await fixture();
     const result = await f.submission.send({
       sign: f.sign,
       send: f.send,
-      status: async () => STALE_HEAD,
+      status: async () => STALE_ROOT,
     });
     expect(result).toMatchObject({ kind: "failed", attempts: 3 });
     expect(f.build).toHaveBeenCalledTimes(3);
@@ -120,12 +120,12 @@ describe("ring submission ownership", () => {
   it("treats a refusal returned by send as a confirmed failure", async () => {
     const f = await fixture();
     const status = vi.fn(async (): Promise<RingSubmissionStatus> => ({ kind: "unknown" }));
-    const result = await f.submission.send({ sign: f.sign, send: async () => STALE_HEAD, status });
+    const result = await f.submission.send({ sign: f.sign, send: async () => STALE_ROOT, status });
     expect(result).toMatchObject({
       kind: "failed",
       attempts: 3,
       instructionIndex: 0,
-      customCode: RingProgramError.staleHeadMapRoot,
+      customCode: RingProgramError.staleKeyRegistryRoot,
     });
     expect(status).not.toHaveBeenCalled();
     expect(f.build).toHaveBeenCalledTimes(3);
@@ -137,13 +137,13 @@ describe("ring submission ownership", () => {
     const result = await f.submission.send({
       sign: f.sign,
       send: f.send,
-      status: async () => ({ ...STALE_HEAD, instructionIndex: 1 }),
+      status: async () => ({ ...STALE_ROOT, instructionIndex: 1 }),
     });
     expect(result).toMatchObject({
       kind: "failed",
       attempts: 1,
       instructionIndex: 1,
-      customCode: RingProgramError.staleHeadMapRoot,
+      customCode: RingProgramError.staleKeyRegistryRoot,
     });
     expect(f.build).toHaveBeenCalledTimes(1);
   });
@@ -172,7 +172,7 @@ describe("ring submission ownership", () => {
       f.submission.send({
         sign: f.sign,
         send: f.send,
-        status: async () => STALE_HEAD,
+        status: async () => STALE_ROOT,
       }),
     ).rejects.toMatchObject({ code: "RING_INTENT_MISMATCH" });
     expect(f.send).toHaveBeenCalledTimes(1);

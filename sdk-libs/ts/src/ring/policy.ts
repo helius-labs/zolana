@@ -3,7 +3,7 @@ import type { Address, Signature } from "@solana/kit";
 import { ClientError } from "../client/error.js";
 import { concatBytes } from "../keypair/bytes.js";
 import { ownerHash } from "../keypair/hash.js";
-import type { IndexerReader, RingHeadTransferProof } from "../client/ports.js";
+import type { IndexerReader, RingSpendRecordLookup } from "../client/ports.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INLINE_ASSET_SLOTS,
@@ -1094,27 +1094,27 @@ export interface ReadRingSpendRecordInput {
   readonly member: Member;
 }
 
+/** The decoded record must belong to `member` and hash under its spend address. */
 export function currentRingSpendRecord(
   input: Readonly<{
-    proof: RingHeadTransferProof;
+    record: NonNullable<RingSpendRecordLookup["record"]>;
     entriesTree: Address;
     entriesTreeId: TreeId;
     namespace: Address;
     member: Member;
   }>,
 ): LiveSpendRecord {
-  const transaction = input.proof.record.transaction;
-  const slot = transaction.outputSlots[input.proof.record.outputIndex];
+  const { transaction, outputIndex } = input.record;
+  const slot = transaction.outputSlots[outputIndex];
   if (slot === undefined || slot.outputContext.tree !== input.entriesTree)
-    throw spendRecordInvalid("headOutput");
+    throw spendRecordInvalid("recordOutput");
   const live = decodeSpendSuccessor({
     namespace: RingListNamespace.of(input.namespace, input.entriesTreeId),
     member: input.member,
     slot,
     messages: transaction.messages,
   });
-  if (live === undefined || !equalBytes(live.nullifier, input.proof.nullifier))
-    throw spendRecordInvalid("headNullifier");
+  if (live === undefined) throw spendRecordInvalid("recordMember");
   return liveSpendRecord(live, transaction);
 }
 

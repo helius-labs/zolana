@@ -40,7 +40,6 @@ pub(crate) use create_policy::process_create_policy_ix;
 pub(crate) use delegate_transact::process_delegate_transact_ix;
 pub(crate) use grant_read_access::process_grant_read_access_ix;
 pub(crate) use init_spp_ring_config::process_init_spp_ring_config_ix;
-pub use policy_trees::NULLIFIER_ROOT_WINDOW;
 pub(crate) use register_key::process_register_key_ix;
 pub(crate) use register_spend::process_register_spend_ix;
 pub(crate) use revoke_read_access::process_revoke_read_access_ix;

@@ -7,13 +7,11 @@ const METHODS: &[&str] = &[
     "getNonInclusionProofs",
     "getNullifierQueueElements",
     #[cfg(feature = "ring-projection")]
-    "getRingHeadRegisterProof",
-    #[cfg(feature = "ring-projection")]
-    "getRingHeadTransferProof",
-    #[cfg(feature = "ring-projection")]
     "getRingKeyRegistryEntry",
     #[cfg(feature = "ring-projection")]
     "getRingKeyRegistryRegisterProof",
+    #[cfg(feature = "ring-projection")]
+    "getRingSpendRecord",
     "getShieldedTransactionsByNullifiers",
     "getShieldedTransactionsBySignature",
     "getShieldedTransactionsByTags",

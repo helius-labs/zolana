@@ -130,20 +130,14 @@ pub enum CustomRingError {
     // 8160..8163 retired.
     #[error("the velocity window duration cannot change once set")]
     VelocityWindowImmutable = 8164,
-    #[error("head map root account is invalid")]
-    InvalidHeadMapRoot = 8165,
-    #[error("head map root changed")]
-    StaleHeadMapRoot = 8166,
-    #[error("head map append cursor is invalid or exhausted")]
-    InvalidHeadMapCursor = 8167,
+    // 8165..8167 retired.
     #[error("key registry root account is invalid")]
     InvalidKeyRegistryRoot = 8168,
     #[error("key registry root changed")]
     StaleKeyRegistryRoot = 8169,
     #[error("key registry append cursor is invalid or exhausted")]
     InvalidKeyRegistryCursor = 8170,
-    #[error("head map root already exists")]
-    HeadMapRootAlreadyExists = 8171,
+    // 8171 retired.
     #[error("key registry root already exists")]
     KeyRegistryRootAlreadyExists = 8172,
     #[error("invalid deposit audit setting")]

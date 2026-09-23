@@ -11,6 +11,7 @@ pub mod m20260913_000001_head_maps;
 pub mod m20260913_000001_ring_projections;
 pub mod m20260914_000001_key_registry;
 pub mod m20260916_000001_unify_ring_projections;
+pub mod m20260923_000001_spend_records;
 pub mod r20260617_000001_init;
 pub mod r20260624_000001_nullifier_queue_metadata;
 pub mod r20260810_000001_state_root_index;
@@ -35,5 +36,6 @@ pub fn get_rings_migrations() -> Vec<Box<dyn MigrationTrait>> {
         Box::new(m20260913_000001_ring_projections::Migration),
         Box::new(m20260916_000001_unify_ring_projections::Migration),
         Box::new(r20260916_000001_tree_metadata_tree_id_and_state::Migration),
+        Box::new(m20260923_000001_spend_records::Migration),
     ]
 }

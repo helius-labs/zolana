@@ -1,7 +1,6 @@
-//! Record discovery separates current-head authentication from counter recovery.
-
 use solana_address::Address;
-use zolana_client::{AsyncRpc, Rpc};
+use zolana_client::{indexer::decode_shielded_transaction, AsyncRpc, Rpc};
+use zolana_indexer_api::{Hash, RingSpendRecord, RingSpendRecordRequest, SerializablePubkey};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey};
 use zolana_ring_client::RecordCarrier;
@@ -51,27 +50,27 @@ pub struct ReadSpendRecord {
 }
 
 impl ReadSpendRecord {
-    /// Authenticated against the exact current head root.
-    pub fn read_current<I: Rpc, R: Rpc>(
+    /// `None` until the member registers, a stale answer fails only on chain.
+    pub fn read_current<I: Rpc>(
         self,
-        env: ReadEnvironment<'_, I, R>,
+        indexer: &I,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
-        match self.current(env) {
-            Ok(head) => Ok(Some(head.record)),
-            Err(error) if error.is_unregistered() => Ok(None),
-            Err(error) => Err(error),
-        }
+        let response = indexer.get_ring_spend_record(self.request())?;
+        response
+            .record
+            .map(|record| self.decode_current(record))
+            .transpose()
     }
 
-    pub async fn read_current_async<I: AsyncRpc, R: AsyncRpc>(
+    pub async fn read_current_async<I: AsyncRpc>(
         self,
-        env: ReadEnvironment<'_, I, R>,
+        indexer: &I,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
-        match self.current_async(env).await {
-            Ok(head) => Ok(Some(head.record)),
-            Err(error) if error.is_unregistered() => Ok(None),
-            Err(error) => Err(error),
-        }
+        let response = indexer.get_ring_spend_record(self.request()).await?;
+        response
+            .record
+            .map(|record| self.decode_current(record))
+            .transpose()
     }
 
     /// Unauthenticated history, unsuitable for transfer preparation.
@@ -97,6 +96,35 @@ impl ReadSpendRecord {
         .fetch_async(indexer)
         .await?;
         Ok(lineages.into_iter().next().flatten())
+    }
+
+    fn request(&self) -> RingSpendRecordRequest {
+        RingSpendRecordRequest {
+            ring_program_id: SerializablePubkey::from(self.ring.program_id().to_bytes()),
+            member: Hash(*self.member.as_bytes()),
+        }
+    }
+
+    /// The record must decode for the requested member under its spend address.
+    fn decode_current(&self, record: RingSpendRecord) -> Result<LiveSpendRecord, EntryProofError> {
+        let transaction = decode_shielded_transaction(record.transaction)?;
+        let slot = transaction
+            .output_slots
+            .get(usize::from(record.output_index))
+            .filter(|slot| {
+                zolana_interface::pda::tree(slot.output_context.tree_id) == self.entries_tree
+            })
+            .ok_or(EntryProofError::InvalidSpendRecord)?;
+        let lookup = self.lookup()?;
+        lookup
+            .decode(
+                &lookup.address()?,
+                SpentSlot {
+                    transaction: &transaction,
+                    slot,
+                },
+            )
+            .ok_or(EntryProofError::InvalidSpendRecord)
     }
 
     pub(crate) fn lookup(&self) -> Result<SpendLookup, EntryProofError> {
@@ -347,6 +375,82 @@ mod tests {
             let mut changed = transaction.clone();
             mutate(&mut changed);
             assert!(decode(&changed).is_none());
+        }
+    }
+
+    fn indexed_genesis() -> RingSpendRecord {
+        let (record, hash, _) = version(0);
+        let address = owner()
+            .spend_address(&member(), ENTRIES_TREE_ID)
+            .expect("address");
+        RingSpendRecord {
+            output_index: 0,
+            transaction: zolana_indexer_api::ShieldedTransaction {
+                slot: 2,
+                tx_signature: Default::default(),
+                event_index: Some(0),
+                tx_viewing_pk: None,
+                salt: None,
+                output_slots: vec![zolana_indexer_api::RingsOutputSlot {
+                    view_tag: Hash(namespace().to_bytes()),
+                    payload: zolana_indexer_api::Base64String(record.to_output_data().to_vec()),
+                    output_context: zolana_indexer_api::RingsOutputContext {
+                        hash: Hash(hash),
+                        tree: SerializablePubkey::from(
+                            zolana_interface::pda::tree(ENTRIES_TREE_ID).to_bytes(),
+                        ),
+                        tree_id: ENTRIES_TREE_ID,
+                        leaf_index: 7,
+                    },
+                }],
+                messages: Vec::new(),
+                nullifiers: vec![Hash(address)],
+                proofless: false,
+                ring_config: None,
+                ring_program_id: None,
+            },
+        }
+    }
+
+    fn current(member: Member) -> ReadSpendRecord {
+        ReadSpendRecord {
+            ring: ring(),
+            entries_tree: zolana_interface::pda::tree(ENTRIES_TREE_ID),
+            entries_tree_id: ENTRIES_TREE_ID,
+            member,
+        }
+    }
+
+    #[test]
+    fn the_indexed_record_decodes_for_the_requested_member() {
+        let (record, _, nullifier) = version(0);
+        let live = current(member())
+            .decode_current(indexed_genesis())
+            .expect("current");
+        assert_eq!(live.record, record);
+        assert_eq!(live.nullifier, nullifier);
+        assert_eq!(live.leaf_index, 7);
+    }
+
+    #[test]
+    fn a_substituted_record_is_refused() {
+        let other = Member::owner_tag(&[6u8; 32]).expect("member");
+        assert!(matches!(
+            current(other).decode_current(indexed_genesis()),
+            Err(EntryProofError::InvalidSpendRecord)
+        ));
+        let mutations: [fn(&mut RingSpendRecord); 3] = [
+            |record| record.output_index = 1,
+            |record| record.transaction.output_slots[0].output_context.hash.0[31] ^= 1,
+            |record| record.transaction.output_slots[0].output_context.tree_id ^= 1,
+        ];
+        for mutate in mutations {
+            let mut record = indexed_genesis();
+            mutate(&mut record);
+            assert!(matches!(
+                current(member()).decode_current(record),
+                Err(EntryProofError::InvalidSpendRecord)
+            ));
         }
     }
 

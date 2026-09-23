@@ -350,8 +350,7 @@ fn a_claim_writes_its_leaf_into_any_output_tree() {
         EntryFixture::new(ListId::Allow, authority()).create(initialized_policy_config_account());
     in_other_tree(create, "output_tree").expect_spp_cpi(&mollusk);
     let register = register_spend_fixture(velocity_policy_config_account(), payer());
-    in_other_tree(register, "output_tree")
-        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    in_other_tree(register, "output_tree").expect_spp_cpi(&mollusk);
 }
 
 /// A replace spends the live leaf wherever it lives.

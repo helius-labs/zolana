@@ -1,9 +1,9 @@
 use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
-    CoSigner, Delegate, HeadMapRoot, KeyRegistryRoot, PolicyConfig, SourceSlot, SpendWindow,
+    CoSigner, Delegate, KeyRegistryRoot, PolicyConfig, SourceSlot, SpendWindow,
     WithdrawalThresholdRow, CO_SIGNER, DELEGATE, HEAD_MAP_CAPACITY, HEAD_MAP_EMPTY_ROOT,
-    HEAD_MAP_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, MAX_CO_SIGNER_THRESHOLDS,
-    N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
+    KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
+    POLICY_CONFIG, SPEND_WINDOW,
 };
 use custom_ring_interface::{DepositAudit, DEPOSIT_AUDIT};
 use custom_ring_interface::{
@@ -365,49 +365,6 @@ pub(crate) trait AppendRoot: Account {
     fn advance_to(&mut self, root: [u8; 32], next_index: u64);
 }
 
-impl Account for HeadMapRoot {
-    const DISCRIMINATOR: u8 = HEAD_MAP_ROOT;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::HeadMapRootAlreadyExists;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidHeadMapRoot;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-impl AppendRoot for HeadMapRoot {
-    const SEED: &'static [u8] = HeadMapRoot::SEED;
-    const STALE: CustomRingError = CustomRingError::StaleHeadMapRoot;
-    const CURSOR: CustomRingError = CustomRingError::InvalidHeadMapCursor;
-
-    fn sentinel(bump: u8) -> Self {
-        Self {
-            discriminator: HEAD_MAP_ROOT,
-            root: HEAD_MAP_EMPTY_ROOT,
-            next_index: 1u64.to_le_bytes(),
-            bump,
-        }
-    }
-
-    fn root(&self) -> &[u8; 32] {
-        &self.root
-    }
-
-    fn next_index(&self) -> u64 {
-        HeadMapRoot::next_index(self)
-    }
-
-    fn advance_to(&mut self, root: [u8; 32], next_index: u64) {
-        self.root = root;
-        self.next_index = next_index.to_le_bytes();
-    }
-}
-
 impl Account for KeyRegistryRoot {
     const DISCRIMINATOR: u8 = KEY_REGISTRY_ROOT;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidKeyRegistryRoot;
@@ -428,7 +385,6 @@ impl AppendRoot for KeyRegistryRoot {
     const STALE: CustomRingError = CustomRingError::StaleKeyRegistryRoot;
     const CURSOR: CustomRingError = CustomRingError::InvalidKeyRegistryCursor;
 
-    // Same sentinel leaf as the head map, same empty root.
     fn sentinel(bump: u8) -> Self {
         let mut history = [[0u8; 32]; KEY_REGISTRY_ROOT_HISTORY];
         history[0] = HEAD_MAP_EMPTY_ROOT;
@@ -472,20 +428,11 @@ impl SentinelRootInit {
     }
 }
 
-/// Registration allocates a leaf, transfer changes only the existing leaf
-/// commitment.
-#[derive(Clone, Copy)]
-pub(crate) enum Advance {
-    Register,
-    Transfer,
-}
-
 /// The root update and the SPP CPI commit atomically.
 #[must_use]
 pub(crate) struct RootTransition<'a> {
     pub expected_root: &'a [u8; 32],
     pub new_root: [u8; 32],
-    pub advance: Advance,
 }
 
 impl RootTransition<'_> {
@@ -493,17 +440,11 @@ impl RootTransition<'_> {
         if root.root() != self.expected_root {
             return Err(T::STALE.into());
         }
-        let next_index = match self.advance {
-            Advance::Register => {
-                let cursor = root.next_index();
-                if cursor == 0 || cursor >= HEAD_MAP_CAPACITY {
-                    return Err(T::CURSOR.into());
-                }
-                cursor + 1
-            }
-            Advance::Transfer => root.next_index(),
-        };
-        root.advance_to(self.new_root, next_index);
+        let cursor = root.next_index();
+        if cursor == 0 || cursor >= HEAD_MAP_CAPACITY {
+            return Err(T::CURSOR.into());
+        }
+        root.advance_to(self.new_root, cursor + 1);
         Ok(())
     }
 }
@@ -517,7 +458,6 @@ mod sealed {
     impl Sealed for super::CoSigner {}
     impl Sealed for super::Delegate {}
     impl Sealed for super::SpendWindow {}
-    impl Sealed for super::HeadMapRoot {}
     impl Sealed for super::KeyRegistryRoot {}
 }
 
@@ -562,15 +502,10 @@ mod tests {
         state
     }
 
-    fn apply(
-        state: &mut KeyRegistryRoot,
-        expected_root: &[u8; 32],
-        advance: Advance,
-    ) -> ProgramResult {
+    fn apply(state: &mut KeyRegistryRoot, expected_root: &[u8; 32]) -> ProgramResult {
         RootTransition {
             expected_root,
             new_root: [7u8; 32],
-            advance,
         }
         .apply(state)
     }
@@ -583,7 +518,7 @@ mod tests {
     fn a_root_that_is_not_the_head_is_refused() {
         let mut state = root([1u8; 32], 1);
         assert_eq!(
-            apply(&mut state, &[2u8; 32], Advance::Register),
+            apply(&mut state, &[2u8; 32]),
             Err(custom(CustomRingError::StaleKeyRegistryRoot))
         );
         assert_eq!(state.root, [1u8; 32]);
@@ -592,17 +527,9 @@ mod tests {
     #[test]
     fn registration_advances_the_cursor_and_publishes_the_successor_root() {
         let mut state = root([1u8; 32], 5);
-        apply(&mut state, &[1u8; 32], Advance::Register).expect("advance");
+        apply(&mut state, &[1u8; 32]).expect("advance");
         assert_eq!(state.root, [7u8; 32]);
         assert_eq!(state.next_index(), 6);
-    }
-
-    #[test]
-    fn a_transfer_publishes_the_root_and_keeps_the_cursor() {
-        let mut state = root([1u8; 32], 5);
-        apply(&mut state, &[1u8; 32], Advance::Transfer).expect("advance");
-        assert_eq!(state.root, [7u8; 32]);
-        assert_eq!(state.next_index(), 5);
     }
 
     #[test]
@@ -622,7 +549,6 @@ mod tests {
             RootTransition {
                 expected_root: &head,
                 new_root: [step + 1; 32],
-                advance: Advance::Register,
             }
             .apply(&mut state)
             .expect("advance");
@@ -643,7 +569,7 @@ mod tests {
         for cursor in [0, HEAD_MAP_CAPACITY] {
             let mut state = root([1u8; 32], cursor);
             assert_eq!(
-                apply(&mut state, &[1u8; 32], Advance::Register),
+                apply(&mut state, &[1u8; 32]),
                 Err(custom(CustomRingError::InvalidKeyRegistryCursor))
             );
         }

@@ -8,14 +8,13 @@ import {
 import { composeSignal } from "../client/internal.js";
 import type { RequestContext } from "../interface/types.js";
 
-export const HEAD_MAP_PROJECTION_ERRORS: ReadonlySet<ClientErrorCode> = new Set([
-  "CLIENT_HEAD_MAP_OUT_OF_SYNC",
-  "CLIENT_HEAD_ROOT_CHANGED",
-]);
-
 export const KEY_REGISTRY_PROJECTION_ERRORS: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_KEY_REGISTRY_OUT_OF_SYNC",
   "CLIENT_KEY_REGISTRY_ROOT_CHANGED",
+]);
+
+export const SPEND_RECORD_PROJECTION_ERRORS: ReadonlySet<ClientErrorCode> = new Set([
+  "CLIENT_SPEND_RECORD_OUT_OF_SYNC",
 ]);
 
 // Match the Rust CLI's bounded wait: projection lag must not make a valid ring

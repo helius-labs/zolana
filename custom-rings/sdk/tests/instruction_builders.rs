@@ -7,11 +7,12 @@ use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_interface::{PlainGroth16Proof, SetCoSignerIxData, SetPausedIxData, SourceSpec};
 use custom_ring_sdk::{
     tag, ClearCoSigner, ClearSpendWindow, CoSignScope, CoSignThreshold, CreateConfig,
-    CreateConfigIxData, CreatePolicy, CustomRing, CustomRingDelegateTransact, CustomRingProof,
-    CustomRingTransact, CustomRingTransactIxData, DelegateInstructionError, Deposit, EntryError,
-    GrantReadAccess, InitSppRingConfig, PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError,
-    RevokeReadAccess, SetAuthority, SetCoSigner, SetDelegate, SetPaused, SetPolicyRules,
-    SetSpendWindow, CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    CreateConfigIxData, CreateKeyRegistryRoot, CreatePolicy, CustomRing,
+    CustomRingDelegateTransact, CustomRingProof, CustomRingTransact, CustomRingTransactIxData,
+    DelegateInstructionError, Deposit, EntryError, GrantReadAccess, InitSppRingConfig,
+    PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError, RevokeReadAccess, SetAuthority,
+    SetCoSigner, SetDelegate, SetPaused, SetPolicyRules, SetSpendWindow, CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD_PDA_SEED, SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -182,6 +183,28 @@ fn a_policy_ring_registers_with_its_policy_config_as_the_eighth_account() {
         AccountMeta::new_readonly(ring().policy_config_pda(), false)
     );
     assert_eq!(policy.data, vec![tag::INIT_SPP_RING_CONFIG]);
+}
+
+#[test]
+fn create_key_registry_root_emits_the_program_account_order_and_no_body() {
+    let instruction = CreateKeyRegistryRoot {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+    }
+    .instruction();
+    assert_eq!(instruction.program_id, ring().program_id());
+    assert_eq!(instruction.data, vec![tag::CREATE_KEY_REGISTRY_ROOT]);
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
+            AccountMeta::new(ring().key_registry_root_pda(), false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
+        ]
+    );
 }
 
 fn reader() -> ReaderKey {
@@ -737,7 +760,6 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         input_tree: input_tree(),
         output_tree: output_tree(),
         entries_tree: Some(entries_tree()),
-        head_map_root: None,
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
         proof,
@@ -745,7 +767,6 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         nullifier_root_index: 0,
         approval_required: false,
         revocation_targets,
-        head_transition: None,
         transact: transact.clone(),
     }
     .instruction()
@@ -794,7 +815,6 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
             approval_required: 0,
             revocation_targets,
             revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
-            head_transition: None,
             transact,
         }
     );
@@ -812,7 +832,6 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         input_tree: input_tree(),
         output_tree: output_tree(),
         entries_tree: Some(entries_tree()),
-        head_map_root: None,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
@@ -820,7 +839,6 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         nullifier_root_index: 0,
         approval_required: false,
         revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
-        head_transition: None,
         transact: transact_data(Vec::new()),
     }
     .instruction()
@@ -860,7 +878,6 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
         input_tree: input_tree(),
         output_tree: output_tree(),
         entries_tree: None,
-        head_map_root: None,
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
@@ -868,7 +885,6 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
         nullifier_root_index: 0,
         approval_required: false,
         revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
-        head_transition: None,
         transact,
     }
     .instruction()
@@ -903,7 +919,6 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         input_tree: input_tree(),
         output_tree: output_tree(),
         entries_tree: Some(entries_tree()),
-        head_map_root: None,
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
@@ -913,7 +928,6 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         nullifier_root_index: 0,
         approval_required: false,
         revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
-        head_transition: None,
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
@@ -1401,7 +1415,6 @@ fn the_cosigner_slot_signs_only_when_set() {
             input_tree: input_tree(),
             output_tree: output_tree(),
             entries_tree: None,
-            head_map_root: None,
             cosigner,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
@@ -1419,7 +1432,6 @@ fn the_cosigner_slot_signs_only_when_set() {
             nullifier_root_index: 0,
             approval_required: false,
             revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
-            head_transition: None,
         }
         .instruction()
         .expect("instruction")

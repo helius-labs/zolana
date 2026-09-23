@@ -43,7 +43,6 @@ import type {
   CustomRingCompressedPolicyProofRequest,
   CustomRingHeadInsertion,
   CustomRingRegisterKeyProofRequest,
-  CustomRingRegisterProofRequest,
   CustomRingSpendRecordProofInput,
   CustomRingVelocityRow,
   Field,
@@ -161,13 +160,6 @@ export class ProverClient {
       "queued",
       context,
     );
-  }
-
-  async proveCustomRingRegister(
-    inputs: CustomRingRegisterProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingRegisterProofRequest(inputs)), "queued", context);
   }
 
   async proveCustomRingRegisterKey(
@@ -566,13 +558,6 @@ export function customRingCompressedPolicyProofRequest(
     circuitType: "custom-ring-compressed-policy",
     transactionSalt: bytesHex(checkedBytes(input.transactionSalt, 16, "transactionSalt")),
     policy: customRingPolicyProofRequest(input.policy),
-    headOldRoot: hex32(input.headOldRoot, "headOldRoot"),
-    headNewRoot: hex32(input.headNewRoot, "headNewRoot"),
-    headNext: hex32(input.headNext, "headNext"),
-    headIndex: headIndexHex(input.headIndex, "headIndex"),
-    headProof: sized(input.headProof, HEAD_MAP_HEIGHT, "headProof").map((node) =>
-      hex32(node, "headProof"),
-    ),
   });
 }
 
@@ -592,17 +577,6 @@ function headInsertionJson(input: CustomRingHeadInsertion): Readonly<Record<stri
     newProof: sized(input.newProof, HEAD_MAP_HEIGHT, "newProof").map((node) =>
       hex32(node, "newProof"),
     ),
-  });
-}
-
-export function customRingRegisterProofRequest(
-  input: CustomRingRegisterProofRequest,
-): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    circuitType: "custom-ring-compressed-register",
-    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
-    genesis: hex32(input.genesis, "genesis"),
-    ...headInsertionJson(input),
   });
 }
 

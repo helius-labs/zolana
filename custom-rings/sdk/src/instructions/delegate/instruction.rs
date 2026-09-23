@@ -146,7 +146,6 @@ impl CustomRingDelegateTransact {
                 .collect(),
             key_registry_root_index: 0,
             approval_required: 0,
-            head_transition: None,
             revocation_targets,
             revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
             transact,

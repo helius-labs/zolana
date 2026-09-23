@@ -29,8 +29,6 @@ export const RING_ERROR_CODES = [
   "RING_ENTRY_PROOF_INCOMPLETE",
   "RING_FOREIGN_RING",
   "RING_HEAD_MAP_INVALID",
-  "RING_HEAD_MAP_STALE",
-  "RING_HEAD_MAP_MISSING",
   "RING_INSUFFICIENT_BALANCE",
   "RING_INTENT_MISMATCH",
   "RING_INVALID_LENGTH",
@@ -108,7 +106,6 @@ export type RingErrorCode = (typeof RING_ERROR_CODES)[number];
 /** Rust `CustomRingError`. */
 export const RingProgramError = Object.freeze({
   proofVerificationFailed: 8101,
-  staleHeadMapRoot: 8166,
   staleKeyRegistryRoot: 8169,
 } as const);
 

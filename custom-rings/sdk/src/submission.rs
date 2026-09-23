@@ -24,7 +24,6 @@ use crate::{
 };
 
 const MAX_ATTEMPTS: u8 = 3;
-const STALE_HEAD_ROOT: u32 = 8166;
 const STALE_KEY_REGISTRY_ROOT: u32 = 8169;
 const POLICY_PROOF_FAILED: u32 = 8101;
 
@@ -488,10 +487,7 @@ fn ring_error(error: &TransactionError) -> Option<u32> {
 
 fn retryable(error: &TransactionError, window: WindowState) -> bool {
     matches!(error, TransactionError::BlockhashNotFound)
-        || matches!(
-            ring_error(error),
-            Some(STALE_HEAD_ROOT | STALE_KEY_REGISTRY_ROOT)
-        )
+        || ring_error(error) == Some(STALE_KEY_REGISTRY_ROOT)
         || (ring_error(error) == Some(POLICY_PROOF_FAILED) && window == WindowState::Advanced)
 }
 
@@ -1062,9 +1058,9 @@ mod tests {
     fn unrelated_errors_and_the_third_failed_attempt_never_reprove() {
         let sender = ShieldedKeypair::new_ed25519().unwrap();
         for (attempts, index, code) in [
-            (1, 1, STALE_HEAD_ROOT),
+            (1, 1, STALE_KEY_REGISTRY_ROOT),
             (1, 0, 8145),
-            (3, 0, STALE_HEAD_ROOT),
+            (3, 0, STALE_KEY_REGISTRY_ROOT),
         ] {
             let mut submission = pending(&sender, attempts);
             let signature = submission.pending_transaction().unwrap().signatures[0];
@@ -1088,8 +1084,6 @@ mod tests {
     fn only_the_bound_ring_failure_can_retry() {
         let error =
             |index, code| TransactionError::InstructionError(index, InstructionError::Custom(code));
-        assert!(retryable(&error(0, STALE_HEAD_ROOT), WindowState::Same));
-        assert!(!retryable(&error(1, STALE_HEAD_ROOT), WindowState::Same));
         assert!(retryable(
             &error(0, STALE_KEY_REGISTRY_ROOT),
             WindowState::Same
@@ -1313,11 +1307,7 @@ mod tests {
     #[test]
     fn retry_decisions_preserve_unknown_attempts_and_stop_at_the_limit() {
         let sender = ShieldedKeypair::new_ed25519().unwrap();
-        for code in [
-            STALE_HEAD_ROOT,
-            STALE_KEY_REGISTRY_ROOT,
-            POLICY_PROOF_FAILED,
-        ] {
+        for code in [STALE_KEY_REGISTRY_ROOT, POLICY_PROOF_FAILED] {
             let mut submission = pending(&sender, 1);
             let broadcast = submission.pending.as_ref().unwrap().broadcast();
             let transaction = submission.pending_transaction().unwrap().clone();

@@ -9,6 +9,7 @@ pub use proof::{
     CustomRingProofParams, EncryptedAudit, PendingCustomRingProof,
 };
 pub use request::CustomRingPrivateTxHash;
+pub(crate) use request_ring::CustomRingPolicyProofRequestJson;
 #[cfg(feature = "solana-rpc")]
 pub(crate) use request_ring::ProvedWindow;
 pub use request_ring::{
@@ -16,4 +17,3 @@ pub use request_ring::{
     RuleAnswer, SourceOwnerEntry, SpendRecordProofInput, VelocityProofInput, NULLIFIER_PATH_LEN,
     STATE_PATH_LEN,
 };
-pub(crate) use request_ring::{CustomRingPolicyProofRequestJson, HeadTransitionJson};

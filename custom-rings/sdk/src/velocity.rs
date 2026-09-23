@@ -16,7 +16,6 @@ use zolana_transaction::{
 };
 
 use crate::{
-    head_map::{CurrentHead, HeadMove, HeadWitness},
     instructions::{
         entry::zero_nullifier_key,
         spend::LiveSpendRecord,
@@ -26,7 +25,6 @@ use crate::{
 };
 
 pub(crate) struct VelocityFacts {
-    pub head: HeadWitness,
     pub namespace: Address,
     pub owner: ListNamespace,
     pub identity: RingIdentity,
@@ -52,13 +50,12 @@ pub(crate) struct VelocityContext<'a> {
 impl VelocityContext<'_> {
     pub(crate) fn facts(
         self,
-        head: CurrentHead,
+        live: LiveSpendRecord,
         slot: u64,
     ) -> Result<VelocityFacts, TransferError> {
         let window_index = slot / self.window_slots;
-        let counters = self.recover_counters(&head.record, window_index)?;
+        let counters = self.recover_counters(&live, window_index)?;
         Ok(VelocityFacts {
-            head: head.witness,
             namespace: self.namespace,
             owner: self.owner,
             identity: self.identity,
@@ -66,7 +63,7 @@ impl VelocityContext<'_> {
             window_slots: self.window_slots,
             rows: self.rows,
             window_index,
-            live: head.record,
+            live,
             counters,
         })
     }
@@ -217,7 +214,6 @@ impl ChargeRows<'_> {
 }
 
 pub(crate) struct VelocityPlan {
-    pub head_transition: custom_ring_interface::HeadMapTransition,
     pub input: SppProofInputUtxo,
     pub output: SppProofOutputUtxo,
     pub record_message: MessageData,
@@ -283,20 +279,6 @@ impl VelocityPlanInput<'_> {
         let next_data_hash = successor
             .data_hash(&address)
             .map_err(|_| TransferError::PolicyHashing)?;
-        let successor_hash = successor
-            .utxo_hash(&facts.owner, &address, facts.entries_tree_id)
-            .map_err(|_| TransferError::PolicyHashing)?;
-        let successor_nullifier =
-            zolana_ring_policy::entry_nullifier(&successor_hash, &successor.blinding)
-                .map_err(|_| TransferError::PolicyHashing)?;
-        let head_transition = facts
-            .head
-            .transition(HeadMove {
-                member: spent.member.as_bytes(),
-                spent: &facts.live.nullifier,
-                successor: &successor_nullifier,
-            })
-            .map_err(crate::witness::list_entry)?;
         let namespace_owner = PublicKey::from_pda(&facts.namespace);
         let zero_nullifier = zero_nullifier_key();
         let input_utxo = Utxo {
@@ -366,7 +348,6 @@ impl VelocityPlanInput<'_> {
             },
         };
         Ok(VelocityPlan {
-            head_transition,
             input,
             output,
             record_message: MessageData {

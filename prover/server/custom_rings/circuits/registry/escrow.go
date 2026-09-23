@@ -33,11 +33,11 @@ func AssertMode(api frontend.API, escrow, root frontend.Variable) {
 
 // AssertEscrowed requires the zero key or a leaf under root while cond is set.
 func (k KeyOpening) AssertEscrowed(api frontend.API, cond, root, ownerPkHash, nullifierPk frontend.Variable) {
-	leaf := gadget.PoseidonHash(api, []frontend.Variable{
-		ownerPkHash,
-		k.Next,
-		gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, k.CtHash}),
-	})
+	leaf := Leaf{
+		Member: ownerPkHash,
+		Next:   k.Next,
+		Key:    gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, k.CtHash}),
+	}.Hash(api)
 	opened := abstractor.Call(api, gadget.MerkleRootGadget{
 		Hash:   leaf,
 		Index:  api.ToBinary(k.Index, Height),

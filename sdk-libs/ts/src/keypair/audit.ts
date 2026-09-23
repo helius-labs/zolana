@@ -334,11 +334,8 @@ export function policyPublicInputHash(
       windowIndex: bigint;
       approvalRequired: boolean;
       revocationTargets?: readonly Bytes32[];
-      headTransition?: Readonly<{
-        oldRoot: Bytes32;
-        newRoot: Bytes32;
-        countersDisclosureHash: Bytes32;
-      }>;
+      /** Set exactly for a windowed transfer. */
+      countersDisclosureHash?: Bytes32;
     }>,
 ): Bytes32 {
   return hashChain([
@@ -352,13 +349,9 @@ export function policyPublicInputHash(
     u64Field(input.windowIndex),
     u64Field(input.approvalRequired ? 1n : 0n),
     ...checkedRevocationTargets(input.revocationTargets),
-    ...(input.headTransition === undefined
+    ...(input.countersDisclosureHash === undefined
       ? []
-      : [
-          checkedBytes(input.headTransition.oldRoot, 32, "head old root"),
-          checkedBytes(input.headTransition.newRoot, 32, "head new root"),
-          checkedBytes(input.headTransition.countersDisclosureHash, 32, "counters disclosure hash"),
-        ]),
+      : [checkedBytes(input.countersDisclosureHash, 32, "counters disclosure hash")]),
   ]);
 }
 
