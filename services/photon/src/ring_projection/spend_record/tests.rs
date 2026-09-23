@@ -317,23 +317,23 @@ fn projection_errors_keep_their_wire_codes() {
                 kind: ProjectionKind::KeyRegistry,
                 reason: String::new(),
             },
-            -32074,
+            -32070,
         ),
         (
             RingProjectionError::RootChanged(ProjectionKind::KeyRegistry),
-            -32075,
+            -32071,
         ),
         (
             RingProjectionError::MemberUnregistered(ProjectionKind::KeyRegistry),
-            -32076,
+            -32072,
         ),
         (
             RingProjectionError::MemberAlreadyRegistered(ProjectionKind::KeyRegistry),
-            -32077,
+            -32073,
         ),
         (
             RingProjectionError::SpendRecordOutOfSync(String::new()),
-            -32078,
+            -32074,
         ),
     ] {
         assert_eq!(

@@ -14,7 +14,7 @@ pub const READ_ACCESS_RECORD_PDA_SEED: &[u8] = b"reader";
 pub const RING_PROGRAM_CONFIG: u8 = 1;
 pub const READ_ACCESS_RECORD: u8 = 2;
 
-pub const DEPOSIT_AUDIT: u8 = 10;
+pub const DEPOSIT_AUDIT: u8 = 8;
 
 /// Optional ring setting requiring proven auditor disclosure on direct
 /// deposits.
@@ -217,7 +217,7 @@ pub const KEY_REGISTRY_EMPTY_ROOT: [u8; 32] = [
 
 pub const KEY_REGISTRY_ROOT_PDA_SEED: &[u8] = b"keyreg";
 /// First byte of an initialized key registry root account.
-pub const KEY_REGISTRY_ROOT: u8 = 9;
+pub const KEY_REGISTRY_ROOT: u8 = 7;
 pub const KEY_REGISTRY_ROOT_HISTORY: usize = 32;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]

@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8181 range is reserved for the ring program and is collision-free
+/// The 8100..8172 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7065) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -80,7 +80,7 @@ pub enum CustomRingError {
     InvalidSource = 8134,
     #[error("curator policy config account is not a canonical initialized policy config")]
     InvalidCuratorPolicyConfig = 8135,
-    #[error("curator entries live in a different tree")]
+    #[error("curator pins a different address tree")]
     CuratorTreeMismatch = 8136,
     #[error("curator has no source for the list")]
     CuratorSourceMissing = 8137,
@@ -122,42 +122,38 @@ pub enum CustomRingError {
     VelocityDepositLeg = 8155,
     #[error("the spend record output does not match its plaintext")]
     InvalidSpendRecord = 8156,
-    // 8157 retired.
     #[error("dual control needs a configured co-signer")]
-    ApprovalWithoutCoSigner = 8158,
+    ApprovalWithoutCoSigner = 8157,
     #[error("the ring has no velocity window")]
-    VelocityDisabled = 8159,
-    // 8160..8163 retired.
+    VelocityDisabled = 8158,
     #[error("the velocity window duration cannot change once set")]
-    VelocityWindowImmutable = 8164,
-    // 8165..8167 retired.
+    VelocityWindowImmutable = 8159,
     #[error("key registry root account is invalid")]
-    InvalidKeyRegistryRoot = 8168,
+    InvalidKeyRegistryRoot = 8160,
     #[error("key registry root changed")]
-    StaleKeyRegistryRoot = 8169,
+    StaleKeyRegistryRoot = 8161,
     #[error("key registry append cursor is invalid or exhausted")]
-    InvalidKeyRegistryCursor = 8170,
-    // 8171 retired.
+    InvalidKeyRegistryCursor = 8162,
     #[error("key registry root already exists")]
-    KeyRegistryRootAlreadyExists = 8172,
+    KeyRegistryRootAlreadyExists = 8163,
     #[error("invalid deposit audit setting")]
-    InvalidDepositAudit = 8173,
+    InvalidDepositAudit = 8164,
     #[error("verified deposit disclosure required")]
-    DepositAuditRequired = 8174,
+    DepositAuditRequired = 8165,
     #[error("invalid deposit disclosure")]
-    InvalidDepositDisclosure = 8175,
+    InvalidDepositDisclosure = 8166,
     #[error("invalid spend counters disclosure")]
-    InvalidSpendCountersDisclosure = 8176,
+    InvalidSpendCountersDisclosure = 8167,
     #[error("revocation target account is invalid")]
-    InvalidRevocationTarget = 8177,
+    InvalidRevocationTarget = 8168,
     #[error("policy fact changed after proof creation")]
-    PolicyFactRevoked = 8178,
+    PolicyFactRevoked = 8169,
     #[error("a delegate needs a policy ring")]
-    DelegateRequiresPolicy = 8179,
+    DelegateRequiresPolicy = 8170,
     #[error("revocation tree index is invalid")]
-    InvalidRevocationTreeIndex = 8180,
+    InvalidRevocationTreeIndex = 8171,
     #[error("policy tree accounts are invalid")]
-    InvalidPolicyTrees = 8181,
+    InvalidPolicyTrees = 8172,
 }
 
 impl From<CustomRingError> for ProgramError {

@@ -583,7 +583,7 @@ describe("ring config", () => {
       [SYSTEM, AccountRole.READONLY],
     ]);
     expect(Buffer.from(set.data ?? []).toString("hex")).toBe(
-      "1c" +
+      "1b" +
         Buffer.from(addressBytes(signer, "signer")).toString("hex") +
         "0401" +
         "00".repeat(32) +

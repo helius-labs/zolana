@@ -44,13 +44,13 @@ const encoder = new TextEncoder();
 export const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
 const SET_AUTHORITY_TAG = 6;
 const SET_PAUSED_TAG = 11;
-const SET_CO_SIGNER_TAG = 28;
+const SET_CO_SIGNER_TAG = 27;
 const CLEAR_CO_SIGNER_TAG = 21;
 const SET_SPEND_WINDOW_TAG = 22;
 const CLEAR_SPEND_WINDOW_TAG = 23;
 const SET_DELEGATE_TAG = 24;
-const CREATE_KEY_REGISTRY_ROOT_TAG = 29;
-const SET_DEPOSIT_AUDIT_TAG = 31;
+const CREATE_KEY_REGISTRY_ROOT_TAG = 28;
+const SET_DEPOSIT_AUDIT_TAG = 30;
 
 export async function fetchRingDepositAudit(
   client: Pick<ChainReader, "getAccount">,

@@ -17,7 +17,7 @@ pub enum RingsTreeKind {
     Nullifier = 2,
     /// Only the current root is accepted.
     #[cfg(feature = "ring-projection")]
-    KeyRegistry = 4,
+    KeyRegistry = 3,
 }
 
 impl RingsTreeKind {

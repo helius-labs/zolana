@@ -3,7 +3,7 @@ import type { Bytes33, Bytes64 } from "../interface/types.js";
 
 import { RING_DEPOSIT_AUDIT_SLOTS } from "../client/prover/types.js";
 export { RING_DEPOSIT_AUDIT_SLOTS };
-export const AUDITED_RING_DEPOSIT_TAG = 32;
+export const AUDITED_RING_DEPOSIT_TAG = 31;
 const MAGIC = new TextEncoder().encode("CRDEP001");
 const HEADER_LENGTH = 106;
 

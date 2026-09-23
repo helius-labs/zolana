@@ -137,11 +137,11 @@ ring's first `register_spend` or its `CREATE_KEY_REGISTRY_ROOT` instruction.
 Keep RPC history available from that slot, and back up the database and its
 undo journal.
 
-Error `-32078` means the spend-record projection is unavailable, quarantined,
+Error `-32074` means the spend-record projection is unavailable, quarantined,
 or ahead of the SPP indexer. Wait for indexing or recovery. The key registry
-answers `-32074` for an unavailable projection and `-32075` for a changed root
-or cursor. A key-registry lookup answers `-32076` for an unregistered member
-and `-32077` for one already registered.
+answers `-32070` for an unavailable projection and `-32071` for a changed root
+or cursor. A key-registry lookup answers `-32072` for an unregistered member
+and `-32073` for one already registered.
 
 Photon fails closed when it cannot safely reconstruct Rings nullifier tree batches. A
 non-contiguous nullifier queue or reconstructed-root mismatch makes the indexer retry the same
