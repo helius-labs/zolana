@@ -23,9 +23,9 @@ answer without releasing long-lived secrets.
 
 Breaking
 
-- The user-registry `register` instruction takes a `payer` writable signer
-  after `owner` and no longer debits `owner` → a transaction built against the
-  previous three-account layout fails with `NotEnoughAccountKeys`.
+- `buildRegistrationTransaction` adds the `payer` account the user-registry
+  program now requires for a first registration → rebuild any unsigned
+  registration transaction an earlier release built, the program rejects it.
 - `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
   `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
   `WalletSyncMaterial` are removed → build

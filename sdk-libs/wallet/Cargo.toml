@@ -71,6 +71,9 @@ name = "tamper"
 [[test]]
 name = "bench_scenarios"
 
+[[test]]
+name = "user_registry"
+
 [[bench]]
 name = "wallet_ops"
 harness = false

@@ -813,61 +813,6 @@ mod tests {
     }
 
     #[test]
-    fn registration_builder_uses_optional_payer_for_rent_and_fee() {
-        let owner = Pubkey::new_unique();
-        let payer = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
-            .expect("ed25519 keypair");
-        let address = keypair.shielded_address().expect("shielded address");
-        let message = build_registration_transaction_sync(
-            &MockRpc::default(),
-            owner,
-            &address,
-            None,
-            Some(payer),
-        )
-        .expect("build registration")
-        .expect("registration required");
-
-        let VersionedMessage::V1(message) = message else {
-            panic!("expected v1 registration message");
-        };
-        assert_eq!(message.header.num_required_signatures, 2);
-        assert_eq!(message.header.num_readonly_signed_accounts, 1);
-        assert_eq!(message.account_keys[0], payer);
-        assert_eq!(message.account_keys[1], owner);
-        assert_eq!(message.instructions.len(), 1);
-        let register_ix = &message.instructions[0];
-        assert_eq!(
-            message.account_keys[usize::from(register_ix.accounts[1])],
-            owner
-        );
-        assert_eq!(
-            message.account_keys[usize::from(register_ix.accounts[2])],
-            payer
-        );
-    }
-
-    #[test]
-    fn registration_builder_defaults_payer_to_owner() {
-        let owner = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
-            .expect("ed25519 keypair");
-        let address = keypair.shielded_address().expect("shielded address");
-        let message =
-            build_registration_transaction_sync(&MockRpc::default(), owner, &address, None, None)
-                .expect("build registration")
-                .expect("registration required");
-
-        let VersionedMessage::V1(message) = message else {
-            panic!("expected v1 registration message");
-        };
-        assert_eq!(message.account_keys[0], owner);
-        assert_eq!(message.header.num_required_signatures, 1);
-        assert_eq!(message.header.num_readonly_signed_accounts, 0);
-    }
-
-    #[test]
     fn is_wallet_registered_sync_reports_registered_owner() {
         let owner = Pubkey::new_unique();
         let (pda, bump) = user_record_pda(&owner);

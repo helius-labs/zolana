@@ -3,11 +3,13 @@ mod common;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use user_registry_tests::{
-    build_register_ix, build_set_merging_enabled_ix, build_sponsored_register_ix,
-    build_update_keys_ix, build_update_keys_ixs, p256_binding_signature, user_registry_program_id,
-    UserRecord, UserRegistryTestRig,
+    build_register_ix, build_set_merging_enabled_ix, build_update_keys_ix, build_update_keys_ixs,
+    p256_binding_signature, user_registry_program_id, UserRecord, UserRegistryTestRig,
 };
-use zolana_user_registry_interface::user_record_pda;
+use zolana_user_registry_interface::{
+    instruction::{self, p256_key_binding_message, p256_verify_instruction, RegisterData},
+    user_record_pda,
+};
 
 use common::{funded_keypair, keys, register, signing_key};
 
@@ -65,51 +67,117 @@ fn register_supports_a_prefunded_pda_and_an_absent_p256_key() {
     assert_eq!(account.data.len(), UserRecord::SIZE);
 }
 
-/// A sponsor in the payer slot funds the record's rent, so an owner holding
-/// 0 SOL can be registered. The rig's payer covers the transaction fee, so the
-/// sponsor's balance drops by exactly the rent.
+/// A separate payer funds the record's rent, so an owner holding 0 SOL can be
+/// registered. The rig's payer covers the transaction fee, so `rent_payer`'s
+/// balance drops by exactly the rent.
 #[test]
-fn register_lets_a_sponsor_fund_the_record() {
+fn register_charges_rent_to_a_separate_payer() {
     let mut rig = UserRegistryTestRig::new();
     let owner = Keypair::new();
-    let sponsor = funded_keypair(&mut rig);
+    let rent_payer = funded_keypair(&mut rig);
     let value = keys(3);
+    let (user_record, bump) = user_record_pda(&owner.pubkey());
     let rent = rig.svm.minimum_balance_for_rent_exemption(UserRecord::SIZE);
-    let sponsor_before = rig
+    let rent_payer_before = rig
         .svm
-        .get_balance(&sponsor.pubkey())
-        .expect("sponsor balance");
+        .get_balance(&rent_payer.pubkey())
+        .expect("rent payer balance");
 
     rig.send(
-        build_sponsored_register_ix(
-            &owner.pubkey(),
-            &sponsor.pubkey(),
-            None,
-            value.nullifier,
-            value.viewing,
+        instruction::register(
+            user_record,
+            owner.pubkey(),
+            rent_payer.pubkey(),
+            RegisterData {
+                owner_p256: None,
+                nullifier_pubkey: value.nullifier,
+                viewing_pubkey: value.viewing,
+            },
         ),
-        &[&owner, &sponsor],
+        &[&owner, &rent_payer],
     )
-    .expect("sponsored register");
+    .expect("register with a separate payer");
 
-    let record = rig.record(&owner.pubkey());
-    assert_eq!(record.owner, owner.pubkey());
-    assert_eq!(record.nullifier_pubkey, value.nullifier);
-    assert_eq!(record.viewing_pubkey, value.viewing);
-
-    let account = rig
-        .svm
-        .get_account(&user_record_pda(&owner.pubkey()).0)
-        .expect("record account");
+    assert_eq!(
+        rig.record(&owner.pubkey()),
+        UserRecord {
+            owner: owner.pubkey(),
+            bump,
+            owner_p256: None,
+            nullifier_pubkey: value.nullifier,
+            viewing_pubkey: value.viewing,
+            merging_enabled: false,
+        }
+    );
+    let account = rig.svm.get_account(&user_record).expect("record account");
     assert_eq!(account.owner, user_registry_program_id());
     assert_eq!(account.data.len(), UserRecord::SIZE);
     assert_eq!(account.lamports, rent);
     assert_eq!(rig.svm.get_balance(&owner.pubkey()).unwrap_or(0), 0);
-    let sponsor_after = rig
+    let rent_payer_after = rig
         .svm
-        .get_balance(&sponsor.pubkey())
-        .expect("sponsor balance");
-    assert_eq!(sponsor_before - sponsor_after, rent);
+        .get_balance(&rent_payer.pubkey())
+        .expect("rent payer balance");
+    assert_eq!(rent_payer_before.checked_sub(rent_payer_after), Some(rent));
+}
+
+/// With a P256 key the Instructions sysvar follows the payer slot, and over a
+/// prefunded PDA the separate payer covers only the top-up to rent exemption.
+#[test]
+fn register_tops_up_a_prefunded_pda_from_a_separate_payer_with_a_p256_key() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = Keypair::new();
+    let rent_payer = funded_keypair(&mut rig);
+    let value = keys(4);
+    let (user_record, bump) = user_record_pda(&owner.pubkey());
+    let prefund = 1_000_000;
+    rig.fund(&user_record, prefund);
+    let rent = rig.svm.minimum_balance_for_rent_exemption(UserRecord::SIZE);
+    let rent_payer_before = rig
+        .svm
+        .get_balance(&rent_payer.pubkey())
+        .expect("rent payer balance");
+    let (owner_p256, signature) = p256_binding_signature(&owner.pubkey(), &signing_key(value.tag));
+    let binding = p256_key_binding_message(&user_record, &owner.pubkey(), &owner_p256);
+
+    rig.send_all(
+        &[
+            p256_verify_instruction(&binding, &signature, &owner_p256),
+            instruction::register(
+                user_record,
+                owner.pubkey(),
+                rent_payer.pubkey(),
+                RegisterData {
+                    owner_p256: Some(owner_p256),
+                    nullifier_pubkey: value.nullifier,
+                    viewing_pubkey: value.viewing,
+                },
+            ),
+        ],
+        &[&owner, &rent_payer],
+    )
+    .expect("register a P256 key with a separate payer");
+
+    assert_eq!(
+        rig.record(&owner.pubkey()),
+        UserRecord {
+            owner: owner.pubkey(),
+            bump,
+            owner_p256: Some(owner_p256),
+            nullifier_pubkey: value.nullifier,
+            viewing_pubkey: value.viewing,
+            merging_enabled: false,
+        }
+    );
+    assert_eq!(rig.svm.get_balance(&user_record), Some(rent));
+    let rent_payer_after = rig
+        .svm
+        .get_balance(&rent_payer.pubkey())
+        .expect("rent payer balance");
+    assert_eq!(
+        rent_payer_before.checked_sub(rent_payer_after),
+        rent.checked_sub(prefund)
+    );
 }
 
 /// Clearing the P256 key (`owner_p256: Some -> None`) shortens the borsh body
