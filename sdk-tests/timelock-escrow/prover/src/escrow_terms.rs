@@ -1,5 +1,5 @@
 use timelock_escrow_program::instructions::shared::u64_right_align;
-use zolana_gnark_prover::decimal;
+use zolana_gnark_ffi_prover::decimal;
 
 #[derive(Debug, Clone, Copy)]
 pub struct EscrowTermsProofInput {

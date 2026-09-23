@@ -1560,6 +1560,33 @@ clippy:
 check-test-hygiene:
     ./tools/check-test-hygiene.sh
 
+# Run a go command in every example prover's circuits module, e.g.
+# `just example-circuits-go vet ./...` or `just example-circuits-go mod tidy`.
+# The committed go.mod requires the gnark FFI bridge without replacing it (the
+# build helper supplies the replace at build time), so the command runs against
+# a copy of go.mod/go.sum with the replace added. Changes the command makes to
+# the copy are written back without the replace.
+example-circuits-go +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export GOWORK=off
+    bridge="$PWD/sdk-libs/gnark-ffi-prover/build-helper/go"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    for dir in sdk-tests/*/prover/circuits; do
+        echo "== $dir"
+        cp "$dir/go.mod" "$tmp/circuits.mod"
+        cp "$dir/go.sum" "$tmp/circuits.sum"
+        (
+            cd "$dir"
+            go mod edit -replace="zolana/gnarkffiprover=$bridge" "$tmp/circuits.mod"
+            GOFLAGS="-modfile=$tmp/circuits.mod" go {{args}}
+            go mod edit -dropreplace=zolana/gnarkffiprover "$tmp/circuits.mod"
+        )
+        cmp -s "$tmp/circuits.mod" "$dir/go.mod" || cp "$tmp/circuits.mod" "$dir/go.mod"
+        cmp -s "$tmp/circuits.sum" "$dir/go.sum" || cp "$tmp/circuits.sum" "$dir/go.sum"
+    done
+
 # === Prover server ===
 
 prover-server-test:

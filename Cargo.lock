@@ -2406,8 +2406,8 @@ name = "dynamic-swap-prover"
 version = "0.1.0"
 dependencies = [
  "zolana-client",
- "zolana-gnark-prover",
- "zolana-gnark-prover-build",
+ "zolana-gnark-ffi-prover",
+ "zolana-gnark-ffi-prover-build",
 ]
 
 [[package]]
@@ -9210,8 +9210,8 @@ version = "0.1.0"
 dependencies = [
  "swap-program",
  "zolana-client",
- "zolana-gnark-prover",
- "zolana-gnark-prover-build",
+ "zolana-gnark-ffi-prover",
+ "zolana-gnark-ffi-prover-build",
 ]
 
 [[package]]
@@ -9481,8 +9481,8 @@ version = "0.1.0"
 dependencies = [
  "timelock-escrow-program",
  "zolana-client",
- "zolana-gnark-prover",
- "zolana-gnark-prover-build",
+ "zolana-gnark-ffi-prover",
+ "zolana-gnark-ffi-prover-build",
 ]
 
 [[package]]
@@ -11078,7 +11078,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-gnark-prover"
+name = "zolana-gnark-ffi-prover"
 version = "0.1.0"
 dependencies = [
  "groth16-solana",
@@ -11090,7 +11090,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-gnark-prover-build"
+name = "zolana-gnark-ffi-prover-build"
 version = "0.1.0"
 
 [[package]]

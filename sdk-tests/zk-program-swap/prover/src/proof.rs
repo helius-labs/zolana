@@ -2,7 +2,7 @@ use swap_program::instructions::{
     cancel::CancelProof, make::MakeProof, take::TakeProof,
     take_verifiable_encryption::TakeVerifiableEncryptionProof,
 };
-use zolana_gnark_prover::CompressedProof;
+use zolana_gnark_ffi_prover::CompressedProof;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OrderProof {
@@ -56,12 +56,12 @@ impl From<OrderProof> for CancelProof {
 }
 
 impl TryFrom<OrderProof> for TakeVerifiableEncryptionProof {
-    type Error = zolana_gnark_prover::Error;
+    type Error = zolana_gnark_ffi_prover::Error;
 
     fn try_from(proof: OrderProof) -> Result<Self, Self::Error> {
         let (commitment, commitment_pok) = proof
             .commitment
-            .ok_or(zolana_gnark_prover::Error::MissingCommitment)?;
+            .ok_or(zolana_gnark_ffi_prover::Error::MissingCommitment)?;
         Ok(Self {
             proof_a: proof.proof_a,
             proof_b: proof.proof_b,

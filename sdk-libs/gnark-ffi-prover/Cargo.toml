@@ -1,11 +1,10 @@
 [package]
-name = "zolana-gnark-prover"
+name = "zolana-gnark-ffi-prover"
 version = "0.1.0"
+description = "In-process gnark Groth16 prover for Zolana ZK programs, linked as a Go C archive."
 edition.workspace = true
 license.workspace = true
-# The build helper and the examples' go.mod files reach the Go bridge and the
-# pool circuits by repository-relative paths, so this only builds in-tree.
-publish = false
+repository.workspace = true
 
 [dependencies]
 groth16-solana = { workspace = true, features = ["bsb22", "gnark-vk"] }

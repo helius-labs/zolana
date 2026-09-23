@@ -13,9 +13,9 @@ name = "swap-prover-setup"
 path = "src/bin/setup.rs"
 
 [dependencies]
-zolana-gnark-prover = { workspace = true }
+zolana-gnark-ffi-prover = { workspace = true }
 swap-program = { path = "../program" }
 zolana-client = { workspace = true }
 
 [build-dependencies]
-zolana-gnark-prover-build = { workspace = true }
+zolana-gnark-ffi-prover-build = { workspace = true }

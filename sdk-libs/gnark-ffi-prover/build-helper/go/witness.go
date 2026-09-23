@@ -1,4 +1,4 @@
-package gnarkprover
+package gnarkffiprover
 
 import (
 	"fmt"

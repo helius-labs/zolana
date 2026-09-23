@@ -1,5 +1,5 @@
 // Command circuits is built as the timelock-escrow example's C archive: the
-// zolana/gnarkprover bridge with the escrow and withdraw circuits registered.
+// zolana/gnarkffiprover bridge with the escrow and withdraw circuits registered.
 package main
 
 import "C"
@@ -9,14 +9,14 @@ import (
 
 	"circuits/escrow"
 	"circuits/withdraw"
-	"zolana/gnarkprover"
+	"zolana/gnarkffiprover"
 )
 
 func init() {
-	gnarkprover.Register("escrow", gnarkprover.Circuit{
+	gnarkffiprover.Register("escrow", gnarkffiprover.Circuit{
 		New: func() frontend.Circuit { return &escrow.Circuit{} },
 	})
-	gnarkprover.Register("withdraw", gnarkprover.Circuit{
+	gnarkffiprover.Register("withdraw", gnarkffiprover.Circuit{
 		New: func() frontend.Circuit { return &withdraw.Circuit{} },
 	})
 }

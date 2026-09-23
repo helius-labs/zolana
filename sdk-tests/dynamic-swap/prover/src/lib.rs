@@ -13,7 +13,7 @@ pub enum CircuitId {
     EscrowSettle,
 }
 
-impl zolana_gnark_prover::Circuit for CircuitId {
+impl zolana_gnark_ffi_prover::Circuit for CircuitId {
     const ALL: &'static [Self] = &[Self::EscrowOpen, Self::EscrowSettle];
 
     fn name(self) -> &'static str {
@@ -24,4 +24,5 @@ impl zolana_gnark_prover::Circuit for CircuitId {
     }
 }
 
-pub static PROVER: zolana_gnark_prover::Prover<CircuitId> = zolana_gnark_prover::prover!();
+pub static PROVER: zolana_gnark_ffi_prover::Prover<CircuitId> =
+    zolana_gnark_ffi_prover::prover!(concat!(env!("CARGO_MANIFEST_DIR"), "/../build/gnark"));

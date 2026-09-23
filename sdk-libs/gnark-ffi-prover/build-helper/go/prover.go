@@ -1,15 +1,19 @@
-// Package gnarkprover is the cgo bridge every sdk-tests example prover builds
-// into its Rust crate as a C archive. An example's `main` package registers
-// its circuits by name from an init function; the exported Setup, LoadKeys and
+// Package gnarkffiprover is the cgo bridge a zolana-gnark-ffi-prover crate
+// builds into its C archive. The prover crate's `main` package registers its
+// circuits by name from an init function; the exported Setup, LoadKeys and
 // Prove look a circuit up by that name, which is also its key directory and
-// setup CLI argument on the Rust side (`zolana_gnark_prover::Circuit::name`).
-package gnarkprover
+// setup CLI argument on the Rust side (`zolana_gnark_ffi_prover::Circuit::name`).
+//
+// This module ships inside the zolana-gnark-ffi-prover-build crate, whose
+// build helper replaces the module path with this directory at build time.
+package gnarkffiprover
 
 /*
 #include <stdlib.h>
 #include <string.h>
 
-// Mirrored field for field by `ProveResult` in sdk-libs/gnark-prover/src/ffi.rs.
+// Mirrored field for field by `ProveResult` in the zolana-gnark-ffi-prover
+// crate's src/ffi.rs.
 typedef struct {
     unsigned char proof_a[64];
     unsigned char proof_b[128];
@@ -63,15 +67,15 @@ var (
 
 // Register adds a circuit under name. It is meant for init functions and
 // panics on a duplicate name or an unsupported commitment count, both of which
-// are mistakes in the example's registration code.
+// are mistakes in the prover crate's registration code.
 func Register(name string, circuit Circuit) {
 	if circuit.Commitments < 0 || circuit.Commitments > 1 {
-		panic(fmt.Sprintf("gnarkprover: circuit %q declares %d commitments, groth16-solana verifies at most 1", name, circuit.Commitments))
+		panic(fmt.Sprintf("gnarkffiprover: circuit %q declares %d commitments, groth16-solana verifies at most 1", name, circuit.Commitments))
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if _, ok := circuits[name]; ok {
-		panic(fmt.Sprintf("gnarkprover: circuit %q registered twice", name))
+		panic(fmt.Sprintf("gnarkffiprover: circuit %q registered twice", name))
 	}
 	circuits[name] = circuit
 }
@@ -285,7 +289,7 @@ func prove(name, witnessJSON string, result *C.C_ProveResult) error {
 		copyBytes(&result.proof_commitment_pok[0], pok[:])
 	}
 
-	// Every example circuit exposes a single public input, the hash of its
+	// Every registered circuit exposes a single public input, the hash of its
 	// public values.
 	publicWitness, err := fullWitness.Public()
 	if err != nil {

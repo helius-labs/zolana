@@ -1,4 +1,4 @@
-use zolana_gnark_prover::CompressedProof;
+use zolana_gnark_ffi_prover::CompressedProof;
 
 // Compressed, negated Groth16 proof ready for the on-chain verifier. Both
 // dynamic-swap circuits are standard Groth16 (no BSB22 commitment), so the

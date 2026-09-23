@@ -1,18 +1,20 @@
-//! # gnark-prover
+//! # gnark-ffi-prover
 //!
-//! The host-side gnark prover every sdk-tests example with its own circuits
-//! shares. Each example keeps only what is specific to it:
+//! A host-side gnark Groth16 prover for ZK programs with their own circuits,
+//! running in-process through a Go C archive. A prover crate keeps only what
+//! is specific to it:
 //!
-//! - `prover/circuits/`: a Go `main` package whose `init` registers the
-//!   example's circuits with the `zolana/gnarkprover` bridge in `go/`, plus the
-//!   circuits themselves.
-//! - `prover/build.rs`: `zolana_gnark_prover_build::build_prover_archive()`, which
-//!   builds that package into a C archive and links it.
-//! - A [`Circuit`] enum and `pub static PROVER: Prover<CircuitId> = prover!();`.
+//! - `circuits/`: a Go `main` package whose `init` registers its circuits with
+//!   the `zolana/gnarkffiprover` bridge, plus the circuits themselves. Its
+//!   `go.mod` requires the bridge module without a `replace`.
+//! - `build.rs`: `zolana_gnark_ffi_prover_build::build_prover_archive()`, which
+//!   supplies the bridge, builds that package into a C archive and links it.
+//! - A [`Circuit`] enum and
+//!   `pub static PROVER: Prover<CircuitId> = prover!(<key root>);`.
 //! - The witness encoding and proof types of each circuit.
 //! - `src/bin/setup.rs`: `setup_cli::main(&PROVER)`.
 //!
-//! Keys live in `<example>/build/gnark/<circuit>/{pk,vk}.bin`. A circuit's
+//! Each circuit's keys live in `<key root>/<circuit>/{pk,vk}.bin`. A circuit's
 //! proving key is loaded on its first proof and stays loaded.
 
 mod ffi;
@@ -40,7 +42,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("gnark FFI error: {0}")]
     Go(String),
-    #[error("proving key missing at {0} -- fetch the example's keys or run its setup")]
+    #[error("proving key missing at {0} -- fetch the keys or run the setup binary")]
     MissingKeys(PathBuf),
     #[error("circuit {0:?} is not in its Circuit::ALL")]
     UnlistedCircuit(&'static str),

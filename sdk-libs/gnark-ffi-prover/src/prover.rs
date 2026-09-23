@@ -8,17 +8,17 @@ use std::{
 
 use crate::{Error, ProveOutput, Result, Symbols, WitnessMap};
 
-/// A circuit an example's Go archive registers.
+/// A circuit a prover crate's Go archive registers.
 pub trait Circuit: Copy + PartialEq + fmt::Debug + 'static {
     /// Every circuit the archive registers, in setup CLI order.
     const ALL: &'static [Self];
 
     /// The name the Go side registers the circuit under. It is also the
-    /// circuit's key directory under `build/gnark` and its setup CLI argument.
+    /// circuit's key directory under the key root and its setup CLI argument.
     fn name(self) -> &'static str;
 }
 
-/// One example's Go prover archive. Each circuit's proving key is loaded from
+/// One prover crate's Go archive. Each circuit's proving key is loaded from
 /// disk on first use and stays loaded in the archive.
 pub struct Prover<C> {
     symbols: Symbols,

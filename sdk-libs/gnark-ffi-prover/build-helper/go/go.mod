@@ -1,4 +1,4 @@
-module zolana/gnarkprover
+module zolana/gnarkffiprover
 
 go 1.27.1
 

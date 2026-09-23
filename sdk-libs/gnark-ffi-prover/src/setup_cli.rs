@@ -1,4 +1,4 @@
-//! The key setup binary every example prover ships:
+//! The key setup binary every prover crate ships:
 //! `<bin> <circuit> <build-dir> [--rust-vk <path>]`. It generates fresh keys
 //! into `<build-dir>` and emits the program's Rust verifying key source from
 //! the new `vk.bin`.
@@ -13,7 +13,7 @@ struct Command<C> {
     rust_vk: PathBuf,
 }
 
-/// The binary's `main`: `fn main() -> ExitCode { zolana_gnark_prover::setup_cli::main(&PROVER) }`.
+/// The binary's `main`: `fn main() -> ExitCode { zolana_gnark_ffi_prover::setup_cli::main(&PROVER) }`.
 pub fn main<C: Circuit>(prover: &Prover<C>) -> ExitCode {
     let mut args = std::env::args();
     let bin = args.next().unwrap_or_else(|| "setup".to_string());

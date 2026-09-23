@@ -1,6 +1,6 @@
 use std::ffi::{c_char, CStr};
 
-/// Rust mirror of the Go bridge's `C_ProveResult` (sdk-libs/gnark-prover/go/prover.go).
+/// Rust mirror of the Go bridge's `C_ProveResult` (`build-helper/go/prover.go`).
 /// The field order and types must match it exactly.
 #[repr(C)]
 pub struct ProveResult {
@@ -27,15 +27,20 @@ pub struct Symbols {
 
 /// Declares the Go archive's symbols in the calling crate and builds its
 /// [`Prover`](crate::Prover). The calling crate's build script links the
-/// archive with `zolana_gnark_prover_build::build_prover_archive`, and its keys live
-/// in `<crate>/../build/gnark/<circuit>`.
+/// archive with `zolana_gnark_ffi_prover_build::build_prover_archive`.
+///
+/// The argument is the key root, a `&'static str` constant expression: each
+/// circuit's keys live in `<key root>/<circuit>/{pk,vk}.bin`. Anchor it to the
+/// calling crate with `env!("CARGO_MANIFEST_DIR")` so it does not depend on
+/// the working directory:
 ///
 /// ```ignore
-/// pub static PROVER: zolana_gnark_prover::Prover<CircuitId> = zolana_gnark_prover::prover!();
+/// pub static PROVER: zolana_gnark_ffi_prover::Prover<CircuitId> =
+///     zolana_gnark_ffi_prover::prover!(concat!(env!("CARGO_MANIFEST_DIR"), "/keys"));
 /// ```
 #[macro_export]
 macro_rules! prover {
-    () => {{
+    ($keys_root:expr $(,)?) => {{
         unsafe extern "C" {
             fn Setup(
                 name: *const ::core::ffi::c_char,
@@ -60,7 +65,7 @@ macro_rules! prover {
                 free_prove_result: FreeProveResult,
                 free_string: FreeString,
             },
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../build/gnark"),
+            $keys_root,
         )
     }};
 }

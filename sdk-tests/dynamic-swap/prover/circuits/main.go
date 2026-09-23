@@ -1,5 +1,5 @@
 // Command circuits is built as the dynamic-swap example's C archive: the
-// zolana/gnarkprover bridge with the escrow_open and escrow_settle circuits
+// zolana/gnarkffiprover bridge with the escrow_open and escrow_settle circuits
 // registered.
 package main
 
@@ -10,14 +10,14 @@ import (
 
 	"circuits/escrow_open"
 	"circuits/escrow_settle"
-	"zolana/gnarkprover"
+	"zolana/gnarkffiprover"
 )
 
 func init() {
-	gnarkprover.Register("escrow_open", gnarkprover.Circuit{
+	gnarkffiprover.Register("escrow_open", gnarkffiprover.Circuit{
 		New: func() frontend.Circuit { return &escrow_open.Circuit{} },
 	})
-	gnarkprover.Register("escrow_settle", gnarkprover.Circuit{
+	gnarkffiprover.Register("escrow_settle", gnarkffiprover.Circuit{
 		New: func() frontend.Circuit { return &escrow_settle.Circuit{} },
 	})
 }

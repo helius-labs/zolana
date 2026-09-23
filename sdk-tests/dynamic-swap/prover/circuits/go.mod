@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/consensys/gnark v0.16.3
-	zolana/gnarkprover v0.0.0
+	zolana/gnarkffiprover v0.0.0
 	zolana/prover v0.0.0
 )
 
@@ -27,7 +27,5 @@ require (
 )
 
 replace zolana/prover => ../../../../prover/server
-
-replace zolana/gnarkprover => ../../../../sdk-libs/gnark-prover/go
 
 replace github.com/reilabs/gnark-lean-extractor/v3 => github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107

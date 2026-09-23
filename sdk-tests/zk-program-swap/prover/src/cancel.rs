@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
-use zolana_gnark_prover::{decimal, utxo_witness_entries, WitnessMap};
+use zolana_gnark_ffi_prover::{decimal, utxo_witness_entries, WitnessMap};
 
 use crate::{CircuitId, OrderProof, OrderTermsProofInput, PROVER};
 
@@ -44,7 +44,7 @@ impl CancelProofInputs {
         map
     }
 
-    pub fn prove(&self) -> zolana_gnark_prover::Result<OrderProof> {
+    pub fn prove(&self) -> zolana_gnark_ffi_prover::Result<OrderProof> {
         Ok(PROVER
             .prove(CircuitId::Cancel, &self.witness())?
             .compress()?
@@ -56,7 +56,7 @@ impl CancelProofInputs {
 mod tests {
     use std::collections::HashSet;
 
-    use zolana_gnark_prover::expected_utxo_witness_keys;
+    use zolana_gnark_ffi_prover::expected_utxo_witness_keys;
 
     use super::*;
     use crate::{order_terms::expected_order_terms_witness_keys, TAKE_MODE_DERIVED};

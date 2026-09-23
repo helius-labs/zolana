@@ -1,5 +1,5 @@
 use timelock_escrow_program::instructions::{escrow::EscrowProof, withdraw::WithdrawProof};
-use zolana_gnark_prover::CompressedProof;
+use zolana_gnark_ffi_prover::CompressedProof;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TimelockProof {
