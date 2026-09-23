@@ -91,8 +91,9 @@ No on-chain proof that `viewing_pubkey` equals `KDF(ECDH(...)) · G`. The progra
 | # | Name | W | S | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | user_record | x |   | PDA, created by this instruction |
-| 2 | owner | x | x | Solana owner pubkey; pays rent |
-| 3 | system_program |   |   | for PDA creation |
+| 2 | owner |   | x | Solana owner pubkey |
+| 3 | payer | x | x | pays rent; may equal `owner` |
+| 4 | system_program |   |   | for PDA creation |
 
 **Instruction data**
 

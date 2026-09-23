@@ -14,6 +14,9 @@ release.
 
 Breaking
 
+- `buildRegistrationTransaction` adds the `payer` account the user-registry
+  program now requires for a first registration → rebuild any unsigned
+  registration transaction an earlier release built, the program rejects it.
 - `ringDepositInstruction` is no longer exported from
   `@heliuslabs/zolana/interface`, and it and `ringTransactInstruction` add the
   co-signer, spend window, deposit audit and key registry accounts, with
@@ -74,6 +77,8 @@ Breaking
 
 Added
 
+- `buildRegistrationTransaction({ payer })` lets a sponsor fund the record's
+  rent and pay the transaction fee; the owner still signs and may hold 0 SOL.
 - `setRingCoSignerInstruction` and `clearRingCoSignerInstruction` set and close
   a ring's co-signer, a second Solana key that must sign the transfers,
   deposits or withdrawals in its scope, and every ring builder takes `cosigner`

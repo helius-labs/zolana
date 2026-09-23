@@ -161,6 +161,7 @@ pub fn build_register_ix(
     user_registry_instruction::register(
         user_record,
         *owner,
+        *owner,
         RegisterData {
             owner_p256,
             nullifier_pubkey,
