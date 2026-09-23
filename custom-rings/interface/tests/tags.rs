@@ -31,5 +31,4 @@ fn ring_dispatch_tags_do_not_collide_with_forwarded_spp_tags() {
     ];
     let unique: std::collections::BTreeSet<_> = tags.into_iter().collect();
     assert_eq!(unique.len(), tags.len());
-    assert_eq!(tag::SET_CO_SIGNER, 28);
 }

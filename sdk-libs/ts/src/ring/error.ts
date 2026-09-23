@@ -107,7 +107,7 @@ export type RingErrorCode = (typeof RING_ERROR_CODES)[number];
 /** Rust `CustomRingError`. */
 export const RingProgramError = Object.freeze({
   proofVerificationFailed: 8101,
-  staleKeyRegistryRoot: 8169,
+  staleKeyRegistryRoot: 8161,
 } as const);
 
 export class RingError extends Error {

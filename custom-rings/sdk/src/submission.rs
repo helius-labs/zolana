@@ -25,7 +25,7 @@ use crate::{
 
 const MAX_ATTEMPTS: u8 = 3;
 const PENDING_POLL: std::time::Duration = std::time::Duration::from_millis(500);
-const STALE_KEY_REGISTRY_ROOT: u32 = 8169;
+const STALE_KEY_REGISTRY_ROOT: u32 = 8161;
 const POLICY_PROOF_FAILED: u32 = 8101;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

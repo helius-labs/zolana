@@ -77,7 +77,7 @@ const RingProgramTag = Object.freeze({
   setPolicySource: 10,
   setPolicyRules: 12,
   registerSpend: 26,
-  registerKey: 30,
+  registerKey: 29,
 } as const);
 
 /** Rust `*_COMPUTE_UNIT_LIMIT`. */

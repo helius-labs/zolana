@@ -29,11 +29,11 @@ const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
 const LIMIT_ERROR: &str = "value must be between 1 and 1000";
 
 pub mod error_code {
-    pub const RING_KEY_REGISTRY_OUT_OF_SYNC: i64 = -32074;
-    pub const RING_KEY_REGISTRY_ROOT_CHANGED: i64 = -32075;
-    pub const RING_KEY_REGISTRY_MEMBER_UNREGISTERED: i64 = -32076;
-    pub const RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: i64 = -32077;
-    pub const RING_SPEND_RECORD_OUT_OF_SYNC: i64 = -32078;
+    pub const RING_KEY_REGISTRY_OUT_OF_SYNC: i64 = -32070;
+    pub const RING_KEY_REGISTRY_ROOT_CHANGED: i64 = -32071;
+    pub const RING_KEY_REGISTRY_MEMBER_UNREGISTERED: i64 = -32072;
+    pub const RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: i64 = -32073;
+    pub const RING_SPEND_RECORD_OUT_OF_SYNC: i64 = -32074;
 }
 
 /// Associates one canonical JSON-RPC method name with its parameter and result types.

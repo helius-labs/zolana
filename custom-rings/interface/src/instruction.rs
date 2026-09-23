@@ -29,7 +29,7 @@ pub mod tag {
     pub const SET_PAUSED: u8 = 11;
     pub const SET_POLICY_RULES: u8 = 12;
     /// Ring-local tags must not collide with the forwarded SPP deposit and merge tags.
-    pub const SET_CO_SIGNER: u8 = 28;
+    pub const SET_CO_SIGNER: u8 = 27;
     pub const CLEAR_CO_SIGNER: u8 = 21;
     pub const SET_SPEND_WINDOW: u8 = 22;
     pub const CLEAR_SPEND_WINDOW: u8 = 23;
@@ -37,10 +37,10 @@ pub mod tag {
     /// Tag 3 data over the SPP authority rail, signed by the delegate.
     pub const DELEGATE_TRANSACT: u8 = 25;
     pub const REGISTER_SPEND: u8 = 26;
-    pub const CREATE_KEY_REGISTRY_ROOT: u8 = 29;
-    pub const REGISTER_KEY: u8 = 30;
-    pub const SET_DEPOSIT_AUDIT: u8 = 31;
-    pub const AUDITED_DEPOSIT: u8 = 32;
+    pub const CREATE_KEY_REGISTRY_ROOT: u8 = 28;
+    pub const REGISTER_KEY: u8 = 29;
+    pub const SET_DEPOSIT_AUDIT: u8 = 30;
+    pub const AUDITED_DEPOSIT: u8 = 31;
 }
 
 /// Account slot indices the processors and the indexer agree on.

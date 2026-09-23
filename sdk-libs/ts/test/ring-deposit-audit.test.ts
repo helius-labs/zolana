@@ -250,7 +250,7 @@ describe("deposit disclosure", () => {
         ...input,
         proof: new Uint8Array(192).fill(7),
       });
-      expect(audited.data?.[0]).toBe(32);
+      expect(audited.data?.[0]).toBe(31);
       expect(audited.data?.slice(1, 193)).toEqual(new Uint8Array(192).fill(7));
       expect(audited.data?.[193]).toBe(0);
       expect(audited.data?.slice(194)).toEqual(legacy.data);
@@ -384,21 +384,21 @@ describe("deposit audit control", () => {
     ).toBe(false);
     expect(
       await fetchRingDepositAudit(
-        { getAccount: async () => ownedAccount(RING, Uint8Array.of(10, 1, bump)) },
+        { getAccount: async () => ownedAccount(RING, Uint8Array.of(8, 1, bump)) },
         RING,
       ),
     ).toBe(true);
     for (const [owner, bytes] of [
       [RING, new Uint8Array()],
       [TREE, new Uint8Array()],
-      [SOL_MINT, Uint8Array.of(10, 1, bump)],
-      [RING, Uint8Array.of(10, 2, bump)],
-      [RING, Uint8Array.of(10, 1, bump ^ 1)],
+      [SOL_MINT, Uint8Array.of(8, 1, bump)],
+      [RING, Uint8Array.of(8, 2, bump)],
+      [RING, Uint8Array.of(8, 1, bump ^ 1)],
     ] as const)
       await expect(
         fetchRingDepositAudit({ getAccount: async () => ownedAccount(owner, bytes) }, RING),
       ).rejects.toMatchObject({ code: "RING_DEPOSIT_AUDIT_INVALID" });
-    expect(decodeRingDepositAudit(Uint8Array.of(10, 0, bump))).toEqual({ required: false, bump });
+    expect(decodeRingDepositAudit(Uint8Array.of(8, 0, bump))).toEqual({ required: false, bump });
   });
 
   it("sets the control with config authority and enables it only on opt-in initialization", async () => {
@@ -417,7 +417,7 @@ describe("deposit audit control", () => {
       expect(enabled[1]).toEqual(
         await setRingDepositAuditInstruction({ ...input, required: true }),
       );
-      expect(enabled[1]?.data).toEqual(Uint8Array.of(31, 1));
+      expect(enabled[1]?.data).toEqual(Uint8Array.of(30, 1));
       expect(enabled[1]?.accounts?.map((meta) => meta.role)).toEqual([
         AccountRole.WRITABLE_SIGNER,
         AccountRole.READONLY_SIGNER,
@@ -462,7 +462,7 @@ describe("deposit audit control", () => {
                   }),
                 )
               : address === setting
-                ? ownedAccount(RING, Uint8Array.of(10, Number(required), settingBump))
+                ? ownedAccount(RING, Uint8Array.of(8, Number(required), settingBump))
                 : undefined,
         }),
         proveCustomRingDeposit,

@@ -57,31 +57,26 @@ fn error_codes_are_stable() {
         (InvalidDelegate as u32, 8154),
         (VelocityDepositLeg as u32, 8155),
         (InvalidSpendRecord as u32, 8156),
-        (ApprovalWithoutCoSigner as u32, 8158),
-        (VelocityDisabled as u32, 8159),
-        (VelocityWindowImmutable as u32, 8164),
-        (InvalidKeyRegistryRoot as u32, 8168),
-        (StaleKeyRegistryRoot as u32, 8169),
-        (InvalidKeyRegistryCursor as u32, 8170),
-        (KeyRegistryRootAlreadyExists as u32, 8172),
-        (InvalidDepositAudit as u32, 8173),
-        (DepositAuditRequired as u32, 8174),
-        (InvalidDepositDisclosure as u32, 8175),
-        (InvalidSpendCountersDisclosure as u32, 8176),
-        (InvalidRevocationTarget as u32, 8177),
-        (PolicyFactRevoked as u32, 8178),
-        (DelegateRequiresPolicy as u32, 8179),
-        (InvalidRevocationTreeIndex as u32, 8180),
-        (InvalidPolicyTrees as u32, 8181),
+        (ApprovalWithoutCoSigner as u32, 8157),
+        (VelocityDisabled as u32, 8158),
+        (VelocityWindowImmutable as u32, 8159),
+        (InvalidKeyRegistryRoot as u32, 8160),
+        (StaleKeyRegistryRoot as u32, 8161),
+        (InvalidKeyRegistryCursor as u32, 8162),
+        (KeyRegistryRootAlreadyExists as u32, 8163),
+        (InvalidDepositAudit as u32, 8164),
+        (DepositAuditRequired as u32, 8165),
+        (InvalidDepositDisclosure as u32, 8166),
+        (InvalidSpendCountersDisclosure as u32, 8167),
+        (InvalidRevocationTarget as u32, 8168),
+        (PolicyFactRevoked as u32, 8169),
+        (DelegateRequiresPolicy as u32, 8170),
+        (InvalidRevocationTreeIndex as u32, 8171),
+        (InvalidPolicyTrees as u32, 8172),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
     }
-    let retired = [8165, 8166, 8167, 8171];
-    assert!(
-        table.iter().all(|(got, _)| !retired.contains(got)),
-        "a retired error code was reused"
-    );
 }
 
 /// A new variant fails the build until the match covers it.

@@ -211,7 +211,7 @@ describe("nullifier key envelope", () => {
     });
     expect(instruction.data).toEqual(
       Uint8Array.from([
-        30,
+        29,
         ...hex(
           "0101010101010101010101010101010101010101010101010101010101010101" +
             "0202020202020202020202020202020202020202020202020202020202020202" +
@@ -473,7 +473,7 @@ describe("key registration flow", () => {
       send,
       status: async () =>
         statuses++ === 0
-          ? { kind: "failed", instructionIndex: 0, customCode: 8169 }
+          ? { kind: "failed", instructionIndex: 0, customCode: 8161 }
           : { kind: "confirmed", slot: 9n },
     });
     expect(result).toMatchObject({ kind: "confirmed", attempts: 2 });

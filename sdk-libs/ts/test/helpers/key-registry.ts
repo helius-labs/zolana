@@ -40,7 +40,7 @@ export function keyRegistryRootData(
 ): Uint8Array {
   const cursor = input.cursor ?? 0;
   const writer = new Writer()
-    .u8(9, "discriminator")
+    .u8(7, "discriminator")
     .u64(input.nextIndex, "nextIndex")
     .u8(input.bump, "bump")
     .u8(cursor, "historyCursor");

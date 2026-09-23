@@ -31,7 +31,7 @@ export interface RingDepositAudit {
 }
 
 export function decodeRingDepositAudit(data: Uint8Array): RingDepositAudit {
-  if (data.length !== 3 || data[0] !== 10 || (data[1] !== 0 && data[1] !== 1))
+  if (data.length !== 3 || data[0] !== 8 || (data[1] !== 0 && data[1] !== 1))
     throw new RingError("RING_DEPOSIT_AUDIT_INVALID");
   const bump = data[2];
   if (bump === undefined) throw new RingError("RING_DEPOSIT_AUDIT_INVALID");
@@ -240,7 +240,7 @@ export interface RingKeyRegistryRoot {
 }
 
 /** Rust `KEY_REGISTRY_ROOT`, `KEY_REGISTRY_ROOT_HISTORY` and `KeyRegistryRoot::SIZE`. */
-const RING_KEY_REGISTRY_ROOT_DISCRIMINATOR = 9;
+const RING_KEY_REGISTRY_ROOT_DISCRIMINATOR = 7;
 export const RING_KEY_REGISTRY_ROOT_HISTORY = 32;
 const RING_KEY_REGISTRY_ROOT_SIZE = 1 + 8 + 1 + 1 + 32 * RING_KEY_REGISTRY_ROOT_HISTORY;
 
