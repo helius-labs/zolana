@@ -4,7 +4,6 @@ use crate::{
     ingester::typedefs::block_info::{BlockMetadata, InstructionGroup, TransactionInfo},
     migration::{MigratorTrait, RingsMigrator},
 };
-use key_registry::KeyRegistry;
 use sea_orm::Database;
 use solana_signature::Signature;
 use zolana_indexer_api::{Hash, RingMemberProofRequest};
@@ -21,32 +20,32 @@ pub(super) fn member(value: u8) -> [u8; 32] {
         .as_bytes()
 }
 
-pub(super) async fn fixture<P: Projection>() -> (DatabaseConnection, RingRoot, ProjectionCursor) {
+pub(super) async fn fixture() -> (DatabaseConnection, RingRoot, ProjectionCursor) {
     let db = Database::connect("sqlite::memory:").await.unwrap();
     RingsMigrator::up(&db, None).await.unwrap();
     let mut cursor = ProjectionCursor::new(0);
-    let root = initialize_root::<P>(&db, &mut cursor, [11; 32]).await;
+    let root = initialize_root(&db, &mut cursor, [11; 32]).await;
     storage::save_cursor(&db, &cursor).await.unwrap();
     (db, root, cursor)
 }
 
-pub(super) async fn initialize_root<P: Projection>(
+pub(super) async fn initialize_root(
     db: &DatabaseConnection,
     cursor: &mut ProjectionCursor,
     program: [u8; 32],
 ) -> RingRoot {
     let root = RingRoot {
         program,
-        address: P::root_address(&Pubkey::new_from_array(program))
+        address: pda::key_registry_root(&Pubkey::new_from_array(program))
             .0
             .to_bytes(),
         root: EMPTY_ROOT,
         next_index: 1,
         fault: None,
     };
-    let sentinel = P::Leaf::sentinel();
+    let sentinel = MemberKey::sentinel();
     let tx = db.begin().await.unwrap();
-    let store = RingStore::<_, P>::new(&tx, program);
+    let store = RingStore::new(&tx, program);
     let computed = store
         .write_leaves(
             &root.address,
@@ -127,7 +126,7 @@ async fn block_batches_cross_skipped_pages_without_skipping_live_blocks() {
 
 #[tokio::test]
 async fn an_explicit_start_slot_must_match_the_stored_cursor() {
-    let (db, _, _) = fixture::<KeyRegistry>().await;
+    let (db, _, _) = fixture().await;
     assert!(projector(&db, StartSlot::Explicit(5))
         .cursor()
         .await
@@ -152,8 +151,8 @@ async fn an_explicit_start_slot_must_match_the_stored_cursor() {
 
 #[tokio::test]
 async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
-    let (db, faulty, mut cursor) = fixture::<KeyRegistry>().await;
-    let healthy = initialize_root::<KeyRegistry>(&db, &mut cursor, [12; 32]).await;
+    let (db, faulty, mut cursor) = fixture().await;
+    let healthy = initialize_root(&db, &mut cursor, [12; 32]).await;
     let garbage = |program: [u8; 32], error: Option<String>| TransactionInfo {
         signature: Signature::from([1; 64]),
         error,
@@ -191,13 +190,13 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
         .unwrap();
     tx.commit().await.unwrap();
 
-    let faulted = RingStore::<_, KeyRegistry>::new(&db, faulty.program)
+    let faulted = RingStore::new(&db, faulty.program)
         .root()
         .await
         .unwrap()
         .unwrap();
     assert!(faulted.fault.is_some());
-    assert!(RingStore::<_, KeyRegistry>::new(&db, healthy.program)
+    assert!(RingStore::new(&db, healthy.program)
         .root()
         .await
         .unwrap()
@@ -214,19 +213,19 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
     assert!(matches!(
         key_registry::lookup(&db, &projector.rpc, request(faulty.program)).await,
         Err(PhotonApiError::RingProjection(
-            RingProjectionError::OutOfSync { .. }
+            RingProjectionError::OutOfSync(_)
         ))
     ));
     assert_eq!(
         key_registry::lookup(&db, &projector.rpc, request(healthy.program)).await,
-        Err(RingProjectionError::MemberUnregistered(ProjectionKind::KeyRegistry).into())
+        Err(RingProjectionError::MemberUnregistered.into())
     );
 
     let mut restarted = storage::cursor(&db).await.unwrap().unwrap();
     let tx = db.begin().await.unwrap();
     storage::rollback(&tx, &mut restarted).await.unwrap();
     tx.commit().await.unwrap();
-    assert!(RingStore::<_, KeyRegistry>::new(&db, faulty.program)
+    assert!(RingStore::new(&db, faulty.program)
         .root()
         .await
         .unwrap()

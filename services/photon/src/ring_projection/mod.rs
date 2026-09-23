@@ -6,12 +6,13 @@ mod proof;
 pub(crate) mod spend_record;
 mod storage;
 
-use std::{
-    collections::HashMap, fmt, future::Future, ops::RangeInclusive, sync::Arc, time::Duration,
-};
+use std::{collections::HashMap, ops::RangeInclusive, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context, Result};
-use custom_ring_interface::{PolicyConfig, KEY_REGISTRY_CAPACITY, POLICY_CONFIG};
+use custom_ring_interface::{
+    instruction::{accounts, tag},
+    pda, KeyRegistryRoot, PolicyConfig, KEY_REGISTRY_ROOT, POLICY_CONFIG,
+};
 use futures::{stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_account::Account;
@@ -20,20 +21,19 @@ use solana_transaction_status_client_types::TransactionDetails;
 use thiserror::Error;
 use zolana_hasher::HasherError;
 use zolana_interface::state::{discriminator::RING_CONFIG, RingConfig};
-pub(crate) use zolana_ring_indexer::{Append, Leaf, OnChainRoot};
 
 use crate::{
-    common::rings_tree::RingsTreeKind,
     ingester::typedefs::block_info::{
         parse_ui_confirmed_blocked, BlockInfo, BlockMetadata, Instruction, InstructionGroup,
         TransactionInfo,
     },
     rpc::{RpcClient, RpcError},
 };
+use key_registry::{MemberKey, Registration};
 use spend_record::{SpendRing, SpendStore, SpendUndo};
 use storage::{
-    BlockJournal, BlockUndo, LeafWrite, MemberRestore, PendingRing, PredecessorError,
-    ProjectionCursor, RingRoot, RingStore, Undo,
+    BlockJournal, BlockUndo, LeafWrite, PendingRing, PredecessorError, ProjectionCursor, RingRoot,
+    RingStore, Undo,
 };
 
 const MAX_RETRY_DELAY_SECS: u64 = 15;
@@ -46,33 +46,6 @@ const JOURNAL_RETENTION_SLOTS: u64 = 8_192;
 /// A ring activated after its pending root expired needs a reindex.
 const PENDING_TTL_SLOTS: u64 = 43_200;
 const EMPTY_ROOT: [u8; 32] = custom_ring_interface::KEY_REGISTRY_EMPTY_ROOT;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProjectionKind {
-    KeyRegistry,
-}
-
-impl ProjectionKind {
-    pub(crate) fn tree(self) -> RingsTreeKind {
-        match self {
-            Self::KeyRegistry => RingsTreeKind::KeyRegistry,
-        }
-    }
-
-    fn table(self) -> &'static str {
-        match self {
-            Self::KeyRegistry => "ring_key_registry",
-        }
-    }
-}
-
-impl fmt::Display for ProjectionKind {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::KeyRegistry => "key registry",
-        })
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub enum StartSlot {
@@ -167,8 +140,7 @@ impl Projector {
             return Ok(Progress::Behind);
         }
         // 3. Invalid ring accounts must not serve proofs.
-        self.check_roots::<key_registry::KeyRegistry>(&cursor, target)
-            .await?;
+        self.check_roots(&cursor, target).await?;
         cursor.resume(db).await?;
         Ok(Progress::CaughtUp)
     }
@@ -384,17 +356,13 @@ impl Projector {
         .await
     }
 
-    async fn check_roots<P: Projection>(
-        &self,
-        cursor: &ProjectionCursor,
-        target: u64,
-    ) -> Result<()> {
+    async fn check_roots(&self, cursor: &ProjectionCursor, target: u64) -> Result<()> {
         let db = self.db.as_ref();
-        for root in storage::roots::<P, _>(db).await? {
+        for root in storage::roots(db).await? {
             if root.fault.is_some() || storage::pending_ring(db, &root.program).await?.is_some() {
                 continue;
             }
-            match load_root::<P>(&self.rpc, &Pubkey::new_from_array(root.program)).await {
+            match load_root(&self.rpc, &Pubkey::new_from_array(root.program)).await {
                 // Each proof request checks the exact current root.
                 Ok(_) => {}
                 Err(ProjectError::Retry(error)) => return Err(error),
@@ -410,10 +378,10 @@ impl Projector {
                     let mut journal = storage::journal(&tx, tip.slot)
                         .await?
                         .context("ring projection journal gap")?;
-                    let undo = RingStore::<_, P>::new(&tx, root.program)
+                    let undo = RingStore::new(&tx, root.program)
                         .quarantine(root, reason)
                         .await?;
-                    P::undos(&mut journal.undo).push(undo);
+                    journal.undo.key_registry.push(undo);
                     storage::save_journal(&tx, &journal).await?;
                     tx.commit().await?;
                 }
@@ -446,34 +414,9 @@ fn instruction_view(instruction: &Instruction) -> zolana_ring_indexer::Instructi
     }
 }
 
-pub(crate) trait Projection: Sized + Send + Sync + 'static {
-    const KIND: ProjectionKind;
-    const INIT_TAG: u8;
-    const INIT_ROOT_SLOT: usize;
-    const TRANSITION_TAGS: &'static [u8];
-    const ROOT_DISCRIMINATOR: u8;
-    type Root: OnChainRoot;
-    type Leaf: Leaf;
-    type Transition: Send;
-
-    fn undos(block: &mut BlockUndo) -> &mut Vec<Undo<Self::Leaf>>;
-
-    fn root_address(program: &Pubkey) -> (Pubkey, u8);
-
-    fn transition(
-        invocation: &Invocation<'_>,
-        env: &mut BlockEnv<'_>,
-    ) -> impl Future<Output = Result<Option<Self::Transition>, ProjectError>> + Send;
-
-    fn apply(
-        store: &RingStore<'_, DatabaseTransaction, Self>,
-        step: Step<'_, Self::Transition>,
-    ) -> impl Future<Output = Result<Undo<Self::Leaf>, ProjectError>> + Send;
-}
-
-pub(crate) struct Step<'a, T> {
+pub(crate) struct Step<'a> {
     pub root: &'a RingRoot,
-    pub transition: T,
+    pub transition: Registration,
     pub revision: u64,
 }
 
@@ -530,26 +473,25 @@ pub(crate) struct ChainRoot {
     pub next_index: u64,
 }
 
-pub(crate) async fn load_root<P: Projection>(
+pub(crate) async fn load_root(
     rpc: &RpcClient,
     program: &Pubkey,
 ) -> Result<ChainRoot, ProjectError> {
-    let (address, bump) = P::root_address(program);
+    let (address, bump) = pda::key_registry_root(program);
     let account = ring_account(rpc.get_account(&address).await)?;
     if account.owner != *program {
-        return Err(fault(format!("{} root has the wrong owner", P::KIND)));
+        return Err(fault("key registry root has the wrong owner"));
     }
-    let root = bytemuck::try_from_bytes::<P::Root>(&account.data)
-        .map_err(|_| fault(format!("{} root has the wrong layout", P::KIND)))?;
-    if root.discriminator() != P::ROOT_DISCRIMINATOR || root.bump() != bump {
-        return Err(fault(format!(
-            "{} root has the wrong discriminator or bump",
-            P::KIND
-        )));
+    let root = bytemuck::try_from_bytes::<KeyRegistryRoot>(&account.data)
+        .map_err(|_| fault("key registry root has the wrong layout"))?;
+    if root.discriminator != KEY_REGISTRY_ROOT || root.bump != bump {
+        return Err(fault(
+            "key registry root has the wrong discriminator or bump",
+        ));
     }
     let current = root
         .root()
-        .ok_or_else(|| fault(format!("{} root has no current root", P::KIND)))?;
+        .ok_or_else(|| fault("key registry root has no current root"))?;
     Ok(ChainRoot {
         root: current,
         next_index: root.next_index(),
@@ -680,16 +622,16 @@ impl BlockWork<'_> {
             }
             self.project_spend_records(transaction, &mut undo.spend_records)
                 .await?;
-            self.project::<key_registry::KeyRegistry>(transaction, &mut undo.key_registry)
+            self.project_key_registry(transaction, &mut undo.key_registry)
                 .await?;
         }
         Ok(undo)
     }
 
-    async fn project<P: Projection>(
+    async fn project_key_registry(
         &mut self,
         transaction: &TransactionInfo,
-        undo: &mut Vec<Undo<P::Leaf>>,
+        undo: &mut Vec<Undo>,
     ) -> Result<()> {
         let tx = self.tx;
         let invocations = Invocations::new(transaction, self.block.metadata.slot);
@@ -698,24 +640,21 @@ impl BlockWork<'_> {
             if !self.scope.covers(&program) {
                 continue;
             }
-            let tag = instruction.data.first().copied();
-            if tag != Some(P::INIT_TAG) && !tag.is_some_and(|tag| P::TRANSITION_TAGS.contains(&tag))
-            {
-                continue;
-            }
+            let initializes = match instruction.data.first() {
+                Some(&tag::CREATE_KEY_REGISTRY_ROOT) => true,
+                Some(&tag::REGISTER_KEY) => false,
+                _ => continue,
+            };
             if matches!(self.scope, Scope::Every)
                 && storage::pending_ring(tx, &program).await?.is_some()
             {
                 continue;
             }
-            let store = RingStore::<_, P>::new(tx, program);
-            if tag == Some(P::INIT_TAG) {
-                if let Some(address) = initialization::<P>(instruction) {
+            let store = RingStore::new(tx, program);
+            if initializes {
+                if let Some(address) = initialization(instruction) {
                     undo.extend(self.initialize(&store, address).await?);
                 }
-                continue;
-            }
-            if !tag.is_some_and(|tag| P::TRANSITION_TAGS.contains(&tag)) {
                 continue;
             }
             let Some(root) = store.root().await? else {
@@ -726,7 +665,7 @@ impl BlockWork<'_> {
             }
             let outcome = async {
                 let invocation = invocations.invocation(position)?;
-                self.advance::<P>(&root, invocation).await
+                self.advance(&root, invocation).await
             }
             .await;
             match outcome {
@@ -813,11 +752,11 @@ impl BlockWork<'_> {
         Ok(false)
     }
 
-    async fn initialize<P: Projection>(
+    async fn initialize(
         &mut self,
-        store: &RingStore<'_, DatabaseTransaction, P>,
+        store: &RingStore<'_, DatabaseTransaction>,
         address: [u8; 32],
-    ) -> Result<Option<Undo<P::Leaf>>> {
+    ) -> Result<Option<Undo>> {
         let program = Pubkey::new_from_array(store.program());
         if !self.admit(store.program()).await? {
             return Ok(None);
@@ -836,7 +775,7 @@ impl BlockWork<'_> {
             next_index: 1,
             fault: None,
         };
-        match load_root::<P>(self.env.rpc, &program).await {
+        match load_root(self.env.rpc, &program).await {
             Ok(_) => {}
             Err(ProjectError::Fault(reason)) => {
                 let mut created = store.quarantine(root, reason).await?;
@@ -845,7 +784,7 @@ impl BlockWork<'_> {
             }
             Err(ProjectError::Retry(error)) => return Err(error),
         }
-        let sentinel = P::Leaf::sentinel();
+        let sentinel = MemberKey::sentinel();
         let computed = store
             .write_leaves(
                 &address,
@@ -857,7 +796,7 @@ impl BlockWork<'_> {
             )
             .await?;
         if computed != EMPTY_ROOT {
-            bail!("{} sentinel root mismatch", P::KIND);
+            bail!("key registry sentinel root mismatch");
         }
         store.save_root(&root).await?;
         store.save_member(&sentinel).await?;
@@ -869,17 +808,17 @@ impl BlockWork<'_> {
         }))
     }
 
-    async fn advance<P: Projection>(
+    async fn advance(
         &mut self,
         root: &RingRoot,
         invocation: Invocation<'_>,
-    ) -> Result<Option<Undo<P::Leaf>>, ProjectError> {
-        let Some(transition) = P::transition(&invocation, &mut self.env).await? else {
+    ) -> Result<Option<Undo>, ProjectError> {
+        let Some(transition) = key_registry::transition(&invocation)? else {
             return Ok(None);
         };
         let revision = self.cursor.advance_revision()?;
         let savepoint = self.tx.begin().await?;
-        let applied = P::apply(
+        let applied = key_registry::apply(
             &RingStore::new(&savepoint, root.program),
             Step {
                 root,
@@ -901,104 +840,12 @@ impl BlockWork<'_> {
     }
 }
 
-fn initialization<P: Projection>(instruction: &Instruction) -> Option<[u8; 32]> {
-    let root = P::root_address(&instruction.program_id).0;
-    (instruction.accounts.get(P::INIT_ROOT_SLOT) == Some(&root)).then_some(root.to_bytes())
-}
-
-pub(crate) async fn append<P: Projection>(
-    store: &RingStore<'_, DatabaseTransaction, P>,
-    step: Step<'_, Append<P::Leaf>>,
-) -> Result<Undo<P::Leaf>, ProjectError> {
-    let Step {
-        root,
-        transition,
-        revision,
-    } = step;
-    let Append {
-        old_root,
-        new_root,
-        next_index,
-        ref leaf,
-    } = transition;
-    // 1. Require the current root, append cursor and an absent member.
-    if next_index != root.next_index || next_index >= KEY_REGISTRY_CAPACITY {
-        return Err(fault("append cursor mismatch"));
-    }
-    if old_root != root.root {
-        return Err(fault("old root mismatch"));
-    }
-    let member = leaf.member();
-    if store.member(&member).await?.is_some() {
-        return Err(fault("duplicate member"));
-    }
-    let low = store.predecessor(&member).await?;
-    if proof::path::<P>(store.conn(), root, next_index).await?.leaf != [0; 32] {
-        return Err(fault("append slot occupied"));
-    }
-    // 2. Rollback needs both leaves before the ordered chain changes.
-    let undo = Undo {
-        program: root.program,
-        before: Some(root.clone()),
-        members: vec![
-            MemberRestore {
-                member: low.member(),
-                before: Some(low.clone()),
-            },
-            MemberRestore {
-                member,
-                before: None,
-            },
-        ],
-        leaves: vec![
-            LeafWrite {
-                index: low.index(),
-                hash: low.hash()?,
-            },
-            LeafWrite {
-                index: next_index,
-                hash: [0; 32],
-            },
-        ],
-    };
-    let zolana_ring_indexer::Spliced {
-        predecessor: spliced,
-        added,
-    } = transition
-        .splice(low)
-        .map_err(|error| fault(error.to_string()))?;
-    let computed = store
-        .write_leaves(
-            &root.address,
-            &[
-                LeafWrite {
-                    index: spliced.index(),
-                    hash: spliced.hash()?,
-                },
-                LeafWrite {
-                    index: added.index(),
-                    hash: added.hash()?,
-                },
-            ],
-            revision,
-        )
-        .await?;
-    // 3. Reconstructed leaves must match the proven root before publication.
-    if computed != new_root {
-        return Err(fault("new root mismatch"));
-    }
-    store.save_member(&spliced).await?;
-    store.save_member(&added).await?;
-    store
-        .save_root(&RingRoot {
-            root: new_root,
-            next_index: next_index
-                .checked_add(1)
-                .context("append cursor overflow")?,
-            ..root.clone()
-        })
-        .await?;
-    Ok(undo)
+fn initialization(instruction: &Instruction) -> Option<[u8; 32]> {
+    let root = pda::key_registry_root(&instruction.program_id).0;
+    let named = instruction
+        .accounts
+        .get(accounts::CREATE_KEY_REGISTRY_ROOT_ROOT);
+    (named == Some(&root)).then_some(root.to_bytes())
 }
 
 async fn registered_ring(rpc: &RpcClient, program: &Pubkey) -> Result<bool> {

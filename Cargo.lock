@@ -11365,7 +11365,6 @@ name = "zolana-ring-indexer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bytemuck",
  "custom-ring-interface",
  "serde",
  "solana-address 2.6.1",

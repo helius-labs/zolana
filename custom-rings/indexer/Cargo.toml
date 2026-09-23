@@ -7,7 +7,6 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bytemuck.workspace = true
 custom-ring-interface.workspace = true
 serde.workspace = true
 solana-address = { workspace = true, features = ["curve25519"] }

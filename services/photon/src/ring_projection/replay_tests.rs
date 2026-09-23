@@ -94,7 +94,7 @@ fn root_account(program: Pubkey, root: [u8; 32], next_index: u64) -> Value {
         bytemuck::bytes_of(&KeyRegistryRoot {
             discriminator: custom_ring_interface::KEY_REGISTRY_ROOT,
             next_index: next_index.to_le_bytes(),
-            bump: key_registry::KeyRegistry::root_address(&program).1,
+            bump: pda::key_registry_root(&program).1,
             history_cursor: 0,
             history,
         }),
@@ -153,7 +153,7 @@ fn transaction(program: Pubkey, accounts: &[Pubkey], data: &[u8]) -> Value {
 /// Initialization and first registration precede the global tip.
 async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8; 32]) {
     let program = Pubkey::new_from_array([11; 32]);
-    let address = key_registry::KeyRegistry::root_address(&program).0;
+    let address = pda::key_registry_root(&program).0;
     let mut tree = zolana_ring_key_registry::KeyRegistryTree::new().unwrap();
     let key = RegisteredKey {
         nullifier_pk: &field(5),
@@ -276,7 +276,7 @@ async fn replay_resumes_after_a_committed_initialization_and_restart() {
         .unwrap();
     assert_eq!(checkpoint.replayed_tip.unwrap().slot, 1);
     assert_eq!(
-        RingStore::<_, key_registry::KeyRegistry>::new(projector.db.as_ref(), program.to_bytes())
+        RingStore::new(projector.db.as_ref(), program.to_bytes())
             .root()
             .await
             .unwrap()
@@ -296,12 +296,11 @@ async fn replay_resumes_after_a_committed_initialization_and_restart() {
             Progress::CaughtUp
         ));
     }
-    let root =
-        RingStore::<_, key_registry::KeyRegistry>::new(restarted.db.as_ref(), program.to_bytes())
-            .root()
-            .await
-            .unwrap()
-            .unwrap();
+    let root = RingStore::new(restarted.db.as_ref(), program.to_bytes())
+        .root()
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(root.root, expected);
     assert_eq!(root.next_index, 2);
     assert!(root.fault.is_none());
@@ -329,22 +328,18 @@ async fn rollback_rewinds_an_incomplete_replay_before_canonical_reindex() {
             .unwrap()
             .is_none()
     );
-    assert!(RingStore::<_, key_registry::KeyRegistry>::new(
-        projector.db.as_ref(),
-        program.to_bytes()
-    )
-    .root()
-    .await
-    .unwrap()
-    .is_none());
+    assert!(RingStore::new(projector.db.as_ref(), program.to_bytes())
+        .root()
+        .await
+        .unwrap()
+        .is_none());
     chain.lock().unwrap().failed_block = None;
     projector.synchronize().await.unwrap();
-    let root =
-        RingStore::<_, key_registry::KeyRegistry>::new(projector.db.as_ref(), program.to_bytes())
-            .root()
-            .await
-            .unwrap()
-            .unwrap();
+    let root = RingStore::new(projector.db.as_ref(), program.to_bytes())
+        .root()
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(root.root, expected);
     assert!(root.fault.is_none());
     handle.stop().unwrap();
@@ -355,7 +350,7 @@ async fn rollback_rewinds_an_incomplete_replay_before_canonical_reindex() {
 async fn a_stalled_replay_does_not_starve_another_pending_ring() {
     let (projector, chain, handle, stalled, _) = late_ring().await;
     let healthy = Pubkey::new_from_array([12; 32]);
-    let address = key_registry::KeyRegistry::root_address(&healthy).0;
+    let address = pda::key_registry_root(&healthy).0;
     {
         let mut chain = chain.lock().unwrap();
         chain
@@ -446,12 +441,11 @@ async fn a_fork_rewinds_the_committed_replay_checkpoint() {
     }
     // A changed blockhash must trigger rollback during synchronization.
     projector.synchronize().await.unwrap();
-    let root =
-        RingStore::<_, key_registry::KeyRegistry>::new(projector.db.as_ref(), program.to_bytes())
-            .root()
-            .await
-            .unwrap()
-            .unwrap();
+    let root = RingStore::new(projector.db.as_ref(), program.to_bytes())
+        .root()
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(root.root, expected);
     assert_eq!(root.next_index, 2);
     assert!(root.fault.is_none());
@@ -477,14 +471,11 @@ async fn missing_archived_initialization_never_completes_a_replay() {
             .unwrap()
             .unwrap();
         assert!(checkpoint.replayed_tip.is_none());
-        assert!(RingStore::<_, key_registry::KeyRegistry>::new(
-            projector.db.as_ref(),
-            program.to_bytes()
-        )
-        .root()
-        .await
-        .unwrap()
-        .is_none());
+        assert!(RingStore::new(projector.db.as_ref(), program.to_bytes())
+            .root()
+            .await
+            .unwrap()
+            .is_none());
     }
     handle.stop().unwrap();
     handle.stopped().await;
@@ -500,10 +491,9 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
         let db = Database::connect("sqlite::memory:").await.unwrap();
         RingsMigrator::up(&db, None).await.unwrap();
         let mut cursor = ProjectionCursor::new(0);
-        let faulty = initialize_root::<key_registry::KeyRegistry>(&db, &mut cursor, [11; 32]).await;
-        let healthy =
-            initialize_root::<key_registry::KeyRegistry>(&db, &mut cursor, [12; 32]).await;
-        let ahead = initialize_root::<key_registry::KeyRegistry>(&db, &mut cursor, [13; 32]).await;
+        let faulty = initialize_root(&db, &mut cursor, [11; 32]).await;
+        let healthy = initialize_root(&db, &mut cursor, [12; 32]).await;
+        let ahead = initialize_root(&db, &mut cursor, [13; 32]).await;
         let mut accounts = HashMap::from([
             (
                 Pubkey::new_from_array(healthy.address).to_string(),
@@ -535,9 +525,7 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             projector.synchronize().await.unwrap(),
             Progress::CaughtUp
         ));
-        let root = |program| {
-            RingStore::<_, key_registry::KeyRegistry>::new(projector.db.as_ref(), program)
-        };
+        let root = |program| RingStore::new(projector.db.as_ref(), program);
         assert!(root(faulty.program)
             .root()
             .await

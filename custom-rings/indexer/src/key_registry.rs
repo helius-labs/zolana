@@ -1,9 +1,9 @@
-use crate::{InstructionView, Leaf, OnChainRoot};
+use crate::InstructionView;
 use anyhow::{bail, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    pda, KeyRegistryLeaf, KeyRegistryRoot, RegisterKeyIxData, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
-    COMPRESSED_P256_KEY_LEN,
+    pda, KeyRegistryLeaf, RegisterKeyIxData, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
+    COMPRESSED_P256_KEY_LEN, KEY_REGISTRY_CAPACITY,
 };
 use serde::{Deserialize, Serialize};
 use zolana_hasher::HasherError;
@@ -21,8 +21,8 @@ pub struct MemberKey {
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }
 
-impl Leaf for MemberKey {
-    fn sentinel() -> Self {
+impl MemberKey {
+    pub fn sentinel() -> Self {
         Self {
             member: [0; 32],
             index: 0,
@@ -33,67 +33,13 @@ impl Leaf for MemberKey {
         }
     }
 
-    fn member(&self) -> [u8; 32] {
-        self.member
-    }
-
-    fn index(&self) -> u64 {
-        self.index
-    }
-
-    fn next(&self) -> [u8; 32] {
-        self.next
-    }
-
-    fn set_next(&mut self, next: [u8; 32]) {
-        self.next = next;
-    }
-
-    fn hash(&self) -> Result<[u8; 32], HasherError> {
+    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         KeyRegistryLeaf {
             member: &self.member,
             next: &self.next,
             key: &self.key_hash,
         }
         .hash()
-    }
-}
-
-mod compressed_key {
-    use custom_ring_interface::COMPRESSED_P256_KEY_LEN;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S: Serializer>(
-        value: &[u8; COMPRESSED_P256_KEY_LEN],
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        value.as_slice().serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<[u8; COMPRESSED_P256_KEY_LEN], D::Error> {
-        Vec::<u8>::deserialize(deserializer)?
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("eph_pk must be 33 bytes"))
-    }
-}
-
-impl OnChainRoot for KeyRegistryRoot {
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn root(&self) -> Option<[u8; 32]> {
-        KeyRegistryRoot::root(self)
-    }
-
-    fn next_index(&self) -> u64 {
-        KeyRegistryRoot::next_index(self)
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
     }
 }
 
@@ -106,6 +52,11 @@ pub struct Registration {
     pub key_hash: [u8; 32],
     pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
+}
+
+pub struct Spliced {
+    pub predecessor: MemberKey,
+    pub added: MemberKey,
 }
 
 pub fn registration(instruction: InstructionView<'_>) -> Result<Option<Registration>> {
@@ -138,4 +89,46 @@ pub fn registration(instruction: InstructionView<'_>) -> Result<Option<Registrat
         eph_pk: ix.eph_pk,
         ciphertext: ix.ciphertext,
     }))
+}
+
+impl Registration {
+    pub fn splice(self, mut predecessor: MemberKey) -> Result<Spliced> {
+        if self.next_index >= KEY_REGISTRY_CAPACITY
+            || predecessor.index >= self.next_index
+            || predecessor.member >= self.member
+            || self.member >= predecessor.next
+        {
+            bail!("invalid append position");
+        }
+        let added = MemberKey {
+            member: self.member,
+            index: self.next_index,
+            next: predecessor.next,
+            key_hash: self.key_hash,
+            eph_pk: self.eph_pk,
+            ciphertext: self.ciphertext,
+        };
+        predecessor.next = self.member;
+        Ok(Spliced { predecessor, added })
+    }
+}
+
+mod compressed_key {
+    use custom_ring_interface::COMPRESSED_P256_KEY_LEN;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        value: &[u8; COMPRESSED_P256_KEY_LEN],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.as_slice().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<[u8; COMPRESSED_P256_KEY_LEN], D::Error> {
+        Vec::<u8>::deserialize(deserializer)?
+            .try_into()
+            .map_err(|_| serde::de::Error::custom("eph_pk must be 33 bytes"))
+    }
 }
