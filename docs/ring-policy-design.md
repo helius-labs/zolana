@@ -24,7 +24,7 @@ curator bans Mr. Evil. Mr. Crazy transfers.
 ## The entry, a keyed compressed account
 
 An **entry** is one list membership fact, an ordinary zero-amount SPP data
-UTXO in the shared state tree, owned by the ring's `b"policy_records"` PDA
+UTXO in any SPP state tree, owned by the ring's `b"policy_records"` PDA
 (`custom-rings/policy/src/entry.rs`). A parity test pins its hash
 byte-equal to `ProofInputUtxo`, and a vector test pins the same math against
 the Go circuit. SPP hosts entries unchanged.
@@ -190,7 +190,7 @@ compares it with the stored rows through `client_rules_match`.
 
 Curatorship is permissionless. SVM ownership plus shape identify a curator.
 The shape is the `b"policy"` PDA of the owning program, the config
-discriminator, and the same entries tree. There is no curator registry. The
+discriminator, and the same address tree. There is no curator registry. The
 trust decision is the operator's choice of account. Pin time flattens
 delegation. The instruction copies the curator's already resolved namespace
 owner, never the curator's identity. A curator re-pointing its own source
@@ -227,8 +227,8 @@ namespace signature only when consuming a spend record.
 
 One ring proof serves audit and policy. The base audit statement is an exported
 block, and its eleven-element hash chain is a strict prefix of the new
-statement. The public input is one hash chain over nineteen elements and one
-revocation target per answer slot:
+statement. The public input is one hash chain over twenty-one elements and
+one revocation target per answer slot:
 
 ```
 private_tx_hash,
@@ -236,9 +236,11 @@ tx_viewing_pk_lo, tx_viewing_pk_hi,
 auditor_pk_lo, auditor_pk_hi,
 eph_pk_lo, eph_pk_hi,
 ct_hash, output_hash_chain, salt, disclosure_hash,
-policy_hash, state_root, nullifier_root,
-entries_tree_id, ring_id, namespace_owner_hash,
+policy_hash, tree_slots_chain, address_tree_id,
+ring_id, namespace_owner_hash,
 window_index, approval_required,
+key_escrow, key_registry_root,
+revocation_tree_indexes,
 revocation_target[0..ANSWER_SLOTS]
 ```
 
@@ -254,8 +256,8 @@ verifier requires.
 
 A ring chooses its tier at `create_config`. A ring with a `[policy]` table is
 a policy ring, including an empty table. Its committed window setting selects
-the sixteen- or eighteen-element member statement. A ring without a policy is
-audit-only and proves the eight-element prefix
+the member or the compressed member statement. A ring without a policy is
+audit-only and proves the eleven-element prefix
 against a lighter circuit and verifying key.
 The tier is the config `has_policy` flag, pinned at `create_config` and
 immutable, so a policy ring cannot present the audit statement to skip its rules.
@@ -273,10 +275,13 @@ forces the screened owners, assets, and amounts to be the preimage of the
 same hash the SPP statement binds.
 
 The **answers** array serves the entry-sourced rules, ten slots, each one
-entry fact proven under both roots (`list_facts.go`). One answer proves one of
-three facts:
+entry fact proven under the two roots of the tree slot it selects
+(`list_facts.go`). The packed revocation tree indexes publish the slot of every
+enabled fact. The entry leaf hashes under the
+slot's tree id, the entry address under `address_tree_id`. One answer proves
+one of three facts:
 
-- Present at the accepted roots. The entry leaf is included under the state root,
+- Present at the accepted roots. The entry leaf is included under the slot's state root,
   its state is `Active`, and its nullifier is absent from the nullifier
   tree. The state tree is append-only, so inclusion alone proves nothing
   current. An old `Active` leaf of a since-cleared entry is still
@@ -284,10 +289,11 @@ three facts:
 - Cleared at the accepted roots. The `Cleared` leaf is included and its
   nullifier is absent at the accepted nullifier root.
 - Never created. The deterministic address is absent from the nullifier
-  tree. No state inclusion exists to show.
+  tree. The fact must select the address tree's slot. No state inclusion
+  exists to show.
 
-These are snapshot facts. The eight-rotation nullifier window below permits
-older facts. Spend-record heads have a separate exact-current-root check.
+These are snapshot facts at any root in the tree's history. The revocation
+check below closes the gap an old nullifier root leaves.
 
 A single absence check cannot replace the three. An unspent `Active`
 entry also has an absent nullifier. Nullifier absence alone would prove a
@@ -329,13 +335,18 @@ withdrawals through input-minus-change conservation without opening those legs.
 
 ## Roots and revocation
 
-Both list roots enter the statement by history index. The wallet sends two
-indices. The program resolves them against a dedicated entries-tree
-account, its address checked equal to the ring's entries tree. The SPP
-money input and output trees may be other registered trees on non-windowed
-member transfers. Windowed member transfers keep money and record slots in
-the entries tree. A fabricated root cannot enter the statement, every
-admissible root is one the tree produced.
+The ring pins one tree, the address tree. Every entry address and spend
+record address hashes under it, and every absence of a never-claimed
+address is proven in it. Entries, spend records and money live in any SPP
+tree, and each write may move them to another tree.
+
+The statement reads up to `INPUT_TREES` tree slots, each a tree id and one
+root pair. The wallet sends one policy tree account and two root history
+indices per slot. The program requires each account to be an SPP tree,
+unpaused and distinct, and resolves the slot's roots from its history. The
+slots enter the statement through the same populated-prefix hash chain SPP
+uses. A fabricated root cannot enter the statement, every admissible root is
+one the tree produced.
 
 Any live state root and any live nullifier root is admissible, the rule
 SPP applies to its own reads. Inclusion is monotone, an old root can only
@@ -343,8 +354,9 @@ miss new leaves. Absence is the one thing that rots. An old nullifier root
 still shows a freshly banned member as absent.
 
 Transact closes that gap without waiting for the forester. The proof binds
-each absence target, and transact refuses a target whose nullifier PDA
-exists. SPP creates the PDA when it queues the nullifier and permits closing
+each absence target and, packed three bits per answer, the slot of the tree
+it reads. Transact refuses a target whose nullifier PDA exists under that
+tree. SPP creates the PDA when it queues the nullifier and permits closing
 it only after every root lacking the nullifier has left the root history. Any
 admissible root therefore contains the ban or meets a live PDA.
 
@@ -362,16 +374,18 @@ admissible root therefore contains the ban or meets a live PDA.
    alternative the entries satisfy. A rule no alternative satisfies refuses
    client-side with `PolicyRuleUnsatisfied`, before any proof request. The
    chain never learns of the refused transfer.
-4. It takes both roots from the proof responses, `PolicyRootMismatch` when
-   they disagree, and the tree account fills a root no answer touched. The
+4. It groups the facts by tree, the address tree first when a fact reads a
+   never-claimed address or no fact exists. Each tree takes its roots from
+   the proof responses, `PolicyRootMismatch` when they disagree. The
    program resolves the same indices on chain.
 5. It builds the SPP ring witness, yielding `private_tx_hash`, and closes
    the auditor encryption over it.
 6. It proves the ring statement and the SPP transfer, one request each,
    carrying audit and policy.
-7. It sends transact. The instruction carries the proof and two root
-   indices, no list answers. Windowed transfers also carry a shared-root
-   transition and publish the successor spend record described below.
+7. It sends transact. The instruction carries the proof, one pair of root
+   indices per tree slot and the revocation tree indexes, no list answers.
+   Windowed transfers also publish the successor spend record described
+   below.
 
 ## Co-signing, delegation and velocity
 
@@ -416,10 +430,26 @@ key escrowed to the ring auditor in the key registry. Recovery needs the
 auditor secret, authorization needs the configured delegate's Solana
 signature. The CLI expects one operator to hold both keys, see the custom-rings
 [README](../custom-rings/README.md#controls). A delegate neither registers nor
-spends a spend record. Its outputs stay in the entries tree
-on a windowed ring. The rail requires
+spends a spend record. The rail requires
 every UTXO to carry the ring id, and entries hash with the zero ring id, so
 a delegate cannot consume or create an entry.
+
+**Key escrow** keeps every note the delegate may later move spendable by the
+delegate. `set_delegate` requires a policy ring and an initialized key
+registry and sets `key_escrow` in the ring config, no instruction clears it.
+The statement then binds `key_escrow = 1` and a registry root. The program
+reads the root from the registry's 32-root history by the index the
+transact carries. An index past the history or an unwritten slot fails with
+`StaleKeyRegistryRoot`. Every UTXO output carries a nullifier key a registry
+leaf opens for its owner under the bound root (`registry/escrow.go`). Only the
+spend record the namespace owns keeps the zero key `Poseidon(0)`, its owner
+hash binds that key. `register_key` needs no ring authority, so more than 32
+registrations between a proof and its landing make the proof stale, and the
+SDKs prove again on `StaleKeyRegistryRoot`. The delegate
+statement requires escrow on. A plain deposit is refused, and the audited
+deposit proves the same check per output against the same history. A merge
+output keeps the owner hash of its inputs. The operator consequences are in
+the custom-rings [README](../custom-rings/README.md#controls).
 
 **Velocity** bounds a sender's outflow per mint. A velocity transfer has one
 authenticated sender and no deposit legs, and for each mint
@@ -537,12 +567,11 @@ entry.
 
 ## Limits
 
-- One entries tree per ring. The circuit binds one root pair, the entries
-  tree's. Entries and curator entries share that one tree instance, pinned
-  at `create_policy` and unrecoverable without a fresh deployment. The
-  ring's spendable UTXOs may live in any registered tree unless windowed
-  velocity is enabled. Windowed rings confine money and records to their
-  entries tree, including deposit and merge destinations.
+- One address tree per ring, pinned at `create_policy` and unrecoverable
+  without a fresh deployment. Curator sources share it. Entries, spend
+  records and money live in any SPP tree. One statement reads at most
+  `INPUT_TREES` trees, the address tree included, the SDK refuses more with
+  `TooManyPolicyTrees`.
 - The shape is fixed at five inputs, four outputs, ten answers, sixteen
   rules, eight sources, eight inline asset-limit pairs, eight velocity rows. The answers array is the
   per-transfer screening budget. A windowed transfer reserves one input
@@ -552,7 +581,7 @@ entry.
   withdrawals and exits, change inside the ring excluded. One person with
   several identities holds several records. The delegate is exempt.
 - The builder rejects any table carrying `ExitDestination`.
-- A rule-less ring still resolves and windows roots. Its clients fetch
+- A rule-less ring still resolves the address tree's roots. Its clients fetch
   fresh indices.
 - A changed policy hash invalidates proofs over the prior policy. An identical
   re-pin changes the generation and preserves those proofs.

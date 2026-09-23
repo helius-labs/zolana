@@ -22,7 +22,7 @@ are data `init` pins from `ring.toml`.
 ## Reading the proof boundary
 
 1. [`RuleTable`](policy/src/rule_table.rs) defines the obligations.
-   [`PolicyConfig`](interface/src/state.rs) pins their hash, sources and entries tree.
+   [`PolicyConfig`](interface/src/state.rs) pins their hash, sources and address tree.
 2. [`transaction.go`](../prover/server/custom_rings/circuits/policy/transaction.go)
    binds private slot openings to SPP's transaction hash.
    [`list_facts.go`](../prover/server/custom_rings/circuits/policy/list_facts.go)
@@ -111,6 +111,22 @@ funds through that rail. A transfer-scoped co-signer gates
 a delegate move like any transfer. A compromised delegate is contained by
 governance disabling the rail or the authority pausing the ring.
 
+Setting the delegate turns on key escrow, and no instruction turns it off.
+`set_delegate` refuses an audit-only ring and a ring without an initialized
+key registry. From then on the ring checks every UTXO output of a member
+transfer, a delegate move or a deposit. Each output carries a key registered
+for its owner, proven against one of the registry's last 32 roots. The one
+exception is the spend record owned by the ring's namespace, whose owner hash
+binds the zero nullifier key `Poseidon(0)`. A plain deposit is refused with
+`DepositAuditRequired`, the audited deposit carries the check in its proof. A
+merge keeps the key of its inputs. Notes created before the delegate is set
+carry no check, so members register first. The SDKs refuse an unregistered
+output key before proving, `UnregisteredOutputKey` in Rust. A P-256 owner
+cannot sign `register_key` and cannot receive on an escrowed ring. A PDA owner
+registers only through a signed CPI from its program. `register_key` needs no
+ring authority, so more than 32 registrations between a proof and its landing
+make the proof stale, and the SDKs prove again on `StaleKeyRegistryRoot`.
+
 A spend window caps what the ring settles publicly in one mint. `zolana-ring
 window set --mint sol --slots 216000 --withdrawal-cap 1000000000` counts every
 public deposit and withdrawal of the mint over fixed windows of that many
@@ -143,7 +159,7 @@ the co-sign demand, and only the upgrade authority moves them. A row with no
 window caps each transfer on its own, no record and no registration. A
 `window_slots` line sums the outflow over fixed windows, each member registers a
 spend record once with `zolana-ring spend register`, a zero-amount note the
-ring's namespace owns in the entries tree, and every transfer of that member
+ring's namespace owns, and every transfer of that member
 spends the record into its successor inside the same proof, carrying the
 counters forward within the window and resetting them at a boundary. The
 counters travel encrypted under the transaction viewing key. The compressed
@@ -266,7 +282,7 @@ port refuses the run. Logs remain in the printed scratch directory.
 `zolana-ring new` is a wizard. It asks for the ring name, the service URLs of
 both clusters and the target, then offers common policy options and an
 advanced rule builder. Picking an option selects the policy tier; finishing
-without one selects audit-only. A policy uses the SPP default entries tree,
+without one selects audit-only. A policy uses the SPP default tree as its address tree,
 writes it explicitly to `ring.toml`, and asks for a source only for each list
 its finished rules read. Each option compiles as one unit when added. The
 wizard prints the `ring.toml` it will write and asks before writing. It writes
@@ -363,10 +379,7 @@ cannot prove that reported values equal the committed UTXOs.
 
 A velocity cap ring, per transfer or windowed, takes no deposit leg on a
 member transfer. Delegation is exempt from velocity. Ordinary policy and
-scoped co-signing apply to it. Windowed member transfers
-require the entries tree for both inputs and outputs. Deposits, merges and
-delegate moves must target that tree. Merges may collect inputs from another
-tree. A spend record publishes the member's identity and
+scoped co-signing apply to it. A spend record publishes the member's identity and
 its lineage in the clear, so an observer who knows an identity can count that
 member's transfers, the amounts stay hidden. The window is fixed, a sender may move
 up to twice the cap across one boundary.
@@ -398,8 +411,9 @@ entry mutations `CreateEntry` and `UpdateEntry`. `CreatePolicy` and
 curator per shared list, both refuse a transaction past the 4096-byte v1
 transaction limit. A participant sends `RingDeposit`, prepares a
 `ConfidentialTransfer` from the SPP transaction SDK and proves it with
-`CustomRingTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
-where the environment is the indexer, the RPC and the prover. `prove` reads
+`CustomRingTransfer::new(..).prove(env)`, where the environment is the
+indexer, the RPC and the prover. The input and output trees come from the
+prepared transaction. `prove` reads
 the table from the policy config and trusts its rows only under the pinned
 hash (`policy_config_table`), `client_rules_match` compares a table of the
 caller's with the stored rows. `prove_async` serves both tiers. `TransactSend`
@@ -435,10 +449,9 @@ Recovered notes are not a complete balance when either list is nonempty.
 
 The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`)
 builds unsigned V1 transfers, withdrawals, exits, delegate moves and merges. Builders
-read the ring's tier and policy, fetch list proofs from its entries tree, and
+read the ring's tier and policy, fetch list proofs from every tree its entries live in, and
 include the required audit and policy proofs. Money inputs come from
-`client.tree`, and `outputTree` defaults to it. Windowed member transfers
-require both to match the entries tree. Use `prepareRingSpendRegistration`
+`client.tree`, and `outputTree` defaults to it. Use `prepareRingSpendRegistration`
 once for each windowed member.
 `createRingKeyRegistryRootInstruction` creates the key registry once,
 `prepareRingKeyRegistration` enrols a member, `fetchRingSealedKey` and
@@ -447,8 +460,7 @@ once for each windowed member.
 submission APIs handle signing and eligible stale key-registry root,
 window-boundary and verified blockhash-expiry retries. `createRingMergeSubmission` consolidates
 two to eight clean notes of one owner, asset and ring, preserving their
-value and enforcing the configured transfer co-signer. A windowed merge
-must send its output to the entries tree.
+value and enforcing the configured transfer co-signer.
 
 TypeScript callers needing restart recovery use `sendPersisted` with a
 `WalletPersistence` store and cipher. It saves the signed attempt identity
