@@ -22,10 +22,16 @@ export function filled(byte: number): Uint8Array {
 
 /** Roots in utxo slots `0..written`, every nullifier slot filled. */
 export function treeAccount(
-  input: Readonly<{ stateCursor: number; written: number; nullifierCursor: bigint }>,
+  input: Readonly<{
+    stateCursor: number;
+    written: number;
+    nullifierCursor: bigint;
+    treeId?: number;
+  }>,
 ): Uint8Array {
   const account = new Uint8Array(TREE_ACCOUNT_SIZE);
   account[0] = StateDiscriminator.treeAccount;
+  new DataView(account.buffer).setUint16(2, input.treeId ?? 0, true);
   account.set(
     Uint8Array.of(input.stateCursor & 0xff, input.stateCursor >> 8),
     UTXO_ROOT_HISTORY_CURSOR_OFFSET,

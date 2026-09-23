@@ -124,6 +124,7 @@ export function ringTransferClient(
     getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
     getSlot: notImplemented("getSlot"),
     getRingSpendRecord: notImplemented("getRingSpendRecord"),
+    getRingKeyRegistryEntry: notImplemented("getRingKeyRegistryEntry"),
     proveCustomRingCompressedPolicy: notImplemented("proveCustomRingCompressedPolicy"),
     ...overrides,
   };

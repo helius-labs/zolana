@@ -20,6 +20,8 @@ export interface RingProgramConfig {
   readonly auditorPublicKey: P256PublicKey;
   readonly bump: number;
   readonly hasPolicy: boolean;
+  /** Mirrors Rust `KeyEscrow::Registry`, set once with the delegate and never cleared. */
+  readonly keyEscrow: boolean;
 }
 
 /** Pins whether deposits must disclose their openings to the auditor. */
@@ -45,9 +47,10 @@ export interface RingPolicySource {
 /** Mirrors Rust `PolicyConfig`. */
 export interface RingPolicyConfig {
   readonly policyHash: Bytes32;
-  readonly entriesTree: Address;
-  /** Raw id of `entriesTree`, every entry leaf and address hashes under it. */
-  readonly entriesTreeId: number;
+  /** Every entry and spend record address is claimed in this tree. */
+  readonly addressTree: Address;
+  /** Raw id of `addressTree`, every entry and spend record address hashes under it. */
+  readonly addressTreeId: number;
   readonly namespaceBump: number;
   readonly bump: number;
   readonly namespaceOwnerHash: Bytes32;
@@ -82,7 +85,7 @@ export const RING_COSIGN_SCOPE_MASK = 7;
 export const RING_COSIGN_THRESHOLD_SLOTS = 8;
 
 const RING_PROGRAM_CONFIG_DISCRIMINATOR = 1;
-const RING_PROGRAM_CONFIG_SIZE = 68;
+const RING_PROGRAM_CONFIG_SIZE = 69;
 /** Rust `CO_SIGNER` and `CoSigner::SIZE`. */
 const RING_CO_SIGNER_DISCRIMINATOR = 4;
 const RING_CO_SIGNER_SIZE = 356;
@@ -99,8 +102,10 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   const auditorPublicKey = P256PublicKey.fromBytes(reader.bytes(33, "auditorPublicKey") as Bytes33);
   const bump = reader.u8("bump");
   const hasPolicy = reader.u8("hasPolicy") !== 0;
+  // Any nonzero byte reads as on, escrow fails closed.
+  const keyEscrow = reader.u8("keyEscrow") !== 0;
   reader.done();
-  return Object.freeze({ authority, auditorPublicKey, bump, hasPolicy });
+  return Object.freeze({ authority, auditorPublicKey, bump, hasPolicy, keyEscrow });
 }
 
 export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {
@@ -228,11 +233,16 @@ export interface RingKeyRegistryRoot {
   readonly root: Bytes32;
   readonly nextIndex: bigint;
   readonly bump: number;
+  /** Slot of `root` in `history`. */
+  readonly historyCursor: number;
+  /** Every root stays sound, an enrolled leaf never changes. */
+  readonly history: readonly Bytes32[];
 }
 
-/** Rust `KEY_REGISTRY_ROOT` and `KeyRegistryRoot::SIZE`. */
+/** Rust `KEY_REGISTRY_ROOT`, `KEY_REGISTRY_ROOT_HISTORY` and `KeyRegistryRoot::SIZE`. */
 const RING_KEY_REGISTRY_ROOT_DISCRIMINATOR = 9;
-const RING_KEY_REGISTRY_ROOT_SIZE = 42;
+export const RING_KEY_REGISTRY_ROOT_HISTORY = 32;
+const RING_KEY_REGISTRY_ROOT_SIZE = 42 + 1 + 32 * RING_KEY_REGISTRY_ROOT_HISTORY;
 
 export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot {
   if (
@@ -248,11 +258,22 @@ export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot
   const root = checkedHeadMapField(reader.bytes(32, "root"));
   const nextIndex = reader.u64("nextIndex");
   const bump = reader.u8("bump");
+  const historyCursor = reader.u8("historyCursor");
+  const history = Object.freeze(
+    Array.from(
+      { length: RING_KEY_REGISTRY_ROOT_HISTORY },
+      () => reader.bytes(32, "history") as Bytes32,
+    ),
+  );
   reader.done();
   if (nextIndex < 1n || nextIndex > HEAD_MAP_CAPACITY) {
     throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { nextIndex } });
   }
-  return Object.freeze({ root, nextIndex, bump });
+  // Rust `advance_to` keeps `history[history_cursor] == root`.
+  if (!equalBytes(history[historyCursor] ?? ZERO_32, root)) {
+    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { historyCursor } });
+  }
+  return Object.freeze({ root, nextIndex, bump, historyCursor, history });
 }
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
@@ -268,8 +289,8 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   const reader = new Reader(data);
   reader.u8("discriminator");
   const policyHash = reader.bytes(32, "policyHash") as Bytes32;
-  const entriesTree = encodeBase58(reader.bytes(32, "entriesTree"));
-  const entriesTreeId = reader.u16("entriesTreeId");
+  const addressTree = encodeBase58(reader.bytes(32, "addressTree"));
+  const addressTreeId = reader.u16("addressTreeId");
   const namespaceBump = reader.u8("namespaceBump");
   const bump = reader.u8("bump");
   const namespaceOwnerHash = reader.bytes(32, "namespaceOwnerHash") as Bytes32;
@@ -307,8 +328,8 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   );
   return Object.freeze({
     policyHash,
-    entriesTree,
-    entriesTreeId,
+    addressTree,
+    addressTreeId,
     namespaceBump,
     bump,
     namespaceOwnerHash,

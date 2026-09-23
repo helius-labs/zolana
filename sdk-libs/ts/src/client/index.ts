@@ -72,6 +72,7 @@ export type {
   CustomRingCompressedPolicyProofRequest,
   CustomRingHeadInsertion,
   CustomRingRegisterKeyProofRequest,
+  CustomRingRegistryKey,
   CustomRingSourceOwner,
   CustomRingSpendRecordProofInput,
   CustomRingVelocityRow,

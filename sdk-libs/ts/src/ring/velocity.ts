@@ -10,7 +10,7 @@ import type { Shape } from "../interface/shape.js";
 import { SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
 import type { Bytes31, Bytes32, MessageData, RequestContext } from "../interface/types.js";
 import { Utxo, ProofInputUtxo, createProofOutput } from "../transaction/utxo.js";
-import type { ProofOutputUtxo, TreeId } from "../transaction/utxo.js";
+import type { ProofOutputUtxo } from "../transaction/utxo.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import { U64_MAX, decodeAddress } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
@@ -46,6 +46,7 @@ import {
   spendRecordMessageTag,
   type LiveSpendRecord,
   type Member,
+  type RingRecordTrees,
   type SpendCounters,
   type SpendRecord,
 } from "./policy.js";
@@ -66,7 +67,6 @@ export interface RingMovement {
 export interface VelocityFacts {
   readonly namespace: Address;
   readonly owner: RingListNamespace;
-  readonly entriesTreeId: TreeId;
   readonly windowSlots: bigint;
   readonly rows: readonly CustomRingVelocityRow[];
   readonly windowIndex: bigint;
@@ -75,14 +75,12 @@ export interface VelocityFacts {
   readonly counters: SpendCounters | undefined;
 }
 
-/** Locates the sender's compressed record under the configured entries tree. */
-export interface ReadVelocityFactsInput {
+/** Locates the sender's compressed record, its address claimed in the address tree. */
+export interface ReadVelocityFactsInput extends RingRecordTrees {
   readonly client: RingSpendRecordReader & Pick<ChainReader, "getAccount"> & SlotReader;
   readonly ringProgramId: Address;
   readonly keys: ShieldedKeys;
   readonly namespace: Address;
-  readonly entriesTree: Address;
-  readonly entriesTreeId: TreeId;
   readonly windowSlots: bigint;
   readonly rows: readonly CustomRingVelocityRow[];
   readonly sender: Member;
@@ -154,7 +152,7 @@ export async function readVelocityFacts(
   input: ReadVelocityFactsInput,
   context?: RequestContext,
 ): Promise<VelocityFacts> {
-  const owner = RingListNamespace.of(input.namespace, input.entriesTreeId);
+  const owner = RingListNamespace.of(input.namespace, input.addressTreeId);
   if (input.windowSlots <= 0n) throw new RingError("RING_VELOCITY_DISABLED");
   const live = await readCurrentSpendRecord(input, context);
   const slot = await input.client.getSlot(context);
@@ -163,7 +161,6 @@ export async function readVelocityFacts(
   return Object.freeze({
     namespace: input.namespace,
     owner,
-    entriesTreeId: input.entriesTreeId,
     windowSlots: input.windowSlots,
     rows: input.rows,
     windowIndex,
@@ -261,8 +258,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
 
   // 3. Keep the namespace-owned record outside money subjects.
   const namespace = decodeAddress(facts.namespace);
-  const spentHashes = facts.owner.spendRecordHashes(spentRecord);
-  const nextHashes = facts.owner.spendRecordHashes(successor);
+
   const zeroNullifier = NullifierKey.fromSecret(ZERO_NULLIFIER_SECRET);
   const viewing = ViewingKey.generate();
   let recordInput: ProofInputUtxo;
@@ -276,14 +272,14 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
         blinding: spentRecord.blinding,
       }),
       zeroNullifier,
-      { dataHash: spentHashes.dataHash },
-      facts.entriesTreeId,
+      { dataHash: facts.owner.spendRecordDataHash(spentRecord) },
+      facts.live.treeId,
     );
     recordOutput = createProofOutput({
       asset: SOL_MINT,
       amount: 0n,
       blinding: successor.blinding,
-      dataHash: nextHashes.dataHash,
+      dataHash: facts.owner.spendRecordDataHash(successor),
       ownerAddress: ShieldedAddress.forPda({
         pda: namespace,
         nullifierPublicKey: zeroNullifier.publicKey(),

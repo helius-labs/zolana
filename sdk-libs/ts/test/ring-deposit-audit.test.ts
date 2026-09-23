@@ -79,7 +79,7 @@ describe("deposit disclosure", () => {
         auditorPublicKey: auditor.publicKey(),
       });
       expect(Buffer.from(hash).toString("hex")).toBe(
-        "04e0d6b0aceea6193897ffaf36076003b2d2257615b18a67c85a83a61218fa01",
+        "0bc3f76e72b6d6bd1a557447da49e445dafb11e6d9168005742013130b45e030",
       );
     } finally {
       generate.mockRestore();
@@ -243,7 +243,6 @@ describe("deposit disclosure", () => {
         ringProgramId: RING,
         tree: TREE,
         depositor: RING,
-        hasPolicy: false,
         deposits,
       };
       const legacy = await ringDepositInstruction(input);
@@ -253,7 +252,8 @@ describe("deposit disclosure", () => {
       });
       expect(audited.data?.[0]).toBe(32);
       expect(audited.data?.slice(1, 193)).toEqual(new Uint8Array(192).fill(7));
-      expect(audited.data?.slice(193)).toEqual(legacy.data);
+      expect(audited.data?.[193]).toBe(0);
+      expect(audited.data?.slice(194)).toEqual(legacy.data);
       expect(legacy.data?.[0]).toBe(InstructionTag.ringDeposit);
       expect(audited.accounts).toEqual(legacy.accounts);
       expect(audited.accounts?.[3]).toMatchObject({
@@ -293,8 +293,10 @@ describe("deposit disclosure", () => {
       publicInputHash: field(1n),
       contextHash: field(2n),
       count: 1,
-      ownerHashes: [field(3n), ...Array.from({ length: 7 }, () => field(0n))],
+      ownerPkHashes: [field(3n), ...Array.from({ length: 7 }, () => field(0n))],
+      nullifierPks: [field(5n), ...Array.from({ length: 7 }, () => field(0n))],
       blindings: [field(4n), ...Array.from({ length: 7 }, () => field(0n))],
+      keys: Array.from({ length: 8 }, () => undefined),
       ephemeralSecret: ephemeral.secretBytes(),
       auditorPublicKey: auditor.publicKey().toUncompressed(),
     };
@@ -302,7 +304,13 @@ describe("deposit disclosure", () => {
       expect(customRingDepositProofRequest(input)).toMatchObject({
         circuitType: "custom-ring-deposit",
         count: 1,
-        ownerHashes: input.ownerHashes.map((bytes) => `0x${Buffer.from(bytes).toString("hex")}`),
+        ownerPkHashes: input.ownerPkHashes.map(
+          (bytes) => `0x${Buffer.from(bytes).toString("hex")}`,
+        ),
+        nullifierPks: input.nullifierPks.map((bytes) => `0x${Buffer.from(bytes).toString("hex")}`),
+        keys: Array.from({ length: 8 }, () => null),
+        keyEscrow: false,
+        keyRegistryRoot: `0x${"0".repeat(64)}`,
         ephSk: `0x${Buffer.from(input.ephemeralSecret).toString("hex")}`,
       });
       const invalidInputs = expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" });
@@ -321,6 +329,21 @@ describe("deposit disclosure", () => {
         customRingDepositProofRequest({
           ...input,
           blindings: [...input.blindings.slice(0, 7), field(1n)],
+        }),
+      ).toThrow(invalidInputs);
+      expect(() =>
+        customRingDepositProofRequest({
+          ...input,
+          nullifierPks: [...input.nullifierPks.slice(0, 7), field(1n)],
+        }),
+      ).toThrow(invalidInputs);
+      expect(() =>
+        customRingDepositProofRequest({
+          ...input,
+          keys: [
+            ...input.keys.slice(0, 7),
+            { next: field(0n), ctHash: field(0n), index: 1n, path: [] },
+          ],
         }),
       ).toThrow(invalidInputs);
       const fetch = vi.fn<typeof globalThis.fetch>(async (_url, options) => {
@@ -443,6 +466,9 @@ describe("deposit audit control", () => {
                 : undefined,
         }),
         proveCustomRingDeposit,
+        getRingKeyRegistryEntry: vi.fn(async () => {
+          throw new Error("escrow is off");
+        }),
       };
       const building = buildRingDepositTransaction({
         client,

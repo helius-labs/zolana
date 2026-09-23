@@ -2,20 +2,18 @@ import type { ChainReader, ProofReader } from "../client/ports.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INPUT_SLOTS,
-  RING_NULLIFIER_PATH_LENGTH,
   RING_OUTPUT_SLOTS,
-  RING_STATE_PATH_LENGTH,
   disabledRuleAnswer,
   type CustomRingRuleAnswer,
 } from "../client/prover/types.js";
-import type { MerkleProof, NonInclusionProof } from "../client/rpc.js";
-import type { Address, Bytes32, RequestContext, TreeHeadRoots } from "../interface/types.js";
+import type { TreeSlot } from "../interface/tree-slot.js";
+import type { Address, Bytes32, RequestContext, TreeContext } from "../interface/types.js";
 import type { ProofInputUtxo, ProofOutputUtxo, TreeId } from "../transaction/utxo.js";
 import { bytesKey, equalBytes } from "../wallet/internal.js";
 
 import type { RingPolicyConfig } from "./codecs.js";
-import { checkedEntryProof, readEntriesTreeHeads } from "./entries-tree.js";
 import { RingError } from "./error.js";
+import { provePolicyTrees, type PolicyTreeFact, type ProvenPolicyTrees } from "./policy-trees.js";
 import {
   RingListNamespace,
   listIdFromByte,
@@ -31,6 +29,7 @@ import {
   type RuleMode,
   type RuleTable,
 } from "./policy.js";
+import { ringTreeIdResolver } from "./trees.js";
 
 export type RingPolicyAnswerClient = Pick<ChainReader, "getAccount"> &
   EntryIndexer &
@@ -45,8 +44,13 @@ export interface PolicyAnswerInput {
 
 export interface PolicyAnswers {
   readonly answers: readonly CustomRingRuleAnswer[];
-  readonly roots: TreeHeadRoots;
+  /** One account per `treeSlots` entry, the policy trees the transact instruction lists. */
+  readonly policyTrees: readonly Address[];
+  readonly treeSlots: readonly TreeSlot[];
+  readonly treeContexts: readonly TreeContext[];
   readonly revocationTargets: readonly Bytes32[];
+  /** Per fact slot, the policy tree its revocation target lives in. */
+  readonly revocationTreeIndexes: readonly number[];
 }
 
 /** Mirrors Rust `CustomRingWitnessInput::build`, a rule no entry admits is refused before any prover round. */
@@ -55,47 +59,45 @@ export async function provePolicyAnswers(
   context?: RequestContext,
 ): Promise<PolicyAnswers> {
   const plan = planPolicyAnswers(input);
+  const addressTree = { tree: input.config.addressTree, treeId: input.config.addressTreeId };
   const lineages = await readRingEntryLineages(
     {
       indexer: input.client,
-      entriesTree: input.config.entriesTree,
-      entriesTreeId: input.config.entriesTreeId,
+      addressTreeId: addressTree.treeId,
+      resolveTreeId: ringTreeIdResolver(input.client, [addressTree], context),
       lookups: plan.lookups,
     },
     context,
   );
-  const resolved = resolvePolicyAnswers(plan, lineages, input.config.entriesTreeId);
-  const queries = answerQueries(resolved);
-  const tree = input.config.entriesTree;
-  const [states, absences] = await Promise.all([
-    queries.states.length === 0
-      ? []
-      : input.client
-          .getMerkleProofs(tree, queries.states, undefined, context)
-          .then((response) => response.proofs),
-    queries.absences.length === 0
-      ? []
-      : input.client
-          .getNonInclusionProofs(tree, queries.absences, undefined, context)
-          .then((response) => response.proofs),
-  ]);
-  const proofs = checkedEntryProofs({ tree, queries, states, absences });
-  const fixed = fixedRoots(proofs);
-  const roots = fixed.atHeads(await readEntriesTreeHeads(input.client, tree, context));
-  const revocationTargets = resolved.map((answer) =>
-    answer.fact.kind === "live" ? answer.fact.live.nullifier : answer.fact.address,
+  const resolved = resolvePolicyAnswers(plan, lineages, addressTree.treeId);
+  const facts = resolved.map(({ fact }): PolicyTreeFact =>
+    fact.kind === "live"
+      ? {
+          holder: { tree: fact.live.tree, treeId: fact.live.treeId },
+          state: fact.live.utxoHash,
+          absence: fact.live.nullifier,
+        }
+      : { absence: fact.address },
   );
+  const trees = await provePolicyTrees({ client: input.client, addressTree, facts }, context);
   return Object.freeze({
-    answers: assemblePolicyAnswers(resolved, proofs),
-    roots,
-    revocationTargets: Object.freeze([
-      ...revocationTargets,
-      ...Array.from(
-        { length: RING_ANSWER_SLOTS - revocationTargets.length },
-        () => new Uint8Array(32) as Bytes32,
-      ),
-    ]),
+    answers: assemblePolicyAnswers(resolved, trees),
+    policyTrees: Object.freeze(trees.trees.map(({ tree }) => tree)),
+    treeSlots: trees.slots,
+    treeContexts: trees.contexts,
+    revocationTargets: padded(
+      facts.map((fact) => fact.absence),
+      () => new Uint8Array(32) as Bytes32,
+    ),
+    revocationTreeIndexes: padded(trees.factSlots, () => 0),
   });
+}
+
+function padded<T>(values: readonly T[], zero: () => T): readonly T[] {
+  return Object.freeze([
+    ...values,
+    ...Array.from({ length: RING_ANSWER_SLOTS - values.length }, zero),
+  ]);
 }
 
 interface AnswerLookup {
@@ -309,116 +311,21 @@ function sameQuestion(left: ResolvedAnswer, right: ResolvedAnswer): boolean {
   );
 }
 
-interface AnswerQueries {
-  readonly states: readonly Bytes32[];
-  readonly absences: readonly Bytes32[];
-}
-
-function answerQueries(answers: readonly ResolvedAnswer[]): AnswerQueries {
-  return Object.freeze({
-    states: Object.freeze(
-      answers.flatMap((answer) => (answer.fact.kind === "live" ? [answer.fact.live.utxoHash] : [])),
-    ),
-    absences: Object.freeze(
-      answers.map((answer) =>
-        answer.fact.kind === "live" ? answer.fact.live.nullifier : answer.fact.address,
-      ),
-    ),
-  });
-}
-
-interface EntryProofs {
-  readonly states: readonly MerkleProof[];
-  readonly absences: readonly NonInclusionProof[];
-}
-
-/** Every requested leaf answered from the entries tree, in request order. */
-function checkedEntryProofs(
-  input: Readonly<{
-    tree: Address;
-    queries: AnswerQueries;
-    states: readonly MerkleProof[];
-    absences: readonly NonInclusionProof[];
-  }>,
-): EntryProofs {
-  if (
-    input.states.length !== input.queries.states.length ||
-    input.absences.length !== input.queries.absences.length
-  ) {
-    throw new RingError("RING_ENTRY_PROOF_INCOMPLETE", { details: { entriesTree: input.tree } });
-  }
-  return Object.freeze({
-    states: input.queries.states.map((leaf, index) =>
-      checkedEntryProof(input.states[index], {
-        entriesTree: input.tree,
-        leaf,
-        pathLength: RING_STATE_PATH_LENGTH,
-      }),
-    ),
-    absences: input.queries.absences.map((leaf, index) =>
-      checkedEntryProof(input.absences[index], {
-        entriesTree: input.tree,
-        leaf,
-        pathLength: RING_NULLIFIER_PATH_LENGTH,
-      }),
-    ),
-  });
-}
-
-interface HistoryRoot {
-  readonly value: Bytes32;
-  readonly index: number;
-}
-
-/** Mirrors Rust `FixedRoots`, a tree no answer touched has none. */
-interface FixedRoots {
-  readonly state: HistoryRoot | undefined;
-  readonly nullifier: HistoryRoot | undefined;
-  atHeads(heads: TreeHeadRoots): TreeHeadRoots;
-}
-
-function fixedRoots(proofs: EntryProofs): FixedRoots {
-  const state = singleRoot(proofs.states);
-  const nullifier = singleRoot(proofs.absences);
-  return Object.freeze({
-    state,
-    nullifier,
-    atHeads: (heads: TreeHeadRoots) =>
-      Object.freeze({
-        stateRoot: state?.value ?? heads.stateRoot,
-        stateRootIndex: state?.index ?? heads.stateRootIndex,
-        nullifierRoot: nullifier?.value ?? heads.nullifierRoot,
-        nullifierRootIndex: nullifier?.index ?? heads.nullifierRootIndex,
-      }),
-  });
-}
-
-/** One call proves every leaf against one root. */
-function singleRoot(proofs: readonly (MerkleProof | NonInclusionProof)[]): HistoryRoot | undefined {
-  const [first] = proofs;
-  if (first === undefined) return undefined;
-  if (
-    proofs.some(
-      (proof) => proof.rootIndex !== first.rootIndex || !equalBytes(proof.root, first.root),
-    )
-  ) {
-    throw new RingError("RING_POLICY_ROOT_MISMATCH");
-  }
-  return { value: first.root, index: first.rootIndex };
-}
-
 /** Mirrors Rust `ResolvedWitness::assemble`, padded to the answer width. */
 function assemblePolicyAnswers(
   answers: readonly ResolvedAnswer[],
-  proofs: EntryProofs,
+  trees: ProvenPolicyTrees,
 ): readonly CustomRingRuleAnswer[] {
-  let liveIndex = 0;
   const assembled = answers.map((answer, index) => {
-    const absence = proofs.absences[index];
-    if (absence === undefined) throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
+    const absence = trees.absences[index];
+    const treeSlot = trees.factSlots[index];
+    if (absence === undefined || treeSlot === undefined) {
+      throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
+    }
     const base = {
       ...disabledRuleAnswer(),
       enabled: true,
+      treeSlot,
       mode: answer.mode === "present" ? 1 : 2,
       listId: answer.listId,
       member: answer.member,
@@ -428,8 +335,7 @@ function assemblePolicyAnswers(
       nullifierPathIndex: absence.lowElementIndex,
     };
     if (answer.fact.kind === "unclaimed") return Object.freeze({ ...base, absentBranch: 1 });
-    const state = proofs.states[liveIndex];
-    liveIndex += 1;
+    const state = trees.states[index];
     if (state === undefined) throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
     const { entry } = answer.fact.live;
     return Object.freeze({

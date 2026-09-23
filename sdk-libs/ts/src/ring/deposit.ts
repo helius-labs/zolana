@@ -1,7 +1,7 @@
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { DepositClient } from "../wallet/deposit.js";
-import type { Prover } from "../client/ports.js";
+import type { Prover, RingKeyRegistryReader } from "../client/ports.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./deposit-capsule.js";
 import { copyBytes } from "../interface/internal.js";
@@ -21,6 +21,7 @@ import { resolveShieldedRecipient } from "../wallet/registry.js";
 import { fetchRingCoSigner, fetchRingDepositAudit, fetchRingProgramConfig } from "./config.js";
 import { DEPOSIT_DEMAND, checkRingCoSigner } from "./cosign.js";
 import { RingError, wrapRingError } from "./error.js";
+import { openRingEscrowedKeys } from "./key-escrow.js";
 import {
   ringDepositContextHash,
   ringDepositPublicInputHash,
@@ -30,7 +31,9 @@ import {
 const ZERO_32 = new Uint8Array(32) as Bytes32;
 export const RING_DEPOSIT_COMPUTE_UNIT_LIMIT = 1_400_000;
 
-export type RingDepositClient = DepositClient & Pick<Prover, "proveCustomRingDeposit">;
+export type RingDepositClient = DepositClient &
+  Pick<Prover, "proveCustomRingDeposit"> &
+  Pick<RingKeyRegistryReader, "getRingKeyRegistryEntry">;
 
 export interface RingDepositTransactionParams {
   readonly client: RingDepositClient;
@@ -48,7 +51,7 @@ export interface RingDepositTransactionParams {
   readonly cosigner?: SignerAccount;
 }
 
-/** Mirrors Rust `ring_deposit_sol`. The output is ring-bound, so only the ring's transact can spend it. */
+/** Mirrors Rust `RingDeposit`, a ring that escrows keys always audits. */
 export async function buildRingDepositTransaction(
   input: RingDepositTransactionParams,
   context?: RequestContext,
@@ -66,8 +69,8 @@ export async function buildRingDepositTransaction(
     const depositor = input.depositor ?? input.feePayer;
     const tree = input.tree ?? input.client.tree;
     const asset = input.asset ?? SOL_MINT;
-    // 1. Read the ring's signature and deposit disclosure requirements.
-    const [{ hasPolicy, auditorPublicKey }, coSigner, depositAudit] = await Promise.all([
+    // 1. Read the ring's signature, deposit disclosure and key escrow requirements.
+    const [{ auditorPublicKey, keyEscrow }, coSigner, depositAudit] = await Promise.all([
       fetchRingProgramConfig(input.client, input.ringProgramId, context),
       fetchRingCoSigner(input.client, input.ringProgramId, context),
       fetchRingDepositAudit(input.client, input.ringProgramId, context),
@@ -88,6 +91,17 @@ export async function buildRingDepositTransaction(
       },
       () => new RingError("RING_BUILD_DEPOSIT", { details: { reason: "missing token account" } }),
     );
+    const owner = {
+      ownerPkHash: recipient.signingPublicKey.ownerProofInputHash(),
+      nullifierPk: recipient.nullifierPublicKey,
+    };
+    const escrow = keyEscrow
+      ? await openRingEscrowedKeys(
+          { client: input.client, ringProgramId: input.ringProgramId, owners: [owner] },
+          context,
+        )
+      : undefined;
+    const audited = depositAudit || escrow !== undefined;
     const blinding = randomBlinding();
     const ownerHash = recipient.ownerHash();
     const envelope = ViewingKey.generate();
@@ -103,7 +117,7 @@ export async function buildRingDepositTransaction(
       });
       const ciphertext = envelope.encryptRingDeposit(recipient.viewingPublicKey, plaintext, salt);
       // 2. Keep recipient ciphertext and add required auditor disclosure.
-      const sealed = depositAudit
+      const sealed = audited
         ? sealRingDepositOpenings(
             [{ ownerHash, blinding, recipientCiphertext: ciphertext }],
             auditorPublicKey,
@@ -117,7 +131,7 @@ export async function buildRingDepositTransaction(
         ringProgramId: input.ringProgramId,
         tree,
         depositor,
-        hasPolicy,
+        ...(escrow === undefined ? {} : { keyRegistryRootIndex: escrow.rootIndex }),
         ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
         deposits: [
           {
@@ -138,11 +152,16 @@ export async function buildRingDepositTransaction(
       if (sealed !== undefined) {
         const wire = instruction.data;
         if (wire === undefined) throw new RingError("RING_BUILD_DEPOSIT");
+        // The SPP wire follows the proof and the registry root index.
         const contextHash = ringDepositContextHash(
           input.ringProgramId,
           tree,
-          wire.slice(1 + CUSTOM_RING_PROOF_LENGTH),
+          wire.slice(2 + CUSTOM_RING_PROOF_LENGTH),
         );
+        const firstSlot = <T>(value: T, zero: T): readonly T[] =>
+          Array.from({ length: RING_DEPOSIT_AUDIT_SLOTS }, (_, index) =>
+            index === 0 ? value : zero,
+          );
         const proof = await input.client.proveCustomRingDeposit(
           {
             publicInputHash: ringDepositPublicInputHash({
@@ -150,17 +169,17 @@ export async function buildRingDepositTransaction(
               ownerCommitments: [ownerCommitment],
               capsules: sealed.capsules,
               auditorPublicKey,
+              ...(escrow === undefined ? {} : { keyRegistryRoot: escrow.root }),
             }),
             contextHash,
             count: 1,
-            ownerHashes: Array.from({ length: RING_DEPOSIT_AUDIT_SLOTS }, (_, index) =>
-              index === 0 ? ownerHash : ZERO_32,
-            ),
-            blindings: Array.from({ length: RING_DEPOSIT_AUDIT_SLOTS }, (_, index) =>
-              index === 0 ? blinding : ZERO_32,
-            ),
+            ownerPkHashes: firstSlot(owner.ownerPkHash, ZERO_32),
+            nullifierPks: firstSlot(owner.nullifierPk, ZERO_32),
+            blindings: firstSlot(blinding, ZERO_32),
+            keys: firstSlot(escrow?.keys[0], undefined),
             ephemeralSecret: sealed.ephemeralSecret,
             auditorPublicKey: auditorPublicKey.toUncompressed(),
+            ...(escrow === undefined ? {} : { keyRegistryRoot: escrow.root }),
           },
           context,
         );
@@ -179,7 +198,7 @@ export async function buildRingDepositTransaction(
     return compileUnsignedTransaction({
       feePayer: input.feePayer,
       lifetime,
-      computeUnitLimit: depositAudit ? RING_DEPOSIT_COMPUTE_UNIT_LIMIT : DEFAULT_COMPUTE_UNIT_LIMIT,
+      computeUnitLimit: audited ? RING_DEPOSIT_COMPUTE_UNIT_LIMIT : DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [instruction],
     });
   } catch (cause) {

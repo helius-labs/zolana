@@ -21,6 +21,8 @@ import type {
 } from "../interface/types.js";
 import { INPUT_TREES } from "../interface/tree-slot.js";
 import { hashBytes } from "../hasher/index.js";
+import { treeAddress } from "../interface/pda/index.js";
+import type { TreeContext } from "./ports.js";
 
 import {
   composeSignal as composeTransportSignal,
@@ -28,6 +30,11 @@ import {
 } from "../services/signal.js";
 import { TransportFailure, checkedEndpoint } from "../services/transport.js";
 import { ClientError, hasherError } from "./error.js";
+
+/** The client's own tree id keeps its configured address, any other id is the pool's tree PDA. */
+export function inputTreeAddress(client: TreeContext, treeId: number): Address {
+  return treeId === client.treeId ? client.tree : treeAddress(treeId);
+}
 
 export const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;

@@ -414,7 +414,7 @@ describe("entries", () => {
       0n,
       ALLOW_PRESENT.blinding,
     );
-    expect(owner.entryHashes(active)).toEqual({
+    expect(owner.entryHashes(active, FIXTURE_TREE_ID)).toEqual({
       address: hex(ALLOW_PRESENT.address),
       dataHash: hex(ALLOW_PRESENT.dataHash),
       utxoHash: hex(ALLOW_PRESENT.utxoHash),
@@ -430,7 +430,7 @@ describe("entries", () => {
       1n,
       BLOCK_CLEARED.blinding,
     );
-    expect(owner.entryHashes(cleared)).toEqual({
+    expect(owner.entryHashes(cleared, FIXTURE_TREE_ID)).toEqual({
       address: hex(BLOCK_CLEARED.address),
       dataHash: hex(BLOCK_CLEARED.dataHash),
       utxoHash: hex(BLOCK_CLEARED.utxoHash),
@@ -472,18 +472,22 @@ describe("entries", () => {
 });
 
 describe("lineage walk", () => {
-  const ENTRIES_TREE = addressOf(filled(0x77));
+  const ADDRESS_TREE = addressOf(filled(0x77));
   const OTHER_TREE = addressOf(filled(0x78));
+  const OTHER_TREE_ID = 8;
+  const treeIdOf = (tree: Address): number =>
+    tree === ADDRESS_TREE ? FIXTURE_TREE_ID : OTHER_TREE_ID;
   const owner = RingListNamespace.of(RECORDS_PDA, FIXTURE_TREE_ID);
   const member = memberOfTag(RECIPIENT_TAG);
   const v0 = entry(ListId.allow, member, "active", 0n);
   const v1 = entry(ListId.allow, member, "cleared", 1n);
   const signature = (text: string): Signature => text as Signature;
 
-  function slot(value: ListEntry, tree = ENTRIES_TREE): OutputSlot {
+  /** `leafTreeId` hashes the leaf, a wrong one forges a successor. */
+  function slot(value: ListEntry, tree = ADDRESS_TREE, leafTreeId = treeIdOf(tree)): OutputSlot {
     return {
       viewTag: filled(0),
-      outputContext: { hash: owner.entryHashes(value).utxoHash, tree, leafIndex: 0n },
+      outputContext: { hash: owner.entryHashes(value, leafTreeId).utxoHash, tree, leafIndex: 0n },
       payload: outputData(value),
     };
   }
@@ -523,8 +527,8 @@ describe("lineage walk", () => {
   const read = (indexer: ReturnType<typeof syncReads>) =>
     readRingEntry({
       indexer,
-      entriesTree: ENTRIES_TREE,
-      entriesTreeId: FIXTURE_TREE_ID,
+      addressTreeId: FIXTURE_TREE_ID,
+      resolveTreeId: treeIdOf,
       namespace: RECORDS_PDA,
       listId: ListId.allow,
       member,
@@ -537,36 +541,57 @@ describe("lineage walk", () => {
   });
 
   it("reads the claimed version and then its update", async () => {
-    const claim = spender(owner.entryHashes(v0).address, [slot(v0)], "claim");
+    const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
     const { indexer } = indexerOf([claim]);
     await expect(read(indexer)).resolves.toEqual({
       entry: v0,
       utxoHash: hex(ALLOW_PRESENT.utxoHash),
       nullifier: hex(ALLOW_PRESENT.nullifier),
+      tree: ADDRESS_TREE,
+      treeId: FIXTURE_TREE_ID,
       txSignature: signature("claim"),
       slot: 5n,
     });
-    const update = spender(owner.entryHashes(v0).nullifier, [slot(v1)], "update");
+    const update = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).nullifier, [slot(v1)], "update");
     const walked = indexerOf([claim, update]);
     await expect(read(walked.indexer)).resolves.toMatchObject({ entry: v1, txSignature: "update" });
     expect(walked.byNullifiers).toHaveBeenCalledTimes(3);
   });
 
-  it("refuses a spender that carries no next version in the entries tree", async () => {
+  it("follows a version that moved out of the address tree under its own tree id", async () => {
+    const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
+    const moved = spender(
+      owner.entryHashes(v0, FIXTURE_TREE_ID).nullifier,
+      [slot(v1, OTHER_TREE)],
+      "moved",
+    );
+    const { indexer } = indexerOf([claim, moved]);
+    const live = await read(indexer);
+    expect(live).toMatchObject({ entry: v1, tree: OTHER_TREE, treeId: OTHER_TREE_ID });
+    expect(live?.nullifier).toEqual(owner.entryHashes(v1, OTHER_TREE_ID).nullifier);
+  });
+
+  it("refuses a spender whose next version hashes under another tree than its own", async () => {
     const { indexer } = indexerOf([
-      spender(owner.entryHashes(v0).address, [slot(v0, OTHER_TREE)], "x"),
+      spender(
+        owner.entryHashes(v0, FIXTURE_TREE_ID).address,
+        [slot(v0, OTHER_TREE, FIXTURE_TREE_ID)],
+        "x",
+      ),
     ]);
     await expect(read(indexer)).rejects.toMatchObject({ code: "RING_ENTRY_LINEAGE_BROKEN" });
   });
 
   it("refuses a successor whose bytes do not reproduce the leaf", async () => {
     const forged = { ...slot(v0), payload: outputData({ ...v0, version: 3n }) };
-    const { indexer } = indexerOf([spender(owner.entryHashes(v0).address, [forged], "x")]);
+    const { indexer } = indexerOf([
+      spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [forged], "x"),
+    ]);
     await expect(read(indexer)).rejects.toMatchObject({ code: "RING_ENTRY_LINEAGE_BROKEN" });
   });
 
   it("keeps paging until a page carries scannedThrough", async () => {
-    const claim = spender(owner.entryHashes(v0).address, [slot(v0)], "claim");
+    const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
     const pages = [
       transactionsPage({ nextCursor: new Uint8Array([1]) }),
       transactionsPage({
@@ -588,11 +613,11 @@ describe("lineage walk", () => {
     const blocked = entry(ListId.block, memberOfTag(BLOCKED_TAG), "active", 0n);
     const stray = entry(ListId.frozen, memberOfTag(SENDER_TAG), "active", 0n);
     const claims = [
-      spender(owner.entryHashes(v0).address, [slot(v0)], "allow"),
-      spender(owner.entryHashes(blocked).address, [slot(blocked)], "block"),
+      spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "allow"),
+      spender(owner.entryHashes(blocked, FIXTURE_TREE_ID).address, [slot(blocked)], "block"),
     ];
     const { indexer: walker } = indexerOf(claims);
-    const match = (value: ListEntry, tree = ENTRIES_TREE) => ({
+    const match = (value: ListEntry, tree = ADDRESS_TREE) => ({
       slot: 5n,
       txSignature: signature("any"),
       outputSlot: slot(value, tree),
@@ -602,8 +627,8 @@ describe("lineage walk", () => {
     );
     const live = await readRingEntries({
       indexer: syncReads({ ...walker, getEncryptedUtxosByTags: byTags }),
-      entriesTree: ENTRIES_TREE,
-      entriesTreeId: FIXTURE_TREE_ID,
+      addressTreeId: FIXTURE_TREE_ID,
+      resolveTreeId: treeIdOf,
       namespace: RECORDS_PDA,
     });
     expect(live.map((item) => [item.entry.listId, item.txSignature])).toEqual([
@@ -933,7 +958,7 @@ describe("policy hash", () => {
       countersCommitment: spendCountersCommitment(counters),
       blinding: bigField(0x63n),
     };
-    const hashes = namespace.spendRecordHashes(record);
+    const hashes = namespace.spendRecordHashes(record, 7);
     expect(hashes.dataHash).toEqual(
       hex("2f0e7fc685bb0fdd86c6b1b4b75b9e18ec84dae130f3b5cdba0f12ec987f6de3"),
     );

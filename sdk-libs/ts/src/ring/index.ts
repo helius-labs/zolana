@@ -20,7 +20,10 @@ export type {
 export { ringAuthAddress } from "../interface/pda/index.js";
 export { ringKeyRegistryRootAddress, ringKeyRegistryRootPda } from "../interface/pda/index.js";
 export { fetchRingKeyRegistryRoot, createRingKeyRegistryRootInstruction } from "./config.js";
-export { decodeRingKeyRegistryRoot } from "./codecs.js";
+export { RING_KEY_REGISTRY_ROOT_HISTORY, decodeRingKeyRegistryRoot } from "./codecs.js";
+export { openRingEscrowedKeys } from "./key-escrow.js";
+export type { RingEscrowedKeys, RingKeyOwner } from "./key-escrow.js";
+export { ringTreeIdResolver } from "./trees.js";
 export type { RingKeyRegistryRoot } from "./codecs.js";
 export {
   NF_KEY_ENC_INFO,
@@ -201,6 +204,7 @@ export type {
   EntryHashes,
   EntryIndexer,
   EntryState,
+  LeafTree,
   ListEntry,
   ListWriter,
   LiveEntry,
@@ -209,6 +213,7 @@ export type {
   ReadRingEntryInput,
   ReadRingEntryLineagesInput,
   RingEntryLookup,
+  RingRecordTrees,
   Rule,
   RuleAlternative,
   RuleGuard,
@@ -280,9 +285,11 @@ export {
 } from "./instructions.js";
 export type {
   RingEntryInstructionInput,
+  RingEntryTrees,
   RingPolicySourceOwner,
   RingPolicyTableInput,
   RingSharedSource,
+  RingTransactPolicy,
   RingTransactTrees,
 } from "./instructions.js";
 export { listRegisteredRings } from "./registry.js";
@@ -400,6 +407,7 @@ export type {
   RingEntryTransitionInput,
   RingEntryTransitionInputs,
   RingEntryTransitionProofInputs,
+  RingMutationTrees,
 } from "./entry-proof.js";
 export { buildRingListWriteTransaction } from "./list-write.js";
 export type {

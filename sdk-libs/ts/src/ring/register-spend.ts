@@ -1,4 +1,9 @@
-import type { BlockhashProvider, RingSpendRecordReader, SlotReader } from "../client/ports.js";
+import type {
+  BlockhashProvider,
+  ChainReader,
+  RingSpendRecordReader,
+  SlotReader,
+} from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
 import { signerAddress, type SignerAccount } from "../interface/instructions/index.js";
@@ -14,13 +19,20 @@ import {
   registerRingSpendInstruction,
   RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 } from "./instructions.js";
-import { memberOfTag, memberOfIdentity, type LiveSpendRecord, type Member } from "./policy.js";
+import {
+  memberOfTag,
+  memberOfIdentity,
+  type LiveSpendRecord,
+  type Member,
+  type RingRecordTrees,
+} from "./policy.js";
 import { findCurrentSpendRecord } from "./spend-record-reader.js";
 import {
   RingTransactionSubmission,
   windowChangedOn,
   type RingSubmissionAttempt,
 } from "./submission.js";
+import { ringTreeIdResolver } from "./trees.js";
 import { readVelocityFacts, type VelocityFacts } from "./velocity.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
@@ -52,8 +64,7 @@ export async function prepareRingSpendRegistration(
       client: input.client,
       ringProgramId: input.ringProgramId,
       namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
-      entriesTree: registration.policy.entriesTree,
-      entriesTreeId: registration.policy.entriesTreeId,
+      ...recordTrees(input.client, registration.policy, context),
       sender: registration.member,
     },
     context,
@@ -92,8 +103,7 @@ export async function readRingVelocityState(
       ringProgramId: input.ringProgramId,
       keys: input.keys,
       namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
-      entriesTree: policy.entriesTree,
-      entriesTreeId: policy.entriesTreeId,
+      ...recordTrees(input.client, policy, context),
       sender: memberOfIdentity(input.member.signingPublicKey.ownerProofInputHash()),
       windowSlots: policy.windowSlots,
       rows: policy.velocity,
@@ -108,6 +118,19 @@ export async function buildRingSpendRegistrationTransaction(
 ): Promise<Transaction> {
   const registration = await registrationContext(input, context);
   return (await buildRegistrationAttempt({ params: input, registration }, context)).transaction;
+}
+
+/** Records claim their address in the policy's address tree and may land in any tree. */
+function recordTrees(
+  client: Pick<ChainReader, "getAccount">,
+  policy: RingPolicyConfig,
+  context: RequestContext | undefined,
+): RingRecordTrees {
+  const addressTree = { tree: policy.addressTree, treeId: policy.addressTreeId };
+  return {
+    addressTreeId: addressTree.treeId,
+    resolveTreeId: ringTreeIdResolver(client, [addressTree], context),
+  };
 }
 
 /** Pins the member identity and policy used for record creation. */
@@ -164,12 +187,13 @@ async function buildRegistrationAttempt(
   const { params, registration } = input;
   const { policy, payer, member } = registration;
   const windowIndex = (await params.client.getSlot(context)) / policy.windowSlots;
+  const addressTree = { tree: policy.addressTree, treeId: policy.addressTreeId };
   const entry = await proveRingSpendRegistration(
     {
       client: params.client,
       ringProgramId: params.ringProgramId,
-      entriesTree: policy.entriesTree,
-      entriesTreeId: policy.entriesTreeId,
+      addressTree,
+      outputTree: addressTree,
       payer,
       member,
       windowIndex,
@@ -179,7 +203,8 @@ async function buildRegistrationAttempt(
   const instruction = await registerRingSpendInstruction({
     ringProgramId: params.ringProgramId,
     payer: params.payer,
-    entriesTree: policy.entriesTree,
+    inputTree: addressTree.tree,
+    outputTree: addressTree.tree,
     blinding: entry.record.blinding,
     proof: entry.proof,
   });

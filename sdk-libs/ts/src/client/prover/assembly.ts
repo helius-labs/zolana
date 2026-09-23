@@ -23,11 +23,7 @@ import {
   type TreeSlot,
 } from "../../interface/tree-slot.js";
 import { solanaOwnerIdentity } from "../../hasher/index.js";
-import {
-  SppProofInputs,
-  singleInputTreeId,
-  type ExternalData,
-} from "../../transaction/instructions/transact.js";
+import { SppProofInputs, type ExternalData } from "../../transaction/instructions/transact.js";
 import { EncryptedScheme } from "../../transaction/serialization/codecs.js";
 import {
   ProofInputUtxo,
@@ -771,11 +767,10 @@ export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
   ) {
     throw new ClientError("CLIENT_PROVER_INPUT");
   }
-  const inputTreeId = treeIdField(singleInputTreeId(proofInputs.inputUtxos));
   const outputTreeId = treeIdField(proofInputs.outputTreeId);
   const inputs = Array.from({ length: RING_INPUT_SLOTS }, (_, index) => {
     const input = proofInputs.inputUtxos[index];
-    return input === undefined ? zeroOpening(0) : inputOpening(input, inputTreeId);
+    return input === undefined ? zeroOpening(0) : inputOpening(input);
   });
   const outputs = Array.from({ length: RING_OUTPUT_SLOTS }, (_, index) => {
     const output = proofInputs.outputs[index];
@@ -789,12 +784,13 @@ export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
   });
 }
 
-function inputOpening(input: ProofInputUtxo, treeId: Bytes32): CustomRingOpening {
+/** Mirrors Rust `input_opening`, each slot opens under its own tree. */
+function inputOpening(input: ProofInputUtxo): CustomRingOpening {
   if (input.isDummy()) return zeroOpening(DUMMY_DOMAIN);
   const utxo = inputCircuitUtxo(input);
   return Object.freeze({
     domain: openingField(BigInt(UTXO_DOMAIN)),
-    treeId,
+    treeId: treeIdField(input.treeId),
     ownerPkHash: input.utxo.owner.ownerProofInputHash(),
     nullifierPk: input.nullifierPublicKey,
     asset: openingField(utxo.asset),

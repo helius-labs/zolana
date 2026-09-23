@@ -27,12 +27,13 @@ import type {
 } from "../interface/types.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
+import type { ProofInputUtxo } from "../transaction/utxo.js";
 import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
-import { checkedServiceUrl, hasProofMethods } from "./internal.js";
+import { checkedServiceUrl, hasProofMethods, inputTreeAddress } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
   authorizedPrivateTransactionMaterial,
@@ -607,6 +608,84 @@ export class ZolanaClient
     return this.#pairSpendProofs(commitments, state.proofs, nullifier.proofs);
   }
 
+  /** One request per proof kind per input tree, padding included, the circuit publishes one root pair per tree slot. */
+  async #inputProofs(
+    proofInputs: SppProofInputs,
+    config: IndexerRpcConfig | undefined,
+    context: RequestContext | undefined,
+  ): Promise<Readonly<{ proofs: SpendProof[]; dummyProofs: NonInclusionProof[] }>> {
+    const commitments = proofInputs.inputContexts();
+    const dummyNullifiers = proofInputs.dummyNullifiers();
+    const realTrees = proofInputs.inputUtxos.filter((input) => !input.isDummy());
+    const dummyTrees = proofInputs.inputUtxos.filter((input) => input.isDummy());
+    const at = (inputs: readonly ProofInputUtxo[], treeId: number): number[] =>
+      inputs.flatMap((input, index) => (input.treeId === treeId ? [index] : []));
+    const spends = new Map<number, SpendProof>();
+    const dummies = new Map<number, NonInclusionProof>();
+    const treeIds = new Set(proofInputs.inputUtxos.map((input) => input.treeId));
+    await Promise.all(
+      [...treeIds].map(async (treeId) => {
+        const tree = inputTreeAddress(this, treeId);
+        const realAt = at(realTrees, treeId);
+        const dummyAt = at(dummyTrees, treeId);
+        const spent = commitments.filter((_, index) => realAt.includes(index));
+        const [state, nullifier] = await Promise.all([
+          spent.length === 0
+            ? { proofs: [] }
+            : this.getMerkleProofs(
+                tree,
+                spent.map((item) => item.utxoHash),
+                config,
+                context,
+              ),
+          this.getNonInclusionProofs(
+            tree,
+            [
+              ...spent.map((item) => item.nullifier),
+              ...dummyNullifiers.filter((_, index) => dummyAt.includes(index)),
+            ],
+            config,
+            context,
+          ),
+        ]);
+        const paired = this.#pairSpendProofs(
+          spent,
+          state.proofs,
+          nullifier.proofs.slice(0, spent.length),
+          tree,
+        );
+        const dummyAnswers = nullifier.proofs.slice(spent.length);
+        if (dummyAnswers.length !== dummyAt.length) {
+          throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
+            details: { expected: dummyAt.length, state: 0, nullifier: dummyAnswers.length },
+          });
+        }
+        paired.forEach((proof, position) => spends.set(realAt[position] ?? -1, proof));
+        dummyAnswers.forEach((proof, position) => {
+          const index = dummyAt[position] ?? -1;
+          if (proof.merkleContext.tree !== tree) {
+            throw new ClientError("CLIENT_NULLIFIER_PROOF_TREE_MISMATCH", {
+              details: { index },
+            });
+          }
+          dummies.set(index, proof);
+        });
+      }),
+    );
+    const ordered = <T>(proofs: ReadonlyMap<number, T>, count: number): T[] =>
+      Array.from({ length: count }, (_, index) => {
+        const proof = proofs.get(index);
+        if (proof === undefined) {
+          throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", { details: { index } });
+        }
+        return proof;
+      });
+    return {
+      proofs: ordered(spends, commitments.length),
+      dummyProofs: ordered(dummies, dummyNullifiers.length),
+    };
+  }
+
   /**
    * Zips state and non-inclusion proofs into spend proofs, checking every leaf
    * and tree. Rust finishes the state proof before starting the nullifier one,
@@ -617,6 +696,7 @@ export class ZolanaClient
     commitments: readonly InputUtxoContext[],
     stateProofs: readonly MerkleProof[],
     nullifierProofs: readonly NonInclusionProof[],
+    tree: Address = this.tree,
   ): readonly SpendProof[] {
     if (
       stateProofs.length !== commitments.length ||
@@ -644,7 +724,7 @@ export class ZolanaClient
             details: { index },
           });
         }
-        if (stateProof.merkleContext.tree !== this.tree) {
+        if (stateProof.merkleContext.tree !== tree) {
           throw new ClientError("CLIENT_STATE_PROOF_TREE_MISMATCH", {
             details: { index },
           });
@@ -654,7 +734,7 @@ export class ZolanaClient
             details: { index },
           });
         }
-        if (nullifierProof.merkleContext.tree !== this.tree) {
+        if (nullifierProof.merkleContext.tree !== tree) {
           throw new ClientError("CLIENT_NULLIFIER_PROOF_TREE_MISMATCH", {
             details: { index },
           });
@@ -829,47 +909,7 @@ export class ZolanaClient
       });
     }
     try {
-      const commitments = proofInputs.inputContexts();
-      const dummyNullifiers = proofInputs.dummyNullifiers();
-      // One non-inclusion request for real and dummy nullifiers alike, so every
-      // proof opens against the same nullifier root: the circuit publishes one
-      // root per tree slot and the instruction carries one root position.
-      const [state, nullifier] = await Promise.all([
-        this.getMerkleProofs(
-          this.tree,
-          commitments.map((item) => item.utxoHash),
-          config,
-          context,
-        ),
-        this.getNonInclusionProofs(
-          this.tree,
-          [...commitments.map((item) => item.nullifier), ...dummyNullifiers],
-          config,
-          context,
-        ),
-      ]);
-      const proofs = this.#pairSpendProofs(
-        commitments,
-        state.proofs,
-        nullifier.proofs.slice(0, commitments.length),
-      );
-      const dummyProofs = nullifier.proofs.slice(commitments.length);
-      if (dummyProofs.length !== dummyNullifiers.length) {
-        throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
-          details: {
-            expected: dummyNullifiers.length,
-            state: 0,
-            nullifier: dummyProofs.length,
-          },
-        });
-      }
-      dummyProofs.forEach((proof, index) => {
-        if (proof.merkleContext.tree !== this.tree) {
-          throw new ClientError("CLIENT_NULLIFIER_PROOF_TREE_MISMATCH", {
-            details: { index },
-          });
-        }
-      });
+      const { proofs, dummyProofs } = await this.#inputProofs(proofInputs, config, context);
       const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
       return Object.freeze({

@@ -5,7 +5,7 @@ import { address, type Signature } from "@solana/kit";
 import { poseidon } from "../src/keypair/poseidon.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
-import { treeIdField } from "../src/interface/tree-slot.js";
+import { inputTreeSlots, treeIdField, treeSlotsHashChain } from "../src/interface/tree-slot.js";
 import { addressBytes } from "../src/interface/internal.js";
 import { UTXO_DOMAIN } from "../src/interface/program.js";
 import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
@@ -121,56 +121,64 @@ describe("ring audit encryption", () => {
     ).toBe(Buffer.from(PUBLIC_INPUT_HASH).toString("hex"));
   });
 
-  it("extends the audit chain like Rust `the_public_input_chain_extends_the_audit_chain`", () => {
-    const policyHash = new Uint8Array(32).fill(0x2a) as Bytes32;
-    const stateRoot = new Uint8Array(32).fill(6) as Bytes32;
-    const nullifierRoot = new Uint8Array(32).fill(7) as Bytes32;
-    const ringId = new Uint8Array(32).fill(8) as Bytes32;
-    const namespaceOwnerHash = new Uint8Array(32).fill(10) as Bytes32;
-    const windowIndex = new Uint8Array(32) as Bytes32;
-    windowIndex[31] = 3;
-    const approval = new Uint8Array(32) as Bytes32;
-    approval[31] = 1;
+  it("extends the audit chain like Go `TestNonzeroRevocationTailVector`", () => {
+    const filled = (value: number): Bytes32 => new Uint8Array(32).fill(value) as Bytes32;
+    const field = (value: bigint): Bytes32 => bigIntToBytes(value, 32) as Bytes32;
     const revocationTargets = Array.from({ length: 10 }, () => new Uint8Array(32) as Bytes32);
-    revocationTargets[0]![31] = 0x42;
-    revocationTargets[1] = new Uint8Array(32).fill(0x11) as Bytes32;
-    const extended = [
-      policyHash,
-      stateRoot,
-      nullifierRoot,
-      treeIdField(9),
-      ringId,
-      namespaceOwnerHash,
-      windowIndex,
-      approval,
-      ...revocationTargets,
-    ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
-    expect(Buffer.from(extended).toString("hex")).toBe(
-      "15f667068a6366740e0cf6565708977d75a885347a08ccd47c6bd204d8096456",
+    revocationTargets[0] = field(0x42n);
+    revocationTargets[1] = filled(0x11);
+    // Fact 1 reads slot 2, fact 0 slot 0.
+    const revocationTreeIndexes = [0, 2, 0, 0, 0, 0, 0, 0, 0, 0];
+    const tail = (treeSlotsChain: Bytes32): Uint8Array =>
+      [
+        filled(0x2a),
+        treeSlotsChain,
+        treeIdField(9),
+        filled(8),
+        filled(10),
+        field(3n),
+        field(1n),
+        field(1n),
+        filled(0x0b),
+        field(2n << 3n),
+        ...revocationTargets,
+      ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
+    expect(Buffer.from(tail(filled(6))).toString("hex")).toBe(
+      "0fea02bf7a8cfb1a2b99d9d69f90008e278e9d6fb56e94a253fafba9880fe31e",
     );
-    expect(
-      policyPublicInputHash({
-        privateTxHash: PRIVATE_TX_HASH,
-        txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
-        auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
-        message: {
-          ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
-          ciphertext: CIPHERTEXT,
-          disclosure: ZERO_DISCLOSURE,
-        },
-        outputHashes: [new Uint8Array(32) as Bytes32],
-        salt: new Uint8Array(16) as Bytes16,
-        policyHash,
-        entriesTreeId: 9,
-        stateRoot,
-        nullifierRoot,
-        ringId,
-        namespaceOwnerHash,
-        windowIndex: 3n,
-        approvalRequired: true,
-        revocationTargets,
-      }),
-    ).toEqual(extended);
+    const treeSlots = [
+      { id: 9, utxoRoot: filled(6), nullifierRoot: filled(7) },
+      { id: 1, utxoRoot: filled(4), nullifierRoot: filled(5) },
+      { id: 2, utxoRoot: filled(2), nullifierRoot: filled(3) },
+    ];
+    const input = {
+      privateTxHash: PRIVATE_TX_HASH,
+      txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
+      auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
+      message: {
+        ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
+        ciphertext: CIPHERTEXT,
+        disclosure: ZERO_DISCLOSURE,
+      },
+      outputHashes: [new Uint8Array(32) as Bytes32],
+      salt: new Uint8Array(16) as Bytes16,
+      policyHash: filled(0x2a),
+      treeSlots,
+      addressTreeId: 9,
+      ringId: filled(8),
+      namespaceOwnerHash: filled(10),
+      windowIndex: 3n,
+      approvalRequired: true,
+      keyRegistryRoot: filled(0x0b),
+      revocationTargets,
+      revocationTreeIndexes,
+    };
+    expect(policyPublicInputHash(input)).toEqual(
+      tail(treeSlotsHashChain(inputTreeSlots(treeSlots))),
+    );
+    expect(() =>
+      policyPublicInputHash({ ...input, revocationTreeIndexes: [8, 0, 0, 0, 0, 0, 0, 0, 0, 0] }),
+    ).toThrow(RangeError);
   });
 
   it("decompresses the auditor key to the 65-byte point the circuit witnesses", () => {

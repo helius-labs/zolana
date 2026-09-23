@@ -24,6 +24,7 @@ import {
   type LiveEntry,
   type Member,
 } from "./policy.js";
+import { ringTreeIdResolver } from "./trees.js";
 
 export type RingListWriteClient = BlockhashProvider & RingEntryProofClient & EntryIndexer;
 
@@ -34,6 +35,8 @@ export interface RingListWriteTransactionParams {
   readonly listId: ListId;
   readonly member: Member;
   readonly state: EntryState;
+  /** Receives the written leaf, defaults to the policy's address tree. */
+  readonly outputTree?: Address;
   readonly computeUnitLimit?: number;
   readonly priorityFeeLamports?: bigint;
 }
@@ -69,11 +72,17 @@ export async function buildRingListWriteTransaction(
       });
     }
     checkMutator(params, config.authority);
+    const addressTree = { tree: policy.addressTree, treeId: policy.addressTreeId };
+    const resolveTreeId = ringTreeIdResolver(params.client, [addressTree], context);
+    const outputTree =
+      params.outputTree === undefined
+        ? addressTree
+        : { tree: params.outputTree, treeId: await resolveTreeId(params.outputTree) };
     const live = await readRingEntry(
       {
         indexer: params.client,
-        entriesTree: policy.entriesTree,
-        entriesTreeId: policy.entriesTreeId,
+        addressTreeId: addressTree.treeId,
+        resolveTreeId,
         namespace,
         listId: params.listId,
         member: params.member,
@@ -90,8 +99,8 @@ export async function buildRingListWriteTransaction(
       {
         client: params.client,
         ringProgramId: params.ringProgramId,
-        entriesTree: policy.entriesTree,
-        entriesTreeId: policy.entriesTreeId,
+        addressTree,
+        outputTree,
         payer: params.payer,
         entry: {
           listId: params.listId,
@@ -100,14 +109,15 @@ export async function buildRingListWriteTransaction(
           version: live === undefined ? 0n : live.entry.version + 1n,
           contentHash: ZERO_32,
         },
-        ...(live === undefined ? {} : { spent: live.entry }),
+        ...(live === undefined ? {} : { spent: live }),
       },
       context,
     );
     const instructionInput = {
       ringProgramId: params.ringProgramId,
       payer: params.payer,
-      entriesTree: policy.entriesTree,
+      inputTree: live?.tree ?? addressTree.tree,
+      outputTree: outputTree.tree,
       entry,
       proof,
     };

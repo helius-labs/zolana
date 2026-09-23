@@ -2,17 +2,19 @@ import { ClientError } from "../client/error.js";
 import type { ChainReader, RingSpendRecordReader } from "../client/ports.js";
 import { nullifierPdaAddress } from "../interface/pda/index.js";
 import type { Address, RequestContext } from "../interface/types.js";
-import type { TreeId } from "../transaction/utxo.js";
 import { RingError } from "./error.js";
-import { currentRingSpendRecord, type LiveSpendRecord, type Member } from "./policy.js";
+import {
+  currentRingSpendRecord,
+  type LiveSpendRecord,
+  type Member,
+  type RingRecordTrees,
+} from "./policy.js";
 import { SPEND_RECORD_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
 
-export interface ReadCurrentSpendRecordInput {
+export interface ReadCurrentSpendRecordInput extends RingRecordTrees {
   readonly client: RingSpendRecordReader & Pick<ChainReader, "getAccount">;
   readonly ringProgramId: Address;
   readonly namespace: Address;
-  readonly entriesTree: Address;
-  readonly entriesTreeId: TreeId;
   readonly sender: Member;
 }
 
@@ -28,16 +30,16 @@ export async function findCurrentSpendRecord(
         attempt,
       );
       if (record === null) return undefined;
-      const live = currentRingSpendRecord({
+      const live = await currentRingSpendRecord({
         record,
-        entriesTree: input.entriesTree,
-        entriesTreeId: input.entriesTreeId,
+        addressTreeId: input.addressTreeId,
+        resolveTreeId: input.resolveTreeId,
         namespace: input.namespace,
         member: input.sender,
       });
       // A spent record has a nullifier PDA, the projection has not reached its successor.
       const spent = await input.client.getAccount(
-        await nullifierPdaAddress(input.entriesTree, live.nullifier),
+        await nullifierPdaAddress(live.tree, live.nullifier),
         attempt,
       );
       if (spent !== undefined) {

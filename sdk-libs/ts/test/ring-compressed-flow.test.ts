@@ -97,7 +97,7 @@ async function fixture(payer = PAYER) {
           ringPolicyConfigData({
             table,
             sources: ownSources(table, namespace),
-            entriesTree: TREE,
+            addressTree: TREE,
             bump: policyBump,
             namespaceOwnerHash: ringNamespaceOwnerHash(namespace),
           }),
@@ -162,14 +162,17 @@ describe("compressed registration flow", () => {
     const output = outputHash(test.spp);
     const hashes = RingListNamespace.of(
       await ringPolicyNamespaceAddress(RING),
-      config.policy.entriesTreeId,
-    ).spendRecordHashes({
-      member: test.member,
-      version: 0n,
-      window: 7n,
-      countersCommitment: spendCountersCommitment(zeroSpendCounters()),
-      blinding: output.blinding as Bytes32,
-    });
+      config.policy.addressTreeId,
+    ).spendRecordHashes(
+      {
+        member: test.member,
+        version: 0n,
+        window: 7n,
+        countersCommitment: spendCountersCommitment(zeroSpendCounters()),
+        blinding: output.blinding as Bytes32,
+      },
+      config.policy.addressTreeId,
+    );
     expect(output.hash).toEqual(hashes.utxoHash);
     test.auditor.destroy();
   });

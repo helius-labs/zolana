@@ -17,7 +17,9 @@ import { postJsonRpc } from "../../src/services/jsonrpc.js";
 import { setRingActivationInstruction } from "../../src/interface/instructions/index.js";
 import { SOL_MINT } from "../../src/transaction/asset.js";
 import { SPL_TOKEN_2022_PROGRAM_ID } from "../../src/interface/program.js";
+import { ShieldedAddress } from "../../src/keypair/shielded.js";
 import { ViewingKey } from "../../src/keypair/viewing-key.js";
+import { ZERO_NULLIFIER_PK } from "../../src/ring/policy.js";
 import {
   RingProgramBinary,
   RingError,
@@ -41,6 +43,7 @@ import {
   fetchRingSpendWindow,
   fetchRingCoSigner,
   fetchRingDepositAudit,
+  fetchRingProgramConfig,
   clearRingCoSignerInstruction,
   clearRingSpendWindowInstruction,
   RING_COSIGN_TRANSFERS,
@@ -165,7 +168,7 @@ async function indexedKeys<T>(read: () => Promise<T>): Promise<T> {
 }
 
 describe("fresh ring controls", () => {
-  it("registers compressed state, co-signs and audits outflow, and delegates existing and recovered notes without charging velocity", async () => {
+  it("escrows member keys, registers compressed state, co-signs and audits outflow, and delegates existing and recovered notes without charging velocity", async () => {
     const harness = await liveHarness();
     if (!["127.0.0.1", "localhost", "[::1]"].includes(new URL(harness.rpcUrl).hostname))
       throw new Error("controls fixture runs on a local validator only");
@@ -198,10 +201,9 @@ describe("fresh ring controls", () => {
         authority,
         auditorPublicKey: auditor.publicKey(),
         hasPolicy: true,
-        depositAudit: true,
       }))
         await sendInstruction(client, instruction, authority);
-      expect(await fetchRingDepositAudit(client, ringProgramId)).toBe(true);
+      expect(await fetchRingDepositAudit(client, ringProgramId)).toBe(false);
       await signSendAndConfirm(
         client,
         await buildRingCreatePolicyTransaction({
@@ -209,7 +211,7 @@ describe("fresh ring controls", () => {
           ringProgramId,
           payer: authority.address,
           authority: authority.address,
-          entriesTree: client.tree,
+          addressTree: client.tree,
           table: buildRuleTable({
             rules: [
               {
@@ -279,6 +281,7 @@ describe("fresh ring controls", () => {
         }),
         authority,
       );
+      expect((await fetchRingProgramConfig(client, ringProgramId)).keyEscrow).toBe(true);
       await sendInstruction(
         client,
         await setRingCoSignerInstruction({
@@ -305,9 +308,29 @@ describe("fresh ring controls", () => {
         authority,
       );
       const sender = await freshActor(client),
-        recipient = await freshActor(client);
+        recipient = await freshActor(client),
+        unregistered = await freshActor(client);
       await airdrop(client, sender.signer.address);
-      await enrolInAllow(client, ringProgramId, authority, [sender, recipient]);
+      await airdrop(client, recipient.signer.address);
+      await enrolInAllow(client, ringProgramId, authority, [sender, recipient, unregistered]);
+      // Key escrow is on, every note owner registers before receiving.
+      for (const member of [sender, recipient]) {
+        const nullifierKey = member.keypair.nullifierKey();
+        try {
+          const enrolment = await indexedKeys(() =>
+            prepareRingKeyRegistration({
+              client,
+              ringProgramId,
+              member: { address: member.keypair.shieldedAddress(), nullifierKey },
+            }),
+          );
+          if (enrolment.kind !== "pending") throw new Error("fresh member already enrolled");
+          await settle(enrolment.submission, client, [member.signer]);
+        } finally {
+          nullifierKey.destroy();
+        }
+      }
+      expect((await fetchRingKeyRegistryRoot(client, ringProgramId)).nextIndex).toBe(3n);
       // A fresh window from here, so the counters below never straddle a natural rollover.
       await advanceScopedClock({
         client,
@@ -334,6 +357,28 @@ describe("fresh ring controls", () => {
           )
         ).kind,
       ).toBe("registered");
+      const registered = recipient.keypair.shieldedAddress();
+      const zeroKey = ShieldedAddress.fromPublicKeys(
+        registered.signingPublicKey,
+        ZERO_NULLIFIER_PK,
+        registered.viewingPublicKey,
+      );
+      for (const refused of [unregistered.keypair.shieldedAddress(), zeroKey]) {
+        await expect(
+          indexedKeys(() =>
+            buildRingDepositTransaction({
+              client,
+              ringProgramId,
+              feePayer: sender.signer.address,
+              recipient: refused,
+              amount: 1n,
+            }),
+          ),
+        ).rejects.toMatchObject({
+          code: "RING_BUILD_DEPOSIT",
+          causeCode: "RING_UNREGISTERED_OUTPUT_KEY",
+        });
+      }
       for (const amount of [900_000_000n, 1_100_000_000n]) {
         await signSendAndConfirm(
           client,
@@ -447,6 +492,18 @@ describe("fresh ring controls", () => {
         recipient: recipient.keypair.shieldedAddress(),
         amount: 350_000_000n,
       };
+      await expect(
+        indexedKeys(() =>
+          buildRingTransferTransaction({
+            ...transfer,
+            recipient: unregistered.keypair.shieldedAddress(),
+            amount: 1n,
+          }),
+        ),
+      ).rejects.toMatchObject({
+        code: "RING_BUILD_TRANSFER",
+        causeCode: "RING_UNREGISTERED_OUTPUT_KEY",
+      });
       await settle(
         await indexedKeys(() => createRingTransferSubmission({ ...transfer, amount: 50_000_000n })),
         client,
@@ -608,21 +665,6 @@ describe("fresh ring controls", () => {
             ?.assets.find((balance) => balance.mint === asset)?.amount,
         ).toBe(recipientAmount);
       }
-      const nullifierKey = sender.keypair.nullifierKey();
-      try {
-        const enrolment = await indexedKeys(() =>
-          prepareRingKeyRegistration({
-            client,
-            ringProgramId,
-            member: { address: sender.keypair.shieldedAddress(), nullifierKey },
-          }),
-        );
-        if (enrolment.kind !== "pending") throw new Error("fresh sender already enrolled");
-        await settle(enrolment.submission, client, [sender.signer]);
-      } finally {
-        nullifierKey.destroy();
-      }
-      expect((await fetchRingKeyRegistryRoot(client, ringProgramId)).nextIndex).toBe(2n);
       const sealed = await indexedKeys(() =>
         fetchRingSealedKey({
           client,

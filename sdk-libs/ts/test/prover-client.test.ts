@@ -15,6 +15,7 @@ import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   ProverClient,
   customRingCompressedPolicyProofRequest,
+  customRingPolicyProofRequest,
   customRingRegisterKeyProofRequest,
   mergeProverRequestBody,
 } from "../src/client/prover/client.js";
@@ -123,9 +124,8 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     inlineAssets: Array.from({ length: 8 }, () => bytes(0)),
     inlineLimits: Array.from({ length: 8 }, () => 0n),
     inlineCount: 0,
-    stateRoot: bytes(8),
-    nullifierRoot: bytes(9),
-    entriesTreeId: 3,
+    treeSlots: [{ id: 3, utxoRoot: bytes(8), nullifierRoot: bytes(9) }],
+    addressTreeId: 3,
     velocity: velocityProofInputOff({ ringId: bytes(10), namespaceOwnerHash: bytes(11) }),
     answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
   };
@@ -277,6 +277,7 @@ const EXPECTED_OPENING = {
 
 const EXPECTED_RULE_ANSWER = {
   enabled: false,
+  treeSlot: 0,
   mode: 1,
   listId: 1,
   state: 1,
@@ -315,9 +316,8 @@ const EXPECTED_RING_BODY = {
   inlineAssets: Array.from({ length: 8 }, () => fieldHex(0)),
   inlineLimits: Array.from({ length: 8 }, () => fieldHex(0)),
   inlineCount: 0,
-  stateRoot: fieldHex(8),
-  nullifierRoot: fieldHex(9),
-  entriesTreeId: `0x${"0".repeat(62)}03`,
+  treeSlots: [{ id: `0x${"0".repeat(62)}03`, utxoRoot: fieldHex(8), nullifierRoot: fieldHex(9) }],
+  addressTreeId: `0x${"0".repeat(62)}03`,
   windowSlots: 0,
   velocity: Array.from({ length: 8 }, () => ({
     asset: fieldHex(0),
@@ -329,6 +329,8 @@ const EXPECTED_RING_BODY = {
   namespaceOwnerHash: fieldHex(11),
   windowIndex: 0,
   approvalRequired: false,
+  keyEscrow: false,
+  keyRegistryRoot: fieldHex(0),
   record: {
     version: 0,
     window: 0,
@@ -566,21 +568,22 @@ describe("prover request routing", () => {
     // The sorted key set of Rust `the_request_matches_the_server_wire_format`.
     expect(Object.keys(body).sort()).toEqual([
       "addressChain",
+      "addressTreeId",
       "answers",
       "approvalRequired",
       "auditorPk",
       "circuitType",
-      "entriesTreeId",
       "ephSk",
       "externalDataHash",
       "inlineAssets",
       "inlineCount",
       "inlineLimits",
       "inputs",
+      "keyEscrow",
+      "keyRegistryRoot",
       "nIn",
       "nOut",
       "namespaceOwnerHash",
-      "nullifierRoot",
       "outputs",
       "policyLen",
       "privateTxBlinding",
@@ -591,7 +594,7 @@ describe("prover request routing", () => {
       "ruleEnc",
       "salt",
       "sources",
-      "stateRoot",
+      "treeSlots",
       "txViewingSk",
       "velocity",
       "velocityCount",
@@ -620,7 +623,58 @@ describe("prover request routing", () => {
     await expect(
       prover.proveCustomRingPolicy({ ...ringRequest(auditorPublicKey), answers: [] }),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
+    for (const treeSlots of [
+      [],
+      Array.from({ length: 6 }, () => ringRequest(auditorPublicKey).treeSlots[0]!),
+    ]) {
+      await expect(
+        prover.proveCustomRingPolicy({ ...ringRequest(auditorPublicKey), treeSlots }),
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
+    }
     expect(raw).toHaveLength(1);
+  });
+
+  it("sends each escrowed output key beside its opening like Go `writeRegistryKey`", async () => {
+    const auditorPublicKey = p256.getPublicKey(bytes(4), false);
+    const key = {
+      next: bytes(12),
+      ctHash: bytes(13),
+      index: 5n,
+      path: Array.from({ length: 40 }, () => bytes(14)),
+    };
+    const request = ringRequest(auditorPublicKey);
+    const escrowed = {
+      ...request,
+      keyRegistryRoot: bytes(15),
+      outputs: request.outputs.map((opening, index) =>
+        index === 1 ? { ...opening, key } : opening,
+      ),
+    };
+    const body = customRingPolicyProofRequest(escrowed);
+    expect(body).toMatchObject({ keyEscrow: true, keyRegistryRoot: fieldHex(15) });
+    const outputs = body["outputs"] as Record<string, unknown>[];
+    expect(outputs[0]).not.toHaveProperty("key");
+    expect(outputs[1]?.["key"]).toEqual({
+      next: fieldHex(12),
+      ctHash: fieldHex(13),
+      index: 5,
+      path: Array.from({ length: 40 }, () => fieldHex(14)),
+    });
+    expect(() =>
+      customRingPolicyProofRequest({
+        ...escrowed,
+        inputs: request.inputs.map((opening) => ({ ...opening, key })),
+      }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }));
+    expect(() =>
+      customRingPolicyProofRequest({
+        ...escrowed,
+        outputs: request.outputs.map((opening) => ({
+          ...opening,
+          key: { ...key, index: 1n << 40n },
+        })),
+      }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_INTEGER" }));
   });
 
   it("encodes the base request byte for byte like Rust `CustomRingBaseProofRequest::body`", async () => {
