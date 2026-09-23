@@ -19,7 +19,7 @@ zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
-zolana-wallet = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 bincode = "1.3"

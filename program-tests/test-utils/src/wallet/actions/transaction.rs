@@ -6,9 +6,7 @@ use zolana_interface::{
     pda, shape::Shape, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID,
     SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{
-    shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair,
-};
+use zolana_keypair::{shielded::ShieldedAddress, NullifierKey, ShieldedKeypair};
 use zolana_program::instruction::{
     TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
 };
@@ -21,15 +19,14 @@ use zolana_transaction::{
     Address, TransactionError, WalletUtxo, SOL_MINT,
 };
 
-use crate::wallet::Wallet;
+use zolana_transaction::Wallet;
 
 use solana_message::VersionedMessage;
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
 
-use crate::{
-    user_registry::{try_resolve_registered_address, try_resolve_registered_address_async},
-    wallet_authority::{ApprovalRequest, SyncWalletAuthority, WalletAuthority},
+use zolana_client::user_registry::{
+    try_resolve_registered_address, try_resolve_registered_address_async, ResolvedAddress,
 };
 use zolana_client::{
     client::ZolanaClient,
@@ -37,13 +34,7 @@ use zolana_client::{
     rpc::{sign_transaction, AsyncRpc, Rpc},
     SignedPrivateTransaction,
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ResolvedAddress {
-    pub owner: Pubkey,
-    pub address: ShieldedAddress,
-    pub view_tag: ViewTag,
-}
+use zolana_transaction::{ApprovalRequest, SyncWalletAuthority, WalletAuthority};
 
 #[derive(Clone)]
 pub struct CreatedTransfer {
@@ -1592,8 +1583,7 @@ mod tests {
     #[test]
     fn create_withdrawal_supports_full_u64_amount() {
         let sender = ed25519_keypair(1);
-        let authority =
-            crate::wallet_authority::KeypairWalletAuthority::new(Pubkey::default(), &sender);
+        let authority = zolana_transaction::KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let wallet = wallet_with_sol(sender.clone(), u64::MAX);
         let recipient = Pubkey::new_unique();
         let created = create_withdrawal(WithdrawalParams {
@@ -1623,8 +1613,7 @@ mod tests {
     #[test]
     fn create_withdrawal_preserves_two_sol_recipients() {
         let sender = ed25519_keypair(2);
-        let authority =
-            crate::wallet_authority::KeypairWalletAuthority::new(Pubkey::default(), &sender);
+        let authority = zolana_transaction::KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let wallet = wallet_with_sol(sender.clone(), 10);
         let user = Pubkey::new_unique();
         let relayer = Pubkey::new_unique();
@@ -1838,8 +1827,7 @@ mod tests {
     #[test]
     fn signing_rejects_input_spent_after_creation() {
         let sender = ShieldedKeypair::new_p256().unwrap();
-        let authority =
-            crate::wallet_authority::KeypairWalletAuthority::new(Pubkey::default(), &sender);
+        let authority = zolana_transaction::KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         let unsigned = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
@@ -1870,8 +1858,7 @@ mod tests {
     #[test]
     fn action_path_preserves_input_commitment_hashes() {
         let sender = ed25519_keypair(3);
-        let authority =
-            crate::wallet_authority::KeypairWalletAuthority::new(Pubkey::default(), &sender);
+        let authority = zolana_transaction::KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         let data_hash = [13u8; 32];
         let nullifier_pubkey = sender.nullifier_key.pubkey().unwrap();

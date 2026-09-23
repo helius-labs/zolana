@@ -32,7 +32,7 @@ use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_transaction::{
     serialization::confidential::Confidential, ShieldedTransaction, Utxo, WalletUtxo,
 };
-use zolana_wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 
 use crate::{
     harness::{BootstrapConfig, LocalnetHarness},

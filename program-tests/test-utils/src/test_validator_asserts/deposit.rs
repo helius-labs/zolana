@@ -6,7 +6,7 @@ use zolana_client::{ClientError, Rpc};
 use zolana_interface::state::read_tree_id;
 use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::DepositOutput;
-use zolana_wallet::{SyncWalletAuthority, Wallet};
+use zolana_transaction::{SyncWalletAuthority, Wallet};
 
 use super::{
     assert_indexed_deposit_utxo, expected_deposit_view, fetch_account, state_root_from, to_address,

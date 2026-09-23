@@ -18,15 +18,20 @@ groth16-solana = { workspace = true }
 mollusk-svm = { workspace = true, optional = true }
 num-bigint = { workspace = true }
 rand = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
+solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-instruction-error = { workspace = true }
 solana-keypair = { workspace = true }
+solana-message = { workspace = true }
 solana-program-error = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
+solana-transaction = { workspace = true, features = ["serde"] }
 solana-transaction-error = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true }
@@ -39,7 +44,6 @@ zolana-merkle-tree = { workspace = true }
 zolana-program = { workspace = true, features = ["protocol"] }
 zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-transaction = { workspace = true }
-zolana-wallet = { workspace = true }
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
@@ -47,3 +51,4 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 # smart_account::settings pins the Anchor discriminator scheme in its unit test.
 sha2 = { workspace = true }
 solana-rpc-client-api = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }

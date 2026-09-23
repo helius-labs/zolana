@@ -4,13 +4,14 @@ use anyhow::{anyhow, bail, Result};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
+use zolana_client::user_registry::resolve_registered_address;
 use zolana_client::Rpc;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
+use zolana_transaction::Wallet;
 use zolana_transaction::{
     serialization::confidential::Confidential, utxo::Blinding, DecodeCx, ShieldedTransaction,
     UtxoSerialization,
 };
-use zolana_wallet::{resolve_registered_address, Wallet};
 
 use super::{
     poll::{collect_tagged, index_until},

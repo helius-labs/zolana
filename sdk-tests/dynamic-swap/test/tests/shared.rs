@@ -15,6 +15,7 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use zolana_client::user_registry::ensure_registered;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_program_test::{
@@ -23,11 +24,11 @@ use zolana_program_test::{
     workspace_path,
 };
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
+use zolana_test_utils::wallet::{Deposit, DepositParams};
 use zolana_transaction::{
     instructions::transact::asset_field, utxo::Blinding, AssetRegistry, SOL_MINT,
 };
 use zolana_user_registry_interface::user_registry_program_id;
-use zolana_wallet::{ensure_registered, Deposit, DepositParams};
 
 // The whole per-transaction budget: an escrow settle verifies an SPP proof.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;

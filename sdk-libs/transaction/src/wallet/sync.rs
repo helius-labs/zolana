@@ -15,7 +15,7 @@ use super::state::{
 };
 
 use super::authority::{SyncWalletAuthority, WalletSyncMaterial};
-use zolana_transaction::{
+use crate::{
     data::Data,
     error::TransactionError,
     instructions::{
@@ -750,14 +750,14 @@ impl SyncCtx<'_> {
                         };
                         let owner = owner_hash(&self.owner, &self.nullifier_pk)?;
                         let actual_owner_utxo_hash =
-                            zolana_transaction::owner_utxo_hash(&owner, &plaintext.blinding)?;
+                            crate::owner_utxo_hash(&owner, &plaintext.blinding)?;
                         if actual_owner_utxo_hash != output.owner_utxo_hash {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         }
                         let utxo = plaintext.into_utxo(
                             self.owner,
-                            zolana_transaction::Mint {
+                            crate::Mint {
                                 asset: Address::new_from_array(output.asset),
                                 asset_id: self
                                     .assets

@@ -25,7 +25,6 @@ zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
-zolana-wallet = { workspace = true }
 
 [dev-dependencies]
 # Solana transactions serialize with bincode 1.x wire format; bincode 2.x is not

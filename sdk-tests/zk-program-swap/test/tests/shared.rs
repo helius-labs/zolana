@@ -13,9 +13,11 @@ use zolana_program_test::{
     workspace_path,
 };
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
-use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
+use zolana_test_utils::wallet::{sync_wallet, Deposit, DepositParams};
+use zolana_transaction::{
+    utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, Wallet, SOL_MINT,
+};
 use zolana_user_registry_interface::user_registry_program_id;
-use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 
 // The whole per-transaction budget: a swap verifies an SPP proof and its own.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;

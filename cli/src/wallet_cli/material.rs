@@ -20,7 +20,7 @@ use zolana_transaction::{
     serialization::anonymous::AnonymousTransferSenderPlaintext, Address, SppProofOutputUtxo,
     TransactionError,
 };
-use zolana_wallet::{
+use zolana_transaction::{
     AnonymousRecipientSlot, ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority,
     P256Signature, SyncWalletAuthority,
 };

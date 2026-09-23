@@ -1,10 +1,12 @@
-mod common;
+mod wallet_common;
 
-use common::{build_transfer, keypair_from_index, local_authority, wallet_for, TransferSpec};
+use wallet_common::{
+    build_transfer, keypair_from_index, local_authority, wallet_for, TransferSpec,
+};
 use zolana_keypair::constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, Utxo};
-use zolana_wallet::{Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 
 const BORSH_HEADER_LEN: usize = 5;
 const SCHEME_BYTE_LEN: usize = 1;

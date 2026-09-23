@@ -21,7 +21,7 @@ use zolana_client::{
     Prover, SpendProof,
 };
 
-use crate::user_registry::fetch_user_record_checked;
+use zolana_client::user_registry::fetch_user_record_checked;
 
 /// Compute-unit ceiling for a `merge_transact`: it verifies a Groth16 proof
 /// on-chain, which does not fit the default per-instruction budget. The widest

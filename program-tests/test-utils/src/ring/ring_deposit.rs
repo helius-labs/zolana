@@ -20,7 +20,7 @@ use zolana_program_test::{
 use zolana_transaction::{
     owner_utxo_hash, serialization::RingDepositPlaintext, Data, Utxo, SOL_MINT,
 };
-use zolana_wallet::{KeypairWalletAuthority, Wallet};
+use zolana_transaction::{KeypairWalletAuthority, Wallet};
 
 use super::{RingDepositRecord, RingHarness, SplRingDepositAccounts};
 use crate::{

@@ -1,14 +1,14 @@
-mod common;
+mod wallet_common;
 
 use std::time::{Duration, Instant};
 
-use common::{
+use wallet_common::{
     build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, wallet_for,
     TransferSpec,
 };
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
-use zolana_wallet::{SyncReport, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{SyncReport, Wallet, DEFAULT_TAG_WINDOW};
 
 const KNOWN_SENDERS: usize = 100;
 const KNOWN_RECIPIENTS: usize = 50;
@@ -180,7 +180,12 @@ impl Scenario {
         let input = self.hot.take().expect("hot utxo");
         let nullifier_pk = self.alice.nullifier_key.pubkey().unwrap();
         let hash = input
-            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], common::TEST_TREE_ID)
+            .hash(
+                &nullifier_pk,
+                &[0u8; 32],
+                &[0u8; 32],
+                wallet_common::TEST_TREE_ID,
+            )
             .unwrap();
         let first_nullifier = input.nullifier(&hash, &self.alice.nullifier_key).unwrap();
         let tx_idx = self.tx_next + skip_for(ordinal);
@@ -232,7 +237,8 @@ impl Scenario {
         for _ in 0..SPLIT_COUNT {
             let input = self.split_inputs.pop().expect("split input");
             let seed = unique31(&mut self.counter, 0xCC);
-            let (tx, _) = common::split_transaction(&self.alice, &input, SPLIT_OUTPUTS, seed);
+            let (tx, _) =
+                wallet_common::split_transaction(&self.alice, &input, SPLIT_OUTPUTS, seed);
             self.txs.push(tx);
         }
     }

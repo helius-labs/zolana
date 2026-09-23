@@ -4,12 +4,12 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use swap_prover::TAKE_MODE_DERIVED;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
+use zolana_transaction::Wallet;
 use zolana_transaction::{
     instructions::transact::{OutputContext, OutputSlot, SppProofInputs, SppProofOutputUtxo},
     utxo::{SppProofInputUtxo, Utxo},
     AssetRegistry, Data, ShieldedTransaction, SOL_ASSET_ID, SOL_MINT,
 };
-use zolana_wallet::Wallet;
 
 use crate::{
     instructions::make::OrderMarker,

@@ -15,7 +15,7 @@ use super::{
     state::{SyncReport, Wallet},
     sync::ProbeFanout,
 };
-use zolana_transaction::{error::TransactionError, instructions::transact::ShieldedTransaction};
+use crate::{error::TransactionError, instructions::transact::ShieldedTransaction};
 
 pub(super) struct RayonProbe;
 

@@ -29,10 +29,10 @@ use zolana_program_test::Rejection;
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
 use zolana_transaction::instructions::transact::SppProofInputs;
 use zolana_transaction::utxo::SppProofInputUtxo;
+use zolana_transaction::SyncWalletAuthority;
 use zolana_transaction::{
     instructions::transact::canonical_shape, Data, ShieldedTransaction, Utxo, SOL_MINT,
 };
-use zolana_wallet::SyncWalletAuthority;
 
 use super::{decode_output_blinding, RingHarness, SpendSlot};
 use crate::{

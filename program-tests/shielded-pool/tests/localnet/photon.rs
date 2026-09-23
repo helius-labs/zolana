@@ -68,8 +68,8 @@ use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
+use zolana_transaction::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_tree::TreeAccount;
-use zolana_wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 use zolana_test_utils::transact::{
     change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe,

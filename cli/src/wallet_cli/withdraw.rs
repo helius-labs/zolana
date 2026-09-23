@@ -1,10 +1,10 @@
 use anyhow::Result;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
-use zolana_transaction::Address;
-use zolana_wallet::{
+use zolana_test_utils::wallet::{
     create_withdrawal, sign_private_transaction_sync, WithdrawalLeg, WithdrawalParams,
 };
+use zolana_transaction::Address;
 
 use super::{
     resolve::get_network,

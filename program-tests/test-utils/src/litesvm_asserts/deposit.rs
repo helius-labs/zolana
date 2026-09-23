@@ -12,7 +12,7 @@ use zolana_merkle_tree::MerkleTree;
 use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::SOL_MINT;
-use zolana_wallet::{SyncWalletAuthority, Wallet};
+use zolana_transaction::{SyncWalletAuthority, Wallet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SolDepositSnapshot {

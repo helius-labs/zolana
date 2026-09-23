@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use zolana_transaction::{Address, Utxo};
-use zolana_wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 
 use super::LifecycleHarness;
 use crate::localnet::ZERO;

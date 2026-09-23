@@ -4,7 +4,7 @@
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_program_test::DepositOutput;
-use zolana_wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// One settled deposit as the discovery assert reads it.
 pub(crate) struct DiscoveredDeposit<'a> {

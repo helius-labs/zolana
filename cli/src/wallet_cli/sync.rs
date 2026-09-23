@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use solana_signature::Signature;
 use zolana_client::{EncryptedUtxoMatch, IndexerPollConfig, Rpc, ZolanaIndexer};
-use zolana_transaction::Address;
-use zolana_wallet::{
-    sync_wallet_with_config as client_sync_wallet_with_config, SyncWalletConfig, Wallet,
+use zolana_test_utils::wallet::{
+    sync_wallet_with_config as client_sync_wallet_with_config, SyncWalletConfig,
 };
+use zolana_transaction::Address;
+use zolana_transaction::Wallet;
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
@@ -20,7 +21,7 @@ pub(super) struct SyncContext {
     pub(super) material: WalletMaterial,
     pub(super) wallet: Wallet,
     pub(super) local_assets: Vec<LocalAssetConfig>,
-    pub(super) report: zolana_wallet::SyncReport,
+    pub(super) report: zolana_transaction::SyncReport,
 }
 
 pub(crate) fn run_sync(opts: SyncOptions) -> Result<()> {

@@ -18,11 +18,19 @@ use zolana_user_registry_interface::{
     user_record_pda, user_registry_program_id, UserRecord,
 };
 
-use crate::actions::ResolvedAddress;
-use zolana_client::{
+use crate::{
     error::ClientError,
     rpc::{compile_message, AsyncRpc, ComputeBudgetConfig, Rpc},
 };
+
+/// A Solana account's published shielded address, as the user registry
+/// holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResolvedAddress {
+    pub owner: Pubkey,
+    pub address: ShieldedAddress,
+    pub view_tag: ViewTag,
+}
 
 /// Compact low-S P-256 ECDSA signature (`r || s`) over SHA-256 of the message
 /// returned by [`p256_registration_proof_message`].

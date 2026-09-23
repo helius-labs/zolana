@@ -56,7 +56,6 @@ zolana-merkle-tree = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true, features = ["mollusk"] }
 zolana-tree = { workspace = true }
-zolana-wallet = { workspace = true }
 mollusk-svm = { workspace = true }
 
 [dev-dependencies]
@@ -68,7 +67,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
 tokio = { workspace = true }
-zolana-wallet = { workspace = true }
 mollusk-svm = { workspace = true }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 solana-account = { workspace = true }
