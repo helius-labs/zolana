@@ -39,6 +39,7 @@ members = [
     "services/ring-rpc",
     "sdk-tests/client/rust",
     "sdk-tests/compression/program",
+    "sdk-tests/compression/prover",
     "sdk-tests/compression/sdk",
     "sdk-tests/compression/test",
     "sdk-tests/dynamic-swap/program",

@@ -19,6 +19,16 @@ pub enum CompressionError {
     HashingFailed = 12008,
     #[error("serialization failed")]
     SerializationFailed = 12009,
+    #[error("read proof verification failed")]
+    ProofVerificationFailed = 12010,
+    #[error("nullifier PDA does not match the state's nullifier")]
+    InvalidNullifierPda = 12011,
+    #[error("account state is spent: its nullifier PDA exists")]
+    StateSpent = 12012,
+    #[error("tree root index is not in the root history")]
+    InvalidRootIndex = 12013,
+    #[error("tree account is not a shielded-pool tree")]
+    InvalidTreeAccount = 12014,
 }
 
 impl From<CompressionError> for ProgramError {

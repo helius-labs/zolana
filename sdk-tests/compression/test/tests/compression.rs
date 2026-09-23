@@ -2,11 +2,13 @@ use zolana_test_utils::utxo::prepare_output_blindings;
 mod shared;
 
 use anyhow::{anyhow, bail, Result};
+use compression_example_program::error::CompressionError;
 use compression_example_sdk::{
     account_pda,
     discovery::discover_account,
     instructions::{
         create::{address_input, Create, CreateProofInputParams},
+        read::{Read, ReadProofInputParams},
         update::{Update, UpdateCompressedAccount, UpdateProofInputParams},
     },
     shared::DEFAULT_TREE_ID,
@@ -16,7 +18,7 @@ use shared::{send, send_from, setup, tree_root, Environment};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ProofCompressed, ProverClient, Rpc};
+use zolana_client::{NonInclusionProof, ProofCompressed, ProverClient, Rpc};
 use zolana_interface::{
     event::OutputDataEncoding,
     instruction::{
@@ -75,6 +77,46 @@ fn assert_account(
         bail!("discovered account does not match expected state");
     }
     Ok(())
+}
+
+// A custom program error surfaces as `Custom(<decimal>)` or as the program-log
+// line `custom program error: 0x<hex>`; match only those delimited forms.
+fn assert_custom_error(context: &str, result: Result<Signature>, error: CompressionError) {
+    let code = error as u32;
+    let text = match result {
+        Ok(signature) => panic!("{context}: unexpectedly succeeded ({signature})"),
+        Err(err) => format!("{err:?}"),
+    };
+    assert!(
+        text.contains(&format!("Custom({code})")) || text.contains(&format!("0x{code:x}")),
+        "{context}: expected {error:?} ({code}) in: {text}"
+    );
+}
+
+/// Prove `current` unspent with a fresh inclusion proof and the supplied
+/// nullifier non-inclusion proof, and build the read.
+fn prove_read(
+    env: &Environment,
+    current: &WalletUtxo,
+    non_inclusion: NonInclusionProof,
+) -> Result<Read> {
+    let read = ReadProofInputParams {
+        current: current.clone(),
+        merkle_proof: wait_for_merkle_proof(&env.indexer, env.tree, current.utxo_hash),
+        non_inclusion,
+    }
+    .to_proof_inputs()?;
+    Ok(Read {
+        authority: env.authority.pubkey(),
+        tree: env.tree,
+        value: read.value,
+        version: read.version,
+        blinding: read.blinding,
+        nullifier: read.nullifier,
+        nullifier_tree_root_index: read.nullifier_tree_root_index,
+        utxo_tree_root_index: read.utxo_tree_root_index,
+        proof: read.proof_inputs.prove()?,
+    })
 }
 
 fn malformed_plaintext_payload() -> Vec<u8> {
@@ -266,6 +308,25 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         bail!("duplicate create unexpectedly succeeded");
     }
 
+    let current_non_inclusion =
+        wait_for_non_inclusion_proof(&env.indexer, env.tree, current.utxo.nullifier);
+    let read_current = prove_read(&env, &current.utxo, current_non_inclusion.clone())?;
+    assert_custom_error(
+        "read of a forged value",
+        send(
+            &env,
+            Read {
+                value: read_current.value + 1,
+                ..read_current
+            }
+            .instruction()?,
+            None,
+        ),
+        CompressionError::ProofVerificationFailed,
+    );
+    let read_current_ix = read_current.instruction()?;
+    send(&env, read_current_ix.clone(), None)?;
+
     let UpdateCompressedAccount {
         spp_proof_inputs,
         old_value,
@@ -335,5 +396,31 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     if send(&env, update_ix, Some(1)).is_ok() {
         bail!("stale update unexpectedly succeeded");
     }
+
+    // Both roots the old read was proven against are still in the root
+    // histories, so only the spent version's nullifier PDA rejects it.
+    assert_custom_error(
+        "read of the old version after an update",
+        send(&env, read_current_ix, Some(1)),
+        CompressionError::StateSpent,
+    );
+    // No forester runs here, so the spent nullifier is still only queued: a
+    // fresh proof of the old version against the current state root and the
+    // unchanged nullifier root verifies, and the nullifier PDA rejects it.
+    assert_custom_error(
+        "read of a spent version whose nullifier is queued",
+        send(
+            &env,
+            prove_read(&env, &current.utxo, current_non_inclusion)?.instruction()?,
+            None,
+        ),
+        CompressionError::StateSpent,
+    );
+    let read_updated = prove_read(
+        &env,
+        &updated.utxo,
+        wait_for_non_inclusion_proof(&env.indexer, env.tree, updated.utxo.nullifier),
+    )?;
+    send(&env, read_updated.instruction()?, None)?;
     Ok(())
 }

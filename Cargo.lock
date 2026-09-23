@@ -1633,6 +1633,7 @@ name = "compression-example-program"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "groth16-solana",
  "light-program-profiler",
  "pinocchio 0.11.2",
  "solana-address 2.6.1",
@@ -1646,6 +1647,20 @@ dependencies = [
  "zolana-keypair",
  "zolana-program",
  "zolana-transaction",
+ "zolana-tree",
+]
+
+[[package]]
+name = "compression-example-prover"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "compression-example-program",
+ "groth16-solana",
+ "num-bigint 0.4.8",
+ "serde_json",
+ "solana-bn254",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1655,6 +1670,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "compression-example-program",
+ "compression-example-prover",
  "num-bigint 0.4.8",
  "solana-address 2.6.1",
  "solana-instruction",

@@ -843,6 +843,51 @@ regen-escrow-keys:
         done
     done
 
+# Fetch the pinned compression read-circuit proving keys from the
+# compression-keys release and verify them against the committed manifest.
+# groth16.Setup is non-deterministic, so the published keys are the only set
+# matching the committed Rust verifying key; regenerating locally
+# (regen-compression-keys) requires publishing a new release and updating
+# compression-keys.CHECKSUM plus the committed verifying key together.
+compression-keys-tag := "compression-keys-v1"
+
+ensure-compression-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/compression"
+    dir="$base/build/gnark/read"
+    for kind in pk vk; do
+        if [ ! -f "$dir/$kind.bin" ]; then
+            mkdir -p "$dir"
+            gh release download "{{compression-keys-tag}}" --repo helius-labs/zolana \
+                --pattern "read_${kind}.bin" --output "$dir/$kind.bin" --clobber
+        fi
+        want=$(awk -v n="read_${kind}.bin" '$2==n {print $1}' "$base/compression-keys.CHECKSUM")
+        got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+        if [ "$want" != "$got" ]; then
+            echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
+            echo "refresh from the {{compression-keys-tag}} release (delete the file and rerun)," >&2
+            echo "or rotate keys with 'just regen-compression-keys' and publish a new release" >&2
+            exit 1
+        fi
+    done
+
+# Rotate the compression read-circuit proving keys, rewriting the committed
+# Rust verifying key and the checksum manifest. Publish the new build/gnark key
+# files to a fresh compression-keys release and bump compression-keys-tag
+# afterwards.
+regen-compression-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/compression"
+    cargo run --release -p compression-example-prover --bin compression-example-prover-setup -- \
+        "$base/build/gnark/read" "$base/program/src/verifying_keys/read.rs"
+    : > "$base/compression-keys.CHECKSUM"
+    for kind in pk vk; do
+        shasum -a 256 "$base/build/gnark/read/$kind.bin" \
+            | awk -v n="read_${kind}.bin" '{print $1 "  " n}' >> "$base/compression-keys.CHECKSUM"
+    done
+
 # The profiling escrow build calls a profiler syscall that solana-test-validator
 # does not register, so it must never land in target/deploy (validator/CI load
 # the plain program from there). Build the bench programs into a dedicated dir,
@@ -1352,7 +1397,7 @@ test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 # pool loaded, plus Photon and the persistent SPP prover -- mirroring
 # test-escrow-validator. The test resolves target/debug/{zolana,xtask} itself,
 # so build-cli and the explicit xtask build must run first.
-test-compression-validator: build-programs build-prover-server build-cli ensure-photon
+test-compression-validator: ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     cargo build -q -p xtask

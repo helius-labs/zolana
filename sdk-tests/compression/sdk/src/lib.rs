@@ -7,7 +7,11 @@ use anyhow::Result;
 use solana_address::Address;
 
 pub use compression_example_program::{
-    instructions::{create::CreateIxData, update::UpdateIxData},
+    instructions::{
+        create::CreateIxData,
+        read::{ReadIxData, ReadProof},
+        update::UpdateIxData,
+    },
     state::PdaOwner,
     tag, ACCOUNT_PDA_SEED,
 };

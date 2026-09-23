@@ -18,6 +18,7 @@ profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
 borsh = { workspace = true }
+groth16-solana = { workspace = true, features = ["bsb22"] }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-address = { workspace = true }
@@ -28,6 +29,7 @@ zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true }
+zolana-tree = { workspace = true }
 
 [dev-dependencies]
 zolana-client = { workspace = true }

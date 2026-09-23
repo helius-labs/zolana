@@ -8,6 +8,7 @@ publish = false
 anyhow = { workspace = true }
 borsh = { workspace = true }
 compression-example-program = { path = "../program" }
+compression-example-prover = { path = "../prover" }
 num-bigint = { workspace = true }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
