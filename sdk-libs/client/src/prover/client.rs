@@ -317,8 +317,9 @@ impl ProverClient {
         self.send(to_json_batch_address_append(inputs), Delivery::Queued)
     }
 
-    /// One POST to `/prove`, retried only for transport failures. Returns the
-    /// status alongside the body so the caller can act on a shed request.
+    /// One POST to `/prove`, retried for transport failures and for a queued
+    /// request the prover shed. Returns the status alongside the body so the
+    /// caller can act on a shed request.
     fn post(
         &self,
         url: &str,
@@ -336,6 +337,15 @@ impl ProverClient {
                 request = request.header("X-Sync", "true");
             }
             match request.body(body.to_string()).send() {
+                // A prover without a queue proves a queued request in the
+                // response too, and sheds it the same way while it is busy.
+                Ok(response)
+                    if response.status() == StatusCode::TOO_MANY_REQUESTS
+                        && delivery == Delivery::Queued
+                        && attempt < PROVE_MAX_ATTEMPTS =>
+                {
+                    sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+                }
                 Ok(response) => break response,
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
@@ -690,6 +700,13 @@ impl AsyncProverClient {
                 request = request.header("X-Sync", "true");
             }
             match request.body(body.to_string()).send().await {
+                Ok(response)
+                    if response.status() == StatusCode::TOO_MANY_REQUESTS
+                        && delivery == Delivery::Queued
+                        && attempt < PROVE_MAX_ATTEMPTS =>
+                {
+                    async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
+                }
                 Ok(response) => {
                     let status = response.status();
                     let text = response.text().await.map_err(|e| {
@@ -1562,6 +1579,35 @@ mod tests {
                 .sync_requested,
             "the retry must queue rather than ask again for a permit just refused"
         );
+    }
+
+    /// A prover without a queue sheds the queued fallback too while it is
+    /// busy; the client retries it like a failed request instead of failing.
+    fn shed_then_proof() -> Vec<MockResponse> {
+        vec![
+            MockResponse::json(429, json!({ "code": "prover_busy" })),
+            MockResponse::json(429, json!({ "code": "prover_busy" })),
+            MockResponse::json(200, json!({ "proof": gnark_proof() })),
+        ]
+    }
+
+    #[test]
+    fn a_proof_shed_by_a_prover_without_a_queue_is_retried() {
+        let server = MockServer::respond_with(shed_then_proof());
+        queued_prover_client(server.url())
+            .send("{}", Delivery::InResponse)
+            .expect("a busy prover should be retried, not failed");
+        assert_paths(&server.requests(), ["/prove", "/prove", "/prove"]);
+    }
+
+    #[tokio::test]
+    async fn async_client_retries_a_proof_shed_by_a_prover_without_a_queue() {
+        let server = MockServer::respond_with(shed_then_proof());
+        async_prover_client(server.url())
+            .send("{}", Delivery::InResponse)
+            .await
+            .expect("a busy prover should be retried, not failed");
+        assert_paths(&server.requests(), ["/prove", "/prove", "/prove"]);
     }
 
     #[test]
