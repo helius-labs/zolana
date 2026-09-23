@@ -485,7 +485,7 @@ record, the circuit caps each transfer's `outflow_m` on its own and binds
 
 ### Compressed history
 
-The SPP state tree holds the spend record, one chain per member.
+The spend record lives in any SPP state tree, one chain per member.
 Registration claims `spend_address(member)` as an SPP address, so a member
 registers once, and creates the zero-counter genesis record through SPP.
 Each windowed transfer spends the member's record and creates exactly one

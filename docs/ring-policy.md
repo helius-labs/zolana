@@ -404,8 +404,8 @@ write and asks before writing. `--silent` takes every default. `--policy-from
 that table, checks it on both clusters, and skips the policy option questions.
 
 The source question offers `own entries`, the curators of the catalogue
-serving the list from their own entries in the ring's tree, and `another
-curator` by program id. The catalogue is the bundled
+serving the list from their own entries and pinned to the ring's address
+tree, and `another curator` by program id. The catalogue is the bundled
 `custom-rings/cli/catalogue.toml`, one table per cluster where curators
 register by pull request, merged with every ring registered with SPP on the
 target that pins a policy. `--catalogue <path or URL>` (`RING_CATALOGUE`)

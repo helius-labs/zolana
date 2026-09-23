@@ -312,7 +312,7 @@ refuses to report success unless the bytes on chain hash to the file it
 deployed. A binary already on chain byte for byte is reported present and
 not uploaded again. `zolana-ring init` fixes the auditor. On a policy ring it
 compiles `[policy]` for the target, checks that each curator is deployed,
-pins a policy and serves its list from its own entries in the ring's tree,
+pins a policy to the ring's address tree and serves its list from its own entries,
 pins the table with `create_policy` under the upgrade authority, points each
 curated list, reads the chain back and refuses a pinned policy differing from
 `ring.toml`, then registers the ring with SPP, the program refuses to
@@ -499,9 +499,8 @@ The auditor opens outputs created by the supported clients and reports slots
 in another encoding as undecryptable. Direct deposits expose mint and amount,
 but auditor recovery also needs the optional verified disclosure. A ring deposit
 carries no list-policy proof.
-The program still checks scoped co-signing, public deposit caps and the
-windowed destination tree before authorizing it. List rules apply when the
-note is transferred.
+The program still checks scoped co-signing and public deposit caps before
+authorizing it. List rules apply when the note is transferred.
 Both deposit instructions require the canonical deposit audit account after
 the co-signer slots. Upgrade the ring clients with the program. The proofless
 instruction is rejected while disclosure is required. An audited instruction
@@ -516,7 +515,7 @@ transfer proof does not prove that a ciphertext matches a committed output.
 
 A changed policy hash takes effect at once, proofs over the prior hash fail
 and their notes stay unspent. An identical re-pin preserves the statement.
-`policy set` keeps the entries
+`policy set` keeps the address
 tree, a `ring.toml` naming another tree is refused, the tree is fixed at
 `init`. Curated sources are per cluster, `[policy.sources.localnet]` and
 `[policy.sources.devnet]` name their own curators and a catalogue name
