@@ -1,13 +1,13 @@
-use core::future::Future;
-
 use custom_ring_interface::{KeyEscrow, HEAD_MAP_HEIGHT};
 use futures::future::try_join_all;
-use zolana_client::{AsyncRpc, ClientError, IndexerPollConfig, Rpc};
+use zolana_client::{AsyncRpc, ClientError, Rpc};
 use zolana_ring_policy::Member;
 
 use crate::{
-    instructions::spend::ReadEnvironment, CustomRing, CustomRingConfig, IndexedMapRoot,
-    KeyRegistrationError, ReadSealedKey, SealedKeyEntry,
+    instructions::spend::ReadEnvironment,
+    projection::{retry_projection_lag, retry_projection_lag_async},
+    CustomRing, CustomRingConfig, IndexedMapRoot, KeyRegistrationError, ReadSealedKey,
+    SealedKeyEntry,
 };
 
 /// Opens the registry leaf `Poseidon(owner, next, Poseidon(nullifier_pk, ct_hash))`.
@@ -101,42 +101,6 @@ impl KeyRegistry {
             ring: self.ring,
             member,
             root,
-        }
-    }
-}
-
-/// `read` re-reads the chain root, a lagging answer holds only for the root it was asked under.
-fn retry_projection_lag<T>(
-    mut read: impl FnMut() -> Result<T, KeyRegistrationError>,
-) -> Result<T, KeyRegistrationError> {
-    let poll = IndexerPollConfig::default();
-    let mut delays = poll.backoff();
-    loop {
-        match read() {
-            Err(error) if error.is_projection_lag() => match delays.next() {
-                Some(delay) => std::thread::sleep(delay),
-                None => return Err(error),
-            },
-            result => return result,
-        }
-    }
-}
-
-async fn retry_projection_lag_async<T, F>(
-    mut read: impl FnMut() -> F,
-) -> Result<T, KeyRegistrationError>
-where
-    F: Future<Output = Result<T, KeyRegistrationError>>,
-{
-    let poll = IndexerPollConfig::default();
-    let mut delays = poll.backoff();
-    loop {
-        match read().await {
-            Err(error) if error.is_projection_lag() => match delays.next() {
-                Some(delay) => tokio::time::sleep(delay).await,
-                None => return Err(error),
-            },
-            result => return result,
         }
     }
 }

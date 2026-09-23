@@ -188,26 +188,15 @@ impl KeyEnrolment<'_> {
         env: TransferProofEnvironment<'_, I, SolanaRpc>,
     ) -> Result<(), KeyError> {
         let rpc = env.rpc;
-        let proven = wait_for(
-            format!("key registry witness of {}", self.member.pubkey()),
-            || {
-                let proven = RegisterKey {
-                    ring: self.ring,
-                    member: self.member,
-                }
-                .prove(TransferProofEnvironment {
-                    indexer: env.indexer,
-                    rpc: env.rpc,
-                    prover: env.prover,
-                });
-                match proven {
-                    Ok(proven) => Ok(Probe::Ready(proven)),
-                    Err(error) if error.is_projection_lag() => Ok(Probe::Retry(error)),
-                    Err(error) => Err(error),
-                }
-            },
-        )
-        .map_err(timed_out)?;
+        let proven = RegisterKey {
+            ring: self.ring,
+            member: self.member,
+        }
+        .prove(TransferProofEnvironment {
+            indexer: env.indexer,
+            rpc: env.rpc,
+            prover: env.prover,
+        })?;
         IdempotentStep {
             rpc,
             authority: self.member,
@@ -222,16 +211,6 @@ impl KeyEnrolment<'_> {
 
     fn member_tag(&self) -> Result<Member, KeyError> {
         Ok(Member::owner_tag(self.member.pubkey().as_array())?)
-    }
-}
-
-fn timed_out(error: WaitError<KeyRegistrationError>) -> KeyError {
-    match error {
-        WaitError::Failed(error) => error.into(),
-        WaitError::Timeout { label, last } => KeyError::Timeout {
-            label,
-            last: last.map(|error| Box::new((*error).into())),
-        },
     }
 }
 

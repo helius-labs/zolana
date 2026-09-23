@@ -10,6 +10,7 @@ mod escrow;
 mod instructions;
 mod key_registry;
 mod prepared_authority;
+mod projection;
 mod shared;
 #[cfg(feature = "solana-rpc")]
 mod submission;
