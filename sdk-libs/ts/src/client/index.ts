@@ -70,7 +70,7 @@ export type {
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
-  CustomRingHeadInsertion,
+  CustomRingRegistryInsertion,
   CustomRingRegisterKeyProofRequest,
   CustomRingRegistryKey,
   CustomRingSourceOwner,

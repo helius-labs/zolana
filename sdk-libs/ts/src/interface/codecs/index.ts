@@ -383,7 +383,7 @@ export function decodeTreeFees(bytes: Uint8Array): TreeFees {
   return { fees, feeBalance };
 }
 
-/** Mirrors Rust `head_roots`, the nullifier index is the slot before the write cursor. */
+/** Mirrors Rust `current_roots`, the nullifier index is the slot before the write cursor. */
 export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
   const utxo = treeAccountReader(
     bytes,

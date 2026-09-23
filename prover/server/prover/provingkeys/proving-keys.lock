@@ -34,8 +34,8 @@
       "source": "release"
     },
     "custom_ring_register_key.key": {
-      "sha256": "d8d97101c92d8563f639d15e9ee15236f8b0cc9f2d4b41c5df11acb87020c098",
-      "size": 68029646,
+      "sha256": "926bc02fe4d70f3d8163e190a572be82f8a0506e4ce734525fd3f92cf40c3357",
+      "size": 68029648,
       "source": "release"
     },
     "merge_36_1.key": {

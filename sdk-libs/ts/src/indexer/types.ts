@@ -37,11 +37,10 @@ export interface GetRingSpendRecordResponse {
   }> | null;
 }
 
-/** Carries the insertion paths for a member's key commitment. */
 export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
   readonly lowMember: Hash;
   readonly lowNext: Hash;
-  readonly lowCtCommitment: Hash;
+  readonly lowKeyHash: Hash;
   readonly lowIndex: bigint;
   readonly lowProof: readonly Hash[];
   readonly newProof: readonly Hash[];

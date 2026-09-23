@@ -1,4 +1,4 @@
-use custom_ring_interface::{KeyEscrow, HEAD_MAP_HEIGHT};
+use custom_ring_interface::{KeyEscrow, KEY_REGISTRY_HEIGHT};
 use futures::future::try_join_all;
 use zolana_client::{AsyncRpc, ClientError, Rpc};
 use zolana_ring_policy::Member;
@@ -16,7 +16,7 @@ pub struct RegistryKeyOpening {
     pub next: [u8; 32],
     pub ct_hash: [u8; 32],
     pub index: u64,
-    pub path: [[u8; 32]; HEAD_MAP_HEIGHT],
+    pub path: [[u8; 32]; KEY_REGISTRY_HEIGHT],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

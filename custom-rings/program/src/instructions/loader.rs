@@ -1,6 +1,7 @@
 use bytemuck::{from_bytes, from_bytes_mut};
 use custom_ring_interface::{
-    CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig, SpendWindow, HEAD_MAP_CAPACITY,
+    CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig, SpendWindow,
+    KEY_REGISTRY_CAPACITY,
 };
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{
@@ -262,7 +263,7 @@ pub(crate) fn load_append_root_mut<'a, T: AppendRoot>(
         mismatch: T::NOT_INITIALIZED,
     }
     .verify_stored_bump(root.bump())?;
-    if root.next_index() == 0 || root.next_index() > HEAD_MAP_CAPACITY {
+    if root.next_index() == 0 || root.next_index() > KEY_REGISTRY_CAPACITY {
         return Err(T::CURSOR.into());
     }
     Ok(root)

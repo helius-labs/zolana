@@ -72,7 +72,7 @@ import {
 import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
 import { ownSources, ownedAccount, ringPolicyConfigData } from "./helpers/ring-accounts.js";
 import { keyRegistryRootData, oneMemberRegistry } from "./helpers/key-registry.js";
-import { HEAD_MAP_EMPTY_ROOT } from "../src/ring/head-map.js";
+import { KEY_REGISTRY_EMPTY_ROOT } from "../src/ring/key-registry-tree.js";
 import { ringKeyRegistryRootPda } from "../src/interface/pda/index.js";
 import { entryProofReads, lineage } from "./helpers/ring-entries.js";
 import { treeAccount } from "./helpers/tree-account.js";
@@ -328,7 +328,7 @@ async function ringAccounts(
           nextIndex: 2n,
           bump: registryBump,
           cursor: 1,
-          history: [HEAD_MAP_EMPTY_ROOT],
+          history: [KEY_REGISTRY_EMPTY_ROOT],
         }),
       );
     }

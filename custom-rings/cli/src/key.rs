@@ -219,7 +219,8 @@ mod tests {
     use std::cell::Cell;
 
     use custom_ring_interface::{
-        HeadMapLeaf, KeyRegistryRoot, MerklePath, RegisteredKey, HEAD_MAP_HEIGHT, KEY_REGISTRY_ROOT,
+        KeyRegistryLeaf, KeyRegistryRoot, MerklePath, RegisteredKey, KEY_REGISTRY_HEIGHT,
+        KEY_REGISTRY_ROOT,
     };
     use solana_account::Account;
     use solana_address::Address;
@@ -317,20 +318,20 @@ mod tests {
         )
         .unwrap();
         let member_tag = Member::owner_tag(member.pubkey().as_array()).unwrap();
-        let commitment = RegisteredKey {
+        let key = RegisteredKey {
             nullifier_pk: &envelope.nullifier_pk,
             ciphertext: &envelope.sealed.ciphertext,
         }
-        .commitment()
+        .hash()
         .unwrap();
-        let leaf = HeadMapLeaf {
+        let leaf = KeyRegistryLeaf {
             member: member_tag.as_bytes(),
             next: &[0; 32],
-            nullifier: &commitment,
+            key: &key,
         }
         .hash()
         .unwrap();
-        let proof = vec![[0; 32]; HEAD_MAP_HEIGHT];
+        let proof = vec![[0; 32]; KEY_REGISTRY_HEIGHT];
         let root = MerklePath {
             index: 1,
             siblings: &proof,

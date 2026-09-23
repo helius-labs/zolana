@@ -63,7 +63,7 @@ impl Projection for KeyRegistry {
             new_root,
             next_index,
             member,
-            ct_commitment,
+            key_hash,
             eph_pk,
             ciphertext,
         } = transition;
@@ -79,7 +79,7 @@ impl Projection for KeyRegistry {
                         member,
                         index: next_index,
                         next: [0; 32],
-                        ct_commitment,
+                        key_hash,
                         eph_pk,
                         ciphertext,
                     },
@@ -110,7 +110,7 @@ pub(crate) async fn register(
         member: request.member,
         low_member: Hash(low.member),
         low_next: Hash(low.next),
-        low_ct_commitment: Hash(low.ct_commitment),
+        low_key_hash: Hash(low.key_hash),
         low_index: low.index,
         low_proof: low_proof.into_iter().map(Hash).collect(),
         new_proof: new_proof.into_iter().map(Hash).collect(),
@@ -155,15 +155,15 @@ mod tests {
     };
     use custom_ring_interface::RegisteredKey;
     use sea_orm::TransactionTrait;
-    use zolana_ring_head_map::HeadMap;
     use zolana_ring_indexer::Leaf;
+    use zolana_ring_key_registry::KeyRegistryTree;
 
-    fn commitment(seed: u8) -> [u8; 32] {
+    fn key_hash(seed: u8) -> [u8; 32] {
         RegisteredKey {
             nullifier_pk: &field(seed),
             ciphertext: &[seed; 32],
         }
-        .commitment()
+        .hash()
         .unwrap()
     }
 
@@ -173,7 +173,7 @@ mod tests {
             new_root,
             next_index: root.next_index,
             member: member(seed),
-            ct_commitment: commitment(seed),
+            key_hash: key_hash(seed),
             eph_pk: [seed; 33],
             ciphertext: [seed; 32],
         }
@@ -182,7 +182,7 @@ mod tests {
     #[tokio::test]
     async fn key_insert_path_matches_reference_without_mutating_reads() {
         let (db, mut root, mut cursor) = fixture::<KeyRegistry>().await;
-        let mut reference = HeadMap::new().unwrap();
+        let mut reference = KeyRegistryTree::new().unwrap();
         for seed in [5u8, 9, 2, 8] {
             let subject = member(seed);
             let tx = db.begin().await.unwrap();
@@ -196,9 +196,9 @@ mod tests {
                 .unwrap();
             assert_eq!(slot.leaf, [0; 32]);
             let inputs = reference
-                .register(zolana_ring_head_map::Registration {
+                .register(zolana_ring_key_registry::Registration {
                     member: subject,
-                    genesis: commitment(seed),
+                    key: key_hash(seed),
                 })
                 .unwrap();
             assert_eq!(low_path.siblings, inputs.low_proof);
@@ -227,11 +227,11 @@ mod tests {
     async fn failed_key_registration_rolls_back_and_committed_block_rewinds_and_replays() {
         let (db, root, mut cursor) = fixture::<KeyRegistry>().await;
         let subject = member(8);
-        let mut reference = HeadMap::new().unwrap();
+        let mut reference = KeyRegistryTree::new().unwrap();
         let registered = reference
-            .register(zolana_ring_head_map::Registration {
+            .register(zolana_ring_key_registry::Registration {
                 member: subject,
-                genesis: commitment(8),
+                key: key_hash(8),
             })
             .unwrap();
         let tx = db.begin().await.unwrap();

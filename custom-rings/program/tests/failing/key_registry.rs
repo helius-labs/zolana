@@ -1,7 +1,7 @@
 //! Pins key-registry root init and the register-key account checks before the proof.
 
 use custom_ring_interface::{
-    KeyRegistryRoot, HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
+    KeyRegistryRoot, KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
 };
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::{InstructionResult, ProgramResult};
@@ -24,11 +24,11 @@ fn create_key_registry_root_writes_the_empty_root_at_the_canonical_bump() {
     assert_eq!(result.program_result, ProgramResult::Success);
     let written = stored_root(&result);
     assert_eq!(written.discriminator, KEY_REGISTRY_ROOT);
-    assert_eq!(written.root, HEAD_MAP_EMPTY_ROOT);
+    assert_eq!(written.root, KEY_REGISTRY_EMPTY_ROOT);
     assert_eq!(written.next_index(), 1);
     assert_eq!(written.bump, key_registry_root_pda().1);
     assert_eq!(written.history_cursor, 0);
-    assert_eq!(written.root_at(0), Some(HEAD_MAP_EMPTY_ROOT));
+    assert_eq!(written.root_at(0), Some(KEY_REGISTRY_EMPTY_ROOT));
     assert!((1..=KEY_REGISTRY_ROOT_HISTORY as u8).all(|index| written.root_at(index).is_none()));
 }
 
@@ -81,7 +81,7 @@ fn create_key_registry_root_with_trailing_data_is_rejected_exactly() {
 #[test]
 fn a_register_key_on_a_fresh_root_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
-    let root = key_registry_root_account(HEAD_MAP_EMPTY_ROOT, 1);
+    let root = key_registry_root_account(KEY_REGISTRY_EMPTY_ROOT, 1);
     let fixture = register_key_fixture(root, payer());
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
@@ -97,7 +97,7 @@ fn a_register_key_against_a_stale_root_is_rejected_exactly() {
 #[test]
 fn a_register_key_with_a_wrong_cursor_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let root = key_registry_root_account(HEAD_MAP_EMPTY_ROOT, 5);
+    let root = key_registry_root_account(KEY_REGISTRY_EMPTY_ROOT, 5);
     let fixture = register_key_fixture(root, payer());
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryCursor));
 }

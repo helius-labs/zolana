@@ -47,10 +47,10 @@ import { decodeRingKeyRegistryRoot } from "../src/ring/codecs.js";
 import { fetchRingKeyRegistryRoot } from "../src/ring/config.js";
 import { buildRingDelegateRecoveredTransaction } from "../src/ring/delegate.js";
 import {
-  HEAD_MAP_EMPTY_ROOT,
-  HEAD_MAP_FIELD_MAX,
-  verifyHeadMapInsert,
-} from "../src/ring/head-map.js";
+  KEY_REGISTRY_EMPTY_ROOT,
+  KEY_REGISTRY_FIELD_MAX,
+  verifyKeyRegistryInsert,
+} from "../src/ring/key-registry-tree.js";
 import { registerRingKeyInstruction } from "../src/ring/instructions.js";
 import {
   buildRingKeyRegistrationTransaction,
@@ -59,7 +59,7 @@ import {
   openNullifierKey,
   openRingSealedKey,
   prepareRingKeyRegistration,
-  registeredKeyCommitment,
+  registeredKeyHash,
   registerKeyPublicInputHash,
   sealNullifierKey,
   sealNullifierKeyWith,
@@ -109,7 +109,7 @@ const MEMBER_TAG = filled(9) as Bytes32;
 const NULLIFIER_PK = hex("2d1faf6cf358763421511eb637adf7b6609443d38edc4ed2b042dfbf834b03f5");
 const EPH_PK = hex("0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5");
 const CIPHERTEXT = hex("f329a32e36717753ba70f955e2102b53fa3a1bfd7389ebda109030ea70602d40");
-const GENESIS = hex("095939aeb6e0dc92dd4455bab6058c5c5f639b52a610932c22e517fc87d64a94");
+const KEY_HASH = hex("095939aeb6e0dc92dd4455bab6058c5c5f639b52a610932c22e517fc87d64a94");
 const REGISTRY_NEW_ROOT = hex("01c9026ae3349a610ca0d39793c06c924e3ad8e2dcacb64c120c800185372618");
 const PUBLIC_INPUT_HASH = hex("2f3163cf5ea64c46bcf1a4b97b0aabccc674aa6056daa42cb63007bb1d9534a9");
 
@@ -153,23 +153,23 @@ describe("nullifier key envelope", () => {
     expect(openNullifierKey(fresh.sealed, auditor).secretBytes()).toEqual(NULLIFIER_SECRET);
   });
 
-  it("hashes the genesis leaf, the registry root and the statement like Rust", () => {
+  it("hashes the registered key, the registry root and the statement like Rust", () => {
     const auditor = ViewingKey.fromBytes(AUDITOR_SK);
     const member = memberOfTag(MEMBER_TAG);
-    const genesis = registeredKeyCommitment({
+    const key = registeredKeyHash({
       nullifierPublicKey: NULLIFIER_PK as Bytes32,
       ciphertext: CIPHERTEXT as Bytes32,
     });
-    expect(genesis).toEqual(GENESIS);
+    expect(key).toEqual(KEY_HASH);
     const insertion = firstInsertion(member);
-    const registryNewRoot = verifyHeadMapInsert({
-      root: HEAD_MAP_EMPTY_ROOT,
+    const registryNewRoot = verifyKeyRegistryInsert({
+      root: KEY_REGISTRY_EMPTY_ROOT,
       appendIndex: 1n,
       member,
-      genesis,
+      key,
       lowMember: insertion.lowMember,
       lowNext: insertion.lowNext,
-      lowNullifier: insertion.lowCtCommitment,
+      lowKey: insertion.lowKeyHash,
       lowIndex: insertion.lowIndex,
       lowProof: insertion.lowProof,
       newProof: insertion.newProof,
@@ -177,7 +177,7 @@ describe("nullifier key envelope", () => {
     expect(registryNewRoot).toEqual(REGISTRY_NEW_ROOT);
     expect(
       registerKeyPublicInputHash({
-        registryOldRoot: HEAD_MAP_EMPTY_ROOT,
+        registryOldRoot: KEY_REGISTRY_EMPTY_ROOT,
         registryNewRoot,
         member,
         nullifierPublicKey: NULLIFIER_PK as Bytes32,
@@ -202,7 +202,7 @@ describe("nullifier key envelope", () => {
         ...filled(4),
         ...filled(5),
       ]),
-      registryOldRoot: HEAD_MAP_EMPTY_ROOT,
+      registryOldRoot: KEY_REGISTRY_EMPTY_ROOT,
       registryNewRoot: filled(0x11) as Bytes32,
       registryNextIndex: 1n,
       nullifierPublicKey: filled(0x12) as Bytes32,
@@ -240,13 +240,13 @@ describe("nullifier key envelope", () => {
 describe("key registry root", () => {
   it("decodes the account with its root history and refuses another layout", async () => {
     const [rootAddress, bump] = await ringKeyRegistryRootPda(RING);
-    const data = keyRegistryRootData({ root: HEAD_MAP_EMPTY_ROOT, nextIndex: 1n, bump: bump });
+    const data = keyRegistryRootData({ root: KEY_REGISTRY_EMPTY_ROOT, nextIndex: 1n, bump: bump });
     expect(decodeRingKeyRegistryRoot(data)).toEqual({
-      root: HEAD_MAP_EMPTY_ROOT,
+      root: KEY_REGISTRY_EMPTY_ROOT,
       nextIndex: 1n,
       bump,
       historyCursor: 0,
-      history: [HEAD_MAP_EMPTY_ROOT, ...Array.from({ length: 31 }, () => new Uint8Array(32))],
+      history: [KEY_REGISTRY_EMPTY_ROOT, ...Array.from({ length: 31 }, () => new Uint8Array(32))],
     });
     const advanced = decodeRingKeyRegistryRoot(
       keyRegistryRootData({
@@ -254,11 +254,11 @@ describe("key registry root", () => {
         nextIndex: 3n,
         bump,
         cursor: 31,
-        history: [HEAD_MAP_EMPTY_ROOT],
+        history: [KEY_REGISTRY_EMPTY_ROOT],
       }),
     );
     expect(advanced.historyCursor).toBe(31);
-    expect(advanced.history[0]).toEqual(HEAD_MAP_EMPTY_ROOT);
+    expect(advanced.history[0]).toEqual(KEY_REGISTRY_EMPTY_ROOT);
     expect(advanced.history[31]).toEqual(filled(5));
     // Rust `advance_to` keeps the root at the cursor.
     const detached = new Uint8Array(data);
@@ -269,7 +269,7 @@ describe("key registry root", () => {
     );
     expect(() =>
       decodeRingKeyRegistryRoot(
-        keyRegistryRootData({ root: HEAD_MAP_EMPTY_ROOT, nextIndex: 0n, bump: bump }),
+        keyRegistryRootData({ root: KEY_REGISTRY_EMPTY_ROOT, nextIndex: 0n, bump: bump }),
       ),
     ).toThrow("RING_KEY_REGISTRY_INVALID");
     const otherKind = new Uint8Array(data);
@@ -285,7 +285,11 @@ describe("key registry root", () => {
             key === rootAddress
               ? ownedAccount(
                   RING,
-                  keyRegistryRootData({ root: HEAD_MAP_EMPTY_ROOT, nextIndex: 1n, bump: bump ^ 1 }),
+                  keyRegistryRootData({
+                    root: KEY_REGISTRY_EMPTY_ROOT,
+                    nextIndex: 1n,
+                    bump: bump ^ 1,
+                  }),
                 )
               : undefined,
         },
@@ -303,31 +307,31 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
   const [rootAddress, rootBump] = await ringKeyRegistryRootPda(RING);
   const insertion = firstInsertion(identity);
   const envelope = sealNullifierKey(member.keypair.nullifierKey(), auditor.publicKey());
-  const genesis = registeredKeyCommitment({
+  const key = registeredKeyHash({
     nullifierPublicKey: envelope.nullifierPublicKey,
     ciphertext: envelope.sealed.ciphertext,
   });
-  const registeredRoot = verifyHeadMapInsert({
-    root: HEAD_MAP_EMPTY_ROOT,
+  const registeredRoot = verifyKeyRegistryInsert({
+    root: KEY_REGISTRY_EMPTY_ROOT,
     appendIndex: 1n,
     member: identity,
-    genesis,
+    key,
     lowMember: insertion.lowMember,
     lowNext: insertion.lowNext,
-    lowNullifier: insertion.lowCtCommitment,
+    lowKey: insertion.lowKeyHash,
     lowIndex: insertion.lowIndex,
     lowProof: insertion.lowProof,
     newProof: insertion.newProof,
   });
   const root = input.registered
     ? { root: registeredRoot, nextIndex: 2n }
-    : { root: HEAD_MAP_EMPTY_ROOT, nextIndex: 1n };
+    : { root: KEY_REGISTRY_EMPTY_ROOT, nextIndex: 1n };
   const entry: RingKeyRegistryEntry = {
     context: { slot: 1n, blockTime: 1n },
     root: registeredRoot,
     nextIndex: 2n,
     member: identity,
-    next: HEAD_MAP_FIELD_MAX,
+    next: KEY_REGISTRY_FIELD_MAX,
     index: 1n,
     ephemeralPublicKey: envelope.sealed.ephemeralPublicKey,
     ciphertext: envelope.sealed.ciphertext,
@@ -365,7 +369,7 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
     getLatestBlockhash: async () => BLOCKHASH,
     getRingKeyRegistryRegisterProof: async () => ({
       context: { slot: 1n, blockTime: 1n },
-      root: HEAD_MAP_EMPTY_ROOT,
+      root: KEY_REGISTRY_EMPTY_ROOT,
       nextIndex: 1n,
       member: identity,
       ...insertion,
@@ -407,25 +411,25 @@ describe("key registration flow", () => {
       test.auditor.publicKey(),
     );
     const insertion = firstInsertion(test.identity);
-    const registryNewRoot = verifyHeadMapInsert({
-      root: HEAD_MAP_EMPTY_ROOT,
+    const registryNewRoot = verifyKeyRegistryInsert({
+      root: KEY_REGISTRY_EMPTY_ROOT,
       appendIndex: 1n,
       member: test.identity,
-      genesis: registeredKeyCommitment({
+      key: registeredKeyHash({
         nullifierPublicKey: envelope.nullifierPublicKey,
         ciphertext: envelope.sealed.ciphertext,
       }),
       lowMember: insertion.lowMember,
       lowNext: insertion.lowNext,
-      lowNullifier: insertion.lowCtCommitment,
+      lowKey: insertion.lowKeyHash,
       lowIndex: insertion.lowIndex,
       lowProof: insertion.lowProof,
       newProof: insertion.newProof,
     });
-    expect(request.headNewRoot).toEqual(registryNewRoot);
+    expect(request.registryNewRoot).toEqual(registryNewRoot);
     expect(request.publicInputHash).toEqual(
       registerKeyPublicInputHash({
-        registryOldRoot: HEAD_MAP_EMPTY_ROOT,
+        registryOldRoot: KEY_REGISTRY_EMPTY_ROOT,
         registryNewRoot,
         member: test.identity,
         nullifierPublicKey: envelope.nullifierPublicKey,
@@ -485,7 +489,7 @@ describe("key registration flow", () => {
             ...(await test.client.getRingKeyRegistryRegisterProof({
               ringProgramId: RING,
               member: test.identity,
-              expectedRoot: HEAD_MAP_EMPTY_ROOT,
+              expectedRoot: KEY_REGISTRY_EMPTY_ROOT,
               expectedNextIndex: 1n,
             })),
             nextIndex: 2n,
@@ -1175,7 +1179,7 @@ describe("recovered delegate move", () => {
                 nextIndex: 2n,
                 bump: registryBump,
                 cursor: 1,
-                history: [HEAD_MAP_EMPTY_ROOT],
+                history: [KEY_REGISTRY_EMPTY_ROOT],
               }),
             );
           if (key === delegatePda)

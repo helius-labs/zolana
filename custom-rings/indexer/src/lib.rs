@@ -45,7 +45,7 @@ pub struct Spliced<L> {
 impl<L: Leaf> Append<L> {
     pub fn splice(self, mut predecessor: L) -> anyhow::Result<Spliced<L>> {
         let member = self.leaf.member();
-        if self.next_index >= custom_ring_interface::HEAD_MAP_CAPACITY
+        if self.next_index >= custom_ring_interface::KEY_REGISTRY_CAPACITY
             || self.leaf.index() != self.next_index
             || predecessor.index() >= self.next_index
             || predecessor.member() >= member

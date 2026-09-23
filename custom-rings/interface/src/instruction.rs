@@ -138,7 +138,7 @@ pub struct PlainGroth16Proof {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct HeadMapTransition {
+pub struct KeyRegistryTransition {
     pub old_root: [u8; 32],
     pub new_root: [u8; 32],
 }

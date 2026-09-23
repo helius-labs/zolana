@@ -29,7 +29,7 @@ export type {
   RingKeyRegistryRegisterProof,
   RingSubmissionTransport,
   CustomRingCompressedPolicyProofRequest,
-  CustomRingHeadInsertion,
+  CustomRingRegistryInsertion,
   CustomRingRegisterKeyProofRequest,
   CustomRingDepositProofRequest,
   CustomRingVelocityProofInput,
@@ -91,7 +91,7 @@ export {
   buildRingKeyRegistrationTransaction,
   sealNullifierKey,
   openNullifierKey,
-  registeredKeyCommitment,
+  registeredKeyHash,
   registerKeyPublicInputHash,
   fetchRingSealedKey,
   openRingSealedKey,
@@ -136,7 +136,7 @@ export type {
   RecoveredRingNotes,
   RingDelegateRecoveredParams,
   VelocityFacts,
-  HeadMapInsertProofInput,
+  KeyRegistryInsertProofInput,
 } from "@heliuslabs/zolana/ring";
 export type {
   SerializedCursor,

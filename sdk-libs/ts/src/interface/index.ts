@@ -21,7 +21,7 @@ export type {
   ShieldedPoolErrorName,
 } from "./errors.js";
 export { externalDataHash } from "./external-data-hash.js";
-export { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "./head-map.js";
+export { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "./key-registry.js";
 export type { ExternalDataHashInput, SettlementAccounts } from "./external-data-hash.js";
 export {
   depositInstruction,

@@ -59,7 +59,7 @@ zolana-tree = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
-zolana-ring-head-map = { workspace = true }
+zolana-ring-key-registry = { workspace = true }
 zolana-test-utils.workspace = true
 async-trait = { workspace = true }
 curve25519-dalek = "4.1"

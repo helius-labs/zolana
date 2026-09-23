@@ -22,13 +22,13 @@ import type { RingKeyRegistryRoot } from "./codecs.js";
 import { fetchRingKeyRegistryRoot, fetchRingProgramConfig } from "./config.js";
 import { RingError } from "./error.js";
 import {
-  HEAD_MAP_CAPACITY,
-  HEAD_MAP_HEIGHT,
-  checkedHeadMapField,
-  headMapLeaf,
-  headMapRootFromProof,
-  verifyHeadMapInsert,
-} from "./head-map.js";
+  KEY_REGISTRY_CAPACITY,
+  KEY_REGISTRY_HEIGHT,
+  checkedRegistryField,
+  keyRegistryLeaf,
+  keyRegistryRootFromProof,
+  verifyKeyRegistryInsert,
+} from "./key-registry-tree.js";
 import {
   RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT,
   registerRingKeyInstruction,
@@ -160,12 +160,12 @@ export function openNullifierKey(sealed: SealedNullifierKey, auditor: ViewingKey
   }
 }
 
-/** Mirrors Rust `RegisteredKey::commitment`, the member's registry leaf slot. */
-export function registeredKeyCommitment(
+/** Mirrors Rust `RegisteredKey::hash`, the member's registry leaf key. */
+export function registeredKeyHash(
   key: Readonly<{ nullifierPublicKey: Bytes32; ciphertext: Bytes32 }>,
 ): Bytes32 {
   return poseidon([
-    checkedHeadMapField(key.nullifierPublicKey),
+    checkedRegistryField(key.nullifierPublicKey),
     hashBytes(key.ciphertext) as Bytes32,
   ]);
 }
@@ -274,7 +274,7 @@ export async function readSealedKey(
   if (
     entry.index === 0n ||
     entry.index >= entry.nextIndex ||
-    entry.proof.length !== HEAD_MAP_HEIGHT
+    entry.proof.length !== KEY_REGISTRY_HEIGHT
   )
     throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "entry" } });
   return Object.freeze({
@@ -316,15 +316,15 @@ function checkRegisteredKey(entry: RingSealedKeyEntry, nullifierPublicKey: Bytes
     throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "inclusion" } });
 }
 
-/** @internal Mirrors Go `KeyOpening.AssertEscrowed`, the member's leaf commits to the key under the root. */
+/** @internal Mirrors Go `KeyOpening.AssertEscrowed`, the member's leaf holds the key under the root. */
 export function registersKey(entry: RingSealedKeyEntry, nullifierPublicKey: Bytes32): boolean {
-  const leaf = headMapLeaf({
+  const leaf = keyRegistryLeaf({
     member: entry.member,
     next: entry.next,
-    nullifier: registeredKeyCommitment({ nullifierPublicKey, ciphertext: entry.sealed.ciphertext }),
+    key: registeredKeyHash({ nullifierPublicKey, ciphertext: entry.sealed.ciphertext }),
   });
   return equalBytes(
-    headMapRootFromProof({ leaf, index: entry.index, proof: entry.proof }),
+    keyRegistryRootFromProof({ leaf, index: entry.index, proof: entry.proof }),
     entry.root,
   );
 }
@@ -348,7 +348,7 @@ async function registrationSubmission(
   const held: RingKeyRegistrationParams = Object.freeze({ ...input });
   const identity = checkedIdentity(held.member);
   const intent = hashChain([
-    checkedHeadMapField(hashBytes(addressBytes(held.ringProgramId))),
+    hashBytes(addressBytes(held.ringProgramId)) as Bytes32,
     identity.member,
     identity.nullifierPublicKey,
   ]);
@@ -374,7 +374,7 @@ async function buildRegistrationAttempt(
   const { root, insertion } = await waitForRingProjection(
     async (attemptContext) => {
       const root = await fetchRingKeyRegistryRoot(client, ringProgramId, attemptContext);
-      if (root.nextIndex >= HEAD_MAP_CAPACITY)
+      if (root.nextIndex >= KEY_REGISTRY_CAPACITY)
         throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "capacity" } });
       const insertion = await client.getRingKeyRegistryRegisterProof(
         { ringProgramId, member, expectedRoot: root.root, expectedNextIndex: root.nextIndex },
@@ -397,18 +397,18 @@ async function buildRegistrationAttempt(
   const nullifierSecret = rightAlign(secret);
   secret.fill(0);
   try {
-    const genesis = registeredKeyCommitment({
+    const key = registeredKeyHash({
       nullifierPublicKey: envelope.nullifierPublicKey,
       ciphertext: envelope.sealed.ciphertext,
     });
-    const registryNewRoot = verifyHeadMapInsert({
+    const registryNewRoot = verifyKeyRegistryInsert({
       root: root.root,
       appendIndex: root.nextIndex,
       member,
-      genesis,
+      key,
       lowMember: insertion.lowMember,
       lowNext: insertion.lowNext,
-      lowNullifier: insertion.lowCtCommitment,
+      lowKey: insertion.lowKeyHash,
       lowIndex: insertion.lowIndex,
       lowProof: insertion.lowProof,
       newProof: insertion.newProof,
@@ -427,8 +427,8 @@ async function buildRegistrationAttempt(
     const proof = await client.proveCustomRingRegisterKey(
       {
         publicInputHash,
-        headOldRoot: root.root,
-        headNewRoot: registryNewRoot,
+        registryOldRoot: root.root,
+        registryNewRoot,
         member,
         newIndex: root.nextIndex,
         nullifierSecret,
@@ -436,7 +436,7 @@ async function buildRegistrationAttempt(
         auditorPublicKey: auditor.toUncompressed(),
         lowMember: insertion.lowMember,
         lowNext: insertion.lowNext,
-        lowNullifier: insertion.lowCtCommitment,
+        lowKey: insertion.lowKeyHash,
         lowIndex: insertion.lowIndex,
         lowProof: insertion.lowProof,
         newProof: insertion.newProof,

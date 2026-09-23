@@ -1,5 +1,5 @@
 use custom_ring_interface::{
-    KeyRegistryRoot, RegisterKeyIxData, RegisterKeyPublicInput, HEAD_MAP_CAPACITY,
+    KeyRegistryRoot, RegisterKeyIxData, RegisterKeyPublicInput, KEY_REGISTRY_CAPACITY,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -33,7 +33,9 @@ pub fn process_register_key_ix(
     if root.root != ix.registry_old_root {
         return Err(CustomRingError::StaleKeyRegistryRoot.into());
     }
-    if root.next_index() != ix.registry_next_index || ix.registry_next_index >= HEAD_MAP_CAPACITY {
+    if root.next_index() != ix.registry_next_index
+        || ix.registry_next_index >= KEY_REGISTRY_CAPACITY
+    {
         return Err(CustomRingError::InvalidKeyRegistryCursor.into());
     }
     let member = Member::owner_tag(member_signer.address().as_array())

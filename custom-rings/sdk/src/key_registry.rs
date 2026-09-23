@@ -1,9 +1,9 @@
 //! Seals a member's nullifier key to the ring auditor and appends it to the key registry.
 
 use custom_ring_interface::{
-    tag, CustomRingProof, HeadMapInsert, HeadMapLeaf, HeadMapTransition, MerklePath,
+    tag, CustomRingProof, KeyRegistryInsert, KeyRegistryLeaf, KeyRegistryTransition, MerklePath,
     RegisterKeyIxData, RegisterKeyPublicInput, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
-    COMPRESSED_P256_KEY_LEN, HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT,
+    COMPRESSED_P256_KEY_LEN, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT,
 };
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use serde::Serialize;
@@ -224,7 +224,7 @@ impl StagedKeyRegistration {
 
     fn finish(
         self,
-        transition: HeadMapTransition,
+        transition: KeyRegistryTransition,
         proof: CustomRingProof,
     ) -> ProvenKeyRegistration {
         ProvenKeyRegistration {
@@ -244,7 +244,7 @@ impl StagedKeyRegistration {
 pub struct ProvenKeyRegistration {
     ring: CustomRing,
     member: Address,
-    transition: HeadMapTransition,
+    transition: KeyRegistryTransition,
     registry_next_index: u64,
     nullifier_pk: [u8; 32],
     eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
@@ -320,8 +320,8 @@ impl ReadSealedKey {
             || response.next_index != query.expected_next_index
             || response.index == 0
             || response.index >= response.next_index
-            || response.next_index > HEAD_MAP_CAPACITY
-            || response.proof.len() != HEAD_MAP_HEIGHT
+            || response.next_index > KEY_REGISTRY_CAPACITY
+            || response.proof.len() != KEY_REGISTRY_HEIGHT
         {
             return Err(KeyRegistrationError::InvalidEntryProof);
         }
@@ -396,16 +396,16 @@ impl SealedKeyEntry {
     ) -> Result<(), KeyRegistrationError> {
         // 1. The expected key and ciphertext must reproduce the pinned registry
         // root.
-        let commitment = RegisteredKey {
+        let key = RegisteredKey {
             nullifier_pk: nullifier_pubkey,
             ciphertext: &self.sealed.ciphertext,
         }
-        .commitment()
+        .hash()
         .map_err(|_| KeyRegistrationError::Hashing)?;
-        let leaf = HeadMapLeaf {
+        let leaf = KeyRegistryLeaf {
             member: self.member.as_bytes(),
             next: &self.next,
-            nullifier: &commitment,
+            key: &key,
         }
         .hash()
         .map_err(|_| KeyRegistrationError::Hashing)?;
@@ -442,7 +442,7 @@ pub(crate) struct KeySeal<'a> {
 
 pub(crate) struct KeyRegistration {
     pub request: RegisterKeyProofRequest,
-    pub transition: HeadMapTransition,
+    pub transition: KeyRegistryTransition,
 }
 
 impl KeySeal<'_> {
@@ -451,11 +451,11 @@ impl KeySeal<'_> {
         query: &RingMemberProofRequest,
         response: GetRingKeyRegistryRegisterProofResponse,
     ) -> Result<KeyRegistration, KeyRegistrationError> {
-        let genesis = RegisteredKey {
+        let key = RegisteredKey {
             nullifier_pk: &self.envelope.nullifier_pk,
             ciphertext: &self.envelope.sealed.ciphertext,
         }
-        .commitment()
+        .hash()
         .map_err(|_| KeyRegistrationError::Hashing)?;
         if response.root != query.expected_root
             || response.member != query.member
@@ -466,21 +466,21 @@ impl KeySeal<'_> {
         }
         let low_proof: Vec<_> = response.low_proof.iter().map(|hash| hash.0).collect();
         let new_proof: Vec<_> = response.new_proof.iter().map(|hash| hash.0).collect();
-        let new_root = HeadMapInsert {
+        let new_root = KeyRegistryInsert {
             root: &response.root.0,
             append_index: response.next_index,
             member: &response.member.0,
-            genesis: &genesis,
+            key: &key,
             low_member: &response.low_member.0,
             low_next: &response.low_next.0,
-            low_nullifier: &response.low_ct_commitment.0,
+            low_key: &response.low_key_hash.0,
             low_index: response.low_index,
             low_proof: &low_proof,
             new_proof: &new_proof,
         }
         .verify()
         .map_err(|_| KeyRegistrationError::InvalidRegisterProof)?;
-        let transition = HeadMapTransition {
+        let transition = KeyRegistryTransition {
             old_root: response.root.0,
             new_root,
         };
@@ -501,8 +501,8 @@ impl KeySeal<'_> {
         Ok(KeyRegistration {
             request: RegisterKeyProofRequest {
                 public_input_hash: field_hex(&public_input),
-                head_old_root: field_hex(&transition.old_root),
-                head_new_root: field_hex(&transition.new_root),
+                registry_old_root: field_hex(&transition.old_root),
+                registry_new_root: field_hex(&transition.new_root),
                 member: field_hex(&response.member.0),
                 new_index: index_hex(response.next_index),
                 nullifier_secret: self.secret,
@@ -510,7 +510,7 @@ impl KeySeal<'_> {
                 auditor_pk: bytes_to_hex(auditor_uncompressed.as_bytes()),
                 low_member: field_hex(&response.low_member.0),
                 low_next: field_hex(&response.low_next.0),
-                low_nullifier: field_hex(&response.low_ct_commitment.0),
+                low_key: field_hex(&response.low_key_hash.0),
                 low_index: index_hex(response.low_index),
                 low_proof: low_proof.iter().map(field_hex).collect(),
                 new_proof: new_proof.iter().map(field_hex).collect(),
@@ -522,8 +522,8 @@ impl KeySeal<'_> {
 
 pub(crate) struct RegisterKeyProofRequest {
     public_input_hash: String,
-    head_old_root: String,
-    head_new_root: String,
+    registry_old_root: String,
+    registry_new_root: String,
     member: String,
     new_index: String,
     nullifier_secret: Zeroizing<[u8; 32]>,
@@ -531,7 +531,7 @@ pub(crate) struct RegisterKeyProofRequest {
     auditor_pk: String,
     low_member: String,
     low_next: String,
-    low_nullifier: String,
+    low_key: String,
     low_index: String,
     low_proof: Vec<String>,
     new_proof: Vec<String>,
@@ -542,8 +542,8 @@ impl ProveRequest for RegisterKeyProofRequest {
         json_body(&RegisterKeyProofRequestJson {
             circuit_type: "custom-ring-register-key",
             public_input_hash: &self.public_input_hash,
-            head_old_root: &self.head_old_root,
-            head_new_root: &self.head_new_root,
+            registry_old_root: &self.registry_old_root,
+            registry_new_root: &self.registry_new_root,
             member: &self.member,
             new_index: &self.new_index,
             nullifier_secret: SecretHex::new(self.nullifier_secret.as_slice()),
@@ -551,7 +551,7 @@ impl ProveRequest for RegisterKeyProofRequest {
             auditor_pk: &self.auditor_pk,
             low_member: &self.low_member,
             low_next: &self.low_next,
-            low_nullifier: &self.low_nullifier,
+            low_key: &self.low_key,
             low_index: &self.low_index,
             low_proof: &self.low_proof,
             new_proof: &self.new_proof,
@@ -568,8 +568,8 @@ impl ProveRequest for RegisterKeyProofRequest {
 struct RegisterKeyProofRequestJson<'a> {
     circuit_type: &'static str,
     public_input_hash: &'a str,
-    head_old_root: &'a str,
-    head_new_root: &'a str,
+    registry_old_root: &'a str,
+    registry_new_root: &'a str,
     member: &'a str,
     new_index: &'a str,
     nullifier_secret: SecretHex,
@@ -577,7 +577,7 @@ struct RegisterKeyProofRequestJson<'a> {
     auditor_pk: &'a str,
     low_member: &'a str,
     low_next: &'a str,
-    low_nullifier: &'a str,
+    low_key: &'a str,
     low_index: &'a str,
     low_proof: &'a [String],
     new_proof: &'a [String],
@@ -587,7 +587,7 @@ struct RegisterKeyProofRequestJson<'a> {
 mod tests {
     use zolana_indexer_api::{Base64String, Context};
     use zolana_keypair::{NullifierKey, ViewingKey};
-    use zolana_ring_head_map::{HeadMap, HeadTransfer, Registration};
+    use zolana_ring_key_registry::{KeyRegistryTree, Registration};
     use zolana_ring_policy::ZERO_NULLIFIER_PK;
 
     use super::*;
@@ -604,7 +604,7 @@ mod tests {
         auditor: ViewingKey,
         nullifier_key: NullifierKey,
         envelope: NullifierKeyEnvelope,
-        map: HeadMap,
+        tree: KeyRegistryTree,
         new_root: [u8; 32],
     }
 
@@ -617,17 +617,17 @@ mod tests {
             let envelope =
                 NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("seal");
             let member = Member::owner_tag(&[9; 32]).expect("member");
-            let genesis = RegisteredKey {
+            let key = RegisteredKey {
                 nullifier_pk: &envelope.nullifier_pk,
                 ciphertext: &envelope.sealed.ciphertext,
             }
-            .commitment()
-            .expect("commitment");
-            let mut map = HeadMap::new().expect("map");
-            let proof_inputs = map
+            .hash()
+            .expect("key hash");
+            let mut tree = KeyRegistryTree::new().expect("tree");
+            let proof_inputs = tree
                 .register(Registration {
                     member: *member.as_bytes(),
-                    genesis,
+                    key,
                 })
                 .expect("register");
             let query = ring.member_proof_request(
@@ -645,7 +645,7 @@ mod tests {
                 member: Hash(proof_inputs.member),
                 low_member: Hash(proof_inputs.low_member),
                 low_next: Hash(proof_inputs.low_next),
-                low_ct_commitment: Hash(proof_inputs.low_nullifier),
+                low_key_hash: Hash(proof_inputs.low_key),
                 low_index: proof_inputs.low_index,
                 low_proof: proof_inputs.low_proof.into_iter().map(Hash).collect(),
                 new_proof: proof_inputs.new_proof.into_iter().map(Hash).collect(),
@@ -658,7 +658,7 @@ mod tests {
                 auditor,
                 nullifier_key,
                 envelope,
-                map,
+                tree,
                 new_root: proof_inputs.new_root,
             }
         }
@@ -672,20 +672,10 @@ mod tests {
         }
 
         /// The registered slot as the indexer serves it after the append.
-        fn entry(&mut self) -> (RingMemberProofRequest, GetRingKeyRegistryEntryResponse) {
-            let genesis = RegisteredKey {
-                nullifier_pk: &self.envelope.nullifier_pk,
-                ciphertext: &self.envelope.sealed.ciphertext,
-            }
-            .commitment()
-            .expect("commitment");
+        fn entry(&self) -> (RingMemberProofRequest, GetRingKeyRegistryEntryResponse) {
             let inclusion = self
-                .map
-                .transfer(HeadTransfer {
-                    member: *self.member.as_bytes(),
-                    spent: genesis,
-                    successor: genesis,
-                })
+                .tree
+                .member_proof(self.member.as_bytes())
                 .expect("inclusion");
             let query = self.ring.member_proof_request(
                 &self.member,
@@ -741,14 +731,14 @@ mod tests {
             json["newIndex"],
             index_hex(fixture.query.expected_next_index)
         );
-        assert_eq!(json["headNewRoot"], field_hex(&fixture.new_root));
+        assert_eq!(json["registryNewRoot"], field_hex(&fixture.new_root));
         assert_eq!(
             json["lowProof"].as_array().expect("low").len(),
-            HEAD_MAP_HEIGHT
+            KEY_REGISTRY_HEIGHT
         );
         assert_eq!(
             json["newProof"].as_array().expect("new").len(),
-            HEAD_MAP_HEIGHT
+            KEY_REGISTRY_HEIGHT
         );
         // The nullifier secret rides right aligned, its high byte pins it below the field order.
         let secret = json["nullifierSecret"].as_str().expect("secret");
@@ -783,7 +773,7 @@ mod tests {
 
     #[test]
     fn the_registered_entry_opens_to_the_sealed_key_under_the_root() {
-        let mut fixture = Fixture::new();
+        let fixture = Fixture::new();
         let (query, response) = fixture.entry();
         let entry = fixture
             .read()
@@ -806,7 +796,7 @@ mod tests {
 
     #[test]
     fn a_known_nullifier_public_key_authenticates_the_entry_without_decryption() {
-        let mut fixture = Fixture::new();
+        let fixture = Fixture::new();
         let (query, response) = fixture.entry();
         let public_key = fixture.nullifier_key.pubkey().unwrap();
         let entry = fixture
@@ -847,7 +837,7 @@ mod tests {
             |response| response.eph_pk.0.pop().map(drop).unwrap_or(()),
         ];
         for mutate in mutations {
-            let mut fixture = Fixture::new();
+            let fixture = Fixture::new();
             let (query, mut response) = fixture.entry();
             mutate(&mut response);
             assert!(matches!(
@@ -856,7 +846,7 @@ mod tests {
             ));
         }
         // A path that verifies but under another leaf opens to nothing.
-        let mut fixture = Fixture::new();
+        let fixture = Fixture::new();
         let (query, mut response) = fixture.entry();
         response.proof[0].0[31] ^= 1;
         let entry = fixture
@@ -931,7 +921,7 @@ mod tests {
         }
     }
 
-    fn escrow(fixture: &mut Fixture) -> (KeyRegistry, EntryIndexer) {
+    fn escrow(fixture: &Fixture) -> (KeyRegistry, EntryIndexer) {
         let entry = fixture.entry();
         (
             KeyRegistry { ring: fixture.ring },
@@ -954,8 +944,8 @@ mod tests {
 
     #[test]
     fn an_enrolled_output_key_opens_its_registry_leaf_once_per_owner() {
-        let mut fixture = Fixture::new();
-        let (registry, indexer) = escrow(&mut fixture);
+        let fixture = Fixture::new();
+        let (registry, indexer) = escrow(&fixture);
         let key = output_key(&fixture.member, fixture.envelope.nullifier_pk);
         let escrowed = registry
             .openings(indexer.env(), &[key, None, key])
@@ -971,14 +961,14 @@ mod tests {
             opening.ct_hash,
             ciphertext_hash(&fixture.envelope.sealed.ciphertext).unwrap()
         );
-        let leaf = HeadMapLeaf {
+        let leaf = KeyRegistryLeaf {
             member: fixture.member.as_bytes(),
             next: &opening.next,
-            nullifier: &RegisteredKey {
+            key: &RegisteredKey {
                 nullifier_pk: &fixture.envelope.nullifier_pk,
                 ciphertext: &fixture.envelope.sealed.ciphertext,
             }
-            .commitment()
+            .hash()
             .unwrap(),
         }
         .hash()
@@ -996,8 +986,8 @@ mod tests {
 
     #[test]
     fn a_zero_key_output_is_refused_before_proving() {
-        let mut fixture = Fixture::new();
-        let (registry, indexer) = escrow(&mut fixture);
+        let fixture = Fixture::new();
+        let (registry, indexer) = escrow(&fixture);
         let stranger = Member::owner_tag(&[4; 32]).unwrap();
         for owner in [stranger, fixture.member] {
             assert!(matches!(
@@ -1009,8 +999,8 @@ mod tests {
 
     #[test]
     fn an_unregistered_owner_or_another_key_is_refused_before_proving() {
-        let mut fixture = Fixture::new();
-        let (registry, indexer) = escrow(&mut fixture);
+        let fixture = Fixture::new();
+        let (registry, indexer) = escrow(&fixture);
         let stranger = Member::owner_tag(&[4; 32]).unwrap();
         assert!(matches!(
             registry.openings(indexer.env(), &[output_key(&stranger, [7; 32])]),
@@ -1025,8 +1015,8 @@ mod tests {
 
     #[test]
     fn a_lagging_projection_is_asked_again_under_a_fresh_root() {
-        let mut fixture = Fixture::new();
-        let (registry, indexer) = escrow(&mut fixture);
+        let fixture = Fixture::new();
+        let (registry, indexer) = escrow(&fixture);
         indexer.lag.replace(vec![
             ClientError::RingKeyRegistryRootChanged,
             ClientError::RingKeyRegistryOutOfSync,

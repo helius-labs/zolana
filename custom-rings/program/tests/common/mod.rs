@@ -11,10 +11,10 @@ use custom_ring_interface::{
     RingProgramConfig, SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot,
     SourceSpec, SpendWindow, UpdateEntryIxData, WithdrawalThreshold, WithdrawalThresholdRow,
     CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
-    HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, KEY_REGISTRY_ROOT_PDA_SEED,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
-    READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
-    RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
+    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 use custom_ring_program::CustomRingError;
 use mollusk_svm::{
@@ -635,7 +635,7 @@ pub fn key_registry_root_slot() -> Slot {
     Slot {
         label: "key_registry_root",
         meta: AccountMeta::new_readonly(key_registry_root_pda().0, false),
-        account: key_registry_root_account(HEAD_MAP_EMPTY_ROOT, 1),
+        account: key_registry_root_account(KEY_REGISTRY_EMPTY_ROOT, 1),
     }
 }
 
@@ -681,7 +681,7 @@ pub fn register_key_fixture(root: Account, member: Pubkey) -> Fixture {
                 commitment: [4; 32],
                 commitment_pok: [5; 32],
             },
-            registry_old_root: HEAD_MAP_EMPTY_ROOT,
+            registry_old_root: KEY_REGISTRY_EMPTY_ROOT,
             registry_new_root: [0x11; 32],
             registry_next_index: 1,
             nullifier_pk: [0x12; 32],

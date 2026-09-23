@@ -29,7 +29,7 @@ import {
   spendCountersCommitment,
   zeroSpendCounters,
 } from "../src/ring/policy.js";
-import { HEAD_MAP_FIELD_MAX, headMapZeroBytes } from "../src/ring/head-map.js";
+import { KEY_REGISTRY_FIELD_MAX, keyRegistryZeroBytes } from "../src/ring/key-registry-tree.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
 import { bigIntBytes } from "../src/transaction/internal.js";
 import { BLOCKHASH } from "./helpers/clients.js";
@@ -76,7 +76,7 @@ async function fixture(payer = PAYER) {
     velocity: [{ asset: memberOfAsset(SOL_MINT), cap: 100n, cosignAbove: 0n }],
   });
   const member = memberOfTag(addressBytes(payer));
-  const zeros = headMapZeroBytes();
+  const zeros = keyRegistryZeroBytes();
   const spp = vi.fn(async (_input: TransferInputs) => PROOF);
   let slot = 700n;
   const client: RingSpendRegistrationClient = {
@@ -123,7 +123,7 @@ async function fixture(payer = PAYER) {
         path: zeros.slice(0, 40),
         lowElement: field(0),
         lowElementIndex: 0n,
-        highElement: HEAD_MAP_FIELD_MAX,
+        highElement: KEY_REGISTRY_FIELD_MAX,
         highElementIndex: 1n,
         root: field(1),
         rootSeq: 1n,

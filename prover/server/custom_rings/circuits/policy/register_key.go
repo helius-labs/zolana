@@ -17,22 +17,22 @@ const NfKeyEncInfo = "CRING/nfk1"
 type KeyRegisterCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
-	HeadOldRoot frontend.Variable
-	HeadNewRoot frontend.Variable
-	Member      frontend.Variable
-	NewIndex    frontend.Variable
+	RegistryOldRoot frontend.Variable
+	RegistryNewRoot frontend.Variable
+	Member          frontend.Variable
+	NewIndex        frontend.Variable
 
 	// Byte 0 is zero, the 31-byte packing stays below the field order.
 	NullifierSecret [32]frontend.Variable
 	EphSk           [32]frontend.Variable
 	AuditorPk       [65]frontend.Variable
 
-	LowMember    frontend.Variable
-	LowNext      frontend.Variable
-	LowNullifier frontend.Variable
-	LowIndex     frontend.Variable
-	LowProof     [registry.Height]frontend.Variable
-	NewProof     [registry.Height]frontend.Variable
+	LowMember frontend.Variable
+	LowNext   frontend.Variable
+	LowKey    frontend.Variable
+	LowIndex  frontend.Variable
+	LowProof  [registry.Height]frontend.Variable
+	NewProof  [registry.Height]frontend.Variable
 }
 
 func (c *KeyRegisterCircuit) Define(api frontend.API) error {
@@ -65,23 +65,23 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 		Info:      NfKeyEncInfo,
 	}.Seal(api)
 
-	// 3. Require member absence before inserting the ciphertext commitment.
-	ctCommitment := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, sealed.CiphertextHash})
+	// 3. Require member absence before inserting the key hash.
+	keyHash := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, sealed.CiphertextHash})
 	newRoot := registry.Insertion{
-		OldRoot:  c.HeadOldRoot,
-		Low:      registry.Leaf{Member: c.LowMember, Next: c.LowNext, Key: c.LowNullifier},
+		OldRoot:  c.RegistryOldRoot,
+		Low:      registry.Leaf{Member: c.LowMember, Next: c.LowNext, Key: c.LowKey},
 		LowIndex: c.LowIndex,
 		LowProof: c.LowProof[:],
 		Member:   c.Member,
-		Key:      ctCommitment,
+		Key:      keyHash,
 		NewIndex: c.NewIndex,
 		NewProof: c.NewProof[:],
 	}.NewRoot(api)
-	api.AssertIsEqual(newRoot, c.HeadNewRoot)
+	api.AssertIsEqual(newRoot, c.RegistryNewRoot)
 
 	// 4. Bind registration to the program's public statement.
 	chain := []frontend.Variable{
-		c.HeadOldRoot, c.HeadNewRoot, c.Member,
+		c.RegistryOldRoot, c.RegistryNewRoot, c.Member,
 		nullifierPk, sealed.AuditorLo, sealed.AuditorHi, sealed.EphLo, sealed.EphHi, sealed.CiphertextHash,
 		c.NewIndex,
 	}

@@ -12,7 +12,6 @@ pub mod deposit;
 pub mod deposit_audit;
 #[cfg(feature = "verifying-keys")]
 pub mod deposit_verifying_key;
-pub mod head_map;
 pub mod instruction;
 pub mod key_registry;
 #[cfg(not(target_os = "solana"))]
@@ -26,12 +25,9 @@ pub mod state;
 
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use deposit::{DepositContext, DepositPublicInput};
-pub use head_map::{
-    HeadMapInsert, HeadMapLeaf, HeadMapVerifyError, MerklePath, HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT,
-};
 pub use instruction::{
     accounts, tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof,
-    CustomRingTransactIxData, HeadMapTransition, PlainGroth16Proof, PolicyTableIxData,
+    CustomRingTransactIxData, KeyRegistryTransition, PlainGroth16Proof, PolicyTableIxData,
     ReaderIxData, RegisterKeyIxData, RegisterSpendIxData, SetCoSignerIxData, SetPausedIxData,
     SetPolicySourceIxData, SetSpendWindowIxData, SourceSpec, UpdateEntryIxData, VelocityRowIxData,
     WithdrawalThreshold, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
@@ -46,16 +42,19 @@ pub use instruction::{
 pub use instruction::{
     SetDepositAuditIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT, SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT,
 };
-pub use key_registry::{RegisterKeyPublicInput, RegisteredKey};
+pub use key_registry::{
+    KeyRegistryInsert, KeyRegistryLeaf, KeyRegistryVerifyError, MerklePath, RegisterKeyPublicInput,
+    RegisteredKey, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT,
+};
 pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
 pub use state::{
     CoSignScope, CoSigner, Delegate, FixedWindow, KeyEscrow, KeyRegistryRoot, PolicyConfig,
     ReadAccessRecord, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow,
     CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
-    HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, KEY_REGISTRY_ROOT_PDA_SEED,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
-    READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW,
-    SPEND_WINDOW_PDA_SEED,
+    KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
+    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
+    SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 pub use state::{DepositAudit, DEPOSIT_AUDIT};
 

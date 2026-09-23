@@ -1,7 +1,7 @@
 use super::{storage::RingRoot, Projection};
 use crate::ingester::persist::persisted_state_tree::{get_proof_nodes, zero_hash_for_level};
 use anyhow::{bail, Context, Result};
-use custom_ring_interface::{HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT};
+use custom_ring_interface::{KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT};
 use sea_orm::DatabaseTransaction;
 pub(crate) use zolana_ring_indexer::proof::{LeafPath, PathOverlay};
 
@@ -10,11 +10,11 @@ pub(crate) async fn path<P: Projection>(
     root: &RingRoot,
     index: u64,
 ) -> Result<LeafPath> {
-    if index >= HEAD_MAP_CAPACITY {
+    if index >= KEY_REGISTRY_CAPACITY {
         bail!("{} index out of range", P::KIND);
     }
     let kind = P::KIND.tree();
-    let mut node = i64::try_from(HEAD_MAP_CAPACITY + index)?;
+    let mut node = i64::try_from(KEY_REGISTRY_CAPACITY + index)?;
     let values = get_proof_nodes(
         tx,
         vec![(root.address.to_vec(), kind.into(), node)],
@@ -35,8 +35,8 @@ pub(crate) async fn path<P: Projection>(
         }
     };
     let leaf = lookup(node, 0)?;
-    let mut siblings = Vec::with_capacity(HEAD_MAP_HEIGHT);
-    for level in 0..HEAD_MAP_HEIGHT {
+    let mut siblings = Vec::with_capacity(KEY_REGISTRY_HEIGHT);
+    for level in 0..KEY_REGISTRY_HEIGHT {
         siblings.push(lookup(node ^ 1, level)?);
         node >>= 1;
     }

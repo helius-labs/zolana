@@ -4,7 +4,7 @@ use bytemuck::Pod;
 use custom_ring_interface::{
     pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyEscrow, KeyRegistryRoot,
     PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE,
-    DEPOSIT_AUDIT, HEAD_MAP_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
+    DEPOSIT_AUDIT, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
     RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
 use solana_account::Account;
@@ -245,7 +245,7 @@ impl CustomRing {
         let next_index = root.next_index();
         if root.bump != pda.bump
             || next_index == 0
-            || next_index > HEAD_MAP_CAPACITY
+            || next_index > KEY_REGISTRY_CAPACITY
             || root.root_at(root.history_cursor) != Some(root.root)
         {
             return Err(AccountReadError::InvalidAccount {

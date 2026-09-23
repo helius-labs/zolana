@@ -210,7 +210,7 @@ const _: () = assert!(Delegate::SIZE == 34);
 const _: () = assert!(core::mem::align_of::<Delegate>() == 1);
 
 /// Root of the sentinel-only indexed tree, the value a fresh registry initializes to.
-pub const HEAD_MAP_EMPTY_ROOT: [u8; 32] = [
+pub const KEY_REGISTRY_EMPTY_ROOT: [u8; 32] = [
     3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51,
     161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
 ];
