@@ -2458,7 +2458,6 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
- "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -5665,11 +5664,9 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
- "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
- "zolana-user-registry-interface",
  "zolana-wallet",
 ]
 
@@ -9267,7 +9264,6 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
- "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -9533,7 +9529,6 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
- "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -10781,7 +10776,6 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "bincode 1.3.3",
  "bs58",
  "flate2",

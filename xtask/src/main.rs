@@ -112,9 +112,10 @@ fn main() {
         }
         Some("generate-account-snapshots") => {
             let (deploy_dir, accounts_dir) = parse_account_snapshot_options(args.collect());
-            if let Err(error) =
-                create_release::generate_account_snapshots(&deploy_dir, &accounts_dir)
-            {
+            if let Err(error) = zolana_test_utils::localnet_fixture::write_protocol_snapshot(
+                &deploy_dir.join("shielded_pool_program.so"),
+                &accounts_dir,
+            ) {
                 eprintln!("generate-account-snapshots failed: {error:?}");
                 std::process::exit(1);
             }

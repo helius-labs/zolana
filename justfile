@@ -1229,12 +1229,11 @@ dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon en
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
 # create+cancel swap flows over a fresh validator
 # (sdk-tests/zk-program-swap/test/tests/{swap,take_verifiable_encryption,cancel}.rs).
-# Each test binary boots solana-test-validator via the `zolana` CLI with the swap
-# program, the shielded pool, the user registry, and the Squads smart account
-# loaded together, plus Photon and the persistent SPP prover -- mirroring
-# test-spp-validator. Cargo runs the test binaries serially, so each boots a
-# fresh validator.
-test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+# Each test boots a localnet from the shared account fixture
+# (zolana_test_utils::localnet_fixture) with the swap program, the shielded pool
+# and the user registry loaded, plus Photon and the persistent SPP prover. Cargo
+# runs the test binaries serially, so each boots a fresh validator.
+test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1323,11 +1322,11 @@ _custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli e
       tools/ci/nextest-suite.sh -p custom-ring-test-validator --test {{test}} --no-capture
 
 # Timelock escrow lifecycle on a local validator, driven against a real
-# localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
-# solana-test-validator via the `zolana` CLI with the timelock escrow program,
-# the shielded pool, and the Squads smart account loaded together, plus Photon
-# and the persistent SPP prover -- mirroring test-swap-validator.
-test-escrow-validator: ensure-escrow-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+# localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots a localnet
+# from the shared account fixture with the timelock escrow program and the
+# shielded pool loaded, plus Photon and the persistent SPP prover -- mirroring
+# test-swap-validator.
+test-escrow-validator: ensure-escrow-keys build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     cleanup() {
@@ -1393,17 +1392,14 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
 
 # Dynamic-swap example lifecycle tests
 # (sdk-tests/dynamic-swap/test/tests/{pair,escrow_flow,escrow_refund}.rs). Each
-# test binary boots its own solana-test-validator +
-# Photon via the `zolana` CLI and starts the shared SPP prover server itself
-# (spawn_prover); dynamic-swap's own circuits (escrow_open/
-# escrow_settle) prove in-process through an embedded gnark FFI,
-# no separate prover process for those. Needs the Squads smart-account binary
-# (ensure-smart-account) since setup() always loads it, and exports the
-# per-clone ZOLANA_PORT_OFFSET-derived ports/URLs like the other localnet
-# recipes so it never collides with a concurrent session on the default
-# ports. Pass extra cargo-test args to select a single test binary, e.g.
+# test boots a localnet from the shared account fixture plus Photon, and starts
+# the shared SPP prover server; dynamic-swap's own circuits (escrow_open/
+# escrow_settle) prove in-process through the embedded gnark prover. It exports
+# the per-clone ZOLANA_PORT_OFFSET-derived ports/URLs like the other localnet
+# recipes so it never collides with a concurrent session on the default ports.
+# Pass extra cargo-test args to select a single test binary, e.g.
 # `just test-dynamic-swap --test pair`.
-test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     cleanup() {
@@ -1420,10 +1416,9 @@ test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-se
 
 # Confidential RFQ settlement on a local validator: the maker and taker co-sign
 # one shielded-pool transact that swaps SOL for USDC with no escrow and no custom
-# program (sdk-tests/rfq/tests/rfq.rs). Boots solana-test-validator via the
-# `zolana` CLI with the shielded pool, the user registry, and the Squads smart
-# account, plus Photon and the SPP prover -- mirroring test-client-example.
-test-rfq-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+# program (sdk-tests/rfq/tests/rfq.rs). Boots a localnet from the shared account
+# fixture with the shielded pool loaded, plus Photon and the SPP prover.
+test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
