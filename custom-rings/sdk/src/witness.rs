@@ -85,7 +85,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         let resolved = plan.resolve(lineages)?;
         let proofs = resolved.queries().fetch(indexer)?;
         let fixed = FixedRoots::from_proofs(&proofs)?;
-        let roots = fixed.at_heads(head_roots(rpc.get_account(tree)?, tree)?)?;
+        let roots = fixed.at_heads(head_roots(rpc.get_account(tree)?, tree)?);
         resolved.assemble(proofs, roots)
     }
 
@@ -104,7 +104,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         let resolved = plan.resolve(lineages)?;
         let proofs = resolved.queries().fetch_async(indexer).await?;
         let fixed = FixedRoots::from_proofs(&proofs)?;
-        let roots = fixed.at_heads(head_roots(rpc.get_account(tree).await?, tree)?)?;
+        let roots = fixed.at_heads(head_roots(rpc.get_account(tree).await?, tree)?);
         resolved.assemble(proofs, roots)
     }
 
@@ -583,25 +583,21 @@ impl FixedRoots {
         })
     }
 
-    fn at_heads(self, heads: TransactRoots) -> Result<TransactRoots, TransferError> {
+    fn at_heads(self, heads: TransactRoots) -> TransactRoots {
         let state = self.state.unwrap_or(HistoryRoot {
             value: heads.state,
             index: heads.state_index,
         });
-        let head_nullifier = HistoryRoot {
+        let nullifier = self.nullifier.unwrap_or(HistoryRoot {
             value: heads.nullifier,
             index: heads.nullifier_index,
-        };
-        let nullifier = self.nullifier.unwrap_or(head_nullifier);
-        if nullifier != head_nullifier {
-            return Err(TransferError::PolicyRootMismatch);
-        }
-        Ok(TransactRoots {
+        });
+        TransactRoots {
             state: state.value,
             state_index: state.index,
             nullifier: nullifier.value,
             nullifier_index: nullifier.index,
-        })
+        }
     }
 }
 
@@ -1302,6 +1298,31 @@ mod tests {
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRootMismatch)));
+    }
+
+    #[test]
+    fn absence_proofs_at_an_older_live_root_keep_their_own_root_and_index() {
+        let (_, address) = recipient();
+        let mut rpc = ProofRpc::new(Vec::new());
+        let older = HistoryRoot {
+            value: [0x33; 32],
+            index: 2,
+        };
+        rpc.nullifier_roots = vec![older];
+        let outputs = [output(address, 1)];
+        let config = config(&BLOCK);
+        let witness = CustomRingWitnessInput {
+            policy: &BLOCK,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+            output_tree_id: 0,
+            velocity: velocity_off(),
+        }
+        .build(&rpc, &rpc)
+        .expect("witness");
+        assert_eq!(witness.roots.nullifier, older.value);
+        assert_eq!(witness.roots.nullifier_index, older.index);
     }
 
     #[test]

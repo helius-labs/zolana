@@ -61,7 +61,7 @@ type CustomRingPolicyCircuit struct {
 
 	// The program selects roots from the configured entries tree's history.
 	StateRoot frontend.Variable
-	// The program limits nullifier root age with NULLIFIER_ROOT_WINDOW.
+	// Any live root, a revocation target PDA check covers queued nullifiers.
 	NullifierRoot frontend.Variable
 	// The raw id of the entries tree, every leaf and address hashes under it.
 	EntriesTreeID frontend.Variable

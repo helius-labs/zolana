@@ -1,15 +1,10 @@
 use pinocchio::{AccountView, Address};
 use zolana_interface::{
-    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY},
-    SHIELDED_POOL_PROGRAM_ID,
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_tree::TreeAccount;
 
 use crate::error::CustomRingError;
-
-/// Liveness bound only, the revocation target PDA check keeps older roots sound.
-pub const NULLIFIER_ROOT_WINDOW: u32 = 8;
-const _: () = assert!(NULLIFIER_ROOT_WINDOW < NULLIFIER_TREE_ROOT_HISTORY_CAPACITY);
 
 pub struct TransactRoots {
     pub state: [u8; 32],
@@ -38,7 +33,7 @@ pub fn load_roots(
     if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
         return Err(CustomRingError::InvalidEntriesTree);
     }
-    let mut tree = TreeAccount::from_bytes(&mut data, pubkey)
+    let tree = TreeAccount::from_bytes(&mut data, pubkey)
         .map_err(|_| CustomRingError::InvalidEntriesTree)?;
     if tree.is_paused() {
         return Err(CustomRingError::InvalidEntriesTree);
@@ -49,45 +44,5 @@ pub fn load_roots(
     let nullifier = tree
         .get_nullifier_tree_root(nullifier_root_index)
         .map_err(|_| CustomRingError::StalePolicyRoot)?;
-    let cursor = tree.nullifier_tree().get_root_index();
-    if !within_window(u32::from(nullifier_root_index), cursor) {
-        return Err(CustomRingError::StalePolicyRoot);
-    }
     Ok(TransactRoots { state, nullifier })
-}
-
-fn within_window(index: u32, cursor: u32) -> bool {
-    let capacity = NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
-    if index >= capacity || cursor >= capacity {
-        return false;
-    }
-    (cursor + capacity - index) % capacity <= NULLIFIER_ROOT_WINDOW
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const CAPACITY: u32 = NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
-
-    #[test]
-    fn the_window_admits_the_cursor_and_the_last_entries() {
-        assert!(within_window(40, 40));
-        assert!(within_window(40 - NULLIFIER_ROOT_WINDOW, 40));
-        assert!(!within_window(40 - NULLIFIER_ROOT_WINDOW - 1, 40));
-        assert!(!within_window(41, 40));
-    }
-
-    #[test]
-    fn the_window_wraps_with_the_buffer() {
-        assert!(within_window(CAPACITY - 1, 2));
-        assert!(within_window(CAPACITY - NULLIFIER_ROOT_WINDOW + 1, 1));
-        assert!(!within_window(CAPACITY / 2, 1));
-    }
-
-    #[test]
-    fn an_index_past_the_history_is_refused() {
-        assert!(!within_window(CAPACITY, 0));
-        assert!(!within_window(0, CAPACITY));
-    }
 }

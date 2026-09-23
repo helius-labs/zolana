@@ -11,7 +11,6 @@ mod instructions;
 mod state;
 
 pub use error::CustomRingError;
-pub use instructions::NULLIFIER_ROOT_WINDOW;
 
 use custom_ring_interface::{tag, KeyRegistryRoot};
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
