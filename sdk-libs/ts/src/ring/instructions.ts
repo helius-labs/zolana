@@ -305,9 +305,7 @@ export async function ringDelegateTransactInstruction(
   input: RingTransactCommon & Readonly<{ delegate: SignerAccount }>,
 ): Promise<Instruction> {
   if (input.approvalRequired === true) {
-    throw new RingError("RING_DELEGATE_ON_VELOCITY_RING", {
-      details: { approvalRequired: true },
-    });
+    throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "approvalRequired" } });
   }
   if (input.data.interfaceTransfers.length > 0) {
     throw new RingError("RING_DELEGATE_PUBLIC_LEG", {

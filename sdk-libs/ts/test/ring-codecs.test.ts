@@ -1414,6 +1414,22 @@ describe("ring transact", () => {
         data: { ...transactData(), interfaceTransfers: [{ kind: "solWithdrawal", amount: 1n }] },
       }),
     ).rejects.toThrow("RING_DELEGATE_PUBLIC_LEG");
+    await expect(
+      ringDelegateTransactInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        delegate,
+        inputTrees: [TREE],
+        outputTree: OUTPUT_TREE,
+        policy: policy({ keyRegistryRootIndex: 3 }),
+        approvalRequired: true,
+        proof: customRingProof(),
+        data: transactData(),
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_DELEGATE_INVALID",
+      details: { reason: "approvalRequired" },
+    });
   });
 
   it("places one spend window slot per public leg before the spp payer", async () => {
