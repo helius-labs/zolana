@@ -1358,11 +1358,20 @@ build-prover-server:
 # ZOLANA_NEXTEST_ARCHIVE_DIR set the suite recipes run from it without building.
 # The example keys are generated here too, so the matrix jobs find them pinned
 # and never build a setup binary.
-build-localnet-archives dir="target/nextest-archives": build-programs build-cli build-prover-server ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys
+# Everything the CI localnet matrix runs with. CI builds the three parts in
+# parallel jobs: the SBF programs, the tools, and the test archives.
+build-localnet: build-programs build-localnet-tools build-localnet-archives
+
+# The CLI, the prover server, xtask and the example programs' test keys.
+build-localnet-tools: build-cli build-prover-server ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys
+    cargo build -p xtask --target-dir target
+
+# The localnet suites as nextest archives. The test binaries load the programs
+# and keys at run time, so this needs neither.
+build-localnet-archives dir="target/nextest-archives":
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p {{dir}}
-    cargo build -p xtask --target-dir target
     cargo nextest archive -p shielded-pool-tests --features localnet --test localnet_photon --test localnet_wallet_cli --archive-file {{dir}}/shielded-pool-tests.tar.zst
     cargo nextest archive -p spp-test-validator --test lifecycle --test proof_cu --archive-file {{dir}}/spp-test-validator.tar.zst
     cargo nextest archive -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu --archive-file {{dir}}/ring-test-program.tar.zst
