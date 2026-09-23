@@ -113,6 +113,31 @@ class StackTests(unittest.TestCase):
 
 
 class DeployTests(unittest.TestCase):
+    def test_preview_images_require_explicit_selection(self):
+        revision, preview_revision = "a" * 40, "b" * 40
+        client = Mock()
+        client.call.return_value = {
+            "imageDetails": [
+                {
+                    "imageTags": ["gpu-sm89-" + revision],
+                    "imageDigest": "sha256:release",
+                    "imagePushedAt": 1,
+                },
+                {
+                    "imageTags": ["gpu-preview-sm89-" + preview_revision],
+                    "imageDigest": "sha256:preview",
+                    "imagePushedAt": 2,
+                },
+            ]
+        }
+        self.assertEqual(aws.image_pair(client)["revision"], revision)
+        self.assertEqual(
+            aws.image_pair(client, preview_revision, preview=True)["revision"],
+            preview_revision,
+        )
+        with self.assertRaisesRegex(RuntimeError, "No published"):
+            aws.image_pair(client, preview_revision)
+
     def test_api_input_casing(self):
         client = aws.Aws("eu-central-1")
         with patch.object(client, "command", return_value="{}") as command:
@@ -253,6 +278,7 @@ class DeployTests(unittest.TestCase):
                     "disk_gb",
                     "zone",
                     "revision",
+                    "preview",
                     "with_indexer",
                     "indexer_url",
                     "indexer_key_secret",
@@ -404,6 +430,8 @@ class HostTests(unittest.TestCase):
                 self.assertEqual(len(photon), int(migration_status == "0"))
                 if photon:
                     self.assertLess(migrate, photon[0])
+                    prover = next(call for call in calls if "--prover-address" in call)
+                    self.assertIn("--auto-download", prover)
                 migration_env = Path(directory, "migration.env").read_text()
                 self.assertEqual(
                     migration_env,

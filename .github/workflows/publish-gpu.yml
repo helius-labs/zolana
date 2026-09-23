@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: publish-gpu
+  group: publish-gpu-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -28,7 +28,7 @@ env:
 
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: image-publish
@@ -61,6 +61,9 @@ jobs:
           SERVICE: ${{ matrix.service }}
           PREFIX: ${{ matrix.prefix }}
         run: |
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            PREFIX=${PREFIX/gpu/gpu-preview}
+          fi
           tag="$PREFIX-$GITHUB_SHA"
           echo "tag=$REGISTRY/zolana-$SERVICE:$tag" >> "$GITHUB_OUTPUT"
           if result=$(aws ecr describe-images --repository-name "zolana-$SERVICE" --image-ids "imageTag=$tag" 2>&1); then

@@ -133,7 +133,7 @@ def wait_stack(aws, name, deleting=False):
     )
 
 
-def image_pair(aws, revision=None, with_indexer=False):
+def image_pair(aws, revision=None, with_indexer=False, preview=False):
     def entries(repository, prefix):
         found = {}
         for image in aws.call(
@@ -148,8 +148,9 @@ def image_pair(aws, revision=None, with_indexer=False):
                     found[tag[len(prefix) :]] = image
         return found
 
-    provers = entries("zolana-prover", "gpu-sm89-")
-    photons = entries("zolana-photon", "gpu-") if with_indexer else {}
+    prefix = "gpu-preview" if preview else "gpu"
+    provers = entries("zolana-prover", prefix + "-sm89-")
+    photons = entries("zolana-photon", prefix + "-") if with_indexer else {}
     candidates = set(provers) & set(photons) if with_indexer else set(provers)
     if revision:
         candidates &= {revision}
@@ -261,6 +262,7 @@ def configuration(args, aws):
         "region": args.region,
         "image_region": IMAGE_REGION,
         "source_region": source_region,
+        "preview": bool(args.preview),
         "instance_type": instance_type,
         "zone": zone,
         "ami": ami,
@@ -278,7 +280,12 @@ def configuration(args, aws):
         ],
     }
     config.update(
-        image_pair(Aws(IMAGE_REGION, args.profile), args.revision, with_indexer)
+        image_pair(
+            Aws(IMAGE_REGION, args.profile),
+            args.revision,
+            with_indexer,
+            bool(args.preview),
+        )
     )
     if with_indexer:
         config["source"] = discover_source(
@@ -516,6 +523,7 @@ def deploy(args, aws, stack):
             "disk_gb",
             "zone",
             "revision",
+            "preview",
             "with_indexer",
             "indexer_url",
             "indexer_key_secret",
@@ -629,6 +637,12 @@ def main():
     parser.add_argument(
         "--revision", help="Published main commit, default newest complete release"
     )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        default=None,
+        help="Use preview images with an explicit --revision",
+    )
     parser.add_argument("--source-region", help="Source region, default eu-north-1")
     parser.add_argument(
         "--source-cluster", help="Source cluster, default zolnet-devnet-c"
@@ -642,6 +656,8 @@ def main():
         help="Resolve and validate the stack without creating resources",
     )
     args = parser.parse_args()
+    if args.preview and not args.revision:
+        parser.error("--preview requires --revision")
     if args.plan and args.action != "deploy":
         parser.error("--plan requires deploy")
     if args.disk_gb is not None and not 50 <= args.disk_gb <= 16384:

@@ -25,7 +25,9 @@ role and `PRIVATE_LIBS_TOKEN`, with read access to Aeglos. Wait for that workflo
 to finish. Deployment selects the newest complete release, pins both images by
 digest, and requires the same source commit. `--revision FULL_SHA` selects a
 specific published commit. Local CUDA, Docker, Go, Rust, and Aeglos access are
-not required.
+not required. Manual workflow runs on other branches publish preview images.
+Select them with `--preview --revision FULL_SHA`. Default deployments exclude
+previews.
 
 For a prover with an existing indexer:
 

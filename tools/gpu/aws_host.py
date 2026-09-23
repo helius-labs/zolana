@@ -343,6 +343,7 @@ def install(config):
             "start",
             "--require-optimized-build",
             "--server-only",
+            "--auto-download",
             "--keys-dir",
             "/proving-keys",
             "--preload-keys",
