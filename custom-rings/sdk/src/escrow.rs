@@ -6,7 +6,7 @@ use zolana_ring_policy::Member;
 use crate::{
     instructions::spend::ReadEnvironment,
     projection::{retry_projection_lag, retry_projection_lag_async},
-    CustomRing, CustomRingConfig, IndexedMapRoot, KeyRegistrationError, ReadSealedKey,
+    CurrentKeyRegistryRoot, CustomRing, CustomRingConfig, KeyRegistrationError, ReadSealedKey,
     SealedKeyEntry,
 };
 
@@ -44,7 +44,7 @@ pub(crate) struct KeyRegistry {
 /// Every opening is included under `root`.
 #[derive(Debug)]
 pub(crate) struct EscrowedKeys {
-    pub root: IndexedMapRoot,
+    pub root: CurrentKeyRegistryRoot,
     /// Per output, `None` for an unowned slot or a namespace-owned record.
     pub keys: Vec<Option<RegistryKeyOpening>>,
 }
@@ -92,11 +92,14 @@ impl KeyRegistry {
         .await
     }
 
-    fn root(self, root: Option<IndexedMapRoot>) -> Result<IndexedMapRoot, KeyRegistrationError> {
+    fn root(
+        self,
+        root: Option<CurrentKeyRegistryRoot>,
+    ) -> Result<CurrentKeyRegistryRoot, KeyRegistrationError> {
         root.ok_or(KeyRegistrationError::MissingKeyRegistry)
     }
 
-    fn sealed_key(self, member: Member, root: IndexedMapRoot) -> ReadSealedKey {
+    fn sealed_key(self, member: Member, root: CurrentKeyRegistryRoot) -> ReadSealedKey {
         ReadSealedKey {
             ring: self.ring,
             member,
@@ -135,7 +138,7 @@ impl EscrowedOutputs {
     /// `entries` follow `owners`, `None` for an owner the registry does not hold.
     fn open(
         &self,
-        root: IndexedMapRoot,
+        root: CurrentKeyRegistryRoot,
         entries: &[Option<SealedKeyEntry>],
     ) -> Result<EscrowedKeys, KeyRegistrationError> {
         let keys = self

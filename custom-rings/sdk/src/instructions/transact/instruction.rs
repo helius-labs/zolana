@@ -11,7 +11,7 @@ use zolana_transaction::SOL_MINT;
 
 use crate::{
     instructions::{cosigner::RingPrefix, spend_window::window_metas},
-    CustomRing, IndexedMapRoot,
+    CurrentKeyRegistryRoot, CustomRing,
 };
 
 #[derive(Debug, Error)]
@@ -46,7 +46,7 @@ pub enum EscrowBinding {
 
 impl EscrowBinding {
     /// `None` with escrow off.
-    pub(crate) fn of(root: Option<IndexedMapRoot>) -> Self {
+    pub(crate) fn of(root: Option<CurrentKeyRegistryRoot>) -> Self {
         root.map_or(Self::Off, |root| Self::Registry {
             root_index: root.history_index,
         })

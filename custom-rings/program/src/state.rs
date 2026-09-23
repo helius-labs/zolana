@@ -10,7 +10,7 @@ use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
 };
-use pinocchio::{AccountView, Address, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use solana_curve25519::{
     edwards::{add_edwards, multiply_edwards, validate_edwards, PodEdwardsPoint},
     scalar::PodScalar,
@@ -353,18 +353,6 @@ impl SpendWindowInitParams {
     }
 }
 
-/// A root over an append-only leaf map, leaf 0 the sentinel, cursor at 1 when fresh.
-pub(crate) trait AppendRoot: Account {
-    const SEED: &'static [u8];
-    const STALE: CustomRingError;
-    const CURSOR: CustomRingError;
-
-    fn sentinel(bump: u8) -> Self;
-    fn root(&self) -> &[u8; 32];
-    fn next_index(&self) -> u64;
-    fn advance_to(&mut self, root: [u8; 32], next_index: u64);
-}
-
 impl Account for KeyRegistryRoot {
     const DISCRIMINATOR: u8 = KEY_REGISTRY_ROOT;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidKeyRegistryRoot;
@@ -380,72 +368,68 @@ impl Account for KeyRegistryRoot {
     }
 }
 
-impl AppendRoot for KeyRegistryRoot {
-    const SEED: &'static [u8] = KeyRegistryRoot::SEED;
-    const STALE: CustomRingError = CustomRingError::StaleKeyRegistryRoot;
-    const CURSOR: CustomRingError = CustomRingError::InvalidKeyRegistryCursor;
+/// Leaf 0 holds the sentinel, appends start at index 1.
+pub(crate) struct KeyRegistryRootInit {
+    pub bump: u8,
+}
 
-    fn sentinel(bump: u8) -> Self {
+impl KeyRegistryRootInit {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(account, self.value())
+    }
+
+    pub(crate) const fn value(self) -> KeyRegistryRoot {
         let mut history = [[0u8; 32]; KEY_REGISTRY_ROOT_HISTORY];
         history[0] = KEY_REGISTRY_EMPTY_ROOT;
-        Self {
+        KeyRegistryRoot {
             discriminator: KEY_REGISTRY_ROOT,
-            root: KEY_REGISTRY_EMPTY_ROOT,
             next_index: 1u64.to_le_bytes(),
-            bump,
+            bump: self.bump,
             history_cursor: 0,
             history,
         }
     }
-
-    fn root(&self) -> &[u8; 32] {
-        &self.root
-    }
-
-    fn next_index(&self) -> u64 {
-        KeyRegistryRoot::next_index(self)
-    }
-
-    fn advance_to(&mut self, root: [u8; 32], next_index: u64) {
-        let cursor = (usize::from(self.history_cursor) + 1) % KEY_REGISTRY_ROOT_HISTORY;
-        self.history[cursor] = root;
-        self.history_cursor = cursor as u8;
-        self.root = root;
-        self.next_index = next_index.to_le_bytes();
-    }
 }
 
-/// Initializes an empty indexed registry with its sentinel and first append
-/// position.
-pub(crate) struct SentinelRootInit {
-    pub bump: u8,
-}
-
-impl SentinelRootInit {
-    #[inline(always)]
-    pub fn init<T: AppendRoot>(self, account: &mut AccountView) -> ProgramResult {
-        init_account(account, T::sentinel(self.bump))
-    }
-}
-
-/// The root update and the SPP CPI commit atomically.
 #[must_use]
 pub(crate) struct RootTransition<'a> {
     pub expected_root: &'a [u8; 32],
+    pub expected_next_index: u64,
     pub new_root: [u8; 32],
 }
 
+#[must_use]
+pub(crate) struct CheckedRootTransition {
+    new_root: [u8; 32],
+    next_index: u64,
+}
+
 impl RootTransition<'_> {
-    pub fn apply<T: AppendRoot>(self, root: &mut T) -> ProgramResult {
-        if root.root() != self.expected_root {
-            return Err(T::STALE.into());
+    pub fn check(self, root: &KeyRegistryRoot) -> Result<CheckedRootTransition, ProgramError> {
+        if root.root().as_ref() != Some(self.expected_root) {
+            return Err(CustomRingError::StaleKeyRegistryRoot.into());
         }
-        let cursor = root.next_index();
-        if cursor == 0 || cursor >= KEY_REGISTRY_CAPACITY {
-            return Err(T::CURSOR.into());
+        let next_index = root.next_index();
+        if next_index != self.expected_next_index
+            || next_index == 0
+            || next_index >= KEY_REGISTRY_CAPACITY
+        {
+            return Err(CustomRingError::InvalidKeyRegistryCursor.into());
         }
-        root.advance_to(self.new_root, cursor + 1);
-        Ok(())
+        Ok(CheckedRootTransition {
+            new_root: self.new_root,
+            next_index,
+        })
+    }
+}
+
+impl CheckedRootTransition {
+    pub fn apply(self, root: &mut KeyRegistryRoot) {
+        let cursor = (usize::from(root.history_cursor) + 1) % KEY_REGISTRY_ROOT_HISTORY;
+        root.history[cursor] = self.new_root;
+        root.history_cursor = cursor as u8;
+        root.next_index = (self.next_index + 1).to_le_bytes();
     }
 }
 
@@ -492,22 +476,29 @@ fn init_account_with<T: Account>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pinocchio::error::ProgramError;
 
     fn root(root: [u8; 32], next_index: u64) -> KeyRegistryRoot {
-        let mut state = KeyRegistryRoot::sentinel(254);
-        state.root = root;
+        let mut state = KeyRegistryRootInit { bump: 254 }.value();
         state.history[0] = root;
         state.next_index = next_index.to_le_bytes();
         state
     }
 
+    fn advance(state: &mut KeyRegistryRoot, transition: RootTransition) -> ProgramResult {
+        transition.check(state)?.apply(state);
+        Ok(())
+    }
+
     fn apply(state: &mut KeyRegistryRoot, expected_root: &[u8; 32]) -> ProgramResult {
-        RootTransition {
-            expected_root,
-            new_root: [7u8; 32],
-        }
-        .apply(state)
+        let expected_next_index = state.next_index();
+        advance(
+            state,
+            RootTransition {
+                expected_root,
+                expected_next_index,
+                new_root: [7u8; 32],
+            },
+        )
     }
 
     fn custom(error: CustomRingError) -> ProgramError {
@@ -515,27 +506,27 @@ mod tests {
     }
 
     #[test]
-    fn a_root_that_is_not_the_head_is_refused() {
+    fn a_root_that_is_not_the_current_root_is_refused() {
         let mut state = root([1u8; 32], 1);
         assert_eq!(
             apply(&mut state, &[2u8; 32]),
             Err(custom(CustomRingError::StaleKeyRegistryRoot))
         );
-        assert_eq!(state.root, [1u8; 32]);
+        assert_eq!(state.root(), Some([1u8; 32]));
     }
 
     #[test]
     fn registration_advances_the_cursor_and_publishes_the_successor_root() {
         let mut state = root([1u8; 32], 5);
         apply(&mut state, &[1u8; 32]).expect("advance");
-        assert_eq!(state.root, [7u8; 32]);
+        assert_eq!(state.root(), Some([7u8; 32]));
         assert_eq!(state.next_index(), 6);
     }
 
     #[test]
     fn the_sentinel_root_is_the_first_history_entry() {
-        let state = KeyRegistryRoot::sentinel(254);
-        assert_eq!(state.root_at(0), Some(KEY_REGISTRY_EMPTY_ROOT));
+        let state = KeyRegistryRootInit { bump: 254 }.value();
+        assert_eq!(state.root(), Some(KEY_REGISTRY_EMPTY_ROOT));
         assert_eq!(state.root_at(1), None);
         assert_eq!(state.root_at(KEY_REGISTRY_ROOT_HISTORY as u8), None);
         assert_eq!(state.root_at(u8::MAX), None);
@@ -545,12 +536,16 @@ mod tests {
     fn the_history_keeps_every_root_and_wraps_over_the_oldest() {
         let mut state = root([1u8; 32], 1);
         for step in 1..=KEY_REGISTRY_ROOT_HISTORY as u8 {
-            let head = state.root;
-            RootTransition {
-                expected_root: &head,
-                new_root: [step + 1; 32],
-            }
-            .apply(&mut state)
+            let current = state.root().expect("current root");
+            let expected_next_index = state.next_index();
+            advance(
+                &mut state,
+                RootTransition {
+                    expected_root: &current,
+                    expected_next_index,
+                    new_root: [step + 1; 32],
+                },
+            )
             .expect("advance");
             let slot = usize::from(step) % KEY_REGISTRY_ROOT_HISTORY;
             assert_eq!(usize::from(state.history_cursor), slot);
@@ -565,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn registration_refuses_an_out_of_bounds_cursor() {
+    fn registration_refuses_an_out_of_bounds_or_moved_cursor() {
         for cursor in [0, KEY_REGISTRY_CAPACITY] {
             let mut state = root([1u8; 32], cursor);
             assert_eq!(
@@ -573,5 +568,17 @@ mod tests {
                 Err(custom(CustomRingError::InvalidKeyRegistryCursor))
             );
         }
+        let mut state = root([1u8; 32], 5);
+        assert_eq!(
+            advance(
+                &mut state,
+                RootTransition {
+                    expected_root: &[1u8; 32],
+                    expected_next_index: 4,
+                    new_root: [7u8; 32],
+                },
+            ),
+            Err(custom(CustomRingError::InvalidKeyRegistryCursor))
+        );
     }
 }

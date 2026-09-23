@@ -88,9 +88,9 @@ pub use crate::{
     },
     prepared_authority::{RingAuthorityProofInputs, RingAuthorityProofs},
     shared::{
-        client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
-        CustomRingConfig, CustomRingDelegate, CustomRingSpendWindow, IndexedMapRoot, PinnedPolicy,
-        PolicyMatchError, PoolTree, ReaderKey, ReaderKeyError,
+        client_rules_match, policy_config_table, AccountReadError, CurrentKeyRegistryRoot,
+        CustomRing, CustomRingCoSigner, CustomRingConfig, CustomRingDelegate,
+        CustomRingSpendWindow, PinnedPolicy, PolicyMatchError, PoolTree, ReaderKey, ReaderKeyError,
     },
     transfer::{
         tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,

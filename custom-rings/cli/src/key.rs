@@ -1,8 +1,8 @@
 //! `key`, the member's nullifier key sealed to the ring auditor in the key registry.
 
 use custom_ring_sdk::{
-    AccountReadError, CustomRing, IndexedMapRoot, KeyRegistrationError, ReadSealedKey, RegisterKey,
-    TransferProofEnvironment, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+    AccountReadError, CurrentKeyRegistryRoot, CustomRing, KeyRegistrationError, ReadSealedKey,
+    RegisterKey, TransferProofEnvironment, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
 };
 use solana_signer::Signer;
 use thiserror::Error;
@@ -103,7 +103,10 @@ pub fn run(ctx: &mut Context, command: KeyCommand) -> Result<(), KeyError> {
     Ok(())
 }
 
-pub(crate) fn registry_root(ring: CustomRing, rpc: &impl Rpc) -> Result<IndexedMapRoot, KeyError> {
+pub(crate) fn registry_root(
+    ring: CustomRing,
+    rpc: &impl Rpc,
+) -> Result<CurrentKeyRegistryRoot, KeyError> {
     ring.read_key_registry_root(rpc)?
         .ok_or(KeyError::NoKeyRegistry)
 }
@@ -238,7 +241,7 @@ mod tests {
         CustomRing::new(solana_address::Address::new_from_array([9; 32]))
     }
 
-    const ROOT: IndexedMapRoot = IndexedMapRoot {
+    const ROOT: CurrentKeyRegistryRoot = CurrentKeyRegistryRoot {
         root: [3u8; 32],
         next_index: 2,
         history_index: 0,
@@ -247,7 +250,7 @@ mod tests {
     struct RegistryRpc {
         reads: Cell<u8>,
         advance: bool,
-        root: IndexedMapRoot,
+        root: CurrentKeyRegistryRoot,
     }
 
     impl RegistryRpc {
@@ -276,7 +279,6 @@ mod tests {
             history[0] = current;
             let root = KeyRegistryRoot {
                 discriminator: KEY_REGISTRY_ROOT,
-                root: current,
                 next_index: (self.root.next_index + u64::from(self.advance && reads > 0))
                     .to_le_bytes(),
                 bump,
@@ -351,7 +353,7 @@ mod tests {
         };
         RegisteredEntry {
             rpc: RegistryRpc {
-                root: IndexedMapRoot {
+                root: CurrentKeyRegistryRoot {
                     root,
                     next_index: 2,
                     history_index: 0,

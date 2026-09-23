@@ -15,7 +15,7 @@ pub struct InstructionView<'a> {
 
 pub trait OnChainRoot: bytemuck::Pod {
     fn discriminator(&self) -> u8;
-    fn root(&self) -> [u8; 32];
+    fn root(&self) -> Option<[u8; 32]>;
     fn next_index(&self) -> u64;
     fn bump(&self) -> u8;
 }

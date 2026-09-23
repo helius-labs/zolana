@@ -1,7 +1,6 @@
 use bytemuck::{from_bytes, from_bytes_mut};
 use custom_ring_interface::{
     CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig, SpendWindow,
-    KEY_REGISTRY_CAPACITY,
 };
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{
@@ -18,11 +17,7 @@ use zolana_interface::{
 };
 use zolana_tree::TreeAccount;
 
-use crate::{
-    error::CustomRingError,
-    instructions::shared::PdaCheck,
-    state::{Account, AppendRoot},
-};
+use crate::{error::CustomRingError, instructions::shared::PdaCheck, state::Account};
 
 /// Loads only the canonical config PDA and stored bump.
 #[inline(always)]
@@ -250,22 +245,13 @@ fn check_window_mint(window: Option<&SpendWindow>, mint: &Address) -> Result<(),
     Ok(())
 }
 
-pub(crate) fn load_append_root_mut<'a, T: AppendRoot>(
+pub(crate) fn load_key_registry_root_mut<'a>(
     program_id: &Address,
     account: &'a mut AccountView,
-) -> Result<RefMut<'a, T>, ProgramError> {
+) -> Result<RefMut<'a, KeyRegistryRoot>, ProgramError> {
     let address = *account.address();
-    let root = load_account_mut::<T>(program_id, account)?;
-    PdaCheck {
-        program_id,
-        address: &address,
-        seeds: &[T::SEED],
-        mismatch: T::NOT_INITIALIZED,
-    }
-    .verify_stored_bump(root.bump())?;
-    if root.next_index() == 0 || root.next_index() > KEY_REGISTRY_CAPACITY {
-        return Err(T::CURSOR.into());
-    }
+    let root = load_account_mut::<KeyRegistryRoot>(program_id, account)?;
+    verify_key_registry_root_pda(program_id, &address, root.bump)?;
     Ok(root)
 }
 
@@ -274,14 +260,22 @@ pub fn load_key_registry_root<'a>(
     account: &'a AccountView,
 ) -> Result<Ref<'a, KeyRegistryRoot>, ProgramError> {
     let root = load_account::<KeyRegistryRoot>(program_id, account)?;
+    verify_key_registry_root_pda(program_id, account.address(), root.bump)?;
+    Ok(root)
+}
+
+fn verify_key_registry_root_pda(
+    program_id: &Address,
+    address: &Address,
+    bump: u8,
+) -> Result<(), ProgramError> {
     PdaCheck {
         program_id,
-        address: account.address(),
+        address,
         seeds: &[KeyRegistryRoot::SEED],
         mismatch: CustomRingError::InvalidKeyRegistryRoot,
     }
-    .verify_stored_bump(root.bump)?;
-    Ok(root)
+    .verify_stored_bump(bump)
 }
 
 /// The raw id of an SPP tree account, `invalid` for any other account.

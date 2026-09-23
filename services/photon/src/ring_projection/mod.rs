@@ -547,8 +547,11 @@ pub(crate) async fn load_root<P: Projection>(
             P::KIND
         )));
     }
+    let current = root
+        .root()
+        .ok_or_else(|| fault(format!("{} root has no current root", P::KIND)))?;
     Ok(ChainRoot {
-        root: root.root(),
+        root: current,
         next_index: root.next_index(),
     })
 }

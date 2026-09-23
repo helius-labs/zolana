@@ -622,7 +622,6 @@ pub fn key_registry_root_account(root: [u8; 32], next_index: u64) -> Account {
     history[0] = root;
     let state = KeyRegistryRoot {
         discriminator: KEY_REGISTRY_ROOT,
-        root,
         next_index: next_index.to_le_bytes(),
         bump: key_registry_root_pda().1,
         history_cursor: 0,

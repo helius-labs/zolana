@@ -43,7 +43,7 @@ import { EncryptedScheme, encodeOutputData } from "../src/transaction/serializat
 import { createProofOutput, Utxo } from "../src/transaction/utxo.js";
 import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
 import type { WalletUtxo } from "../src/transaction/wallet/state.js";
-import { decodeRingKeyRegistryRoot } from "../src/ring/codecs.js";
+import { decodeRingKeyRegistryRoot, RING_KEY_REGISTRY_ROOT_HISTORY } from "../src/ring/codecs.js";
 import { fetchRingKeyRegistryRoot } from "../src/ring/config.js";
 import { buildRingDelegateRecoveredTransaction } from "../src/ring/delegate.js";
 import {
@@ -260,10 +260,11 @@ describe("key registry root", () => {
     expect(advanced.historyCursor).toBe(31);
     expect(advanced.history[0]).toEqual(KEY_REGISTRY_EMPTY_ROOT);
     expect(advanced.history[31]).toEqual(filled(5));
-    // Rust `advance_to` keeps the root at the cursor.
-    const detached = new Uint8Array(data);
-    detached[42] = 1;
-    expect(() => decodeRingKeyRegistryRoot(detached)).toThrow("RING_KEY_REGISTRY_INVALID");
+    for (const cursor of [1, RING_KEY_REGISTRY_ROOT_HISTORY]) {
+      const unwritten = new Uint8Array(data);
+      unwritten[10] = cursor;
+      expect(() => decodeRingKeyRegistryRoot(unwritten)).toThrow("RING_KEY_REGISTRY_INVALID");
+    }
     expect(() => decodeRingKeyRegistryRoot(data.subarray(0, 42))).toThrow(
       "RING_KEY_REGISTRY_INVALID",
     );
