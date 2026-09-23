@@ -113,6 +113,9 @@ test-program-fast: build-programs
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
     cargo nextest run -p custom-ring-program --tests
+    # The account fixture boots the SBF build, which the hermetic coverage run
+    # does not have, so its test is ignored there and run here.
+    cargo nextest run -p zolana-program-test --run-ignored all
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.

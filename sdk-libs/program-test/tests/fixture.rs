@@ -31,6 +31,7 @@ fn account_json_uses_the_solana_dump_format() {
 /// Every account the fixture reports is written, the payer and the actors are
 /// funded, and the SPL accounts sit at the addresses tests look them up by.
 #[test]
+#[ignore = "needs the SBF build in target/deploy; run by `just test-program-fast`"]
 fn test_fixture_writes_every_reported_account() {
     let dir = std::env::temp_dir().join(format!("zolana-fixture-test-{}", std::process::id()));
     let accounts = write_test_fixture(
