@@ -1,5 +1,9 @@
+pub mod cosigner;
 pub mod create_config;
+pub mod create_key_registry_root;
+pub mod delegate;
 pub mod deposit;
+pub mod deposit_request;
 pub mod entry;
 pub mod grant_read_access;
 pub mod init_spp_ring_config;
@@ -10,4 +14,6 @@ pub mod set_authority;
 pub mod set_paused;
 pub mod set_policy_rules;
 pub mod set_policy_source;
+pub mod spend;
+pub mod spend_window;
 pub mod transact;

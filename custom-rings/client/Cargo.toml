@@ -17,6 +17,7 @@ solana-rpc = [
 
 [dependencies]
 hex = { workspace = true }
+num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }
 curve25519-dalek = { version = "4.1", default-features = false }
 p256 = { workspace = true }
@@ -33,12 +34,16 @@ zolana-client = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
+zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
 bs58 = { workspace = true }
+zolana-ring-key-registry = { workspace = true }
 serde_json = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 zolana-ring-client = { path = ".", features = ["solana-rpc"] }

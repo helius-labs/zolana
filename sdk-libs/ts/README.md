@@ -173,6 +173,7 @@ same network. Client fetching remains the default. `LocalKeys` supports both
 modes. A remote key holder must implement `IndexedProofAuthority.proveIndexed`
 for prover fetching. Responses bind the returned tree roots to the requested
 public transcript before transaction assembly.
+Ring authority transfers and ring merges fetch their proof paths through the client.
 
 ## Common transactions
 
@@ -347,8 +348,8 @@ shared with the default Ring.
 
 Rings support confidential transactions only. Anonymous transfers that
 would use a relayer are not supported. A Ring is audit-only or carries a
-policy, a rule table over lists of members kept in the Ring's own entries
-tree. The tier is fixed when the Ring config is created.
+policy, a rule table over lists of members whose addresses the Ring claims in
+its address tree. The tier is fixed when the Ring config is created.
 
 Set a Ring up in this order.
 
@@ -357,7 +358,7 @@ Set a Ring up in this order.
    `verifyRingProgram` checks the deployed bytes.
 2. `createRingConfigInstruction` stores the auditor key and the tier.
 3. A policy Ring pins its rule table with `buildRingCreatePolicyTransaction`
-   over its entries tree.
+   over its address tree.
 4. `initSppRingConfigInstruction` registers the Ring with the pool, a policy
    Ring only after its policy exists.
 5. On a permissioned pool the governance authority activates the Ring with
@@ -377,6 +378,9 @@ resume, or reclaim its rent with `closeBufferInstruction`.
 
 The deploy path is tested on Agave 4.0.2. The shipped Ring binaries are
 SBPF v0 and do not load on Agave 4.1.2.
+
+The live ring controls test is described in
+[test/e2e/RING-CONTROLS.md](test/e2e/RING-CONTROLS.md).
 
 ## Public API
 

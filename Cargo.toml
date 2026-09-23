@@ -15,16 +15,21 @@ members = [
     "programs/shielded-pool",
     "programs/user-registry",
     "program-tests/ring-test-program",
+    "program-tests/spp-recorder-program",
     "bench/tree",
     "cli",
     "custom-rings/cli",
     "custom-rings/client",
     "custom-rings/interface",
+    "custom-rings/indexer",
+    "custom-rings/key-registry",
     "custom-rings/policy",
     "custom-rings/program",
     "custom-rings/sdk",
     "custom-rings/test",
     "sdk-libs/client",
+    "sdk-libs/gnark-ffi-prover",
+    "sdk-libs/gnark-ffi-prover/build-helper",
     "sdk-libs/event",
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
@@ -83,6 +88,8 @@ zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-user-registry-interface = { path = "program-libs/user-registry-interface", version = "0.1.0" }
 zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
 zolana-ring-policy = { path = "custom-rings/policy", version = "0.1.0" }
+zolana-ring-indexer = { path = "custom-rings/indexer", version = "0.1.0" }
+zolana-ring-key-registry = { path = "custom-rings/key-registry", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }
@@ -90,6 +97,8 @@ zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
+zolana-gnark-ffi-prover = { path = "sdk-libs/gnark-ffi-prover", version = "0.1.0" }
+zolana-gnark-ffi-prover-build = { path = "sdk-libs/gnark-ffi-prover/build-helper", version = "0.1.0" }
 custom-ring-interface = { path = "custom-rings/interface", version = "0.1.0" }
 zolana-ring-client = { path = "custom-rings/client", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
@@ -144,6 +153,7 @@ solana-keypair = "3.1.2"
 solana-loader-v3-interface = "8.0"
 solana-message = "4.2"
 solana-msg = { version = "3.1", default-features = false }
+solana-packet = "3.0"
 solana-program = "4.0"
 solana-program-error = "3.0"
 solana-program-pack = "3.1"
@@ -154,6 +164,7 @@ solana-rent = "4.2"
 solana-reward-info = "=6.2.0"
 solana-rpc-client = "4.1"
 solana-rpc-client-api = "4.1"
+solana-sbpf = { version = "=0.21.1", default-features = false }
 solana-security-txt = "1.1.2"
 solana-secp256r1-program = "3.0"
 solana-sdk = "4.0"
@@ -183,7 +194,6 @@ async-trait = "0.1.82"
 arrayvec = "0.7"
 base64 = "0.22.1"
 bb8 = "0.8.6"
-bindgen = "0.70"
 bincode = { version = "2.0.1", features = ["serde"] }
 bitvec = { version = "1.0.1", default-features = false }
 bs58 = "0.5.1"
@@ -193,9 +203,12 @@ cadence = "1.8.0"
 cadence-macros = "1.8.0"
 chrono = "0.4"
 clap = { version = "4.5.53", features = ["derive", "env"] }
+console = "0.16"
 dashmap = "6.1.0"
 darling = "0.21"
+dialoguer = { version = "0.12", default-features = false }
 env_logger = "0.11"
+flate2 = "1"
 futures = "0.3.31"
 governor = "0.8.0"
 heck = "0.5"
@@ -230,8 +243,10 @@ sha2 = "0.10"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "sqlite", "rust_decimal"] }
 syn = { version = "2.0", features = ["visit-mut", "full"] }
 tabled = "0.20"
+tar = "0.4"
 thiserror = "2.0"
 toml = "0.8"
+toml_edit = "0.22"
 tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }

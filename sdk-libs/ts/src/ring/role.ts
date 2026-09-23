@@ -3,7 +3,7 @@ import type { RpcAccount } from "../client/rpc.js";
 import type { Address, RequestContext } from "../interface/types.js";
 
 import { decodeRingProgramConfig } from "./codecs.js";
-import { ringConfigAddress } from "./config.js";
+import { ringConfigAddress } from "../interface/pda/index.js";
 import { RingError } from "./error.js";
 import {
   decodeReadAccessRecord,

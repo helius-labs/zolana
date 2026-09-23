@@ -33,7 +33,7 @@ fn grant_read_access_writes_the_record() {
             .iter()
             .find(|(key, _)| key == &entry)
             .map(|(_, account)| account.clone())
-            .expect("read access entry in result");
+            .expect("read access record in result");
         assert_eq!(written.owner, program_id());
         assert_eq!(written.data.len(), core::mem::size_of::<ReadAccessRecord>());
         assert_eq!(
@@ -147,7 +147,7 @@ fn double_grant_is_rejected() {
     fixture.set_account("read_access_record", initialized_reader_account(&reader()));
     fixture.expect_err(
         &mollusk,
-        custom(CustomRingError::ReadAccessEntryAlreadyExists),
+        custom(CustomRingError::ReadAccessRecordAlreadyExists),
     );
 }
 
@@ -382,4 +382,12 @@ fn revoke_into_a_readonly_rent_recipient_is_rejected() {
         &mollusk,
         ProgramError::Custom(u32::from(AccountError::AccountNotMutable)),
     );
+}
+
+#[test]
+fn revoke_into_a_rent_recipient_at_the_lamport_ceiling_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = revoke_read_access_fixture(&reader());
+    fixture.set_account("rent_recipient", account(u64::MAX));
+    fixture.expect_err(&mollusk, ProgramError::ArithmeticOverflow);
 }

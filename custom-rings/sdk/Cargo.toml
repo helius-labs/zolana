@@ -12,6 +12,7 @@ publish = false
 # instruction builders, proof inputs, and auditor codec, none of which need RPC.
 default = ["solana-rpc"]
 solana-rpc = ["dep:solana-rpc-client-api", "zolana-client/solana-rpc"]
+proofs = ["zolana-client/proofs"]
 
 [dependencies]
 zolana-event.workspace = true
@@ -28,6 +29,8 @@ rand = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-instruction = { workspace = true }
+solana-hash = { workspace = true }
+solana-instruction-error = { workspace = true }
 # `v1::MAX_TRANSACTION_SIZE` is the bound the policy builders measure against.
 solana-message = { workspace = true }
 solana-rpc-client-api = { workspace = true, optional = true }
@@ -37,13 +40,17 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 # `serde` encodes the signed v1 transaction the RPC send path puts on the wire.
 solana-transaction = { workspace = true, features = ["serde"] }
+solana-transaction-error = { workspace = true }
+solana-transaction-status-client-types = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 wincode = { workspace = true }
 zeroize = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api"] }
 # `solana` pulls in the instruction builders this crate wraps for ring deposits.
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-hasher = { workspace = true }
+zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true }
 zolana-ring-policy = { workspace = true }
@@ -51,6 +58,8 @@ zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
+zolana-ring-key-registry = { workspace = true }
 zolana-test-utils.workspace = true
 async-trait = { workspace = true }
 curve25519-dalek = "4.1"
@@ -58,3 +67,9 @@ groth16-solana = { workspace = true, features = ["bsb22"] }
 sha2 = { workspace = true }
 hex = { workspace = true }
 solana-pubkey = { workspace = true }
+solana-rpc-client = { workspace = true }
+zolana-merkle-tree = { workspace = true }
+
+[[test]]
+name = "ring_authority_boundary"
+required-features = ["proofs"]

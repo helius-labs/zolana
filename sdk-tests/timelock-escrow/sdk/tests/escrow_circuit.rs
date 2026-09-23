@@ -11,7 +11,7 @@ use timelock_escrow_program::{
     },
     verifying_keys::escrow::VERIFYINGKEY,
 };
-use timelock_escrow_prover::{CircuitId, EscrowProofInputs, EscrowTermsProofInput};
+use timelock_escrow_prover::{CircuitId, EscrowProofInputs, EscrowTermsProofInput, PROVER};
 use timelock_escrow_sdk::state::DataHash;
 use zolana_client::ProofInputUtxo;
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
@@ -20,13 +20,15 @@ mod shared;
 use shared::escrow_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/escrow")
+    PROVER.keys_dir(CircuitId::Escrow)
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        timelock_escrow_prover::setup(CircuitId::Escrow, &dir).expect("setup failed");
+        PROVER
+            .setup_insecure_test_keys(CircuitId::Escrow, &dir)
+            .expect("setup failed");
     }
 }
 
@@ -135,12 +137,6 @@ fn verify_with_generated_vk(
     verifier.verify().is_ok()
 }
 
-fn keys_in_sync(vk: &Groth16VerifyingkeyOwned) -> bool {
-    let borrowed = vk.as_borrowed();
-    borrowed.vk_ic.len() == VERIFYINGKEY.vk_ic.len()
-        && borrowed.vk_alpha_g1 == VERIFYINGKEY.vk_alpha_g1
-}
-
 #[test]
 fn program_vk_has_no_commitment() {
     assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
@@ -177,27 +173,20 @@ fn escrow_prove_verify() {
         "groth16 proof must verify against the escrow verifying key with private_tx_hash as the sole public input"
     );
 
-    if keys_in_sync(&vk) {
-        let proof: EscrowProof = proof.into();
-        verify_groth16(
-            CompressedGroth16Proof {
-                a: &proof.proof_a,
-                b: &proof.proof_b,
-                c: &proof.proof_c,
-                commitment: None,
-            },
-            inputs.private_tx_hash,
-            &VERIFYINGKEY,
-        )
-        .expect("program verify_groth16 must accept a valid proof");
-    } else {
-        eprintln!(
-            "SKIP: committed escrow VERIFYINGKEY does not match the locally generated \
-             build/gnark/escrow/vk.bin (keys are gitignored and groth16 setup is randomized), \
-             so the on-chain verify_groth16 path was not exercised. Regenerate the keys with \
-             timelock-escrow-prover-setup to run it."
-        );
-    }
+    let proof: EscrowProof = proof.into();
+    verify_groth16(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        inputs.private_tx_hash,
+        &VERIFYINGKEY,
+    )
+    .expect(
+        "the committed escrow VERIFYINGKEY must accept the proof; run `just ensure-escrow-keys`",
+    );
 }
 
 #[test]

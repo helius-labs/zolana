@@ -16,8 +16,11 @@ pub use transaction::{compile_message, sign_transaction, SettlementAccountValida
 pub use transaction_size::{transaction_size, TransactionSize};
 pub use types::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-    GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
-    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-    OutputSlot, ProveResult, ShieldedTransaction, ShieldedTransactionStream,
+    GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+    GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+    GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
+    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
+    RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest, ShieldedTransaction,
+    ShieldedTransactionStream,
 };

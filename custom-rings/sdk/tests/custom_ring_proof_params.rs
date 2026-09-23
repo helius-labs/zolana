@@ -6,7 +6,7 @@ use custom_ring_sdk::{
     to_instruction_proof, AuditorMessage, CustomRingProofError, CustomRingProofParams,
     EncryptedAudit,
 };
-use zolana_client::Proof;
+use zolana_client::{Proof, ProofInputUtxo};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
 /// The `custom-rings/sdk/tests/go_vectors.rs` fixture, which is the Go
@@ -28,6 +28,8 @@ fn encrypt(auditor_pk: P256Pubkey) -> EncryptedAudit {
         tx_viewing_key: ViewingKey::from_bytes(&hex_bytes::<32>(TX_SK))
             .expect("valid P-256 scalar"),
         auditor_pk,
+        salt: [0; 16],
+        outputs: vec![ProofInputUtxo::default()],
     }
     .encrypt()
     .expect("encrypt to the auditor")

@@ -57,6 +57,8 @@ export {
 } from "./sync.js";
 export {
   loadPersistedWallet,
+  savePersistedWallet,
+  type WalletPersistence,
   syncPersistedWallet,
   type SyncPersistedWalletResult,
   type WalletStateCipher,
@@ -84,3 +86,7 @@ export {
   type UserRecord,
 } from "./registry.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
+
+export type { PendingWalletSubmission } from "../transaction/wallet/state.js";
+
+export type { DepositPayloadDecoder } from "../transaction/serialization/ring-deposit.js";

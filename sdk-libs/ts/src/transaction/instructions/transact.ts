@@ -6,6 +6,7 @@ import {
 } from "../../interface/external-data-hash.js";
 import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
+  RING_AUTHORITY_MAX_WIDTH,
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
   selectSppShape,
   type Shape,
@@ -553,10 +554,7 @@ export function inputTreeIds(inputs: readonly ProofInputUtxo[]): readonly TreeId
   return Object.freeze(trees);
 }
 
-/**
- * The one tree a rail that publishes a single input tree spends from: merge,
- * and the custom-ring openings, which hash every slot under one tree id.
- */
+/** The one tree a rail that publishes a single input tree spends from: merge. */
 export function singleInputTreeId(inputs: readonly ProofInputUtxo[]): TreeId {
   const trees = inputTreeIds(inputs);
   const first = trees[0];
@@ -713,6 +711,8 @@ export const WithdrawalTarget = Object.freeze({
 export type ChangeLayout = "padded" | "compact";
 
 export interface PreparedTransfer {
+  /** `"opaque"` names no private input owner in the padding tags. */
+  readonly ownerMode: "signed" | "opaque";
   readonly owner: ShieldedAddress;
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
@@ -732,6 +732,13 @@ export interface PreparedTransfer {
   readonly changeLayout: ChangeLayout;
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
+  proofOutputs(): readonly ProofOutputUtxo[];
+  /** Mirrors Rust `move_input_tree_last`, a new first input rederives every output blinding. */
+  withInputTreeLast(treeId: TreeId): PreparedTransfer;
+  /** Appends the velocity record after the dummy padding, Rust `append_record_slots`. */
+  withAppendedSlot(
+    extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+  ): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
@@ -988,6 +995,7 @@ export class ConfidentialTransfer {
             ];
     return preparedTransfer({
       owner: this.#owner,
+      ownerMode: "signed",
       inputs: Object.freeze(inputs),
       outputs: Object.freeze(outputs),
       firstNullifier,
@@ -1025,15 +1033,202 @@ export class ConfidentialTransfer {
   }
 }
 
-type PreparedTransferFields = Omit<PreparedTransfer, "finalize" | "outputBlindingSeed">;
+type PreparedTransferFields = Omit<
+  PreparedTransfer,
+  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withInputTreeLast" | "withAppendedSlot"
+>;
+
+export function prepareRingAuthorityTransfer(
+  input: Readonly<{
+    owner: ShieldedAddress;
+    inputs: readonly ProofInputUtxo[];
+    outputs: readonly Readonly<{ recipient: ShieldedAddress; asset: Address; amount: bigint }>[];
+    payer: Address;
+    ringProgramId: Address;
+    outputTreeId: TreeId;
+  }>,
+): PreparedTransfer {
+  if (
+    input.inputs.length < 1 ||
+    input.inputs.length > RING_AUTHORITY_MAX_WIDTH ||
+    input.outputs.length < 1 ||
+    input.outputs.length > RING_AUTHORITY_MAX_WIDTH
+  )
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      inputs: input.inputs.length,
+      outputs: input.outputs.length,
+    });
+  const totals = new Map<Address, bigint>();
+  for (const [index, spend] of input.inputs.entries()) {
+    if (spend.isDummy() || spend.utxo.ringProgramId !== input.ringProgramId) {
+      throw new TransactionError("TRANSACTION_INPUT_OUTSIDE_RING", {
+        index,
+        ringProgramId: input.ringProgramId,
+      });
+    }
+    if (
+      !equal(
+        spend.utxo.owner.ownerProofInputHash(),
+        input.owner.signingPublicKey.ownerProofInputHash(),
+      )
+    )
+      throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
+    totals.set(spend.utxo.asset, (totals.get(spend.utxo.asset) ?? 0n) + spend.utxo.amount);
+  }
+  for (const output of input.outputs) {
+    checkU64(output.amount, "authority amount");
+    if (output.amount === 0n)
+      throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { name: "authority amount" });
+    totals.set(output.asset, (totals.get(output.asset) ?? 0n) - output.amount);
+  }
+  const layouts: ProofOutputInit[] = [];
+  for (const [asset, amount] of totals) {
+    if (amount < 0n) throw new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", { asset });
+    checkU64(amount, "authority change");
+    if (amount > 0n)
+      layouts.push({
+        ownerAddress: input.owner,
+        asset,
+        amount,
+        ringProgramId: input.ringProgramId,
+      });
+  }
+  const senderOutputCount = layouts.length;
+  layouts.push(
+    ...input.outputs.map((output) => ({
+      ownerAddress: output.recipient,
+      asset: output.asset,
+      amount: output.amount,
+      ringProgramId: input.ringProgramId,
+    })),
+  );
+  const width = Math.max(input.inputs.length, layouts.length);
+  if (width > RING_AUTHORITY_MAX_WIDTH)
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      inputs: input.inputs.length,
+      outputs: layouts.length,
+    });
+  const first = input.inputs[0];
+  if (first === undefined || input.inputs.some((spend) => spend.treeId !== first.treeId))
+    throw new TransactionError("TRANSACTION_NO_INPUTS");
+  const firstNullifier = first.nullifier();
+  const seed = randomBlinding();
+  const outputSeed = outputBlindingSeed(firstNullifier, seed);
+  const outputs = layouts.map((layout, index) =>
+    createProofOutput({
+      ...layout,
+      blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
+    }),
+  );
+  return preparedTransfer({
+    owner: input.owner,
+    ownerMode: "opaque",
+    inputs: Object.freeze([...input.inputs]),
+    outputs: Object.freeze(outputs),
+    firstNullifier,
+    blindingSeed: seed,
+    inputTreeIds: [first.treeId],
+    outputTreeId: checkedTreeId(input.outputTreeId),
+    shape: { inputs: width, outputs: width },
+    payer: input.payer,
+    interfaceTransfers: [],
+    senderOutputCount,
+    changeLayout: "compact",
+  });
+}
 
 function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
   return Object.freeze({
     ...fields,
     outputBlindingSeed: (): Bytes32 =>
       outputBlindingSeed(fields.firstNullifier, fields.blindingSeed),
+    proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
+    withInputTreeLast: (treeId: TreeId): PreparedTransfer => moveInputTreeLast(fields, treeId),
+    withAppendedSlot: (
+      extension: Parameters<PreparedTransfer["withAppendedSlot"]>[0],
+    ): PreparedTransfer => appendRecordSlot(fields, extension),
+  });
+}
+
+function moveInputTreeLast(fields: PreparedTransferFields, treeId: TreeId): PreparedTransfer {
+  const inputs = [
+    ...fields.inputs.filter((input) => input.treeId !== treeId),
+    ...fields.inputs.filter((input) => input.treeId === treeId),
+  ];
+  const trees = inputTreeIds(inputs);
+  if (!trees.includes(treeId) && trees.length === MAX_INPUT_TREES) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_INPUT_TREES", {
+      got: trees.length + 1,
+      max: MAX_INPUT_TREES,
+    });
+  }
+  const first = inputs[0];
+  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  if (first === fields.inputs[0]) {
+    return preparedTransfer({ ...fields, inputs, inputTreeIds: trees });
+  }
+  const firstNullifier = first.nullifier();
+  const outputSeed = outputBlindingSeed(firstNullifier, fields.blindingSeed);
+  const outputs = fields.outputs.map((output, index) =>
+    createProofOutput({
+      ...outputInit(output),
+      blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
+    }),
+  );
+  return preparedTransfer({ ...fields, inputs, outputs, firstNullifier, inputTreeIds: trees });
+}
+
+/** Mirrors Rust `append_record_slots`. */
+function appendRecordSlot(
+  fields: PreparedTransferFields,
+  extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+): PreparedTransfer {
+  const supported = SPP_SUPPORTED_SHAPES.some(
+    (candidate) =>
+      candidate.inputs === extension.shape.inputs && candidate.outputs === extension.shape.outputs,
+  );
+  if (!supported)
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { ...extension.shape });
+  const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
+  const ownerTag = fields.owner.confidentialViewTag();
+  const inputs = [...fields.inputs];
+  const lastTreeId = fields.inputTreeIds.at(-1);
+  if (lastTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  // A dummy rides the run before it, only a real spend opens a tree.
+  while (inputs.length + 1 < extension.shape.inputs) {
+    inputs.push(ProofInputUtxo.dummy(undefined, lastTreeId));
+  }
+  const outputs = [...fields.outputs];
+  while (outputs.length + 1 < extension.shape.outputs) {
+    outputs.push(
+      createProofOutput({
+        asset: ZERO_ADDRESS,
+        amount: 0n,
+        blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
+        ownerTag,
+      }),
+    );
+  }
+  const expected = transactOutputBlinding(
+    fields.firstNullifier,
+    outputSeed,
+    extension.shape.outputs - 1,
+  );
+  if (!equal(extension.output.blinding, expected)) {
+    throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
+      reason: "recordBlinding",
+    });
+  }
+  inputs.push(extension.input);
+  outputs.push(extension.output);
+  return preparedTransfer({
+    ...fields,
+    inputs,
+    outputs,
+    inputTreeIds: inputTreeIds(inputs),
+    shape: extension.shape,
   });
 }
 
@@ -1087,10 +1282,10 @@ function finalizeTransfer(
 ): SppProofInputs {
   // Slots are read by output position, so a longer list would be dropped
   // without a trace rather than encrypted into the transaction.
-  if (encrypted.payload.length > prepared.outputs.length) {
+  if (encrypted.payload.length > prepared.shape.outputs) {
     throw new TransactionError("TRANSACTION_EXCESS_OUTPUT_SLOTS", {
       got: encrypted.payload.length,
-      outputs: prepared.outputs.length,
+      outputs: prepared.shape.outputs,
     });
   }
   // An owner who is also the fee payer is already account index 0, so the tag
@@ -1100,31 +1295,7 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
-  const padTag = dummyOwnerTag(prepared.inputs, prepared.outputs, prepared.payer);
-  const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
-  const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
-  // `prepare` tags its zero-value change slots with the sender, but the pad tag
-  // may name someone else (a self-paying sender that keeps no change names the
-  // recipient). The prover folds the tag it reads from the output into the
-  // owner chain the program recomputes from the published tags, so every dummy
-  // carries the tag its slot publishes. Mirrors Rust `finalize`.
-  const outputUtxos = [
-    ...prepared.outputs.map((output) =>
-      output.isDummy() ? retagDummyOutput(output, padTag) : output,
-    ),
-    ...Array.from({ length: padCount }, (_, offset) =>
-      createProofOutput({
-        asset: ZERO_ADDRESS,
-        amount: 0n,
-        blinding: transactOutputBlinding(
-          prepared.firstNullifier,
-          outputSeed,
-          prepared.outputs.length + offset,
-        ),
-        ownerTag: padTag,
-      }),
-    ),
-  ];
+  const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
   // A dummy is hashed under the tree of the run it sits in, both here for the
   // nullifier the client requests a non-inclusion witness for and in the
   // prover, which rehashes the slot under that run's tree. Padding closes the
@@ -1205,9 +1376,48 @@ function finalizeTransfer(
   });
 }
 
+/** Builds the commitment-bearing output prefix once for sealing and finalization. */
+function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
+  outputs: ProofOutputUtxo[];
+  padCount: number;
+  padTag: Bytes32;
+}> {
+  const padTag = dummyOwnerTag(
+    prepared.ownerMode === "opaque" ? [] : prepared.inputs,
+    prepared.outputs,
+    prepared.payer,
+  );
+  const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
+  const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
+  // Dummy owner hashes stay zero after public retagging.
+  const outputs = [
+    ...prepared.outputs.map((output) =>
+      output.isDummy() ? retagDummyOutput(output, padTag) : output,
+    ),
+    ...Array.from({ length: padCount }, (_, offset) =>
+      createProofOutput({
+        asset: ZERO_ADDRESS,
+        amount: 0n,
+        blinding: transactOutputBlinding(
+          prepared.firstNullifier,
+          outputSeed,
+          prepared.outputs.length + offset,
+        ),
+        ownerTag: padTag,
+      }),
+    ),
+  ];
+  return { outputs, padCount, padTag };
+}
+
 /** The same dummy slot under `ownerTag`; a dummy has no owner address, so only the tag changes. */
 function retagDummyOutput(output: ProofOutputUtxo, ownerTag: Bytes32): ProofOutputUtxo {
-  return createProofOutput({
+  return createProofOutput({ ...outputInit(output), ownerTag });
+}
+
+function outputInit(output: ProofOutputUtxo): ProofOutputInit {
+  return {
+    ...(output.ownerAddress === undefined ? {} : { ownerAddress: output.ownerAddress }),
     asset: output.asset,
     amount: output.amount,
     blinding: output.blinding,
@@ -1215,8 +1425,8 @@ function retagDummyOutput(output: ProofOutputUtxo, ownerTag: Bytes32): ProofOutp
     ...(output.dataHash === undefined ? {} : { dataHash: output.dataHash }),
     ...(output.ringDataHash === undefined ? {} : { ringDataHash: output.ringDataHash }),
     ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
-    ownerTag,
-  });
+    ...(output.ownerTag === undefined ? {} : { ownerTag: output.ownerTag }),
+  };
 }
 
 function randomBytes(length: number): Uint8Array {
@@ -1304,10 +1514,13 @@ export interface OutputSlot {
 export interface IndexedShieldedTransaction {
   readonly slot: bigint;
   readonly txSignature: Signature;
+  readonly eventIndex?: number;
   readonly txViewingPublicKey?: P256PublicKey;
   readonly salt?: Bytes16;
   readonly outputSlots: readonly OutputSlot[];
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
   readonly nullifiers: readonly Bytes32[];
   readonly proofless: boolean;
+  readonly ringConfig?: Address;
+  readonly ringProgramId?: Address;
 }

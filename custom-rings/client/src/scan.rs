@@ -119,7 +119,7 @@ impl<'a> RingScan<'a> {
         let view_tag = auditor_view_tag(self.auditor_key);
         let mut transactions = Vec::new();
         let mut cursor = self.cursor;
-        let mut origins: HashMap<Signature, bool> = HashMap::new();
+        let mut origins: HashMap<(Signature, u16), bool> = HashMap::new();
         for _ in 0..self.max_pages.get() {
             let page = env.indexer.get_shielded_transactions_by_tags(
                 vec![view_tag],
@@ -128,6 +128,9 @@ impl<'a> RingScan<'a> {
                 None,
             )?;
             for tx in page.transactions {
+                if tx.ring_program_id != Some(self.ring_program_id) {
+                    continue;
+                }
                 if !tx
                     .messages
                     .iter()
@@ -135,13 +138,17 @@ impl<'a> RingScan<'a> {
                 {
                     continue;
                 }
-                let ring_invoked = match origins.get(&tx.tx_signature) {
+                let event_index = tx.event_index.ok_or(AuditError::MissingEventIndex)?;
+                let origin_key = (tx.tx_signature, event_index);
+                let ring_invoked = match origins.get(&origin_key) {
                     Some(known) => *known,
                     None => {
-                        let invoked = env
-                            .origin
-                            .ring_invoked(tx.tx_signature, self.ring_program_id)?;
-                        origins.insert(tx.tx_signature, invoked);
+                        let invoked = env.origin.ring_invoked(
+                            tx.tx_signature,
+                            event_index,
+                            self.ring_program_id,
+                        )?;
+                        origins.insert(origin_key, invoked);
                         invoked
                     }
                 };

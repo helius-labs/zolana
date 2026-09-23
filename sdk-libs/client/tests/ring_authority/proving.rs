@@ -3,8 +3,7 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    ProverClient, PublicTransfers, RingAuthorityProver, RingAuthorityWitness, Rpc, Shape,
-    TransferInputUtxo,
+    ProverClient, PublicTransfers, RingAuthorityProver, Rpc, Shape, TransferInputUtxo,
 };
 use zolana_interface::{
     instruction::{
@@ -18,9 +17,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, NullifierKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    instructions::{ring_authority::RingAuthorityProofInputs, transact::shape::Shape as TxShape},
-    utxo::SppProofInputUtxo,
-    Data, ExternalData, Mint, SppProofOutputUtxo, Utxo,
+    utxo::SppProofInputUtxo, Data, ExternalData, Mint, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{
@@ -47,7 +44,6 @@ impl RingAuthorityHarness {
             Mode::MultiReal => prove_and_verify(multi_real(), 3, 3),
             Mode::P256Input => prove_and_verify(p256_input(), 1, 1),
             Mode::MixedOwners => prove_and_verify(mixed_owners(), 2, 2),
-            Mode::Boundary => prove_and_verify(boundary_prover(), 2, 2),
         }
     }
 }
@@ -94,46 +90,6 @@ fn mixed_owners() -> (RingAuthorityProver, Vec<NullifierKey>) {
         build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0), (p256_keypair(), 0)]);
     (
         assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2),
-        keys,
-    )
-}
-
-/// #5: build through the transaction-crate boundary: `PreparedRingAuthority` ->
-/// `RingAuthorityWitness` -> `RingAuthorityProver` (shape 2x2).
-fn boundary_prover() -> (RingAuthorityProver, Vec<NullifierKey>) {
-    let mut indexer = TestIndexer::new();
-    let owner = eddsa_keypair();
-    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(owner, 0)]);
-    inputs.push(dummy_input());
-    let mut outputs = vec![dummy_output(), dummy_output()];
-    let blinding_seed = [46; 32];
-    assign_output_blindings(&inputs[0].utxo.nullifier, &mut outputs, &blinding_seed);
-    let proofs = inputs
-        .iter()
-        .filter_map(|input| input.proof.clone())
-        .collect();
-    let dummy_nullifier_proofs = inputs
-        .iter()
-        .filter_map(|input| input.nullifier_proof.clone())
-        .collect();
-    let prepared = RingAuthorityProofInputs {
-        input_utxos: inputs.into_iter().map(|input| input.utxo).collect(),
-        output_utxos: outputs,
-        blinding_seed,
-        output_tree_id: TEST_TREE_ID,
-        public_transfers: PublicTransfers::default(),
-        external_data: ring_external_data(2),
-        payer: Address::default(),
-        ring_program_id: Some(ring_program()),
-        shape: TxShape::IN2_OUT2,
-    };
-    (
-        RingAuthorityProver::try_from(RingAuthorityWitness {
-            prepared,
-            proofs,
-            dummy_nullifier_proofs,
-        })
-        .unwrap(),
         keys,
     )
 }

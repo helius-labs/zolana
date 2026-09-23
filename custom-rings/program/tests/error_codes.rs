@@ -19,7 +19,7 @@ fn error_codes_are_stable() {
         (UnsupportedCircuit as u32, 8113),
         (UnauthorizedInitializer as u32, 8114),
         (TooManyAccounts as u32, 8115),
-        (ReadAccessEntryAlreadyExists as u32, 8116),
+        (ReadAccessRecordAlreadyExists as u32, 8116),
         (InvalidReadAccessRecord as u32, 8117),
         (InvalidReaderKey as u32, 8118),
         (UnsupportedOutputScheme as u32, 8119),
@@ -30,10 +30,9 @@ fn error_codes_are_stable() {
         (UnauthorizedNamespaceSigner as u32, 8125),
         (InvalidListId as u32, 8126),
         (InvalidEntryState as u32, 8127),
-        (InvalidPolicyTree as u32, 8129),
         (EntryVersionOverflow as u32, 8130),
         (InvalidNamespacePda as u32, 8131),
-        (InvalidEntriesTree as u32, 8132),
+        (InvalidAddressTree as u32, 8132),
         (StalePolicyRoot as u32, 8133),
         (InvalidSource as u32, 8134),
         (InvalidCuratorPolicyConfig as u32, 8135),
@@ -43,6 +42,37 @@ fn error_codes_are_stable() {
         (InvalidEntryContent as u32, 8139),
         (InvalidPolicyRules as u32, 8140),
         (PolicyGenerationOverflow as u32, 8141),
+        (PolicyOnAuditOnlyRing as u32, 8142),
+        (MissingCoSigner as u32, 8143),
+        (UnauthorizedCoSigner as u32, 8144),
+        (InvalidCoSignerScope as u32, 8145),
+        (InvalidCoSigner as u32, 8146),
+        (InvalidCoSignerThresholds as u32, 8147),
+        (SpendWindowExceeded as u32, 8148),
+        (InvalidSpendWindow as u32, 8149),
+        (DelegateDisabled as u32, 8150),
+        (UnauthorizedDelegate as u32, 8151),
+        (DelegatePublicLeg as u32, 8152),
+        (DelegateAlreadySet as u32, 8153),
+        (InvalidDelegate as u32, 8154),
+        (VelocityDepositLeg as u32, 8155),
+        (InvalidSpendRecord as u32, 8156),
+        (ApprovalWithoutCoSigner as u32, 8157),
+        (VelocityDisabled as u32, 8158),
+        (VelocityWindowImmutable as u32, 8159),
+        (InvalidKeyRegistryRoot as u32, 8160),
+        (StaleKeyRegistryRoot as u32, 8161),
+        (InvalidKeyRegistryCursor as u32, 8162),
+        (KeyRegistryRootAlreadyExists as u32, 8163),
+        (InvalidDepositAudit as u32, 8164),
+        (DepositAuditRequired as u32, 8165),
+        (InvalidDepositDisclosure as u32, 8166),
+        (InvalidSpendCountersDisclosure as u32, 8167),
+        (InvalidRevocationTarget as u32, 8168),
+        (PolicyFactRevoked as u32, 8169),
+        (DelegateRequiresPolicy as u32, 8170),
+        (InvalidRevocationTreeIndex as u32, 8171),
+        (InvalidPolicyTrees as u32, 8172),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -69,7 +99,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnsupportedCircuit
         | UnauthorizedInitializer
         | TooManyAccounts
-        | ReadAccessEntryAlreadyExists
+        | ReadAccessRecordAlreadyExists
         | InvalidReadAccessRecord
         | InvalidReaderKey
         | UnsupportedOutputScheme
@@ -80,10 +110,9 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnauthorizedNamespaceSigner
         | InvalidListId
         | InvalidEntryState
-        | InvalidPolicyTree
         | EntryVersionOverflow
         | InvalidNamespacePda
-        | InvalidEntriesTree
+        | InvalidAddressTree
         | StalePolicyRoot
         | InvalidSource
         | InvalidCuratorPolicyConfig
@@ -92,6 +121,37 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | ForeignSource
         | InvalidEntryContent
         | InvalidPolicyRules
-        | PolicyGenerationOverflow => {}
+        | PolicyGenerationOverflow
+        | PolicyOnAuditOnlyRing
+        | MissingCoSigner
+        | UnauthorizedCoSigner
+        | InvalidCoSignerScope
+        | InvalidCoSigner
+        | InvalidCoSignerThresholds
+        | SpendWindowExceeded
+        | InvalidSpendWindow
+        | DelegateDisabled
+        | UnauthorizedDelegate
+        | DelegatePublicLeg
+        | DelegateAlreadySet
+        | InvalidDelegate
+        | VelocityDepositLeg
+        | InvalidSpendRecord
+        | ApprovalWithoutCoSigner
+        | VelocityDisabled
+        | VelocityWindowImmutable
+        | InvalidKeyRegistryRoot
+        | StaleKeyRegistryRoot
+        | InvalidKeyRegistryCursor
+        | KeyRegistryRootAlreadyExists
+        | InvalidDepositAudit
+        | DepositAuditRequired
+        | InvalidDepositDisclosure
+        | InvalidSpendCountersDisclosure
+        | InvalidRevocationTarget
+        | PolicyFactRevoked
+        | DelegateRequiresPolicy
+        | InvalidRevocationTreeIndex
+        | InvalidPolicyTrees => {}
     }
 }

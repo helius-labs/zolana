@@ -9,9 +9,11 @@ use crate::{
     error::ClientError,
     rpc::{
         AsyncRpc, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        IndexerRpcConfig,
+        GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+        GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, RingHistoryOptions,
+        RingMemberProofRequest, RingSpendRecordRequest,
     },
 };
 
@@ -21,6 +23,7 @@ use super::{
         convert_non_inclusion_proof, convert_shielded_transaction,
         convert_shielded_transactions_by_signature_response,
         convert_shielded_transactions_response, encode_cursor, encode_hash, encode_pubkey,
+        ring_history_request,
     },
     error::indexer_error,
 };
@@ -116,6 +119,26 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .await
                     .map_err(indexer_error)?;
 
+                convert_shielded_transactions_response(response)
+            },
+        )
+        .await
+    }
+
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        wait_for_indexer_async(
+            config,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context,
+            || async {
+                let response = self
+                    .api
+                    .get_shielded_transactions(ring_history_request(options.clone())?)
+                    .await
+                    .map_err(indexer_error)?;
                 convert_shielded_transactions_response(response)
             },
         )
@@ -245,6 +268,36 @@ impl AsyncRpc for AsyncZolanaIndexer {
             },
         )
         .await
+    }
+
+    async fn get_ring_spend_record(
+        &self,
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ClientError> {
+        self.api
+            .get_ring_spend_record(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        self.api
+            .get_ring_key_registry_entry(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        self.api
+            .get_ring_key_registry_register_proof(request)
+            .await
+            .map_err(indexer_error)
     }
 }
 

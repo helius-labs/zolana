@@ -9,11 +9,19 @@ import {
   encodeRingsByNullifiersRequest,
   encodeRingsByTagsRequest,
   encodeShieldedTransactionsBySignatureRequest,
+  encodeRingMemberProofRequest,
+  encodeRingMemberRequest,
+  decodeRingSpendRecordResponse,
+  decodeRingKeyRegistryEntry,
+  decodeRingKeyRegistryRegisterProof,
 } from "../codec.js";
 import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
   GET_MERKLE_PROOFS,
   GET_NON_INCLUSION_PROOFS,
+  GET_RING_SPEND_RECORD,
+  GET_RING_KEY_REGISTRY_ENTRY,
+  GET_RING_KEY_REGISTRY_REGISTER_PROOF,
   GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
   GET_SHIELDED_TRANSACTIONS_BY_TAGS,
@@ -30,6 +38,11 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
+  GetRingSpendRecordResponse,
+  RingMemberProofRequest,
+  RingMemberRequest,
+  RingKeyRegistryEntry,
+  RingKeyRegistryRegisterProof,
 } from "../types.js";
 
 export interface MethodDescriptor<Request, Response> {
@@ -37,6 +50,31 @@ export interface MethodDescriptor<Request, Response> {
   encodeRequest(value: Request): Readonly<Record<string, unknown>>;
   decodeResponse(value: unknown): Response;
 }
+
+export const getRingSpendRecordMethod: MethodDescriptor<
+  RingMemberRequest,
+  GetRingSpendRecordResponse
+> = {
+  name: GET_RING_SPEND_RECORD,
+  encodeRequest: encodeRingMemberRequest,
+  decodeResponse: decodeRingSpendRecordResponse,
+};
+export const getRingKeyRegistryEntryMethod: MethodDescriptor<
+  RingMemberProofRequest,
+  RingKeyRegistryEntry
+> = {
+  name: GET_RING_KEY_REGISTRY_ENTRY,
+  encodeRequest: encodeRingMemberProofRequest,
+  decodeResponse: decodeRingKeyRegistryEntry,
+};
+export const getRingKeyRegistryRegisterProofMethod: MethodDescriptor<
+  RingMemberProofRequest,
+  RingKeyRegistryRegisterProof
+> = {
+  name: GET_RING_KEY_REGISTRY_REGISTER_PROOF,
+  encodeRequest: encodeRingMemberProofRequest,
+  decodeResponse: decodeRingKeyRegistryRegisterProof,
+};
 
 export const getEncryptedUtxosByTagsMethod: MethodDescriptor<
   GetRingsByTagsRequest,

@@ -1,3 +1,5 @@
+mod audit;
 mod instruction;
 
-pub use instruction::Deposit;
+pub use audit::SetDepositAudit;
+pub use instruction::{Deposit, DepositInstructionError};

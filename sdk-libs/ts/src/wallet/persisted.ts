@@ -47,20 +47,35 @@ export async function syncPersistedWallet(
   context?: RequestContext,
 ): Promise<SyncPersistedWalletResult> {
   return runLockedWalletSync(input, context, async (report) => {
-    const snapshot = serializeWallet(input.wallet);
-    let sealed: string;
-    try {
-      sealed = await input.cipher.seal(snapshot);
-    } catch (cause) {
-      throw wrapWalletError("WALLET_SNAPSHOT", cause);
-    }
-    try {
-      await input.store.save(sealed);
-    } catch (cause) {
-      throw wrapWalletError("WALLET_PERSIST", cause);
-    }
+    const snapshot = await saveWalletSnapshot(input);
     return Object.freeze({ report, snapshot });
   });
+}
+
+export interface WalletPersistence {
+  readonly wallet: Wallet;
+  readonly store: Pick<WalletStateStore, "save">;
+  readonly cipher: WalletStateCipher;
+}
+
+export function savePersistedWallet(input: WalletPersistence): Promise<string> {
+  return input.wallet._withSyncLock(() => saveWalletSnapshot(input));
+}
+
+async function saveWalletSnapshot(input: WalletPersistence): Promise<string> {
+  const snapshot = serializeWallet(input.wallet);
+  let sealed: string;
+  try {
+    sealed = await input.cipher.seal(snapshot);
+  } catch (cause) {
+    throw wrapWalletError("WALLET_SNAPSHOT", cause);
+  }
+  try {
+    await input.store.save(sealed);
+  } catch (cause) {
+    throw wrapWalletError("WALLET_PERSIST", cause);
+  }
+  return snapshot;
 }
 
 /** The stored snapshot, opened and restored, or `undefined` for an empty store. */

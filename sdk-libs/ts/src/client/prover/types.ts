@@ -1,4 +1,7 @@
+export const RING_DEPOSIT_AUDIT_SLOTS = 8;
 import type {
+  Address,
+  Bytes16,
   Bytes32,
   Bytes64,
   Bytes128,
@@ -6,6 +9,7 @@ import type {
   TransactProof,
   TreeHeadRoots,
 } from "../../interface/types.js";
+import type { TreeSlot } from "../../interface/tree-slot.js";
 import type { SpendProof } from "../rpc.js";
 
 export type Shape = Readonly<{ inputs: number; outputs: number }>;
@@ -99,9 +103,15 @@ export interface MergeInputs {
 }
 
 export type ProverInputs = Readonly<{
-  circuit: "transfer" | "transferRing";
+  circuit: "transfer" | "transferRing" | "transferRingAuthority";
   payload: TransferInputs;
 }>;
+
+/** Selects member authorization or the ring authority statement. */
+export type TransferCircuit =
+  | Readonly<{ kind: "confidential" }>
+  | Readonly<{ kind: "ring"; ring: Address }>
+  | Readonly<{ kind: "ringAuthority"; ring: Address }>;
 
 /** The tree history entries the ring statement binds. */
 export type RingTransactRoots = TreeHeadRoots;
@@ -139,6 +149,8 @@ export const RING_INLINE_ASSET_SLOTS = 8;
 export const RING_ANSWER_SLOTS = 10;
 /** Rust `MAX_SOURCES`, the positional source map width. */
 export const RING_SOURCE_SLOTS = 8;
+/** Rust `MAX_VELOCITY_ASSETS`, one counter per mint a spend record carries. */
+export const RING_VELOCITY_SLOTS = 8;
 export const RING_STATE_PATH_LENGTH = 32;
 export const RING_NULLIFIER_PATH_LENGTH = 40;
 
@@ -155,11 +167,24 @@ export interface CustomRingOpening {
   readonly dataHash: Bytes32;
   readonly ringDataHash: Bytes32;
   readonly ringProgramId: Bytes32;
+  /** Outputs only, absent with escrow off, in padding or on a namespace-owned record. */
+  readonly key?: CustomRingRegistryKey;
+}
+
+/** Mirrors Go `RegistryKey`, an owner's escrowed nullifier key opened in the ring key registry. */
+export interface CustomRingRegistryKey {
+  readonly next: Bytes32;
+  /** `hashBytes` of the sealed key ciphertext. */
+  readonly ctHash: Bytes32;
+  readonly index: bigint;
+  readonly path: readonly Bytes32[];
 }
 
 /** Mirrors Rust `RuleAnswer`, one entry fact proven against the roots. */
 export interface CustomRingRuleAnswer {
   readonly enabled: boolean;
+  /** Index into the proof's `treeSlots` of the tree the fact is read in. */
+  readonly treeSlot: number;
   readonly mode: number;
   readonly listId: number;
   readonly state: number;
@@ -181,6 +206,7 @@ export function disabledRuleAnswer(): CustomRingRuleAnswer {
   const zero = (): Bytes32 => new Uint8Array(32) as Bytes32;
   return Object.freeze({
     enabled: false,
+    treeSlot: 0,
     mode: 1,
     listId: 1,
     state: 1,
@@ -204,6 +230,59 @@ export interface CustomRingSourceOwner {
   readonly ownerHash: Bytes32;
 }
 
+/** Sets outflow and approval bounds for one asset. */
+export interface CustomRingVelocityRow {
+  readonly asset: Bytes32;
+  readonly cap: bigint;
+  readonly cosignAbove: bigint;
+}
+
+/** Opens the previous counters and salts their successor commitment. */
+export interface CustomRingSpendRecordProofInput {
+  readonly version: bigint;
+  readonly window: bigint;
+  readonly commitment: Bytes32;
+  readonly salt: Bytes32;
+  readonly assets: readonly Bytes32[];
+  readonly spent: readonly bigint[];
+  readonly nextSalt: Bytes32;
+}
+
+/** Binds outflow accounting to a ring and its current window. */
+export interface CustomRingVelocityProofInput {
+  readonly windowSlots: bigint;
+  readonly rows: readonly CustomRingVelocityRow[];
+  readonly ringId: Bytes32;
+  readonly namespaceOwnerHash: Bytes32;
+  readonly windowIndex: bigint;
+  readonly approvalRequired: boolean;
+  readonly record: CustomRingSpendRecordProofInput;
+}
+
+const zeroField = (): Bytes32 => new Uint8Array(32) as Bytes32;
+
+export function velocityProofInputOff(
+  identity: Readonly<{ ringId: Bytes32; namespaceOwnerHash: Bytes32 }>,
+): CustomRingVelocityProofInput {
+  return Object.freeze({
+    windowSlots: 0n,
+    rows: Object.freeze([]),
+    ringId: identity.ringId,
+    namespaceOwnerHash: identity.namespaceOwnerHash,
+    windowIndex: 0n,
+    approvalRequired: false,
+    record: Object.freeze({
+      version: 0n,
+      window: 0n,
+      commitment: zeroField(),
+      salt: zeroField(),
+      assets: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, zeroField)),
+      spent: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, () => 0n)),
+      nextSalt: zeroField(),
+    }),
+  });
+}
+
 /** Mirrors Rust `CustomRingPolicyProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
 export interface CustomRingPolicyProofRequest {
   readonly publicInputHash: Bytes32;
@@ -211,6 +290,7 @@ export interface CustomRingPolicyProofRequest {
   readonly txViewingSecret: Bytes32;
   readonly ephemeralSecret: Bytes32;
   readonly auditorPublicKey: Uint8Array;
+  readonly salt: Bytes16;
   readonly nIn: number;
   readonly nOut: number;
   readonly inputs: readonly CustomRingOpening[];
@@ -224,9 +304,12 @@ export interface CustomRingPolicyProofRequest {
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
   readonly inlineCount: number;
-  readonly stateRoot: Bytes32;
-  readonly nullifierRoot: Bytes32;
-  readonly entriesTreeId: number;
+  /** The populated prefix, one to `INPUT_TREES` policy trees. */
+  readonly treeSlots: readonly TreeSlot[];
+  readonly addressTreeId: number;
+  readonly velocity: CustomRingVelocityProofInput;
+  /** Present exactly when the ring escrows nullifier keys, every output key opens under it. */
+  readonly keyRegistryRoot?: Bytes32;
   readonly answers: readonly CustomRingRuleAnswer[];
 }
 
@@ -234,6 +317,53 @@ export interface CustomRingBaseProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;
+  readonly ephemeralSecret: Bytes32;
+  readonly auditorPublicKey: Uint8Array;
+  readonly salt: Bytes16;
+  readonly nOut: number;
+  readonly outputs: readonly CustomRingOpening[];
+}
+
+/** Proves one batch of deposit openings encrypted to the ring auditor. */
+export interface CustomRingDepositProofRequest {
+  readonly publicInputHash: Bytes32;
+  readonly contextHash: Bytes32;
+  readonly count: number;
+  /** `ownerHash = Poseidon(ownerPkHash, nullifierPk)` per slot, zero past `count`. */
+  readonly ownerPkHashes: readonly Bytes32[];
+  readonly nullifierPks: readonly Bytes32[];
+  readonly blindings: readonly Bytes32[];
+  /** Per slot, absent with escrow off or past `count`. */
+  readonly keys: readonly (CustomRingRegistryKey | undefined)[];
+  readonly ephemeralSecret: Bytes32;
+  readonly auditorPublicKey: Uint8Array;
+  /** Present exactly when the ring escrows nullifier keys. */
+  readonly keyRegistryRoot?: Bytes32;
+}
+
+export interface CustomRingCompressedPolicyProofRequest {
+  readonly transactionSalt: Bytes16;
+  readonly policy: CustomRingPolicyProofRequest;
+}
+
+/** Mirrors Go `registryInsertion`, the append the key registration circuit proves. */
+export interface CustomRingRegistryInsertion {
+  readonly registryOldRoot: Bytes32;
+  readonly registryNewRoot: Bytes32;
+  readonly member: Bytes32;
+  readonly newIndex: bigint;
+  readonly lowMember: Bytes32;
+  readonly lowNext: Bytes32;
+  readonly lowKey: Bytes32;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Bytes32[];
+  readonly newProof: readonly Bytes32[];
+}
+
+/** Proves disclosure of a member nullifier key to the auditor. */
+export interface CustomRingRegisterKeyProofRequest extends CustomRingRegistryInsertion {
+  readonly publicInputHash: Bytes32;
+  readonly nullifierSecret: Bytes32;
   readonly ephemeralSecret: Bytes32;
   readonly auditorPublicKey: Uint8Array;
 }

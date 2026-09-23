@@ -5,10 +5,18 @@ import type {
   PreparedMergeInputs,
 } from "../ports.js";
 import { decodeIndexedInputs, indexedRequestEnvelope, parseIndexedResult } from "./indexed.js";
-import { treeIdField } from "../../interface/tree-slot.js";
+import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../../interface/key-registry.js";
+import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
+import { isCanonicalField } from "../../interface/canonical-field.js";
+import { P256PublicKey } from "../../keypair/public-key.js";
+import { ViewingKey } from "../../keypair/viewing-key.js";
+import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
+import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { bytesToBigInt } from "../../keypair/bytes.js";
+import { poseidon } from "../../keypair/poseidon.js";
 
-import type { RequestContext } from "../../interface/types.js";
+import type { Bytes32, RequestContext } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
 import {
@@ -31,13 +39,21 @@ import {
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
   RING_STATE_PATH_LENGTH,
+  RING_VELOCITY_SLOTS,
 } from "./types.js";
 import type {
   CustomRingBaseProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingOpening,
   CustomRingSourceOwner,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegistryInsertion,
+  CustomRingRegisterKeyProofRequest,
+  CustomRingRegistryKey,
+  CustomRingSpendRecordProofInput,
+  CustomRingVelocityRow,
   Field,
   MergeInputs,
   Proof,
@@ -169,6 +185,59 @@ export class ProverClient {
   ): Promise<Proof> {
     return parseProof(
       await this.#send(JSON.stringify(customRingPolicyProofRequest(inputs)), "queued", context),
+    );
+  }
+
+  async proveCustomRingCompressedPolicy(
+    inputs: CustomRingCompressedPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return parseProof(
+      await this.#send(
+        JSON.stringify(customRingCompressedPolicyProofRequest(inputs)),
+        "queued",
+        context,
+      ),
+    );
+  }
+
+  async proveCustomRingRegisterKey(
+    inputs: CustomRingRegisterKeyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return parseProof(
+      await this.#send(
+        JSON.stringify(customRingRegisterKeyProofRequest(inputs)),
+        "queued",
+        context,
+      ),
+    );
+  }
+
+  async proveCustomRingDeposit(
+    inputs: CustomRingDepositProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return parseProof(
+      await this.#send(JSON.stringify(customRingDepositProofRequest(inputs)), "queued", context),
+    );
+  }
+
+  async proveCustomRingDelegatePolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    if (inputs.velocity.windowIndex !== 0n || inputs.velocity.approvalRequired)
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    return parseProof(
+      await this.#send(
+        JSON.stringify({
+          circuitType: "custom-ring-delegate-policy",
+          policy: customRingPolicyProofRequest(inputs),
+        }),
+        "queued",
+        context,
+      ),
     );
   }
 
@@ -430,7 +499,7 @@ function mergeProverRequest(
   secret: SecretEncoder,
 ): ProverRequestBody {
   return Object.freeze({
-    circuitType: "merge",
+    circuitType: BigInt(inputs.ringProgramId) === 0n ? "merge" : "merge-ring",
     inputs: inputs.inputs.map(mergeInputJson),
     output: mergeOutputJson(inputs.output),
     ...("treeSlots" in inputs
@@ -494,6 +563,9 @@ export function customRingBaseProofRequest(
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
     ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
     auditorPk: auditorPkHex(inputs.auditorPublicKey),
+    salt: bytesHex(inputs.salt),
+    nOut: u8(inputs.nOut, "nOut"),
+    outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(auditOpeningJson),
   });
 }
 
@@ -508,9 +580,13 @@ export function customRingPolicyProofRequest(
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
     ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
     auditorPk: auditorPkHex(inputs.auditorPublicKey),
+    salt: bytesHex(inputs.salt),
     nIn: u8(inputs.nIn, "nIn"),
     nOut: u8(inputs.nOut, "nOut"),
-    inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map(openingJson),
+    inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map((opening) => {
+      if (opening.key !== undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+      return openingJson(opening);
+    }),
     outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(openingJson),
     addressChain: hex32(inputs.addressChain, "addressChain"),
     externalDataHash: hex32(inputs.externalDataHash, "externalDataHash"),
@@ -525,10 +601,204 @@ export function customRingPolicyProofRequest(
       u64FieldHex(limit, "inlineLimits"),
     ),
     inlineCount: u8(inputs.inlineCount, "inlineCount"),
-    stateRoot: hex32(inputs.stateRoot, "stateRoot"),
-    nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
-    entriesTreeId: hex32(treeIdField(inputs.entriesTreeId), "entriesTreeId"),
+    treeSlots: policyTreeSlots(inputs.treeSlots).map(policyTreeSlotJson),
+    addressTreeId: hex32(treeIdField(inputs.addressTreeId), "addressTreeId"),
+    windowSlots: u64Json(inputs.velocity.windowSlots, "windowSlots"),
+    velocity: paddedVelocityRows(inputs.velocity.rows).map(velocityRowJson),
+    velocityCount: u8(inputs.velocity.rows.length, "velocityCount"),
+    ringId: hex32(inputs.velocity.ringId, "ringId"),
+    namespaceOwnerHash: hex32(inputs.velocity.namespaceOwnerHash, "namespaceOwnerHash"),
+    windowIndex: u64Json(inputs.velocity.windowIndex, "windowIndex"),
+    approvalRequired: inputs.velocity.approvalRequired,
+    ...keyEscrowJson(inputs.keyRegistryRoot),
+    record: spendRecordJson(inputs.velocity.record),
     answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
+  });
+}
+
+/** Mirrors Go `readTreeSlots`, the populated prefix of one to `INPUT_TREES` slots. */
+function policyTreeSlots(slots: readonly TreeSlot[]): readonly TreeSlot[] {
+  if (!Array.isArray(slots) || slots.length < 1 || slots.length > INPUT_TREES) {
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: {
+        field: "treeSlots",
+        expected: INPUT_TREES,
+        actual: Array.isArray(slots) ? slots.length : 0,
+      },
+    });
+  }
+  return slots;
+}
+
+function policyTreeSlotJson(slot: TreeSlot): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    id: hex32(treeIdField(slot.id), "treeSlots id"),
+    utxoRoot: hex32(slot.utxoRoot, "treeSlots utxoRoot"),
+    nullifierRoot: hex32(slot.nullifierRoot, "treeSlots nullifierRoot"),
+  });
+}
+
+/** Mirrors Go `readKeyEscrow`, the root is zero exactly when escrow is off. */
+function keyEscrowJson(root: Bytes32 | undefined): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    keyEscrow: root !== undefined,
+    keyRegistryRoot: hex32(root ?? new Uint8Array(32), "keyRegistryRoot"),
+  });
+}
+
+/** Mirrors Go `writeRegistryKey`, `null` for an absent key. */
+function registryKeyJson(
+  key: CustomRingRegistryKey | undefined,
+): Readonly<Record<string, unknown>> | null {
+  if (key === undefined) return null;
+  if (typeof key.index !== "bigint" || key.index < 0n || key.index >= KEY_REGISTRY_CAPACITY)
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "key index" } });
+  return Object.freeze({
+    next: hex32(key.next, "key next"),
+    ctHash: hex32(key.ctHash, "key ctHash"),
+    index: u64Json(key.index, "key index"),
+    path: sized(key.path, KEY_REGISTRY_HEIGHT, "key path").map((node) => hex32(node, "key path")),
+  });
+}
+
+function registryIndexHex(index: bigint, field: string): string {
+  if (typeof index !== "bigint" || index < 0n || index >= KEY_REGISTRY_CAPACITY)
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
+  return `0x${index.toString(16).padStart(64, "0")}`;
+}
+
+export function customRingCompressedPolicyProofRequest(
+  input: CustomRingCompressedPolicyProofRequest,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    circuitType: "custom-ring-compressed-policy",
+    transactionSalt: bytesHex(checkedBytes(input.transactionSalt, 16, "transactionSalt")),
+    policy: customRingPolicyProofRequest(input.policy),
+  });
+}
+
+function registryInsertionJson(
+  input: CustomRingRegistryInsertion,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    registryOldRoot: hex32(input.registryOldRoot, "registryOldRoot"),
+    registryNewRoot: hex32(input.registryNewRoot, "registryNewRoot"),
+    member: hex32(input.member, "member"),
+    newIndex: registryIndexHex(input.newIndex, "newIndex"),
+    lowIndex: registryIndexHex(input.lowIndex, "lowIndex"),
+    lowMember: hex32(input.lowMember, "lowMember"),
+    lowNext: hex32(input.lowNext, "lowNext"),
+    lowKey: hex32(input.lowKey, "lowKey"),
+    lowProof: sized(input.lowProof, KEY_REGISTRY_HEIGHT, "lowProof").map((node) =>
+      hex32(node, "lowProof"),
+    ),
+    newProof: sized(input.newProof, KEY_REGISTRY_HEIGHT, "newProof").map((node) =>
+      hex32(node, "newProof"),
+    ),
+  });
+}
+
+/** Mirrors Rust `RegisterKeyProofRequest::body`, the zero high byte keeps the secret below the field order. */
+export function customRingRegisterKeyProofRequest(
+  input: CustomRingRegisterKeyProofRequest,
+): Readonly<Record<string, unknown>> {
+  const nullifierSecret = checkedBytes(input.nullifierSecret, 32, "nullifierSecret");
+  if (nullifierSecret[0] !== 0) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  return Object.freeze({
+    circuitType: "custom-ring-register-key",
+    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
+    ...registryInsertionJson(input),
+    nullifierSecret: bytesHex(nullifierSecret),
+    ephSk: hex32(input.ephemeralSecret, "ephSk"),
+    auditorPk: auditorPkHex(input.auditorPublicKey),
+  });
+}
+
+export function customRingDepositProofRequest(
+  input: CustomRingDepositProofRequest,
+): Readonly<Record<string, unknown>> {
+  const columns = [input.ownerPkHashes, input.nullifierPks, input.blindings];
+  if (
+    !Number.isInteger(input.count) ||
+    input.count < 1 ||
+    input.count > RING_DEPOSIT_AUDIT_SLOTS ||
+    !Array.isArray(input.keys) ||
+    input.keys.length !== RING_DEPOSIT_AUDIT_SLOTS ||
+    columns.some((column) => !Array.isArray(column) || column.length !== RING_DEPOSIT_AUDIT_SLOTS)
+  )
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  try {
+    P256PublicKey.fromUncompressed(input.auditorPublicKey);
+    ViewingKey.fromBytes(input.ephemeralSecret).destroy();
+  } catch {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  for (const field of [input.publicInputHash, input.contextHash, ...columns.flat()]) {
+    if (!isCanonicalField(field)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  for (let index = input.count; index < RING_DEPOSIT_AUDIT_SLOTS; index++) {
+    if (
+      columns.some((column) => column[index]?.some((byte) => byte !== 0)) ||
+      input.keys[index] !== undefined
+    )
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  return Object.freeze({
+    circuitType: "custom-ring-deposit",
+    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
+    contextHash: hex32(input.contextHash, "contextHash"),
+    count: input.count,
+    ownerPkHashes: input.ownerPkHashes.map((field) => hex32(field, "ownerPkHash")),
+    nullifierPks: input.nullifierPks.map((field) => hex32(field, "nullifierPk")),
+    blindings: input.blindings.map((field) => hex32(field, "blinding")),
+    keys: input.keys.map(registryKeyJson),
+    ephSk: hex32(input.ephemeralSecret, "ephSk"),
+    auditorPk: auditorPkHex(input.auditorPublicKey),
+    ...keyEscrowJson(input.keyRegistryRoot),
+  });
+}
+
+/** Rows past the count are zero, the server refuses other padding. */
+function paddedVelocityRows(
+  rows: readonly CustomRingVelocityRow[],
+): readonly CustomRingVelocityRow[] {
+  if (rows.length > RING_VELOCITY_SLOTS) {
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: { field: "velocity", expected: RING_VELOCITY_SLOTS, actual: rows.length },
+    });
+  }
+  return Object.freeze(
+    Array.from(
+      { length: RING_VELOCITY_SLOTS },
+      (_, index) =>
+        rows[index] ?? { asset: new Uint8Array(32) as Bytes32, cap: 0n, cosignAbove: 0n },
+    ),
+  );
+}
+
+function velocityRowJson(row: CustomRingVelocityRow): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    asset: hex32(row.asset, "velocity asset"),
+    cap: u64FieldHex(row.cap, "velocity cap"),
+    cosignAbove: u64FieldHex(row.cosignAbove, "velocity cosignAbove"),
+  });
+}
+
+function spendRecordJson(
+  record: CustomRingSpendRecordProofInput,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    version: u64Json(record.version, "record version"),
+    window: u64Json(record.window, "record window"),
+    commitment: hex32(record.commitment, "record commitment"),
+    salt: hex32(record.salt, "record salt"),
+    assets: sized(record.assets, RING_VELOCITY_SLOTS, "record assets").map((asset) =>
+      hex32(asset, "record assets"),
+    ),
+    spent: sized(record.spent, RING_VELOCITY_SLOTS, "record spent").map((spent) =>
+      u64FieldHex(spent, "record spent"),
+    ),
+    nextSalt: hex32(record.nextSalt, "record nextSalt"),
   });
 }
 
@@ -538,6 +808,27 @@ function openingJson(opening: CustomRingOpening): Readonly<Record<string, unknow
     treeId: hex32(opening.treeId, "treeId"),
     ownerPkHash: hex32(opening.ownerPkHash, "ownerPkHash"),
     nullifierPk: hex32(opening.nullifierPk, "nullifierPk"),
+    asset: hex32(opening.asset, "asset"),
+    amount: hex32(opening.amount, "amount"),
+    blinding: hex32(opening.blinding, "blinding"),
+    dataHash: hex32(opening.dataHash, "dataHash"),
+    ringDataHash: hex32(opening.ringDataHash, "ringDataHash"),
+    ringProgramId: hex32(opening.ringProgramId, "ringProgramId"),
+    ...(opening.key === undefined ? {} : { key: registryKeyJson(opening.key) }),
+  });
+}
+
+/** The base circuit needs the already-combined owner hash used by the SPP commitment. */
+function auditOpeningJson(opening: CustomRingOpening): Readonly<Record<string, unknown>> {
+  const domain = bytesToBigInt(opening.domain);
+  const ownerHash =
+    domain === 0n || domain === BigInt(DUMMY_DOMAIN)
+      ? new Uint8Array(32)
+      : poseidon([opening.ownerPkHash, opening.nullifierPk]);
+  return Object.freeze({
+    domain: hex32(opening.domain, "domain"),
+    treeId: hex32(opening.treeId, "treeId"),
+    ownerHash: hex32(ownerHash, "ownerHash"),
     asset: hex32(opening.asset, "asset"),
     amount: hex32(opening.amount, "amount"),
     blinding: hex32(opening.blinding, "blinding"),
@@ -557,6 +848,7 @@ function sourceJson(source: CustomRingSourceOwner): Readonly<Record<string, unkn
 function answersJson(entry: CustomRingRuleAnswer): Readonly<Record<string, unknown>> {
   return Object.freeze({
     enabled: entry.enabled,
+    treeSlot: u8(entry.treeSlot, "treeSlot"),
     mode: u8(entry.mode, "mode"),
     listId: u8(entry.listId, "listId"),
     state: u8(entry.state, "state"),
@@ -633,7 +925,12 @@ function proverRequest(
 ): ProverRequestBody {
   const payload = inputs.payload;
   return Object.freeze({
-    circuitType: inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential",
+    circuitType:
+      inputs.circuit === "transferRingAuthority"
+        ? "transfer-ring-authority"
+        : inputs.circuit === "transferRing"
+          ? "transfer-ring"
+          : "transfer-confidential",
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map((input) => inputJson(input, secret)),

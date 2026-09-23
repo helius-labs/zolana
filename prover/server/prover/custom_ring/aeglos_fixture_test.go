@@ -4,6 +4,8 @@ import (
 	"math/big"
 	"os"
 	"testing"
+
+	"zolana/prover/custom_rings/circuits/base/audittest"
 	"zolana/prover/prover-test/aeglosfixture"
 	"zolana/prover/prover-test/spp/spptest"
 )
@@ -15,14 +17,8 @@ func TestExportAeglosRingFixtures(t *testing.T) {
 	for variant := range 2 {
 		base := baseParams(t)
 		base.PrivateTxHash = big.NewInt(int64(1000 + variant))
-		elements := []*big.Int{base.PrivateTxHash}
-		for _, text := range auditChainElements {
-			value, ok := new(big.Int).SetString(text[2:], 16)
-			if !ok {
-				t.Fatal("invalid audit element")
-			}
-			elements = append(elements, value)
-		}
+		keys := audittest.DefaultKeys(t)
+		elements := keys.ChainElementsFor(t, keys.AuditBlockWires(base.PrivateTxHash), int(base.NOut))
 		base.PublicInputHash = spptest.MustHashChain(t, elements)
 		baseWitness, err := base.CreateWitness()
 		if err != nil {

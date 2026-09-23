@@ -9,11 +9,11 @@ import type {
 } from "../client/ports.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
-import { Merge, PreparedMerge } from "../transaction/instructions/builders.js";
+import type { PreparedMerge } from "../transaction/instructions/builders.js";
+import { prepareMerge } from "../flows/merge.js";
 import type { ProofInputUtxo } from "../transaction/utxo.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
-import { deriveAnswers } from "../transaction/wallet/key-batch.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { initializePoseidon } from "../hasher/index.js";
@@ -96,36 +96,14 @@ export async function createMerge(
     const inputs: readonly ProofInputUtxo[] = selected.map((entry) =>
       proofInputFromEntry(entry, address),
     );
-    const firstNullifier = inputs[0]?.nullifier();
-    if (firstNullifier === undefined) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-    const dummySlots = PreparedMerge.dummySlots(inputs.length);
-    const answers = await params.keys.derive(
-      [
-        { kind: "mergeOutputBlinding", firstNullifier },
-        { kind: "mergePrivateTxBlinding", firstNullifier },
-        ...dummySlots.map((slotIndex) => ({
-          kind: "mergeDummyNullifier" as const,
-          firstNullifier,
-          slotIndex,
-        })),
-      ],
+    const prepared = await prepareMerge(
+      {
+        keys: params.keys,
+        inputs,
+        invalidAnswers: () => new WalletError("WALLET_KEYS_BATCH_MISMATCH"),
+      },
       context,
     );
-    const [outputBlinding, privateTxBlinding, ...dummyNullifiers] = deriveAnswers(
-      answers,
-      2 + dummySlots.length,
-      () => new WalletError("WALLET_KEYS_BATCH_MISMATCH"),
-    );
-    if (outputBlinding === undefined || privateTxBlinding === undefined) {
-      throw new WalletError("WALLET_KEYS_BATCH_MISMATCH");
-    }
-    const prepared = new Merge({
-      address,
-      inputs,
-      outputBlinding,
-      privateTxBlinding,
-      dummyNullifiers,
-    }).prepare();
     return Object.freeze({
       prepared,
       numInputs: selected.length,

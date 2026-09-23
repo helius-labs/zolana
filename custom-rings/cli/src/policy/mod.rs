@@ -6,8 +6,9 @@ pub mod grammar;
 pub mod render;
 
 pub use grammar::{
-    compile_rows, describe, list_name, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
-    PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName,
+    describe, describe_velocity, list_name, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
+    PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName, VelocityRowSpec,
+    VelocitySpec,
 };
 pub use render::render;
 
@@ -18,7 +19,7 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_ring_policy::RuleTable;
+use zolana_ring_policy::{RuleTable, VelocityMode};
 
 use crate::{
     catalogue::{CuratorCheck, CuratorError},
@@ -52,7 +53,7 @@ pub enum PolicyCommandError {
     #[error("the pinned table differs from ring.toml")]
     Drift(#[source] PolicyMatchError),
     #[error(
-        "ring.toml names tree {toml}, the policy config pins {chain}, a tree is fixed at init"
+        "ring.toml names address tree {toml}, the policy config pins {chain}, it is fixed at init"
     )]
     TreeDrift { toml: Address, chain: Address },
     #[error("the {list} list reads {chain} on chain, ring.toml expects {expected}")]
@@ -90,10 +91,10 @@ pub fn verify_rows(
     config: &PolicyConfig,
 ) -> Result<(), PolicyCommandError> {
     client_rules_match(&compiled.rules, config).map_err(PolicyCommandError::Drift)?;
-    if config.entries_tree != compiled.entries_tree {
+    if config.address_tree != compiled.address_tree {
         return Err(PolicyCommandError::TreeDrift {
-            toml: compiled.entries_tree,
-            chain: config.entries_tree,
+            toml: compiled.address_tree,
+            chain: config.address_tree,
         });
     }
     Ok(())
@@ -122,7 +123,7 @@ pub fn verify_sources(
 }
 
 pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
-    ui::heading(Icon::Tree, &format!("tree {}", config.entries_tree));
+    ui::heading(Icon::Tree, &format!("tree {}", config.address_tree));
     line(
         "generation",
         format_args!(
@@ -144,6 +145,7 @@ pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
                     format_args!("{} listed inline", table.inline_assets().len()),
                 );
             }
+            print_velocity(&table);
         }
         Err(error) => line("rules", format_args!("undecodable ({error})")),
     }
@@ -219,7 +221,7 @@ fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
         CuratorCheck {
             curator: *curator,
             list: *list_id,
-            entries_tree: compiled.entries_tree,
+            address_tree: compiled.address_tree,
         }
         .run(&ctx.rpc)?;
     }
@@ -271,6 +273,20 @@ fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
     Ok(())
 }
 
+fn print_velocity(table: &RuleTable) {
+    let mode = table.velocity_mode();
+    match mode {
+        VelocityMode::Off => return,
+        VelocityMode::PerWindow { window_slots } => {
+            line("velocity", format_args!("windows of {window_slots} slots"))
+        }
+        VelocityMode::PerTransfer => line("velocity", "each transfer"),
+    }
+    for row in table.velocity() {
+        line("velocity", describe_velocity(row, mode));
+    }
+}
+
 fn print_diff(old: &RuleTable, new: &RuleTable) {
     for rule in old.rules() {
         if !new.rules().contains(rule) {
@@ -287,5 +303,8 @@ fn print_diff(old: &RuleTable, new: &RuleTable) {
             "assets",
             format_args!("{} listed inline", new.inline_assets().len()),
         );
+    }
+    if old.window_slots() != new.window_slots() || old.velocity() != new.velocity() {
+        print_velocity(new);
     }
 }

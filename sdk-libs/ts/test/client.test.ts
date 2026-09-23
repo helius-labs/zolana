@@ -6,6 +6,7 @@ import {
   SolanaError,
   address,
   getBase58Decoder,
+  type Address,
   type Signature,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
@@ -80,7 +81,7 @@ type ProofFixture = Readonly<{
  * circuit checks it.
  */
 function proofFixture(
-  options: Readonly<{ dummyInputs?: number; outputTreeId?: number }> = {},
+  options: Readonly<{ dummyInputs?: number; outputTreeId?: number; ring?: Address }> = {},
 ): ProofFixture {
   const outputTreeId = options.outputTreeId ?? TREE_ID;
   const keypair = ShieldedKeypair.generate();
@@ -90,6 +91,7 @@ function proofFixture(
       asset: SOL_MINT,
       amount: 7n,
       blinding: bytes(1),
+      ...(options.ring === undefined ? {} : { ringProgramId: options.ring }),
     }),
     keypair,
   );
@@ -107,6 +109,7 @@ function proofFixture(
     asset: SOL_MINT,
     amount: 7n,
     blinding: slotBlinding(0),
+    ...(options.ring === undefined ? {} : { ringProgramId: options.ring }),
   });
   const outputs = [
     output,
@@ -611,6 +614,32 @@ describe("ZolanaClient", () => {
     });
   });
 
+  it("preserves a ring filter for empty-tag scans and refuses an unscoped scan", async () => {
+    const requests: unknown[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        id: "test-account",
+        jsonrpc: "2.0",
+        result: { context: { blockTime: 1, slot: 1 }, transactions: [], scannedThrough: "BA==" },
+      });
+    });
+    const instance = client(fetch);
+    await instance.getShieldedTransactionsByTags({
+      tags: [],
+      ringProgramId: TREE,
+      limit: 3,
+      cursor: Uint8Array.of(1),
+    });
+    expect(requests).toEqual([
+      expect.objectContaining({
+        params: { tags: [], ringProgramId: TREE, limit: 3, cursor: "AQ==" },
+      }),
+    ]);
+    await expect(instance.getShieldedTransactionsByTags({ tags: [] })).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("proves caller-assembled transfer inputs on the transfer circuit", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
       async () =>
@@ -794,6 +823,46 @@ describe("ZolanaClient", () => {
 });
 
 describe("prover indexer fetching", () => {
+  it.each(["client", "prover"] as const)(
+    "keeps ring authority proving complete with %s fetching",
+    async (proofDataSource) => {
+      const fixture = proofFixture({ dummyInputs: 1, ring: FOREIGN_TREE });
+      const fetch = proverFetch();
+      const instance = new ZolanaClient({ proofDataSource, fetch });
+      const state = vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
+        context: { blockTime: 1n, slot: 1n },
+        proofs: [fixture.spendProof.state],
+      });
+      const nullifier = vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
+        context: { blockTime: 1n, slot: 1n },
+        proofs: [fixture.spendProof.nullifier, ...fixture.dummyProofs],
+      });
+      const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
+      const indexed = vi.spyOn(keys, "proveIndexed");
+      try {
+        const result = await instance.proveRingAuthorityTransact(
+          fixture.proofInputs,
+          FOREIGN_TREE,
+          keys,
+        );
+        expect(result.data.circuit.kind).toBe("ringAuthority");
+        expect(state).toHaveBeenCalledOnce();
+        expect(nullifier).toHaveBeenCalledOnce();
+        expect(indexed).not.toHaveBeenCalled();
+        expect(fetch).toHaveBeenCalledOnce();
+        expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove$/u);
+        expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+          circuitType: "transfer-ring-authority",
+          publishedOutputOwnerPkHashes: [],
+          treeSlots: expect.any(Array),
+        });
+      } finally {
+        keys.destroy();
+        fixture.keypair.destroy();
+      }
+    },
+  );
+
   for (const ring of [undefined, FOREIGN_TREE]) {
     it(`matches locally resolved transfer data for ${ring === undefined ? "pool" : "ring"}`, async () => {
       const fixture = proofFixture({ dummyInputs: 1 });
@@ -801,7 +870,7 @@ describe("prover indexer fetching", () => {
         fixture.proofInputs,
         [fixture.spendProof],
         fixture.dummyProofs,
-        ring,
+        ring === undefined ? { kind: "confidential" } : { kind: "ring", ring },
       );
       const prepared = prepareTransfer(fixture.proofInputs, ring);
       const resultBody = {

@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+import { LocalKeys, ZolanaClient } from "../src/client/index.js";
 
 import { inputFlags } from "../src/client/internal.js";
 import { assemble } from "../src/client/prover/assembly.js";
@@ -281,5 +283,110 @@ describe("input tree grouping", () => {
 
   it("refuses an empty input list", () => {
     expect(() => inputTreeIds([])).toThrow(TransactionError);
+  });
+});
+
+describe("a client proving from two trees", () => {
+  it("asks each input tree once for its real and padding leaves and proves every slot", async () => {
+    const fixture = twoTreeFixture();
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({
+        ar: ["0x0", "0x0"],
+        bs: [
+          ["0x0", "0x0"],
+          ["0x0", "0x0"],
+        ],
+        krs: ["0x0", "0x0"],
+      }),
+    );
+    const client = new ZolanaClient({
+      solanaRpcUrl: "http://127.0.0.1:8899",
+      indexerUrl: "http://127.0.0.1:8784",
+      proverUrl: "http://127.0.0.1:3001",
+      tree: treeAddress(TREE_0.treeId),
+      fetch,
+    });
+    const [first, second] = fixture.spendProofs;
+    if (first === undefined || second === undefined) throw new Error("fixture");
+    const getMerkleProofs = vi
+      .spyOn(client, "getMerkleProofs")
+      .mockImplementation(async (tree) => ({
+        context: { blockTime: 1n, slot: 1n },
+        proofs: [tree === treeAddress(TREE_0.treeId) ? first.state : second.state],
+      }));
+    const getNonInclusionProofs = vi
+      .spyOn(client, "getNonInclusionProofs")
+      .mockImplementation(async (tree) => ({
+        context: { blockTime: 1n, slot: 1n },
+        proofs:
+          tree === treeAddress(TREE_0.treeId)
+            ? [first.nullifier]
+            : [second.nullifier, ...fixture.dummyProofs],
+      }));
+    const data = await client.proveTransact(
+      fixture.proofInputs,
+      LocalKeys.fromKeypair(fixture.keypair, client.proofService),
+    );
+    const [firstInput, secondInput, dummy] = fixture.proofInputs.inputUtxos;
+    expect(getMerkleProofs.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+      [treeAddress(TREE_0.treeId), [firstInput?.hash()]],
+      [treeAddress(TREE_1.treeId), [secondInput?.hash()]],
+    ]);
+    expect(getNonInclusionProofs.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+      [treeAddress(TREE_0.treeId), [firstInput?.nullifier()]],
+      [treeAddress(TREE_1.treeId), [secondInput?.nullifier(), dummy?.nullifier()]],
+    ]);
+    expect(data.treeContexts).toEqual([
+      {
+        utxoTreeRootIndex: TREE_0.utxoRootIndex,
+        nullifierTreeRootIndex: TREE_0.nullifierRootIndex,
+      },
+      {
+        utxoTreeRootIndex: TREE_1.utxoRootIndex,
+        nullifierTreeRootIndex: TREE_1.nullifierRootIndex,
+      },
+    ]);
+    expect(data.inputs.map((input) => input.treeIndex)).toEqual([0, 1, 1]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("asks a tree holding only padding for no state proofs", async () => {
+    const fixture = twoTreeFixture();
+    const client = new ZolanaClient({
+      solanaRpcUrl: "http://127.0.0.1:8899",
+      indexerUrl: "http://127.0.0.1:8784",
+      proverUrl: "http://127.0.0.1:3001",
+      tree: treeAddress(TREE_0.treeId),
+      fetch: vi.fn<typeof globalThis.fetch>(),
+    });
+    const [spend, , dummy] = fixture.proofInputs.inputUtxos;
+    const [spent] = fixture.spendProofs;
+    if (spend === undefined || dummy === undefined || spent === undefined) {
+      throw new Error("fixture");
+    }
+    const proofInputs = new SppProofInputs({
+      payer: fixture.proofInputs.payer,
+      inputUtxos: [spend, dummy],
+      outputs: fixture.proofInputs.outputs,
+      externalData: fixture.proofInputs.externalData,
+      blindingSeed: fixture.proofInputs.blindingSeed,
+      outputTreeId: fixture.proofInputs.outputTreeId,
+    });
+    const getMerkleProofs = vi.spyOn(client, "getMerkleProofs").mockResolvedValue({
+      context: { blockTime: 1n, slot: 1n },
+      proofs: [spent.state],
+    });
+    vi.spyOn(client, "getNonInclusionProofs").mockImplementation(async (tree) => ({
+      context: { blockTime: 1n, slot: 1n },
+      proofs: tree === treeAddress(TREE_0.treeId) ? [spent.nullifier] : fixture.dummyProofs,
+    }));
+    // Padding cannot open a tree, so assembly still refuses the slot.
+    await expect(
+      client.proveTransact(
+        proofInputs,
+        LocalKeys.fromKeypair(fixture.keypair, client.proofService),
+      ),
+    ).rejects.toThrow("CLIENT_INPUTS_NOT_GROUPED_BY_TREE");
+    expect(getMerkleProofs.mock.calls.map((call) => call[0])).toEqual([treeAddress(TREE_0.treeId)]);
   });
 });

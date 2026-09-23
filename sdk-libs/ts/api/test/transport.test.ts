@@ -87,6 +87,7 @@ describe("transport configuration", () => {
               transaction: {
                 slot: 2,
                 txSignature: SIGNATURE,
+                eventIndex: 1,
                 txViewingPk: null,
                 salt: null,
                 outputSlots: [],

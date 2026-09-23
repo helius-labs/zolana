@@ -895,7 +895,7 @@ type healthHandler struct {
 }
 
 func servedCircuits() []common.CircuitType {
-	return []common.CircuitType{
+	circuits := []common.CircuitType{
 		common.BatchAddressAppendCircuitType,
 		common.TransferConfidentialCircuitType,
 		common.TransferRingCircuitType,
@@ -903,9 +903,11 @@ func servedCircuits() []common.CircuitType {
 		common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType,
 		common.MergeRingCircuitType,
-		common.CustomRingBaseCircuitType,
-		common.CustomRingPolicyCircuitType,
 	}
+	for _, ring := range customring.RingCircuits {
+		circuits = append(circuits, ring.Type)
+	}
+	return circuits
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
@@ -1181,6 +1183,9 @@ func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) boo
 }
 
 func GetQueueNameForCircuit(circuitType common.CircuitType) string {
+	if circuitType.IsRing() {
+		return "zk_custom_ring_queue"
+	}
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "zk_address_append_queue"
@@ -1191,34 +1196,34 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.MergeCircuitType,
 		common.MergeRingCircuitType:
 		return "zk_transfer_queue"
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
-		return "zk_custom_ring_queue"
 	default:
 		return ""
 	}
 }
 
 func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) string {
+	if circuitType.IsRing() {
+		return "1-10 seconds"
+	}
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
 	case common.TransferP256RingCircuitType:
 		return "30-180 seconds"
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
-		return "1-10 seconds"
 	default:
 		return "1-3 seconds"
 	}
 }
 
 func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitType) int {
+	if circuitType.IsRing() {
+		return 10
+	}
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
 	case common.TransferP256RingCircuitType:
 		return 180
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
-		return 10
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
 	case common.MergeCircuitType, common.MergeRingCircuitType:
@@ -1232,14 +1237,12 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 const maxSyncProofTimeout = 5 * time.Minute
 
 func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) time.Duration {
-	switch circuitType {
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+	if circuitType.IsRing() {
 		// Includes lazy key download and loading.
 		return maxSyncProofTimeout
-	default:
-		estimate := time.Duration(handler.getEstimatedTimeSeconds(circuitType)) * time.Second
-		return min(maxSyncProofTimeout, max(10*time.Second, 2*estimate))
 	}
+	estimate := time.Duration(handler.getEstimatedTimeSeconds(circuitType)) * time.Second
+	return min(maxSyncProofTimeout, max(10*time.Second, 2*estimate))
 }
 
 func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error) {
@@ -1248,6 +1251,9 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return nil, malformedBodyError(err)
 	}
 
+	if proofRequestMeta.CircuitType.IsRing() {
+		return handler.customRingProof(buf, proofRequestMeta.CircuitType)
+	}
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
@@ -1261,8 +1267,6 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
-		return handler.customRingProof(buf, proofRequestMeta.CircuitType)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1331,47 +1335,22 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 
 func (handler proveHandler) customRingProof(buf []byte, circuitType common.CircuitType) (*common.Proof, *Error) {
 	finishParameters := handler.timing.Start("parameters")
-	defer finishParameters()
-	switch circuitType {
-	case common.CustomRingBaseCircuitType:
-		var params customring.BaseParameters
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		finishParameters()
-		finishKeys := handler.timing.Start("keys")
-		ps, err := handler.keyManager.GetRingSystem(common.CustomRingBaseCircuitType)
-		finishKeys()
-		if err != nil {
-			return nil, provingError(fmt.Errorf("custom-ring base: %w", err))
-		}
-		proof, err := (customring.BaseProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
-		if err != nil {
-			return nil, provingError(errors.New("custom ring proof failed"))
-		}
-		return proof, nil
-	case common.CustomRingPolicyCircuitType:
-		var params customring.PolicyParameters
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-
-		finishParameters()
-		finishKeys := handler.timing.Start("keys")
-		ps, err := handler.keyManager.GetRingSystem(common.CustomRingPolicyCircuitType)
-		finishKeys()
-		if err != nil {
-			return nil, provingError(fmt.Errorf("custom-ring policy: %w", err))
-		}
-
-		proof, err := (customring.PolicyProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
-		if err != nil {
-			return nil, provingError(errors.New("custom ring proof failed"))
-		}
-		return proof, nil
-	default:
-		return nil, malformedBodyError(fmt.Errorf("unknown custom-ring circuit type: %s", circuitType))
+	request, err := customring.DecodeRequest(circuitType, buf)
+	finishParameters()
+	if err != nil {
+		return nil, malformedBodyError(err)
 	}
+	finishKeys := handler.timing.Start("keys")
+	ps, err := handler.keyManager.GetRingSystem(circuitType)
+	finishKeys()
+	if err != nil {
+		return nil, provingError(fmt.Errorf("%s: %w", circuitType, err))
+	}
+	proof, err := (customring.RingProof{System: ps, Parameters: request, Timing: handler.timing}).Prove()
+	if err != nil {
+		return nil, provingError(errors.New("custom ring proof failed"))
+	}
+	return proof, nil
 }
 
 func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, *Error) {

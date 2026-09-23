@@ -29,6 +29,9 @@ function count(value: number, name: string): number {
   return value;
 }
 
+/** Rust `AUTHORITY_MAX_WIDTH`, inputs and outputs of an authority-rail transfer. */
+export const RING_AUTHORITY_MAX_WIDTH = 4;
+
 /** Distinct addresses one transaction can carry, `solana_message::v1::MAX_ADDRESSES`. */
 export const MAX_TRANSACTION_ADDRESSES = 64;
 

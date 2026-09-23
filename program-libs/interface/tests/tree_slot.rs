@@ -225,3 +225,48 @@ fn input_flags_match_the_cross_language_vectors() {
         assert_eq!(packed, flags_field(decimal), "vector {}", vector.name);
     }
 }
+
+#[test]
+fn a_resolved_slot_carries_the_tree_id_and_the_roots_at_its_context() {
+    use zolana_interface::{
+        instruction::instruction_data::transact::TreeContext,
+        state::{
+            default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
+        },
+        tree_slot::resolve_tree_slot,
+    };
+    use zolana_tree::{TreeAccount, TreeError, UTXO_TREE_HEIGHT};
+
+    let mut data = vec![0u8; TreeAccount::account_size()];
+    let params = nullifier_tree_params();
+    let tree = TreeAccount::init(
+        &mut data,
+        TREE_ACCOUNT_DISCRIMINATOR,
+        UTXO_TREE_HEIGHT as u8,
+        [9u8; 32],
+        0x0102,
+        params,
+        default_tree_fees(params.input_queue_zkp_batch_size).unwrap(),
+    )
+    .unwrap();
+    let context = TreeContext {
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
+    };
+    assert_eq!(
+        resolve_tree_slot(&tree, &context),
+        Ok(TreeSlot {
+            id: tree_id_field(0x0102),
+            utxo_root: tree.get_utxo_tree_root(0).unwrap(),
+            nullifier_root: tree.get_nullifier_tree_root(0).unwrap(),
+        })
+    );
+    let stale = TreeContext {
+        nullifier_tree_root_index: 5,
+        ..context
+    };
+    assert_eq!(
+        resolve_tree_slot(&tree, &stale),
+        Err(TreeError::InvalidRootIndex)
+    );
+}

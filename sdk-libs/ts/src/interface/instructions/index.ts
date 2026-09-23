@@ -24,7 +24,6 @@ import {
   type InputUtxo,
   type MergeTransactInstructionData,
   type DepositSplAccounts,
-  type RingAssetDeposit,
   type TransactInstructionData,
   type TreeContext,
   type TransactWithdrawal,
@@ -34,7 +33,7 @@ import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
   nullifierPdaAddress,
   protocolConfigAddress,
-  ringAuthAddress,
+  ringSpendWindowAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
   splAssetRegistryAddress,
@@ -45,7 +44,6 @@ import {
 import {
   encodeCreateTreeData,
   encodeDepositInstructionData,
-  encodeRingDepositInstructionData,
   encodeMergeTransactInstructionData,
   encodeTransactInstructionData,
   encodeTreeFeeSchedule,
@@ -58,12 +56,12 @@ type Meta = NonNullable<Instruction["accounts"]>[number];
 
 export type SignerAccount = Address | TransactionSigner;
 
-function accountAddress(account: SignerAccount): Address {
+export function signerAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
 }
 
 export function meta(account: SignerAccount, isSigner: boolean, isWritable: boolean): Meta {
-  const address = accountAddress(account);
+  const address = signerAddress(account);
   return {
     address,
     role: isSigner
@@ -77,7 +75,7 @@ export function meta(account: SignerAccount, isSigner: boolean, isWritable: bool
   } as Meta;
 }
 
-function instruction(
+export function instruction(
   data: Uint8Array,
   accounts: readonly Meta[],
   programAddress: Address = SHIELDED_POOL_PROGRAM_ID,
@@ -89,7 +87,7 @@ function instruction(
   };
 }
 
-function tagged(tag: number, payload?: Uint8Array): Uint8Array {
+export function tagged(tag: number, payload?: Uint8Array): Uint8Array {
   const data = new Uint8Array(1 + (payload?.length ?? 0));
   data[0] = tag;
   if (payload !== undefined) data.set(payload, 1);
@@ -196,7 +194,9 @@ interface DepositLayout {
   readonly splGroups: readonly DepositSplAccounts[];
 }
 
-function depositLayout(deposits: readonly Readonly<{ asset: DepositAsset }>[]): DepositLayout {
+export function depositLayout(
+  deposits: readonly Readonly<{ asset: DepositAsset }>[],
+): DepositLayout {
   if (deposits.length === 0 || deposits.length > 0xff) {
     fail("INTERFACE_CODEC", { reason: "invalid deposit count", count: deposits.length });
   }
@@ -224,7 +224,7 @@ function depositLayout(deposits: readonly Readonly<{ asset: DepositAsset }>[]): 
   return Object.freeze({ hasSol, splGroups: Object.freeze(splGroups) });
 }
 
-function depositAssetIndex(
+export function depositAssetIndex(
   layout: DepositLayout,
   deposit: Readonly<{ asset: DepositAsset }>,
 ): number {
@@ -235,7 +235,7 @@ function depositAssetIndex(
   return Number(layout.hasSol) + index;
 }
 
-async function depositAccounts(
+export async function depositAccounts(
   tree: Address,
   depositor: SignerAccount,
   layout: DepositLayout,
@@ -303,47 +303,26 @@ export async function depositInstruction(
   );
 }
 
-/** Mirrors Rust `RingDeposit::instruction`. The ring program forwards it to the shielded pool unchanged. */
-export async function ringDepositInstruction(
-  input: Readonly<{
-    ringProgramId: Address;
-    tree: Address;
-    depositor: SignerAccount;
-    deposits: readonly RingAssetDeposit[];
-  }>,
-): Promise<Instruction> {
-  const layout = depositLayout(input.deposits);
-  const { accounts, splInterfaceBumps } = await depositAccounts(
-    input.tree,
-    input.depositor,
-    layout,
-    await ringAuthAddress(input.ringProgramId),
+/** An unset co-signer repeats the PDA, the message signer flag comes from the address. */
+export function ringCoSignerMetas(
+  cosignerPda: Address,
+  cosigner: SignerAccount | undefined,
+): Meta[] {
+  return [
+    meta(cosignerPda, false, false),
+    cosigner === undefined ? meta(cosignerPda, false, false) : meta(cosigner, true, false),
+  ];
+}
+
+/** One writable spend window slot per public leg, in leg order. */
+export async function ringSpendWindowMetas(
+  ringProgramId: Address,
+  mints: readonly Address[],
+): Promise<Meta[]> {
+  const windows = await Promise.all(
+    mints.map((mint) => ringSpendWindowAddress(ringProgramId, mint)),
   );
-  return instruction(
-    tagged(
-      InstructionTag.ringDeposit,
-      encodeRingDepositInstructionData({
-        assets: [
-          ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
-          ...splInterfaceBumps.map((splInterfaceBump) => ({
-            kind: "spl" as const,
-            splInterfaceBump,
-          })),
-        ],
-        deposits: input.deposits.map((deposit) => ({
-          assetIndex: depositAssetIndex(layout, deposit),
-          viewTag: deposit.viewTag,
-          ownerUtxoHash: deposit.ownerUtxoHash,
-          amount: deposit.amount,
-          ...(deposit.dataHash === undefined ? {} : { dataHash: deposit.dataHash }),
-          ringDataHash: deposit.ringDataHash,
-          encrypted: deposit.encrypted,
-        })),
-      }),
-    ),
-    accounts,
-    input.ringProgramId,
-  );
+  return windows.map((window) => meta(window, false, true));
 }
 
 function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
@@ -432,13 +411,15 @@ export async function transactInstruction(
 
 /**
  * Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring
- * program signs it inside its CPI. `inputs` are the payload's spent inputs; their
- * input tree and nullifier PDAs follow the fixed prefix ending in `ringAuth`.
+ * program signs it inside its CPI. `inputs` are the payload's spent inputs. The
+ * input trees, then one nullifier PDA per input under its own tree, follow the
+ * fixed prefix ending in `ringAuth`.
  */
 export async function ringTransactAccounts(
   input: Readonly<{
     payer: SignerAccount;
-    inputTree: Address;
+    /** One per tree context, in context order. */
+    inputTrees: readonly Address[];
     outputTree: Address;
     ringAuth: Address;
     inputs: readonly InputUtxo[];
@@ -447,18 +428,32 @@ export async function ringTransactAccounts(
     withdrawal?: TransactWithdrawal;
   }>,
 ): Promise<readonly Meta[]> {
-  validateSingleInputTree(input.inputs, input.treeContexts);
+  if (
+    input.inputTrees.length !== input.treeContexts.length ||
+    input.inputTrees.length === 0 ||
+    new Set(input.inputTrees).size !== input.inputTrees.length
+  ) {
+    fail("INTERFACE_INVALID_SHAPE", {
+      reason: "one distinct input tree per tree context",
+    });
+  }
+  const nullifierPdas = await Promise.all(
+    input.inputs.map((spent) => {
+      const tree = input.inputTrees[spent.treeIndex];
+      if (tree === undefined) {
+        fail("INTERFACE_INVALID_SHAPE", { reason: "input tree index outside the tree contexts" });
+      }
+      return nullifierPdaAddress(tree, spent.nullifierHash);
+    }),
+  );
   return [
     meta(input.payer, true, true),
     meta(input.outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
     meta(input.ringAuth, false, false),
-    meta(input.inputTree, false, true),
-    ...(await nullifierPdaAccounts(
-      input.inputTree,
-      input.inputs.map((spentInput) => spentInput.nullifierHash),
-    )),
+    ...input.inputTrees.map((tree) => meta(tree, false, true)),
+    ...nullifierPdas.map((pda) => meta(pda, false, true)),
     ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
     ...settlementAccounts(input.withdrawal),
   ];
@@ -511,7 +506,7 @@ export async function updateProtocolConfigInstruction(
   let newAuthority: SignerAccount | undefined;
   switch (input.update.field) {
     case "protocolAuthority":
-      writer.u8(0, "update.field").bytes(addressBytes(accountAddress(input.update.value)));
+      writer.u8(0, "update.field").bytes(addressBytes(signerAddress(input.update.value)));
       newAuthority = input.update.value;
       break;
     case "treeCreationAuthority":

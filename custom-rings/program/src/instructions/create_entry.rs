@@ -7,7 +7,7 @@ use zolana_ring_policy::{EntryState, ListEntry, ListId, Member};
 use crate::{
     error::CustomRingError,
     instructions::policy_shared::{
-        cpi_spp_namespace_signed, entry_address_input, EntryTransition, MutationAccounts,
+        cpi_spp_namespace_signed, EntryTransition, MutationAccounts, MutationKind,
     },
 };
 
@@ -28,19 +28,21 @@ pub fn process_create_entry_ix(
         return Err(CustomRingError::InvalidEntryContent.into());
     }
 
-    let parsed = MutationAccounts::validate_and_parse(program_id, accounts, list_id)?;
+    let parsed = MutationAccounts::validate_and_parse(program_id, accounts, MutationKind::Claim)?;
+    parsed.check_source(list_id)?;
     parsed.check_mutator(list_id, &member)?;
 
-    let address = entry_address_input(&parsed.owner, list_id, &member, parsed.entries_tree_id)?;
+    let entry = ListEntry {
+        list_id,
+        member,
+        state,
+        version: 0,
+        content_hash: ix.content_hash,
+        blinding: ix.blinding,
+    };
+    let address = parsed.trees.entry_address(&parsed.owner, &entry)?;
     let transact = EntryTransition {
-        entry: ListEntry {
-            list_id,
-            member,
-            state,
-            version: 0,
-            content_hash: ix.content_hash,
-            blinding: ix.blinding,
-        },
+        entry,
         inputs: TransactInputs {
             inputs: vec![InputUtxo {
                 nullifier_hash: address,
@@ -56,11 +58,7 @@ pub fn process_create_entry_ix(
         private_tx_blinding: ix.private_tx_blinding,
         proof: ix.proof,
     }
-    .into_transact(
-        &parsed.owner,
-        &parsed.namespace_address,
-        parsed.entries_tree_id,
-    )?;
+    .into_transact(&parsed)?;
 
     cpi_spp_namespace_signed(
         &parsed.namespace_address,

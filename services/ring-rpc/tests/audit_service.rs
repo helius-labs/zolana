@@ -14,7 +14,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse};
+use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse, ProofInputUtxo};
 use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
@@ -285,7 +285,7 @@ fn passkeys_require_canonical_same_origin_assertions() {
 #[derive(Clone)]
 struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
-    origins: HashMap<Signature, bool>,
+    origins: HashMap<(Signature, u16), bool>,
     next_cursor: Option<Vec<u8>>,
     /// Per ring, so a read can never be authorized against another ring's
     /// config.
@@ -316,7 +316,11 @@ impl StaticSource {
     fn with_transactions(mut self, transactions: Vec<ShieldedTransaction>) -> Self {
         self.origins = transactions
             .iter()
-            .map(|transaction| (transaction.tx_signature, true))
+            .filter_map(|transaction| {
+                transaction
+                    .event_index
+                    .map(|event_index| ((transaction.tx_signature, event_index), true))
+            })
             .collect();
         self.transactions = transactions;
         self
@@ -351,11 +355,12 @@ impl TransactionSource for StaticSource {
     fn transaction_origin(
         &self,
         signature: Signature,
+        event_index: u16,
         _ring: Address,
     ) -> impl Future<Output = Result<RingOrigin, OriginError>> + Send {
         let origin = self
             .origins
-            .get(&signature)
+            .get(&(signature, event_index))
             .copied()
             .map(|ring_invoked| RingOrigin {
                 ring_invoked,
@@ -497,7 +502,9 @@ fn confidential_asset_slot(
     OutputSlot {
         view_tag: encoded.view_tag,
         output_context: OutputContext {
-            hash: [slot_index as u8; 32],
+            hash: proof_output(asset_id, amount, slot_index)
+                .hash()
+                .expect("output commitment"),
             tree_id: TREE_ID,
             leaf_index: u64::from(slot_index),
         },
@@ -505,8 +512,24 @@ fn confidential_asset_slot(
     }
 }
 
-fn auditor_message(tx: &ViewingKey, auditor_pk: &P256Pubkey) -> MessageData {
-    AuditorEncryption::new(tx, auditor_pk)
+fn proof_output(asset_id: u64, amount: u64, slot_index: u32) -> ProofInputUtxo {
+    let asset = match asset_id {
+        SOL_ASSET_ID => SOL_MINT,
+        2 => Address::new_from_array([8; 32]),
+        _ => Address::new_from_array([asset_id as u8; 32]),
+    };
+    let mut owner_hash = [0u8; 32];
+    owner_hash[31] = slot_index as u8 + 1;
+    ProofInputUtxo::new(owner_hash, &asset, amount, &[slot_index as u8; 32], TREE_ID)
+        .expect("proof output")
+}
+
+fn auditor_message(
+    tx: &ViewingKey,
+    auditor_pk: &P256Pubkey,
+    outputs: &[ProofInputUtxo],
+) -> MessageData {
+    AuditorEncryption::new_with_outputs(tx, auditor_pk, SALT, outputs)
         .expect("auditor encryption")
         .message
         .to_message_data(auditor_pk)
@@ -521,12 +544,15 @@ fn transaction(
     ShieldedTransaction {
         slot: 42,
         tx_signature: Signature::from([signature_byte; 64]),
+        event_index: Some(0),
         tx_viewing_pk: Some(tx.pubkey()),
         salt: Some(SALT),
         output_slots,
         messages,
         nullifiers: vec![[signature_byte; 32]],
         proofless: false,
+        ring_config: None,
+        ring_program_id: Some(RING),
     }
 }
 
@@ -551,10 +577,21 @@ impl Fixture {
                 confidential_slot(&tx, &recipient, 500, 0),
                 confidential_slot(&tx, &recipient, 7, 1),
             ],
-            vec![auditor_message(&tx, &auditor_pk)],
+            vec![auditor_message(
+                &tx,
+                &auditor_pk,
+                &[
+                    proof_output(SOL_ASSET_ID, 500, 0),
+                    proof_output(SOL_ASSET_ID, 7, 1),
+                ],
+            )],
         );
         let tx = ViewingKey::new();
-        let mut message = auditor_message(&tx, &ViewingKey::new().pubkey());
+        let mut message = auditor_message(
+            &tx,
+            &ViewingKey::new().pubkey(),
+            &[proof_output(SOL_ASSET_ID, 9, 0)],
+        );
         message.view_tag = auditor_view_tag(&auditor_pk);
         let foreign_key = transaction(
             2,
@@ -710,7 +747,11 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
             13,
             0,
         )],
-        vec![auditor_message(&tx, &fixture.auditor.pubkey())],
+        vec![auditor_message(
+            &tx,
+            &fixture.auditor.pubkey(),
+            &[proof_output(ASSET_ID, 13, 0)],
+        )],
     )]);
     source.assets = Some(
         AssetRegistry::new([(ASSET_ID, Address::new_from_array([8; 32]))]).expect("asset registry"),
@@ -841,7 +882,9 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
 async fn rows_outside_the_ring_are_dropped() {
     let fixture = Fixture::new();
     let mut source = fixture.source();
-    source.origins.insert(fixture.audited.tx_signature, false);
+    source
+        .origins
+        .insert((fixture.audited.tx_signature, 0), false);
     let service = fixture.hub(source).service().expect("service");
     let page = page();
     let request = auth(&delegate());
@@ -858,10 +901,56 @@ async fn rows_outside_the_ring_are_dropped() {
 }
 
 #[tokio::test]
+async fn origin_cache_separates_event_ordinals_in_one_transaction() {
+    let fixture = Fixture::new();
+    let first = fixture.audited.clone();
+    let mut second = first.clone();
+    second.event_index = Some(1);
+    let signature = first.tx_signature;
+    let mut source = fixture.source();
+    source.transactions = vec![first, second];
+    source.origins = HashMap::from([((signature, 0), true), ((signature, 1), false)]);
+    let service = fixture.hub(source).service().expect("service");
+    let page = page();
+    let request = auth(&delegate());
+    let response = service
+        .read(AuditRead {
+            auth: &request,
+            page: &page,
+        })
+        .await
+        .expect("read");
+
+    assert_eq!(response.value.items.len(), 1);
+}
+
+#[tokio::test]
+async fn missing_event_index_fails_closed() {
+    let fixture = Fixture::new();
+    let mut transaction = fixture.audited.clone();
+    transaction.event_index = None;
+    let mut source = fixture.source();
+    source.transactions = vec![transaction];
+    let service = fixture.hub(source).service().expect("service");
+    let page = page();
+    let request = auth(&delegate());
+
+    assert!(matches!(
+        service
+            .read(AuditRead {
+                auth: &request,
+                page: &page,
+            })
+            .await,
+        Err(RingRpcError::InvalidIndexerResponse)
+    ));
+}
+
+#[tokio::test]
 async fn unknown_origins_fail_the_page() {
     let fixture = Fixture::new();
     let mut source = fixture.source();
-    source.origins.remove(&fixture.audited.tx_signature);
+    source.origins.remove(&(fixture.audited.tx_signature, 0));
     let service = fixture.hub(source).service().expect("service");
     let page = page();
     let request = auth(&delegate());
@@ -1441,23 +1530,33 @@ async fn two_rings_read_only_their_own_transactions() {
     assert_ne!(key_a, key_b);
 
     let tx_a = ViewingKey::new();
-    let audited_a = transaction(
+    let mut audited_a = transaction(
         11,
         &tx_a,
         vec![confidential_slot(&tx_a, &fixture.recipient, 500, 0)],
-        vec![auditor_message(&tx_a, &key_a)],
+        vec![auditor_message(
+            &tx_a,
+            &key_a,
+            &[proof_output(SOL_ASSET_ID, 500, 0)],
+        )],
     );
+    audited_a.ring_program_id = Some(ring_a);
     let tx_b = ViewingKey::new();
-    let audited_b = transaction(
+    let mut audited_b = transaction(
         12,
         &tx_b,
         vec![confidential_slot(&tx_b, &fixture.recipient, 7, 0)],
-        vec![auditor_message(&tx_b, &key_b)],
+        vec![auditor_message(
+            &tx_b,
+            &key_b,
+            &[proof_output(SOL_ASSET_ID, 7, 0)],
+        )],
     );
+    audited_b.ring_program_id = Some(ring_b);
     let mut source = fixture.source();
     source.origins = HashMap::from([
-        (audited_a.tx_signature, true),
-        (audited_b.tx_signature, true),
+        ((audited_a.tx_signature, 0), true),
+        ((audited_b.tx_signature, 0), true),
     ]);
     source.transactions = Vec::new();
     source.by_tag = HashMap::from([

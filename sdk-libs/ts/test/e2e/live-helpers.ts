@@ -1,3 +1,4 @@
+import { customRingDepositPayload } from "../../src/ring/deposit-payload.js";
 import { readFile } from "node:fs/promises";
 
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -183,7 +184,11 @@ export async function sync(
     client,
     wallet: owner.wallet,
     keys: owner.keys,
-    config: { requireSlot: await currentSlot(client), ...config },
+    config: {
+      depositPayloadDecoder: customRingDepositPayload,
+      requireSlot: await currentSlot(client),
+      ...config,
+    },
   });
 }
 

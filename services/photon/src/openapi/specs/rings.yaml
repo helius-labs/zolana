@@ -62,6 +62,7 @@ paths:
                       type: array
                       items:
                         $ref: '#/components/schemas/Hash'
+                      description: Empty tags require a ring and select its full history.
                   additionalProperties: false
         required: true
       responses:
@@ -104,7 +105,9 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/EncryptedUtxoMatch'
-                        description: Output-level matches; every returned output slot has a view tag from the request.
+                        description: |-
+                          Output-level matches. With tags these carry a requested view tag; with
+                          an empty tag set they contain all outputs in the selected ring.
                       nextCursor:
                         oneOf:
                         - type: 'null'
@@ -853,6 +856,7 @@ paths:
                       type: array
                       items:
                         $ref: '#/components/schemas/Hash'
+                      description: Empty tags require a ring and select its full history.
                   additionalProperties: false
         required: true
       responses:
@@ -912,8 +916,9 @@ paths:
                         items:
                           $ref: '#/components/schemas/ShieldedTransaction'
                         description: |-
-                          Transaction-level matches; each returned transaction has at least one requested
-                          output view tag and includes all of its output slots.
+                          Transaction-level matches with all output slots. With tags, each
+                          transaction has at least one requested view tag; with an empty tag set,
+                          the response contains the selected ring's full history.
         '429':
           description: Exceeded rate limit.
           content:
@@ -1195,6 +1200,12 @@ components:
       - nullifiers
       - proofless
       properties:
+        eventIndex:
+          type:
+          - integer
+          - 'null'
+          format: u-int16
+          minimum: 0
         messages:
           type: array
           items:

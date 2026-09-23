@@ -7,10 +7,11 @@ use solana_account::Account;
 use solana_address::Address;
 use zolana_client::{AsyncRpc, MerkleProof, NonInclusionProof, Rpc};
 use zolana_hasher::primitives::{hash_bytes, right_align};
-use zolana_interface::tree_slot::tree_id_field;
 use zolana_interface::{
-    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, DUMMY_DOMAIN, SHIELDED_POOL_PROGRAM_ID,
-    UTXO_DOMAIN,
+    instruction::instruction_data::transact::TreeContext,
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    tree_slot::{tree_id_field, TreeSlot},
+    DUMMY_DOMAIN, INPUT_TREES, SHIELDED_POOL_PROGRAM_ID, UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
     EntryState, Guard, ListId, ListNamespace, Member, Mode, Rule, RuleTable, SourceMap, Subject,
@@ -21,12 +22,15 @@ use zolana_transaction::{instructions::transact::SppProofOutputUtxo, utxo::SppPr
 use zolana_tree::TreeAccount;
 
 use crate::{
-    instructions::entry::{EntryLookup, Lineages, LiveEntry},
+    escrow::{EscrowedKeys, KeyRegistry, OutputKey},
+    instructions::entry::{EntryLookup, LineageLookup, Lineages, LiveEntry},
+    instructions::spend::ReadEnvironment,
     instructions::transact::{
-        CustomRingOpening, RuleAnswer, SourceOwnerEntry, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
+        CustomRingOpening, EscrowBinding, PolicyReads, PolicyTreeContext, RuleAnswer,
+        SourceOwnerEntry, VelocityProofInput, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
     },
     shared::source_map,
-    TransferError,
+    CurrentKeyRegistryRoot, PoolTree, TransferError,
 };
 
 /// Roots the statement binds, with the history entries they were read from.
@@ -38,10 +42,33 @@ pub struct TransactRoots {
     pub nullifier_index: u16,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PolicyTree {
+    pub tree: PoolTree,
+    pub roots: TransactRoots,
+}
+
+impl PolicyTree {
+    pub fn slot(&self) -> TreeSlot {
+        TreeSlot::new(self.tree.id, self.roots.state, self.roots.nullifier)
+    }
+
+    pub fn context(&self) -> PolicyTreeContext {
+        PolicyTreeContext {
+            tree: self.tree.address,
+            context: TreeContext {
+                utxo_tree_root_index: self.roots.state_index,
+                nullifier_tree_root_index: self.roots.nullifier_index,
+            },
+        }
+    }
+}
+
 /// The policy witness of one transfer, serialized into the proof request.
 pub struct CustomRingWitness {
-    pub roots: TransactRoots,
-    pub entries_tree_id: u16,
+    /// In slot order, at most `INPUT_TREES`.
+    pub trees: Vec<PolicyTree>,
+    pub address_tree_id: u16,
     pub sources: [SourceOwnerEntry; MAX_SOURCES],
     pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
     pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
@@ -53,7 +80,27 @@ pub struct CustomRingWitness {
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_limits: [u64; MAX_INLINE_ASSETS],
     pub inline_count: u8,
+    pub velocity: VelocityProofInput,
     pub answers: Vec<RuleAnswer>,
+    pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
+    pub revocation_tree_indexes: [u8; ANSWER_SLOTS],
+    /// `None` with escrow off.
+    pub key_registry_root: Option<CurrentKeyRegistryRoot>,
+}
+
+impl CustomRingWitness {
+    pub fn tree_slots(&self) -> Vec<TreeSlot> {
+        self.trees.iter().map(PolicyTree::slot).collect()
+    }
+
+    pub fn reads(&self) -> PolicyReads {
+        PolicyReads {
+            trees: self.trees.iter().map(PolicyTree::context).collect(),
+            escrow: EscrowBinding::of(self.key_registry_root),
+            revocation_targets: self.revocation_targets,
+            revocation_tree_indexes: self.revocation_tree_indexes,
+        }
+    }
 }
 
 /// Gathers the witness from the chain and the indexer at prove time.
@@ -65,6 +112,10 @@ pub struct CustomRingWitnessInput<'a> {
     pub outputs: &'a [SppProofOutputUtxo],
     /// The tree the outputs are appended to, every output hashes under it.
     pub output_tree_id: u16,
+    /// Outflow proof inputs, with a nonzero window only when record slots are present.
+    pub velocity: VelocityProofInput,
+    /// `None` with escrow off.
+    pub key_registry: Option<KeyRegistry>,
 }
 
 impl<'a> CustomRingWitnessInput<'a> {
@@ -74,17 +125,21 @@ impl<'a> CustomRingWitnessInput<'a> {
         indexer: &I,
         rpc: &R,
     ) -> Result<CustomRingWitness, TransferError> {
-        let tree = self.policy_config.entries_tree;
         let plan = self.plan()?;
         let lineages = plan.lineages().fetch(indexer).map_err(list_entry)?;
         let resolved = plan.resolve(lineages)?;
-        let proofs = resolved.queries().fetch(indexer)?;
-        let fixed = FixedRoots::from_proofs(&proofs)?;
-        let roots = match fixed.complete() {
-            Some(roots) => roots,
-            None => fixed.fill(head_roots(rpc.get_account(tree)?, tree)?),
+        let proofs = resolved
+            .queries()
+            .into_iter()
+            .map(|query| query.fetch(indexer, rpc))
+            .collect::<Result<Vec<_>, _>>()?;
+        let escrow = match self.key_registry {
+            Some(registry) => {
+                Some(registry.openings(ReadEnvironment { indexer, rpc }, &self.output_keys()?)?)
+            }
+            None => None,
         };
-        resolved.assemble(proofs, roots)
+        resolved.assemble(proofs, escrow)
     }
 
     pub async fn build_async<I: AsyncRpc, R: AsyncRpc>(
@@ -92,7 +147,6 @@ impl<'a> CustomRingWitnessInput<'a> {
         indexer: &I,
         rpc: &R,
     ) -> Result<CustomRingWitness, TransferError> {
-        let tree = self.policy_config.entries_tree;
         let plan = self.plan()?;
         let lineages = plan
             .lineages()
@@ -100,13 +154,49 @@ impl<'a> CustomRingWitnessInput<'a> {
             .await
             .map_err(list_entry)?;
         let resolved = plan.resolve(lineages)?;
-        let proofs = resolved.queries().fetch_async(indexer).await?;
-        let fixed = FixedRoots::from_proofs(&proofs)?;
-        let roots = match fixed.complete() {
-            Some(roots) => roots,
-            None => fixed.fill(head_roots(rpc.get_account(tree).await?, tree)?),
+        let proofs = futures::future::try_join_all(
+            resolved
+                .queries()
+                .into_iter()
+                .map(|query| query.fetch_async(indexer, rpc)),
+        )
+        .await?;
+        let escrow = match self.key_registry {
+            Some(registry) => Some(
+                registry
+                    .openings_async(ReadEnvironment { indexer, rpc }, &self.output_keys()?)
+                    .await?,
+            ),
+            None => None,
         };
-        resolved.assemble(proofs, roots)
+        resolved.assemble(proofs, escrow)
+    }
+
+    /// Unowned slots and namespace-owned records carry no key.
+    fn output_keys(&self) -> Result<Vec<Option<OutputKey>>, TransferError> {
+        self.outputs
+            .iter()
+            .map(|output| {
+                let Some(address) = output.owner_address.as_ref() else {
+                    return Ok(None);
+                };
+                // Escrow admits the zero key only on the namespace owner, whose hash binds it.
+                if address
+                    .owner_hash()
+                    .map_err(|_| TransferError::PolicyHashing)?
+                    == self.policy_config.namespace_owner_hash
+                {
+                    return Ok(None);
+                }
+                Ok(Some(OutputKey {
+                    owner_pk_hash: address
+                        .signing_pubkey
+                        .owner_proof_input_hash()
+                        .map_err(|_| TransferError::PolicyHashing)?,
+                    nullifier_pk: address.nullifier_pubkey,
+                }))
+            })
+            .collect()
     }
 
     fn plan(self) -> Result<WitnessPlan<'a>, TransferError> {
@@ -140,7 +230,7 @@ impl<'a> CustomRingWitnessInput<'a> {
                             },
                             list_id,
                             member,
-                            tree_id: self.policy_config.entries_tree_id(),
+                            address_tree_id: self.policy_config.address_tree_id(),
                         };
                         let index = lookups
                             .iter()
@@ -188,7 +278,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         let assets = self.policy.inline_assets();
         let limits = self.policy.inline_limits();
         let mut totals = [0u128; MAX_INLINE_ASSETS];
-        for output in self.outputs {
+        for output in self.rule_outputs() {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
             };
@@ -209,11 +299,31 @@ impl<'a> CustomRingWitnessInput<'a> {
             .all(|(total, limit)| *total <= u128::from(*limit)))
     }
 
+    /// A windowed ring carries the record as its last input and output.
+    fn has_record(&self) -> bool {
+        self.velocity.window_slots != 0
+    }
+
+    /// Rule subjects skip the record slot the circuit excludes.
+    fn rule_inputs(&self) -> &[SppProofInputUtxo] {
+        match self.has_record() {
+            true => &self.inputs[..self.inputs.len().saturating_sub(1)],
+            false => self.inputs,
+        }
+    }
+
+    fn rule_outputs(&self) -> &[SppProofOutputUtxo] {
+        match self.has_record() {
+            true => &self.outputs[..self.outputs.len().saturating_sub(1)],
+            false => self.outputs,
+        }
+    }
+
     /// The total the subject value receives across live outputs, aggregated per
     /// owner or per asset as the circuit does.
     fn subject_total(&self, subject: Subject, member: &Member) -> Result<u128, TransferError> {
         let mut total: u128 = 0;
-        for output in self.outputs {
+        for output in self.rule_outputs() {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
             };
@@ -233,13 +343,13 @@ impl<'a> CustomRingWitnessInput<'a> {
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {
         match rule.subject {
             Subject::OutputOwner => self
-                .outputs
+                .rule_outputs()
                 .iter()
                 .filter_map(|output| output.owner_address.as_ref())
                 .map(|address| owner_member(address.signing_pubkey.owner_proof_input_hash()))
                 .collect(),
             Subject::Sender => self
-                .inputs
+                .rule_inputs()
                 .iter()
                 .filter(|input_utxo| !input_utxo.is_dummy())
                 .map(|input_utxo| owner_member(input_utxo.utxo.owner.owner_proof_input_hash()))
@@ -247,7 +357,7 @@ impl<'a> CustomRingWitnessInput<'a> {
             // The circuit ranges asset rules over live outputs, using the same
             // hashed mint field as output_opening.
             Subject::Asset => self
-                .outputs
+                .rule_outputs()
                 .iter()
                 .filter(|output| output.owner_address.is_some())
                 .map(|output| {
@@ -261,7 +371,7 @@ impl<'a> CustomRingWitnessInput<'a> {
     }
 }
 
-fn list_entry(error: crate::EntryProofError) -> TransferError {
+pub(crate) fn list_entry(error: crate::EntryProofError) -> TransferError {
     TransferError::ListEntry(Box::new(error))
 }
 
@@ -283,9 +393,8 @@ struct WitnessPlan<'a> {
 }
 
 impl<'a> WitnessPlan<'a> {
-    fn lineages(&self) -> Lineages<'_> {
+    fn lineages(&self) -> Lineages<'_, EntryLookup> {
         Lineages {
-            entries_tree: self.input.policy_config.entries_tree,
             lookups: &self.lookups,
         }
     }
@@ -326,7 +435,9 @@ impl<'a> WitnessPlan<'a> {
         if answers.len() > ANSWER_SLOTS {
             return Err(TransferError::PolicyShapeUnsupported);
         }
+        let facts: Vec<EntryFact> = answers.iter().map(|answer| answer.fact).collect();
         Ok(ResolvedWitness {
+            trees: FactTrees::plan(PoolTree::address_tree(self.input.policy_config), &facts)?,
             input: self.input,
             sources: self.sources,
             answers,
@@ -368,6 +479,13 @@ impl EntryFact {
             Self::Live(live) => live.nullifier,
         }
     }
+
+    fn tree(&self, address_tree: PoolTree) -> PoolTree {
+        match self {
+            Self::Unclaimed { .. } => address_tree,
+            Self::Live(live) => address_tree.sibling(live.tree_id),
+        }
+    }
 }
 
 struct ResolvedAnswer {
@@ -387,43 +505,54 @@ struct ResolvedWitness<'a> {
     input: CustomRingWitnessInput<'a>,
     sources: SourceMap,
     answers: Vec<ResolvedAnswer>,
+    trees: FactTrees,
 }
 
 impl ResolvedWitness<'_> {
-    fn queries(&self) -> EntryQueries {
-        EntryQueries {
-            tree: self.input.policy_config.entries_tree,
-            states: self
-                .answers
-                .iter()
-                .filter_map(|answer| answer.fact.state_leaf())
-                .collect(),
-            absences: self
-                .answers
-                .iter()
-                .map(|answer| answer.fact.absence_target())
-                .collect(),
+    /// One query per tree, each tree's leaves in answer order.
+    fn queries(&self) -> Vec<TreeQuery> {
+        let mut queries: Vec<TreeQuery> = self
+            .trees
+            .trees
+            .iter()
+            .map(|&tree| TreeQuery {
+                tree,
+                states: Vec::new(),
+                absences: Vec::new(),
+            })
+            .collect();
+        for (answer, &slot) in self.answers.iter().zip(&self.trees.slots) {
+            let query = &mut queries[usize::from(slot)];
+            query.states.extend(answer.fact.state_leaf());
+            query.absences.push(answer.fact.absence_target());
         }
+        queries
     }
 
     fn assemble(
         self,
-        proofs: EntryProofs,
-        roots: TransactRoots,
+        proofs: Vec<TreeProofs>,
+        escrow: Option<EscrowedKeys>,
     ) -> Result<CustomRingWitness, TransferError> {
-        let live_count = self
-            .answers
-            .iter()
-            .filter(|answer| answer.fact.state_leaf().is_some())
-            .count();
-        if proofs.states.len() != live_count || proofs.absences.len() != self.answers.len() {
+        if proofs.len() != self.trees.trees.len() {
             return Err(TransferError::IncompleteProofSet);
         }
-        let mut states = proofs.states.into_iter();
+        let policy_trees = proofs.iter().map(TreeProofs::policy_tree).collect();
+        let mut proofs: Vec<_> = proofs
+            .into_iter()
+            .map(|proofs| (proofs.states.into_iter(), proofs.absences.into_iter()))
+            .collect();
         let mut answers = Vec::with_capacity(ANSWER_SLOTS);
-        for (answer, absence) in self.answers.iter().zip(proofs.absences) {
+        let mut revocation_targets = [[0u8; 32]; ANSWER_SLOTS];
+        let mut revocation_tree_indexes = [0u8; ANSWER_SLOTS];
+        for (index, (answer, &slot)) in self.answers.iter().zip(&self.trees.slots).enumerate() {
+            let (states, absences) = &mut proofs[usize::from(slot)];
+            let absence = absences.next().ok_or(TransferError::IncompleteProofSet)?;
+            revocation_targets[index] = answer.fact.absence_target();
+            revocation_tree_indexes[index] = slot;
             let mut entry = RuleAnswer {
                 enabled: true,
+                tree_slot: slot,
                 mode: answer.mode as u8,
                 list_id: answer.list_id as u8,
                 member: *answer.member.as_bytes(),
@@ -448,6 +577,12 @@ impl ResolvedWitness<'_> {
             }
             answers.push(entry);
         }
+        if proofs
+            .iter_mut()
+            .any(|(states, absences)| states.next().is_some() || absences.next().is_some())
+        {
+            return Err(TransferError::IncompleteProofSet);
+        }
         answers.resize_with(ANSWER_SLOTS, RuleAnswer::default);
 
         let input = self.input;
@@ -456,13 +591,19 @@ impl ResolvedWitness<'_> {
             *slot = input_opening(input_utxo)?;
         }
         let mut outputs = [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS];
-        for (slot, output) in outputs.iter_mut().zip(input.outputs) {
-            *slot = output_opening(output, input.output_tree_id)?;
+        let keys = escrow
+            .as_ref()
+            .map_or(&[][..], |escrow| escrow.keys.as_slice());
+        for (index, (slot, output)) in outputs.iter_mut().zip(input.outputs).enumerate() {
+            *slot = CustomRingOpening {
+                key: keys.get(index).copied().flatten(),
+                ..output_opening(output, input.output_tree_id)?
+            };
         }
         let table = &input.policy_config.rules;
         Ok(CustomRingWitness {
-            roots,
-            entries_tree_id: input.policy_config.entries_tree_id(),
+            trees: policy_trees,
+            address_tree_id: input.policy_config.address_tree_id(),
             sources: *self.sources.slots(),
             inputs,
             outputs,
@@ -473,7 +614,51 @@ impl ResolvedWitness<'_> {
             inline_assets: table.inline_assets,
             inline_limits: table.inline_limits.map(u64::from_be_bytes),
             inline_count: table.inline_count,
+            velocity: input.velocity,
             answers,
+            revocation_targets,
+            revocation_tree_indexes,
+            key_registry_root: escrow.map(|escrow| escrow.root),
+        })
+    }
+}
+
+struct FactTrees {
+    trees: Vec<PoolTree>,
+    /// Per fact, its index into `trees`.
+    slots: Vec<u8>,
+}
+
+impl FactTrees {
+    /// Unclaimed addresses live in the address tree, a statement without facts still binds it.
+    fn plan(address_tree: PoolTree, facts: &[EntryFact]) -> Result<Self, TransferError> {
+        let mut trees = Vec::with_capacity(INPUT_TREES);
+        if facts.is_empty()
+            || facts
+                .iter()
+                .any(|fact| matches!(fact, EntryFact::Unclaimed { .. }))
+        {
+            trees.push(address_tree);
+        }
+        let mut slots = Vec::with_capacity(facts.len());
+        for fact in facts {
+            let tree = fact.tree(address_tree);
+            let slot = trees
+                .iter()
+                .position(|known| *known == tree)
+                .unwrap_or_else(|| {
+                    trees.push(tree);
+                    trees.len() - 1
+                });
+            slots.push(slot);
+        }
+        if trees.len() > INPUT_TREES {
+            return Err(TransferError::TooManyPolicyTrees { count: trees.len() });
+        }
+        Ok(Self {
+            trees,
+            // Below `INPUT_TREES`, every slot fits a byte.
+            slots: slots.into_iter().map(|slot| slot as u8).collect(),
         })
     }
 }
@@ -483,42 +668,55 @@ fn padded(mut path: Vec<[u8; 32]>, len: usize) -> Vec<[u8; 32]> {
     path
 }
 
-struct EntryQueries {
-    tree: Address,
+struct TreeQuery {
+    tree: PoolTree,
     states: Vec<[u8; 32]>,
     absences: Vec<[u8; 32]>,
 }
 
-struct EntryProofs {
+struct TreeProofs {
+    tree: PoolTree,
+    current: TransactRoots,
     states: Vec<MerkleProof>,
     absences: Vec<NonInclusionProof>,
 }
 
-impl EntryQueries {
-    fn fetch<I: Rpc>(self, indexer: &I) -> Result<EntryProofs, TransferError> {
+impl TreeQuery {
+    fn fetch<I: Rpc, R: Rpc>(self, indexer: &I, rpc: &R) -> Result<TreeProofs, TransferError> {
+        let current = current_roots(rpc.get_account(self.tree.address)?, self.tree)?;
         let states = if self.states.is_empty() {
             Vec::new()
         } else {
             indexer
-                .get_merkle_proofs(self.tree, self.states, None)?
+                .get_merkle_proofs(self.tree.address, self.states.clone(), None)?
                 .proofs
         };
         let absences = if self.absences.is_empty() {
             Vec::new()
         } else {
             indexer
-                .get_non_inclusion_proofs(self.tree, self.absences, None)?
+                .get_non_inclusion_proofs(self.tree.address, self.absences.clone(), None)?
                 .proofs
         };
-        Ok(EntryProofs { states, absences })
+        self.proofs(TreeProofs {
+            tree: self.tree,
+            current,
+            states,
+            absences,
+        })
     }
 
-    async fn fetch_async<I: AsyncRpc>(self, indexer: &I) -> Result<EntryProofs, TransferError> {
+    async fn fetch_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        indexer: &I,
+        rpc: &R,
+    ) -> Result<TreeProofs, TransferError> {
+        let current = current_roots(rpc.get_account(self.tree.address).await?, self.tree)?;
         let states = if self.states.is_empty() {
             Vec::new()
         } else {
             indexer
-                .get_merkle_proofs(self.tree, self.states, None)
+                .get_merkle_proofs(self.tree.address, self.states.clone(), None)
                 .await?
                 .proofs
         };
@@ -526,11 +724,39 @@ impl EntryQueries {
             Vec::new()
         } else {
             indexer
-                .get_non_inclusion_proofs(self.tree, self.absences, None)
+                .get_non_inclusion_proofs(self.tree.address, self.absences.clone(), None)
                 .await?
                 .proofs
         };
-        Ok(EntryProofs { states, absences })
+        self.proofs(TreeProofs {
+            tree: self.tree,
+            current,
+            states,
+            absences,
+        })
+    }
+
+    /// `fetched.current` holds the live roots until the answered roots replace them.
+    fn proofs(&self, fetched: TreeProofs) -> Result<TreeProofs, TransferError> {
+        if fetched.states.len() != self.states.len()
+            || fetched.absences.len() != self.absences.len()
+        {
+            return Err(TransferError::IncompleteProofSet);
+        }
+        let fixed = FixedRoots::from_proofs(&fetched.states, &fetched.absences)?;
+        Ok(TreeProofs {
+            current: fixed.at_current(fetched.current),
+            ..fetched
+        })
+    }
+}
+
+impl TreeProofs {
+    fn policy_tree(&self) -> PolicyTree {
+        PolicyTree {
+            tree: self.tree,
+            roots: self.current,
+        }
     }
 }
 
@@ -540,46 +766,37 @@ struct HistoryRoot {
     index: u16,
 }
 
-/// The roots the proof responses fixed, a tree no answer touched has none.
+/// The roots the proof responses fixed, a root no answer touched has none.
 struct FixedRoots {
     state: Option<HistoryRoot>,
     nullifier: Option<HistoryRoot>,
 }
 
 impl FixedRoots {
-    fn from_proofs(proofs: &EntryProofs) -> Result<Self, TransferError> {
+    fn from_proofs(
+        states: &[MerkleProof],
+        absences: &[NonInclusionProof],
+    ) -> Result<Self, TransferError> {
         Ok(Self {
-            state: single_root(proofs.states.iter().map(|proof| HistoryRoot {
+            state: single_root(states.iter().map(|proof| HistoryRoot {
                 value: proof.root,
                 index: proof.root_index,
             }))?,
-            nullifier: single_root(proofs.absences.iter().map(|proof| HistoryRoot {
+            nullifier: single_root(absences.iter().map(|proof| HistoryRoot {
                 value: proof.root,
                 index: proof.root_index,
             }))?,
         })
     }
 
-    fn complete(&self) -> Option<TransactRoots> {
-        let (state, nullifier) = (self.state?, self.nullifier?);
-        Some(TransactRoots {
-            state: state.value,
-            state_index: state.index,
-            nullifier: nullifier.value,
-            nullifier_index: nullifier.index,
-        })
-    }
-
-    /// The program admits any live state root and any nullifier root inside
-    /// its window, the heads serve a tree no proof fixed.
-    fn fill(self, heads: TransactRoots) -> TransactRoots {
+    fn at_current(self, current: TransactRoots) -> TransactRoots {
         let state = self.state.unwrap_or(HistoryRoot {
-            value: heads.state,
-            index: heads.state_index,
+            value: current.state,
+            index: current.state_index,
         });
         let nullifier = self.nullifier.unwrap_or(HistoryRoot {
-            value: heads.nullifier,
-            index: heads.nullifier_index,
+            value: current.nullifier,
+            index: current.nullifier_index,
         });
         TransactRoots {
             state: state.value,
@@ -590,7 +807,7 @@ impl FixedRoots {
     }
 }
 
-/// One call proves every leaf against one root.
+/// A tree slot binds one root of each kind.
 fn single_root(
     mut roots: impl Iterator<Item = HistoryRoot>,
 ) -> Result<Option<HistoryRoot>, TransferError> {
@@ -603,7 +820,7 @@ fn single_root(
     Ok(Some(first))
 }
 
-fn head_roots(account: Option<Account>, tree: Address) -> Result<TransactRoots, TransferError> {
+fn current_roots(account: Option<Account>, tree: PoolTree) -> Result<TransactRoots, TransferError> {
     let mut account = account.ok_or(TransferError::MissingTree)?;
     if account.owner.to_bytes() != SHIELDED_POOL_PROGRAM_ID {
         return Err(TransferError::InvalidTreeOwner);
@@ -611,7 +828,14 @@ fn head_roots(account: Option<Account>, tree: Address) -> Result<TransactRoots, 
     if account.data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
         return Err(TransferError::InvalidTreeDiscriminator);
     }
-    let mut tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
+    let mut tree_account = TreeAccount::from_bytes(&mut account.data, tree.address.to_bytes())?;
+    if tree_account.tree_id() != tree.id {
+        return Err(TransferError::TreeIdMismatch {
+            tree: tree.address,
+            expected: tree_account.tree_id(),
+            found: tree.id,
+        });
+    }
     let state_index = tree_account.utxo_tree().current_root_index();
     let state = tree_account.get_utxo_tree_root(state_index)?;
     let nullifier_index = tree_account.nullifier_tree().get_root_index() as u16;
@@ -654,6 +878,7 @@ fn input_opening(input_utxo: &SppProofInputUtxo) -> Result<CustomRingOpening, Tr
         data_hash: input_utxo.data_hash.unwrap_or_default(),
         ring_data_hash: input_utxo.ring_data_hash.unwrap_or_default(),
         ring_program_id: ring_field(input_utxo.utxo.ring_program_id.as_ref())?,
+        key: None,
     })
 }
 
@@ -664,6 +889,8 @@ fn output_opening(
     let Some(address) = output.owner_address.as_ref() else {
         return Ok(CustomRingOpening {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
+            tree_id: tree_id_field(tree_id),
+            blinding: output.blinding,
             ..CustomRingOpening::default()
         });
     };
@@ -681,6 +908,7 @@ fn output_opening(
         data_hash: output.data_hash.unwrap_or_default(),
         ring_data_hash: output.ring_data_hash.unwrap_or_default(),
         ring_program_id: ring_field(output.ring_program_id.as_ref())?,
+        key: None,
     })
 }
 
@@ -709,14 +937,32 @@ mod tests {
     };
     use zolana_interface::state::{default_tree_fees, nullifier_tree_params};
     use zolana_keypair::ShieldedKeypair;
-    use zolana_ring_policy::ListSet;
+    use zolana_ring_policy::{ListSet, ZERO_NULLIFIER_PK};
 
     use super::*;
     use crate::instructions::entry::discovery::tests::{
         lookup, namespace, tree, Lineage, NullifierRpc,
     };
+    use crate::RingIdentity;
+
+    const SECOND_TREE_ID: u16 = 9;
+
+    /// The configured address tree, its account id is zero.
+    fn address_tree() -> PoolTree {
+        PoolTree {
+            address: tree(),
+            id: 0,
+        }
+    }
 
     /// Every referenced list reads the ring's own entries.
+    fn velocity_off() -> VelocityProofInput {
+        VelocityProofInput::off(RingIdentity {
+            ring_id: [0u8; 32],
+            namespace_owner_hash: [0u8; 32],
+        })
+    }
+
     fn config(policy: &RuleTable) -> PolicyConfig {
         let mut sources = [SourceSlot {
             list_id: 0,
@@ -731,9 +977,10 @@ mod tests {
         PolicyConfig {
             discriminator: POLICY_CONFIG,
             policy_hash: [0; 32],
-            entries_tree: tree(),
-            entries_tree_id: [0; 2],
+            address_tree: tree(),
+            address_tree_id: [0; 2],
             namespace_bump: 0,
+            namespace_owner_hash: [0u8; 32],
             bump: 0,
             sources,
             rules: policy.encode(),
@@ -791,6 +1038,68 @@ mod tests {
         .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
         .build();
 
+    #[test]
+    fn dummy_output_opening_preserves_its_tree_and_blinding() {
+        let output = SppProofOutputUtxo {
+            blinding: [0x5a; 32],
+            ..SppProofOutputUtxo::default()
+        };
+        let opening = output_opening(&output, 27).expect("dummy opening");
+        assert_eq!(opening.domain, right_align(&DUMMY_DOMAIN.to_be_bytes()));
+        assert_eq!(opening.tree_id, tree_id_field(27));
+        assert_eq!(opening.blinding, output.blinding);
+        assert_eq!(opening.owner_pk_hash, [0u8; 32]);
+        assert_eq!(opening.nullifier_pk, [0u8; 32]);
+        assert_eq!(opening.asset, [0u8; 32]);
+        assert_eq!(opening.amount, [0u8; 32]);
+        assert_eq!(opening.data_hash, [0u8; 32]);
+        assert_eq!(opening.ring_data_hash, [0u8; 32]);
+        assert_eq!(opening.ring_program_id, [0u8; 32]);
+    }
+
+    #[test]
+    fn only_the_namespace_owned_record_skips_its_key_opening() {
+        let mut config = config(&EMPTY);
+        config.namespace_owner_hash = ListNamespace::new(namespace().as_array())
+            .expect("namespace")
+            .owner_hash;
+        let (_, member) = recipient();
+        let record = zolana_keypair::ShieldedAddress::for_pda(
+            &namespace(),
+            ZERO_NULLIFIER_PK,
+            member.viewing_pubkey,
+        );
+        let zero_key = zolana_keypair::ShieldedAddress {
+            nullifier_pubkey: ZERO_NULLIFIER_PK,
+            ..member
+        };
+        let outputs = [
+            output(record, 0),
+            output(zero_key, 1),
+            SppProofOutputUtxo::default(),
+        ];
+        let input = CustomRingWitnessInput {
+            policy: &EMPTY,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+            output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
+        };
+        let refused = OutputKey {
+            owner_pk_hash: member
+                .signing_pubkey
+                .owner_proof_input_hash()
+                .expect("identity"),
+            nullifier_pk: ZERO_NULLIFIER_PK,
+        };
+        assert_eq!(
+            input.output_keys().expect("keys"),
+            vec![None, Some(refused), None]
+        );
+    }
+
     /// An approval overrides a block.
     const MIXED: RuleTable = RuleTable::builder()
         .rule(Rule::any_of(
@@ -822,6 +1131,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
 
         assert_eq!(
@@ -844,6 +1155,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
         let guarded = Rule::require(Subject::OutputOwner, ListId::Allow).above(2000);
         assert!(!input
@@ -859,6 +1172,8 @@ mod tests {
             inputs: &[],
             outputs: &one,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
         assert!(below
             .guard_exempts(&guarded, &member)
@@ -878,6 +1193,8 @@ mod tests {
             inputs: &[],
             outputs: &one_recipient,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
         assert!(!input
             .guard_exempts(&guarded, &member)
@@ -889,6 +1206,8 @@ mod tests {
             inputs: &[],
             outputs: &two_recipients,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
         assert!(split
             .guard_exempts(&guarded, &member)
@@ -925,6 +1244,8 @@ mod tests {
             inputs: &[],
             outputs: &below,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
         assert!(input.guard_exempts(rule, &owner).expect("at both limits"));
 
@@ -935,6 +1256,8 @@ mod tests {
             inputs: &[],
             outputs: &above,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
         assert!(!input
             .guard_exempts(rule, &owner)
@@ -947,6 +1270,8 @@ mod tests {
             inputs: &[],
             outputs: &unknown,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
         assert!(matches!(
             input.guard_exempts(rule, &owner),
@@ -964,6 +1289,8 @@ mod tests {
             inputs: &[],
             outputs: &[],
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         };
         let guarded = Rule::require(Subject::Sender, ListId::Allow).above(u64::MAX);
         assert!(!input.guard_exempts(&guarded, &member).expect("sender"));
@@ -974,6 +1301,8 @@ mod tests {
         state_roots: Vec<HistoryRoot>,
         nullifier_roots: Vec<HistoryRoot>,
         account: Option<Account>,
+        /// Tree accounts besides the address tree.
+        others: Vec<(PoolTree, Account)>,
         calls: Mutex<Calls>,
     }
 
@@ -981,24 +1310,39 @@ mod tests {
     struct Calls {
         merkle: Vec<Vec<[u8; 32]>>,
         non_inclusion: Vec<Vec<[u8; 32]>>,
+        /// The tree of every merkle then non-inclusion request, in call order.
+        trees: Vec<Address>,
         accounts: usize,
     }
 
     impl ProofRpc {
         fn new(spenders: Vec<ShieldedTransaction>) -> Self {
+            let account = tree_account();
+            let current = current_roots(Some(account.clone()), address_tree()).expect("tree roots");
             Self {
                 lineages: NullifierRpc::new(spenders),
                 state_roots: vec![HistoryRoot {
-                    value: [1u8; 32],
-                    index: 3,
+                    value: current.state,
+                    index: current.state_index,
                 }],
                 nullifier_roots: vec![HistoryRoot {
-                    value: [2u8; 32],
-                    index: 4,
+                    value: current.nullifier,
+                    index: current.nullifier_index,
                 }],
-                account: None,
+                account: Some(account),
+                others: Vec::new(),
                 calls: Mutex::new(Calls::default()),
             }
+        }
+
+        fn with_tree(mut self, id: u16) -> Self {
+            let tree = PoolTree::from_id(id);
+            self.others.push((tree, tree_account_for(tree)));
+            self
+        }
+
+        fn known(&self, address: Address) -> bool {
+            address == tree() || self.others.iter().any(|(tree, _)| tree.address == address)
         }
 
         fn root(roots: &[HistoryRoot], position: usize) -> HistoryRoot {
@@ -1008,9 +1352,15 @@ mod tests {
 
     impl Rpc for ProofRpc {
         fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
-            assert_eq!(address, tree());
             self.calls.lock().expect("calls").accounts += 1;
-            Ok(self.account.clone())
+            if address == tree() {
+                return Ok(self.account.clone());
+            }
+            Ok(self
+                .others
+                .iter()
+                .find(|(tree, _)| tree.address == address)
+                .map(|(_, account)| account.clone()))
         }
 
         fn get_shielded_transactions_by_nullifiers(
@@ -1035,12 +1385,11 @@ mod tests {
             leaves: Vec<[u8; 32]>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetMerkleProofsResponse, ClientError> {
-            assert_eq!(tree_account, tree());
-            self.calls
-                .lock()
-                .expect("calls")
-                .merkle
-                .push(leaves.clone());
+            assert!(self.known(tree_account));
+            let mut calls = self.calls.lock().expect("calls");
+            calls.merkle.push(leaves.clone());
+            calls.trees.push(tree_account);
+            drop(calls);
             let proofs = leaves
                 .iter()
                 .enumerate()
@@ -1050,7 +1399,7 @@ mod tests {
                         leaf: *leaf,
                         merkle_context: MerkleContext {
                             tree_type: 0,
-                            tree: tree(),
+                            tree: tree_account,
                         },
                         path: vec![[position as u8; 32]; STATE_PATH_LEN],
                         leaf_index: position as u64,
@@ -1075,12 +1424,11 @@ mod tests {
             leaves: Vec<[u8; 32]>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-            assert_eq!(tree_account, tree());
-            self.calls
-                .lock()
-                .expect("calls")
-                .non_inclusion
-                .push(leaves.clone());
+            assert!(self.known(tree_account));
+            let mut calls = self.calls.lock().expect("calls");
+            calls.non_inclusion.push(leaves.clone());
+            calls.trees.push(tree_account);
+            drop(calls);
             let proofs = leaves
                 .iter()
                 .enumerate()
@@ -1090,7 +1438,7 @@ mod tests {
                         leaf: *leaf,
                         merkle_context: MerkleContext {
                             tree_type: 1,
-                            tree: tree(),
+                            tree: tree_account,
                         },
                         path: vec![[0u8; 32]; NULLIFIER_PATH_LEN],
                         low_element: [position as u8; 32],
@@ -1114,14 +1462,18 @@ mod tests {
     }
 
     fn tree_account() -> Account {
+        tree_account_for(address_tree())
+    }
+
+    fn tree_account_for(tree: PoolTree) -> Account {
         let mut data = vec![0u8; TreeAccount::account_size()];
         let params = nullifier_tree_params();
         TreeAccount::init(
             &mut data,
             TREE_ACCOUNT_DISCRIMINATOR,
             32,
-            tree().to_bytes(),
-            0,
+            tree.address.to_bytes(),
+            tree.id,
             params,
             default_tree_fees(params.input_queue_zkp_batch_size).expect("default tree fees"),
         )
@@ -1139,7 +1491,7 @@ mod tests {
     fn two_outputs_to_one_recipient_under_two_rules_consult_the_pair_once() {
         let (member, address) = recipient();
         let lineage = Lineage::new(lookup(ListId::Allow, member), &[EntryState::Active]);
-        let rpc = ProofRpc::new(lineage.spenders(tree()));
+        let rpc = ProofRpc::new(lineage.spenders());
         let outputs = [output(address, 10), output(address, 20)];
         let config = config(&TWO_ALLOW);
         let witness = CustomRingWitnessInput {
@@ -1148,6 +1500,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1156,7 +1510,7 @@ mod tests {
         let calls = rpc.calls.lock().expect("calls");
         assert_eq!(calls.merkle, vec![vec![live.utxo_hash]]);
         assert_eq!(calls.non_inclusion, vec![vec![live.nullifier]]);
-        assert_eq!(calls.accounts, 0);
+        assert_eq!(calls.accounts, 1);
         let requests = rpc.lineages.requests.lock().expect("requests");
         // The claim round asks for both group addresses, the Allow lineage one
         // more round.
@@ -1172,13 +1526,8 @@ mod tests {
         assert_eq!(enabled[0].member, *member.as_bytes());
         assert_eq!(enabled[0].absent_branch, 2);
         assert_eq!(
-            witness.roots,
-            TransactRoots {
-                state: [1u8; 32],
-                state_index: 3,
-                nullifier: [2u8; 32],
-                nullifier_index: 4,
-            }
+            witness.trees[0].roots,
+            current_roots(Some(tree_account()), address_tree()).expect("current roots")
         );
     }
 
@@ -1195,6 +1544,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1216,6 +1567,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1229,8 +1582,8 @@ mod tests {
         let (other_member, other_address) = recipient();
         let first = Lineage::new(lookup(ListId::Allow, member), &[EntryState::Active]);
         let second = Lineage::new(lookup(ListId::Allow, other_member), &[EntryState::Active]);
-        let mut spenders = first.spenders(tree());
-        spenders.extend(second.spenders(tree()));
+        let mut spenders = first.spenders();
+        spenders.extend(second.spenders());
         let mut rpc = ProofRpc::new(spenders);
         rpc.state_roots.push(HistoryRoot {
             value: [5u8; 32],
@@ -1244,9 +1597,37 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRootMismatch)));
+    }
+
+    #[test]
+    fn absence_proofs_at_an_older_live_root_keep_their_own_root_and_index() {
+        let (_, address) = recipient();
+        let mut rpc = ProofRpc::new(Vec::new());
+        let older = HistoryRoot {
+            value: [0x33; 32],
+            index: 2,
+        };
+        rpc.nullifier_roots = vec![older];
+        let outputs = [output(address, 1)];
+        let config = config(&BLOCK);
+        let witness = CustomRingWitnessInput {
+            policy: &BLOCK,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+            output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
+        }
+        .build(&rpc, &rpc)
+        .expect("witness");
+        assert_eq!(witness.trees[0].roots.nullifier, older.value);
+        assert_eq!(witness.trees[0].roots.nullifier_index, older.index);
     }
 
     #[test]
@@ -1262,14 +1643,19 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc)
         .expect("witness");
-        let heads = head_roots(Some(tree_account()), tree()).expect("heads");
-        assert_eq!(witness.roots.nullifier, [2u8; 32]);
-        assert_eq!(witness.roots.nullifier_index, 4);
-        assert_eq!(witness.roots.state, heads.state);
-        assert_eq!(witness.roots.state_index, heads.state_index);
+        let current = current_roots(Some(tree_account()), address_tree()).expect("current roots");
+        assert_eq!(witness.trees[0].roots.nullifier, current.nullifier);
+        assert_eq!(
+            witness.trees[0].roots.nullifier_index,
+            current.nullifier_index
+        );
+        assert_eq!(witness.trees[0].roots.state, current.state);
+        assert_eq!(witness.trees[0].roots.state_index, current.state_index);
         let calls = rpc.calls.lock().expect("calls");
         assert!(calls.merkle.is_empty());
         assert_eq!(calls.non_inclusion.len(), 1);
@@ -1288,12 +1674,14 @@ mod tests {
             inputs: &[],
             outputs: &[],
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc)
         .expect("witness");
         assert_eq!(
-            witness.roots,
-            head_roots(Some(tree_account()), tree()).expect("heads")
+            witness.trees[0].roots,
+            current_roots(Some(tree_account()), address_tree()).expect("current roots")
         );
         let calls = rpc.calls.lock().expect("calls");
         assert!(calls.merkle.is_empty() && calls.non_inclusion.is_empty());
@@ -1313,8 +1701,8 @@ mod tests {
         let (member, address) = recipient();
         let approved = Lineage::new(lookup(ListId::Approval, member), &[EntryState::Active]);
         let blocked = Lineage::new(lookup(ListId::Block, member), &[EntryState::Active]);
-        let mut spenders = approved.spenders(tree());
-        spenders.extend(blocked.spenders(tree()));
+        let mut spenders = approved.spenders();
+        spenders.extend(blocked.spenders());
         let rpc = ProofRpc::new(spenders);
         let outputs = [output(address, 1)];
         let config = config(&MIXED);
@@ -1324,6 +1712,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1356,6 +1746,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1379,7 +1771,7 @@ mod tests {
     fn a_blocked_member_without_approval_is_refused() {
         let (member, address) = recipient();
         let blocked = Lineage::new(lookup(ListId::Block, member), &[EntryState::Active]);
-        let rpc = ProofRpc::new(blocked.spenders(tree()));
+        let rpc = ProofRpc::new(blocked.spenders());
         let outputs = [output(address, 1)];
         let config = config(&MIXED);
         let refused = CustomRingWitnessInput {
@@ -1388,6 +1780,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1408,6 +1802,8 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1429,5 +1825,97 @@ mod tests {
             .filter(|list_id| *list_id != 0)
             .collect();
         assert_eq!(mapped, vec![ListId::Block as u8, ListId::Approval as u8]);
+    }
+
+    fn live_in(tree_id: u16, byte: u8) -> EntryFact {
+        let lineage = Lineage::across(
+            lookup(
+                ListId::Block,
+                crate::instructions::entry::discovery::tests::member(byte),
+            ),
+            &[EntryState::Cleared],
+            &[tree_id],
+        );
+        EntryFact::Live(lineage.live().expect("live"))
+    }
+
+    #[test]
+    fn fact_trees_dedupe_and_bind_the_address_tree_first() {
+        let unclaimed = EntryFact::Unclaimed { address: [1; 32] };
+        let facts = [live_in(9, 1), unclaimed, live_in(9, 2), live_in(0, 3)];
+        let trees = FactTrees::plan(address_tree(), &facts).expect("trees");
+        assert_eq!(
+            trees.trees,
+            vec![address_tree(), PoolTree::from_id(SECOND_TREE_ID)]
+        );
+        assert_eq!(trees.slots, vec![1, 0, 1, 0]);
+
+        let live_only = FactTrees::plan(address_tree(), &[live_in(9, 1)]).expect("trees");
+        assert_eq!(live_only.trees, vec![PoolTree::from_id(SECOND_TREE_ID)]);
+        let no_facts = FactTrees::plan(address_tree(), &[]).expect("trees");
+        assert_eq!(no_facts.trees, vec![address_tree()]);
+    }
+
+    #[test]
+    fn facts_in_more_than_five_trees_are_refused() {
+        let facts: Vec<EntryFact> = (1..=6).map(|id| live_in(id, id as u8)).collect();
+        assert!(matches!(
+            FactTrees::plan(address_tree(), &facts),
+            Err(TransferError::TooManyPolicyTrees { count: 6 })
+        ));
+    }
+
+    /// A cleared entry that moved to a second tree answers there, an unclaimed
+    /// address answers in the address tree.
+    #[test]
+    fn facts_in_two_trees_select_their_own_slots() {
+        let (moved, moved_address) = recipient();
+        let (_, unclaimed_address) = recipient();
+        let lineage = Lineage::across(
+            lookup(ListId::Block, moved),
+            &[EntryState::Active, EntryState::Cleared],
+            &[0, SECOND_TREE_ID],
+        );
+        let rpc = ProofRpc::new(lineage.spenders()).with_tree(SECOND_TREE_ID);
+        let outputs = [output(moved_address, 1), output(unclaimed_address, 1)];
+        let config = config(&BLOCK);
+        let witness = CustomRingWitnessInput {
+            policy: &BLOCK,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+            output_tree_id: 0,
+            velocity: velocity_off(),
+            key_registry: None,
+        }
+        .build(&rpc, &rpc)
+        .expect("witness");
+
+        let second = PoolTree::from_id(SECOND_TREE_ID);
+        assert_eq!(
+            witness
+                .trees
+                .iter()
+                .map(|tree| tree.tree)
+                .collect::<Vec<_>>(),
+            vec![address_tree(), second]
+        );
+        let enabled = enabled(&witness);
+        assert_eq!(enabled[0].tree_slot, 1);
+        assert_eq!(enabled[0].absent_branch, 2);
+        assert_eq!(enabled[1].tree_slot, 0);
+        assert_eq!(enabled[1].absent_branch, 1);
+        assert_eq!(witness.revocation_tree_indexes[..2], [1, 0]);
+        let live = lineage.live().expect("live");
+        assert_eq!(witness.revocation_targets[0], live.nullifier);
+        let calls = rpc.calls.lock().expect("calls");
+        assert_eq!(calls.merkle, vec![vec![live.utxo_hash]]);
+        assert_eq!(calls.trees, vec![tree(), second.address, second.address]);
+        assert_eq!(calls.accounts, 2);
+        assert_eq!(
+            witness.reads().trees[1].tree,
+            second.address,
+            "the revocation PDA of fact 0 derives under the second tree"
+        );
     }
 }

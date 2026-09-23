@@ -14,6 +14,7 @@ func TestSyncProofTimeout(t *testing.T) {
 	}{
 		{common.CustomRingBaseCircuitType, 5 * time.Minute},
 		{common.CustomRingPolicyCircuitType, 5 * time.Minute},
+		{common.CustomRingDepositCircuitType, 5 * time.Minute},
 		{common.TransferP256RingCircuitType, 5 * time.Minute},
 		{common.BatchAddressAppendCircuitType, time.Minute},
 		{common.TransferRingCircuitType, time.Minute},

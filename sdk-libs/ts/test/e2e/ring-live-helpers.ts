@@ -1,3 +1,4 @@
+import { customRingDepositPayload } from "../../src/ring/deposit-payload.js";
 // Shared by the ring live suites, the harness ring pins the released rows.
 import { readFile } from "node:fs/promises";
 
@@ -26,6 +27,7 @@ import {
   buildRingListWriteTransaction,
   memberOfTag,
   readRingEntry,
+  ringTreeIdResolver,
   ringPolicyNamespaceAddress,
   type EntryState,
   type RingRpc,
@@ -86,7 +88,10 @@ export async function sync(client: ZolanaClient, actor: Actor): Promise<void> {
     client,
     wallet: actor.wallet,
     keys: actor.keys,
-    config: { requireSlot: await currentSlot(client) },
+    config: {
+      depositPayloadDecoder: customRingDepositPayload,
+      requireSlot: await currentSlot(client),
+    },
   });
 }
 
@@ -129,19 +134,19 @@ export async function writeList(
     await signSendAndConfirm(client, write.transaction, [authority]);
   }
   const namespace = await ringPolicyNamespaceAddress(ringProgramId);
-  const entriesTree = client.tree;
+  const addressTree = { tree: client.tree, treeId: client.treeId };
   const deadline = Date.now() + 120_000;
   for (;;) {
     const live = await readRingEntry({
       indexer: client,
-      entriesTree,
-      entriesTreeId: client.treeId,
+      addressTreeId: addressTree.treeId,
+      resolveTreeId: ringTreeIdResolver(client, [addressTree]),
       namespace,
       listId: input.listId,
       member,
     });
     if (live !== undefined && live.entry.state === input.state) {
-      const { proofs } = await client.getMerkleProofs(entriesTree, [live.utxoHash]);
+      const { proofs } = await client.getMerkleProofs(live.tree, [live.utxoHash]);
       if (proofs.length === 1) return write;
     }
     if (Date.now() > deadline)

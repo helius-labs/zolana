@@ -30,12 +30,13 @@ import type {
 } from "../interface/types.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
+import type { ProofInputUtxo } from "../transaction/utxo.js";
 import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
-import { checkedServiceUrl, hasProofMethods } from "./internal.js";
+import { checkedServiceUrl, hasProofMethods, inputTreeAddress } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
   authorizedPrivateTransactionMaterial,
@@ -55,6 +56,12 @@ import {
   type TransactionAssembler,
   type TransactionConfirmer,
   type TreeContext,
+  type RingProvingConfig,
+  type RingMemberProofRequest,
+  type RingMemberRequest,
+  type RingSpendRecordLookup,
+  type RingKeyRegistryEntry,
+  type RingKeyRegistryRegisterProof,
 } from "./ports.js";
 import {
   createKitClients,
@@ -69,7 +76,11 @@ import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import type {
   CustomRingBaseProofRequest,
+  CustomRingDepositProofRequest,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterKeyProofRequest,
+  TransferCircuit,
   TransferInputs,
 } from "./prover/types.js";
 import {
@@ -367,6 +378,12 @@ export class ZolanaClient
     return value;
   }
 
+  async getSlot(context?: RequestContext): Promise<bigint> {
+    return runKitRpc("getSlot", context, (abortSignal) =>
+      this.solanaRpc.getSlot({ commitment: this.commitment }).send({ abortSignal }),
+    );
+  }
+
   getEncryptedUtxosByTags(
     request: GetByTagsRequest,
     config?: IndexerRpcConfig,
@@ -525,6 +542,27 @@ export class ZolanaClient
     );
   }
 
+  getRingSpendRecord(
+    request: RingMemberRequest,
+    context?: RequestContext,
+  ): Promise<RingSpendRecordLookup> {
+    return this.#indexer.getRingSpendRecord(request, context);
+  }
+
+  getRingKeyRegistryEntry(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryEntry> {
+    return this.#indexer.getRingKeyRegistryEntry(request, context);
+  }
+
+  getRingKeyRegistryRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryRegisterProof> {
+    return this.#indexer.getRingKeyRegistryRegisterProof(request, context);
+  }
+
   /// `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes
   /// nothing gets the client's config, not the indexer's own default.
   #configOr(config: IndexerRpcConfig | undefined): IndexerRpcConfig {
@@ -582,6 +620,84 @@ export class ZolanaClient
     return this.#pairSpendProofs(commitments, state.proofs, nullifier.proofs);
   }
 
+  /** One request per proof kind per input tree, padding included, the circuit publishes one root pair per tree slot. */
+  async #inputProofs(
+    proofInputs: SppProofInputs,
+    config: IndexerRpcConfig | undefined,
+    context: RequestContext | undefined,
+  ): Promise<Readonly<{ proofs: SpendProof[]; dummyProofs: NonInclusionProof[] }>> {
+    const commitments = proofInputs.inputContexts();
+    const dummyNullifiers = proofInputs.dummyNullifiers();
+    const realTrees = proofInputs.inputUtxos.filter((input) => !input.isDummy());
+    const dummyTrees = proofInputs.inputUtxos.filter((input) => input.isDummy());
+    const at = (inputs: readonly ProofInputUtxo[], treeId: number): number[] =>
+      inputs.flatMap((input, index) => (input.treeId === treeId ? [index] : []));
+    const spends = new Map<number, SpendProof>();
+    const dummies = new Map<number, NonInclusionProof>();
+    const treeIds = new Set(proofInputs.inputUtxos.map((input) => input.treeId));
+    await Promise.all(
+      [...treeIds].map(async (treeId) => {
+        const tree = inputTreeAddress(this, treeId);
+        const realAt = at(realTrees, treeId);
+        const dummyAt = at(dummyTrees, treeId);
+        const spent = commitments.filter((_, index) => realAt.includes(index));
+        const [state, nullifier] = await Promise.all([
+          spent.length === 0
+            ? { proofs: [] }
+            : this.getMerkleProofs(
+                tree,
+                spent.map((item) => item.utxoHash),
+                config,
+                context,
+              ),
+          this.getNonInclusionProofs(
+            tree,
+            [
+              ...spent.map((item) => item.nullifier),
+              ...dummyNullifiers.filter((_, index) => dummyAt.includes(index)),
+            ],
+            config,
+            context,
+          ),
+        ]);
+        const paired = this.#pairSpendProofs(
+          spent,
+          state.proofs,
+          nullifier.proofs.slice(0, spent.length),
+          tree,
+        );
+        const dummyAnswers = nullifier.proofs.slice(spent.length);
+        if (dummyAnswers.length !== dummyAt.length) {
+          throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
+            details: { expected: dummyAt.length, state: 0, nullifier: dummyAnswers.length },
+          });
+        }
+        paired.forEach((proof, position) => spends.set(realAt[position] ?? -1, proof));
+        dummyAnswers.forEach((proof, position) => {
+          const index = dummyAt[position] ?? -1;
+          if (proof.merkleContext.tree !== tree) {
+            throw new ClientError("CLIENT_NULLIFIER_PROOF_TREE_MISMATCH", {
+              details: { index },
+            });
+          }
+          dummies.set(index, proof);
+        });
+      }),
+    );
+    const ordered = <T>(proofs: ReadonlyMap<number, T>, count: number): T[] =>
+      Array.from({ length: count }, (_, index) => {
+        const proof = proofs.get(index);
+        if (proof === undefined) {
+          throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", { details: { index } });
+        }
+        return proof;
+      });
+    return {
+      proofs: ordered(spends, commitments.length),
+      dummyProofs: ordered(dummies, dummyNullifiers.length),
+    };
+  }
+
   /**
    * Zips state and non-inclusion proofs into spend proofs, checking every leaf
    * and tree. Rust finishes the state proof before starting the nullifier one,
@@ -592,6 +708,7 @@ export class ZolanaClient
     commitments: readonly InputUtxoContext[],
     stateProofs: readonly MerkleProof[],
     nullifierProofs: readonly NonInclusionProof[],
+    tree: Address = this.tree,
   ): readonly SpendProof[] {
     if (
       stateProofs.length !== commitments.length ||
@@ -619,7 +736,7 @@ export class ZolanaClient
             details: { index },
           });
         }
-        if (stateProof.merkleContext.tree !== this.tree) {
+        if (stateProof.merkleContext.tree !== tree) {
           throw new ClientError("CLIENT_STATE_PROOF_TREE_MISMATCH", {
             details: { index },
           });
@@ -629,7 +746,7 @@ export class ZolanaClient
             details: { index },
           });
         }
-        if (nullifierProof.merkleContext.tree !== this.tree) {
+        if (nullifierProof.merkleContext.tree !== tree) {
           throw new ClientError("CLIENT_NULLIFIER_PROOF_TREE_MISMATCH", {
             details: { index },
           });
@@ -645,18 +762,26 @@ export class ZolanaClient
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
-    return (await this.#proveTransfer(proofInputs, undefined, keys, config, context)).data;
+    return (await this.#proveTransfer(proofInputs, { kind: "confidential" }, keys, config, context))
+      .data;
   }
 
   async proveRingTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
     keys: ProofAuthority,
-    config?: IndexerRpcConfig,
+    config?: RingProvingConfig,
     context?: RequestContext,
   ): Promise<ProvenRingTransact> {
     checkedAddress(ringProgramId, "ringProgramId");
-    return this.#proveTransfer(proofInputs, ringProgramId, keys, config, context);
+    return this.#proveTransfer(
+      proofInputs,
+      { kind: "ring", ring: ringProgramId },
+      keys,
+      config?.indexer,
+      context,
+      config?.outputTree,
+    );
   }
 
   async proverHealth(context?: RequestContext): Promise<ProverHealth> {
@@ -679,6 +804,63 @@ export class ZolanaClient
     }
   }
 
+  async proveCustomRingCompressedPolicy(
+    inputs: CustomRingCompressedPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingCompressedPolicy(inputs, context),
+      ).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingRegisterKey(
+    inputs: CustomRingRegisterKeyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingRegisterKey(inputs, context),
+      ).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingDelegatePolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingDelegatePolicy(inputs, context),
+      ).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveRingAuthorityTransact(
+    proofInputs: SppProofInputs,
+    ringProgramId: Address,
+    keys: ProofAuthority,
+    context?: RequestContext,
+    outputTree?: TreeContext,
+  ): Promise<ProvenRingTransact> {
+    checkedAddress(ringProgramId, "ringProgramId");
+    return this.#proveTransfer(
+      proofInputs,
+      { kind: "ringAuthority", ring: ringProgramId },
+      keys,
+      undefined,
+      context,
+      outputTree,
+    );
+  }
+
   async proveCustomRingBase(
     inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
@@ -686,6 +868,19 @@ export class ZolanaClient
     try {
       const proof = await this.#prover.proveCustomRingBase(inputs, context);
       return compressProof(proof).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingDeposit(
+    inputs: CustomRingDepositProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingDeposit(inputs, context),
+      ).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }
@@ -705,25 +900,32 @@ export class ZolanaClient
 
   async #proveTransfer(
     proofInputs: SppProofInputs,
-    ring: Address | undefined,
+    circuit: TransferCircuit,
     keys: ProofAuthority,
     config: IndexerRpcConfig | undefined,
     context: RequestContext | undefined,
+    outputTree: TreeContext = this,
   ): Promise<ProvenRingTransact> {
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
     checkProofAuthority(keys);
-    // The proof inputs hashed their outputs under one tree; proving them for
-    // another would produce commitments the instruction's output tree rejects.
-    if (proofInputs.outputTreeId !== this.treeId) {
+    if (treeAddress(outputTree.treeId) !== outputTree.tree)
+      throw new ClientError("CLIENT_TREE_MISMATCH", {
+        details: { transactionTree: outputTree.tree, clientTree: treeAddress(outputTree.treeId) },
+      });
+    // Output commitments bind the destination tree.
+    if (proofInputs.outputTreeId !== outputTree.treeId) {
       throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
-        details: { expected: this.treeId, actual: proofInputs.outputTreeId },
+        details: { expected: outputTree.treeId, actual: proofInputs.outputTreeId },
       });
     }
     try {
-      if (this.#proofDataSource === "prover") {
-        const prepared = prepareTransfer(proofInputs, ring);
+      if (this.#proofDataSource === "prover" && circuit.kind !== "ringAuthority") {
+        const prepared = prepareTransfer(
+          proofInputs,
+          circuit.kind === "ring" ? circuit.ring : undefined,
+        );
         const slot = (config ?? this.#indexerConfig).requireSlot;
         const inputs = {
           ...prepared.inputs,
@@ -736,48 +938,8 @@ export class ZolanaClient
           roots: complete.roots,
         });
       }
-      const commitments = proofInputs.inputContexts();
-      const dummyNullifiers = proofInputs.dummyNullifiers();
-      // One non-inclusion request for real and dummy nullifiers alike, so every
-      // proof opens against the same nullifier root: the circuit publishes one
-      // root per tree slot and the instruction carries one root position.
-      const [state, nullifier] = await Promise.all([
-        this.getMerkleProofs(
-          this.tree,
-          commitments.map((item) => item.utxoHash),
-          config,
-          context,
-        ),
-        this.getNonInclusionProofs(
-          this.tree,
-          [...commitments.map((item) => item.nullifier), ...dummyNullifiers],
-          config,
-          context,
-        ),
-      ]);
-      const proofs = this.#pairSpendProofs(
-        commitments,
-        state.proofs,
-        nullifier.proofs.slice(0, commitments.length),
-      );
-      const dummyProofs = nullifier.proofs.slice(commitments.length);
-      if (dummyProofs.length !== dummyNullifiers.length) {
-        throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
-          details: {
-            expected: dummyNullifiers.length,
-            state: 0,
-            nullifier: dummyProofs.length,
-          },
-        });
-      }
-      dummyProofs.forEach((proof, index) => {
-        if (proof.merkleContext.tree !== this.tree) {
-          throw new ClientError("CLIENT_NULLIFIER_PROOF_TREE_MISMATCH", {
-            details: { index },
-          });
-        }
-      });
-      const assembled = assemble(proofInputs, proofs, dummyProofs, ring);
+      const { proofs, dummyProofs } = await this.#inputProofs(proofInputs, config, context);
+      const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
       return Object.freeze({
         data: assembled.withProof(compressProof(proof).toTransactProof()),
@@ -801,7 +963,10 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_MERGE");
     }
     checkProofAuthority(input.keys);
-    if (this.#proofDataSource === "prover") {
+    if (!(input.prepared instanceof PreparedMerge)) {
+      throw new ClientError("CLIENT_INVALID_MERGE");
+    }
+    if (this.#proofDataSource === "prover" && input.prepared.output.ringProgramId === undefined) {
       const prepared = prepareMerge(input.prepared, this.tree);
       const slot = this.#indexerConfig.requireSlot;
       const inputs = {

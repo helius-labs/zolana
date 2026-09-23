@@ -65,6 +65,7 @@ describe("LocalShieldedKeys on the ring rail", () => {
         ],
         assets: new AssetRegistry(),
         auditorPublicKey: auditor.publicKey(),
+        outputTreeId: 0,
       }),
     );
     const plain = await withTransactionKey(keys, firstNullifier, (tx) =>

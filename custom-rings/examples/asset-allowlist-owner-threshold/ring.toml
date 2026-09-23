@@ -21,8 +21,8 @@ ring_rpc = "https://d24brah9h1i4q9.cloudfront.net"
 ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 
 [policy]
-# every entry the rules read lives in the named tree
-entries_tree = "33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN"
+# entry and spend record addresses are claimed in the named tree
+address_tree = "33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN"
 
 # each output owner must be allowed above the limit for that output's mint
 [[policy.rules]]

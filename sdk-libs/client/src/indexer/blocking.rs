@@ -15,9 +15,11 @@ use crate::{
     prover::{witness::WitnessReader, ProverClient},
     rpc::{
         Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        IndexerRpcConfig, Rpc,
+        GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+        GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, RingHistoryOptions,
+        RingMemberProofRequest, RingSpendRecordRequest, Rpc,
     },
 };
 
@@ -27,6 +29,7 @@ use super::{
         convert_non_inclusion_proof, convert_shielded_transaction,
         convert_shielded_transactions_by_signature_response,
         convert_shielded_transactions_response, encode_cursor, encode_hash, encode_pubkey,
+        ring_history_request,
     },
     error::indexer_error,
 };
@@ -155,6 +158,24 @@ impl Rpc for ZolanaIndexer {
                     )
                     .map_err(indexer_error)?;
 
+                convert_shielded_transactions_response(response)
+            },
+        )
+    }
+
+    fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        wait_for_indexer(
+            config,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context,
+            || {
+                let response = self
+                    .api
+                    .get_shielded_transactions(ring_history_request(options.clone())?)
+                    .map_err(indexer_error)?;
                 convert_shielded_transactions_response(response)
             },
         )
@@ -303,6 +324,33 @@ impl Rpc for ZolanaIndexer {
                 })
             },
         )
+    }
+
+    fn get_ring_spend_record(
+        &self,
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ClientError> {
+        self.api
+            .get_ring_spend_record(request)
+            .map_err(indexer_error)
+    }
+
+    fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        self.api
+            .get_ring_key_registry_entry(request)
+            .map_err(indexer_error)
+    }
+
+    fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        self.api
+            .get_ring_key_registry_register_proof(request)
+            .map_err(indexer_error)
     }
 }
 

@@ -20,9 +20,11 @@ use crate::{
     },
     rpc::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProveResult,
-        ShieldedTransactionStream,
+        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
+        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        IndexerRpcConfig, ProveResult, RingHistoryOptions, RingMemberProofRequest,
+        RingSpendRecordRequest, ShieldedTransactionStream,
     },
 };
 
@@ -156,6 +158,16 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.async_indexer
+            .get_shielded_transactions_by_ring(options, Some(config.unwrap_or(self.indexer_config)))
+            .await
+    }
+
     async fn get_shielded_transactions_by_signature(
         &self,
         signature: Signature,
@@ -238,6 +250,31 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         )
         .await?
         .spend_proofs)
+    }
+
+    async fn get_ring_spend_record(
+        &self,
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ClientError> {
+        self.async_indexer.get_ring_spend_record(request).await
+    }
+
+    async fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        self.async_indexer
+            .get_ring_key_registry_entry(request)
+            .await
+    }
+
+    async fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        self.async_indexer
+            .get_ring_key_registry_register_proof(request)
+            .await
     }
 
     async fn prove(

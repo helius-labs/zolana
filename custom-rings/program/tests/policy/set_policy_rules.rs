@@ -10,11 +10,12 @@ use zolana_account_checks::AccountError;
 use zolana_ring_policy::{ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    account, consumed, curator_policy_config_account_with, curator_slot, curator_source_slots,
-    entries_tree, initialized_curator_policy_config_account, largest_table, mixed_sources,
+    account, address_tree, consumed, curator_policy_config_account_with, curator_slot,
+    curator_source_slots, initialized_curator_policy_config_account, largest_table, mixed_sources,
     namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
     program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
-    specs_with_block_source, stored_policy_config, table_ix_data, PINNED_RULES, RELEASED_RULES,
+    specs_with_block_source, stored_policy_config, table_ix_data, velocity_policy_config_account,
+    PINNED_RULES, RELEASED_RULES, TRANSFER_CAP_RULES, VELOCITY_RULES, VELOCITY_WINDOW_SLOTS,
     WARPED_SLOT,
 };
 
@@ -46,7 +47,7 @@ fn a_re_pin_replaces_the_rows_under_the_next_generation() {
     assert_eq!(config.policy_hash, policy_hash_for(&PINNED_RULES, &sources));
     assert_eq!(config.generation(), 2);
     assert_eq!(config.generation_slot(), WARPED_SLOT);
-    assert_eq!(config.entries_tree.to_bytes(), entries_tree().to_bytes());
+    assert_eq!(config.address_tree.to_bytes(), address_tree().to_bytes());
     assert_eq!(config.namespace_bump, namespace_pda().1);
 }
 
@@ -67,6 +68,53 @@ fn invalid_rows_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut table = table_ix_data(&PINNED_RULES, &own_specs(&PINNED_RULES));
     table.rules[0][31] = 9;
+    let fixture = set_policy_rules_fixture(released_config(), &table);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyRules));
+}
+
+#[test]
+fn rows_without_a_window_select_per_transfer_caps() {
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&TRANSFER_CAP_RULES, &own_specs(&TRANSFER_CAP_RULES));
+    let config = stored_policy_config(
+        &mollusk,
+        &set_policy_rules_fixture(released_config(), &table),
+    );
+    assert_eq!(config.rules, TRANSFER_CAP_RULES.encode());
+    assert!(matches!(
+        config.rules.velocity_mode(),
+        zolana_ring_policy::VelocityMode::PerTransfer
+    ));
+}
+
+/// Existing record window indices retain their original duration.
+#[test]
+fn a_changed_window_duration_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut table = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
+    table.window_slots = VELOCITY_WINDOW_SLOTS + 100;
+    let fixture = set_policy_rules_fixture(velocity_policy_config_account(), &table);
+    fixture.expect_err(&mollusk, custom(CustomRingError::VelocityWindowImmutable));
+}
+
+#[test]
+fn the_same_window_duration_re_pins() {
+    let (mut mollusk, _) = setup_mollusk();
+    mollusk.warp_to_slot(WARPED_SLOT);
+    let table = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
+    let config = stored_policy_config(
+        &mollusk,
+        &set_policy_rules_fixture(velocity_policy_config_account(), &table),
+    );
+    assert_eq!(config.rules.window_slots(), VELOCITY_WINDOW_SLOTS);
+}
+
+#[test]
+fn a_window_without_rows_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut table = table_ix_data(&PINNED_RULES, &own_specs(&PINNED_RULES));
+    table.window_slots = 5;
+    table.velocity.clear();
     let fixture = set_policy_rules_fixture(released_config(), &table);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyRules));
 }
@@ -110,7 +158,7 @@ fn a_curated_list_kept_without_its_curator_account_is_rejected_exactly() {
 }
 
 #[test]
-fn a_curator_in_a_different_entries_tree_is_rejected_exactly() {
+fn a_curator_in_a_different_address_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let table = table_ix_data(&RELEASED_RULES, &specs_with_block_source(1));
     let mut fixture = set_policy_rules_fixture(released_config(), &table);

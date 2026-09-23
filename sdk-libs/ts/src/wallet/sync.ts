@@ -1,3 +1,4 @@
+import type { DepositPayloadDecoder } from "../transaction/serialization/ring-deposit.js";
 import {
   getAddressEncoder,
   getBase64Decoder,
@@ -61,6 +62,7 @@ export interface SyncClient extends Pick<
 }
 
 export interface SyncWalletConfig {
+  readonly depositPayloadDecoder?: DepositPayloadDecoder;
   /** Stable tags and nullifiers per indexer request. Defaults to 64. */
   readonly queryChunk?: number;
   /** Rows requested per indexer page. Defaults to Photon's maximum, 1000. */
@@ -514,7 +516,12 @@ async function runWalletSync(
     const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
     const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
     const poll = input.config?.retry ?? DEFAULT_INDEXER_POLL_CONFIG;
-    const syncedAt = BigInt(Math.floor(Date.now() / 1_000));
+    const decryptConfig = {
+      syncedAt: BigInt(Math.floor(Date.now() / 1_000)),
+      ...(input.config?.depositPayloadDecoder === undefined
+        ? {}
+        : { depositPayloadDecoder: input.config.depositPayloadDecoder }),
+    };
     const validatedPoll = Object.freeze({ ...poll, numRetries: Math.max(poll.numRetries, 1) });
     const ungated: IndexerRpcConfig = Object.freeze({ poll: validatedPoll });
     const requireSlot = input.config?.requireSlot;
@@ -606,7 +613,7 @@ async function runWalletSync(
       wallet: session.staging,
       keys,
       transactions: ordered,
-      config: { syncedAt },
+      config: decryptConfig,
       context,
     });
     let registryRefreshed = false;
@@ -621,7 +628,7 @@ async function runWalletSync(
           wallet: session.staging,
           keys,
           transactions: ordered,
-          config: { syncedAt },
+          config: decryptConfig,
           context,
         });
       }
@@ -642,7 +649,7 @@ async function runWalletSync(
         wallet: session.staging,
         keys,
         transactions: ordered,
-        config: { syncedAt },
+        config: decryptConfig,
         context,
       });
       if (
@@ -656,7 +663,7 @@ async function runWalletSync(
             wallet: session.staging,
             keys,
             transactions: ordered,
-            config: { syncedAt },
+            config: decryptConfig,
             context,
           });
         }

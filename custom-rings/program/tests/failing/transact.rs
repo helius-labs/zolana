@@ -6,7 +6,7 @@
 //! real BSB22 verifier against the committed verifying key, which is what proves
 //! the recomputed public-input hash path is reached.
 
-use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
+use custom_ring_interface::{tag, CustomRingProof, PlainGroth16Proof, AUDITOR_MESSAGE_LEN};
 use custom_ring_program::CustomRingError;
 use solana_account::Account;
 use solana_program_error::ProgramError;
@@ -23,8 +23,8 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    account, auditor_pubkey, authority, initialized_config_account, setup_mollusk,
-    transact_fixture, Fixture,
+    account, audit_ix_data, auditor_pubkey, authority, encode_transact, initialized_config_account,
+    policy_ix_data, setup_mollusk, transact_fixture, Fixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -44,7 +44,7 @@ fn auditor_view_tag() -> [u8; 32] {
     view_tag
 }
 
-fn auditor_message(data_len: usize) -> MessageData {
+pub(crate) fn auditor_message(data_len: usize) -> MessageData {
     let mut data = Vec::from(auditor_pubkey(3));
     data.extend_from_slice(&[4u8; 32]);
     data.resize(data_len, 4);
@@ -62,7 +62,7 @@ fn other_message() -> MessageData {
 }
 
 /// Wire-valid `RingEddsa` content; callers override the fields they attack.
-fn transact(messages: Vec<MessageData>) -> TransactIxData {
+pub(crate) fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [1; 32],
@@ -86,28 +86,26 @@ fn transact(messages: Vec<MessageData>) -> TransactIxData {
 /// A syntactically well-formed proof that cannot verify. Zeroed points decompress
 /// to the identity, so a `0xFF` commitment is the first point the verifier fails
 /// on, which exercises the BSB22 commitment path itself.
-fn bogus_proof() -> CustomRingProof {
+pub(crate) fn bogus_proof() -> CustomRingProof {
     CustomRingProof {
-        proof_a: [0; 32],
-        proof_b: [0; 64],
-        proof_c: [0; 32],
+        groth16: PlainGroth16Proof {
+            proof_a: [0; 32],
+            proof_b: [0; 64],
+            proof_c: [0; 32],
+        },
         commitment: [0xFF; 32],
         commitment_pok: [0xFF; 32],
     }
 }
 
-fn instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
-    let mut data = vec![tag::TRANSACT];
-    data.extend_from_slice(
-        &wincode::serialize(&CustomRingTransactIxData {
-            proof,
-            state_root_index: 0,
-            nullifier_root_index: 0,
-            transact,
-        })
-        .expect("serialize transact body"),
-    );
-    data
+/// The policy layout, one policy tree.
+pub(crate) fn instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
+    encode_transact(tag::TRANSACT, &policy_ix_data(proof, transact))
+}
+
+/// The audit-only layout, no policy trees.
+pub(crate) fn audit_instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
+    encode_transact(tag::TRANSACT, &audit_ix_data(proof, transact))
 }
 
 /// `[payer(w,s), config]` followed by SPP's `RING_TRANSACT` list: `payer(w,s),
@@ -424,9 +422,11 @@ fn zeroed_proof_is_rejected_exactly() {
         valid_config(),
         instruction_data(
             CustomRingProof {
-                proof_a: [0; 32],
-                proof_b: [0; 64],
-                proof_c: [0; 32],
+                groth16: PlainGroth16Proof {
+                    proof_a: [0; 32],
+                    proof_b: [0; 64],
+                    proof_c: [0; 32],
+                },
                 commitment: [0; 32],
                 commitment_pok: [0; 32],
             },

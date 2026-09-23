@@ -1,13 +1,9 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
+use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 
-use crate::{
-    bytes_to_decimal_string, ffi,
-    proof::{negate_and_compress_proof, ProofError, TimelockProof},
-    utxo::utxo_witness_entries,
-    CircuitId, EscrowTermsProofInput,
-};
+use crate::{CircuitId, EscrowTermsProofInput, TimelockProof, PROVER};
 
 #[derive(Debug, Clone)]
 pub struct WithdrawProofInputs {
@@ -23,7 +19,7 @@ pub struct WithdrawProofInputs {
 }
 
 impl WithdrawProofInputs {
-    fn witness(&self) -> ffi::WitnessMap {
+    fn witness(&self) -> ProofInputMap {
         let scalars: [(&str, [u8; 32]); 6] = [
             ("Public_PublicInputHash", self.public_input_hash),
             ("Public_PrivateTxHash", self.private_tx_hash),
@@ -34,22 +30,25 @@ impl WithdrawProofInputs {
         ];
         let mut map = HashMap::new();
         for (key, value) in scalars.iter() {
-            map.insert(key.to_string(), vec![bytes_to_decimal_string(value)]);
+            map.insert(key.to_string(), vec![decimal(value)]);
         }
         for (key, value) in self
             .terms
             .witness_entries("Terms")
             .into_iter()
-            .chain(utxo_witness_entries(&self.escrow_utxo, "EscrowUtxo"))
-            .chain(utxo_witness_entries(&self.source_output, "SourceOutput"))
+            .chain(utxo_proof_inputs(&self.escrow_utxo, "EscrowUtxo"))
+            .chain(utxo_proof_inputs(&self.source_output, "SourceOutput"))
         {
             map.insert(key, value);
         }
         map
     }
 
-    pub fn prove(&self) -> Result<TimelockProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::Withdraw, &self.witness())?)
+    pub fn prove(&self) -> zolana_gnark_ffi_prover::Result<TimelockProof> {
+        Ok(PROVER
+            .prove(CircuitId::Withdraw, &self.witness())?
+            .compress()?
+            .into())
     }
 }
 
@@ -57,10 +56,10 @@ impl WithdrawProofInputs {
 mod tests {
     use std::collections::HashSet;
 
+    use zolana_gnark_ffi_prover::utxo_proof_input_keys;
+
     use super::*;
-    use crate::{
-        escrow_terms::expected_escrow_terms_witness_keys, utxo::expected_utxo_witness_keys,
-    };
+    use crate::escrow_terms::expected_escrow_terms_witness_keys;
 
     fn sample() -> WithdrawProofInputs {
         WithdrawProofInputs {
@@ -93,8 +92,8 @@ mod tests {
             "PrivateTxBlinding".to_string(),
         ];
         expected.extend(expected_escrow_terms_witness_keys("Terms"));
-        expected.extend(expected_utxo_witness_keys("EscrowUtxo"));
-        expected.extend(expected_utxo_witness_keys("SourceOutput"));
+        expected.extend(utxo_proof_input_keys("EscrowUtxo"));
+        expected.extend(utxo_proof_input_keys("SourceOutput"));
 
         assert_eq!(keys, expected.into_iter().collect::<HashSet<String>>());
     }

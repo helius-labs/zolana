@@ -135,6 +135,20 @@ connects there and `spawn_prover()` starts the spawned server on that URL's
 port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
 -- export the vars yourself (`set -a; source .env; set +a`) or use `direnv`.
 
+### Parallel localnet tests (`LocalnetPorts::for_test`)
+
+Suites that boot through `zolana_program_test::localnet::FixtureLocalnet`
+(swap, timelock escrow, dynamic swap, rfq, compression) run in parallel: each
+test passes its own number to `setup(n)`, which binds
+`LocalnetPorts::for_test(n)`, the default ports shifted by `ZOLANA_PORT_OFFSET +
+1000 * n`. The tests share this checkout's prover. Give every new test a number
+no other FixtureLocalnet test uses; `just test-examples-validator` runs all of
+them at once. The validator's WebSocket always takes the port above its RPC
+port, and each Photon keeps its database in a temp dir named by its port.
+Services are stopped by the port they listen on, never by process name. A
+localnet's accounts and logs stay in `target/localnet/<label>-<rpc port>` until
+that port's next start.
+
 ## Transactions Are v1, 4 KB, With No Lookup Tables
 
 Every transaction this repository sends is **transaction v1** (SIMD-0385).

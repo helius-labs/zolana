@@ -176,13 +176,20 @@ impl ConfidentialTransaction {
         })
     }
 
+    pub fn sender_owner_tag(
+        &self,
+        sender: &PublicKey,
+    ) -> Result<ResolvedOwnerTag, TransactionError> {
+        let (tag, resolved) =
+            sender_owner_tag(sender, &self.payer, self.ring_program_id.is_some())?;
+        Ok(ResolvedOwnerTag { tag, resolved })
+    }
+
     pub fn owner_tags(
         &self,
         sender: &PublicKey,
     ) -> Result<Vec<ResolvedOwnerTag>, TransactionError> {
-        let (tag, resolved) =
-            sender_owner_tag(sender, &self.payer, self.ring_program_id.is_some())?;
-        let sender_tag = ResolvedOwnerTag { tag, resolved };
+        let sender_tag = self.sender_owner_tag(sender)?;
         let mut owner_tags = Vec::with_capacity(self.outputs.len());
         for (slot_index, output) in self.outputs.iter().enumerate() {
             let resolved = output

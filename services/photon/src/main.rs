@@ -10,7 +10,7 @@ use photon_indexer::api::{self, service::PhotonApi};
 
 use photon_indexer::common::{
     fetch_block_parent_slot, fetch_current_slot_with_infinite_retry, get_network_start_slot,
-    get_rpc_client, setup_logging, setup_metrics, setup_pg_pool, LoggingFormat,
+    setup_logging, setup_metrics, setup_pg_pool, LoggingFormat,
 };
 
 use photon_indexer::ingester::fetchers::BlockStreamConfig;
@@ -23,7 +23,9 @@ use photon_indexer::migration::{
 };
 
 use photon_indexer::monitor::continuously_monitor_photon;
-use photon_indexer::rpc::RpcClient;
+#[cfg(feature = "ring-projection")]
+use photon_indexer::ring_projection::{Projector, StartSlot};
+use photon_indexer::rpc::{BlockHeaders, RpcClient};
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_block_stream_from_directory_adapter, DirectoryAdapter,
 };
@@ -84,6 +86,15 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
 
+    #[cfg(feature = "ring-projection")]
+    #[arg(long)]
+    enable_ring_projection: bool,
+
+    /// First projected ring slot, the network start by default.
+    #[cfg(feature = "ring-projection")]
+    #[arg(long, requires = "enable_ring_projection")]
+    ring_projection_start_slot: Option<u64>,
+
     /// Metrics endpoint in the format `host:port`
     /// If provided, metrics will be sent to the specified statsd server.
     #[arg(long, default_value = None)]
@@ -115,19 +126,26 @@ struct Args {
     gcs_prefix: String,
 }
 
-async fn start_api_server(
-    db: Arc<DatabaseConnection>,
-    rpc_client: Arc<RpcClient>,
-    api_port: u16,
+struct ApiServer {
+    api: PhotonApi,
+    port: u16,
     max_http_connections: u32,
-) -> Result<ServerHandle> {
-    let api = PhotonApi::new(db, rpc_client);
-    // Before the server accepts anything, so the first proof request finds a
-    // populated ring rather than paying for it.
-    api.spawn_root_index_refresher();
-    api::rpc_server::run_server(api, api_port, max_http_connections)
-        .await
-        .context("Failed to start API server")
+}
+
+impl ApiServer {
+    async fn start(self) -> Result<ServerHandle> {
+        let Self {
+            api,
+            port,
+            max_http_connections,
+        } = self;
+        // Before the server accepts anything, so the first proof request finds a
+        // populated ring rather than paying for it.
+        api.spawn_root_index_refresher();
+        api::rpc_server::run_server(api, port, max_http_connections)
+            .await
+            .context("Failed to start API server")
+    }
 }
 
 async fn setup_temporary_sqlite_database_pool(max_connections: u32) -> Result<SqlitePool> {
@@ -325,6 +343,37 @@ async fn load_snapshot_if_present(
     Ok(())
 }
 
+fn block_headers(rpc_url: &str) -> Result<BlockHeaders> {
+    match std::env::var_os("ZOLANA_RING_SURFPOOL_FIXTURE") {
+        None => Ok(BlockHeaders::Chain),
+        Some(opt_in) => surfpool_fixture(rpc_url, &opt_in),
+    }
+}
+
+#[cfg(not(feature = "surfpool-fixture"))]
+fn surfpool_fixture(_rpc_url: &str, _opt_in: &std::ffi::OsStr) -> Result<BlockHeaders> {
+    bail!("ZOLANA_RING_SURFPOOL_FIXTURE needs a binary built with the surfpool-fixture feature")
+}
+
+#[cfg(feature = "surfpool-fixture")]
+fn surfpool_fixture(rpc_url: &str, opt_in: &std::ffi::OsStr) -> Result<BlockHeaders> {
+    if opt_in != "1" {
+        bail!("ZOLANA_RING_SURFPOOL_FIXTURE must equal 1");
+    }
+    let loopback = reqwest::Url::parse(rpc_url).ok().is_some_and(|url| {
+        url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+    });
+    if !loopback {
+        bail!("the Surfpool fixture accepts loopback RPC only");
+    }
+    Ok(BlockHeaders::SurfpoolFixture)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -342,78 +391,104 @@ async fn main() -> Result<()> {
     }
 
     let is_rpc_node_local = args.rpc_url.contains("127.0.0.1");
-    let rpc_client = get_rpc_client(&args.rpc_url);
+    let rpc_client = Arc::new(
+        RpcClient::new(args.rpc_url.clone()).with_block_headers(block_headers(&args.rpc_url)?),
+    );
 
     load_snapshot_if_present(&args, db_conn.clone(), rpc_client.clone()).await?;
 
-    let (indexer_handle, monitor_handle) = match args.disable_indexing {
-        true => {
-            info!("Indexing is disabled");
-            (None, None)
-        }
-        false => {
-            info!("Starting indexer...");
-
-            info!("Syncing tree metadata...");
-            if let Err(e) = photon_indexer::monitor::tree_metadata_sync::sync_tree_metadata(
-                rpc_client.as_ref(),
-                db_conn.as_ref(),
-            )
-            .await
-            {
-                warn!("Failed to sync tree metadata on startup: {}. Will retry in background monitor.", e);
-            } else {
-                info!("Tree metadata sync completed successfully");
-            }
-
-            // For localnet we can safely use a large batch size to speed up indexing.
-            let max_concurrent_block_fetches = match args.max_concurrent_block_fetches {
-                Some(max_concurrent_block_fetches) => max_concurrent_block_fetches,
-                None => {
-                    if is_rpc_node_local {
-                        200
-                    } else {
-                        20
-                    }
+    let (projector_handle, indexer_handle, monitor_handle) = if args.disable_indexing {
+        info!("Indexing is disabled");
+        (None, None, None)
+    } else {
+        let last_indexed_slot = match &args.start_slot {
+            Some(start_slot) => match start_slot.as_str() {
+                "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
+                _ => {
+                    let start_slot = start_slot
+                        .parse::<u64>()
+                        .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
+                    fetch_block_parent_slot(&rpc_client, start_slot).await?
                 }
-            };
-            let last_indexed_slot = match args.start_slot {
-                Some(start_slot) => match start_slot.as_str() {
-                    "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
-                    _ => {
-                        let start_slot = start_slot
-                            .parse::<u64>()
-                            .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
-                        fetch_block_parent_slot(&rpc_client, start_slot).await?
-                    }
-                },
-                None => match fetch_last_indexed_slot_with_infinite_retry(db_conn.as_ref()).await {
-                    Some(slot) => u64::try_from(slot)
-                        .with_context(|| format!("Last indexed slot {} is negative", slot))?,
-                    None => get_network_start_slot(&rpc_client).await,
-                },
-            };
+            },
+            None => match fetch_last_indexed_slot_with_infinite_retry(db_conn.as_ref()).await {
+                Some(slot) => u64::try_from(slot)
+                    .with_context(|| format!("Last indexed slot {} is negative", slot))?,
+                None => get_network_start_slot(&rpc_client).await,
+            },
+        };
 
-            let block_stream_config = BlockStreamConfig {
-                rpc_client: rpc_client.clone(),
-                max_concurrent_block_fetches,
-                last_indexed_slot,
-                geyser_url: args.grpc_url,
+        #[cfg(feature = "ring-projection")]
+        let projector_handle = if args.enable_ring_projection {
+            // Blocks before an explicit index start are not linkable.
+            let projection_start = match args.ring_projection_start_slot {
+                Some(slot) => StartSlot::Explicit(slot.saturating_sub(1)),
+                None if args.start_slot.is_some() => StartSlot::Derived(last_indexed_slot),
+                None => StartSlot::Derived(get_network_start_slot(&rpc_client).await),
             };
-
-            (
-                Some(continuously_index_new_blocks(
-                    block_stream_config,
-                    db_conn.clone(),
-                    rpc_client.clone(),
-                    last_indexed_slot,
-                )),
-                Some(continuously_monitor_photon(
-                    db_conn.clone(),
-                    rpc_client.clone(),
-                )),
+            Some(
+                Projector {
+                    db: db_conn.clone(),
+                    rpc: rpc_client.clone(),
+                    start: projection_start,
+                }
+                .spawn(),
             )
+        } else {
+            None
+        };
+        #[cfg(not(feature = "ring-projection"))]
+        let projector_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+        info!("Starting indexer...");
+
+        info!("Syncing tree metadata...");
+        if let Err(e) = photon_indexer::monitor::tree_metadata_sync::sync_tree_metadata(
+            rpc_client.as_ref(),
+            db_conn.as_ref(),
+        )
+        .await
+        {
+            warn!(
+                "Failed to sync tree metadata on startup: {}. Will retry in background monitor.",
+                e
+            );
+        } else {
+            info!("Tree metadata sync completed successfully");
         }
+
+        // For localnet we can safely use a large batch size to speed up indexing.
+        let max_concurrent_block_fetches = match args.max_concurrent_block_fetches {
+            Some(max_concurrent_block_fetches) => max_concurrent_block_fetches,
+            None => {
+                if is_rpc_node_local {
+                    200
+                } else {
+                    20
+                }
+            }
+        };
+
+        let block_stream_config = BlockStreamConfig {
+            rpc_client: rpc_client.clone(),
+            max_concurrent_block_fetches,
+            last_indexed_slot,
+            geyser_url: args.grpc_url,
+        };
+
+        (
+            projector_handle,
+            Some(continuously_index_new_blocks(
+                block_stream_config,
+                db_conn.clone(),
+                rpc_client.clone(),
+                last_indexed_slot,
+            )),
+            Some(continuously_monitor_photon(
+                db_conn.clone(),
+                rpc_client.clone(),
+            )),
+        )
     };
 
     info!(
@@ -423,19 +498,30 @@ async fn main() -> Result<()> {
     let api_handler = if args.disable_api {
         None
     } else {
+        let api = PhotonApi::new(db_conn.clone(), rpc_client.clone());
+        #[cfg(feature = "ring-projection")]
+        let api = if args.enable_ring_projection {
+            api.with_ring_projection()
+        } else {
+            api
+        };
         Some(
-            start_api_server(
-                db_conn.clone(),
-                rpc_client.clone(),
-                args.port,
-                args.max_http_connections,
-            )
+            ApiServer {
+                api,
+                port: args.port,
+                max_http_connections: args.max_http_connections,
+            }
+            .start()
             .await?,
         )
     };
 
     match tokio::signal::ctrl_c().await {
         Ok(()) => {
+            if let Some(handle) = projector_handle {
+                handle.abort();
+                let _ = handle.await;
+            }
             if let Some(indexer_handle) = indexer_handle {
                 info!("Shutting down indexer...");
                 indexer_handle.abort();

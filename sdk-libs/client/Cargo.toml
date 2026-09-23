@@ -19,6 +19,7 @@ proofs = []
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-indexer-api = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
@@ -89,6 +90,10 @@ name = "multi_tree_spend"
 # Hermetic: a loopback mock indexer, no prover server.
 [[test]]
 name = "witness_trees"
+
+# Hermetic: a loopback mock prover, no prover server.
+[[test]]
+name = "prover_retry"
 
 [[test]]
 name = "transaction_proving"

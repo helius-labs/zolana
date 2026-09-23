@@ -81,6 +81,8 @@ pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<
         upgrade_authority_keypair: None,
         config_authority_keypair: None,
         policy: answers.policy,
+        cosigner: None,
+        deposit_audit: false,
         localnet: answers.localnet,
         devnet: answers.devnet,
     };
@@ -261,11 +263,11 @@ mod tests {
         assert_eq!(config.target, Target::Devnet);
         let written_policy = config.policy.expect("policy tier");
         assert_eq!(
-            written_policy.entries_tree(),
+            written_policy.address_tree(),
             zolana_interface::pda::tree(0)
         );
         assert!(
-            written_policy.entries_tree.is_some(),
+            written_policy.address_tree.is_some(),
             "the default is written explicitly"
         );
         let compiled = written_policy.compile(Target::Devnet).expect("compiles");

@@ -1,20 +1,23 @@
 //! Entry writes and governed transfers shared by the policy suites, and the
 //! tables they pin.
 
+use std::num::NonZeroU64;
+
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
     CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
-    EntryProofEnvironment, PolicyConfig, ProvenTransfer, ReadEntry, RingDeposit,
-    RingDepositReceipt, TransactSend, TransferError, TransferProofEnvironment, UpdateEntry,
-    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+    EntryProofEnvironment, LiveEntry, PolicyConfig, PoolTree, ProvenTransfer, ReadEntry,
+    RingDeposit, RingDepositReceipt, TransactSend, TransferError, TransferProofEnvironment,
+    UpdateEntry, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
 };
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, ProverClient, Rpc};
+use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_ring_policy::{
-    EntryState, ListEntry, ListId, ListSet, Member, Rule, RuleTable, Subject,
+    EntryState, ListId, ListSet, Member, Rule, RuleTable, Subject, VelocityRow,
 };
 use zolana_test_utils::test_validator_asserts::{wait_for_indexed_utxo, wait_for_merkle_proof};
 use zolana_transaction::{
@@ -42,6 +45,29 @@ pub const BLOCK_ONLY: RuleTable = RuleTable::builder()
 
 pub const TOKEN_BLOCK: RuleTable = RuleTable::builder()
     .rule(Rule::forbid(Subject::Asset, ListId::Block))
+    .build();
+
+pub const VELOCITY_WINDOW_SLOTS: NonZeroU64 = NonZeroU64::new(1_000).unwrap();
+pub const VELOCITY_CAP: u64 = 650_000_000;
+pub const VELOCITY_COSIGN_ABOVE: u64 = 300_000_000;
+
+/// SOL outflow capped per window, dual control above the threshold.
+pub const VELOCITY: RuleTable = RuleTable::builder()
+    .windowed(VELOCITY_WINDOW_SLOTS)
+    .velocity(&[VelocityRow {
+        asset: SOL_ASSET_FIELD,
+        cap: VELOCITY_CAP,
+        cosign_above: VELOCITY_COSIGN_ABOVE,
+    }])
+    .build();
+
+/// SOL outflow capped per transfer, dual control above the threshold, no window.
+pub const TRANSFER_CAP: RuleTable = RuleTable::builder()
+    .velocity(&[VelocityRow {
+        asset: SOL_ASSET_FIELD,
+        cap: VELOCITY_CAP,
+        cosign_above: VELOCITY_COSIGN_ABOVE,
+    }])
     .build();
 
 /// An Approval entry or no Block entry admits an output owner.
@@ -113,8 +139,13 @@ impl RingNotes<'_> {
                     tree: self.env.tree,
                     asset: DepositAsset::Sol,
                     amount: self.amount,
+                    cosigner: None,
                 }
-                .send(rpc)?;
+                .send(custom_ring_sdk::DepositProofEnvironment {
+                    indexer,
+                    rpc,
+                    prover: &zolana_client::ProverClient::local(),
+                })?;
                 let tree_id = custom_ring_sdk::tree_id(rpc, self.env.tree)?;
                 let leaf = utxo.hash(
                     &self.owner.nullifier_key.pubkey()?,
@@ -172,7 +203,6 @@ impl PolicyTransfer<'_> {
             nullifier_key: Some(&self.sender.nullifier_key),
             transaction: transfer,
         })
-        .with_tree(self.env.tree)
         .prove(TransferProofEnvironment {
             indexer: self.env.client.indexer(),
             rpc: self.env.client.rpc(),
@@ -218,7 +248,7 @@ impl PolicyTransfer<'_> {
 
 pub enum EntryTarget {
     Claim { list_id: ListId, member: Member },
-    Successor(ListEntry),
+    Successor(LiveEntry),
 }
 
 /// Landed and readable through the indexer before `send` returns.
@@ -232,7 +262,20 @@ pub struct EntryWrite<'a> {
 }
 
 impl EntryWrite<'_> {
-    pub fn send(self, prover: &ProverClient) -> Result<ListEntry> {
+    pub fn send(self, prover: &ProverClient) -> Result<LiveEntry> {
+        let address_tree = self.address_tree()?;
+        self.send_to(prover, address_tree)
+    }
+
+    fn address_tree(&self) -> Result<PoolTree> {
+        Ok(PoolTree::address_tree(&policy_config(
+            self.ring,
+            self.env.client.rpc(),
+        )?))
+    }
+
+    /// The written version lands in `output_tree`, its address stays in the address tree.
+    pub fn send_to(self, prover: &ProverClient, output_tree: PoolTree) -> Result<LiveEntry> {
         let env = self.env;
         let rpc = env.client.rpc();
         let indexer = env.client.indexer();
@@ -242,17 +285,13 @@ impl EntryWrite<'_> {
             rpc,
             prover,
         };
-        let entries_tree_id = self
-            .ring
-            .read_policy_config(rpc)?
-            .ok_or_else(|| anyhow!("policy config of {}", self.ring.program_id()))?
-            .entries_tree_id();
+        let address_tree = self.address_tree()?;
         let proven = match self.target {
             EntryTarget::Claim { list_id, member } => CreateEntry {
                 ring: self.ring,
                 payer: authority,
-                entries_tree: env.tree,
-                entries_tree_id,
+                address_tree,
+                output_tree,
                 list_id,
                 member,
                 state: self.state,
@@ -262,8 +301,8 @@ impl EntryWrite<'_> {
             EntryTarget::Successor(spent) => UpdateEntry {
                 ring: self.ring,
                 payer: authority,
-                entries_tree: env.tree,
-                entries_tree_id,
+                address_tree,
+                output_tree,
                 spent,
                 state: self.state,
                 content_hash: [0u8; 32],
@@ -285,8 +324,7 @@ impl EntryWrite<'_> {
         )?;
         wait_for_indexed_utxo(indexer, self.ring.namespace_pda().to_bytes(), signature);
         let live = ReadEntry {
-            entries_tree: env.tree,
-            entries_tree_id,
+            address_tree_id: address_tree.id,
             namespace: self.ring.namespace_pda(),
             list_id: entry.list_id,
             member: entry.member,
@@ -294,7 +332,11 @@ impl EntryWrite<'_> {
         .read(indexer)?
         .ok_or_else(|| anyhow!("{:?} entry after the write", entry.list_id))?;
         assert_eq!(live.entry, entry, "indexed entry equals the mutation");
-        wait_for_merkle_proof(indexer, env.tree, live.utxo_hash);
-        Ok(entry)
+        assert_eq!(
+            live.tree_id, output_tree.id,
+            "the version lands in the output tree"
+        );
+        wait_for_merkle_proof(indexer, output_tree.address, live.utxo_hash);
+        Ok(live)
     }
 }

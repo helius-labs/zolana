@@ -62,6 +62,7 @@ pub(crate) fn validate_merge_owner(
     Ok(())
 }
 
+#[derive(Clone)]
 pub(crate) struct MergeInputs {
     pub asset: Mint,
     pub total: u64,

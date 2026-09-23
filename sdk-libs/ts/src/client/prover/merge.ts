@@ -252,7 +252,10 @@ export function prepareMerge(prepared: PreparedMerge, tree: Address): PreparedMe
   if (prepared.output.isDummy()) throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
   const outputHash = checkedBytes(prepared.outputHash(), 32, "merge output hash");
   const externalDataHash = mergeExternalDataHash({
-    instructionTag: InstructionTag.mergeTransact,
+    instructionTag:
+      prepared.output.ringProgramId === undefined
+        ? InstructionTag.mergeTransact
+        : InstructionTag.ringMergeTransact,
     expiryUnixTs,
     outputUtxoHash: outputHash,
   });
@@ -284,7 +287,9 @@ export function prepareMerge(prepared: PreparedMerge, tree: Address): PreparedMe
     bytesToBigInt(privateTxHash),
     bytesToBigInt(externalDataHash),
     1n,
-    ownerPublicKeyHash,
+    ...(prepared.output.ringProgramId === undefined
+      ? [ownerPublicKeyHash]
+      : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)]),
   ].map(asField);
   const payload: PreparedMergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
@@ -297,8 +302,8 @@ export function prepareMerge(prepared: PreparedMerge, tree: Address): PreparedMe
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
     allowDummyInputs: asField(1n),
-    outputRingDataHash: asField(0n),
-    ringProgramId: asField(0n),
+    outputRingDataHash: output.circuit.ringDataHash,
+    ringProgramId: output.circuit.ringProgramId,
   });
   return Object.freeze({
     inputs: Object.freeze({
@@ -368,7 +373,10 @@ function validateMergeTree(prepared: PreparedMerge, tree: Address): void {
   // The merge instruction appends its output to the same tree it spends from,
   // so an output hashed under another tree would prove a commitment the
   // instruction's output tree rejects.
-  if (prepared.outputTreeId !== prepared.inputTreeId) {
+  if (
+    prepared.output.ringProgramId === undefined &&
+    prepared.outputTreeId !== prepared.inputTreeId
+  ) {
     throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
       details: { expected: prepared.inputTreeId, actual: prepared.outputTreeId },
     });
@@ -395,7 +403,16 @@ function validatePreparedMerge(prepared: PreparedMerge): void {
       details: { expected: MERGE_INPUTS, actual: prepared.inputs.length },
     });
   }
+  let total = 0n;
   prepared.inputs.forEach((input) => {
+    if (!input.isDummy()) {
+      if (
+        input.utxo.ringProgramId !== prepared.output.ringProgramId ||
+        input.utxo.asset !== prepared.output.asset
+      )
+        throw new ClientError("CLIENT_INVALID_MERGE");
+      total += input.utxo.amount;
+    }
     if (!input.isDummy() && !equal(input.nullifierPublicKey, prepared.nullifierPublicKey)) {
       throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
     }
@@ -406,6 +423,15 @@ function validatePreparedMerge(prepared: PreparedMerge): void {
       throw new ClientError("CLIENT_MERGE_SIGNING_KEY_MISMATCH");
     }
   });
+  if (
+    !equal(
+      prepared.output.ownerAddress?.signingPublicKey.toBytes() ?? new Uint8Array(),
+      prepared.signingPublicKey.toBytes(),
+    )
+  )
+    throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
+  if (total !== prepared.output.amount || total > 0xffff_ffff_ffff_ffffn)
+    throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
 }
 
 function copyMergeProof(

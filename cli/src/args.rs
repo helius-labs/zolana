@@ -267,6 +267,13 @@ pub(crate) struct TestValidatorOptions {
 
     #[arg(
         long,
+        help = "Surfpool slot time; surfpool defaults to 400ms",
+        value_name = "MILLISECONDS"
+    )]
+    pub(crate) slot_time: Option<u64>,
+
+    #[arg(
+        long,
         default_value_t = DEFAULT_PROVER_PORT,
         help = "Prover server port"
     )]
@@ -288,6 +295,13 @@ pub(crate) struct TestValidatorOptions {
         help = "Photon indexer API port"
     )]
     pub(crate) photon_port: u16,
+
+    #[arg(
+        long,
+        env = "ZOLANA_PHOTON_RING_PROJECTION",
+        help = "Enable custom ring projection in Photon"
+    )]
+    pub(crate) photon_ring_projection: bool,
 
     #[arg(
         long,
@@ -734,6 +748,13 @@ impl TestValidatorOptions {
 
     pub(crate) fn start_indexer(&self) -> bool {
         !self.skip_indexer
+    }
+
+    /// One above the RPC port, where solana-test-validator binds it. surfpool
+    /// is told explicitly: its own default is a fixed 8900, which localnets on
+    /// other RPC ports would contend for.
+    pub(crate) fn ws_port(&self) -> u16 {
+        self.rpc_port.saturating_add(1)
     }
 
     /// Fetch programs, account snapshots, and helper binaries from the pinned

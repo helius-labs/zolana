@@ -7,10 +7,13 @@
 //! also registers one SPL mint, named USDC in the tests, under asset id 2,
 //! with the mint authority parked on the payer.
 
-use anyhow::{anyhow, Result};
+use std::path::PathBuf;
+
+use anyhow::{anyhow, Context, Result};
+use custom_ring_cli::transact::{self, Probe};
 use custom_ring_sdk::{
-    CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, TransactSend,
-    TRANSACT_COMPUTE_UNIT_LIMIT,
+    CreateConfig, CreatePolicy, CustomRing, EntryProofError, InitSppRingConfig, LiveSpendRecord,
+    TransactSend, TRANSACT_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -21,6 +24,7 @@ use zolana_client::{
     prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError,
     ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
+use zolana_interface::instruction::SetRingActivation;
 use zolana_interface::{
     instruction::CreateProtocolConfig,
     pda,
@@ -28,10 +32,13 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{P256Pubkey, ShieldedKeypair};
-use zolana_program_test::create_tree_instructions;
+use zolana_program_test::{
+    create_tree_instructions,
+    localnet::{LocalnetValidator, UpgradeableProgram},
+};
 use zolana_ring_policy::{ListId, RuleTable};
 use zolana_test_utils::{
-    localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
+    localnet::{env_localnet_ports, isolated_temp_path, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, RegisterSplAsset},
@@ -69,10 +76,35 @@ pub struct TestEnv {
     pub sender: TestWallet,
     pub recipient: TestWallet,
     tree_creation_authority: Keypair,
+    ring_creation_authority: Keypair,
     standard_accounts: smart_account::StandardAccounts,
 }
 
 impl TestEnv {
+    /// Governance enables the authority rail for `ring` through the ring vault.
+    pub fn enable_authority_rail(&self, ring: CustomRing) -> Result<()> {
+        let activation = SetRingActivation {
+            authority: self.standard_accounts.ring_vault,
+            ring_config: ring.ring_auth_pda(),
+            activated: true,
+            ring_authority_transact_is_enabled: true,
+        }
+        .instruction();
+        let sync = smart_account::execute_sync_ix(
+            &self.standard_accounts.ring_settings,
+            0,
+            &[self.ring_creation_authority.pubkey()],
+            &[activation],
+        );
+        self.client.rpc().create_and_send_transaction(
+            &[sync],
+            self.payer.pubkey(),
+            &[&self.payer, &self.ring_creation_authority],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
+        Ok(())
+    }
+
     /// Allocate and register a second SPP tree owned by the shielded pool.
     pub fn create_registered_tree(&self) -> Result<Address> {
         let rpc = self.client.rpc();
@@ -154,7 +186,7 @@ impl std::ops::DerefMut for TestWallet {
 pub enum Tier {
     AuditOnly,
     Policy {
-        entries_tree: Address,
+        address_tree: Address,
         rules: &'static RuleTable,
         shared_sources: Vec<(ListId, CustomRing)>,
     },
@@ -162,9 +194,9 @@ pub enum Tier {
 
 impl Tier {
     /// Every referenced list served from the ring's own entries.
-    pub fn policy(rules: &'static RuleTable, entries_tree: Address) -> Self {
+    pub fn policy(rules: &'static RuleTable, address_tree: Address) -> Self {
         Self::Policy {
-            entries_tree,
+            address_tree,
             rules,
             shared_sources: Vec::new(),
         }
@@ -240,7 +272,7 @@ impl<'a> ConfiguredRing<'a> {
         let registration = self.registration();
         let authority = self.payer.pubkey();
         if let Tier::Policy {
-            entries_tree,
+            address_tree,
             rules,
             shared_sources,
         } = self.tier
@@ -252,7 +284,7 @@ impl<'a> ConfiguredRing<'a> {
                     ring: self.ring,
                     payer: authority,
                     authority,
-                    entries_tree,
+                    address_tree,
                     rules,
                     shared_sources,
                 }
@@ -267,6 +299,10 @@ impl<'a> ConfiguredRing<'a> {
 }
 
 impl PinnedRing<'_> {
+    pub fn registration(&self) -> Instruction {
+        self.registration.clone()
+    }
+
     pub fn register(self, rpc: &SolanaRpc) -> Result<()> {
         send(rpc, self.payer, &[self.registration])?;
         Ok(())
@@ -294,59 +330,67 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     let artifacts = WorkspaceArtifacts::new(root);
     let cli =
         std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/zolana"));
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
-    let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
-
     let ring_program = custom_ring_program_id()?;
-    let ring_program_so = ring_program_so();
+    let ring_program_so = PathBuf::from(ring_program_so());
     let spp_program = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let spp_program_so = artifacts.path("target/deploy/shielded_pool_program.so");
-    let user_registry = user_registry_program_id();
-    let user_registry_so = artifacts.path("target/deploy/zolana_user_registry.so");
     let smart_account = smart_account::SMART_ACCOUNT_PROGRAM_ID;
-    let smart_account_so = artifacts.path("target/deploy/squads_smart_account_program.so");
 
     let payer = Keypair::new();
     let payer_address = payer.pubkey();
     let accounts = smart_account::standard_accounts();
-    let spp_program_address = spp_program.to_string();
-    let protocol_vault_address = accounts.protocol_vault.to_string();
-    let payer_address_string = payer_address.to_string();
+    let account_dir = isolated_temp_path("zolana-custom-ring-smart-accounts");
+    smart_account::write_program_config_fixture(&account_dir);
     let validator = LocalnetValidator {
         // The Squads smart-account program is loaded for the protocol bootstrap
         // only: `CreateProtocolConfig` and `CreateTree` check authorities that the
         // bootstrap parks in Squads vaults, so both are wrapped in
         // `execute_sync_ix`. The custom-ring program never touches a smart account.
-        cli_bin: cli,
-        working_dir: artifacts.root(),
-        rpc_port,
-        photon_port,
-        ledger: isolated_temp_path("zolana-custom-ring-ledger"),
-        account_dir: isolated_temp_path("zolana-custom-ring-smart-accounts"),
+        cli_bin: cli.into(),
+        working_dir: artifacts.root().into(),
+        ports: env_localnet_ports(),
+        account_dir: account_dir.into(),
+        log_dir: artifacts.path("test-ledger").into(),
         programs: vec![
-            (user_registry.to_string(), user_registry_so),
-            (smart_account.to_string(), smart_account_so),
+            (
+                user_registry_program_id(),
+                artifacts
+                    .path("target/deploy/zolana_user_registry.so")
+                    .into(),
+            ),
+            (
+                smart_account,
+                artifacts
+                    .path("target/deploy/squads_smart_account_program.so")
+                    .into(),
+            ),
         ],
+        slot_time: None,
     };
-    let ring_addresses: Vec<String> = std::iter::once(ring_program)
-        .chain(extra_ring_programs.iter().copied())
-        .map(|address| address.to_string())
-        .collect();
-    let deployments: Vec<UpgradeableProgram<'_>> = std::iter::once(UpgradeableProgram {
-        address: &spp_program_address,
-        path: &spp_program_so,
-        authority: &protocol_vault_address,
+    let deployments: Vec<UpgradeableProgram> = std::iter::once(UpgradeableProgram {
+        address: spp_program,
+        path: artifacts
+            .path("target/deploy/shielded_pool_program.so")
+            .into(),
+        authority: accounts.protocol_vault,
     })
-    .chain(ring_addresses.iter().map(|address| UpgradeableProgram {
-        address,
-        path: &ring_program_so,
-        authority: &payer_address_string,
-    }))
+    .chain(
+        std::iter::once(ring_program)
+            .chain(extra_ring_programs.iter().copied())
+            .map(|address| UpgradeableProgram {
+                address,
+                path: ring_program_so.clone(),
+                authority: payer_address,
+            }),
+    )
     .collect();
-    validator.start_with_upgradeable_programs(&deployments);
+    validator.start_with_upgradeable_programs(&deployments)?;
 
-    spawn_workspace_prover();
+    if let Some(keys) = std::env::var_os("ZOLANA_PROVER_KEYS_DIR") {
+        zolana_client::spawn_prover_with_artifacts(&validator.cli_bin, keys)
+            .context("start the isolated ring prover")?;
+    } else {
+        spawn_workspace_prover();
+    }
 
     let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
@@ -478,6 +522,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         sender,
         recipient,
         tree_creation_authority,
+        ring_creation_authority,
         standard_accounts: accounts,
     })
 }
@@ -508,7 +553,24 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
         .map_err(|e| anyhow!("actor address failed {e:?}"))?;
     let wallet =
         Wallet::new(address, assets.clone()).map_err(|e| anyhow!("actor wallet failed {e:?}"))?;
+    let wallet = wallet.with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
     Ok(TestWallet { wallet, keypair })
+}
+
+pub fn wait_for_spend_record(
+    read: impl Fn() -> Result<Option<LiveSpendRecord>, EntryProofError>,
+    version: u64,
+) -> Result<LiveSpendRecord> {
+    Ok(transact::wait_for(
+        format!("spend record v{version}"),
+        || {
+            Ok(match read() {
+                Ok(Some(live)) if live.record.version == version => Probe::Ready(live),
+                Ok(_) => Probe::NotYet,
+                Err(error) => Probe::Retry(error),
+            })
+        },
+    )?)
 }
 
 /// Send instructions as a transaction **v1** message paid and signed by
@@ -533,20 +595,39 @@ pub fn send_expecting_rejection(
     payer: &dyn Signer,
     ix: Instruction,
 ) -> Result<ClientError> {
-    let tx = TransactSend {
+    RejectedTransact {
         payer,
         signers: &[],
         instruction: ix,
     }
-    .build(rpc)?;
-    match rpc.client().send_and_confirm_transaction(&tx) {
-        Ok(signature) => Err(anyhow!(
-            "transaction {signature} was expected to be rejected but landed"
-        )),
-        Err(source) => Ok(ClientError::SolanaRpcTransaction {
-            operation: "send v1",
-            source,
-        }),
+    .send(rpc)
+}
+
+/// [`send_expecting_rejection`] with the signers a co-signed or delegated transact needs.
+#[must_use]
+pub struct RejectedTransact<'a> {
+    pub payer: &'a dyn Signer,
+    pub signers: &'a [&'a dyn Signer],
+    pub instruction: Instruction,
+}
+
+impl RejectedTransact<'_> {
+    pub fn send(self, rpc: &SolanaRpc) -> Result<ClientError> {
+        let tx = TransactSend {
+            payer: self.payer,
+            signers: self.signers,
+            instruction: self.instruction,
+        }
+        .build(rpc)?;
+        match rpc.client().send_and_confirm_transaction(&tx) {
+            Ok(signature) => Err(anyhow!(
+                "transaction {signature} was expected to be rejected but landed"
+            )),
+            Err(source) => Ok(ClientError::SolanaRpcTransaction {
+                operation: "send v1",
+                source,
+            }),
+        }
     }
 }
 

@@ -289,24 +289,9 @@ func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(path)
-	if filepath.Base(lowerPath) == CustomRingBaseKeyFile {
+	if circuitType, ok := ringCircuitOfKeyFile(filepath.Base(lowerPath)); ok {
 		ps := &RingProofSystem{
-			CircuitType: CustomRingBaseCircuitType,
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
-		if _, err = ps.UnsafeReadFrom(file); err != nil {
-			return nil, err
-		}
-		return ps, nil
-	}
-	if filepath.Base(lowerPath) == CustomRingPolicyKeyFile {
-		ps := &RingProofSystem{
-			CircuitType: CustomRingPolicyCircuitType,
+			CircuitType: circuitType,
 		}
 		file, err := os.Open(path)
 		if err != nil {
@@ -388,6 +373,15 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 	} else {
 		return nil, fmt.Errorf("unrecognized proving key file: %s", path)
 	}
+}
+
+func ringCircuitOfKeyFile(name string) (CircuitType, bool) {
+	for circuitType, file := range RingKeyFiles {
+		if file == name {
+			return circuitType, true
+		}
+	}
+	return "", false
 }
 
 func (ps *BatchProofSystem) WriteTo(w io.Writer) (int64, error) {

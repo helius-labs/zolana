@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { address } from "@solana/kit";
 
 import { ZolanaApi } from "../src/api/index.js";
 import { ProverClient } from "../src/client/prover/client.js";
@@ -37,7 +38,10 @@ describe("fetch binding", () => {
     try {
       await new RingRpc("http://ring.example", { allowInsecureHttp: true }).health();
       await new ZolanaApi({ url: "https://indexer.example" })
-        .getEncryptedUtxosByTags({ tags: [] } as never)
+        .getEncryptedUtxosByTags({
+          tags: [],
+          ringProgramId: address("11111111111111111111111111111111"),
+        })
         .catch(() => undefined);
       new ProverClient({ url: "https://prover.example" });
       expect(calls.length).toBeGreaterThanOrEqual(2);

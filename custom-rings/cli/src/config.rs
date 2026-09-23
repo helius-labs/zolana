@@ -1,17 +1,21 @@
 //! `ring.toml`, the answers `new` recorded.
 
 use std::{
-    io,
+    fmt, io,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
+use custom_ring_sdk::CoSignScope;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use thiserror::Error;
 use toml_edit::{DocumentMut, Item};
+use zolana_transaction::SOL_MINT;
 
 use crate::{
+    cosigner::CoSignClass,
     file::{self, FileError},
     policy::{render, PolicyError, PolicySpec},
     ProjectRoot,
@@ -36,8 +40,92 @@ pub struct RingConfig {
     /// Presence selects the policy tier, `init` pins the compiled table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicySpec>,
+    /// Applied by `cosigner set` without flags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cosigner: Option<CoSignerSpec>,
+    #[serde(default)]
+    pub deposit_audit: bool,
     pub localnet: Urls,
     pub devnet: Urls,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct CoSignerSpec {
+    pub key: Base58Address,
+    pub scope: Vec<CoSignClass>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thresholds: Vec<ThresholdSpec>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ThresholdSpec {
+    pub mint: Base58Address,
+    pub above: u64,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ThresholdParseError {
+    #[error("expected <mint>=<amount>")]
+    Shape,
+    #[error(transparent)]
+    Mint(#[from] MintParseError),
+    #[error("{0} is not an amount")]
+    Amount(String),
+}
+
+/// `sol` names the native token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mint(pub Address);
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("{0} is not a mint")]
+pub struct MintParseError(String);
+
+impl CoSignerSpec {
+    /// `None` without a class, the program refuses an empty scope.
+    pub fn scope(&self) -> Option<CoSignScope> {
+        self.scope
+            .iter()
+            .map(|class| class.scope())
+            .reduce(|scope, class| scope | class)
+    }
+}
+
+impl FromStr for ThresholdSpec {
+    type Err = ThresholdParseError;
+
+    fn from_str(value: &str) -> Result<Self, ThresholdParseError> {
+        let (mint, above) = value.split_once('=').ok_or(ThresholdParseError::Shape)?;
+        let mint = Base58Address(mint.parse::<Mint>()?.0);
+        let above = above
+            .parse()
+            .map_err(|_| ThresholdParseError::Amount(above.to_owned()))?;
+        Ok(Self { mint, above })
+    }
+}
+
+impl FromStr for Mint {
+    type Err = MintParseError;
+
+    fn from_str(value: &str) -> Result<Self, MintParseError> {
+        if value.eq_ignore_ascii_case("sol") {
+            return Ok(Self(SOL_MINT));
+        }
+        value
+            .parse()
+            .map(Self)
+            .map_err(|_| MintParseError(value.to_owned()))
+    }
+}
+
+impl fmt::Display for Mint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0 == SOL_MINT {
+            f.write_str("sol")
+        } else {
+            fmt::Display::fmt(&self.0, f)
+        }
+    }
 }
 
 /// Map values take no `#[serde(with)]`, the newtype carries the codec.
@@ -244,6 +332,12 @@ impl RingConfig {
         )?)?)
     }
 
+    pub fn set_deposit_audit(path: &Path, required: bool) -> Result<(), ConfigError> {
+        let mut document: DocumentMut = file::read(path)?.parse()?;
+        document.insert("deposit_audit", toml_edit::value(required));
+        Ok(file::write(path, document.to_string())?)
+    }
+
     pub fn upgrade_authority(&self) -> Result<Keypair, ConfigError> {
         Ok(file::read_keypair(&expand_tilde(
             self.upgrade_authority_keypair(),
@@ -425,6 +519,16 @@ ring_rpc = "http://127.0.0.1:8785"
     }
 
     #[test]
+    fn deposit_audit_defaults_off_and_is_visible_in_the_initial_configuration() {
+        let config: RingConfig = toml::from_str(EXAMPLE).unwrap();
+        assert!(!config.deposit_audit);
+        assert!(config.render().unwrap().contains("deposit_audit = false"));
+        let enabled = format!("deposit_audit = true\n{EXAMPLE}");
+        let config: RingConfig = toml::from_str(&enabled).unwrap();
+        assert!(config.deposit_audit);
+    }
+
+    #[test]
     fn an_empty_policy_table_selects_the_policy_tier() {
         let text = EXAMPLE.replacen("\n[localnet]", "\n[policy]\n\n[localnet]", 1);
         let config: RingConfig = toml::from_str(&text).expect("parse");
@@ -433,11 +537,11 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(policy.sources.is_empty());
         let rendered = config.render().expect("render");
         assert!(rendered.contains(&format!(
-            "[policy]\n# every entry the rules read lives in the named tree\nentries_tree = \"{}\"",
+            "[policy]\n# entry and spend record addresses are claimed in the named tree\naddress_tree = \"{}\"",
             zolana_interface::pda::tree(0)
         )));
         let mut normalized = config;
-        normalized.policy.as_mut().expect("policy").entries_tree =
+        normalized.policy.as_mut().expect("policy").address_tree =
             Some(Base58Address(zolana_interface::pda::tree(0)));
         assert_eq!(
             toml::from_str::<RingConfig>(&rendered).expect("reparse"),

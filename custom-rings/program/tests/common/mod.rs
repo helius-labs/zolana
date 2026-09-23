@@ -1,13 +1,22 @@
 //! Shared mollusk fixtures, each test binary uses a subset.
 #![allow(dead_code)]
 
-use bytemuck::Zeroable;
+use core::num::NonZeroU64;
+
+use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::{
-    tag, CreateConfigIxData, CreateEntryIxData, PolicyConfig, PolicyTableIxData, ReadAccessRecord,
-    ReaderKeyBytes, RingProgramConfig, SetPausedIxData, SourceSlot, SourceSpec, UpdateEntryIxData,
-    CONFIG_PDA_SEED, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519,
-    READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
+    tag, CoSignScope, CoSigner, CreateConfigIxData, CreateEntryIxData, CustomRingProof,
+    CustomRingTransactIxData, Delegate, KeyRegistryRoot, PlainGroth16Proof, PolicyConfig,
+    PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RegisterKeyIxData, RegisterSpendIxData,
+    RingProgramConfig, SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot,
+    SourceSpec, SpendWindow, UpdateEntryIxData, WithdrawalThreshold, WithdrawalThresholdRow,
+    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
+    KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
+    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
+use custom_ring_program::CustomRingError;
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
     Mollusk,
@@ -18,13 +27,19 @@ use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactProof,
+    instruction::instruction_data::{
+        deposit::{
+            DepositAssetKind, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
+        },
+        transact::{OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext},
+    },
     state::{default_tree_fees, discriminator::RING_CONFIG, nullifier_tree_params, RingConfig},
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::{
-    ListId, ListNamespace, Rule, RuleTable, SourceMap, SourceOwner, Subject, MAX_INLINE_ASSETS,
-    MAX_SOURCES, NAMESPACE_PDA_SEED,
+    ListId, ListNamespace, Member, Rule, RuleTable, SourceMap, SourceOwner, SpendCounters,
+    SpendRecord, Subject, VelocityRow, ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_SOURCES,
+    NAMESPACE_PDA_SEED,
 };
 use zolana_tree::TreeAccount;
 
@@ -79,6 +94,26 @@ impl Fixture {
         self.labels.push(slot.label);
     }
 
+    pub fn remove(&mut self, label: &str) {
+        let index = self.position(label);
+        self.instruction.accounts.remove(index);
+        self.labels.remove(index);
+    }
+
+    pub fn insert(&mut self, index: usize, slot: Slot) {
+        self.accounts.push((slot.meta.pubkey, slot.account));
+        self.instruction.accounts.insert(index, slot.meta);
+        self.labels.insert(index, slot.label);
+    }
+
+    /// Window slots sit between the control accounts and the forwarded SPP list.
+    pub fn insert_windows(&mut self, slots: Vec<Slot>) {
+        let at = self.position("spp_payer");
+        for (index, slot) in slots.into_iter().enumerate() {
+            self.insert(at + index, slot);
+        }
+    }
+
     /// Appends to the instruction data, negatives use it for trailing bytes.
     pub fn push_data(&mut self, byte: u8) {
         self.instruction.data.push(byte);
@@ -99,6 +134,10 @@ impl Fixture {
 
     pub fn unsign(&mut self, label: &str) {
         self.meta_mut(label).is_signer = false;
+    }
+
+    pub fn sign(&mut self, label: &str) {
+        self.meta_mut(label).is_signer = true;
     }
 
     pub fn set_writable(&mut self, label: &str, writable: bool) {
@@ -150,6 +189,17 @@ impl Fixture {
         result.compute_units_consumed
     }
 
+    pub fn account_key(&self, label: &str) -> Pubkey {
+        self.instruction.accounts[self.position(label)].pubkey
+    }
+
+    pub fn position(&self, label: &str) -> usize {
+        self.labels
+            .iter()
+            .position(|candidate| *candidate == label)
+            .unwrap_or_else(|| panic!("unknown slot {label}"))
+    }
+
     fn meta_mut(&mut self, label: &str) -> &mut AccountMeta {
         let index = self
             .labels
@@ -198,6 +248,23 @@ pub fn stored_policy_config(mollusk: &Mollusk, fixture: &Fixture) -> PolicyConfi
     *bytemuck::from_bytes(&written.data)
 }
 
+/// The program-owned account at `key` a run wrote.
+#[track_caller]
+pub fn stored<T: Pod>(result: &InstructionResult, key: Pubkey) -> T {
+    let written = result
+        .resulting_accounts
+        .iter()
+        .find(|(candidate, _)| candidate == &key)
+        .map(|(_, account)| account)
+        .unwrap_or_else(|| panic!("{key} in result"));
+    assert_eq!(written.owner, program_id());
+    *bytemuck::from_bytes(&written.data)
+}
+
+pub fn custom(error: CustomRingError) -> ProgramError {
+    ProgramError::Custom(error as u32)
+}
+
 /// Arbitrary, the shared binary serves any deployment address.
 pub fn program_id() -> Pubkey {
     Pubkey::new_from_array([77u8; 32])
@@ -225,7 +292,20 @@ pub fn account(lamports: u64) -> Account {
     }
 }
 
-fn system_program_slot() -> Slot {
+fn owned_account(state: &impl Pod, lamports: u64) -> Account {
+    Account {
+        lamports,
+        data: bytemuck::bytes_of(state).to_vec(),
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+pub const SOL: Pubkey = Pubkey::new_from_array([0; 32]);
+pub const USDC: Pubkey = Pubkey::new_from_array([60; 32]);
+
+pub fn system_program_slot() -> Slot {
     let (key, account) = mollusk_svm::program::keyed_account_for_system_program();
     Slot {
         label: "system_program",
@@ -249,6 +329,412 @@ pub fn config_pda() -> (Pubkey, u8) {
 
 pub fn ring_auth_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &program_id())
+}
+
+pub fn cosigner_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[CO_SIGNER_PDA_SEED], &program_id())
+}
+
+pub fn cosigner() -> Pubkey {
+    Pubkey::new_from_array([37u8; 32])
+}
+
+pub fn cosigner_account(scope: CoSignScope, thresholds: &[(Pubkey, u64)]) -> Account {
+    let mut rows = [WithdrawalThresholdRow::zeroed(); MAX_CO_SIGNER_THRESHOLDS];
+    for (row, (mint, amount)) in rows.iter_mut().zip(thresholds) {
+        *row = WithdrawalThresholdRow {
+            mint: Address::new_from_array(mint.to_bytes()),
+            amount: amount.to_le_bytes(),
+        };
+    }
+    let state = CoSigner {
+        discriminator: CO_SIGNER,
+        signer: Address::new_from_array(cosigner().to_bytes()),
+        scope: scope.bits(),
+        threshold_count: thresholds.len() as u8,
+        thresholds: rows,
+        bump: cosigner_pda().1,
+    };
+    owned_account(&state, 3_000_000)
+}
+
+/// The signer slot remains unsigned until a test grants approval.
+fn cosigner_slots() -> [Slot; 2] {
+    [
+        Slot {
+            label: "cosigner_pda",
+            meta: AccountMeta::new_readonly(cosigner_pda().0, false),
+            account: account(0),
+        },
+        Slot {
+            label: "cosigner",
+            meta: AccountMeta::new_readonly(cosigner(), false),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+pub fn set_cosigner_data(signer: Pubkey, scope: u8, thresholds: &[(Pubkey, u64)]) -> Vec<u8> {
+    let mut data = vec![tag::SET_CO_SIGNER];
+    data.extend_from_slice(
+        &wincode::serialize(&SetCoSignerIxData {
+            signer: signer.to_bytes(),
+            scope,
+            thresholds: thresholds
+                .iter()
+                .map(|(mint, amount)| WithdrawalThreshold {
+                    mint: mint.to_bytes(),
+                    amount: *amount,
+                })
+                .collect(),
+        })
+        .expect("serialize set_cosigner data"),
+    );
+    data
+}
+
+pub fn set_cosigner_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture {
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "cosigner_pda",
+                meta: AccountMeta::new(cosigner_pda().0, false),
+                account: existing.unwrap_or_else(|| account(0)),
+            },
+            system_program_slot(),
+        ],
+    )
+}
+
+pub fn clear_cosigner_fixture(existing: Account) -> Fixture {
+    Fixture::new(
+        vec![tag::CLEAR_CO_SIGNER],
+        vec![
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "cosigner_pda",
+                meta: AccountMeta::new(cosigner_pda().0, false),
+                account: existing,
+            },
+            Slot {
+                label: "rent_recipient",
+                meta: AccountMeta::new(rent_recipient(), false),
+                account: account(1_000_000_000),
+            },
+        ],
+    )
+}
+
+pub fn delegate_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[DELEGATE_PDA_SEED], &program_id())
+}
+
+pub fn delegate() -> Pubkey {
+    Pubkey::new_from_array([47u8; 32])
+}
+
+pub fn delegate_account(delegate: Pubkey) -> Account {
+    let state = Delegate {
+        discriminator: DELEGATE,
+        delegate: Address::new_from_array(delegate.to_bytes()),
+        bump: delegate_pda().1,
+    };
+    owned_account(&state, 1_200_000)
+}
+
+fn delegate_slots() -> [Slot; 2] {
+    [
+        Slot {
+            label: "delegate_pda",
+            meta: AccountMeta::new_readonly(delegate_pda().0, false),
+            account: delegate_account(delegate()),
+        },
+        Slot {
+            label: "delegate",
+            meta: AccountMeta::new_readonly(delegate(), true),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+pub fn set_delegate_data(delegate: Pubkey) -> Vec<u8> {
+    let mut data = vec![tag::SET_DELEGATE];
+    data.extend_from_slice(delegate.as_ref());
+    data
+}
+
+/// Initialization requires the loader authority rather than the config authority.
+pub fn set_delegate_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture {
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "delegate_pda",
+                meta: AccountMeta::new(delegate_pda().0, false),
+                account: existing.unwrap_or_else(|| account(0)),
+            },
+            key_registry_root_slot(),
+            system_program_slot(),
+            Slot {
+                label: "program",
+                meta: AccountMeta::new_readonly(program_id(), false),
+                account: mollusk_svm::program::create_program_account_loader_v3(&program_id()),
+            },
+            Slot {
+                label: "program_data",
+                meta: AccountMeta::new_readonly(program_data_pda(), false),
+                account: program_data_account(Some(&authority())),
+            },
+        ],
+    )
+}
+
+pub fn spend_window_pda(mint: Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[SPEND_WINDOW_PDA_SEED, mint.as_ref()], &program_id())
+}
+
+pub struct WindowState {
+    pub mint: Pubkey,
+    pub window_slots: u64,
+    pub deposit_cap: u64,
+    pub withdrawal_cap: u64,
+    pub window_start_slot: u64,
+    pub deposited: u64,
+    pub withdrawn: u64,
+}
+
+impl WindowState {
+    pub fn account(&self) -> Account {
+        let state = SpendWindow {
+            discriminator: SPEND_WINDOW,
+            mint: Address::new_from_array(self.mint.to_bytes()),
+            window_slots: self.window_slots.to_le_bytes(),
+            deposit_cap: self.deposit_cap.to_le_bytes(),
+            withdrawal_cap: self.withdrawal_cap.to_le_bytes(),
+            window_start_slot: self.window_start_slot.to_le_bytes(),
+            deposited: self.deposited.to_le_bytes(),
+            withdrawn: self.withdrawn.to_le_bytes(),
+            bump: spend_window_pda(self.mint).1,
+        };
+        owned_account(&state, 1_500_000)
+    }
+}
+
+pub fn window_slot(mint: Pubkey, account: Option<Account>) -> Slot {
+    Slot {
+        label: "window",
+        meta: AccountMeta::new(spend_window_pda(mint).0, false),
+        account: account.unwrap_or_else(|| self::account(0)),
+    }
+}
+
+pub fn set_spend_window_data(
+    mint: Pubkey,
+    window_slots: u64,
+    deposit_cap: u64,
+    withdrawal_cap: u64,
+) -> Vec<u8> {
+    let mut data = vec![tag::SET_SPEND_WINDOW];
+    data.extend_from_slice(
+        &wincode::serialize(&SetSpendWindowIxData {
+            mint: mint.to_bytes(),
+            window_slots,
+            deposit_cap,
+            withdrawal_cap,
+        })
+        .expect("serialize set_spend_window data"),
+    );
+    data
+}
+
+pub fn set_spend_window_fixture(mint: Pubkey, data: Vec<u8>, existing: Option<Account>) -> Fixture {
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            window_slot(mint, existing),
+            system_program_slot(),
+        ],
+    )
+}
+
+pub fn key_registry_root_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[KEY_REGISTRY_ROOT_PDA_SEED], &program_id())
+}
+
+/// `root` is the only history entry, at slot 0.
+pub fn key_registry_root_account(root: [u8; 32], next_index: u64) -> Account {
+    let mut history = [[0u8; 32]; KEY_REGISTRY_ROOT_HISTORY];
+    history[0] = root;
+    let state = KeyRegistryRoot {
+        discriminator: KEY_REGISTRY_ROOT,
+        next_index: next_index.to_le_bytes(),
+        bump: key_registry_root_pda().1,
+        history_cursor: 0,
+        history,
+    };
+    owned_account(&state, 1_000_000_000)
+}
+
+pub fn key_registry_root_slot() -> Slot {
+    Slot {
+        label: "key_registry_root",
+        meta: AccountMeta::new_readonly(key_registry_root_pda().0, false),
+        account: key_registry_root_account(KEY_REGISTRY_EMPTY_ROOT, 1),
+    }
+}
+
+pub fn create_key_registry_root_fixture(existing: Option<Account>) -> Fixture {
+    Fixture::new(
+        vec![tag::CREATE_KEY_REGISTRY_ROOT],
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "key_registry_root",
+                meta: AccountMeta::new(key_registry_root_pda().0, false),
+                account: existing.unwrap_or_else(|| account(0)),
+            },
+            system_program_slot(),
+        ],
+    )
+}
+
+pub fn register_key_fixture(root: Account, member: Pubkey) -> Fixture {
+    let mut data = vec![tag::REGISTER_KEY];
+    data.extend_from_slice(
+        &wincode::serialize(&RegisterKeyIxData {
+            proof: CustomRingProof {
+                groth16: PlainGroth16Proof {
+                    proof_a: [1; 32],
+                    proof_b: [2; 64],
+                    proof_c: [3; 32],
+                },
+                commitment: [4; 32],
+                commitment_pok: [5; 32],
+            },
+            registry_old_root: KEY_REGISTRY_EMPTY_ROOT,
+            registry_new_root: [0x11; 32],
+            registry_next_index: 1,
+            nullifier_pk: [0x12; 32],
+            eph_pk: [0x02; 33],
+            ciphertext: [0x44; 32],
+        })
+        .expect("register_key data"),
+    );
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "member",
+                meta: AccountMeta::new_readonly(member, true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "key_registry_root",
+                meta: AccountMeta::new(key_registry_root_pda().0, false),
+                account: root,
+            },
+        ],
+    )
+}
+
+pub fn clear_spend_window_fixture(mint: Pubkey, existing: Account) -> Fixture {
+    let mut data = vec![tag::CLEAR_SPEND_WINDOW];
+    data.extend_from_slice(mint.as_ref());
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            window_slot(mint, Some(existing)),
+            Slot {
+                label: "rent_recipient",
+                meta: AccountMeta::new(rent_recipient(), false),
+                account: account(1_000_000_000),
+            },
+        ],
+    )
 }
 
 pub fn program_data_pda() -> Pubkey {
@@ -328,6 +814,27 @@ pub const PINNED_RULES: RuleTable = RuleTable::builder()
     .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
     .rule(Rule::allow_only_assets())
     .inline_assets(&[[3u8; 32], [4u8; 32]])
+    .build();
+
+pub const VELOCITY_ASSET: [u8; 32] = [3u8; 32];
+pub const VELOCITY_CAP: u64 = 1000;
+pub const VELOCITY_WINDOW_SLOTS: u64 = 100;
+
+pub const VELOCITY_RULES: RuleTable = RuleTable::builder()
+    .windowed(NonZeroU64::new(VELOCITY_WINDOW_SLOTS).unwrap())
+    .velocity(&[VelocityRow {
+        asset: VELOCITY_ASSET,
+        cap: VELOCITY_CAP,
+        cosign_above: 0,
+    }])
+    .build();
+
+pub const TRANSFER_CAP_RULES: RuleTable = RuleTable::builder()
+    .velocity(&[VelocityRow {
+        asset: VELOCITY_ASSET,
+        cap: VELOCITY_CAP,
+        cosign_above: 0,
+    }])
     .build();
 
 pub const INLINE_POOL: [[u8; 32]; MAX_INLINE_ASSETS] = [
@@ -426,7 +933,7 @@ pub fn policy_hash_for(rules: &RuleTable, sources: &[SourceSlot; N_SOURCE_SLOTS]
 /// As the ring's `create_policy` wrote it.
 pub struct PolicyConfigFixture<'a> {
     pub ring: Pubkey,
-    pub entries_tree: Pubkey,
+    pub address_tree: Pubkey,
     pub rules: &'a RuleTable,
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
 }
@@ -436,10 +943,11 @@ impl PolicyConfigFixture<'_> {
         let state = PolicyConfig {
             discriminator: POLICY_CONFIG,
             policy_hash: policy_hash_for(self.rules, &self.sources),
-            entries_tree: Address::new_from_array(self.entries_tree.to_bytes()),
-            entries_tree_id: ENTRIES_TREE_ID.to_le_bytes(),
+            address_tree: Address::new_from_array(self.address_tree.to_bytes()),
+            address_tree_id: ADDRESS_TREE_ID.to_le_bytes(),
             namespace_bump: namespace_pda_of(self.ring).1,
             bump: policy_config_pda_of(self.ring).1,
+            namespace_owner_hash: namespace_owner_of(self.ring).owner_hash,
             sources: self.sources,
             rules: self.rules.encode(),
             generation: 1u32.to_le_bytes(),
@@ -461,13 +969,53 @@ pub fn initialized_policy_config_account() -> Account {
     policy_config_account_with(&empty, own_source_slots(&empty))
 }
 
+pub fn velocity_policy_config_account() -> Account {
+    policy_config_account_with(&VELOCITY_RULES, own_source_slots(&VELOCITY_RULES))
+}
+
+pub fn transfer_cap_policy_config_account() -> Account {
+    policy_config_account_with(&TRANSFER_CAP_RULES, own_source_slots(&TRANSFER_CAP_RULES))
+}
+
+fn namespace_owner_of(ring: Pubkey) -> ListNamespace {
+    ListNamespace::new(namespace_pda_of(ring).0.as_array()).expect("namespace owner")
+}
+
+/// The registration record opens zero counters at window zero.
+pub fn spend_record_output(tag: [u8; 32]) -> TransactOutput {
+    spend_record_output_in(tag, ADDRESS_TREE_ID)
+}
+
+/// The record leaf hashes under the tree it lands in, its address under the address tree.
+pub fn spend_record_output_in(tag: [u8; 32], output_tree_id: u16) -> TransactOutput {
+    let owner = namespace_owner_of(program_id());
+    let member = Member::owner_tag(&tag).expect("member");
+    let record = SpendRecord {
+        member,
+        version: 0,
+        window: 0,
+        counters_commitment: SpendCounters::EMPTY.commitment().expect("commitment"),
+        blinding: [7u8; 32],
+    };
+    let address = owner
+        .spend_address(&member, ADDRESS_TREE_ID)
+        .expect("spend address");
+    TransactOutput {
+        utxo_hash: record
+            .utxo_hash(&owner, &address, output_tree_id)
+            .expect("record leaf"),
+        owner_tag: OwnerTag::Inline(namespace_pda().0.to_bytes()),
+        data: Some(record.to_output_data().to_vec()),
+    }
+}
+
 pub fn policy_config_account_with(
     rules: &RuleTable,
     sources: [SourceSlot; N_SOURCE_SLOTS],
 ) -> Account {
     PolicyConfigFixture {
         ring: program_id(),
-        entries_tree: entries_tree(),
+        address_tree: address_tree(),
         rules,
         sources,
     }
@@ -488,17 +1036,17 @@ pub fn curator_namespace_pda() -> (Pubkey, u8) {
 }
 
 pub fn initialized_curator_policy_config_account() -> Account {
-    curator_policy_config_account_with(entries_tree(), curator_source_slots(&RELEASED_RULES))
+    curator_policy_config_account_with(address_tree(), curator_source_slots(&RELEASED_RULES))
 }
 
 /// The loader never rechecks the curator's stored hash.
 pub fn curator_policy_config_account_with(
-    entries_tree: Pubkey,
+    address_tree: Pubkey,
     sources: [SourceSlot; N_SOURCE_SLOTS],
 ) -> Account {
     PolicyConfigFixture {
         ring: curator_program_id(),
-        entries_tree,
+        address_tree,
         rules: &RELEASED_RULES,
         sources,
     }
@@ -513,20 +1061,19 @@ pub fn curator_slot(account: Account) -> Slot {
     }
 }
 
-/// The tree entries live in. Its bytes need only satisfy the owner and
-/// discriminator checks, no fixture here reads a root.
-pub fn entries_tree() -> Pubkey {
+/// The tree every entry address is claimed in, its header passes the owner, discriminator and id reads.
+pub fn address_tree() -> Pubkey {
     Pubkey::new_from_array([41; 32])
 }
 
-/// The id `initialized_entries_tree_account` inits the tree with.
-pub const ENTRIES_TREE_ID: u16 = 0;
+/// The id `initialized_address_tree_account` inits the tree with.
+pub const ADDRESS_TREE_ID: u16 = 0;
 
 /// The header alone, the discriminator and the tree id `create_policy` reads.
-pub fn entries_tree_account() -> Account {
+pub fn address_tree_account() -> Account {
     let mut data = vec![0u8; TreeAccount::tree_id_offset() + 2];
     data[0] = zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;
-    data[TreeAccount::tree_id_offset()..].copy_from_slice(&ENTRIES_TREE_ID.to_le_bytes());
+    data[TreeAccount::tree_id_offset()..].copy_from_slice(&ADDRESS_TREE_ID.to_le_bytes());
     Account {
         lamports: 1_000_000_000,
         data,
@@ -536,21 +1083,36 @@ pub fn entries_tree_account() -> Account {
     }
 }
 
-/// A real SPP tree at the entries address, so the transact path reaches proof
+/// A real SPP tree at the address tree, so the transact path reaches proof
 /// verification.
-pub fn initialized_entries_tree_account() -> Account {
+pub fn initialized_address_tree_account() -> Account {
+    initialized_tree_account(address_tree(), ADDRESS_TREE_ID)
+}
+
+/// A second SPP tree, money and list facts may live outside the address tree.
+pub fn other_tree() -> Pubkey {
+    Pubkey::new_from_array([43; 32])
+}
+
+pub const OTHER_TREE_ID: u16 = 7;
+
+pub fn initialized_other_tree_account() -> Account {
+    initialized_tree_account(other_tree(), OTHER_TREE_ID)
+}
+
+pub fn initialized_tree_account(address: Pubkey, tree_id: u16) -> Account {
     let mut data = vec![0u8; TreeAccount::account_size()];
     let params = nullifier_tree_params();
     TreeAccount::init(
         &mut data,
         zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
         zolana_tree::UTXO_TREE_HEIGHT as u8,
-        entries_tree().to_bytes(),
-        0,
+        address.to_bytes(),
+        tree_id,
         params,
         default_tree_fees(params.input_queue_zkp_batch_size).expect("default tree fees"),
     )
-    .expect("initialize entries tree");
+    .expect("initialize tree");
     Account {
         lamports: 1_000_000_000,
         data,
@@ -560,15 +1122,15 @@ pub fn initialized_entries_tree_account() -> Account {
     }
 }
 
-fn entries_tree_view(account: &mut Account) -> TreeAccount<'_> {
-    TreeAccount::from_bytes(&mut account.data, entries_tree().to_bytes()).expect("entries tree")
+fn address_tree_view(account: &mut Account) -> TreeAccount<'_> {
+    TreeAccount::from_bytes(&mut account.data, address_tree().to_bytes()).expect("address tree")
 }
 
 /// The initialized tree after `rotations` nonzero nullifier roots.
-pub fn initialized_entries_tree_account_with_roots(rotations: u16) -> Account {
-    let mut account = initialized_entries_tree_account();
+pub fn initialized_address_tree_account_with_roots(rotations: u16) -> Account {
+    let mut account = initialized_address_tree_account();
     {
-        let mut tree = entries_tree_view(&mut account);
+        let mut tree = address_tree_view(&mut account);
         let nullifier = tree.nullifier_tree();
         for rotation in 1..=rotations {
             let mut root = [0u8; 32];
@@ -582,15 +1144,42 @@ pub fn initialized_entries_tree_account_with_roots(rotations: u16) -> Account {
     account
 }
 
-pub fn paused_entries_tree_account() -> Account {
-    let mut account = initialized_entries_tree_account();
-    entries_tree_view(&mut account).set_paused(true);
+/// The initialized tree after `rotations` nonzero UTXO roots.
+pub fn initialized_address_tree_account_with_state_roots(rotations: u16) -> Account {
+    let mut account = initialized_address_tree_account();
+    {
+        let mut tree = address_tree_view(&mut account);
+        let utxo = tree.utxo_tree();
+        let capacity = utxo.root_history.len();
+        for rotation in 1..=rotations {
+            let mut root = [0u8; 32];
+            root[..2].copy_from_slice(&rotation.to_le_bytes());
+            let next = (usize::from(utxo.root_history_cursor) + 1) % capacity;
+            utxo.root_history[next] = root;
+            utxo.root_history_cursor = next as u16;
+            utxo.root_history_len = (usize::from(utxo.root_history_len) + 1).min(capacity) as u16;
+        }
+    }
+    account
+}
+
+pub fn utxo_root_cursor(account: &Account) -> u16 {
+    let mut account = account.clone();
+    let cursor = address_tree_view(&mut account)
+        .utxo_tree()
+        .root_history_cursor;
+    cursor
+}
+
+pub fn paused_address_tree_account() -> Account {
+    let mut account = initialized_address_tree_account();
+    address_tree_view(&mut account).set_paused(true);
     account
 }
 
 pub fn nullifier_root_cursor(account: &Account) -> u16 {
     let mut account = account.clone();
-    let cursor = entries_tree_view(&mut account)
+    let cursor = address_tree_view(&mut account)
         .nullifier_tree()
         .get_root_index();
     u16::try_from(cursor).expect("root cursor")
@@ -602,6 +1191,8 @@ pub fn table_ix_data(rules: &RuleTable, specs: &[SourceSpec]) -> PolicyTableIxDa
         rules: rules.rules().iter().map(Rule::encoded).collect(),
         inline_assets: rules.inline_assets().to_vec(),
         inline_limits: rules.inline_limits().to_vec(),
+        window_slots: rules.window_slots(),
+        velocity: rules.velocity().iter().map(Into::into).collect(),
     }
 }
 
@@ -615,8 +1206,7 @@ pub fn create_policy_fixture() -> Fixture {
     create_policy_fixture_with(&table_ix_data(&RuleTable::empty(), &[]))
 }
 
-/// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
-/// entries_tree, system_program, program, program_data]`, curators trail.
+/// Foreign source curators follow the fixed policy creation accounts.
 pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
     Fixture::new(
         policy_table_data(tag::CREATE_POLICY, table),
@@ -632,14 +1222,19 @@ pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
                 account: account(1_000_000_000),
             },
             Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
                 label: "policy_config",
                 meta: AccountMeta::new(policy_config_pda().0, false),
                 account: account(0),
             },
             Slot {
-                label: "entries_tree",
-                meta: AccountMeta::new_readonly(entries_tree(), false),
-                account: entries_tree_account(),
+                label: "address_tree",
+                meta: AccountMeta::new_readonly(address_tree(), false),
+                account: address_tree_account(),
             },
             system_program_slot(),
             Slot {
@@ -743,15 +1338,15 @@ fn entry_mutation_slots(policy_config: Account, payer: Pubkey) -> Vec<Slot> {
         },
         Slot {
             label: "output_tree",
-            meta: AccountMeta::new(entries_tree(), false),
-            account: entries_tree_account(),
+            meta: AccountMeta::new(address_tree(), false),
+            account: address_tree_account(),
         },
         spp_program_slot(),
         system_program_slot(),
         Slot {
             label: "input_tree",
-            meta: AccountMeta::new(entries_tree(), false),
-            account: entries_tree_account(),
+            meta: AccountMeta::new(address_tree(), false),
+            account: address_tree_account(),
         },
         Slot {
             label: "nullifier_pda",
@@ -775,10 +1370,11 @@ pub fn default_entry_member() -> [u8; 32] {
 
 /// The entry a mutation writes, `writer` signs as the payer.
 pub struct EntryFixture {
-    pub list_id: ListId,
+    pub list_byte: u8,
     pub writer: Pubkey,
     pub member: [u8; 32],
     pub state: u8,
+    pub spent_state: u8,
     pub content_hash: [u8; 32],
 }
 
@@ -786,10 +1382,11 @@ impl EntryFixture {
     /// Active with unit content.
     pub fn new(list_id: ListId, writer: Pubkey) -> Self {
         Self {
-            list_id,
+            list_byte: list_id as u8,
             writer,
             member: default_entry_member(),
             state: 1,
+            spent_state: 1,
             content_hash: [0u8; 32],
         }
     }
@@ -798,7 +1395,7 @@ impl EntryFixture {
         let mut data = vec![tag::CREATE_ENTRY];
         data.extend_from_slice(
             &wincode::serialize(&CreateEntryIxData {
-                list_id: self.list_id as u8,
+                list_id: self.list_byte,
                 member: self.member,
                 state: self.state,
                 content_hash: self.content_hash,
@@ -818,9 +1415,9 @@ impl EntryFixture {
         let mut data = vec![tag::UPDATE_ENTRY];
         data.extend_from_slice(
             &wincode::serialize(&UpdateEntryIxData {
-                list_id: self.list_id as u8,
+                list_id: self.list_byte,
                 member: self.member,
-                spent_state: 1,
+                spent_state: self.spent_state,
                 spent_content_hash: [0u8; 32],
                 spent_version,
                 spent_blinding: [0u8; 32],
@@ -838,23 +1435,50 @@ impl EntryFixture {
     }
 }
 
+/// `payer` registers its own identity over the entry mutation layout.
+pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture {
+    let mut data = vec![tag::REGISTER_SPEND];
+    data.extend_from_slice(
+        &wincode::serialize(&RegisterSpendIxData {
+            blinding: [0u8; 32],
+            private_tx_blinding: [0u8; 32],
+            nullifier_tree_root_index: 0,
+            utxo_tree_root_index: 0,
+            proof: TransactProof::zeroed(),
+        })
+        .expect("register_spend data"),
+    );
+    Fixture::new(data, entry_mutation_slots(policy_config, payer))
+}
+
 /// An initialized policy-ring config as this program would have written it.
 pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -> Account {
-    config_account_with(authority, auditor_pubkey, 1)
+    config_account_with(authority, auditor_pubkey, 1, 0)
+}
+
+/// A policy ring whose output nullifier keys are escrowed, as `set_delegate` leaves it.
+pub fn escrowed_config_account() -> Account {
+    config_account_with(authority(), auditor_pubkey(2), 1, 1)
 }
 
 /// An audit-only ring config, transact takes the lighter proof path.
 pub fn audit_only_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -> Account {
-    config_account_with(authority, auditor_pubkey, 0)
+    config_account_with(authority, auditor_pubkey, 0, 0)
 }
 
-fn config_account_with(authority: Pubkey, auditor_pubkey: [u8; 33], has_policy: u8) -> Account {
+fn config_account_with(
+    authority: Pubkey,
+    auditor_pubkey: [u8; 33],
+    has_policy: u8,
+    key_escrow: u8,
+) -> Account {
     let state = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: Address::new_from_array(authority.to_bytes()),
         auditor_pubkey,
         bump: config_pda().1,
         has_policy,
+        key_escrow,
     };
     Account {
         lamports: 1_000_000_000,
@@ -866,11 +1490,15 @@ fn config_account_with(authority: Pubkey, auditor_pubkey: [u8; 33], has_policy: 
 }
 
 pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
+    create_config_data_with_tier(auditor_pubkey, 1)
+}
+
+pub fn create_config_data_with_tier(auditor_pubkey: [u8; 33], has_policy: u8) -> Vec<u8> {
     let mut data = vec![tag::CREATE_CONFIG];
     data.extend_from_slice(
         &wincode::serialize(&CreateConfigIxData {
             auditor_pubkey,
-            has_policy: 1,
+            has_policy,
         })
         .expect("serialize create_config data"),
     );
@@ -1014,41 +1642,221 @@ pub fn set_paused_fixture(paused: u8) -> Fixture {
     )
 }
 
-/// SOL-only ring-deposit fixture, laid out exactly as SPP's deposit loader wants
-/// it: `[tree(w), depositor(w,s), ring_config, spp_program, system_program,
-/// sol_interface]`. The instruction data starts with SPP's own `RING_DEPOSIT`
-/// tag, which the ring forwards verbatim.
-pub fn deposit_fixture() -> Fixture {
+pub const SOL_DEPOSIT_AMOUNT: u64 = 5;
+
+pub fn ring_deposit_data(assets: Vec<DepositAssetKind>, amount: u64) -> Vec<u8> {
+    let deposits = (0..assets.len())
+        .map(|index| RingDepositEntry {
+            asset_index: index as u8,
+            view_tag: [0; 32],
+            owner_utxo_hash: [1; 32],
+            amount,
+            data_hash: None,
+            ring_data_hash: [2; 32],
+            encrypted: EncryptedRingDepositData {
+                tx_viewing_pk: [3; 33],
+                salt: [4; 16],
+                ciphertext: Vec::new(),
+            },
+        })
+        .collect();
+    let mut data = vec![tag::DEPOSIT];
+    data.extend_from_slice(
+        &RingDepositIxData { assets, deposits }
+            .serialize()
+            .expect("serialize ring deposit"),
+    );
+    data
+}
+
+fn sol_deposit_slots() -> Vec<Slot> {
+    vec![
+        Slot {
+            label: "tree",
+            meta: AccountMeta::new(Pubkey::new_from_array([51; 32]), false),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "depositor",
+            meta: AccountMeta::new(Pubkey::new_from_array([52; 32]), true),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "ring_config",
+            meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
+            account: account(1_000_000_000),
+        },
+        spp_program_slot(),
+        system_program_slot(),
+        Slot {
+            label: "sol_interface",
+            meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+/// The SPP settlement group of a SOL leg.
+pub fn sol_settlement() -> Vec<Slot> {
+    vec![
+        Slot {
+            label: "sol_interface",
+            meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "recipient",
+            meta: AccountMeta::new(Pubkey::new_from_array([54; 32]), false),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+/// The SPP settlement group of an SPL leg, `mint` in its second slot.
+pub fn spl_settlement(mint: Pubkey) -> Vec<Slot> {
+    [55u8, 0, 56, 57, 58]
+        .into_iter()
+        .enumerate()
+        .map(|(index, byte)| Slot {
+            label: "spl_settlement",
+            meta: AccountMeta::new_readonly(
+                if index == 1 {
+                    mint
+                } else {
+                    Pubkey::new_from_array([byte; 32])
+                },
+                false,
+            ),
+            account: account(1_000_000_000),
+        })
+        .collect()
+}
+
+fn sol_merge_slots() -> Vec<Slot> {
+    vec![
+        Slot {
+            label: "input_tree",
+            meta: AccountMeta::new(Pubkey::new_from_array([54; 32]), false),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "output_tree",
+            meta: AccountMeta::new(Pubkey::new_from_array([55; 32]), false),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "ring_config",
+            meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
+            account: account(1_000_000_000),
+        },
+        spp_program_slot(),
+        system_program_slot(),
+        Slot {
+            label: "sol_interface",
+            meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+/// The ring consumes the control prefix before forwarding SPP accounts.
+fn forward_prefix(config: Account) -> Vec<Slot> {
+    let [cosigner_pda, cosigner] = cosigner_slots();
+    vec![
+        Slot {
+            label: "config",
+            meta: AccountMeta::new_readonly(config_pda().0, false),
+            account: config,
+        },
+        cosigner_pda,
+        cosigner,
+    ]
+}
+
+pub fn deposit_fixture_with(config: Account) -> Fixture {
+    let mut slots = forward_prefix(config);
+    slots.push(Slot {
+        label: "deposit_audit",
+        meta: AccountMeta::new_readonly(
+            custom_ring_interface::pda::deposit_audit(&program_id()).0,
+            false,
+        ),
+        account: account(0),
+    });
+    slots.push(window_slot(Pubkey::new_from_array([0; 32]), None));
+    slots.extend(sol_deposit_slots());
     Fixture::new(
-        vec![tag::DEPOSIT],
-        vec![
-            Slot {
-                label: "tree",
-                meta: AccountMeta::new(Pubkey::new_from_array([51; 32]), false),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "depositor",
-                meta: AccountMeta::new(Pubkey::new_from_array([52; 32]), true),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "ring_config",
-                meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
-                account: account(1_000_000_000),
-            },
-            spp_program_slot(),
-            system_program_slot(),
-            Slot {
-                label: "sol_interface",
-                meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),
-                account: account(1_000_000_000),
-            },
-        ],
+        ring_deposit_data(vec![DepositAssetKind::Sol], SOL_DEPOSIT_AMOUNT),
+        slots,
     )
 }
 
+pub fn deposit_fixture() -> Fixture {
+    deposit_fixture_with(audit_only_config_account(authority(), auditor_pubkey(2)))
+}
+
+pub fn merge_fixture_with(config: Account) -> Fixture {
+    let mut slots = forward_prefix(config);
+    slots.extend(sol_merge_slots());
+    Fixture::new(vec![tag::MERGE], slots)
+}
+
+pub fn merge_fixture() -> Fixture {
+    merge_fixture_with(audit_only_config_account(authority(), auditor_pubkey(2)))
+}
+
+/// One policy tree at the address tree, no escrow index, no revocation targets.
+pub fn policy_ix_data(
+    proof: CustomRingProof,
+    transact: TransactIxData,
+) -> CustomRingTransactIxData {
+    CustomRingTransactIxData {
+        policy_trees: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
+        ..audit_ix_data(proof, transact)
+    }
+}
+
+/// No policy trees, the audit-only layout.
+pub fn audit_ix_data(proof: CustomRingProof, transact: TransactIxData) -> CustomRingTransactIxData {
+    CustomRingTransactIxData {
+        proof,
+        policy_trees: Vec::new(),
+        key_registry_root_index: 0,
+        approval_required: 0,
+        revocation_targets: [[0; 32]; ANSWER_SLOTS],
+        revocation_tree_indexes: [0; ANSWER_SLOTS],
+        transact,
+    }
+}
+
+pub fn encode_transact(instruction_tag: u8, ix: &CustomRingTransactIxData) -> Vec<u8> {
+    let mut data = vec![instruction_tag];
+    data.extend_from_slice(&wincode::serialize(ix).expect("serialize transact body"));
+    data
+}
+
+pub fn insert_after_policy_trees(fixture: &mut Fixture, slot: Slot) {
+    let at = fixture
+        .labels
+        .iter()
+        .rposition(|label| *label == "policy_tree")
+        .expect("policy tree slot");
+    fixture.insert(at + 1, slot);
+}
+
+pub fn other_tree_slot() -> Slot {
+    Slot {
+        label: "policy_tree",
+        meta: AccountMeta::new_readonly(other_tree(), false),
+        account: initialized_other_tree_account(),
+    }
+}
+
 pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
+    let [cosigner_pda, cosigner] = cosigner_slots();
     Fixture::new(
         data,
         vec![
@@ -1062,22 +1870,24 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
                 meta: AccountMeta::new_readonly(config_pda().0, false),
                 account: config,
             },
+            cosigner_pda,
+            cosigner,
             Slot {
                 label: "policy_config",
                 meta: AccountMeta::new_readonly(policy_config_pda().0, false),
                 account: initialized_policy_config_account(),
             },
             Slot {
-                label: "entries_tree",
-                meta: AccountMeta::new_readonly(entries_tree(), false),
-                account: initialized_entries_tree_account(),
+                label: "policy_tree",
+                meta: AccountMeta::new_readonly(address_tree(), false),
+                account: initialized_address_tree_account(),
             },
             Slot {
                 label: "spp_payer",
                 meta: AccountMeta::new(payer(), true),
                 account: account(1_000_000_000),
             },
-            // A stub distinct from entries_tree, unread because the CPI is
+            // A stub distinct from the policy tree, unread because the CPI is
             // unreached.
             Slot {
                 label: "output_tree",
@@ -1100,9 +1910,28 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
     )
 }
 
-/// An audit-only transact fixture, the policy_config and entries_tree accounts
+pub fn delegate_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
+    with_delegate_slots(audit_transact_fixture(config, data))
+}
+
+/// An escrowed policy ring, the delegate rail always reads the key registry.
+pub fn policy_delegate_transact_fixture(data: Vec<u8>) -> Fixture {
+    let mut fixture = transact_fixture(escrowed_config_account(), data);
+    insert_after_policy_trees(&mut fixture, key_registry_root_slot());
+    with_delegate_slots(fixture)
+}
+
+fn with_delegate_slots(mut fixture: Fixture) -> Fixture {
+    let [delegate_pda, delegate] = delegate_slots();
+    fixture.insert(4, delegate_pda);
+    fixture.insert(5, delegate);
+    fixture
+}
+
+/// An audit-only transact fixture, the policy_config and policy tree accounts
 /// the policy path reads are absent.
 pub fn audit_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
+    let [cosigner_pda, cosigner] = cosigner_slots();
     Fixture::new(
         data,
         vec![
@@ -1116,6 +1945,8 @@ pub fn audit_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
                 meta: AccountMeta::new_readonly(config_pda().0, false),
                 account: config,
             },
+            cosigner_pda,
+            cosigner,
             Slot {
                 label: "spp_payer",
                 meta: AccountMeta::new(payer(), true),

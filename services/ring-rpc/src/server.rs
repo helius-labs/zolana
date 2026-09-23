@@ -355,6 +355,7 @@ mod tests {
         async fn transaction_origin(
             &self,
             _signature: Signature,
+            _event_index: u16,
             _ring: Address,
         ) -> Result<RingOrigin, OriginError> {
             Ok(RingOrigin {

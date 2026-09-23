@@ -46,7 +46,7 @@ const INDEXING_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub struct ListWrite<'a> {
     pub env: &'a TestEnv,
-    pub entries_tree: Address,
+    pub address_tree: Address,
     pub list_id: ListId,
     pub member: ListMember<'a>,
     pub state: EntryState,
@@ -80,15 +80,14 @@ impl RingProject {
         let indexer = write.env.client.indexer();
         let ring = CustomRing::new(self.program_id);
         let namespace = ring.namespace_pda();
-        let entries_tree_id = ring
+        let address_tree_id = ring
             .read_policy_config(write.env.client.rpc())?
             .ok_or_else(|| anyhow!("policy config of {}", self.program_id))?
-            .entries_tree_id();
+            .address_tree_id();
         let deadline = Instant::now() + INDEXING_TIMEOUT;
         let live = loop {
             let read = ReadEntry {
-                entries_tree: write.entries_tree,
-                entries_tree_id,
+                address_tree_id,
                 namespace,
                 list_id: write.list_id,
                 member,
@@ -101,7 +100,7 @@ impl RingProject {
                 _ => sleep(Duration::from_millis(500)),
             }
         };
-        wait_for_merkle_proof(indexer, write.entries_tree, live.utxo_hash);
+        wait_for_merkle_proof(indexer, write.address_tree, live.utxo_hash);
         Ok(())
     }
 }

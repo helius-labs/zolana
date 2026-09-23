@@ -35,16 +35,23 @@ pub fn process_set_policy_rules_ix(
         program_data,
     }
     .verify()?;
-    let entries_tree = load_policy_config(program_id, policy_config)?.entries_tree;
+    let (address_tree, old_window_slots) = {
+        let config = load_policy_config(program_id, policy_config)?;
+        (config.address_tree, config.rules.window_slots())
+    };
 
     let (own_namespace, _) = namespace_pda(program_id)?;
     let bound = TableBinding {
         table: &ix,
         curators,
         own_namespace: &own_namespace,
-        entries_tree: &entries_tree,
+        address_tree: &address_tree,
     }
     .bind()?;
+
+    if old_window_slots != 0 && bound.rules.window_slots() != old_window_slots {
+        return Err(CustomRingError::VelocityWindowImmutable.into());
+    }
 
     let mut data = policy_config.try_borrow_mut()?;
     let live: &mut PolicyConfig = from_bytes_mut(&mut data);

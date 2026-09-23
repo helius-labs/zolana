@@ -1,7 +1,7 @@
 //! The table body `CREATE_POLICY` and `SET_POLICY_RULES` share, and the
 //! transaction bound both builders enforce.
 
-use custom_ring_interface::{PolicyTableIxData, SourceSpec};
+use custom_ring_interface::{PolicyTableIxData, SourceSpec, VelocityRowIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::v1::MAX_TRANSACTION_SIZE;
@@ -67,6 +67,17 @@ impl PolicyTable<'_> {
                 rules: self.rules.rules().iter().map(Rule::encoded).collect(),
                 inline_assets: self.rules.inline_assets().to_vec(),
                 inline_limits: self.rules.inline_limits().to_vec(),
+                window_slots: self.rules.window_slots(),
+                velocity: self
+                    .rules
+                    .velocity()
+                    .iter()
+                    .map(|row| VelocityRowIxData {
+                        asset: row.asset,
+                        cap: row.cap,
+                        cosign_above: row.cosign_above,
+                    })
+                    .collect(),
             },
             curators,
         })

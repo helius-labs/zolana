@@ -19,6 +19,16 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(90);
 pub struct RpcClient {
     http: Client,
     url: String,
+    block_headers: BlockHeaders,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub enum BlockHeaders {
+    #[default]
+    Chain,
+    /// Surfpool's synthetic parent link is replaced by the fetched parent's hash.
+    #[cfg(feature = "surfpool-fixture")]
+    SurfpoolFixture,
 }
 
 #[derive(Debug, Error)]
@@ -35,7 +45,14 @@ pub enum RpcError {
     MissingResult(&'static str),
     #[error("invalid account returned by RPC: {0}")]
     InvalidAccount(String),
+    #[cfg(feature = "surfpool-fixture")]
+    #[error("only Surfpool synthetic block headers are supported")]
+    ForeignBlockHeader,
 }
+
+/// Both codes name a slot without a block, in recent and in long-term storage.
+const SLOT_SKIPPED: i64 = -32007;
+const LONG_TERM_STORAGE_SLOT_SKIPPED: i64 = -32009;
 
 impl RpcError {
     fn transport(error: reqwest::Error) -> Self {
@@ -47,6 +64,13 @@ impl RpcError {
             Self::Response { code, .. } => Some(*code),
             _ => None,
         }
+    }
+
+    pub fn is_slot_skipped(&self) -> bool {
+        matches!(
+            self.response_code(),
+            Some(SLOT_SKIPPED | LONG_TERM_STORAGE_SLOT_SKIPPED)
+        )
     }
 }
 
@@ -88,7 +112,14 @@ impl RpcClient {
         Self {
             http: Client::new(),
             url,
+            block_headers: BlockHeaders::Chain,
         }
+    }
+
+    #[must_use]
+    pub fn with_block_headers(mut self, block_headers: BlockHeaders) -> Self {
+        self.block_headers = block_headers;
+        self
     }
 
     pub async fn get_slot(&self) -> Result<u64, RpcError> {
@@ -105,8 +136,33 @@ impl RpcClient {
         slot: u64,
         transaction_details: TransactionDetails,
     ) -> Result<UiConfirmedBlock, RpcError> {
-        self.call("getBlock", block_params(slot, transaction_details))
-            .await
+        let block: UiConfirmedBlock = self
+            .call("getBlock", block_params(slot, transaction_details))
+            .await?;
+        match self.block_headers {
+            BlockHeaders::Chain => Ok(block),
+            #[cfg(feature = "surfpool-fixture")]
+            BlockHeaders::SurfpoolFixture => {
+                let parent: UiConfirmedBlock = self
+                    .call(
+                        "getBlock",
+                        block_params(block.parent_slot, TransactionDetails::None),
+                    )
+                    .await?;
+                normalize_fixture_header(block, &parent)
+            }
+        }
+    }
+
+    pub async fn get_blocks(
+        &self,
+        slots: std::ops::RangeInclusive<u64>,
+    ) -> Result<Vec<u64>, RpcError> {
+        self.call(
+            "getBlocks",
+            json!([slots.start(), slots.end(), { "commitment": "confirmed" }]),
+        )
+        .await
     }
 
     pub async fn get_account(&self, pubkey: &Pubkey) -> Result<Account, RpcError> {
@@ -195,6 +251,25 @@ impl RpcClient {
     }
 }
 
+#[cfg(feature = "surfpool-fixture")]
+fn normalize_fixture_header(
+    mut block: UiConfirmedBlock,
+    parent: &UiConfirmedBlock,
+) -> Result<UiConfirmedBlock, RpcError> {
+    if [
+        &block.blockhash,
+        &block.previous_blockhash,
+        &parent.blockhash,
+    ]
+    .into_iter()
+    .any(|hash| !hash.starts_with("SURFNETxSAFEHASH"))
+    {
+        return Err(RpcError::ForeignBlockHeader);
+    }
+    block.previous_blockhash = parent.blockhash.clone();
+    Ok(block)
+}
+
 impl EncodedAccount {
     fn decode(self) -> Result<Account, RpcError> {
         if self.data.1 != "base64" {
@@ -263,6 +338,33 @@ mod tests {
         (format!("http://{address}"), handle)
     }
 
+    #[cfg(feature = "surfpool-fixture")]
+    fn surfpool_block(hash: &str, parent_slot: u64) -> UiConfirmedBlock {
+        serde_json::from_value(json!({
+            "blockhash": hash,
+            "previousBlockhash": "SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "parentSlot": parent_slot,
+            "blockTime": 1,
+            "blockHeight": parent_slot + 1,
+        }))
+        .unwrap()
+    }
+
+    #[cfg(feature = "surfpool-fixture")]
+    #[test]
+    fn fixture_only_normalizes_surfpool_parent_links() {
+        let block = surfpool_block("SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxx28", 39);
+        let mut parent = surfpool_block("SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxx27", 38);
+        let normalized = normalize_fixture_header(block.clone(), &parent).unwrap();
+        assert_eq!(normalized.previous_blockhash, parent.blockhash);
+        assert_eq!(normalized.blockhash, block.blockhash);
+        parent.blockhash = "11111111111111111111111111111111".into();
+        assert!(matches!(
+            normalize_fixture_header(block, &parent),
+            Err(RpcError::ForeignBlockHeader)
+        ));
+    }
+
     #[test]
     fn decodes_base64_accounts_without_account_decoder_crate() {
         let owner = Pubkey::from([7; 32]);
@@ -290,6 +392,7 @@ mod tests {
             message: "skipped".to_string(),
         };
         assert_eq!(error.response_code(), Some(-32007));
+        assert!(error.is_slot_skipped());
     }
 
     #[tokio::test]

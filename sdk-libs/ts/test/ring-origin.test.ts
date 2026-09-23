@@ -21,6 +21,7 @@ import {
   CachedTransactionOrigin,
   confirmedInstructionGroups,
   confirmedRingWithdrawals,
+  ringEventInvokedIn,
   ringInvokedIn,
   RpcTransactionOrigin,
   type OriginInstructionGroup,
@@ -131,6 +132,31 @@ describe("ringInvokedIn", () => {
   });
 });
 
+describe("ringEventInvokedIn", () => {
+  it("attributes each event to its own source instruction", () => {
+    const source = (programId: Address, outer: Address): OriginInstructionGroup => ({
+      outer: { programId: outer, stackHeight: 1, accounts: [], data: new Uint8Array() },
+      inner: [
+        {
+          programId,
+          stackHeight: 2,
+          accounts: [],
+          data: Uint8Array.of(InstructionTag.ringTransact),
+        },
+        {
+          programId,
+          stackHeight: 3,
+          accounts: [],
+          data: Uint8Array.of(InstructionTag.emitEvent),
+        },
+      ],
+    });
+    const groups = [source(POOL, RING), source(POOL, OTHER)];
+    expect(ringEventInvokedIn(groups, 0, RING)).toBe(true);
+    expect(ringEventInvokedIn(groups, 1, RING)).toBe(false);
+  });
+});
+
 function v0Transaction(): unknown {
   return {
     slot: 7,
@@ -158,7 +184,20 @@ function v0Transaction(): unknown {
       innerInstructions: [
         {
           index: 0,
-          instructions: [{ programIdIndex: 3, accounts: [2], data: "", stackHeight: 2 }],
+          instructions: [
+            {
+              programIdIndex: 3,
+              accounts: [2],
+              data: getBase58Decoder().decode(Uint8Array.of(InstructionTag.ringTransact)),
+              stackHeight: 2,
+            },
+            {
+              programIdIndex: 3,
+              accounts: [2],
+              data: getBase58Decoder().decode(Uint8Array.of(InstructionTag.emitEvent)),
+              stackHeight: 3,
+            },
+          ],
         },
       ],
       loadedAddresses: { writable: [OTHER], readonly: [POOL] },
@@ -173,7 +212,20 @@ describe("confirmedInstructionGroups", () => {
     expect(groups).toEqual([
       {
         outer: { programId: RING, accounts: [PAYER], data: new Uint8Array() },
-        inner: [{ programId: POOL, accounts: [OTHER], data: new Uint8Array(), stackHeight: 2 }],
+        inner: [
+          {
+            programId: POOL,
+            accounts: [OTHER],
+            data: Uint8Array.of(InstructionTag.ringTransact),
+            stackHeight: 2,
+          },
+          {
+            programId: POOL,
+            accounts: [OTHER],
+            data: Uint8Array.of(InstructionTag.emitEvent),
+            stackHeight: 3,
+          },
+        ],
       },
     ]);
     expect(ringInvokedIn(groups, RING)).toBe(true);
@@ -362,14 +414,14 @@ function rpcWith(result: unknown | Error): ConstructorParameters<typeof RpcTrans
 describe("RpcTransactionOrigin", () => {
   it("walks the fetched transaction", async () => {
     const origin = new RpcTransactionOrigin(rpcWith(v0Transaction()));
-    await expect(origin.ringInvoked(SIGNATURE, RING)).resolves.toBe(true);
-    await expect(origin.ringInvoked(SIGNATURE, OTHER)).resolves.toBe(false);
+    await expect(origin.ringInvoked(SIGNATURE, 0, RING)).resolves.toBe(true);
+    await expect(origin.ringInvoked(SIGNATURE, 0, OTHER)).resolves.toBe(false);
   });
 
   it("treats an unknown signature and an RPC failure as errors", async () => {
     for (const result of [null, new Error("rpc down")]) {
       const origin = new RpcTransactionOrigin(rpcWith(result));
-      await expect(origin.ringInvoked(SIGNATURE, RING)).rejects.toMatchObject({
+      await expect(origin.ringInvoked(SIGNATURE, 0, RING)).rejects.toMatchObject({
         code: "RING_ORIGIN_UNAVAILABLE",
       });
     }
@@ -377,7 +429,7 @@ describe("RpcTransactionOrigin", () => {
 });
 
 describe("CachedTransactionOrigin", () => {
-  it("asks once per signature", async () => {
+  it("caches by signature, event, and ring", async () => {
     let calls = 0;
     const inner: TransactionOrigin = {
       ringInvoked: () => {
@@ -386,8 +438,10 @@ describe("CachedTransactionOrigin", () => {
       },
     };
     const cached = new CachedTransactionOrigin(inner);
-    await expect(cached.ringInvoked(SIGNATURE, RING)).resolves.toBe(true);
-    await expect(cached.ringInvoked(SIGNATURE, RING)).resolves.toBe(true);
-    expect(calls).toBe(1);
+    await expect(cached.ringInvoked(SIGNATURE, 0, RING)).resolves.toBe(true);
+    await expect(cached.ringInvoked(SIGNATURE, 0, RING)).resolves.toBe(true);
+    await expect(cached.ringInvoked(SIGNATURE, 1, RING)).resolves.toBe(true);
+    await expect(cached.ringInvoked(SIGNATURE, 0, OTHER)).resolves.toBe(true);
+    expect(calls).toBe(3);
   });
 });

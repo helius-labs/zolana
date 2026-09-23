@@ -6,6 +6,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
+        GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof, GetRingSpendRecord,
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
         GetShieldedTransactionsByTags,
     },
@@ -16,12 +17,15 @@ pub use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+    GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, Hash,
     IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
-    NullifierQueueElement, RingsOutputContext, RingsOutputSlot, SerializablePubkey,
-    SerializableSignature, ShieldedTransaction, PAGE_LIMIT,
+    NullifierQueueElement, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
+    RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
+    ShieldedTransaction, PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -207,6 +211,13 @@ impl ZolanaApi {
         .await
     }
 
+    pub async fn get_shielded_transactions(
+        &self,
+        request: GetRingsByTagsRequest,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
+        self.call::<GetShieldedTransactionsByTags>(request).await
+    }
+
     pub async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
@@ -231,6 +242,27 @@ impl ZolanaApi {
             leaves,
         })
         .await
+    }
+
+    pub async fn get_ring_spend_record(
+        &self,
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ApiError> {
+        self.call::<GetRingSpendRecord>(request).await
+    }
+
+    pub async fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ApiError> {
+        self.call::<GetRingKeyRegistryEntry>(request).await
+    }
+
+    pub async fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ApiError> {
+        self.call::<GetRingKeyRegistryRegisterProof>(request).await
     }
 
     pub async fn get_non_inclusion_proofs(
@@ -368,6 +400,13 @@ impl BlockingZolanaApi {
         })
     }
 
+    pub fn get_shielded_transactions(
+        &self,
+        request: GetRingsByTagsRequest,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
+        self.call::<GetShieldedTransactionsByTags>(request)
+    }
+
     pub fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
@@ -390,6 +429,27 @@ impl BlockingZolanaApi {
             tree_account,
             leaves,
         })
+    }
+
+    pub fn get_ring_spend_record(
+        &self,
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ApiError> {
+        self.call::<GetRingSpendRecord>(request)
+    }
+
+    pub fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ApiError> {
+        self.call::<GetRingKeyRegistryEntry>(request)
+    }
+
+    pub fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ApiError> {
+        self.call::<GetRingKeyRegistryRegisterProof>(request)
     }
 
     pub fn get_non_inclusion_proofs(
