@@ -273,11 +273,7 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
         fi
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
-    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7"
-    for name in custom_ring_policy.key custom_ring_base.key; do
-        installed "$name" || fetch "$name" "$release_url/$name"
-    done
-    for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
+    for name in custom_ring_policy.key custom_ring_base.key transfer_ring_1_2.key transfer_ring_2_2.key; do
         installed "$name" || fetch "$name" "{{proving-keys-url}}/$name"
     done
 
@@ -1571,18 +1567,15 @@ build-spp-keys:
     python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
-# (proving-keys/<version-hash>) comes from the committed lockfile. The two
-# custom-ring keys are skipped: the lockfile marks them `source: release`, so they
-# are pinned there but served from their own GitHub release, never from the object
-# store. Needs the aws CLI with bucket write access. Full rotation (regen keys +
-# vkeys + lock + upload) is prover/server/scripts/rotate_proving_keys.sh.
+# (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws
+# CLI with bucket write access. Full rotation (regen keys + vkeys + lock + upload)
+# is prover/server/scripts/rotate_proving_keys.sh.
 publish-spp-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
     prefix="$(python3 -c "import json; print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
-    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key' \
-        --exclude 'custom_ring_policy.key' --exclude 'custom_ring_base.key'
+    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key'
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target
