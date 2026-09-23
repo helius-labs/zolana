@@ -90,12 +90,14 @@ fn message_data_round_trip() {
     assert_eq!(message.view_tag, auditor_view_tag(&auditor_pk));
     assert_eq!(message.view_tag, auditor_pk.x());
     assert_eq!(message.data.len(), AUDITOR_MESSAGE_LEN);
-    let (eph_pk, ciphertext) = message
+    let (eph_pk, body) = message
         .data
         .split_at_checked(33)
-        .expect("65 bytes split at 33");
+        .expect("ephemeral key prefix");
+    let (ciphertext, disclosure) = body.split_at(32);
     assert_eq!(eph_pk, sealed.message.ephemeral_pubkey_bytes());
     assert_eq!(ciphertext, sealed.message.ciphertext());
+    assert_eq!(disclosure.len(), AUDITOR_MESSAGE_LEN - 65);
 
     assert_eq!(
         AuditorMessage::parse(&message, &auditor_pk).expect("parse"),
@@ -126,14 +128,14 @@ fn parse_rejects_wrong_data_lengths() {
     short.data.pop();
     assert_eq!(
         AuditorMessage::parse(&short, &auditor_pk),
-        Err(AuditEncryptionError::MessageLength(64))
+        Err(AuditEncryptionError::MessageLength(AUDITOR_MESSAGE_LEN - 1))
     );
 
     let mut long = valid.clone();
     long.data.push(0);
     assert_eq!(
         AuditorMessage::parse(&long, &auditor_pk),
-        Err(AuditEncryptionError::MessageLength(66))
+        Err(AuditEncryptionError::MessageLength(AUDITOR_MESSAGE_LEN + 1))
     );
 
     let truncated = MessageData {

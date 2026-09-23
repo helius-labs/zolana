@@ -14,7 +14,9 @@ import { describe, expect, it, vi } from "vitest";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import type { Bytes32 } from "../src/interface/types.js";
+import { ringPolicyConfigAddress } from "../src/interface/pda/index.js";
 import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "../src/ring/config.js";
+import { RING_POLICY_CONFIG_SIZE } from "../src/ring/codecs.js";
 import {
   CLOCK_SYSVAR as CLOCK,
   RENT_SYSVAR as RENT,
@@ -44,10 +46,45 @@ const AUTHORITY = addressOf(12);
 const PAYER = addressOf(11);
 const BUFFER = addressOf(13);
 
-/** The ELF magic over a byte pattern. */
 function elf(length: number, byte = (index: number) => index % 251): Uint8Array {
   const bytes = Uint8Array.from({ length }, (_, index) => byte(index));
-  bytes.set([0x7f, 0x45, 0x4c, 0x46]);
+  bytes.fill(0, 0, 128);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]);
+  view.setUint16(16, 3, true);
+  view.setUint16(18, 263, true);
+  view.setUint32(20, 1, true);
+  view.setBigUint64(24, 128n, true);
+  view.setBigUint64(32, 64n, true);
+  view.setBigUint64(40, BigInt(length - 192), true);
+  view.setUint16(52, 64, true);
+  view.setUint16(54, 56, true);
+  view.setUint16(56, 1, true);
+  view.setUint16(58, 64, true);
+  view.setUint16(60, 3, true);
+  view.setUint16(62, 2, true);
+  view.setUint32(64, 1, true);
+  view.setUint32(68, 5, true);
+  view.setBigUint64(72, 128n, true);
+  view.setBigUint64(80, 128n, true);
+  view.setBigUint64(96, BigInt(length - 344), true);
+  view.setBigUint64(104, BigInt(length - 344), true);
+  const names = new TextEncoder().encode("\0.text\0.shstrtab\0");
+  const namesStart = length - 192 - names.length;
+  bytes.set(names, namesStart);
+  bytes.fill(0, length - 192);
+  const text = length - 128;
+  view.setUint32(text, 1, true);
+  view.setUint32(text + 4, 1, true);
+  view.setBigUint64(text + 8, 6n, true);
+  view.setBigUint64(text + 16, 128n, true);
+  view.setBigUint64(text + 24, 128n, true);
+  view.setBigUint64(text + 32, BigInt(length - 344), true);
+  const strings = length - 64;
+  view.setUint32(strings, 7, true);
+  view.setUint32(strings + 4, 3, true);
+  view.setBigUint64(strings + 24, BigInt(namesStart), true);
+  view.setBigUint64(strings + 32, BigInt(names.length), true);
   return bytes;
 }
 
@@ -95,22 +132,86 @@ describe("program data", () => {
     );
   });
 
-  it("refuses a binary the loader would refuse and a structural copy", () => {
-    for (const bytes of [new Uint8Array(), elf(63), new Uint8Array(64)]) {
+  it("rejects truncated ELF tables and bodies", () => {
+    const complete = elf(512);
+    for (const bytes of [
+      new Uint8Array(),
+      new Uint8Array(64),
+      complete.subarray(0, 63),
+      complete.subarray(0, 64),
+      complete.subarray(0, 127),
+      complete.subarray(0, complete.length - 1),
+    ]) {
       expect(() => RingProgramBinary.parse(bytes)).toThrow(
         expect.objectContaining({ code: "RING_PROGRAM_BINARY_INVALID" }),
       );
     }
-    const binary = RingProgramBinary.parse(elf(64));
-    const copy = { bytes: binary.bytes, sha256: binary.sha256 };
+  });
+
+  it("rejects ELF ranges beyond the complete artifact", () => {
+    for (const field of [32, 40, 72, 96, 408, 416]) {
+      const bytes = elf(512);
+      new DataView(bytes.buffer).setBigUint64(field, 0xffff_ffff_ffff_ffffn, true);
+      expect(() => RingProgramBinary.parse(bytes)).toThrow(
+        expect.objectContaining({ code: "RING_PROGRAM_BINARY_INVALID" }),
+      );
+    }
+  });
+
+  it("rejects unchecked descriptors before reading accounts", async () => {
+    const binary = RingProgramBinary.parse(elf(512));
     const client = { getAccount: vi.fn(async () => undefined) };
-    // @ts-expect-error a structural copy is not a checked binary
-    void verifyRingProgram(client, PROGRAM, copy).catch(() => undefined);
-    expect(binary.sha256).toEqual(sha256(elf(64)));
+    for (const copy of [
+      { bytes: new Uint8Array(512), sha256: binary.sha256, byteLength: binary.byteLength },
+      { ...binary },
+    ]) {
+      // @ts-expect-error Unchecked binary descriptor.
+      await expect(verifyRingProgram(client, PROGRAM, copy)).rejects.toMatchObject({
+        code: "RING_PROGRAM_BINARY_INVALID",
+      });
+    }
+    expect(client.getAccount).not.toHaveBeenCalled();
+    expect(() => Reflect.construct(RingProgramBinary, [binary.bytes])).toThrow(
+      expect.objectContaining({ code: "RING_PROGRAM_BINARY_INVALID" }),
+    );
+  });
+
+  it("pins its bytes and hash against mutation through the exposed copy", () => {
+    const binary = RingProgramBinary.parse(elf(512));
+    const pinned = new Uint8Array(binary.sha256);
+    binary.bytes.fill(0xff);
+    binary.sha256.fill(0);
+    expect(binary.bytes).toEqual(elf(512));
+    expect(binary.sha256).toEqual(pinned);
+    expect(binary.byteLength).toBe(512);
+  });
+
+  it("requires the artifact to cover every nonzero deployed byte", async () => {
+    const bytes = elf(512);
+    const longer = new Uint8Array(600);
+    longer.set(bytes);
+    longer[599] = 1;
+    const dataAddress = await ringProgramDataAddress(PROGRAM);
+    const client = {
+      getAccount: async (account: Address) =>
+        ownedAccount(
+          BPF_LOADER_UPGRADEABLE_ID,
+          account === PROGRAM
+            ? programAccount(dataAddress)
+            : programData({ slot: 3n, bytes: longer }),
+        ),
+    };
+    await expect(
+      verifyRingProgram(client, PROGRAM, RingProgramBinary.parse(bytes)),
+    ).rejects.toMatchObject({ code: "RING_PROGRAM_NOT_DEPLOYED" });
+    longer[599] = 0;
+    await expect(
+      verifyRingProgram(client, PROGRAM, RingProgramBinary.parse(bytes)),
+    ).resolves.toMatchObject({ capacity: 600 });
   });
 
   it("verifies the deployed bytes and names a missing, different or occupied program", async () => {
-    const binary = RingProgramBinary.parse(elf(80));
+    const binary = RingProgramBinary.parse(elf(512));
     const dataAddress = await ringProgramDataAddress(PROGRAM);
     const accounts = new Map([
       [PROGRAM, ownedAccount(BPF_LOADER_UPGRADEABLE_ID, programAccount(dataAddress))],
@@ -126,7 +227,7 @@ describe("program data", () => {
     await expect(verifyRingProgram(client, PROGRAM, binary)).resolves.toMatchObject({
       lastDeploySlot: 3n,
     });
-    const other = RingProgramBinary.parse(elf(80, () => 0));
+    const other = RingProgramBinary.parse(elf(512, () => 0));
     await expect(verifyRingProgram(client, PROGRAM, other)).rejects.toMatchObject({
       code: "RING_PROGRAM_MISMATCH",
     });
@@ -286,6 +387,7 @@ describe("deployment", () => {
       program,
       buffer,
       programData: await ringProgramDataAddress(program.address),
+      policyConfig: await ringPolicyConfigAddress(program.address),
     };
   }
 
@@ -300,6 +402,7 @@ describe("deployment", () => {
     readonly balance?: bigint;
     readonly bufferContent?: Uint8Array;
     readonly failFirstConfirmation?: boolean;
+    readonly failFirstStatusLookup?: boolean;
     readonly failFirstSend?: boolean;
     readonly rejectOnChain?: boolean;
     readonly rejectInPreflight?: boolean;
@@ -310,6 +413,7 @@ describe("deployment", () => {
     /** Sends resolve only through their abort signal. */
     readonly hangSends?: boolean;
     readonly occupiedBy?: Address;
+    readonly policyConfig?: Readonly<{ owner?: Address; size: number }>;
   }
 
   /** The extend and then the program exist once a send follows the buffer content read. */
@@ -330,6 +434,7 @@ describe("deployment", () => {
     let slot = 10n;
     let confirmations = 0;
     let sendCalls = 0;
+    let statusCalls = 0;
     const bufferData = () => {
       const size = options.buffer?.size ?? 37 + binary.bytes.length;
       const data = new Uint8Array(size);
@@ -348,13 +453,17 @@ describe("deployment", () => {
       }),
       getSlot: () => ({ send: async () => (slot += 1n) }),
       getSignatureStatuses: () => ({
-        send: async () => ({
-          value: [
-            options.landLate && confirmations === 1
-              ? { err: null, confirmationStatus: "confirmed" as const, slot: 3n }
-              : null,
-          ],
-        }),
+        send: async () => {
+          statusCalls += 1;
+          if (options.failFirstStatusLookup && statusCalls === 1) throw new Error("rate limited");
+          return {
+            value: [
+              options.landLate && confirmations === 1
+                ? { err: null, confirmationStatus: "confirmed" as const, slot: 3n }
+                : null,
+            ],
+          };
+        },
       }),
       sendTransaction: (encoded: string) => ({
         send: async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
@@ -408,6 +517,7 @@ describe("deployment", () => {
       writes,
       rents,
       maxInFlight: () => maxInFlight,
+      statusCalls: () => statusCalls,
       getLatestBlockhash: vi.fn(async () => BLOCKHASH),
       getBalance: vi.fn(async () => options.balance ?? 1_000_000_000_000n),
       getAccount: vi.fn(async (account: Address) => {
@@ -418,6 +528,14 @@ describe("deployment", () => {
         }
         if (account === keys.program.address && options.occupiedBy !== undefined) {
           return ownedAccount(options.occupiedBy, new Uint8Array());
+        }
+        if (account === keys.policyConfig) {
+          return options.policyConfig === undefined
+            ? undefined
+            : ownedAccount(
+                options.policyConfig.owner ?? keys.program.address,
+                new Uint8Array(options.policyConfig.size),
+              );
         }
         const deployed = finished
           ? {
@@ -470,6 +588,27 @@ describe("deployment", () => {
     buffer: keys.buffer,
   });
 
+  it("rejects an unchecked binary before paid deployment work", async () => {
+    const keys = await signers();
+    const client = chain(keys);
+    const unchecked = { bytes: new Uint8Array(3_000), byteLength: 3_000, sha256: binary.sha256 };
+    await expect(
+      deployRingProgram({
+        ...params(keys, client),
+        // @ts-expect-error Unchecked binary descriptor.
+        binary: unchecked,
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "RING_PROGRAM_BINARY_INVALID",
+    });
+    expect(client.getAccount).not.toHaveBeenCalled();
+    expect(client.getBalance).not.toHaveBeenCalled();
+    expect(client.rents).toEqual([]);
+    expect(client.sends).toEqual([]);
+    expect(client.writes).toEqual([]);
+  });
+
   it("deploys through version 1 packets, one blockhash per transaction, within the concurrency", async () => {
     const keys = await signers();
     const client = chain(keys);
@@ -503,6 +642,16 @@ describe("deployment", () => {
         attempts: 1,
       }),
     ).rejects.toMatchObject({ code: "RING_DEPLOY_PROGRAM", causeCode: "CLIENT_RPC" });
+  });
+
+  it("keeps retrying when the recovery status lookup is transiently unavailable", async () => {
+    const keys = await signers();
+    const client = chain(keys, { failFirstConfirmation: true, failFirstStatusLookup: true });
+    await expect(deployRingProgram(params(keys, client))).resolves.toMatchObject({
+      kind: "deployed",
+    });
+    expect(client.statusCalls()).toBe(1);
+    expect(client.confirmTransaction.mock.calls.length).toBeGreaterThan(1);
   });
 
   it("stops at a transaction the chain refused without re-signing it", async () => {
@@ -668,5 +817,28 @@ describe("deployment", () => {
       causeCode: "RING_PROGRAM_KEYPAIR_INVALID",
     });
     expect(program.address).toBe(keys.program.address);
+  });
+
+  it("refuses an upgrade the on-chain policy config would not survive before any send", async () => {
+    const keys = await signers();
+    const deployed = { authority: keys.authority.address, bytes: new Uint8Array(1_000) };
+    const incompatible = chain(keys, {
+      deployed,
+      policyConfig: { size: RING_POLICY_CONFIG_SIZE - 1 },
+    });
+    await expect(deployRingProgram(params(keys, incompatible))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "RING_POLICY_CONFIG_INCOMPATIBLE",
+    });
+    expect(incompatible.sends).toHaveLength(0);
+    // A foreign-owned account at the PDA is not a policy the upgraded program loads.
+    const foreign = chain(keys, { deployed, policyConfig: { owner: SYSTEM_PROGRAM, size: 0 } });
+    await expect(deployRingProgram(params(keys, foreign))).resolves.toMatchObject({
+      kind: "upgraded",
+    });
+    const compatible = chain(keys, { deployed, policyConfig: { size: RING_POLICY_CONFIG_SIZE } });
+    await expect(deployRingProgram(params(keys, compatible))).resolves.toMatchObject({
+      kind: "upgraded",
+    });
   });
 });

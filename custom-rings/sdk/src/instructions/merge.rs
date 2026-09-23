@@ -2,8 +2,10 @@
 
 use solana_address::Address;
 use solana_instruction::Instruction;
+use thiserror::Error;
 use zolana_client::{
-    ClientError, NonInclusionProof, ProofCompressed, ProverClient, Rpc, SpendProof,
+    AsyncProverClient, AsyncRpc, ClientError, MergeProofResult, NonInclusionProof, Proof,
+    ProofCompressed, ProverClient, Rpc, SpendProof,
 };
 use zolana_interface::instruction::{instruction_data::merge_ring::MergeRingIxData, MergeRing};
 use zolana_keypair::NullifierKey;
@@ -14,13 +16,17 @@ use zolana_transaction::{
     ShieldedKeys, SppProofOutputUtxo, WalletUtxo,
 };
 
-use crate::CustomRing;
+use crate::{
+    instructions::cosigner::RingPrefix, tree_id, tree_id_async, AccountReadError, CustomRing,
+    TransferError,
+};
 
-use zolana_client::MergeProver;
+pub use zolana_client::MergeProver as MergeRingProver;
 pub use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 
 /// A merge plan whose inputs and output are bound to one custom ring.
 #[must_use]
+#[derive(Clone)]
 pub struct CustomRingMerge {
     ring: CustomRing,
     inner: MergeTransaction,
@@ -60,18 +66,59 @@ impl CustomRingMerge {
 
 /// An 8-slot custom-ring merge ready for tree proofs.
 #[must_use]
+#[derive(Clone)]
 pub struct PreparedCustomRingMerge {
     ring: CustomRing,
     inner: MergeProofInputs,
 }
 
-pub struct CustomRingMergeProofEnvironment<'a, I> {
+#[derive(Debug, Error)]
+pub enum MergeError {
+    #[error(transparent)]
+    AccountRead(#[from] AccountReadError),
+    #[error(transparent)]
+    Client(#[from] ClientError),
+    #[error(transparent)]
+    Transaction(#[from] TransactionError),
+    #[error("custom ring config does not exist")]
+    MissingRingConfig,
+    #[error("merge inputs belong to another tree")]
+    InputTreeMismatch,
+    #[error(transparent)]
+    Transfer(Box<TransferError>),
+}
+
+pub struct CustomRingMergeProofEnvironment<'a, I, R> {
     pub indexer: &'a I,
     pub prover: &'a ProverClient,
+    /// Account reads take the Solana RPC, the indexer serves proofs only.
+    pub rpc: &'a R,
+}
+
+impl From<TransferError> for MergeError {
+    fn from(error: TransferError) -> Self {
+        Self::Transfer(Box::new(error))
+    }
+}
+
+pub struct AsyncCustomRingMergeProofEnvironment<'a, I, R> {
+    pub indexer: &'a I,
+    pub prover: &'a AsyncProverClient,
+    pub rpc: &'a R,
+}
+
+#[derive(Clone)]
+pub struct MergeProofInput {
+    pub nullifier_key: NullifierKey,
+    pub input_tree: Address,
+    pub output_tree: Address,
 }
 
 pub struct ProvenCustomRingMerge {
+    input_tree: Address,
+    output_tree: Address,
     ring: CustomRing,
+    cosigner: Option<Address>,
     pub data: MergeRingIxData,
     pub output_hash: [u8; 32],
     pub input_count: usize,
@@ -102,13 +149,13 @@ impl PreparedCustomRingMerge {
         self.inner.dummy_nullifiers()
     }
 
-    pub fn witness(
+    pub fn prover(
         self,
         nullifier_key: NullifierKey,
         proofs: Vec<SpendProof>,
         dummy_nullifier_proofs: Vec<NonInclusionProof>,
-    ) -> MergeProver {
-        MergeProver {
+    ) -> MergeRingProver {
+        MergeRingProver {
             transaction: self.inner,
             nullifier_key,
             proofs,
@@ -116,56 +163,167 @@ impl PreparedCustomRingMerge {
         }
     }
 
-    pub fn prove<I: Rpc>(
-        self,
-        nullifier_key: NullifierKey,
-        input_tree: Address,
-        env: CustomRingMergeProofEnvironment<'_, I>,
-    ) -> Result<ProvenCustomRingMerge, ClientError> {
-        let ring = self.ring;
-        let merged_amount = self.inner.output_utxo.amount;
+    pub fn prove<I: Rpc, R: Rpc>(
+        mut self,
+        input: MergeProofInput,
+        env: CustomRingMergeProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenCustomRingMerge, MergeError> {
+        self.ring
+            .read_config(env.rpc)?
+            .ok_or(MergeError::MissingRingConfig)?;
+        self.validate_source(tree_id(env.rpc, input.input_tree)?)?;
+        self.inner.output_tree_id = tree_id(env.rpc, input.output_tree)?;
         let commitments = self.input_utxo_hashes()?;
-        let input_count = commitments.len();
-        let proofs = fetch_spend_proofs(env.indexer, input_tree, &commitments)?;
+        let proofs = fetch_spend_proofs(env.indexer, input.input_tree, &commitments)?;
         let dummy_nullifiers = self.dummy_nullifiers();
         let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
             Vec::new()
         } else {
             env.indexer
-                .get_non_inclusion_proofs(input_tree, dummy_nullifiers, None)?
+                .get_non_inclusion_proofs(input.input_tree, dummy_nullifiers, None)?
                 .proofs
         };
-        let result = self
-            .witness(nullifier_key, proofs, dummy_nullifier_proofs)
-            .build()?;
-        let proof = env.prover.prove_merge_ring(&result.inputs)?;
-        let proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
+        let staged = self.stage(MergeProofs {
+            input,
+            proofs,
+            dummy: dummy_nullifier_proofs,
+        })?;
+        let proof = env.prover.prove_merge_ring(&staged.result.inputs)?;
+        staged.finish(proof)
+    }
 
-        Ok(ProvenCustomRingMerge {
+    pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
+        mut self,
+        input: MergeProofInput,
+        env: AsyncCustomRingMergeProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenCustomRingMerge, MergeError> {
+        self.ring
+            .read_config_async(env.rpc)
+            .await?
+            .ok_or(MergeError::MissingRingConfig)?;
+        self.validate_source(tree_id_async(env.rpc, input.input_tree).await?)?;
+        self.inner.output_tree_id = tree_id_async(env.rpc, input.output_tree).await?;
+        let commitments = self.input_utxo_hashes()?;
+        let (state, nullifier) = futures::try_join!(
+            env.indexer.get_merkle_proofs(
+                input.input_tree,
+                commitments.iter().map(|entry| entry.utxo_hash).collect(),
+                None
+            ),
+            env.indexer.get_non_inclusion_proofs(
+                input.input_tree,
+                commitments.iter().map(|entry| entry.nullifier).collect(),
+                None
+            ),
+        )?;
+        let proofs = validate_input_proofs(
+            input.input_tree,
+            &commitments,
+            state.proofs,
+            nullifier.proofs,
+        )?;
+        let dummy_nullifiers = self.dummy_nullifiers();
+        let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
+            Vec::new()
+        } else {
+            env.indexer
+                .get_non_inclusion_proofs(input.input_tree, dummy_nullifiers, None)
+                .await?
+                .proofs
+        };
+        let staged = self.stage(MergeProofs {
+            input,
+            proofs,
+            dummy: dummy_nullifier_proofs,
+        })?;
+        let proof = env.prover.prove_merge_ring(&staged.result.inputs).await?;
+        staged.finish(proof)
+    }
+
+    fn validate_source(&self, tree_id: u16) -> Result<(), MergeError> {
+        if self
+            .inner
+            .input_utxos
+            .iter()
+            .filter(|input| !input.is_dummy())
+            .any(|input| input.tree_id != tree_id)
+        {
+            return Err(MergeError::InputTreeMismatch);
+        }
+        Ok(())
+    }
+
+    fn stage(self, proofs: MergeProofs) -> Result<StagedMerge, MergeError> {
+        let MergeProofs {
+            input,
+            proofs,
+            dummy,
+        } = proofs;
+        let ring = self.ring;
+        let merged_amount = self.inner.output_utxo.amount;
+        let input_count = proofs.len();
+        let input_tree = input.input_tree;
+        let output_tree = input.output_tree;
+        let result = self.prover(input.nullifier_key, proofs, dummy).build()?;
+        Ok(StagedMerge {
             ring,
-            data: result.ring_instruction_data(proof),
-            output_hash: result.output_hash,
-            input_count,
+            result,
+            input_tree,
+            output_tree,
             merged_amount,
-            tx_viewing_pk: result.tx_viewing_pk,
-            salt: result.salt,
-            output_data: result.output_data,
+            input_count,
+        })
+    }
+}
+
+struct MergeProofs {
+    input: MergeProofInput,
+    proofs: Vec<SpendProof>,
+    dummy: Vec<NonInclusionProof>,
+}
+
+struct StagedMerge {
+    ring: CustomRing,
+    result: MergeProofResult,
+    input_tree: Address,
+    output_tree: Address,
+    merged_amount: u64,
+    input_count: usize,
+}
+
+impl StagedMerge {
+    fn finish(self, proof: Proof) -> Result<ProvenCustomRingMerge, MergeError> {
+        let proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
+        Ok(ProvenCustomRingMerge {
+            ring: self.ring,
+            input_tree: self.input_tree,
+            output_tree: self.output_tree,
+            cosigner: None,
+            data: self.result.ring_instruction_data(proof),
+            output_hash: self.result.output_hash,
+            input_count: self.input_count,
+            merged_amount: self.merged_amount,
+            tx_viewing_pk: self.result.tx_viewing_pk,
+            salt: self.result.salt,
+            output_data: self.result.output_data.clone(),
         })
     }
 }
 
 impl ProvenCustomRingMerge {
-    pub fn instruction(
-        self,
-        input_tree: Address,
-        output_tree: Address,
-        payer: Address,
-    ) -> Instruction {
+    #[must_use = "use the updated merge"]
+    pub fn with_cosigner(mut self, cosigner: Address) -> Self {
+        self.cosigner = Some(cosigner);
+        self
+    }
+
+    pub fn instruction(self, payer: Address) -> Instruction {
         CustomRingMergeInstruction {
             ring: self.ring,
-            input_tree,
-            output_tree,
+            input_tree: self.input_tree,
+            output_tree: self.output_tree,
             payer,
+            cosigner: self.cosigner,
             data: self.data,
         }
         .instruction()
@@ -191,6 +349,15 @@ fn fetch_spend_proofs<I: Rpc>(
             None,
         )?
         .proofs;
+    validate_input_proofs(tree, commitments, state_proofs, nullifier_proofs)
+}
+
+fn validate_input_proofs(
+    tree: Address,
+    commitments: &[&SppProofInputUtxo],
+    state_proofs: Vec<zolana_client::MerkleProof>,
+    nullifier_proofs: Vec<NonInclusionProof>,
+) -> Result<Vec<SpendProof>, ClientError> {
     if state_proofs.len() != commitments.len() || nullifier_proofs.len() != commitments.len() {
         return Err(ClientError::IncompleteInputProofs {
             expected: commitments.len(),
@@ -221,13 +388,15 @@ fn fetch_spend_proofs<I: Rpc>(
         .collect()
 }
 
-/// Client instruction for a proved custom-ring merge.
+/// Client instruction for a proved custom-ring merge, the ring's
+/// `[cosigner_pda, cosigner]` prefix precedes the forwarded list.
 #[must_use]
 pub struct CustomRingMergeInstruction {
     pub ring: CustomRing,
     pub input_tree: Address,
     pub output_tree: Address,
     pub payer: Address,
+    pub cosigner: Option<Address>,
     pub data: MergeRingIxData,
 }
 
@@ -238,9 +407,10 @@ impl CustomRingMergeInstruction {
             input_tree,
             output_tree,
             payer,
+            cosigner,
             data,
         } = self;
-        MergeRing {
+        let mut instruction = MergeRing {
             input_tree,
             output_tree,
             ring_program_id: ring.program_id(),
@@ -248,7 +418,10 @@ impl CustomRingMergeInstruction {
             data: data.merge,
             output_ring_data_hash: data.output_ring_data_hash,
         }
-        .instruction()
+        .instruction();
+        let prefix = RingPrefix { ring, cosigner }.metas();
+        instruction.accounts.splice(0..0, prefix);
+        instruction
     }
 }
 
@@ -312,6 +485,7 @@ mod tests {
             },
         };
         let instruction = CustomRingMergeInstruction {
+            cosigner: None,
             ring,
             input_tree: Address::new_from_array([1; 32]),
             output_tree: Address::new_from_array([2; 32]),
@@ -321,11 +495,13 @@ mod tests {
         .instruction();
 
         assert_eq!(instruction.program_id, ring.program_id());
+        assert_eq!(instruction.accounts[0].pubkey, ring.config_pda());
+        assert_eq!(instruction.accounts[1].pubkey, ring.cosigner_pda());
         assert_eq!(
-            instruction.accounts[2].pubkey,
+            instruction.accounts[5].pubkey,
             pda::ring_auth(&ring.program_id()).0
         );
-        assert!(!instruction.accounts[2].is_signer);
+        assert!(!instruction.accounts[5].is_signer);
         assert_eq!(
             instruction.data.first(),
             Some(&zolana_interface::instruction::tag::RING_MERGE_TRANSACT)

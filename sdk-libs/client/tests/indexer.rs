@@ -13,15 +13,17 @@ use serde_json::{json, Value};
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    indexer::ZolanaIndexer,
+    indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     rpc::{
-        Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
-        OutputContext, OutputSlot, Rpc, ShieldedTransaction,
+        AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        GetMerkleProofsResponse, GetNonInclusionProofsResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
+        MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
+        RingSpendRecordRequest, Rpc, ShieldedTransaction,
     },
     ClientError,
 };
+use zolana_indexer_api::{Hash as ApiHash, SerializablePubkey};
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 
 #[test]
@@ -193,6 +195,7 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
             transactions: vec![ShieldedTransaction {
                 slot: 50,
                 tx_signature: signature,
+                event_index: None,
                 tx_viewing_pk: None,
                 salt: None,
                 output_slots: vec![OutputSlot {
@@ -207,6 +210,8 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
                 nullifiers: vec![nullifier],
                 proofless: true,
                 messages: vec![],
+                ring_config: None,
+                ring_program_id: None,
             }],
             next_cursor: Some(vec![23]),
             scanned_through: None,
@@ -569,6 +574,66 @@ fn by_signature_error_path_includes_transaction_nesting() {
     assert!(err
         .to_string()
         .contains("transactions[0].transaction.txViewingPk"));
+}
+
+fn spend_record_query() -> RingSpendRecordRequest {
+    RingSpendRecordRequest {
+        ring_program_id: SerializablePubkey::from(bytes32(1)),
+        member: ApiHash(bytes32(2)),
+    }
+}
+
+#[test]
+fn spend_record_transport_returns_the_indexed_record() {
+    let server = MockServer::respond_once(rpc_result(json!({
+        "context": {"blockTime": 90, "slot": 20},
+        "record": {
+            "transaction": {
+                "slot": 18,
+                "txSignature": signature(7).to_string(),
+                "eventIndex": 1,
+                "outputSlots": [],
+                "messages": [],
+                "nullifiers": [],
+                "proofless": false,
+            },
+            "outputIndex": 2,
+        },
+    })));
+    let query = spend_record_query();
+    let response = ZolanaIndexer::new(server.url())
+        .get_ring_spend_record(query.clone())
+        .unwrap();
+    let request = server.request();
+    assert_eq!(request.path, "/getRingSpendRecord");
+    assert_json_rpc_request(&request.body, "getRingSpendRecord");
+    assert_eq!(
+        request.body["params"],
+        json!({"ringProgramId": query.ring_program_id.to_string(), "member": encode_hash_string(bytes32(2))})
+    );
+    assert_eq!(response.context.slot, 20);
+    let record = response.record.unwrap();
+    assert_eq!(record.output_index, 2);
+    assert_eq!(record.transaction.slot, 18);
+    assert_eq!(record.transaction.event_index, Some(1));
+}
+
+#[tokio::test]
+async fn async_spend_record_transport_reads_an_unregistered_member_as_none() {
+    let server = MockServer::respond_once(rpc_result(json!({
+        "context": {"blockTime": 90, "slot": 21},
+        "record": null,
+    })));
+    let query = spend_record_query();
+    let response = AsyncZolanaIndexer::new(server.url())
+        .get_ring_spend_record(query.clone())
+        .await
+        .unwrap();
+    let request = server.request();
+    assert_json_rpc_request(&request.body, "getRingSpendRecord");
+    assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
+    assert_eq!(response.context.slot, 21);
+    assert!(response.record.is_none());
 }
 
 fn assert_json_rpc_request(body: &Value, method: &str) {

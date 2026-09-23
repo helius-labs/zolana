@@ -18,12 +18,13 @@ pub struct LiveEntry {
     pub entry: ListEntry,
     pub utxo_hash: [u8; 32],
     pub nullifier: [u8; 32],
+    /// Its leaf hashes under the id of the tree it landed in.
+    pub tree_id: u16,
 }
 
 #[must_use]
 pub struct ReadEntry {
-    pub entries_tree: Address,
-    pub entries_tree_id: u16,
+    pub address_tree_id: u16,
     pub namespace: Address,
     pub list_id: ListId,
     pub member: Member,
@@ -33,11 +34,7 @@ impl ReadEntry {
     /// `None` when the address was never claimed, a cleared entry still reads back.
     pub fn read<I: Rpc>(self, indexer: &I) -> Result<Option<LiveEntry>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages {
-            entries_tree: self.entries_tree,
-            lookups: &[lookup],
-        }
-        .fetch(indexer)?;
+        let lineages = Lineages { lookups: &[lookup] }.fetch(indexer)?;
         Ok(lineages.into_iter().next().flatten())
     }
 
@@ -46,12 +43,7 @@ impl ReadEntry {
         indexer: &I,
     ) -> Result<Option<LiveEntry>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages {
-            entries_tree: self.entries_tree,
-            lookups: &[lookup],
-        }
-        .fetch_async(indexer)
-        .await?;
+        let lineages = Lineages { lookups: &[lookup] }.fetch_async(indexer).await?;
         Ok(lineages.into_iter().next().flatten())
     }
 
@@ -62,9 +54,31 @@ impl ReadEntry {
             owner,
             list_id: self.list_id,
             member: self.member,
-            tree_id: self.entries_tree_id,
+            address_tree_id: self.address_tree_id,
         })
     }
+}
+
+/// One output of the transaction consuming the lineage's current nullifier.
+#[derive(Clone, Copy)]
+pub(crate) struct SpentSlot<'a> {
+    pub transaction: &'a ShieldedTransaction,
+    pub slot: &'a OutputSlot,
+}
+
+pub(crate) trait LineageLookup {
+    type Live: Clone;
+
+    fn address(&self) -> Result<[u8; 32], EntryProofError>;
+
+    /// `None` unless the slot reproduces the on-chain leaf at `address`.
+    fn decode(&self, address: &[u8; 32], slot: SpentSlot<'_>) -> Option<Self::Live>;
+
+    fn nullifier(live: &Self::Live) -> [u8; 32];
+
+    fn version(live: &Self::Live) -> u64;
+
+    fn broken(&self, version: u64) -> EntryProofError;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,17 +86,21 @@ pub(crate) struct EntryLookup {
     pub owner: ListNamespace,
     pub list_id: ListId,
     pub member: Member,
-    pub tree_id: u16,
+    pub address_tree_id: u16,
 }
 
-impl EntryLookup {
-    pub(crate) fn address(&self) -> Result<[u8; 32], EntryProofError> {
+impl LineageLookup for EntryLookup {
+    type Live = LiveEntry;
+
+    fn address(&self) -> Result<[u8; 32], EntryProofError> {
         self.owner
-            .address(self.list_id, &self.member, self.tree_id)
+            .address(self.list_id, &self.member, self.address_tree_id)
             .map_err(|_| EntryProofError::Hashing)
     }
 
-    fn decode(&self, address: &[u8; 32], slot: &OutputSlot) -> Option<LiveEntry> {
+    fn decode(&self, address: &[u8; 32], slot: SpentSlot<'_>) -> Option<LiveEntry> {
+        let slot = slot.slot;
+        let tree_id = slot.output_context.tree_id;
         let OutputDataEncoding::Plaintext(content) = slot.output_data()? else {
             return None;
         };
@@ -90,7 +108,7 @@ impl EntryLookup {
         if entry.list_id != self.list_id || entry.member != self.member {
             return None;
         }
-        let utxo_hash = entry.utxo_hash(&self.owner, address, self.tree_id).ok()?;
+        let utxo_hash = entry.utxo_hash(&self.owner, address, tree_id).ok()?;
         if utxo_hash != slot.output_context.hash {
             return None;
         }
@@ -99,21 +117,37 @@ impl EntryLookup {
             entry,
             utxo_hash,
             nullifier,
+            tree_id,
         })
+    }
+
+    fn nullifier(live: &LiveEntry) -> [u8; 32] {
+        live.nullifier
+    }
+
+    fn version(live: &LiveEntry) -> u64 {
+        live.entry.version
+    }
+
+    fn broken(&self, version: u64) -> EntryProofError {
+        EntryProofError::BrokenLineage {
+            list_id: self.list_id,
+            member: *self.member.as_bytes(),
+            version,
+        }
     }
 }
 
-pub(crate) struct Lineages<'a> {
-    pub entries_tree: Address,
-    pub lookups: &'a [EntryLookup],
+pub(crate) struct Lineages<'a, L> {
+    pub lookups: &'a [L],
 }
 
-impl Lineages<'_> {
-    /// One entry per lookup, in order.
+impl<L: LineageLookup> Lineages<'_, L> {
+    /// One live version per lookup, in order.
     pub(crate) fn fetch<I: Rpc>(
         self,
         indexer: &I,
-    ) -> Result<Vec<Option<LiveEntry>>, EntryProofError> {
+    ) -> Result<Vec<Option<L::Live>>, EntryProofError> {
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer.get_shielded_transactions_by_nullifiers(
@@ -130,7 +164,7 @@ impl Lineages<'_> {
     pub(crate) async fn fetch_async<I: AsyncRpc>(
         self,
         indexer: &I,
-    ) -> Result<Vec<Option<LiveEntry>>, EntryProofError> {
+    ) -> Result<Vec<Option<L::Live>>, EntryProofError> {
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer
@@ -149,23 +183,22 @@ struct LineageQuery {
 
 /// Every pending lineage advances one version per round, a round ends when the
 /// indexer returns its last page.
-struct LineageWalk<'a> {
-    entries_tree: Address,
-    heads: Vec<Head<'a>>,
+struct LineageWalk<'a, L: LineageLookup> {
+    heads: Vec<Head<'a, L>>,
     cursor: Option<Vec<u8>>,
     spenders: Vec<ShieldedTransaction>,
 }
 
-struct Head<'a> {
-    lookup: &'a EntryLookup,
+struct Head<'a, L: LineageLookup> {
+    lookup: &'a L,
     address: [u8; 32],
-    live: Option<LiveEntry>,
+    live: Option<L::Live>,
     nullifier: [u8; 32],
     ended: bool,
 }
 
-impl<'a> LineageWalk<'a> {
-    fn start(lineages: Lineages<'a>) -> Result<Self, EntryProofError> {
+impl<'a, L: LineageLookup> LineageWalk<'a, L> {
+    fn start(lineages: Lineages<'a, L>) -> Result<Self, EntryProofError> {
         let heads = lineages
             .lookups
             .iter()
@@ -181,7 +214,6 @@ impl<'a> LineageWalk<'a> {
             })
             .collect::<Result<Vec<_>, EntryProofError>>()?;
         Ok(Self {
-            entries_tree: lineages.entries_tree,
             heads,
             cursor: None,
             spenders: Vec::new(),
@@ -228,29 +260,29 @@ impl<'a> LineageWalk<'a> {
                 head.ended = true;
                 continue;
             };
-            let successor = spender
-                .output_slots
-                .iter()
-                .filter(|slot| {
-                    zolana_interface::pda::tree(slot.output_context.tree_id) == self.entries_tree
-                })
-                .find_map(|slot| head.lookup.decode(&head.address, slot));
+            let successor = spender.output_slots.iter().find_map(|slot| {
+                head.lookup.decode(
+                    &head.address,
+                    SpentSlot {
+                        transaction: spender,
+                        slot,
+                    },
+                )
+            });
             let Some(successor) = successor else {
-                return Err(EntryProofError::BrokenLineage {
-                    list_id: head.lookup.list_id,
-                    member: *head.lookup.member.as_bytes(),
-                    version: head
-                        .live
-                        .map_or(0, |live| live.entry.version.saturating_add(1)),
-                });
+                let version = head
+                    .live
+                    .as_ref()
+                    .map_or(0, |live| L::version(live).saturating_add(1));
+                return Err(head.lookup.broken(version));
             };
-            head.nullifier = successor.nullifier;
+            head.nullifier = L::nullifier(&successor);
             head.live = Some(successor);
         }
         Ok(())
     }
 
-    fn finish(self) -> Vec<Option<LiveEntry>> {
+    fn finish(self) -> Vec<Option<L::Live>> {
         self.heads.into_iter().map(|head| head.live).collect()
     }
 }
@@ -287,7 +319,7 @@ pub(crate) mod tests {
             owner: owner(),
             list_id,
             member,
-            tree_id: 0,
+            address_tree_id: 0,
         }
     }
 
@@ -297,12 +329,20 @@ pub(crate) mod tests {
     }
 
     impl Lineage {
+        /// Every version stays in the address tree.
         pub(crate) fn new(lookup: EntryLookup, states: &[EntryState]) -> Self {
+            let trees = vec![lookup.address_tree_id; states.len()];
+            Self::across(lookup, states, &trees)
+        }
+
+        /// Version `i` lands in `trees[i]`.
+        pub(crate) fn across(lookup: EntryLookup, states: &[EntryState], trees: &[u16]) -> Self {
             let address = lookup.address().expect("address");
             let versions = states
                 .iter()
+                .zip(trees)
                 .enumerate()
-                .map(|(version, state)| {
+                .map(|(version, (state, &tree_id))| {
                     let entry = ListEntry {
                         list_id: lookup.list_id,
                         member: lookup.member,
@@ -312,13 +352,14 @@ pub(crate) mod tests {
                         blinding: [version as u8 + 1; 32],
                     };
                     let utxo_hash = entry
-                        .utxo_hash(&lookup.owner, &address, lookup.tree_id)
+                        .utxo_hash(&lookup.owner, &address, tree_id)
                         .expect("hash");
                     LiveEntry {
                         entry,
                         utxo_hash,
                         nullifier: entry_nullifier(&utxo_hash, &entry.blinding())
                             .expect("nullifier"),
+                        tree_id,
                     }
                 })
                 .collect();
@@ -333,32 +374,27 @@ pub(crate) mod tests {
             self.versions.last().copied()
         }
 
-        pub(crate) fn spender(&self, index: usize, tree: Address) -> ShieldedTransaction {
+        pub(crate) fn spender(&self, index: usize) -> ShieldedTransaction {
             let spent = match index {
                 0 => self.address(),
                 _ => self.versions[index - 1].nullifier,
             };
-            transaction(spent, vec![slot(&self.versions[index], tree)])
+            transaction(spent, vec![slot(&self.versions[index])])
         }
 
-        pub(crate) fn spenders(&self, tree: Address) -> Vec<ShieldedTransaction> {
+        pub(crate) fn spenders(&self) -> Vec<ShieldedTransaction> {
             (0..self.versions.len())
-                .map(|index| self.spender(index, tree))
+                .map(|index| self.spender(index))
                 .collect()
         }
     }
 
-    pub(crate) fn slot(live: &LiveEntry, tree: Address) -> OutputSlot {
+    pub(crate) fn slot(live: &LiveEntry) -> OutputSlot {
         OutputSlot {
             view_tag: namespace().to_bytes(),
             output_context: OutputContext {
                 hash: live.utxo_hash,
-                tree_id: if tree == zolana_interface::pda::tree(7) {
-                    7
-                } else {
-                    assert_eq!(tree, zolana_interface::pda::tree(9));
-                    9
-                },
+                tree_id: live.tree_id,
                 leaf_index: live.entry.version,
             },
             payload: live.entry.to_output_data().to_vec(),
@@ -372,12 +408,15 @@ pub(crate) mod tests {
         ShieldedTransaction {
             slot: 0,
             tx_signature: Signature::default(),
+            event_index: Some(0),
             tx_viewing_pk: None,
             salt: None,
             output_slots,
             messages: Vec::new(),
             nullifiers: vec![spent],
             proofless: false,
+            ring_config: None,
+            ring_program_id: None,
         }
     }
 
@@ -464,8 +503,7 @@ pub(crate) mod tests {
 
     fn read(lookup: EntryLookup, rpc: &NullifierRpc) -> Result<Option<LiveEntry>, EntryProofError> {
         ReadEntry {
-            entries_tree: tree(),
-            entries_tree_id: 0,
+            address_tree_id: lookup.address_tree_id,
             namespace: namespace(),
             list_id: lookup.list_id,
             member: lookup.member,
@@ -485,23 +523,24 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_lineage_is_walked_one_version_per_request_and_skips_foreign_trees() {
-        let lineage = Lineage::new(
+    fn a_lineage_is_walked_one_version_per_request_across_trees() {
+        let lineage = Lineage::across(
             lookup(ListId::Allow, member(1)),
             &[EntryState::Active, EntryState::Cleared, EntryState::Active],
+            &[0, 9, 7],
         );
-        let mut spenders = lineage.spenders(tree());
-        // A foreign tree republishes version 1 under version 0's nullifier.
-        let foreign = zolana_interface::pda::tree(9);
-        spenders[1]
-            .output_slots
-            .insert(0, slot(&lineage.versions[1], foreign));
+        let mut spenders = lineage.spenders();
+        // A slot naming another tree than its leaf hashes under decodes to nothing.
+        let mut misplaced = slot(&lineage.versions[1]);
+        misplaced.output_context.tree_id = 7;
+        spenders[1].output_slots.insert(0, misplaced);
         let rpc = NullifierRpc::new(spenders);
         let live = read(lineage.lookup, &rpc)
             .expect("walk")
             .expect("live version");
         assert_eq!(live, lineage.versions[2]);
         assert_eq!(live.entry.version, 2);
+        assert_eq!(live.tree_id, 7);
         assert_eq!(
             *rpc.requests.lock().expect("requests"),
             vec![
@@ -519,11 +558,10 @@ pub(crate) mod tests {
             lookup(ListId::Block, member(2)),
             &[EntryState::Active, EntryState::Cleared],
         );
-        let rpc = NullifierRpc::new(lineage.spenders(tree()));
+        let rpc = NullifierRpc::new(lineage.spenders());
         let live = futures::executor::block_on(
             ReadEntry {
-                entries_tree: tree(),
-                entries_tree_id: 0,
+                address_tree_id: 0,
                 namespace: namespace(),
                 list_id: ListId::Block,
                 member: member(2),
@@ -538,17 +576,12 @@ pub(crate) mod tests {
     fn a_round_follows_the_cursor_across_pages() {
         let first = Lineage::new(lookup(ListId::Allow, member(1)), &[EntryState::Active]);
         let second = Lineage::new(lookup(ListId::Allow, member(2)), &[EntryState::Active]);
-        let mut spenders = first.spenders(tree());
-        spenders.extend(second.spenders(tree()));
+        let mut spenders = first.spenders();
+        spenders.extend(second.spenders());
         let mut rpc = NullifierRpc::new(spenders);
         rpc.page_size = Some(1);
         let lookups = [first.lookup, second.lookup];
-        let lineages = Lineages {
-            entries_tree: tree(),
-            lookups: &lookups,
-        }
-        .fetch(&rpc)
-        .expect("walk");
+        let lineages = Lineages { lookups: &lookups }.fetch(&rpc).expect("walk");
         assert_eq!(lineages, vec![first.live(), second.live()]);
         // Two full claim pages end on an empty third, the next round is one empty page.
         assert_eq!(rpc.requests.lock().expect("requests").len(), 4);
@@ -560,7 +593,7 @@ pub(crate) mod tests {
             lookup(ListId::Frozen, member(3)),
             &[EntryState::Active, EntryState::Cleared],
         );
-        let mut spenders = lineage.spenders(tree());
+        let mut spenders = lineage.spenders();
         spenders[1].output_slots.clear();
         let rpc = NullifierRpc::new(spenders);
         assert!(matches!(
@@ -578,14 +611,24 @@ pub(crate) mod tests {
         let lineage = Lineage::new(lookup(ListId::Allow, member(4)), &[EntryState::Active]);
         let live = lineage.versions[0];
         let address = lineage.address();
-        let genuine = slot(&live, tree());
-        assert_eq!(lineage.lookup.decode(&address, &genuine), Some(live));
+        let genuine = slot(&live);
+        let spender = transaction(address, Vec::new());
+        let decode = |slot: &OutputSlot| {
+            lineage.lookup.decode(
+                &address,
+                SpentSlot {
+                    transaction: &spender,
+                    slot,
+                },
+            )
+        };
+        assert_eq!(decode(&genuine), Some(live));
         let mut tampered = genuine.clone();
         // Flipping the state byte breaks the commitment.
         tampered.payload[38] = EntryState::Cleared as u8;
-        assert_eq!(lineage.lookup.decode(&address, &tampered), None);
+        assert_eq!(decode(&tampered), None);
         let mut wrong_pair = genuine;
         wrong_pair.payload[5] = ListId::Block as u8;
-        assert_eq!(lineage.lookup.decode(&address, &wrong_pair), None);
+        assert_eq!(decode(&wrong_pair), None);
     }
 }

@@ -1,0 +1,1 @@
+export const CUSTOM_RING_PROOF_LENGTH = 192;

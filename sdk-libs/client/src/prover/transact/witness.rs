@@ -81,7 +81,7 @@ pub(crate) fn validate_nullifier_proof(
 /// No secret comes in here: a real input's nullifier secret is filled in by its
 /// owner's [`ProofAuthority`](crate::authority::ProofAuthority), one call before
 /// the witness goes to the prover.
-pub(crate) fn attach_input_proofs(
+pub fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],

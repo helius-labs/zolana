@@ -46,12 +46,15 @@ fn publication(note: &WalletUtxo, output_slots: Vec<OutputSlot>) -> ShieldedTran
     ShieldedTransaction {
         slot: note.slot,
         tx_signature: note.tx_signature,
+        event_index: None,
         tx_viewing_pk: None,
         salt: None,
         output_slots,
         messages: vec![],
         nullifiers: vec![],
         proofless: false,
+        ring_config: None,
+        ring_program_id: None,
     }
 }
 

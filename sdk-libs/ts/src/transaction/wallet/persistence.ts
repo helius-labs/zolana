@@ -15,6 +15,7 @@ import {
   hex,
   type CursorStream,
   type PrivateTransaction,
+  type PendingWalletSubmission,
   type PrivateTransactionDirection,
   type PrivateTransactionKind,
   type ViewingKeyEntry,
@@ -84,7 +85,7 @@ export interface SerializedSyncCursors {
 export interface SerializedNoteReservation {
   readonly id: string;
   readonly noteHashes: readonly string[];
-  readonly expiresAtMs: string;
+  readonly expiresAtMs: string | null;
 }
 
 /**
@@ -93,7 +94,7 @@ export interface SerializedNoteReservation {
  * must still encrypt it at rest.
  */
 export interface SerializedWalletState {
-  readonly version: 3;
+  readonly version: 4;
   readonly identity: Readonly<{
     signingPublicKey: string;
     nullifierPublicKey: string;
@@ -107,13 +108,21 @@ export interface SerializedWalletState {
   readonly lastSynced: string;
   readonly syncCursors: SerializedSyncCursors;
   readonly reservations: readonly SerializedNoteReservation[];
+  readonly pendingSubmissions: readonly Readonly<{
+    id: string;
+    intentHash: string;
+    noteHashes: readonly string[];
+    attempts: number;
+    signature: Signature;
+    lastValidBlockHeight: string;
+  }>[];
 }
 
 export function serializeWallet(wallet: Wallet): string {
   if (!(wallet instanceof Wallet)) fail("wallet");
   const state = wallet._state();
   const snapshot: SerializedWalletState = {
-    version: 3,
+    version: 4,
     identity: {
       signingPublicKey: encode(wallet.identity.signingPublicKey.toBytes()),
       nullifierPublicKey: encode(wallet.identity.nullifierPublicKey),
@@ -133,12 +142,20 @@ export function serializeWallet(wallet: Wallet): string {
       proofless: serializeCursors(wallet, "proofless"),
       nullifiers: serializeCursors(wallet, "nullifiers"),
     },
+    pendingSubmissions: wallet.pendingSubmissions().map((pending) => ({
+      id: pending.id,
+      intentHash: encode(pending.intentHash),
+      noteHashes: pending.utxoHashes.map(encode),
+      attempts: pending.attempts,
+      signature: pending.signature,
+      lastValidBlockHeight: pending.lastValidBlockHeight.toString(),
+    })),
     reservations: wallet
       ._reservationEntries()
       .map((reservation) => ({
         id: reservation.id,
         noteHashes: reservation.utxoHashes.map(encode),
-        expiresAtMs: reservation.expiresAtMs.toString(),
+        expiresAtMs: reservation.expiresAtMs?.toString() ?? null,
       }))
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
   };
@@ -165,7 +182,7 @@ export function deserializeWallet(serialized: string): Wallet {
 function hydrate(value: unknown): Wallet {
   const snapshot = record(value, "wallet");
   const version = snapshot["version"];
-  if (version !== 2 && version !== 3) fail("version");
+  if (version !== 2 && version !== 3 && version !== 4) fail("version");
   const identityValue = record(snapshot["identity"], "identity");
   const identity = ShieldedAddress.fromPublicKeys(
     ShieldedPublicKey.fromBytes(
@@ -221,17 +238,76 @@ function hydrate(value: unknown): Wallet {
     lastSynced: signed(snapshot["lastSynced"], "lastSynced"),
   });
   // Version 2 predates persisted cursors, its first sync rescans history once.
-  if (version === 3) {
+  if (version >= 3) {
     hydrateCursors(wallet, snapshot["syncCursors"]);
     wallet._forgetNullifierCursors(nullifiers);
     if (snapshot["reservations"] !== undefined) {
-      hydrateReservations(wallet, snapshot["reservations"]);
+      hydrateReservations(wallet, snapshot["reservations"], version);
     }
+  }
+  if (version === 4) {
+    const seen = new Set<string>();
+    for (const [index, entry] of array(
+      snapshot["pendingSubmissions"],
+      "pendingSubmissions",
+    ).entries()) {
+      const path = `pendingSubmissions[${String(index)}]`;
+      const item = record(entry, path);
+      const id = item["id"];
+      if (typeof id !== "string" || !/^[0-9a-f]{32}$/u.test(id) || seen.has(id)) fail(`${path}.id`);
+      seen.add(id);
+      const attempts = item["attempts"];
+      if (
+        typeof attempts !== "number" ||
+        !Number.isInteger(attempts) ||
+        attempts < 1 ||
+        attempts > 3
+      )
+        fail(`${path}.attempts`);
+      const pending: PendingWalletSubmission = {
+        id,
+        intentHash: bytes(item["intentHash"], 32, `${path}.intentHash`) as Bytes32,
+        utxoHashes: array(item["noteHashes"], `${path}.noteHashes`).map(
+          (hash, index) => bytes(hash, 32, `${path}.noteHashes[${String(index)}]`) as Bytes32,
+        ),
+        attempts,
+        signature: signature(item["signature"], `${path}.signature`),
+        lastValidBlockHeight: unsigned(
+          item["lastValidBlockHeight"],
+          `${path}.lastValidBlockHeight`,
+        ),
+      };
+      const known = new Map(wallet.utxos().map((entry) => [hex(entry.outputContext.hash), entry]));
+      if (
+        new Set(pending.utxoHashes.map(hex)).size !== pending.utxoHashes.length ||
+        pending.utxoHashes.some((hash) => !known.has(hex(hash)))
+      )
+        fail(`${path}.noteHashes`);
+      const unspent = pending.utxoHashes.filter((hash) => !known.get(hex(hash))?.spent);
+      const reservation = wallet._reservationEntries().find((entry) => entry.id === id);
+      if (
+        unspent.length !== 0 &&
+        (reservation === undefined ||
+          reservation.expiresAtMs !== null ||
+          reservation.utxoHashes.length !== pending.utxoHashes.length ||
+          reservation.utxoHashes.some(
+            (hash, index) => hex(hash) !== hex(pending.utxoHashes[index]!),
+          ))
+      )
+        fail(`${path}.reservation`);
+      wallet._setPendingSubmission(pending);
+    }
+    wallet._restoreReservations(
+      wallet
+        ._reservationEntries()
+        .filter((entry) => entry.expiresAtMs !== null || seen.has(entry.id)),
+    );
   }
   return wallet;
 }
 
-function hydrateReservations(wallet: Wallet, value: unknown): void {
+function hydrateReservations(wallet: Wallet, value: unknown, version: number): void {
+  const reserved = new Set<string>();
   const seen = new Set<string>();
   wallet._restoreReservations(
     array(value, "reservations").map((entry, index) => {
@@ -240,13 +316,19 @@ function hydrateReservations(wallet: Wallet, value: unknown): void {
       const id = item["id"];
       if (typeof id !== "string" || !/^[0-9a-f]{32}$/u.test(id) || seen.has(id)) fail(`${path}.id`);
       seen.add(id);
+      const utxoHashes = array(item["noteHashes"], `${path}.noteHashes`).map((hash, hashIndex) => {
+        const decoded = bytes(hash, 32, `${path}.noteHashes[${String(hashIndex)}]`) as Bytes32;
+        if (reserved.has(hex(decoded))) fail(`${path}.noteHashes`);
+        reserved.add(hex(decoded));
+        return decoded;
+      });
       return Object.freeze({
         id,
-        utxoHashes: array(item["noteHashes"], `${path}.noteHashes`).map(
-          (hash, hashIndex) =>
-            bytes(hash, 32, `${path}.noteHashes[${String(hashIndex)}]`) as Bytes32,
-        ),
-        expiresAtMs: signed(item["expiresAtMs"], `${path}.expiresAtMs`),
+        utxoHashes,
+        expiresAtMs:
+          version === 4 && item["expiresAtMs"] === null
+            ? null
+            : signed(item["expiresAtMs"], `${path}.expiresAtMs`),
       });
     }),
   );

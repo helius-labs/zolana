@@ -31,6 +31,8 @@ export interface SpendPolicy {
   readonly eligible: (entry: WalletUtxo) => boolean;
   readonly ordering: "largestFirst" | "smallestFirst";
   readonly maxInputs: number;
+  /** Ring proofs range-check individual outputs, not the wallet's unspent total. */
+  readonly allowWideBalance?: true;
   /**
    * `infer` takes the trees the selected UTXOs happen to sit in, up to
    * `maxTrees` of them. A rail that publishes one input tree passes
@@ -87,7 +89,8 @@ export function selectUtxos(
   let total = 0n;
   for (const entry of sorted) {
     total += entry.utxo.amount;
-    if (total > U64_MAX) throw policy.errors.overflow({ available: total });
+    if (policy.allowWideBalance !== true && total > U64_MAX)
+      throw policy.errors.overflow({ available: total });
   }
 
   if (input.target.kind === "consolidate") {

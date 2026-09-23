@@ -22,14 +22,12 @@ import { inputTreeSlots, type TreeSlot } from "../interface/tree-slot.js";
 import type {
   Address,
   Bytes16,
-  Bytes31,
   Bytes32,
   Bytes33,
   RequestContext,
   TransactProof,
 } from "../interface/types.js";
 import { randomBytes } from "../keypair/bytes.js";
-import { NullifierKey } from "../keypair/nullifier-key.js";
 import {
   outputBlindingSeed,
   privateTxBlinding,
@@ -40,13 +38,21 @@ import { U64_MAX, ZERO_32 } from "../transaction/internal.js";
 import type { TreeId } from "../transaction/utxo.js";
 
 import { ringPolicyNamespaceAddress } from "./config.js";
-import { checkedEntryProof, readEntriesTreeHeads } from "./entries-tree.js";
+import { checkedEntryProof, readTreeHeads } from "./policy-trees.js";
 import {
   RingListNamespace,
+  ZERO_NULLIFIER_PK,
+  type LeafTree,
   encodeListEntry,
   entrySeed,
   solAssetField,
   type ListEntry,
+  type SpendRecord,
+  type Member,
+  spendSeed,
+  zeroSpendCounters,
+  spendCountersCommitment,
+  encodeSpendRecord,
 } from "./policy.js";
 
 export type RingEntryProofClient = Pick<ChainReader, "getAccount"> &
@@ -56,15 +62,23 @@ export type RingEntryProofClient = Pick<ChainReader, "getAccount"> &
 /** An entry before the proof derives its blinding, Rust `EntryDraft`. */
 export type ListEntryDraft = Omit<ListEntry, "blinding">;
 
+/** Mirrors Rust `MutationTrees`. */
+export interface RingMutationTrees {
+  readonly address: TreeId;
+  readonly input: TreeId;
+  readonly output: TreeId;
+}
+
 export interface RingEntryTransitionInput {
   readonly client: RingEntryProofClient;
   readonly ringProgramId: Address;
-  readonly entriesTree: Address;
-  readonly entriesTreeId: TreeId;
+  /** A claim spends the address slot from this tree. */
+  readonly addressTree: LeafTree;
+  readonly outputTree: LeafTree;
   readonly payer: Address;
   readonly entry: ListEntryDraft;
-  /** Absent for a claim. */
-  readonly spent?: ListEntry;
+  /** Absent for a claim, else the live version spent from the tree holding it. */
+  readonly spent?: LeafTree & Readonly<{ entry: ListEntry }>;
 }
 
 export interface RingEntryProof {
@@ -89,13 +103,23 @@ export async function proveRingEntryTransition(
   context?: RequestContext,
 ): Promise<RingEntryTransition> {
   const namespace = await ringPolicyNamespaceAddress(input.ringProgramId);
-  const listNamespace = RingListNamespace.of(namespace, input.entriesTreeId);
-  const slot = entrySlot(listNamespace, input.entry, input.spent);
+  const inputTree = input.spent ?? input.addressTree;
+  const trees: RingMutationTrees = {
+    address: input.addressTree.treeId,
+    input: inputTree.treeId,
+    output: input.outputTree.treeId,
+  };
+  const slot = entrySlot(RingListNamespace.of(namespace, trees.address), {
+    entry: input.entry,
+    spent: input.spent?.entry,
+    inputTreeId: trees.input,
+  });
+  const reads = { client: input.client, tree: inputTree };
   const [absence, state] = await Promise.all([
-    nonInclusionProof(input, slot.nullifier, context),
+    nonInclusionProof(reads, slot.nullifier, context),
     slot.spentHash === undefined
-      ? headState(input, context)
-      : spentLeaf(input, slot.spentHash, context),
+      ? headState(reads, context)
+      : spentLeaf(reads, slot.spentHash, context),
   ]);
   const {
     entry,
@@ -103,7 +127,7 @@ export async function proveRingEntryTransition(
     privateTxBlinding: blinding,
   } = transitionInputs(slot, {
     namespace,
-    entriesTreeId: input.entriesTreeId,
+    trees,
     payer: input.payer,
     entry: input.entry,
     state,
@@ -133,7 +157,7 @@ export interface RingEntryStateLeaf {
 
 export interface RingEntryTransitionProofInputs {
   readonly namespace: Address;
-  readonly entriesTreeId: TreeId;
+  readonly trees: RingMutationTrees;
   readonly payer: Address;
   readonly entry: ListEntryDraft;
   readonly spent?: ListEntry;
@@ -154,8 +178,12 @@ export interface RingEntryTransitionInputs {
 export function ringEntryTransitionInputs(
   input: RingEntryTransitionProofInputs,
 ): RingEntryTransitionInputs {
-  const namespace = RingListNamespace.of(input.namespace, input.entriesTreeId);
-  const slot = entrySlot(namespace, input.entry, input.spent);
+  const namespace = RingListNamespace.of(input.namespace, input.trees.address);
+  const slot = entrySlot(namespace, {
+    entry: input.entry,
+    spent: input.spent,
+    inputTreeId: input.trees.input,
+  });
   return Object.freeze({ ...transitionInputs(slot, input), nullifier: slot.nullifier });
 }
 
@@ -163,16 +191,53 @@ function transitionInputs(
   slot: InputSlot,
   input: Omit<RingEntryTransitionProofInputs, "spent">,
 ): Omit<RingEntryTransitionInputs, "nullifier"> {
-  const namespace = RingListNamespace.of(input.namespace, input.entriesTreeId);
+  const namespace = RingListNamespace.of(input.namespace, input.trees.address);
   // SPP derives every output blinding from the first nullifier, the record publishes it.
   const outputSeed = outputBlindingSeed(slot.nullifier, input.blindingSeed);
   const entry: ListEntry = Object.freeze({
     ...input.entry,
     blinding: transactOutputBlinding(slot.nullifier, outputSeed, 0),
   });
+  const transition = dataTransitionInputs({
+    slot,
+    namespace,
+    trees: input.trees,
+    payer: input.payer,
+    state: input.state,
+    absence: input.absence,
+    blindingSeed: input.blindingSeed,
+    output: {
+      blinding: entry.blinding,
+      hashes: namespace.entryHashes(entry, input.trees.output),
+      encoded: encodeListEntry(entry),
+    },
+  });
+  return Object.freeze({ entry, ...transition });
+}
+
+/** Binds a compressed account spend to its namespace-owned successor. */
+interface DataTransition {
+  readonly slot: InputSlot;
+  readonly namespace: RingListNamespace;
+  readonly trees: RingMutationTrees;
+  readonly payer: Address;
+  readonly state: RingEntryStateLeaf;
+  readonly absence: NonInclusionProof;
+  readonly blindingSeed: Bytes32;
+  readonly output: Readonly<{
+    blinding: Bytes32;
+    hashes: Readonly<{ utxoHash: Bytes32; dataHash: Bytes32 }>;
+    encoded: Uint8Array;
+  }>;
+}
+
+function dataTransitionInputs(
+  input: DataTransition,
+): Pick<RingEntryTransitionInputs, "inputs" | "privateTxBlinding"> {
+  const { slot, namespace, output } = input;
   const txBlinding = privateTxBlinding(slot.nullifier, input.blindingSeed);
-  const hashes = namespace.entryHashes(entry);
-  const namespaceBytes = addressBytes(input.namespace, "namespace") as Bytes32;
+  const hashes = output.hashes;
+  const namespaceBytes = addressBytes(namespace.address, "namespace") as Bytes32;
   const external = externalDataHash({
     instructionDiscriminator: InstructionTag.transact,
     expiryUnixTs: U64_MAX,
@@ -183,7 +248,7 @@ function transitionInputs(
       {
         utxoHash: hashes.utxoHash,
         ownerTag: { kind: "inline", value: namespaceBytes },
-        data: encodeListEntry(entry),
+        data: output.encoded,
       },
     ],
     messages: [],
@@ -197,10 +262,10 @@ function transitionInputs(
     externalDataHash: external,
     blinding: txBlinding,
   });
-  const namespaceHash = signerIdentity(input.namespace);
+  const namespaceHash = signerIdentity(namespace.address);
   const payerHash = signerIdentity(input.payer);
   const inputTree: TreeSlot = Object.freeze({
-    id: input.entriesTreeId,
+    id: input.trees.input,
     utxoRoot: input.state.root,
     nullifierRoot: input.absence.root,
   });
@@ -209,7 +274,7 @@ function transitionInputs(
     nullifiers: [bytesToBigInt(slot.nullifier)],
     outputHashes: [bytesToBigInt(hashes.utxoHash)],
     treeSlots,
-    outputTreeId: input.entriesTreeId,
+    outputTreeId: input.trees.output,
     privateTxHash: bytesToBigInt(privateHash),
     externalDataHash: bytesToBigInt(external),
     publicSlots: Array.from({ length: 6 }, () => 0n),
@@ -237,22 +302,17 @@ function transitionInputs(
     nullifierSecret: asField(0n),
   });
   const transferOutput: TransferOutput = Object.freeze({
-    circuit: entryCircuitUtxo(namespace, entry, hashes.dataHash),
+    circuit: entryCircuitUtxo(namespace, output, hashes.dataHash),
     isDummy: asField(0n),
     hash: asField(bytesField(hashes.utxoHash, "output hash")),
     ownerPublicKeyHash: asField(namespaceHash),
-    nullifierPublicKey: asField(
-      bytesField(
-        NullifierKey.fromSecret(new Uint8Array(31) as Bytes31).publicKey(),
-        "output nullifier public key",
-      ),
-    ),
+    nullifierPublicKey: asField(bytesField(ZERO_NULLIFIER_PK, "output nullifier public key")),
   });
   const inputs: TransferInputs = Object.freeze({
     inputs: Object.freeze([transferInput]),
     outputs: Object.freeze([transferOutput]),
     treeSlots: Object.freeze(treeSlots.map(treeSlotFields)),
-    outputTreeId: asField(BigInt(input.entriesTreeId)),
+    outputTreeId: asField(BigInt(input.trees.output)),
     externalDataHash: asField(bytesToBigInt(external)),
     privateTxHash: asField(bytesToBigInt(privateHash)),
     blindingSeed: asField(bytesField(input.blindingSeed, "blinding seed")),
@@ -264,7 +324,85 @@ function transitionInputs(
     publishedOutputOwnerPublicKeyHashes: Object.freeze([asField(namespaceHash)]),
     publicInputHash: asField(publicInputHash),
   });
-  return Object.freeze({ entry, inputs, privateTxBlinding: txBlinding });
+  return Object.freeze({ inputs, privateTxBlinding: txBlinding });
+}
+
+/** Creates a member's first compressed record with empty counters. */
+export interface RingSpendRegistrationInput {
+  readonly client: RingEntryProofClient;
+  readonly ringProgramId: Address;
+  /** The registration claims the record address from this tree. */
+  readonly addressTree: LeafTree;
+  readonly outputTree: LeafTree;
+  readonly payer: Address;
+  readonly member: Member;
+  readonly windowIndex: bigint;
+}
+
+export async function proveRingSpendRegistration(
+  input: RingSpendRegistrationInput,
+  context?: RequestContext,
+): Promise<Readonly<{ record: SpendRecord; proof: RingEntryProof }>> {
+  const namespaceAddress = await ringPolicyNamespaceAddress(input.ringProgramId);
+  const trees: RingMutationTrees = {
+    address: input.addressTree.treeId,
+    input: input.addressTree.treeId,
+    output: input.outputTree.treeId,
+  };
+  const namespace = RingListNamespace.of(namespaceAddress, trees.address);
+  const seed = spendSeed(input.member);
+  const address = namespace.spendAddress(input.member);
+  const slot: InputSlot = {
+    circuit: circuitUtxo({
+      domain: ADDRESS_DOMAIN,
+      owner: namespace.ownerHash,
+      asset: 0n,
+      blinding: bytesToBigInt(seed),
+      dataHash: 0n,
+    }),
+    inputHash: ZERO_32,
+    addressNullifier: address,
+    nullifier: address,
+  };
+  const reads = { client: input.client, tree: input.addressTree };
+  const [absence, state] = await Promise.all([
+    nonInclusionProof(reads, address, context),
+    headState(reads, context),
+  ]);
+  const seedBytes = blindingSeed();
+  try {
+    const record: SpendRecord = Object.freeze({
+      member: input.member,
+      version: 0n,
+      window: input.windowIndex,
+      countersCommitment: spendCountersCommitment(zeroSpendCounters()),
+      blinding: transactOutputBlinding(address, outputBlindingSeed(address, seedBytes), 0),
+    });
+    const hashes = namespace.spendRecordHashes(record, trees.output);
+    const transition = dataTransitionInputs({
+      slot,
+      namespace,
+      payer: input.payer,
+      trees,
+      state,
+      absence,
+      blindingSeed: seedBytes,
+      output: { blinding: record.blinding, hashes, encoded: encodeSpendRecord(record) },
+    });
+    const proof = await input.client.proveTransferInputs(transition.inputs, context);
+    return Object.freeze({
+      record,
+      proof: Object.freeze({
+        proof,
+        utxoTreeRootIndex: state.rootIndex,
+        nullifierTreeRootIndex: absence.rootIndex,
+        nullifier: address,
+        privateTxBlinding: transition.privateTxBlinding,
+      }),
+    });
+  } finally {
+    seedBytes.fill(0);
+  }
 }
 
 /** A random field element, the top byte stays zero. */
@@ -285,9 +423,9 @@ interface InputSlot {
 
 function entrySlot(
   namespace: RingListNamespace,
-  entry: ListEntryDraft,
-  spent: ListEntry | undefined,
+  input: Readonly<{ entry: ListEntryDraft; spent: ListEntry | undefined; inputTreeId: TreeId }>,
 ): InputSlot {
+  const { entry, spent } = input;
   if (spent === undefined) {
     const seed = entrySeed(entry);
     const address = namespace.entryAddress(entry);
@@ -304,7 +442,7 @@ function entrySlot(
       nullifier: address,
     };
   }
-  const hashes = namespace.entryHashes(spent);
+  const hashes = namespace.entryHashes(spent, input.inputTreeId);
   return {
     circuit: entryCircuitUtxo(namespace, spent, hashes.dataHash),
     inputHash: hashes.utxoHash,
@@ -313,19 +451,24 @@ function entrySlot(
   };
 }
 
+interface InputTreeReads {
+  readonly client: RingEntryProofClient;
+  readonly tree: LeafTree;
+}
+
 async function spentLeaf(
-  input: RingEntryTransitionInput,
+  input: InputTreeReads,
   spentHash: Bytes32,
   context: RequestContext | undefined,
 ): Promise<RingEntryStateLeaf> {
   const { proofs } = await input.client.getMerkleProofs(
-    input.entriesTree,
+    input.tree.tree,
     [spentHash],
     undefined,
     context,
   );
   const proof = checkedEntryProof(proofs.length === 1 ? proofs[0] : undefined, {
-    entriesTree: input.entriesTree,
+    tree: input.tree.tree,
     leaf: spentHash,
     pathLength: STATE_TREE_HEIGHT,
   });
@@ -338,18 +481,18 @@ async function spentLeaf(
 }
 
 async function nonInclusionProof(
-  input: RingEntryTransitionInput,
+  input: InputTreeReads,
   target: Bytes32,
   context: RequestContext | undefined,
 ): Promise<NonInclusionProof> {
   const { proofs } = await input.client.getNonInclusionProofs(
-    input.entriesTree,
+    input.tree.tree,
     [target],
     undefined,
     context,
   );
   return checkedEntryProof(proofs.length === 1 ? proofs[0] : undefined, {
-    entriesTree: input.entriesTree,
+    tree: input.tree.tree,
     leaf: target,
     pathLength: NULLIFIER_TREE_HEIGHT,
   });
@@ -357,10 +500,10 @@ async function nonInclusionProof(
 
 /** Mirrors Rust `read_state_root`, a claim opens the head with a zero path. */
 async function headState(
-  input: RingEntryTransitionInput,
+  input: InputTreeReads,
   context: RequestContext | undefined,
 ): Promise<RingEntryStateLeaf> {
-  const roots = await readEntriesTreeHeads(input.client, input.entriesTree, context);
+  const roots = await readTreeHeads(input.client, input.tree, context);
   return {
     root: roots.stateRoot,
     rootIndex: roots.stateRootIndex,
@@ -371,7 +514,7 @@ async function headState(
 
 function entryCircuitUtxo(
   namespace: RingListNamespace,
-  entry: ListEntry,
+  entry: Pick<ListEntry, "blinding">,
   dataHash: Bytes32,
 ): CircuitUtxo {
   return circuitUtxo({

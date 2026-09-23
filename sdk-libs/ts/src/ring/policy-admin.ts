@@ -32,7 +32,7 @@ export interface RingCreatePolicyTransactionParams
   readonly payer: Address;
   /** The upgrade authority. */
   readonly authority: Address;
-  readonly entriesTree: Address;
+  readonly addressTree: Address;
 }
 
 /** Pins the table at generation one. */
@@ -43,7 +43,7 @@ export async function buildRingCreatePolicyTransaction(
   try {
     await checkTier(params, context);
     const instruction = await createRingPolicyInstruction(params);
-    await checkCurators(params, params.entriesTree, params.sharedSources ?? [], context);
+    await checkCurators(params, params.addressTree, params.sharedSources ?? [], context);
     const lifetime = await params.client.getLatestBlockhash(context);
     return compileUnsignedTransaction({
       feePayer: params.payer,
@@ -72,7 +72,7 @@ export async function buildRingSetPolicyRulesTransaction(
     await checkTier(params, context);
     const instruction = await setRingPolicyRulesInstruction(params);
     const own = await fetchRingPolicyConfig(params.client, params.ringProgramId, context);
-    await checkCurators(params, own.entriesTree, params.sharedSources ?? [], context);
+    await checkCurators(params, own.addressTree, params.sharedSources ?? [], context);
     const lifetime = await params.client.getLatestBlockhash(context);
     return compileUnsignedTransaction({
       feePayer: params.authority,
@@ -108,7 +108,7 @@ export async function buildRingSetPolicySourceTransaction(
     if (params.source.kind === "curator") {
       await checkCurators(
         params,
-        own.entriesTree,
+        own.addressTree,
         [{ listId: params.listId, curatorRingProgramId: params.source.ringProgramId }],
         context,
       );
@@ -142,7 +142,7 @@ async function checkTier(params: RingPolicyAdminParams, context: RequestContext 
 /** The checks `load_curator_policy_config` and `resolve_sources` apply on chain. */
 async function checkCurators(
   params: RingPolicyAdminParams,
-  entriesTree: Address,
+  addressTree: Address,
   shared: readonly RingSharedSource[],
   context: RequestContext | undefined,
 ): Promise<void> {
@@ -152,7 +152,7 @@ async function checkCurators(
       curators.get(source.curatorRingProgramId) ??
       (await fetchRingPolicyConfig(params.client, source.curatorRingProgramId, context));
     curators.set(source.curatorRingProgramId, curator);
-    if (curator.entriesTree !== entriesTree) {
+    if (curator.addressTree !== addressTree) {
       throw new RingError("RING_POLICY_SOURCE_INVALID", {
         details: { reason: "CuratorTreeMismatch", listId: source.listId },
       });

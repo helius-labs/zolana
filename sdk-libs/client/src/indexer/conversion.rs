@@ -1,6 +1,7 @@
 use solana_address::Address;
 use zolana_api::{
-    Base64String, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot, SerializablePubkey,
+    Base64String, GetRingsByTagsRequest, Hash as ApiHash, Limit, RingsOutputSlot as ApiOutputSlot,
+    SerializablePubkey,
 };
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 
@@ -9,9 +10,25 @@ use crate::{
     rpc::{
         Context, EncryptedUtxoMatch, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext,
-        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ShieldedTransaction,
+        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, RingHistoryOptions,
+        ShieldedTransaction,
     },
 };
+
+pub(super) fn ring_history_request(
+    options: RingHistoryOptions,
+) -> Result<GetRingsByTagsRequest, ClientError> {
+    let limit = options
+        .limit
+        .map(|value| Limit::new(u64::from(value)).map_err(|error| ClientError::Rpc(error.into())))
+        .transpose()?;
+    Ok(GetRingsByTagsRequest {
+        tags: Vec::new(),
+        cursor: encode_cursor(options.cursor),
+        limit,
+        ring_program_id: Some(SerializablePubkey(options.ring_program_id)),
+    })
+}
 
 pub(super) fn convert_context(context: zolana_api::Context) -> Context {
     Context {
@@ -78,6 +95,12 @@ pub(super) fn convert_shielded_transactions_by_signature_response(
     })
 }
 
+pub fn decode_shielded_transaction(
+    item: zolana_api::ShieldedTransaction,
+) -> Result<ShieldedTransaction, ClientError> {
+    convert_shielded_transaction("transaction", item)
+}
+
 pub(super) fn convert_shielded_transaction(
     path: &str,
     item: zolana_api::ShieldedTransaction,
@@ -85,6 +108,7 @@ pub(super) fn convert_shielded_transaction(
     Ok(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature.0,
+        event_index: item.event_index,
         tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.txViewingPk"))?,
         salt: decode_optional_salt(item.salt, &format!("{path}.salt"))?,
         output_slots: item
@@ -102,6 +126,8 @@ pub(super) fn convert_shielded_transaction(
             .collect(),
         nullifiers: item.nullifiers.into_iter().map(Into::into).collect(),
         proofless: item.proofless,
+        ring_config: item.ring_config.map(|key| key.0),
+        ring_program_id: item.ring_program_id.map(|key| key.0),
     })
 }
 
@@ -208,4 +234,28 @@ fn fixed_bytes<const N: usize>(
 
 fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
     ClientError::Rpc(format!("invalid indexer field {field}: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn ring_history_request_pins_the_ring_without_a_view_tag() {
+        let ring = solana_address::Address::new_from_array([19; 32]);
+        let request = super::ring_history_request(crate::rpc::RingHistoryOptions {
+            ring_program_id: ring,
+            cursor: Some(vec![7]),
+            limit: Some(17),
+        })
+        .unwrap();
+        assert!(request.tags.is_empty());
+        assert_eq!(request.ring_program_id.unwrap().0, ring);
+        assert_eq!(request.cursor.unwrap().0, vec![7]);
+        assert_eq!(request.limit.unwrap().value(), 17);
+        assert!(super::ring_history_request(crate::rpc::RingHistoryOptions {
+            ring_program_id: ring,
+            cursor: None,
+            limit: Some(0)
+        })
+        .is_err());
+    }
 }

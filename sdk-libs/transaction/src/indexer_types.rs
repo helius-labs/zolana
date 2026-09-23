@@ -8,12 +8,17 @@ use crate::serialization::{proofless::Proofless, scheme::EncryptedScheme, UtxoSe
 pub struct ShieldedTransaction {
     pub slot: u64,
     pub tx_signature: solana_signature::Signature,
+    /// Position of this event within the transaction. Required when a caller
+    /// verifies which program invocation emitted it.
+    pub event_index: Option<u16>,
     pub tx_viewing_pk: Option<P256Pubkey>,
     pub salt: Option<[u8; 16]>,
     pub output_slots: Vec<OutputSlot>,
     pub messages: Vec<MessageData>,
     pub nullifiers: Vec<[u8; 32]>,
     pub proofless: bool,
+    pub ring_config: Option<solana_address::Address>,
+    pub ring_program_id: Option<solana_address::Address>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -7,12 +7,14 @@ import {
   StateDiscriminator,
   TREE_ACCOUNT_SIZE,
   UTXO_ROOT_HISTORY_CAPACITY,
-  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_CURSOR_OFFSET,
-  UTXO_ROOT_HISTORY_LEN_OFFSET,
   UTXO_ROOT_HISTORY_OFFSET,
   UTXO_SUBTREES_LEN_OFFSET,
 } from "../../src/interface/index.js";
+import {
+  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
+  UTXO_ROOT_HISTORY_LEN_OFFSET,
+} from "../../src/interface/state.js";
 
 export function filled(byte: number): Uint8Array {
   return new Uint8Array(32).fill(byte);
@@ -20,10 +22,16 @@ export function filled(byte: number): Uint8Array {
 
 /** Roots in utxo slots `0..written`, every nullifier slot filled. */
 export function treeAccount(
-  input: Readonly<{ stateCursor: number; written: number; nullifierCursor: bigint }>,
+  input: Readonly<{
+    stateCursor: number;
+    written: number;
+    nullifierCursor: bigint;
+    treeId?: number;
+  }>,
 ): Uint8Array {
   const account = new Uint8Array(TREE_ACCOUNT_SIZE);
   account[0] = StateDiscriminator.treeAccount;
+  new DataView(account.buffer).setUint16(2, input.treeId ?? 0, true);
   account.set(
     Uint8Array.of(input.stateCursor & 0xff, input.stateCursor >> 8),
     UTXO_ROOT_HISTORY_CURSOR_OFFSET,

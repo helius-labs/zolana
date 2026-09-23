@@ -4,11 +4,13 @@ use std::{
 };
 
 use custom_ring_sdk::{
-    policy_config_table, AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput,
-    DepositAsset, DepositError, EntryProofEnvironment, PolicyMatchError, RingDeposit,
+    policy_config_table, AccountReadError, CoSignScope, CustomRing, CustomRingCoSigner,
+    CustomRingTransfer, CustomRingTransferInput, DepositAsset, DepositError,
+    DepositProofEnvironment, EntryProofEnvironment, PolicyConfig, PolicyMatchError, RingDeposit,
     RingDepositReceipt, SendError, TransactSend, TransferError, TransferProofEnvironment,
 };
 use solana_address::Address;
+use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
@@ -19,32 +21,43 @@ use zolana_ring_client::{ReaderKey, ReaderKeyError};
 use zolana_ring_policy::{EntryState, ListId, Member, MemberError, RuleTable};
 use zolana_transaction::{
     instructions::transact::{canonical_shape, ConfidentialTransaction},
-    TransactionError, Utxo, WalletUtxo,
+    TransactionError, Utxo, WalletUtxo, SOL_MINT,
 };
 
 use crate::{
+    assets::{self, AssetError, DepositFunding},
+    error::boxed_from,
     file::{self, FileError},
+    key::{KeyEnrolment, KeyError},
     line,
     list::{EntryMutation, ListError},
     ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
+    spend::{Registration, SpendError},
     ui::{self, Icon},
     Context, ContextError, TransactArgs, TransferArgs, SENDER_KEYPAIR_FILE,
 };
 
 /// Covers the sender's lookup table rent and fees.
-const SENDER_FEE_BUDGET: u64 = 20_000_000;
+pub(crate) const SENDER_FEE_BUDGET: u64 = 20_000_000;
 /// Lookup table rent, the deposit and transact fees.
-const PAYER_FEE_BUDGET: u64 = 10_000_000;
+pub(crate) const PAYER_FEE_BUDGET: u64 = 10_000_000;
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+/// A deposit and a transfer land in one command.
+const DEPOSIT_TRANSFER_SCOPE: CoSignScope =
+    match CoSignScope::new(CoSignScope::TRANSFERS.bits() | CoSignScope::DEPOSITS.bits()) {
+        Some(scope) => scope,
+        None => unreachable!(),
+    };
 
 #[must_use]
 pub struct DemoTransfer<'a> {
     pub ring: CustomRing,
-    /// The sender is funded from here and then pays its own v0 transaction.
     pub payer: &'a dyn Signer,
     pub sender: ShieldedKeypair,
     pub amount: u64,
+    pub cosigner: Option<&'a dyn Signer>,
+    pub rules: Option<&'a RingRules>,
 }
 
 /// Whatever the two deposits hold above `amount` stays with the sender.
@@ -56,6 +69,9 @@ struct RingTransfer<'a> {
     recipient: ShieldedAddress,
     amount: u64,
     tree: Address,
+    asset: DepositAsset,
+    cosigner: Option<&'a dyn Signer>,
+    rules: Option<&'a RingRules>,
 }
 
 struct Deposited<'a> {
@@ -75,6 +91,12 @@ pub struct TransferReceipt {
     pub recipient: ShieldedKeypair,
     pub deposits: Vec<Signature>,
     pub transact: Signature,
+}
+
+/// The pinned policy, `None` for an audit-only ring.
+pub struct RingRules {
+    config: PolicyConfig,
+    rules: RuleTable,
 }
 
 pub enum Probe<T, E> {
@@ -131,15 +153,40 @@ pub enum TransactError {
     ReaderNotGranted { reader: ReaderKey },
     #[error("amount {amount} does not split across the two deposits a ring transfer input_utxos")]
     AmountTooSmall { amount: u64 },
+    #[error(transparent)]
+    Spend(Box<SpendError>),
+    #[error(transparent)]
+    Key(Box<KeyError>),
+    #[error("the transfer needs the co-signer's approval, pass --cosigner-keypair")]
+    ApprovalNeedsCoSigner,
+    #[error("the configured co-signer is {expected}, not {found}")]
+    WrongCoSigner { expected: Address, found: Address },
+    #[error("the policy needs approval but no co-signer is configured")]
+    CoSignerNotConfigured,
+    #[error(transparent)]
+    Asset(Box<AssetError>),
 }
 
-impl From<ListError> for TransactError {
-    fn from(error: ListError) -> Self {
-        Self::List(Box::new(error))
-    }
-}
+boxed_from!(TransactError {
+    Asset(AssetError),
+    Spend(SpendError),
+    Key(KeyError),
+    List(ListError),
+    PolicyMatch(PolicyMatchError),
+});
 
 pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
+    let rules = RingRules::read(ctx.ring, &ctx.rpc)?;
+    let cosigner = CoSignerCheck {
+        keypair: args.cosigner_keypair.as_deref(),
+        scope: DEPOSIT_TRANSFER_SCOPE,
+        payment: Some(PolicyPayment {
+            mint: SOL_MINT,
+            outflow: args.amount,
+            rules: rules.as_ref().map(|rules| &rules.rules),
+        }),
+    }
+    .load(ctx)?;
     // The demo deposits the amount twice, funded before the first deposit.
     let session = Session::open(ctx, args.amount.saturating_mul(2))?;
     let reader_key = ReaderKey::ed25519(session.authority.pubkey())?;
@@ -155,6 +202,8 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
         payer: &session.authority,
         sender: sender_keypair(ctx)?,
         amount: args.amount,
+        cosigner: cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
+        rules: rules.as_ref(),
     }
     .run(session.env(ctx))?;
     line(
@@ -193,27 +242,57 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
             amount: args.amount,
         });
     }
-    let session = Session::open(ctx, args.amount)?;
+    let mint = args.mint.map_or(SOL_MINT, |mint| mint.0);
+    let assets = assets::resolve(&ctx.rpc, mint)?;
+    let payer = ctx.config.config_authority().map_err(ContextError::from)?;
+    let asset = assets.deposit(
+        &ctx.rpc,
+        DepositFunding {
+            payer: payer.pubkey(),
+            token_account: args.token_account,
+            amount: args.amount,
+        },
+    )?;
+    let rules = RingRules::read(ctx.ring, &ctx.rpc)?;
+    let sender = sender_keypair(ctx)?;
+    let cosigner = CoSignerCheck {
+        keypair: args.cosigner_keypair.as_deref(),
+        scope: DEPOSIT_TRANSFER_SCOPE,
+        payment: Some(
+            RingPayment {
+                mint,
+                amount: args.amount,
+                sender: &sender,
+                recipient: &args.to,
+                rules: rules.as_ref().map(|rules| &rules.rules),
+            }
+            .policy()?,
+        ),
+    }
+    .load(ctx)?;
+    let tree = pda::tree(0);
+    let session = Session::open(ctx, if mint == SOL_MINT { args.amount } else { 0 })?;
     // The recipient takes the whole amount, so the two deposits split it.
     let half = args.amount / 2;
     let sent = RingTransfer {
         ring: ctx.ring,
         payer: &session.authority,
-        sender: sender_keypair(ctx)?,
+        sender,
         deposits: [half, args.amount - half],
         recipient: args.to,
         amount: args.amount,
-        tree: pda::tree(0),
+        tree,
+        asset,
+        cosigner: cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
+        rules: rules.as_ref(),
     }
     .send(session.env(ctx))?;
     line("to", args.to);
-    line("amount", format_args!("{} lamports", args.amount));
+    line("amount", format_args!("{} base units", args.amount));
+    line("mint", mint);
     line(
         "sender",
-        format_args!(
-            "{}  a throwaway key, funded and abandoned",
-            sent.sender.pubkey()
-        ),
+        format_args!("{}  saved in {}", sent.sender.pubkey(), SENDER_KEYPAIR_FILE),
     );
     print_signatures(ctx, &sent.deposits, sent.transact)?;
     // Reading the transfer back is a courtesy, the payment is already on chain.
@@ -238,7 +317,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
 
 /// Opened only after the ring rpc serves the configured auditor.
 struct Session {
-    authority: solana_keypair::Keypair,
+    authority: Keypair,
     ring_rpc: RingRpcClient,
     indexer: ZolanaIndexer,
     prover: zolana_client::ProverClient,
@@ -249,9 +328,9 @@ impl Session {
         let needed = deposited
             .saturating_add(SENDER_FEE_BUDGET)
             .saturating_add(PAYER_FEE_BUDGET);
-        let authority = ctx.authority_funded_for(needed)?;
         let ring_rpc = ctx.ring_rpc();
         ring_rpc.check_serves(ctx.ring.program_id())?;
+        let authority = ctx.authority_funded_for(needed)?;
         Ok(Self {
             authority,
             ring_rpc,
@@ -299,7 +378,7 @@ fn read_back(
     indexer: &ZolanaIndexer,
     ring_rpc: &RingRpcClient,
     ring: CustomRing,
-    reader: &solana_keypair::Keypair,
+    reader: &Keypair,
     signature: Signature,
 ) -> Result<(), TransactError> {
     println!("waiting for the indexer and the ring rpc to open the transaction");
@@ -335,8 +414,9 @@ impl DemoTransfer<'_> {
         env: TransferProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<TransferReceipt, TransactError> {
         let recipient = ShieldedKeypair::new_ed25519()?;
-        let enrol = policy_rules(self.ring, env.rpc)?
-            .is_some_and(|rules| rules.referenced().contains(ListId::Allow));
+        let enrol = self
+            .rules
+            .is_some_and(|rules| rules.rules.referenced().contains(ListId::Allow));
         // The demo deposits the amount twice and keeps the change, so the
         // sender's balance shows in the auditor's view next to the payment.
         let deposited = RingTransfer {
@@ -347,8 +427,11 @@ impl DemoTransfer<'_> {
             recipient: recipient.shielded_address()?,
             amount: self.amount,
             tree: pda::tree(0),
+            asset: DepositAsset::Sol,
+            cosigner: self.cosigner,
+            rules: self.rules,
         }
-        .deposit(env.indexer, env.rpc)?;
+        .deposit(&env)?;
         if enrol {
             deposited.transfer.enrol_in_allow(EntryProofEnvironment {
                 indexer: env.indexer,
@@ -372,15 +455,14 @@ impl<'a> RingTransfer<'a> {
         self,
         env: TransferProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<SentTransfer, TransactError> {
-        self.deposit(env.indexer, env.rpc)?.prove_and_send(env)
+        self.deposit(&env)?.prove_and_send(env)
     }
 
     /// Two deposits fill both input slots of IN2_OUT2, the compact change and
     /// the recipient fill the outputs.
     fn deposit(
         self,
-        indexer: &ZolanaIndexer,
-        rpc: &SolanaRpc,
+        env: &TransferProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<Deposited<'a>, TransactError> {
         let mut utxos = Vec::with_capacity(self.deposits.len());
         let mut deposits = Vec::with_capacity(self.deposits.len());
@@ -390,16 +472,21 @@ impl<'a> RingTransfer<'a> {
                 payer: self.payer,
                 recipient: &self.sender,
                 tree: self.tree,
-                asset: DepositAsset::Sol,
+                asset: self.asset,
                 amount,
+                cosigner: self.cosigner,
             }
-            .send(rpc)?;
+            .send(DepositProofEnvironment {
+                indexer: env.indexer,
+                rpc: env.rpc,
+                prover: env.prover,
+            })?;
             utxos.push(utxo);
             deposits.push(signature);
         }
         // Photon learns a tree from its first indexed transaction.
         if let Some(last) = deposits.last() {
-            wait_for_indexed_transaction(indexer, *last)?;
+            wait_for_indexed_transaction(env.indexer, *last)?;
         }
         Ok(Deposited {
             transfer: self,
@@ -414,9 +501,8 @@ impl<'a> RingTransfer<'a> {
         env: EntryProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<(), TransactError> {
         let curator = self
-            .ring
-            .read_policy_config(env.rpc)?
-            .and_then(|config| config.source_for(ListId::Allow))
+            .rules
+            .and_then(|rules| rules.config.source_for(ListId::Allow))
             .filter(|namespace| *namespace != self.ring.namespace_pda());
         if let Some(namespace) = curator {
             line("allow", format_args!("curated by {namespace}"));
@@ -460,8 +546,6 @@ impl Deposited<'_> {
             deposits,
         } = self;
         let sender = this.sender;
-        // `TransactSend` pays and signs with the sender alone, so the configured
-        // payer has to fund the sender up front instead of paying the transact.
         let fee = solana_system_interface::instruction::transfer(
             &this.payer.pubkey(),
             &sender.pubkey(),
@@ -473,6 +557,28 @@ impl Deposited<'_> {
             &[this.payer],
             ComputeBudgetConfig::for_instruction_count(1),
         )?;
+        if let Some(rules) = this.rules.filter(|rules| rules.windowed()) {
+            let outcome = Registration {
+                ring: this.ring,
+                sender: &sender,
+                config: &rules.config,
+                rpc,
+                indexer: env.indexer,
+                prover: env.prover,
+            }
+            .ensure()?;
+            line("spend record", outcome.label());
+        }
+        let enrolled = KeyEnrolment {
+            ring: this.ring,
+            member: &sender,
+        }
+        .ensure(TransferProofEnvironment {
+            indexer: env.indexer,
+            rpc,
+            prover: env.prover,
+        })?;
+        line("member key", enrolled.label());
 
         let tree_id = custom_ring_sdk::tree_id(rpc, this.tree)?;
         let nullifier_pubkey = sender.nullifier_key.pubkey()?;
@@ -515,19 +621,29 @@ impl Deposited<'_> {
             this.ring.program_id(),
         )?
         .with_output_tree_id(tree_id)?;
-        transfer.transfer_sol(&this.recipient, this.amount)?;
+        if this.asset.mint() == zolana_transaction::SOL_MINT {
+            transfer.transfer_sol(&this.recipient, this.amount)?;
+        } else {
+            transfer.transfer(&this.recipient, this.asset.mint(), this.amount)?;
+        }
         transfer.pad_utxos(shape, &sender.shielded_address()?)?;
-        let proven = CustomRingTransfer::new(CustomRingTransferInput {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: this.ring,
             sender: &sender,
             nullifier_key: Some(&sender.nullifier_key),
             transaction: transfer,
-        })
-        .with_tree(this.tree)
-        .prove(env)?;
+        });
+        if let Some(cosigner) = this.cosigner {
+            transfer = transfer.with_cosigner(cosigner.pubkey());
+        }
+        let proven = transfer.prove(env)?;
+        if proven.approval_required && this.cosigner.is_none() {
+            return Err(TransactError::ApprovalNeedsCoSigner);
+        }
+        let signers: Vec<&dyn Signer> = this.cosigner.into_iter().collect();
         let transact = TransactSend {
             payer: &sender,
-            signers: &[],
+            signers: &signers,
             instruction: proven.instruction()?,
         }
         .send(rpc)?;
@@ -540,19 +656,144 @@ impl Deposited<'_> {
     }
 }
 
-/// The pinned table, `None` for an audit-only ring.
-fn policy_rules(ring: CustomRing, rpc: &SolanaRpc) -> Result<Option<RuleTable>, TransactError> {
-    ring.read_policy_config(rpc)?
-        .map(|config| policy_config_table(&config))
-        .transpose()
-        .map_err(|error| TransactError::PolicyMatch(Box::new(error)))
+impl RingRules {
+    pub fn read(ring: CustomRing, rpc: &SolanaRpc) -> Result<Option<Self>, TransactError> {
+        ring.read_policy_config(rpc)?
+            .map(|config| policy_config_table(&config).map(|rules| Self { config, rules }))
+            .transpose()
+            .map_err(TransactError::from)
+    }
+
+    fn windowed(&self) -> bool {
+        self.rules.window_slots() != 0
+    }
+}
+
+pub(crate) struct CoSignerCheck<'a> {
+    pub keypair: Option<&'a Path>,
+    pub scope: CoSignScope,
+    pub payment: Option<PolicyPayment<'a>>,
+}
+
+pub(crate) struct PolicyPayment<'a> {
+    pub mint: Address,
+    pub outflow: u64,
+    pub rules: Option<&'a RuleTable>,
+}
+
+/// Resolves requested ring payments into the sender outflow checked by policy.
+#[must_use]
+struct RingPayment<'a> {
+    mint: Address,
+    amount: u64,
+    sender: &'a ShieldedKeypair,
+    recipient: &'a ShieldedAddress,
+    rules: Option<&'a RuleTable>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Approval {
+    Required,
+    NotRequired,
+}
+
+struct Requirement<'a> {
+    configured: Option<&'a CustomRingCoSigner>,
+    provided: Option<Address>,
+    approval: Approval,
+}
+
+impl CoSignerCheck<'_> {
+    pub fn load(self, ctx: &Context) -> Result<Option<Keypair>, TransactError> {
+        let cosigner = self
+            .keypair
+            .map(|path| file::read_keypair(&ctx.project_path(path)))
+            .transpose()?;
+        let configured = ctx.ring.read_cosigner(&ctx.rpc)?;
+        let approval = match &self.payment {
+            Some(payment) => payment.approval()?,
+            None => Approval::NotRequired,
+        };
+        Requirement {
+            configured: configured.as_ref(),
+            provided: cosigner.as_ref().map(Signer::pubkey),
+            approval,
+        }
+        .check(self.scope)?;
+        Ok(cosigner)
+    }
+}
+
+impl<'a> RingPayment<'a> {
+    fn policy(self) -> Result<PolicyPayment<'a>, KeypairError> {
+        // 1. Same-owner outputs remain inside the ring and charge no policy
+        // outflow.
+        let same_owner = self.sender.signing_pubkey().owner_proof_input_hash()?
+            == self.recipient.signing_pubkey.owner_proof_input_hash()?;
+        Ok(PolicyPayment {
+            mint: self.mint,
+            outflow: if same_owner { 0 } else { self.amount },
+            rules: self.rules,
+        })
+    }
+}
+
+impl PolicyPayment<'_> {
+    fn approval(&self) -> Result<Approval, TransactError> {
+        let asset = Member::asset(&self.mint)?;
+        let demanded = self.rules.is_some_and(|rules| {
+            rules.velocity().iter().any(|row| {
+                row.asset == *asset.as_bytes()
+                    && row.cosign_above != 0
+                    && self.outflow > row.cosign_above
+            })
+        });
+        Ok(if demanded {
+            Approval::Required
+        } else {
+            Approval::NotRequired
+        })
+    }
+}
+
+impl Requirement<'_> {
+    fn check(self, scope: CoSignScope) -> Result<(), TransactError> {
+        let Some(configured) = self.configured else {
+            return match self.approval {
+                Approval::Required => Err(TransactError::CoSignerNotConfigured),
+                Approval::NotRequired => Ok(()),
+            };
+        };
+        if let Some(found) = self.provided {
+            if found != configured.signer {
+                return Err(TransactError::WrongCoSigner {
+                    expected: configured.signer,
+                    found,
+                });
+            }
+        }
+        let demanded = self.approval == Approval::Required || configured.scope.intersects(scope);
+        if demanded && self.provided.is_none() {
+            return Err(TransactError::ApprovalNeedsCoSigner);
+        }
+        Ok(())
+    }
 }
 
 /// Kept between runs, earlier change stays spendable with it.
 fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, TransactError> {
-    let path = ctx.project_path(Path::new(SENDER_KEYPAIR_FILE));
-    let keypair = file::read_or_create_keypair(&path)?;
-    Ok(ShieldedKeypair::from_keypair(&keypair)?)
+    Ok(ShieldedKeypair::from_keypair(&sender_keypair_file(ctx)?)?)
+}
+
+pub(crate) fn sender_keypair_file(ctx: &Context) -> Result<Keypair, FileError> {
+    file::read_or_create_keypair(&ctx.project_path(Path::new(SENDER_KEYPAIR_FILE)))
+}
+
+pub(crate) fn signers<'a>(
+    primary: &'a dyn Signer,
+    cosigner: Option<&'a dyn Signer>,
+) -> Vec<&'a dyn Signer> {
+    std::iter::once(primary).chain(cosigner).collect()
 }
 
 /// An `Err` from `probe` is final, `Retry` is kept for the timeout message.
@@ -600,4 +841,145 @@ fn program_logs(rpc: &SolanaRpc, signature: &Signature) -> Result<Vec<String>, C
         .into_iter()
         .filter_map(|line| line.strip_prefix("Program log: ").map(str::to_owned))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blanket_scope_and_private_approval_require_the_configured_signer() {
+        let signer = Address::new_from_array([1; 32]);
+        let mut configured = CustomRingCoSigner {
+            signer,
+            scope: CoSignScope::DEPOSITS,
+            thresholds: vec![],
+        };
+        let check = |configured: Option<&CustomRingCoSigner>, provided, approval| {
+            Requirement {
+                configured,
+                provided,
+                approval,
+            }
+            .check(DEPOSIT_TRANSFER_SCOPE)
+        };
+        assert!(matches!(
+            check(Some(&configured), None, Approval::NotRequired),
+            Err(TransactError::ApprovalNeedsCoSigner)
+        ));
+        assert!(check(Some(&configured), Some(signer), Approval::NotRequired).is_ok());
+        assert!(matches!(
+            check(
+                Some(&configured),
+                Some(Address::default()),
+                Approval::NotRequired
+            ),
+            Err(TransactError::WrongCoSigner { .. })
+        ));
+        configured.scope = CoSignScope::WITHDRAWALS;
+        assert!(check(Some(&configured), None, Approval::NotRequired).is_ok());
+        assert!(matches!(
+            check(Some(&configured), None, Approval::Required),
+            Err(TransactError::ApprovalNeedsCoSigner)
+        ));
+        assert!(matches!(
+            check(None, None, Approval::Required),
+            Err(TransactError::CoSignerNotConfigured)
+        ));
+        assert!(check(None, None, Approval::NotRequired).is_ok());
+    }
+
+    #[test]
+    fn self_transfer_has_no_private_outflow_but_keeps_blanket_scope_checks() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let rules = RuleTable::builder()
+            .velocity(&[zolana_ring_policy::VelocityRow {
+                asset: *Member::asset(&SOL_MINT).unwrap().as_bytes(),
+                cap: 0,
+                cosign_above: 10,
+            }])
+            .build();
+        let mut recipient = sender.shielded_address().unwrap();
+        recipient.viewing_pubkey = zolana_keypair::ViewingKey::new().pubkey();
+        recipient.nullifier_pubkey = zolana_keypair::NullifierKey::from_secret([7; 31])
+            .pubkey()
+            .unwrap();
+        let payment = RingPayment {
+            mint: SOL_MINT,
+            amount: 11,
+            sender: &sender,
+            recipient: &recipient,
+            rules: Some(&rules),
+        }
+        .policy()
+        .unwrap();
+        assert_eq!(payment.outflow, 0);
+        assert_eq!(payment.approval().unwrap(), Approval::NotRequired);
+        let signer = Address::new_from_array([1; 32]);
+        for (scope, required) in [
+            (CoSignScope::WITHDRAWALS, false),
+            (CoSignScope::DEPOSITS, true),
+            (CoSignScope::TRANSFERS, true),
+        ] {
+            let configured = CustomRingCoSigner {
+                signer,
+                scope,
+                thresholds: vec![],
+            };
+            let check = |provided| {
+                Requirement {
+                    configured: Some(&configured),
+                    provided,
+                    approval: payment.approval().unwrap(),
+                }
+                .check(DEPOSIT_TRANSFER_SCOPE)
+            };
+            assert_eq!(check(None).is_err(), required);
+            assert!(check(Some(signer)).is_ok());
+            assert!(matches!(
+                check(Some(Address::default())),
+                Err(TransactError::WrongCoSigner { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn a_different_owner_charges_the_payment_and_uses_a_strict_nonzero_threshold() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519()
+            .unwrap()
+            .shielded_address()
+            .unwrap();
+        for (threshold, amount, approval) in [
+            (10, 10, Approval::NotRequired),
+            (10, 11, Approval::Required),
+            (0, u64::MAX, Approval::NotRequired),
+        ] {
+            let rules = RuleTable::builder()
+                .velocity(&[zolana_ring_policy::VelocityRow {
+                    asset: *Member::asset(&SOL_MINT).unwrap().as_bytes(),
+                    cap: u64::MAX,
+                    cosign_above: threshold,
+                }])
+                .build();
+            let payment = RingPayment {
+                mint: SOL_MINT,
+                amount,
+                sender: &sender,
+                recipient: &recipient,
+                rules: Some(&rules),
+            }
+            .policy()
+            .unwrap();
+            assert_eq!(payment.outflow, amount);
+            assert_eq!(payment.approval().unwrap(), approval);
+        }
+    }
+
+    #[test]
+    fn the_program_codes_the_submission_retries_on_are_pinned() {
+        use custom_ring_program::CustomRingError;
+        assert_eq!(CustomRingError::StaleKeyRegistryRoot as u32, 8161);
+        assert_eq!(CustomRingError::ProofVerificationFailed as u32, 8101);
+    }
 }

@@ -307,6 +307,8 @@ pub struct DecryptedTransaction {
     pub signers: Vec<SerializablePubkey>,
     /// Public settlement legs, where value left the ring.
     pub withdrawals: Vec<DecryptedWithdrawal>,
+    /// Empty outside velocity transfers.
+    pub spend_records: Vec<DecryptedSpendRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -316,6 +318,29 @@ pub struct DecryptedWithdrawal {
     pub recipient: SerializablePubkey,
     pub asset: SerializablePubkey,
     pub amount: u64,
+}
+
+/// Public record metadata with counters authenticated by auditor decryption.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedSpendRecord {
+    pub slot_index: u32,
+    pub member: Hash,
+    pub version: u64,
+    pub window: u64,
+    pub counters_commitment: Hash,
+    /// Absent when no sealed message opened to the commitment, populated slots only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counters: Option<Vec<DecryptedSpendCounter>>,
+}
+
+/// Verified against the record commitment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedSpendCounter {
+    pub slot: u8,
+    pub asset: Hash,
+    pub spent: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -128,3 +128,5 @@ export function ringDepositUtxo(
     ringProgramId: output.ringProgramId,
   });
 }
+
+export type DepositPayloadDecoder = (bytes: Uint8Array) => Uint8Array;

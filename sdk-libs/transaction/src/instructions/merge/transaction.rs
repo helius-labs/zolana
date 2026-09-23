@@ -4,6 +4,7 @@ use zolana_keypair::{constants::SALT_LEN, PublicKey};
 
 use crate::{error::TransactionError, utxo::SppProofInputUtxo, SppProofOutputUtxo};
 
+#[derive(Clone)]
 pub struct MergeProofInputs {
     pub input_utxos: Vec<SppProofInputUtxo>,
     pub output_utxo: SppProofOutputUtxo,

@@ -7,15 +7,22 @@ use serde::Serialize;
 use zeroize::Zeroizing;
 use zolana_client::{
     prover::{Delivery, ProveRequest},
-    ClientError,
+    ClientError, ProofInputUtxo,
 };
-use zolana_interface::tree_slot::tree_id_field;
+use zolana_interface::tree_slot::{tree_id_field, TreeSlot};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_policy::{
-    MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
+    VelocityRow, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS,
+    POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
 };
 
-use crate::instructions::transact::request::{bytes_to_hex, field_hex, SecretHex};
+use crate::velocity::RowCharges;
+
+use crate::{
+    escrow::RegistryKeyOpening,
+    instructions::transact::request::{bytes_to_hex, field_hex, json_body, SecretHex},
+    CustomRing, TransferError,
+};
 
 pub const STATE_PATH_LEN: usize = 32;
 pub const NULLIFIER_PATH_LEN: usize = 40;
@@ -34,12 +41,16 @@ pub struct CustomRingOpening {
     pub data_hash: [u8; 32],
     pub ring_data_hash: [u8; 32],
     pub ring_program_id: [u8; 32],
+    /// `None` with escrow off, in padding, or on a namespace-owned record.
+    pub key: Option<RegistryKeyOpening>,
 }
 
-/// One entry fact, proven against the two roots the program resolved.
+/// One entry fact, proven against the roots of its tree slot.
 #[derive(Clone, Debug)]
 pub struct RuleAnswer {
     pub enabled: bool,
+    /// Index into the statement's policy trees.
+    pub tree_slot: u8,
     pub mode: u8,
     pub list_id: u8,
     pub state: u8,
@@ -60,6 +71,7 @@ impl Default for RuleAnswer {
     fn default() -> Self {
         Self {
             enabled: false,
+            tree_slot: 0,
             mode: 1,
             list_id: 1,
             state: 1,
@@ -81,12 +93,100 @@ impl Default for RuleAnswer {
 /// One positional source slot, slot `i` is empty or serves list `i + 1`.
 pub use zolana_ring_policy::SourceOwner as SourceOwnerEntry;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SpendRecordProofInput {
+    pub version: u64,
+    pub window: u64,
+    pub commitment: [u8; 32],
+    pub salt: [u8; 32],
+    pub assets: [[u8; 32]; MAX_VELOCITY_ASSETS],
+    pub spent: [u64; MAX_VELOCITY_ASSETS],
+    pub next_salt: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingIdentity {
+    pub ring_id: [u8; 32],
+    pub namespace_owner_hash: [u8; 32],
+}
+
+impl RingIdentity {
+    pub(crate) fn new(
+        ring: CustomRing,
+        namespace_owner_hash: [u8; 32],
+    ) -> Result<Self, TransferError> {
+        Ok(Self {
+            ring_id: zolana_ring_policy::ring_id_field(ring.program_id().as_array())
+                .map_err(|_| TransferError::PolicyHashing)?,
+            namespace_owner_hash,
+        })
+    }
+}
+
+#[cfg(feature = "solana-rpc")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProvedWindow {
+    pub slots: u64,
+    pub index: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VelocityProofInput {
+    pub window_slots: u64,
+    pub rows: [VelocityRow; MAX_VELOCITY_ASSETS],
+    pub row_count: u8,
+    pub ring_id: [u8; 32],
+    pub namespace_owner_hash: [u8; 32],
+    pub window_index: u64,
+    pub approval_required: bool,
+    pub record: SpendRecordProofInput,
+}
+
+impl VelocityProofInput {
+    /// Rows without a window carry the charges, no record accompanies them.
+    pub(crate) fn per_transfer(charges: &RowCharges, identity: RingIdentity) -> Self {
+        Self {
+            window_slots: 0,
+            rows: charges.rows,
+            row_count: charges.row_count,
+            ring_id: identity.ring_id,
+            namespace_owner_hash: identity.namespace_owner_hash,
+            window_index: 0,
+            approval_required: charges.approval_required,
+            record: SpendRecordProofInput::default(),
+        }
+    }
+
+    /// A ring without a window still binds its id and namespace.
+    pub fn off(identity: RingIdentity) -> Self {
+        Self {
+            window_slots: 0,
+            rows: [VelocityRow::EMPTY; MAX_VELOCITY_ASSETS],
+            row_count: 0,
+            ring_id: identity.ring_id,
+            namespace_owner_hash: identity.namespace_owner_hash,
+            window_index: 0,
+            approval_required: false,
+            record: SpendRecordProofInput::default(),
+        }
+    }
+
+    #[cfg(feature = "solana-rpc")]
+    pub(crate) fn window(&self) -> Option<ProvedWindow> {
+        (self.window_slots != 0).then_some(ProvedWindow {
+            slots: self.window_slots,
+            index: self.window_index,
+        })
+    }
+}
+
 pub struct CustomRingPolicyProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
     pub ephemeral_key: ViewingKey,
     pub auditor_key: P256Pubkey,
+    pub salt: [u8; 16],
     pub n_in: u8,
     pub n_out: u8,
     pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
@@ -100,9 +200,12 @@ pub struct CustomRingPolicyProofRequest {
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_limits: [u64; MAX_INLINE_ASSETS],
     pub inline_count: u8,
-    pub state_root: [u8; 32],
-    pub nullifier_root: [u8; 32],
-    pub entries_tree_id: u16,
+    /// Populated prefix, the prover pads it to `INPUT_TREES`.
+    pub tree_slots: Vec<TreeSlot>,
+    pub address_tree_id: u16,
+    /// `None` with escrow off.
+    pub key_registry_root: Option<[u8; 32]>,
+    pub velocity: VelocityProofInput,
     pub answers: Vec<RuleAnswer>,
 }
 
@@ -113,10 +216,18 @@ pub struct CustomRingBaseProofRequest {
     pub tx_viewing_key: ViewingKey,
     pub ephemeral_key: ViewingKey,
     pub auditor_key: P256Pubkey,
+    pub salt: [u8; 16],
+    pub outputs: Vec<ProofInputUtxo>,
 }
 
 impl ProveRequest for CustomRingBaseProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        if self.outputs.is_empty() || self.outputs.len() > POLICY_OUTPUT_SLOTS {
+            return Err(ClientError::Prover(format!(
+                "base request has {} outputs, expected 1..={POLICY_OUTPUT_SLOTS}",
+                self.outputs.len()
+            )));
+        }
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
         let auditor_key = self
@@ -124,13 +235,18 @@ impl ProveRequest for CustomRingBaseProofRequest {
             .to_p256()
             .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
         let auditor_pk = auditor_key.to_encoded_point(false);
+        let mut outputs: Vec<_> = self.outputs.iter().map(audit_opening_json).collect();
+        outputs.resize_with(POLICY_OUTPUT_SLOTS, AuditOpeningJson::zero);
         let json = CustomRingBaseProofRequestJson {
             circuit_type: "custom-ring-base",
             public_input_hash: field_hex(&self.public_input_hash),
             private_tx_hash: field_hex(&self.private_tx_hash),
-            tx_viewing_sk: SecretHex(tx_viewing_secret.as_slice()),
-            eph_sk: SecretHex(ephemeral_secret.as_slice()),
+            tx_viewing_sk: SecretHex::new(tx_viewing_secret.as_slice()),
+            eph_sk: SecretHex::new(ephemeral_secret.as_slice()),
             auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
+            salt: bytes_to_hex(&self.salt),
+            n_out: self.outputs.len() as u8,
+            outputs,
         };
         serde_json::to_string(&json)
             .map(Zeroizing::new)
@@ -143,7 +259,7 @@ impl ProveRequest for CustomRingBaseProofRequest {
 }
 
 #[derive(Serialize)]
-struct CustomRingBaseProofRequestJson<'a> {
+struct CustomRingBaseProofRequestJson {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
     #[serde(rename = "publicInputHash")]
@@ -151,15 +267,19 @@ struct CustomRingBaseProofRequestJson<'a> {
     #[serde(rename = "privateTxHash")]
     private_tx_hash: String,
     #[serde(rename = "txViewingSk")]
-    tx_viewing_sk: SecretHex<'a>,
+    tx_viewing_sk: SecretHex,
     #[serde(rename = "ephSk")]
-    eph_sk: SecretHex<'a>,
+    eph_sk: SecretHex,
     #[serde(rename = "auditorPk")]
     auditor_pk: String,
+    salt: String,
+    #[serde(rename = "nOut")]
+    n_out: u8,
+    outputs: Vec<AuditOpeningJson>,
 }
 
-impl ProveRequest for CustomRingPolicyProofRequest {
-    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+impl CustomRingPolicyProofRequest {
+    pub(crate) fn json(&self) -> Result<CustomRingPolicyProofRequestJson, ClientError> {
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
         let auditor_key = self
@@ -167,13 +287,14 @@ impl ProveRequest for CustomRingPolicyProofRequest {
             .to_p256()
             .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
         let auditor_pk = auditor_key.to_encoded_point(false);
-        let json = CustomRingPolicyProofRequestJson {
+        Ok(CustomRingPolicyProofRequestJson {
             circuit_type: "custom-ring-policy",
             public_input_hash: field_hex(&self.public_input_hash),
             private_tx_hash: field_hex(&self.private_tx_hash),
-            tx_viewing_sk: SecretHex(tx_viewing_secret.as_slice()),
-            eph_sk: SecretHex(ephemeral_secret.as_slice()),
+            tx_viewing_sk: SecretHex::new(tx_viewing_secret.as_slice()),
+            eph_sk: SecretHex::new(ephemeral_secret.as_slice()),
             auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
+            salt: bytes_to_hex(&self.salt),
             n_in: self.n_in,
             n_out: self.n_out,
             inputs: self.inputs.iter().map(opening_json).collect(),
@@ -187,14 +308,26 @@ impl ProveRequest for CustomRingPolicyProofRequest {
             inline_assets: self.inline_assets.iter().map(field_hex).collect(),
             inline_limits: self.inline_limits.iter().map(limit_hex).collect(),
             inline_count: self.inline_count,
-            state_root: field_hex(&self.state_root),
-            nullifier_root: field_hex(&self.nullifier_root),
-            entries_tree_id: field_hex(&tree_id_field(self.entries_tree_id)),
+            tree_slots: self.tree_slots.iter().map(tree_slot_json).collect(),
+            address_tree_id: field_hex(&tree_id_field(self.address_tree_id)),
+            key_escrow: self.key_registry_root.is_some(),
+            key_registry_root: field_hex(&self.key_registry_root.unwrap_or_default()),
+            window_slots: self.velocity.window_slots,
+            velocity: self.velocity.rows.iter().map(velocity_row_json).collect(),
+            velocity_count: self.velocity.row_count,
+            ring_id: field_hex(&self.velocity.ring_id),
+            namespace_owner_hash: field_hex(&self.velocity.namespace_owner_hash),
+            window_index: self.velocity.window_index,
+            approval_required: self.velocity.approval_required,
+            record: record_json(&self.velocity.record),
             answers: self.answers.iter().map(answers_json).collect(),
-        };
-        serde_json::to_string(&json)
-            .map(Zeroizing::new)
-            .map_err(|_| ClientError::Prover("policy request serialization failed".to_string()))
+        })
+    }
+}
+
+impl ProveRequest for CustomRingPolicyProofRequest {
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        json_body(&self.json()?)
     }
 
     fn delivery(&self) -> Delivery {
@@ -214,6 +347,68 @@ fn opening_json(opening: &CustomRingOpening) -> CustomRingOpeningJson {
         data_hash: field_hex(&opening.data_hash),
         ring_data_hash: field_hex(&opening.ring_data_hash),
         ring_program_id: field_hex(&opening.ring_program_id),
+        key: opening.key.as_ref().map(registry_key_json),
+    }
+}
+
+pub(crate) fn registry_key_json(key: &RegistryKeyOpening) -> RegistryKeyJson {
+    RegistryKeyJson {
+        next: field_hex(&key.next),
+        ct_hash: field_hex(&key.ct_hash),
+        index: key.index,
+        path: key.path.iter().map(field_hex).collect(),
+    }
+}
+
+fn tree_slot_json(slot: &TreeSlot) -> TreeSlotJson {
+    TreeSlotJson {
+        id: field_hex(&slot.id),
+        utxo_root: field_hex(&slot.utxo_root),
+        nullifier_root: field_hex(&slot.nullifier_root),
+    }
+}
+
+fn audit_opening_json(opening: &ProofInputUtxo) -> AuditOpeningJson {
+    AuditOpeningJson {
+        domain: field_hex(&opening.domain),
+        tree_id: field_hex(&opening.tree_id),
+        owner_hash: field_hex(&opening.owner_hash),
+        asset: field_hex(&opening.asset),
+        amount: field_hex(&opening.amount),
+        blinding: field_hex(&opening.blinding),
+        data_hash: field_hex(&opening.data_hash),
+        ring_data_hash: field_hex(&opening.ring_data_hash),
+        ring_program_id: field_hex(&opening.ring_program_id),
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuditOpeningJson {
+    domain: String,
+    tree_id: String,
+    owner_hash: String,
+    asset: String,
+    amount: String,
+    blinding: String,
+    data_hash: String,
+    ring_data_hash: String,
+    ring_program_id: String,
+}
+
+impl AuditOpeningJson {
+    fn zero() -> Self {
+        Self {
+            domain: field_hex(&[0u8; 32]),
+            tree_id: field_hex(&[0u8; 32]),
+            owner_hash: field_hex(&[0u8; 32]),
+            asset: field_hex(&[0u8; 32]),
+            amount: field_hex(&[0u8; 32]),
+            blinding: field_hex(&[0u8; 32]),
+            data_hash: field_hex(&[0u8; 32]),
+            ring_data_hash: field_hex(&[0u8; 32]),
+            ring_program_id: field_hex(&[0u8; 32]),
+        }
     }
 }
 
@@ -230,9 +425,30 @@ fn limit_hex(limit: &u64) -> String {
     field_hex(&field)
 }
 
+fn velocity_row_json(row: &VelocityRow) -> VelocityRowJson {
+    VelocityRowJson {
+        asset: field_hex(&row.asset),
+        cap: limit_hex(&row.cap),
+        cosign_above: limit_hex(&row.cosign_above),
+    }
+}
+
+fn record_json(record: &SpendRecordProofInput) -> SpendRecordJson {
+    SpendRecordJson {
+        version: record.version,
+        window: record.window,
+        commitment: field_hex(&record.commitment),
+        salt: field_hex(&record.salt),
+        assets: record.assets.iter().map(field_hex).collect(),
+        spent: record.spent.iter().map(limit_hex).collect(),
+        next_salt: field_hex(&record.next_salt),
+    }
+}
+
 fn answers_json(entry: &RuleAnswer) -> RuleAnswerJson {
     RuleAnswerJson {
         enabled: entry.enabled,
+        tree_slot: entry.tree_slot,
         mode: entry.mode,
         list_id: entry.list_id,
         state: entry.state,
@@ -268,6 +484,25 @@ struct CustomRingOpeningJson {
     ring_data_hash: String,
     #[serde(rename = "ringProgramId")]
     ring_program_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<RegistryKeyJson>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RegistryKeyJson {
+    next: String,
+    ct_hash: String,
+    index: u64,
+    path: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TreeSlotJson {
+    id: String,
+    utxo_root: String,
+    nullifier_root: String,
 }
 
 #[derive(Serialize)]
@@ -279,8 +514,30 @@ struct CustomRingSourceJson {
 }
 
 #[derive(Serialize)]
+struct VelocityRowJson {
+    asset: String,
+    cap: String,
+    #[serde(rename = "cosignAbove")]
+    cosign_above: String,
+}
+
+#[derive(Serialize)]
+struct SpendRecordJson {
+    version: u64,
+    window: u64,
+    commitment: String,
+    salt: String,
+    assets: Vec<String>,
+    spent: Vec<String>,
+    #[serde(rename = "nextSalt")]
+    next_salt: String,
+}
+
+#[derive(Serialize)]
 struct RuleAnswerJson {
     enabled: bool,
+    #[serde(rename = "treeSlot")]
+    tree_slot: u8,
     mode: u8,
     #[serde(rename = "listId")]
     list_id: u8,
@@ -305,7 +562,7 @@ struct RuleAnswerJson {
 }
 
 #[derive(Serialize)]
-struct CustomRingPolicyProofRequestJson<'a> {
+pub(crate) struct CustomRingPolicyProofRequestJson {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
     #[serde(rename = "publicInputHash")]
@@ -313,11 +570,12 @@ struct CustomRingPolicyProofRequestJson<'a> {
     #[serde(rename = "privateTxHash")]
     private_tx_hash: String,
     #[serde(rename = "txViewingSk")]
-    tx_viewing_sk: SecretHex<'a>,
+    tx_viewing_sk: SecretHex,
     #[serde(rename = "ephSk")]
-    eph_sk: SecretHex<'a>,
+    eph_sk: SecretHex,
     #[serde(rename = "auditorPk")]
     auditor_pk: String,
+    salt: String,
     #[serde(rename = "nIn")]
     n_in: u8,
     #[serde(rename = "nOut")]
@@ -341,12 +599,28 @@ struct CustomRingPolicyProofRequestJson<'a> {
     inline_limits: Vec<String>,
     #[serde(rename = "inlineCount")]
     inline_count: u8,
-    #[serde(rename = "stateRoot")]
-    state_root: String,
-    #[serde(rename = "nullifierRoot")]
-    nullifier_root: String,
-    #[serde(rename = "entriesTreeId")]
-    entries_tree_id: String,
+    #[serde(rename = "treeSlots")]
+    tree_slots: Vec<TreeSlotJson>,
+    #[serde(rename = "addressTreeId")]
+    address_tree_id: String,
+    #[serde(rename = "keyEscrow")]
+    key_escrow: bool,
+    #[serde(rename = "keyRegistryRoot")]
+    key_registry_root: String,
+    #[serde(rename = "windowSlots")]
+    window_slots: u64,
+    velocity: Vec<VelocityRowJson>,
+    #[serde(rename = "velocityCount")]
+    velocity_count: u8,
+    #[serde(rename = "ringId")]
+    ring_id: String,
+    #[serde(rename = "namespaceOwnerHash")]
+    namespace_owner_hash: String,
+    #[serde(rename = "windowIndex")]
+    window_index: u64,
+    #[serde(rename = "approvalRequired")]
+    approval_required: bool,
+    record: SpendRecordJson,
     answers: Vec<RuleAnswerJson>,
 }
 
@@ -365,6 +639,7 @@ mod tests {
             auditor_key: ViewingKey::from_bytes(&[5u8; 32])
                 .expect("auditor key")
                 .pubkey(),
+            salt: [10u8; 16],
             n_in: 2,
             n_out: 2,
             inputs: [CustomRingOpening::default(); POLICY_INPUT_SLOTS],
@@ -378,9 +653,13 @@ mod tests {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
-            state_root: [8u8; 32],
-            nullifier_root: [9u8; 32],
-            entries_tree_id: 3,
+            tree_slots: vec![TreeSlot::new(3, [8u8; 32], [9u8; 32])],
+            address_tree_id: 3,
+            key_registry_root: None,
+            velocity: VelocityProofInput::off(RingIdentity {
+                ring_id: [10u8; 32],
+                namespace_owner_hash: [11u8; 32],
+            }),
             answers: vec![RuleAnswer::default(); ANSWER_SLOTS],
         }
     }
@@ -396,28 +675,38 @@ mod tests {
             keys,
             [
                 "addressChain",
+                "addressTreeId",
                 "answers",
+                "approvalRequired",
                 "auditorPk",
                 "circuitType",
-                "entriesTreeId",
                 "ephSk",
                 "externalDataHash",
                 "inlineAssets",
                 "inlineCount",
                 "inlineLimits",
                 "inputs",
+                "keyEscrow",
+                "keyRegistryRoot",
                 "nIn",
                 "nOut",
-                "nullifierRoot",
+                "namespaceOwnerHash",
                 "outputs",
                 "policyLen",
                 "privateTxBlinding",
                 "privateTxHash",
                 "publicInputHash",
+                "record",
+                "ringId",
                 "ruleEnc",
+                "salt",
                 "sources",
-                "stateRoot",
+                "treeSlots",
                 "txViewingSk",
+                "velocity",
+                "velocityCount",
+                "windowIndex",
+                "windowSlots",
             ]
         );
         assert_eq!(object["circuitType"], "custom-ring-policy");
@@ -441,6 +730,29 @@ mod tests {
             .collect();
         slot_keys.sort_unstable();
         assert_eq!(slot_keys, ["listId", "ownerHash"]);
+        assert_eq!(
+            object["velocity"].as_array().expect("rows").len(),
+            MAX_VELOCITY_ASSETS
+        );
+        let mut record_keys: Vec<&str> = object["record"]
+            .as_object()
+            .expect("record")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        record_keys.sort_unstable();
+        assert_eq!(
+            record_keys,
+            [
+                "assets",
+                "commitment",
+                "nextSalt",
+                "salt",
+                "spent",
+                "version",
+                "window"
+            ]
+        );
     }
 
     #[test]
@@ -459,5 +771,41 @@ mod tests {
         let hash = value["publicInputHash"].as_str().expect("hash");
         assert_eq!(hash.len(), 66);
         assert!(hash.starts_with("0x") && hash.to_lowercase() == hash);
+    }
+
+    #[test]
+    fn escrowed_outputs_and_facts_name_their_key_and_tree_slot() {
+        let mut request = request();
+        request
+            .tree_slots
+            .push(TreeSlot::new(9, [12u8; 32], [13u8; 32]));
+        request.key_registry_root = Some([14u8; 32]);
+        request.outputs[0].key = Some(RegistryKeyOpening {
+            next: [15u8; 32],
+            ct_hash: [16u8; 32],
+            index: 5,
+            path: [[17u8; 32]; custom_ring_interface::KEY_REGISTRY_HEIGHT],
+        });
+        request.answers[0].tree_slot = 1;
+        let value: serde_json::Value =
+            serde_json::from_str(&request.body().expect("body")).expect("json");
+        assert_eq!(value["keyEscrow"], true);
+        assert_eq!(value["keyRegistryRoot"], field_hex(&[14u8; 32]));
+        assert_eq!(value["addressTreeId"], field_hex(&tree_id_field(3)));
+        let slots = value["treeSlots"].as_array().expect("slots");
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[1]["id"], field_hex(&tree_id_field(9)));
+        assert_eq!(slots[1]["utxoRoot"], field_hex(&[12u8; 32]));
+        assert_eq!(slots[1]["nullifierRoot"], field_hex(&[13u8; 32]));
+        let key = &value["outputs"][0]["key"];
+        assert_eq!(key["ctHash"], field_hex(&[16u8; 32]));
+        assert_eq!(key["index"], 5);
+        assert_eq!(
+            key["path"].as_array().expect("path").len(),
+            custom_ring_interface::KEY_REGISTRY_HEIGHT
+        );
+        assert!(value["outputs"][1].get("key").is_none());
+        assert_eq!(value["answers"][0]["treeSlot"], 1);
+        assert_eq!(value["answers"][1]["treeSlot"], 0);
     }
 }

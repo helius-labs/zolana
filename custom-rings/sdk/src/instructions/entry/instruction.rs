@@ -8,10 +8,13 @@ use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member, R
 
 use crate::{
     instructions::{
-        entry::proof::{EntryDraft, EntryProof, EntryProofError, EntryWitness},
+        entry::{
+            proof::{EntryDraft, EntryProofError, EntryWitness, WrittenEntry},
+            LiveEntry,
+        },
         policy_table::{PolicyTable, SizedTransaction},
     },
-    CustomRing,
+    CustomRing, PoolTree,
 };
 
 /// A mutation build failed before any instruction was produced.
@@ -35,6 +38,24 @@ pub enum EntryError {
     TransactionCompile(#[source] Box<ClientError>),
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
+    #[error(transparent)]
+    HeadProof(#[from] crate::CustomRingProofError),
+    #[error(transparent)]
+    AccountRead(#[from] crate::AccountReadError),
+    #[error(transparent)]
+    PolicyMatch(#[from] crate::PolicyMatchError),
+    #[error("the ring has no policy config")]
+    MissingPolicyConfig,
+    #[error("the ring has no velocity window")]
+    VelocityDisabled,
+    #[error("the member already registered a spend record")]
+    SpendRecordExists,
+}
+
+impl From<ClientError> for EntryError {
+    fn from(error: ClientError) -> Self {
+        Self::Proof(EntryProofError::Client(Box::new(error)))
+    }
 }
 
 /// Pins the table and its source map, signed by the upgrade authority.
@@ -43,7 +64,8 @@ pub struct CreatePolicy<'a> {
     pub ring: CustomRing,
     pub payer: Address,
     pub authority: Address,
-    pub entries_tree: Address,
+    /// Every entry and spend record address is claimed here.
+    pub address_tree: Address,
     pub rules: &'a RuleTable,
     /// Referenced lists reading a curator ring's entries, every other
     /// referenced list defaults to the ring's own entries.
@@ -56,7 +78,7 @@ impl CreatePolicy<'_> {
             ring,
             payer,
             authority,
-            entries_tree,
+            address_tree,
             rules,
             shared_sources,
         } = self;
@@ -68,8 +90,9 @@ impl CreatePolicy<'_> {
         let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(authority, true),
+            AccountMeta::new_readonly(ring.config_pda(), false),
             AccountMeta::new(ring.policy_config_pda(), false),
-            AccountMeta::new_readonly(entries_tree, false),
+            AccountMeta::new_readonly(address_tree, false),
             AccountMeta::new_readonly(Address::default(), false),
             AccountMeta::new_readonly(ring.program_id(), false),
             AccountMeta::new_readonly(ring.program_data_pda(), false),
@@ -90,13 +113,13 @@ impl CreatePolicy<'_> {
     }
 }
 
-/// Claims the pair's address at version zero.
+/// Claims the pair's address at version zero, the address tree is the SPP input.
 #[must_use]
 pub struct CreateEntry {
     pub ring: CustomRing,
     pub payer: Address,
-    pub entries_tree: Address,
-    pub entries_tree_id: u16,
+    pub address_tree: PoolTree,
+    pub output_tree: PoolTree,
     pub list_id: ListId,
     pub member: Member,
     pub state: EntryState,
@@ -113,42 +136,40 @@ impl CreateEntry {
         }
         let namespace = self.ring.namespace_pda();
         let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
-        let draft = EntryDraft {
-            list_id: self.list_id,
-            member: self.member,
-            state: self.state,
-            version: 0,
-            content_hash: self.content_hash,
-        };
-        let (entry, proof) = EntryWitness {
+        let written = EntryWitness {
             owner: &owner,
             namespace,
-            entries_tree: self.entries_tree,
-            entries_tree_id: self.entries_tree_id,
+            address_tree: self.address_tree,
+            output_tree: self.output_tree,
             payer: self.payer,
-            draft,
+            draft: EntryDraft {
+                list_id: self.list_id,
+                member: self.member,
+                state: self.state,
+                version: 0,
+                content_hash: self.content_hash,
+            },
             spent: None,
         }
         .prove(environment.indexer, environment.rpc, environment.prover)?;
         Ok(ProvenEntry {
             ring: self.ring,
             payer: self.payer,
-            entries_tree: self.entries_tree,
-            entry,
+            output_tree: self.output_tree.address,
+            written,
             spent: None,
-            proof,
         })
     }
 }
 
-/// Spends the live version and writes its successor at the same address.
+/// Spends the live version in its tree and writes its successor at the same address.
 #[must_use]
 pub struct UpdateEntry {
     pub ring: CustomRing,
     pub payer: Address,
-    pub entries_tree: Address,
-    pub entries_tree_id: u16,
-    pub spent: ListEntry,
+    pub address_tree: PoolTree,
+    pub output_tree: PoolTree,
+    pub spent: LiveEntry,
     pub state: EntryState,
     pub content_hash: [u8; 32],
 }
@@ -158,39 +179,37 @@ impl UpdateEntry {
         self,
         environment: EntryProofEnvironment<'_, I, R>,
     ) -> Result<ProvenEntry, EntryError> {
-        if !self.spent.list_id.admits_content(self.content_hash) {
-            return Err(EntryError::InvalidContent(self.spent.list_id));
+        let spent = self.spent.entry;
+        if !spent.list_id.admits_content(self.content_hash) {
+            return Err(EntryError::InvalidContent(spent.list_id));
         }
         let namespace = self.ring.namespace_pda();
         let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
-        let draft = EntryDraft {
-            list_id: self.spent.list_id,
-            member: self.spent.member,
-            state: self.state,
-            version: self
-                .spent
-                .version
-                .checked_add(1)
-                .ok_or(EntryError::VersionOverflow)?,
-            content_hash: self.content_hash,
-        };
-        let (entry, proof) = EntryWitness {
+        let written = EntryWitness {
             owner: &owner,
             namespace,
-            entries_tree: self.entries_tree,
-            entries_tree_id: self.entries_tree_id,
+            address_tree: self.address_tree,
+            output_tree: self.output_tree,
             payer: self.payer,
-            draft,
+            draft: EntryDraft {
+                list_id: spent.list_id,
+                member: spent.member,
+                state: self.state,
+                version: spent
+                    .version
+                    .checked_add(1)
+                    .ok_or(EntryError::VersionOverflow)?,
+                content_hash: self.content_hash,
+            },
             spent: Some(self.spent),
         }
         .prove(environment.indexer, environment.rpc, environment.prover)?;
         Ok(ProvenEntry {
             ring: self.ring,
             payer: self.payer,
-            entries_tree: self.entries_tree,
-            entry,
-            spent: Some(self.spent),
-            proof,
+            output_tree: self.output_tree.address,
+            written,
+            spent: Some(spent),
         })
     }
 }
@@ -207,25 +226,28 @@ pub struct EntryProofEnvironment<'a, I: Rpc, R: Rpc> {
 pub struct ProvenEntry {
     ring: CustomRing,
     payer: Address,
-    entries_tree: Address,
-    entry: ListEntry,
+    output_tree: Address,
+    written: WrittenEntry,
     spent: Option<ListEntry>,
-    proof: EntryProof,
 }
 
 impl ProvenEntry {
     pub const fn entry(&self) -> ListEntry {
-        self.entry
+        self.written.entry
     }
 
     pub fn instruction(self) -> Result<Instruction, EntryError> {
         let Self {
             ring,
             payer,
-            entries_tree,
-            entry,
+            output_tree,
+            written:
+                WrittenEntry {
+                    entry,
+                    input_tree,
+                    proof,
+                },
             spent,
-            proof,
         } = self;
         let data = match spent {
             None => {
@@ -267,19 +289,43 @@ impl ProvenEntry {
             program_id: ring.program_id(),
             // Everything after the two config accounts is forwarded to SPP
             // position for position.
-            accounts: vec![
-                AccountMeta::new_readonly(ring.config_pda(), false),
-                AccountMeta::new_readonly(ring.policy_config_pda(), false),
-                AccountMeta::new(payer, true),
-                AccountMeta::new(entries_tree, false),
-                AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
-                AccountMeta::new_readonly(Address::default(), false),
-                AccountMeta::new(entries_tree, false),
-                AccountMeta::new(pda::nullifier_pda(&entries_tree, &proof.nullifier).0, false),
-                AccountMeta::new_readonly(ring.namespace_pda(), false),
-            ],
+            accounts: NamespaceWriteAccounts {
+                ring,
+                payer,
+                input_tree,
+                output_tree,
+                nullifier: proof.nullifier,
+            }
+            .metas(),
             data,
         })
+    }
+}
+
+pub(crate) struct NamespaceWriteAccounts {
+    pub ring: CustomRing,
+    pub payer: Address,
+    pub input_tree: Address,
+    pub output_tree: Address,
+    pub nullifier: [u8; 32],
+}
+
+impl NamespaceWriteAccounts {
+    pub(crate) fn metas(self) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new_readonly(self.ring.config_pda(), false),
+            AccountMeta::new_readonly(self.ring.policy_config_pda(), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.output_tree, false),
+            AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
+            AccountMeta::new_readonly(Address::default(), false),
+            AccountMeta::new(self.input_tree, false),
+            AccountMeta::new(
+                pda::nullifier_pda(&self.input_tree, &self.nullifier).0,
+                false,
+            ),
+            AccountMeta::new_readonly(self.ring.namespace_pda(), false),
+        ]
     }
 }
 
@@ -296,8 +342,8 @@ mod tests {
         let refused = CreateEntry {
             ring: CustomRing::new(Address::new_from_array([42u8; 32])),
             payer: Address::new_from_array([1u8; 32]),
-            entries_tree: Address::new_from_array([2u8; 32]),
-            entries_tree_id: 0,
+            address_tree: PoolTree::from_id(0),
+            output_tree: PoolTree::from_id(0),
             list_id: ListId::Allow,
             member: Member::owner_tag(&[3u8; 32]).expect("member"),
             state: EntryState::Active,
@@ -315,43 +361,29 @@ mod tests {
     }
 
     #[test]
-    fn a_mutation_places_its_writable_nullifier_pda_before_the_namespace_signer() {
+    fn a_mutation_spends_from_its_input_tree_and_writes_to_its_output_tree() {
         let ring = CustomRing::new(Address::new_from_array([42u8; 32]));
-        let entries_tree = Address::new_from_array([2u8; 32]);
+        let input_tree = Address::new_from_array([2u8; 32]);
+        let output_tree = Address::new_from_array([4u8; 32]);
         let nullifier = [9u8; 32];
-        let instruction = ProvenEntry {
+        let metas = NamespaceWriteAccounts {
             ring,
             payer: Address::new_from_array([1u8; 32]),
-            entries_tree,
-            entry: ListEntry {
-                list_id: ListId::Allow,
-                member: Member::owner_tag(&[3u8; 32]).expect("member"),
-                state: EntryState::Active,
-                version: 0,
-                content_hash: [0u8; 32],
-                blinding: [1u8; 32],
-            },
-            spent: None,
-            proof: EntryProof {
-                proof: zolana_interface::instruction::TransactProof::zeroed(),
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
-                nullifier,
-                private_tx_blinding: [0u8; 32],
-            },
+            input_tree,
+            output_tree,
+            nullifier,
         }
-        .instruction()
-        .expect("entry instruction");
+        .metas();
 
-        let nullifier_meta = instruction.accounts.get(7).expect("nullifier PDA");
+        assert_eq!(metas[3].pubkey, output_tree);
+        assert!(metas[3].is_writable);
+        assert_eq!(metas[6].pubkey, input_tree);
+        assert!(metas[6].is_writable);
         assert_eq!(
-            nullifier_meta.pubkey,
-            pda::nullifier_pda(&entries_tree, &nullifier).0
+            metas[7].pubkey,
+            pda::nullifier_pda(&input_tree, &nullifier).0
         );
-        assert!(nullifier_meta.is_writable);
-        assert_eq!(
-            instruction.accounts.get(8).expect("namespace").pubkey,
-            ring.namespace_pda()
-        );
+        assert!(metas[7].is_writable);
+        assert_eq!(metas[8].pubkey, ring.namespace_pda());
     }
 }

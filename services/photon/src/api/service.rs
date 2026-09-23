@@ -1,6 +1,14 @@
 use std::sync::Arc;
+#[cfg(feature = "ring-projection")]
+use zolana_indexer_api::{
+    method::{GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof, GetRingSpendRecord},
+    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
+    GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecordRequest,
+};
 
 use crate::api::root_index_cache::RootIndexCache;
+#[cfg(feature = "ring-projection")]
+use crate::ring_projection::{key_registry, spend_record};
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use utoipa::openapi::{RefOr, Schema};
@@ -31,6 +39,8 @@ use super::{
     },
 };
 pub struct PhotonApi {
+    #[cfg(feature = "ring-projection")]
+    ring_projection: bool,
     db_conn: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
     root_index_cache: Arc<RootIndexCache>,
@@ -58,10 +68,24 @@ where
 impl PhotonApi {
     pub fn new(db_conn: Arc<DatabaseConnection>, rpc_client: Arc<RpcClient>) -> Self {
         Self {
+            #[cfg(feature = "ring-projection")]
+            ring_projection: false,
             db_conn,
             rpc_client,
             root_index_cache: Arc::new(RootIndexCache::new()),
         }
+    }
+
+    #[cfg(feature = "ring-projection")]
+    #[must_use]
+    pub fn with_ring_projection(mut self) -> Self {
+        self.ring_projection = true;
+        self
+    }
+
+    #[cfg(feature = "ring-projection")]
+    pub(crate) fn ring_projection_enabled(&self) -> bool {
+        self.ring_projection
     }
 
     /// Start the task that keeps the root-index ring current.
@@ -155,6 +179,30 @@ impl PhotonApi {
         get_nullifier_queue_elements(self.db_conn.as_ref(), request).await
     }
 
+    #[cfg(feature = "ring-projection")]
+    pub async fn get_ring_spend_record(
+        &self,
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, PhotonApiError> {
+        spend_record::lookup(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    #[cfg(feature = "ring-projection")]
+    pub async fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, PhotonApiError> {
+        key_registry::lookup(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    #[cfg(feature = "ring-projection")]
+    pub async fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, PhotonApiError> {
+        key_registry::register(&self.db_conn, &self.rpc_client, request).await
+    }
+
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
         vec![
             method_api_spec::<GetEncryptedUtxosByTags>(),
@@ -164,6 +212,12 @@ impl PhotonApi {
             method_api_spec::<GetMerkleProofs>(),
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
+            #[cfg(feature = "ring-projection")]
+            method_api_spec::<GetRingKeyRegistryEntry>(),
+            #[cfg(feature = "ring-projection")]
+            method_api_spec::<GetRingKeyRegistryRegisterProof>(),
+            #[cfg(feature = "ring-projection")]
+            method_api_spec::<GetRingSpendRecord>(),
         ]
     }
 }

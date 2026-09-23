@@ -184,7 +184,8 @@ function writeInput(writer: Writer, value: InputUtxo): void {
     .u8(value.treeIndex, "input.treeIndex");
 }
 
-function writeTreeContext(writer: Writer, value: TreeContext): void {
+/** Mirrors Rust `TreeContext`, the root history positions of one input tree. */
+export function writeTreeContext(writer: Writer, value: TreeContext): void {
   writer
     .u16(value.utxoTreeRootIndex, "treeContext.utxoTreeRootIndex")
     .u16(value.nullifierTreeRootIndex, "treeContext.nullifierTreeRootIndex");
@@ -366,6 +367,10 @@ export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAc
   );
 }
 
+export function decodeTreeId(bytes: Uint8Array): number {
+  return treeAccountReader(bytes, 2, 4).u16("treeId");
+}
+
 /**
  * Reads the fee schedule and accrued fee balance from a full tree account.
  * The tree header is `discriminator, state, tree_id, padding[4], fees, fee_balance`.
@@ -378,7 +383,7 @@ export function decodeTreeFees(bytes: Uint8Array): TreeFees {
   return { fees, feeBalance };
 }
 
-/** Mirrors Rust `head_roots`, the nullifier index is the slot before the write cursor. */
+/** Mirrors Rust `current_roots`, the nullifier index is the slot before the write cursor. */
 export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
   const utxo = treeAccountReader(
     bytes,

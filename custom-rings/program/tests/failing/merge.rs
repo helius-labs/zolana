@@ -1,18 +1,14 @@
-use custom_ring_interface::tag;
 use custom_ring_program::CustomRingError;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::common::{deposit_fixture, setup_mollusk};
+use crate::common::{
+    auditor_pubkey, authority, escrowed_config_account, initialized_config_account, merge_fixture,
+    merge_fixture_with, setup_mollusk,
+};
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
-}
-
-fn merge_fixture() -> crate::common::Fixture {
-    let mut fixture = deposit_fixture();
-    fixture.data_mut()[0] = tag::MERGE;
-    fixture
 }
 
 #[test]
@@ -38,4 +34,13 @@ fn merge_requires_the_custom_ring_authority() {
     let mut fixture = merge_fixture();
     fixture.substitute("ring_config", Pubkey::new_from_array([72; 32]));
     fixture.expect_err(&mollusk, custom(CustomRingError::MissingRingAuth));
+}
+
+/// Only the address tree is pinned, a windowed ring merges in any tree.
+#[test]
+fn a_policy_merge_keeps_its_tree_choice() {
+    let (mollusk, _) = setup_mollusk();
+    merge_fixture_with(initialized_config_account(authority(), auditor_pubkey(2)))
+        .expect_spp_cpi(&mollusk);
+    merge_fixture_with(escrowed_config_account()).expect_spp_cpi(&mollusk);
 }

@@ -19,6 +19,7 @@ pub use zolana_interface::instruction::instruction_data::merge_transact::{
 
 use inputs::{validate_merge_inputs, MergeInputs};
 
+#[derive(Clone)]
 pub struct MergeTransaction {
     inputs: Vec<WalletUtxo>,
     validated_inputs: MergeInputs,

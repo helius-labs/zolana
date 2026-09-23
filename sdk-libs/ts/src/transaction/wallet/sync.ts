@@ -29,7 +29,11 @@ import {
   splitEmbeddedKey,
   type ProoflessOutput,
 } from "../serialization/codecs.js";
-import { decodeRingDepositOutput, ringDepositUtxo } from "../serialization/ring-deposit.js";
+import {
+  decodeRingDepositOutput,
+  ringDepositUtxo,
+  type DepositPayloadDecoder,
+} from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
 import { KeyMemo } from "./key-memo.js";
 import {
@@ -74,6 +78,7 @@ function firstNullifierOf(tx: IndexedShieldedTransaction): Bytes32 {
 }
 
 interface DecryptTransactionsConfig {
+  readonly depositPayloadDecoder?: DepositPayloadDecoder;
   /** Recorded as `Wallet.lastSynced` once the sync commits, as `Wallet::sync` records `synced_at`. */
   readonly syncedAt?: bigint;
 }
@@ -110,7 +115,7 @@ interface Site {
 interface TagIndex {
   readonly senderSites: ReadonlyMap<string, readonly number[]>;
   readonly recipientSites: ReadonlyMap<string, readonly Site[]>;
-  readonly mergeSites: ReadonlyMap<string, readonly Site[]>;
+  readonly mergeSites: readonly Site[];
   readonly unparsedTransactions: number;
 }
 
@@ -123,13 +128,13 @@ function pushInto<T>(into: Map<string, T[]>, tag: string, value: T): void {
 function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): TagIndex {
   const senderSites = new Map<string, number[]>();
   const recipientSites = new Map<string, Site[]>();
-  const mergeSites = new Map<string, Site[]>();
+  const mergeSites: Site[] = [];
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
     let classified = false;
     if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      for (const [slotIndex, slot] of tx.outputSlots.entries()) {
-        pushInto(mergeSites, hex(slot.viewTag), { transaction, slot: slotIndex });
+      for (const slotIndex of tx.outputSlots.keys()) {
+        mergeSites.push({ transaction, slot: slotIndex });
         classified = true;
       }
       if (!classified) unparsedTransactions++;
@@ -227,6 +232,7 @@ function rowKey(row: PrivateTransaction): string {
  * advances.
  */
 class SyncPass {
+  readonly #depositPayloadDecoder: DepositPayloadDecoder;
   readonly #owner: ShieldedPublicKey;
   readonly #nullifierPublicKey: Bytes32;
   /** The keys the wallet holds, current first; the pass opens under each. */
@@ -255,6 +261,7 @@ class SyncPass {
 
   constructor(
     input: Readonly<{
+      depositPayloadDecoder?: DepositPayloadDecoder | undefined;
       identity: ShieldedAddress;
       viewingPublicKeys: readonly P256PublicKey[];
       keys: KeyMemo;
@@ -265,6 +272,7 @@ class SyncPass {
       selfViewingPublicKeys: readonly P256PublicKey[];
     }>,
   ) {
+    this.#depositPayloadDecoder = input.depositPayloadDecoder ?? ((bytes) => bytes);
     this.#owner = input.identity.signingPublicKey;
     this.#nullifierPublicKey = input.identity.nullifierPublicKey;
     this.#viewingPublicKeys = input.viewingPublicKeys;
@@ -812,15 +820,18 @@ class SyncPass {
       let ringDataHash: Bytes32 | undefined;
       let output: ReturnType<typeof decodeRingDepositOutput>;
       let txViewingPublicKey: P256PublicKey;
+      let ciphertext: Uint8Array;
       try {
         output = decodeRingDepositOutput(body);
         txViewingPublicKey = P256PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
+        ciphertext = output.encrypted.ciphertext;
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
       }
+      ciphertext = this.#depositPayloadDecoder(ciphertext);
       const decrypted = this.#keys.decrypt({
-        ciphertext: output.encrypted.ciphertext,
+        ciphertext,
         viewingPublicKey,
         txViewingPublicKey,
         salt: output.encrypted.salt,
@@ -1090,11 +1101,12 @@ export async function decryptTransactions(
   // has ever been given -- including keys a later sync no longer holds.
   const viewingKeyHistory = ensureViewingKeyEntries(current.viewingKeyHistory, viewingPublicKeys);
   const identityTag = identity.signingPublicKey.confidentialViewTag();
-  const mergeSites = index.mergeSites.get(hex(identityTag)) ?? [];
+  const mergeSites = index.mergeSites;
   const memo = new KeyMemo(input.keys);
   try {
     for (let round = 0; round < maxKeyRounds(mergeSites.length); round++) {
       const pass = new SyncPass({
+        depositPayloadDecoder: input.config?.depositPayloadDecoder,
         identity,
         viewingPublicKeys,
         keys: memo,

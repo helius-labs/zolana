@@ -11,7 +11,7 @@ import {
 } from "../transaction/wallet/keys.js";
 import { ClientError } from "./error.js";
 import { bytesField, hasProofMethods, poseidon } from "./internal.js";
-import type { ProofService, WalletKeys } from "./ports.js";
+import type { ProofAuthority, ProofService, WalletKeys } from "./ports.js";
 import { asField } from "./prover/assembly.js";
 import type { Field, MergeInputs, ProverInputs, TransferInput } from "./prover/types.js";
 
@@ -81,26 +81,12 @@ export class LocalKeys implements WalletKeys {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    const complete = this.#keys.withNullifierKey((key) =>
-      Object.freeze({
-        circuit: inputs.circuit,
-        payload: Object.freeze({
-          ...inputs.payload,
-          inputs: Object.freeze(inputs.payload.inputs.map((input) => completeInput(input, key))),
-        }),
-      }),
-    );
+    const complete = this.#keys.withNullifierKey((key) => completeTransferInputs(inputs, key));
     return this.#proofs.prove(complete, context);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    const complete = this.#keys.withNullifierKey((key) => {
-      if (inputs.userNullifierSecret !== undefined) return inputs;
-      if (bytesField(key.publicKey(), "nullifier public key") !== inputs.userNullifierPublicKey) {
-        throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
-      }
-      return Object.freeze({ ...inputs, userNullifierSecret: secretField(key) });
-    });
+    const complete = this.#keys.withNullifierKey((key) => completeMergeInputs(inputs, key));
     return this.#proofs.proveMerge(complete, context);
   }
 
@@ -109,7 +95,52 @@ export class LocalKeys implements WalletKeys {
   }
 }
 
+/**
+ * The proving half over a nullifier key held without its wallet: the ring
+ * delegate spends a member's notes under the key the auditor opened from the
+ * key registry. The key is copied here and destroyed with this object.
+ */
+export class NullifierKeyProofAuthority implements ProofAuthority {
+  readonly #key: NullifierKey;
+  readonly #proofs: ProofService;
+
+  constructor(nullifierKey: NullifierKey, proofs: ProofService) {
+    this.#proofs = checkProofService(proofs);
+    this.#key = nullifierKey.clone();
+  }
+
+  prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
+    return this.#proofs.prove(completeTransferInputs(inputs, this.#key), context);
+  }
+
+  proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
+    return this.#proofs.proveMerge(completeMergeInputs(inputs, this.#key), context);
+  }
+
+  destroy(): void {
+    this.#key.destroy();
+  }
+}
+
 type Proof = Awaited<ReturnType<ProofService["prove"]>>;
+
+function completeTransferInputs(inputs: ProverInputs, key: NullifierKey): ProverInputs {
+  return Object.freeze({
+    circuit: inputs.circuit,
+    payload: Object.freeze({
+      ...inputs.payload,
+      inputs: Object.freeze(inputs.payload.inputs.map((input) => completeInput(input, key))),
+    }),
+  });
+}
+
+function completeMergeInputs(inputs: MergeInputs, key: NullifierKey): MergeInputs {
+  if (inputs.userNullifierSecret !== undefined) return inputs;
+  if (bytesField(key.publicKey(), "nullifier public key") !== inputs.userNullifierPublicKey) {
+    throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
+  }
+  return Object.freeze({ ...inputs, userNullifierSecret: secretField(key) });
+}
 
 /** Fills the secret on this wallet's own real inputs; everything else passes through untouched. */
 function completeInput(input: TransferInput, key: NullifierKey): TransferInput {

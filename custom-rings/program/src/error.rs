@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8141 range is reserved for the ring program and is collision-free
+/// The 8100..8172 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7065) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -43,9 +43,9 @@ pub enum CustomRingError {
     UnauthorizedInitializer = 8114,
     #[error("forwarded account list exceeds the CPI account limit")]
     TooManyAccounts = 8115,
-    #[error("read access entry already exists")]
-    ReadAccessEntryAlreadyExists = 8116,
-    #[error("read access entry account is invalid")]
+    #[error("read access record already exists")]
+    ReadAccessRecordAlreadyExists = 8116,
+    #[error("read access record account is invalid")]
     InvalidReadAccessRecord = 8117,
     #[error("reader key cannot authorize reads")]
     InvalidReaderKey = 8118,
@@ -67,21 +67,20 @@ pub enum CustomRingError {
     #[error("entry state is unknown")]
     InvalidEntryState = 8127,
     // 8128 retired, an empty policy table is valid.
-    #[error("entry mutations must use the default tree")]
-    InvalidPolicyTree = 8129,
+    // 8129 retired.
     #[error("entry version overflows")]
     EntryVersionOverflow = 8130,
     #[error("entries account is not the canonical namespace PDA")]
     InvalidNamespacePda = 8131,
-    #[error("entries tree account is not a shielded pool tree")]
-    InvalidEntriesTree = 8132,
+    #[error("address tree account is invalid")]
+    InvalidAddressTree = 8132,
     #[error("policy root index is outside the window the statement admits")]
     StalePolicyRoot = 8133,
     #[error("policy sources do not match the lists the compiled table references")]
     InvalidSource = 8134,
     #[error("curator policy config account is not a canonical initialized policy config")]
     InvalidCuratorPolicyConfig = 8135,
-    #[error("curator entries live in a different tree")]
+    #[error("curator pins a different address tree")]
     CuratorTreeMismatch = 8136,
     #[error("curator has no source for the list")]
     CuratorSourceMissing = 8137,
@@ -93,6 +92,68 @@ pub enum CustomRingError {
     InvalidPolicyRules = 8140,
     #[error("policy generation overflows")]
     PolicyGenerationOverflow = 8141,
+    #[error("an audit-only ring takes no policy")]
+    PolicyOnAuditOnlyRing = 8142,
+    #[error("the operation needs the co-signer's signature")]
+    MissingCoSigner = 8143,
+    #[error("the signer is not the ring's co-signer")]
+    UnauthorizedCoSigner = 8144,
+    #[error("co-signer scope must be a nonzero subset of the scope bits")]
+    InvalidCoSignerScope = 8145,
+    #[error("co-signer account is invalid")]
+    InvalidCoSigner = 8146,
+    #[error("co-signer thresholds exceed the table or repeat a mint")]
+    InvalidCoSignerThresholds = 8147,
+    #[error("the public legs exceed a spend window cap")]
+    SpendWindowExceeded = 8148,
+    #[error("spend window account is invalid")]
+    InvalidSpendWindow = 8149,
+    #[error("the ring has no delegate")]
+    DelegateDisabled = 8150,
+    #[error("the delegate must sign")]
+    UnauthorizedDelegate = 8151,
+    #[error("a delegate move settles no public leg")]
+    DelegatePublicLeg = 8152,
+    #[error("the delegate is permanent")]
+    DelegateAlreadySet = 8153,
+    #[error("delegate account is invalid")]
+    InvalidDelegate = 8154,
+    #[error("a velocity transfer settles no deposit leg")]
+    VelocityDepositLeg = 8155,
+    #[error("the spend record output does not match its plaintext")]
+    InvalidSpendRecord = 8156,
+    #[error("dual control needs a configured co-signer")]
+    ApprovalWithoutCoSigner = 8157,
+    #[error("the ring has no velocity window")]
+    VelocityDisabled = 8158,
+    #[error("the velocity window duration cannot change once set")]
+    VelocityWindowImmutable = 8159,
+    #[error("key registry root account is invalid")]
+    InvalidKeyRegistryRoot = 8160,
+    #[error("key registry root changed")]
+    StaleKeyRegistryRoot = 8161,
+    #[error("key registry append cursor is invalid or exhausted")]
+    InvalidKeyRegistryCursor = 8162,
+    #[error("key registry root already exists")]
+    KeyRegistryRootAlreadyExists = 8163,
+    #[error("invalid deposit audit setting")]
+    InvalidDepositAudit = 8164,
+    #[error("verified deposit disclosure required")]
+    DepositAuditRequired = 8165,
+    #[error("invalid deposit disclosure")]
+    InvalidDepositDisclosure = 8166,
+    #[error("invalid spend counters disclosure")]
+    InvalidSpendCountersDisclosure = 8167,
+    #[error("revocation target account is invalid")]
+    InvalidRevocationTarget = 8168,
+    #[error("policy fact changed after proof creation")]
+    PolicyFactRevoked = 8169,
+    #[error("a delegate needs a policy ring")]
+    DelegateRequiresPolicy = 8170,
+    #[error("revocation tree index is invalid")]
+    InvalidRevocationTreeIndex = 8171,
+    #[error("policy tree accounts are invalid")]
+    InvalidPolicyTrees = 8172,
 }
 
 impl From<CustomRingError> for ProgramError {

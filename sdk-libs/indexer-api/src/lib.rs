@@ -18,12 +18,23 @@ pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "getShieldedTransactionsByTa
 pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "getShieldedTransactionsBySignature";
 pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactionsByNullifiers";
 pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
+pub const GET_RING_KEY_REGISTRY_ENTRY: &str = "getRingKeyRegistryEntry";
+pub const GET_RING_KEY_REGISTRY_REGISTER_PROOF: &str = "getRingKeyRegistryRegisterProof";
+pub const GET_RING_SPEND_RECORD: &str = "getRingSpendRecord";
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 
 const MAX_BASE58_32_LEN: usize = 44;
 const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
 const LIMIT_ERROR: &str = "value must be between 1 and 1000";
+
+pub mod error_code {
+    pub const RING_KEY_REGISTRY_OUT_OF_SYNC: i64 = -32070;
+    pub const RING_KEY_REGISTRY_ROOT_CHANGED: i64 = -32071;
+    pub const RING_KEY_REGISTRY_MEMBER_UNREGISTERED: i64 = -32072;
+    pub const RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: i64 = -32073;
+    pub const RING_SPEND_RECORD_OUT_OF_SYNC: i64 = -32074;
+}
 
 /// Associates one canonical JSON-RPC method name with its parameter and result types.
 pub trait RpcMethod {
@@ -40,6 +51,9 @@ pub mod method {
     pub struct GetShieldedTransactionsBySignature;
     pub struct GetShieldedTransactionsByNullifiers;
     pub struct GetMerkleProofs;
+    pub struct GetRingKeyRegistryEntry;
+    pub struct GetRingKeyRegistryRegisterProof;
+    pub struct GetRingSpendRecord;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
 
@@ -71,6 +85,24 @@ pub mod method {
         const NAME: &'static str = GET_MERKLE_PROOFS;
         type Request = GetMerkleProofsRequest;
         type Response = GetMerkleProofsResponse;
+    }
+
+    impl RpcMethod for GetRingKeyRegistryEntry {
+        const NAME: &'static str = GET_RING_KEY_REGISTRY_ENTRY;
+        type Request = RingMemberProofRequest;
+        type Response = GetRingKeyRegistryEntryResponse;
+    }
+
+    impl RpcMethod for GetRingKeyRegistryRegisterProof {
+        const NAME: &'static str = GET_RING_KEY_REGISTRY_REGISTER_PROOF;
+        type Request = RingMemberProofRequest;
+        type Response = GetRingKeyRegistryRegisterProofResponse;
+    }
+
+    impl RpcMethod for GetRingSpendRecord {
+        const NAME: &'static str = GET_RING_SPEND_RECORD;
+        type Request = RingSpendRecordRequest;
+        type Response = GetRingSpendRecordResponse;
     }
 
     impl RpcMethod for GetNonInclusionProofs {
@@ -500,6 +532,7 @@ pub struct Context {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetRingsByTagsRequest {
+    /// Empty tags require a ring and select its full history.
     pub tags: Vec<Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<Base64String>,
@@ -549,7 +582,8 @@ pub struct GetEncryptedUtxosByTagsResponse {
     /// one should refuse at that point rather than pick a doomed id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_tree_id: Option<u16>,
-    /// Output-level matches; every returned output slot has a view tag from the request.
+    /// Output-level matches. With tags these carry a requested view tag; with
+    /// an empty tag set they contain all outputs in the selected ring.
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Base64String>,
     /// Where the scan reached on a terminal page, including an empty page.
@@ -596,6 +630,8 @@ pub struct RingsMessage {
 pub struct ShieldedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_index: Option<u16>,
     pub tx_viewing_pk: Option<Base64String>,
     /// Transaction-level AES salt shared by every output ciphertext.
     pub salt: Option<Base64String>,
@@ -626,8 +662,9 @@ pub struct GetShieldedTransactionsByTagsResponse {
     /// The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_tree_id: Option<u16>,
-    /// Transaction-level matches; each returned transaction has at least one requested
-    /// output view tag and includes all of its output slots.
+    /// Transaction-level matches with all output slots. With tags, each
+    /// transaction has at least one requested view tag; with an empty tag set,
+    /// the response contains the selected ring's full history.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
     /// Where the scan reached on a terminal page, including an empty page.
@@ -698,6 +735,73 @@ pub struct GetMerkleProofsRequest {
 pub struct GetMerkleProofsResponse {
     pub context: Context,
     pub proofs: Vec<MerkleProof>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingMemberProofRequest {
+    pub ring_program_id: SerializablePubkey,
+    pub member: Hash,
+    pub expected_root: Hash,
+    pub expected_next_index: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingKeyRegistryEntryResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub next_index: u64,
+    pub member: Hash,
+    pub next: Hash,
+    pub index: u64,
+    pub eph_pk: Base64String,
+    pub ciphertext: Base64String,
+    pub proof: Vec<Hash>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingKeyRegistryRegisterProofResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub next_index: u64,
+    pub member: Hash,
+    pub low_member: Hash,
+    pub low_next: Hash,
+    pub low_key_hash: Hash,
+    pub low_index: u64,
+    pub low_proof: Vec<Hash>,
+    /// Computed after the predecessor update.
+    pub new_proof: Vec<Hash>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingSpendRecordRequest {
+    pub ring_program_id: SerializablePubkey,
+    pub member: Hash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingSpendRecord {
+    pub transaction: ShieldedTransaction,
+    pub output_index: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingSpendRecordResponse {
+    pub context: Context,
+    /// `None` until the member registers.
+    pub record: Option<RingSpendRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

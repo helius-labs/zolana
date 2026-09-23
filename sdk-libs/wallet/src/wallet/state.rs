@@ -133,7 +133,10 @@ impl CursorStream {
     }
 }
 
+pub type DepositPayloadDecoder = for<'a> fn(&'a [u8]) -> Result<&'a [u8], TransactionError>;
+
 pub struct Wallet {
+    pub(super) deposit_payload: DepositPayloadDecoder,
     /// Public wallet identity. All secret key material is supplied by a
     /// `WalletAuthority` when cryptographic work is required.
     pub identity: ShieldedAddress,
@@ -161,6 +164,7 @@ impl Wallet {
     ) -> Result<Self, TransactionError> {
         let viewing_pubkey = identity.viewing_pubkey;
         Ok(Self {
+            deposit_payload: |bytes| Ok(bytes),
             identity,
             registry,
             viewing_key_history: vec![ViewingKeyEntry::new(viewing_pubkey, 0)],
@@ -170,6 +174,12 @@ impl Wallet {
             last_synced: 0,
             cursors: HashMap::new(),
         })
+    }
+
+    #[must_use]
+    pub fn with_deposit_payload_decoder(mut self, decoder: DepositPayloadDecoder) -> Self {
+        self.deposit_payload = decoder;
+        self
     }
 
     pub(crate) fn ensure_viewing_key_entries(

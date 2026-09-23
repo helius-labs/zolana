@@ -273,6 +273,8 @@ jobs:
           path: |
             target/debug/zolana
             target/debug/xtask
+            target/debug/zolana-ring
+            target/debug/photon
             target/prover-server
           if-no-files-found: error
           retention-days: 1
@@ -426,7 +428,7 @@ jobs:
         with:
           name: localnet-tests-${{ github.sha }}
           path: target/nextest-archives
-      - run: chmod 0755 target/debug/zolana target/debug/xtask target/prover-server
+      - run: chmod 0755 target/debug/zolana target/debug/xtask target/debug/zolana-ring target/debug/photon target/prover-server
       - name: Download example test keys
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:

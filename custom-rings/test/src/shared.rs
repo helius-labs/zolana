@@ -9,10 +9,11 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use custom_ring_cli::transact::{self, Probe};
 use custom_ring_sdk::{
-    CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, TransactSend,
-    TRANSACT_COMPUTE_UNIT_LIMIT,
+    CreateConfig, CreatePolicy, CustomRing, EntryProofError, InitSppRingConfig, LiveSpendRecord,
+    TransactSend, TRANSACT_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -23,6 +24,7 @@ use zolana_client::{
     prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError,
     ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
+use zolana_interface::instruction::SetRingActivation;
 use zolana_interface::{
     instruction::CreateProtocolConfig,
     pda,
@@ -74,10 +76,35 @@ pub struct TestEnv {
     pub sender: TestWallet,
     pub recipient: TestWallet,
     tree_creation_authority: Keypair,
+    ring_creation_authority: Keypair,
     standard_accounts: smart_account::StandardAccounts,
 }
 
 impl TestEnv {
+    /// Governance enables the authority rail for `ring` through the ring vault.
+    pub fn enable_authority_rail(&self, ring: CustomRing) -> Result<()> {
+        let activation = SetRingActivation {
+            authority: self.standard_accounts.ring_vault,
+            ring_config: ring.ring_auth_pda(),
+            activated: true,
+            ring_authority_transact_is_enabled: true,
+        }
+        .instruction();
+        let sync = smart_account::execute_sync_ix(
+            &self.standard_accounts.ring_settings,
+            0,
+            &[self.ring_creation_authority.pubkey()],
+            &[activation],
+        );
+        self.client.rpc().create_and_send_transaction(
+            &[sync],
+            self.payer.pubkey(),
+            &[&self.payer, &self.ring_creation_authority],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
+        Ok(())
+    }
+
     /// Allocate and register a second SPP tree owned by the shielded pool.
     pub fn create_registered_tree(&self) -> Result<Address> {
         let rpc = self.client.rpc();
@@ -159,7 +186,7 @@ impl std::ops::DerefMut for TestWallet {
 pub enum Tier {
     AuditOnly,
     Policy {
-        entries_tree: Address,
+        address_tree: Address,
         rules: &'static RuleTable,
         shared_sources: Vec<(ListId, CustomRing)>,
     },
@@ -167,9 +194,9 @@ pub enum Tier {
 
 impl Tier {
     /// Every referenced list served from the ring's own entries.
-    pub fn policy(rules: &'static RuleTable, entries_tree: Address) -> Self {
+    pub fn policy(rules: &'static RuleTable, address_tree: Address) -> Self {
         Self::Policy {
-            entries_tree,
+            address_tree,
             rules,
             shared_sources: Vec::new(),
         }
@@ -245,7 +272,7 @@ impl<'a> ConfiguredRing<'a> {
         let registration = self.registration();
         let authority = self.payer.pubkey();
         if let Tier::Policy {
-            entries_tree,
+            address_tree,
             rules,
             shared_sources,
         } = self.tier
@@ -257,7 +284,7 @@ impl<'a> ConfiguredRing<'a> {
                     ring: self.ring,
                     payer: authority,
                     authority,
-                    entries_tree,
+                    address_tree,
                     rules,
                     shared_sources,
                 }
@@ -272,6 +299,10 @@ impl<'a> ConfiguredRing<'a> {
 }
 
 impl PinnedRing<'_> {
+    pub fn registration(&self) -> Instruction {
+        self.registration.clone()
+    }
+
     pub fn register(self, rpc: &SolanaRpc) -> Result<()> {
         send(rpc, self.payer, &[self.registration])?;
         Ok(())
@@ -354,7 +385,12 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     .collect();
     validator.start_with_upgradeable_programs(&deployments)?;
 
-    spawn_workspace_prover();
+    if let Some(keys) = std::env::var_os("ZOLANA_PROVER_KEYS_DIR") {
+        zolana_client::spawn_prover_with_artifacts(&validator.cli_bin, keys)
+            .context("start the isolated ring prover")?;
+    } else {
+        spawn_workspace_prover();
+    }
 
     let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
@@ -486,6 +522,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         sender,
         recipient,
         tree_creation_authority,
+        ring_creation_authority,
         standard_accounts: accounts,
     })
 }
@@ -516,7 +553,24 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
         .map_err(|e| anyhow!("actor address failed {e:?}"))?;
     let wallet =
         Wallet::new(address, assets.clone()).map_err(|e| anyhow!("actor wallet failed {e:?}"))?;
+    let wallet = wallet.with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
     Ok(TestWallet { wallet, keypair })
+}
+
+pub fn wait_for_spend_record(
+    read: impl Fn() -> Result<Option<LiveSpendRecord>, EntryProofError>,
+    version: u64,
+) -> Result<LiveSpendRecord> {
+    Ok(transact::wait_for(
+        format!("spend record v{version}"),
+        || {
+            Ok(match read() {
+                Ok(Some(live)) if live.record.version == version => Probe::Ready(live),
+                Ok(_) => Probe::NotYet,
+                Err(error) => Probe::Retry(error),
+            })
+        },
+    )?)
 }
 
 /// Send instructions as a transaction **v1** message paid and signed by
@@ -541,20 +595,39 @@ pub fn send_expecting_rejection(
     payer: &dyn Signer,
     ix: Instruction,
 ) -> Result<ClientError> {
-    let tx = TransactSend {
+    RejectedTransact {
         payer,
         signers: &[],
         instruction: ix,
     }
-    .build(rpc)?;
-    match rpc.client().send_and_confirm_transaction(&tx) {
-        Ok(signature) => Err(anyhow!(
-            "transaction {signature} was expected to be rejected but landed"
-        )),
-        Err(source) => Ok(ClientError::SolanaRpcTransaction {
-            operation: "send v1",
-            source,
-        }),
+    .send(rpc)
+}
+
+/// [`send_expecting_rejection`] with the signers a co-signed or delegated transact needs.
+#[must_use]
+pub struct RejectedTransact<'a> {
+    pub payer: &'a dyn Signer,
+    pub signers: &'a [&'a dyn Signer],
+    pub instruction: Instruction,
+}
+
+impl RejectedTransact<'_> {
+    pub fn send(self, rpc: &SolanaRpc) -> Result<ClientError> {
+        let tx = TransactSend {
+            payer: self.payer,
+            signers: self.signers,
+            instruction: self.instruction,
+        }
+        .build(rpc)?;
+        match rpc.client().send_and_confirm_transaction(&tx) {
+            Ok(signature) => Err(anyhow!(
+                "transaction {signature} was expected to be rejected but landed"
+            )),
+            Err(source) => Ok(ClientError::SolanaRpcTransaction {
+                operation: "send v1",
+                source,
+            }),
+        }
     }
 }
 

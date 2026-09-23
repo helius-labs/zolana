@@ -18,7 +18,12 @@ const base58Encoder = getBase58Encoder();
 
 /** Mirrors Rust `TransactionOrigin`, an unknown signature is an error, never `false`. */
 export interface TransactionOrigin {
-  ringInvoked(signature: Signature, ring: Address, context?: RequestContext): Promise<boolean>;
+  ringInvoked(
+    signature: Signature,
+    eventIndex: number,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<boolean>;
 }
 
 export interface OriginInstruction {
@@ -88,6 +93,70 @@ export function ringInstructionsIn(
 /** Mirrors Rust `ring_invoked_in`. */
 export function ringInvokedIn(groups: readonly OriginInstructionGroup[], ring: Address): boolean {
   return ringInstructionsIn(groups, ring).length > 0;
+}
+
+/** Checks the ring caller of one trusted SPP event. */
+export function ringEventInvokedIn(
+  groups: readonly OriginInstructionGroup[],
+  eventIndex: number,
+  ring: Address,
+): boolean {
+  if (!Number.isInteger(eventIndex) || eventIndex < 0 || eventIndex > 0xffff) {
+    throw new RingError("RING_ORIGIN_DECODE", { details: { path: "eventIndex" } });
+  }
+  const source = trustedEventSources(groups)[eventIndex];
+  if (source === undefined) {
+    throw new RingError("RING_ORIGIN_DECODE", { details: { path: "eventIndex" } });
+  }
+  return ringInstructionsIn(groups, ring).includes(source);
+}
+
+function trustedEventSources(
+  groups: readonly OriginInstructionGroup[],
+): readonly OriginInstruction[] {
+  const sources: OriginInstruction[] = [];
+  for (const group of groups) {
+    group.inner.forEach((instruction, index) => {
+      if (
+        instruction.programId !== SHIELDED_POOL_PROGRAM_ID ||
+        instruction.data[0] !== InstructionTag.emitEvent
+      ) {
+        return;
+      }
+      const parent = eventParent(group, index);
+      if (parent?.programId === SHIELDED_POOL_PROGRAM_ID && isEventSourceTag(parent.data[0])) {
+        sources.push(parent);
+      }
+    });
+  }
+  return sources;
+}
+
+function eventParent(
+  group: OriginInstructionGroup,
+  eventIndex: number,
+): OriginInstruction | undefined {
+  const event = group.inner[eventIndex];
+  const height = event?.stackHeight;
+  if (height === undefined || height < 2) return undefined;
+  const parentHeight = height - 1;
+  for (let index = eventIndex - 1; index >= 0; index--) {
+    const candidate = group.inner[index];
+    if (candidate?.stackHeight === parentHeight) return candidate;
+  }
+  return parentHeight === 1 ? group.outer : undefined;
+}
+
+function isEventSourceTag(value: number | undefined): boolean {
+  return (
+    value === InstructionTag.deposit ||
+    value === InstructionTag.ringDeposit ||
+    value === InstructionTag.transact ||
+    value === InstructionTag.ringTransact ||
+    value === InstructionTag.ringAuthorityTransact ||
+    value === InstructionTag.mergeTransact ||
+    value === InstructionTag.ringMergeTransact
+  );
 }
 
 /**
@@ -195,6 +264,7 @@ export class RpcTransactionOrigin implements TransactionOrigin {
 
   async ringInvoked(
     signature: Signature,
+    eventIndex: number,
     ring: Address,
     context?: RequestContext,
   ): Promise<boolean> {
@@ -212,14 +282,14 @@ export class RpcTransactionOrigin implements TransactionOrigin {
     if (transaction === null || transaction === undefined) {
       throw new RingError("RING_ORIGIN_UNAVAILABLE", { details: { transactionId: signature } });
     }
-    return ringInvokedIn(confirmedInstructionGroups(transaction), ring);
+    return ringEventInvokedIn(confirmedInstructionGroups(transaction), eventIndex, ring);
   }
 }
 
-/** One lookup per signature, the scan sees a signature once per page it appears in. */
+/** One lookup per event and ring. */
 export class CachedTransactionOrigin implements TransactionOrigin {
   readonly #origin: TransactionOrigin;
-  readonly #known = new Map<Signature, boolean>();
+  readonly #known = new Map<string, boolean>();
 
   constructor(origin: TransactionOrigin) {
     this.#origin = origin;
@@ -227,13 +297,15 @@ export class CachedTransactionOrigin implements TransactionOrigin {
 
   async ringInvoked(
     signature: Signature,
+    eventIndex: number,
     ring: Address,
     context?: RequestContext,
   ): Promise<boolean> {
-    const known = this.#known.get(signature);
+    const key = `${signature}:${String(eventIndex)}:${ring}`;
+    const known = this.#known.get(key);
     if (known !== undefined) return known;
-    const invoked = await this.#origin.ringInvoked(signature, ring, context);
-    this.#known.set(signature, invoked);
+    const invoked = await this.#origin.ringInvoked(signature, eventIndex, ring, context);
+    this.#known.set(key, invoked);
     return invoked;
   }
 }

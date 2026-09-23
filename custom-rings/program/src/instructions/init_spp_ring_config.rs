@@ -6,7 +6,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_authorized_config, load_policy_config, validate_spp_program},
-        shared::cpi_spp_signed,
+        shared::{cpi_spp_signed, SppSigners},
     },
 };
 
@@ -45,10 +45,7 @@ pub fn process_init_spp_ring_config_ix(
 
     let instruction_data = encode_instruction(
         tag::CREATE_RING_CONFIG,
-        // The authority-transact rail is governance-owned and starts off; this
-        // ring never wants it, since every transaction has to carry an auditor
-        // proof. The config is also created inert on a permissioned pool, so
-        // governance admits the ring with `set_ring_activation` afterwards.
+        // Rail off and config inert until governance runs `set_ring_activation`.
         &CreateRingConfigData {
             program_id: *program_id,
             // SPP admin actions on the ring pass only through the ring program.
@@ -61,5 +58,10 @@ pub fn process_init_spp_ring_config_ix(
     // carries the authority, the ring config and the SPP program, so the CPI list
     // is selected explicitly instead of forwarded whole.
     let cpi_accounts = [&*payer, &*protocol_config, &*ring_auth, &*system_program];
-    cpi_spp_signed(program_id, cpi_accounts.as_slice(), &instruction_data)
+    cpi_spp_signed(
+        program_id,
+        cpi_accounts.as_slice(),
+        &instruction_data,
+        SppSigners::RingAuth,
+    )
 }

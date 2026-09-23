@@ -151,3 +151,5 @@ export {
   type RingTransferTransactionParams,
   type RingWithdrawalTransactionParams,
 } from "./ring/index.js";
+
+export type { RingProvingConfig } from "./client/ports.js";

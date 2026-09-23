@@ -19,6 +19,7 @@ proofs = []
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-indexer-api = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }

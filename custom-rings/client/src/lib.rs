@@ -18,36 +18,50 @@
 //!
 //! ## Audit coverage
 //!
-//! The recovered transaction viewing key opens confidential output slots of
-//! ring transactions. Ring deposits encrypt to the recipient
-//! (`EncryptedRingDepositData`) and are not auditor-decryptable; their amounts
-//! are public on-chain anyway, so an auditor reads those from the deposit
-//! instruction or event rather than by decryption.
+//! Auditor keys open transaction slots and verified deposit disclosures.
+//! Deposits without disclosure expose no opening to the auditor.
 
+mod counters;
 mod decrypt;
 mod deposit;
+mod deposit_encryption;
+mod deposit_payload;
 mod encryption;
 mod error;
 mod origin;
 mod reader;
+mod record;
+mod recover;
 mod scan;
 mod types;
 
 #[cfg(feature = "solana-rpc")]
 pub use crate::origin::{ConfirmedTransaction, ORIGIN_TRANSACTION_CONFIG};
 pub use crate::{
+    counters::{find_counters_message, CountersSeal, SealedCounters, SpendCountersError},
     decrypt::TransactionAudit,
     deposit::{ring_deposits_in, RingDeposit},
-    encryption::{auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage},
-    error::AuditError,
+    deposit_encryption::{DepositEncryption, DepositOpen, DepositOpening, DepositSeal},
+    encryption::{
+        auditor_view_tag, AuditEncryptionError, AuditOutputOpening, AuditorEncryption,
+        AuditorMessage, NullifierKeyEnvelope, SealedNullifierKey,
+    },
+    error::{AuditError, RecoveryError},
     origin::{
-        ring_invoked_in, ring_withdrawals_in, OriginError, RingOrigin, RingWithdrawal,
-        TransactionOrigin,
+        ring_event_origin_in, ring_invoked_in, ring_withdrawals_in, OriginError, RingOrigin,
+        RingWithdrawal, TransactionOrigin,
     },
     reader::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,
     },
+    record::{MalformedRecordCarrier, RecordCarrier},
+    recover::{
+        MemberRecovery, NoteDataHashes, NoteHashResolver, RecoveredNotes, RecoveryEnvironment,
+        RingRecovery, SourceMember,
+    },
     scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
-    types::{AuditedOutput, AuditedTransaction},
+    types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
 };
 pub use custom_ring_interface::AUDITOR_MESSAGE_LEN;
+
+pub use deposit_payload::deposit_payload;

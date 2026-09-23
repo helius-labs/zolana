@@ -22,11 +22,11 @@ pub use inputs::{
 };
 pub use merge::{MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
-pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness};
+pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
 pub use transact::{
-    input_utxos_from_nullifiers, PublicInputs, PublicTransfers, RingTransferP256ProofResult,
-    RingTransferP256Prover, RingTransferProofResult, RingTransferProver, TransferInputUtxo,
-    TransferProofResult, TransferProver,
+    attach_input_proofs, input_utxos_from_nullifiers, PublicInputs, PublicTransfers,
+    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver, TransferInputUtxo, TransferProofResult, TransferProver,
 };
 pub use utxo::ProofInputUtxo;
 pub use verify::{verify_confidential_transfer_inputs, verify_confidential_transfer_proof};

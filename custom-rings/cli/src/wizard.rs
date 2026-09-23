@@ -339,7 +339,7 @@ impl Wizard<'_> {
 
     fn policy(&mut self, target: Target, rpc_url: &str) -> Result<Option<PolicySpec>, WizardError> {
         let mut spec = PolicySpec {
-            entries_tree: Some(Base58Address(pda::tree(0))),
+            address_tree: Some(Base58Address(pda::tree(0))),
             ..Default::default()
         };
         ui::heading(Icon::Policy, "policy options");
@@ -432,9 +432,9 @@ impl Wizard<'_> {
             return Ok(());
         }
         ui::heading(Icon::Lists, "list entry sources");
-        let tree = spec.entries_tree();
+        let tree = spec.address_tree();
         line("tree", tree);
-        ui::hint("a discovered curator is offered only when it serves the list from this tree");
+        ui::hint("a discovered curator is offered only when it serves the list and pins this tree");
         let catalogue = self.curators.catalogue(target, rpc_url);
         for list in referenced {
             if let Some(curator) = self.source(target, list, tree, &catalogue)? {
@@ -752,7 +752,7 @@ pub(crate) mod tests {
                 [Curator {
                     program: Base58Address(CURATOR),
                     lists: vec!["block".parse().expect("list")],
-                    entries_tree: Base58Address(pda::tree(0)),
+                    address_tree: Base58Address(pda::tree(0)),
                 }],
             );
             catalogue
@@ -874,7 +874,7 @@ pub(crate) mod tests {
         let answers = run(script(&[Answer::from("configure policy later")])).expect("wizard");
         let policy = answers.policy.expect("policy tier");
         assert!(policy.rules.is_empty());
-        assert_eq!(policy.entries_tree, Some(Base58Address(pda::tree(0))));
+        assert_eq!(policy.address_tree, Some(Base58Address(pda::tree(0))));
     }
 
     #[test]
@@ -894,7 +894,7 @@ pub(crate) mod tests {
                 .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
                 .build()
         );
-        assert_eq!(compiled.entries_tree, pda::tree(0));
+        assert_eq!(compiled.address_tree, pda::tree(0));
     }
 
     #[test]

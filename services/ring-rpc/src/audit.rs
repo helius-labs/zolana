@@ -11,9 +11,10 @@ use zolana_ring_client::{
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedTransaction,
-        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
-        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
+        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedSpendCounter,
+        DecryptedSpendRecord, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
+        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
+        SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     authorize::{self, AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
@@ -234,17 +235,22 @@ impl<S: TransactionSource> AuditService<S> {
 
         let mut audited = Vec::new();
         let mut skipped = Vec::new();
-        let mut origins: HashMap<Signature, RingOrigin> = HashMap::new();
+        let mut origins: HashMap<(Signature, u16), RingOrigin> = HashMap::new();
         for tx in response.transactions {
-            let origin = match origins.get(&tx.tx_signature) {
+            if tx.ring_program_id != Some(self.ring) {
+                continue;
+            }
+            let event_index = tx.event_index.ok_or(RingRpcError::InvalidIndexerResponse)?;
+            let origin_key = (tx.tx_signature, event_index);
+            let origin = match origins.get(&origin_key) {
                 Some(known) => known.clone(),
                 None => {
                     let found = self
                         .shared
                         .source
-                        .transaction_origin(tx.tx_signature, self.ring)
+                        .transaction_origin(tx.tx_signature, event_index, self.ring)
                         .await?;
-                    origins.insert(tx.tx_signature, found.clone());
+                    origins.insert(origin_key, found.clone());
                     found
                 }
             };
@@ -376,6 +382,28 @@ fn decrypted_transaction(
                 recipient: withdrawal.recipient.to_bytes().into(),
                 asset: withdrawal.asset.to_bytes().into(),
                 amount: withdrawal.amount,
+            })
+            .collect(),
+        spend_records: audited
+            .spend_records
+            .into_iter()
+            .map(|spend| DecryptedSpendRecord {
+                slot_index: spend.slot_index,
+                member: (*spend.record.member.as_bytes()).into(),
+                version: spend.record.version,
+                window: spend.record.window,
+                counters_commitment: spend.record.counters_commitment.into(),
+                counters: spend.counters.map(|counters| {
+                    (0u8..)
+                        .zip(counters.assets.iter().zip(counters.spent))
+                        .filter(|(_, (asset, _))| **asset != [0; 32])
+                        .map(|(slot, (asset, spent))| DecryptedSpendCounter {
+                            slot,
+                            asset: (*asset).into(),
+                            spent,
+                        })
+                        .collect()
+                }),
             })
             .collect(),
     }

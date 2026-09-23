@@ -6,7 +6,10 @@ use crate::{
     args::StartProverOptions,
     config::{DEFAULT_LOG_DIR, DEFAULT_METRICS_PORT, DEFAULT_PROVER_PORT, READINESS_TIMEOUT},
     http::{http_get_ok, wait_for_http_get_with_child},
-    process::{find_binary, path_string_with_trailing_separator, spawn_service, stop_port},
+    process::{
+        find_binary, path_string_with_trailing_separator, require_scoped_port_available,
+        spawn_service, stop_port, Service,
+    },
 };
 
 pub(crate) fn run_start_prover(opts: StartProverOptions) -> Result<()> {
@@ -42,6 +45,8 @@ pub(crate) fn start_prover_service(
     }
     stop_port(prover_port);
     stop_port(metrics_port);
+    require_scoped_port_available(prover_port)?;
+    require_scoped_port_available(metrics_port)?;
 
     let prover = match binary {
         Some(path) => path.to_path_buf(),
@@ -63,7 +68,7 @@ pub(crate) fn start_prover_service(
         &keys_dir,
     )?;
     println!("Starting prover: {} {}", prover.display(), args.join(" "));
-    let mut child = spawn_service(&prover, &args, &[], "prover-server", log_dir)?;
+    let mut child = spawn_service(&prover, &args, &[], Service::Prover, log_dir)?;
     let ready = wait_for_http_get_with_child(
         prover_port,
         "/health",

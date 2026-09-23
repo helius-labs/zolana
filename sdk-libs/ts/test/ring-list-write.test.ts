@@ -10,16 +10,16 @@ import type { MerkleProof, NonInclusionProof } from "../src/client/rpc.js";
 import { initializePoseidon } from "../src/hasher/index.js";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { addressBytes } from "../src/interface/internal.js";
-import { nullifierPdaAddress } from "../src/interface/pda/index.js";
+import {
+  nullifierPdaAddress,
+  ringConfigAddress,
+  ringPolicyConfigAddress,
+} from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, TransactProof } from "../src/interface/types.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { bigintToBytes, bytesToBigInt } from "../src/client/internal.js";
-import {
-  ringConfigAddress,
-  ringPolicyConfigAddress,
-  ringPolicyNamespaceAddress,
-} from "../src/ring/config.js";
+import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
 import {
   proveRingEntryTransition,
   ringEntryTransitionInputs,
@@ -58,7 +58,7 @@ const addressOf = (bytes: Uint8Array): Address => getAddressDecoder().decode(byt
 const hexOf = (value: bigint): string => Buffer.from(bigintToBytes(value)).toString("hex");
 const RECORDS_PDA = addressOf(filled(0x11));
 const PAYER = addressOf(filled(0x01));
-const ENTRIES_TREE = addressOf(filled(0x30));
+const ADDRESS_TREE = addressOf(filled(0x30));
 const RING = addressOf(filled(0x10));
 const ZERO_PROOF: TransactProof = {
   a: new Uint8Array(32) as Bytes32,
@@ -80,7 +80,7 @@ const v1: ListEntry = { ...v0, version: 1n, blinding: filled(0x22) };
 const VECTOR_TREE_ID = 3;
 const BLINDING_SEED = filled(0x08);
 
-function absenceOf(target: Bytes32, tree = ENTRIES_TREE): NonInclusionProof {
+function absenceOf(target: Bytes32, tree = ADDRESS_TREE): NonInclusionProof {
   return {
     leaf: target,
     merkleContext: { treeType: 1, tree },
@@ -95,7 +95,7 @@ function absenceOf(target: Bytes32, tree = ENTRIES_TREE): NonInclusionProof {
   };
 }
 
-function inclusionOf(leaf: Bytes32, tree = ENTRIES_TREE): MerkleProof {
+function inclusionOf(leaf: Bytes32, tree = ADDRESS_TREE): MerkleProof {
   return {
     leaf,
     merkleContext: { treeType: 1, tree },
@@ -120,7 +120,7 @@ describe("entry transition inputs", () => {
   const claim = () =>
     ringEntryTransitionInputs({
       namespace: RECORDS_PDA,
-      entriesTreeId: VECTOR_TREE_ID,
+      trees: { address: VECTOR_TREE_ID, input: VECTOR_TREE_ID, output: VECTOR_TREE_ID },
       payer: PAYER,
       entry: v0Draft,
       state: HEAD,
@@ -158,10 +158,10 @@ describe("entry transition inputs", () => {
 
   it("hashes a spend like Rust `EntryWitness::prove`", () => {
     const spent = claim().entry;
-    const spentHashes = owner.entryHashes(spent);
+    const spentHashes = owner.entryHashes(spent, VECTOR_TREE_ID);
     const { inputs, nullifier } = ringEntryTransitionInputs({
       namespace: RECORDS_PDA,
-      entriesTreeId: VECTOR_TREE_ID,
+      trees: { address: VECTOR_TREE_ID, input: VECTOR_TREE_ID, output: VECTOR_TREE_ID },
       payer: PAYER,
       entry: { ...v0Draft, version: 1n },
       spent,
@@ -184,9 +184,63 @@ describe("entry transition inputs", () => {
   });
 });
 
+describe("entry transitions across trees", () => {
+  const trees = { address: VECTOR_TREE_ID, input: 5, output: 6 };
+
+  it("hashes the address under the address tree, the spent leaf under the input tree and the written leaf under the output tree", () => {
+    const owner = RingListNamespace.of(RECORDS_PDA, VECTOR_TREE_ID);
+    const spent = { ...v0Draft, blinding: filled(0x21) };
+    const spentHashes = owner.entryHashes(spent, trees.input);
+    const { inputs, nullifier, entry } = ringEntryTransitionInputs({
+      namespace: RECORDS_PDA,
+      trees,
+      payer: PAYER,
+      entry: { ...v0Draft, version: 1n },
+      spent,
+      state: { ...HEAD, leafIndex: 3n },
+      absence: absenceOf(spentHashes.nullifier),
+      blindingSeed: BLINDING_SEED,
+    });
+    expect(spentHashes.address).toEqual(owner.entryAddress(v0Draft));
+    expect(nullifier).toEqual(spentHashes.nullifier);
+    expect(inputs.treeSlots[0]?.id).toBe(5n);
+    expect(inputs.outputTreeId).toBe(6n);
+    expect(inputs.outputs[0]?.hash).toBe(
+      bytesToBigInt(owner.entryHashes(entry, trees.output).utxoHash),
+    );
+  });
+
+  it("update entry spends from the tree holding the live leaf and writes to the output tree", async () => {
+    const holding = addressOf(filled(0x31));
+    const output = addressOf(filled(0x32));
+    const instruction = await updateRingEntryInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      inputTree: holding,
+      outputTree: output,
+      entry: { ...v1, state: "cleared" },
+      spent: v0,
+      proof: {
+        proof: ZERO_PROOF,
+        utxoTreeRootIndex: 0,
+        nullifierTreeRootIndex: 0,
+        nullifier: filled(9),
+        privateTxBlinding: filled(0x11),
+      },
+    });
+    expect(instruction.accounts?.slice(3, 8).map((meta) => meta.address)).toEqual([
+      output,
+      SHIELDED_POOL_PROGRAM_ID,
+      SYSTEM_PROGRAM,
+      holding,
+      await nullifierPdaAddress(holding, filled(9)),
+    ]);
+  });
+});
+
 describe("entry transition proving", () => {
   function client(input: Readonly<{ tree?: Address; account?: boolean }> = {}) {
-    const tree = input.tree ?? ENTRIES_TREE;
+    const tree = input.tree ?? ADDRESS_TREE;
     const getMerkleProofs = vi.fn(async (_tree: Address, leaves: readonly Bytes32[]) => ({
       context: { blockTime: 1n, slot: 1n },
       proofs: leaves.map((leaf) => inclusionOf(leaf, tree)),
@@ -212,8 +266,8 @@ describe("entry transition proving", () => {
     const { entry, proof } = await proveRingEntryTransition({
       client: fake,
       ringProgramId: RING,
-      entriesTree: ENTRIES_TREE,
-      entriesTreeId: 0,
+      addressTree: { tree: ADDRESS_TREE, treeId: 0 },
+      outputTree: { tree: ADDRESS_TREE, treeId: 0 },
       payer: PAYER,
       entry: v0Draft,
     });
@@ -223,14 +277,14 @@ describe("entry transition proving", () => {
       proof: ZERO_PROOF,
       utxoTreeRootIndex: 4,
       nullifierTreeRootIndex: 5,
-      nullifier: namespace.entryHashes(v0).address,
+      nullifier: namespace.entryHashes(v0, 0).address,
       privateTxBlinding: expect.any(Uint8Array),
     });
     expect(fake.getMerkleProofs).not.toHaveBeenCalled();
-    expect(fake.getAccount).toHaveBeenCalledWith(ENTRIES_TREE, undefined);
+    expect(fake.getAccount).toHaveBeenCalledWith(ADDRESS_TREE, undefined);
     expect(fake.getNonInclusionProofs).toHaveBeenCalledWith(
-      ENTRIES_TREE,
-      [namespace.entryHashes(v0).address],
+      ADDRESS_TREE,
+      [namespace.entryHashes(v0, 0).address],
       undefined,
       undefined,
     );
@@ -241,18 +295,18 @@ describe("entry transition proving", () => {
     const { proof } = await proveRingEntryTransition({
       client: fake,
       ringProgramId: RING,
-      entriesTree: ENTRIES_TREE,
-      entriesTreeId: 0,
+      addressTree: { tree: ADDRESS_TREE, treeId: 0 },
+      outputTree: { tree: ADDRESS_TREE, treeId: 0 },
       payer: PAYER,
       entry: v1,
-      spent: v0,
+      spent: { entry: v0, tree: ADDRESS_TREE, treeId: 0 },
     });
     const namespace = RingListNamespace.of(await ringPolicyNamespaceAddress(RING), 0);
-    expect(proof.nullifier).toEqual(namespace.entryHashes(v0).nullifier);
+    expect(proof.nullifier).toEqual(namespace.entryHashes(v0, 0).nullifier);
     expect(fake.getAccount).not.toHaveBeenCalled();
     expect(fake.getMerkleProofs).toHaveBeenCalledWith(
-      ENTRIES_TREE,
-      [namespace.entryHashes(v0).utxoHash],
+      ADDRESS_TREE,
+      [namespace.entryHashes(v0, 0).utxoHash],
       undefined,
       undefined,
     );
@@ -263,11 +317,11 @@ describe("entry transition proving", () => {
       proveRingEntryTransition({
         client: client({ tree: addressOf(filled(0x31)) }),
         ringProgramId: RING,
-        entriesTree: ENTRIES_TREE,
-        entriesTreeId: 0,
+        addressTree: { tree: ADDRESS_TREE, treeId: 0 },
+        outputTree: { tree: ADDRESS_TREE, treeId: 0 },
         payer: PAYER,
         entry: v1,
-        spent: v0,
+        spent: { entry: v0, tree: ADDRESS_TREE, treeId: 0 },
       }),
     ).rejects.toMatchObject({ code: "RING_ENTRY_PROOF_INCOMPLETE" });
     const missing = client({ account: false });
@@ -275,12 +329,12 @@ describe("entry transition proving", () => {
       proveRingEntryTransition({
         client: missing,
         ringProgramId: RING,
-        entriesTree: ENTRIES_TREE,
-        entriesTreeId: 0,
+        addressTree: { tree: ADDRESS_TREE, treeId: 0 },
+        outputTree: { tree: ADDRESS_TREE, treeId: 0 },
         payer: PAYER,
         entry: v0Draft,
       }),
-    ).rejects.toMatchObject({ code: "RING_ENTRIES_TREE_INVALID" });
+    ).rejects.toMatchObject({ code: "RING_POLICY_TREE_INVALID" });
     expect(missing.proveTransferInputs).not.toHaveBeenCalled();
   });
 });
@@ -298,7 +352,8 @@ describe("entry instructions", () => {
     const instruction = await createRingEntryInstruction({
       ringProgramId: RING,
       payer: PAYER,
-      entriesTree: ENTRIES_TREE,
+      inputTree: ADDRESS_TREE,
+      outputTree: ADDRESS_TREE,
       entry: v0,
       proof,
     });
@@ -306,11 +361,11 @@ describe("entry instructions", () => {
       [await ringConfigAddress(RING), AccountRole.READONLY],
       [await ringPolicyConfigAddress(RING), AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
-      [ENTRIES_TREE, AccountRole.WRITABLE],
+      [ADDRESS_TREE, AccountRole.WRITABLE],
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
       [SYSTEM_PROGRAM, AccountRole.READONLY],
-      [ENTRIES_TREE, AccountRole.WRITABLE],
-      [await nullifierPdaAddress(ENTRIES_TREE, filled(9)), AccountRole.WRITABLE],
+      [ADDRESS_TREE, AccountRole.WRITABLE],
+      [await nullifierPdaAddress(ADDRESS_TREE, filled(9)), AccountRole.WRITABLE],
       [await ringPolicyNamespaceAddress(RING), AccountRole.READONLY],
     ]);
     expect([...(instruction.data ?? [])]).toEqual([
@@ -333,7 +388,8 @@ describe("entry instructions", () => {
     const instruction = await updateRingEntryInstruction({
       ringProgramId: RING,
       payer: PAYER,
-      entriesTree: ENTRIES_TREE,
+      inputTree: ADDRESS_TREE,
+      outputTree: ADDRESS_TREE,
       entry: { ...v1, state: "cleared" },
       spent: v0,
       proof,
@@ -406,11 +462,11 @@ describe("list writes", () => {
         policyAddress,
         ownedAccount(
           RING,
-          ringPolicyConfigData({ table, sources, entriesTree: ENTRIES_TREE, bump: policyBump }),
+          ringPolicyConfigData({ table, sources, addressTree: ADDRESS_TREE, bump: policyBump }),
         ),
       ],
       [
-        ENTRIES_TREE,
+        ADDRESS_TREE,
         ownedAccount(
           SHIELDED_POOL_PROGRAM_ID,
           treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 6n }),
@@ -455,14 +511,14 @@ describe("list writes", () => {
     nullifier: Bytes32,
     entry: ListEntry,
   ): IndexedShieldedTransaction {
-    const hashes = RingListNamespace.of(namespace, 0).entryHashes(entry);
+    const hashes = RingListNamespace.of(namespace, 0).entryHashes(entry, 0);
     return {
       slot: 5n,
       txSignature: "claim" as IndexedShieldedTransaction["txSignature"],
       outputSlots: [
         {
           viewTag: filled(0),
-          outputContext: { hash: hashes.utxoHash, tree: ENTRIES_TREE, leafIndex: 0n },
+          outputContext: { hash: hashes.utxoHash, tree: ADDRESS_TREE, leafIndex: 0n },
           payload: encodeListEntry(entry),
         },
       ],
@@ -493,7 +549,7 @@ describe("list writes", () => {
 
   it("reports an entry already in the target state without a transaction", async () => {
     const { client, namespace } = await chain();
-    const address = RingListNamespace.of(namespace, 0).entryHashes(v0).address;
+    const address = RingListNamespace.of(namespace, 0).entryHashes(v0, 0).address;
     const seeded = await chain({ live: [spender(namespace, address, v0)] });
     const write = await buildRingListWriteTransaction({
       client: seeded.client,
@@ -510,7 +566,7 @@ describe("list writes", () => {
 
   it("moves a live entry to the next version", async () => {
     const { namespace } = await chain();
-    const address = RingListNamespace.of(namespace, 0).entryHashes(v0).address;
+    const address = RingListNamespace.of(namespace, 0).entryHashes(v0, 0).address;
     const { client } = await chain({ live: [spender(namespace, address, v0)] });
     const write = await buildRingListWriteTransaction({
       client,

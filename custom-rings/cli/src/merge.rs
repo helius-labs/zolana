@@ -3,21 +3,24 @@
 use std::{collections::BTreeMap, path::Path};
 
 use custom_ring_sdk::{
-    CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment, MAX_MERGE_INPUTS,
+    CoSignScope, CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment,
+    MergeError as RingMergeError, MergeProofInput, MAX_MERGE_INPUTS,
 };
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_interface::{pda, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
+use zolana_interface::pda;
 use zolana_keypair::{KeypairError, ShieldedKeypair};
-use zolana_transaction::{AssetRegistry, TransactionError, WalletUtxo, SOL_MINT};
+use zolana_transaction::{TransactionError, WalletUtxo, SOL_MINT};
 use zolana_wallet::{sync_wallet, Wallet};
 
 use crate::{
+    assets::{self, AssetError},
+    error::boxed_from,
     file::{self, FileError},
     line,
-    transact::{wait_for_indexed_transaction, WaitError},
+    transact::{signers, wait_for_indexed_transaction, CoSignerCheck, TransactError, WaitError},
     Context, ContextError, MergeArgs, SENDER_KEYPAIR_FILE,
 };
 
@@ -34,6 +37,12 @@ pub enum MergeError {
     #[error(transparent)]
     Transaction(#[from] TransactionError),
     #[error(transparent)]
+    Asset(#[from] AssetError),
+    #[error(transparent)]
+    Transact(Box<TransactError>),
+    #[error(transparent)]
+    Prove(#[from] RingMergeError),
+    #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
     Indexer(#[from] WaitError<ClientError>),
@@ -45,27 +54,31 @@ pub enum MergeError {
         ring: Address,
         found: usize,
     },
-    #[error("mint {0} is not registered with SPP")]
-    AssetNotRegistered(Address),
-    #[error("mint {0} has an invalid SPP asset registry account")]
-    InvalidAssetRegistry(Address),
     #[error("the indexer did not reconstruct merged output {0:?}")]
     OutputNotFound([u8; 32]),
 }
+
+boxed_from!(MergeError {
+    Transact(TransactError),
+});
 
 pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     if !(2..=MAX_MERGE_INPUTS).contains(&args.count) {
         return Err(MergeError::Count(args.count));
     }
 
-    let payer = ctx.funded_authority()?;
     let sender = sender_keypair(ctx)?;
     let indexer = ctx.indexer();
     let mint = args.mint.unwrap_or(SOL_MINT);
-    let registry = asset_registry(&ctx.rpc, mint)?;
-    // Tree 0 to start with; `sync_wallet` backfills the registry from chain if a
-    // note turns up in a tree this one does not name.
-    let mut wallet = Wallet::new(sender.shielded_address()?, registry)?;
+    let registry = assets::resolve(&ctx.rpc, mint)?.registry;
+    let cosigner = CoSignerCheck {
+        keypair: args.cosigner_keypair.as_deref(),
+        scope: CoSignScope::TRANSFERS,
+        payment: None,
+    }
+    .load(ctx)?;
+    let mut wallet = Wallet::new(sender.shielded_address()?, registry)?
+        .with_deposit_payload_decoder(zolana_ring_client::deposit_payload);
 
     println!("syncing the sender wallet");
     sync_wallet(&mut wallet, &sender, &indexer)?;
@@ -83,20 +96,33 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         .with_output_tree_id(output_tree_id)
         .encrypt(&sender)?;
     let proven = prepared.prove(
-        sender.nullifier_key.clone(),
-        tree,
+        MergeProofInput {
+            nullifier_key: sender.nullifier_key.clone(),
+            input_tree: tree,
+            output_tree: tree,
+        },
         CustomRingMergeProofEnvironment {
             indexer: &indexer,
             prover: &ctx.prover(),
+            rpc: &ctx.rpc,
         },
     )?;
     let output_hash = proven.output_hash;
     let merged_amount = proven.merged_amount;
-    let merge = proven.instruction(tree, tree, payer.pubkey());
+    let proven = match &cosigner {
+        Some(cosigner) => proven.with_cosigner(cosigner.pubkey()),
+        None => proven,
+    };
+    let payer = ctx.funded_authority()?;
+    let merge = proven.instruction(payer.pubkey());
+    let signers = signers(
+        &payer,
+        cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
+    );
     let signature = ctx.rpc.create_and_send_transaction(
         &[merge],
         payer.pubkey(),
-        &[&payer],
+        &signers,
         ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
     )?;
 
@@ -119,23 +145,6 @@ fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, MergeError> {
     let path = ctx.project_path(Path::new(SENDER_KEYPAIR_FILE));
     let keypair = file::read_or_create_keypair(&path)?;
     Ok(ShieldedKeypair::from_keypair(&keypair)?)
-}
-
-fn asset_registry(rpc: &SolanaRpc, mint: Address) -> Result<AssetRegistry, MergeError> {
-    if mint == SOL_MINT {
-        return Ok(AssetRegistry::default());
-    }
-    let address = pda::spl_asset_registry(&mint);
-    let account = rpc
-        .get_account(address)?
-        .ok_or(MergeError::AssetNotRegistered(mint))?;
-    let expected_owner = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let record = SplAssetRegistry::from_account_bytes(&account.data)
-        .map_err(|_| MergeError::InvalidAssetRegistry(mint))?;
-    if account.owner != expected_owner || record.mint != mint {
-        return Err(MergeError::InvalidAssetRegistry(mint));
-    }
-    Ok(AssetRegistry::new([(record.asset_id, record.mint)])?)
 }
 
 fn candidate_groups(

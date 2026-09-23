@@ -43,8 +43,11 @@ import { Reader, Writer, addressBytes, encodeBase58, sha256 } from "../interface
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { equalBytes } from "../wallet/internal.js";
 
+import { ringPolicyConfigAddress } from "../interface/pda/index.js";
 import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "./config.js";
+import { RING_POLICY_CONFIG_SIZE } from "./codecs.js";
 import { RingError, wrapRingError } from "./error.js";
+import { checkRingElf } from "./elf.js";
 
 export const RENT_SYSVAR = address("SysvarRent111111111111111111111111111111111");
 export const CLOCK_SYSVAR = address("SysvarC1ock11111111111111111111111111111111");
@@ -56,8 +59,6 @@ const PROGRAM_SIZE = 36;
 const BUFFER_STATE = 1;
 const PROGRAM_STATE = 2;
 const PROGRAM_DATA_STATE = 3;
-const ELF_MAGIC = Uint8Array.of(0x7f, 0x45, 0x4c, 0x46);
-const ELF_HEADER_SIZE = 64;
 /** Rust `MINIMUM_EXTEND_PROGRAM_BYTES`. */
 const MIN_EXTEND_BYTES = 10_240;
 /** Rust `DEPLOY_FEE_BUDGET`. */
@@ -81,25 +82,40 @@ const LoaderTag = Object.freeze({
   extendProgram: 6,
 } as const);
 
+const binaryToken = Symbol();
+const checkedBinaries = new WeakSet<RingProgramBinary>();
+
 /** A structural copy is not a checked binary. */
 export class RingProgramBinary {
   readonly #bytes: Uint8Array;
-  readonly sha256: Bytes32;
+  readonly #sha256: Bytes32;
 
-  private constructor(bytes: Uint8Array) {
+  private constructor(bytes: Uint8Array, token: symbol) {
+    if (token !== binaryToken) throw new RingError("RING_PROGRAM_BINARY_INVALID");
     this.#bytes = bytes;
-    this.sha256 = sha256(bytes) as Bytes32;
+    this.#sha256 = sha256(bytes) as Bytes32;
+    checkedBinaries.add(this);
+    Object.freeze(this);
   }
 
   static parse(bytes: Uint8Array): RingProgramBinary {
-    if (bytes.length < ELF_HEADER_SIZE || !equalBytes(bytes.subarray(0, 4), ELF_MAGIC)) {
-      throw new RingError("RING_PROGRAM_BINARY_INVALID", { details: { length: bytes.length } });
-    }
-    return new RingProgramBinary(new Uint8Array(bytes));
+    if (!(bytes instanceof Uint8Array)) throw new RingError("RING_PROGRAM_BINARY_INVALID");
+    const image = new Uint8Array(bytes);
+    checkRingElf(image);
+    return new RingProgramBinary(image, binaryToken);
   }
 
+  /** A copy, the hash pins the original. */
   get bytes(): Uint8Array {
-    return this.#bytes;
+    return new Uint8Array(this.#bytes);
+  }
+
+  get sha256(): Bytes32 {
+    return new Uint8Array(this.#sha256) as Bytes32;
+  }
+
+  get byteLength(): number {
+    return this.#bytes.length;
   }
 }
 
@@ -109,7 +125,7 @@ export interface RingProgramData {
   /** Absent once the program is immutable. */
   readonly upgradeAuthority: Address | undefined;
   readonly capacity: number;
-  /** The hash of the first `length` deployed bytes, absent when the account holds fewer. */
+  /** Bytes after the artifact must be zeroed loader capacity. */
   deployedHash(length: number): Bytes32 | undefined;
 }
 
@@ -133,7 +149,12 @@ export function decodeRingProgramData(data: Uint8Array): RingProgramData {
     upgradeAuthority,
     capacity: bytes.length,
     deployedHash: (length: number) =>
-      length <= bytes.length ? (sha256(bytes.subarray(0, length)) as Bytes32) : undefined,
+      Number.isSafeInteger(length) &&
+      length > 0 &&
+      length <= bytes.length &&
+      bytes.subarray(length).every((byte) => byte === 0)
+        ? (sha256(bytes.subarray(0, length)) as Bytes32)
+        : undefined,
   });
 }
 
@@ -170,8 +191,9 @@ export async function verifyRingProgram(
   binary: RingProgramBinary,
   context?: RequestContext,
 ): Promise<RingProgramData> {
+  checkBinary(binary);
   const programData = await fetchRingProgramData(client, ringProgramId, context);
-  const found = programData?.deployedHash(binary.bytes.length);
+  const found = programData?.deployedHash(binary.byteLength);
   if (programData === undefined || found === undefined) {
     throw new RingError("RING_PROGRAM_NOT_DEPLOYED", { details: { ringProgramId } });
   }
@@ -353,12 +375,18 @@ export async function deployRingProgram(
 ): Promise<RingProgramDeployOutcome> {
   let buffer: Address | undefined;
   try {
+    checkBinary(params.binary);
     const options = deployOptions(params);
     const existing = await fetchRingProgramData(params.client, params.ringProgramId, context);
     const present = deployPlan(params, existing);
     if (present !== undefined) return Object.freeze({ kind: "present", programData: present });
+    // Precedes any paid step, a rejected upgrade spends nothing.
+    if (existing !== undefined) {
+      await ensurePolicyConfigCompatible(params, context);
+    }
     const bufferSigner = params.buffer ?? (await generateKeyPairSigner());
-    const length = params.binary.bytes.length;
+    const length = params.binary.byteLength;
+    const image = params.binary.bytes;
     const bufferRent = await rent(params, BUFFER_METADATA_SIZE + length, context);
     const upload = await bufferState(params, bufferSigner.address, context);
     const programRent = existing === undefined ? await rent(params, PROGRAM_SIZE, context) : 0n;
@@ -399,7 +427,7 @@ export async function deployRingProgram(
                 buffer: bufferSigner.address,
                 authority: params.authority,
                 offset,
-                bytes: params.binary.bytes.subarray(offset, offset + MAX_WRITE_BYTES),
+                bytes: image.subarray(offset, offset + MAX_WRITE_BYTES),
               });
             }),
           ),
@@ -484,6 +512,25 @@ export async function deployRingProgram(
   }
 }
 
+function checkBinary(binary: RingProgramBinary): void {
+  if (!checkedBinaries.has(binary)) throw new RingError("RING_PROGRAM_BINARY_INVALID");
+}
+
+/** An equal size is not proof the target binary is compatible. */
+async function ensurePolicyConfigCompatible(
+  params: RingProgramDeployParams,
+  context: RequestContext | undefined,
+): Promise<void> {
+  const policyConfig = await ringPolicyConfigAddress(params.ringProgramId);
+  const account = await params.client.getAccount(policyConfig, context);
+  if (account === undefined || account.owner !== params.ringProgramId) return;
+  if (account.data.length !== RING_POLICY_CONFIG_SIZE) {
+    throw new RingError("RING_POLICY_CONFIG_INCOMPATIBLE", {
+      details: { ringProgramId: params.ringProgramId, policyConfig, size: account.data.length },
+    });
+  }
+}
+
 type DeployOptions = Readonly<{ concurrency: number; attempts: number }>;
 
 function deployOptions(params: RingProgramDeployParams): DeployOptions {
@@ -520,7 +567,7 @@ function deployPlan(
 }
 
 function holdsBinary(data: RingProgramData, binary: RingProgramBinary): boolean {
-  const deployed = data.deployedHash(binary.bytes.length);
+  const deployed = data.deployedHash(binary.byteLength);
   return deployed !== undefined && equalBytes(deployed, binary.sha256);
 }
 
@@ -553,7 +600,7 @@ async function bufferState(
   buffer: Address,
   context: RequestContext | undefined,
 ): Promise<BufferState> {
-  const size = BUFFER_METADATA_SIZE + params.binary.bytes.length;
+  const size = BUFFER_METADATA_SIZE + params.binary.byteLength;
   const account = await params.client.getAccount(buffer, context);
   if (account === undefined) return "missing";
   const reader = new Reader(
@@ -581,7 +628,7 @@ async function checkFunding(
   context: RequestContext | undefined,
 ): Promise<void> {
   const { existing } = input;
-  const length = params.binary.bytes.length;
+  const length = params.binary.byteLength;
   let required = DEPLOY_FEE_BUDGET + (input.upload === "missing" ? input.bufferRent : 0n);
   if (existing === undefined) {
     const programDataRent = await rent(params, PROGRAM_DATA_METADATA_SIZE + length, context);
@@ -733,11 +780,18 @@ async function landedSignature(
   context: RequestContext | undefined,
 ): Promise<Signature | undefined> {
   if (signatures.length === 0) return undefined;
-  const { value } = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
-    params.client.solanaRpc
-      .getSignatureStatuses(signatures, { searchTransactionHistory: true })
-      .send({ abortSignal }),
-  );
+  let value: readonly (Readonly<{ err: unknown; confirmationStatus?: string | null }> | null)[];
+  try {
+    ({ value } = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
+      params.client.solanaRpc
+        .getSignatureStatuses(signatures, { searchTransactionHistory: true })
+        .send({ abortSignal }),
+    ));
+  } catch (error) {
+    // An unreachable status leaves the attempt to the deploy retry.
+    if (retryable(error)) return undefined;
+    throw error;
+  }
   const index = value.findIndex(
     (status) =>
       status !== null &&

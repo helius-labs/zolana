@@ -34,7 +34,7 @@ describe("ring policy", () => {
     const authority = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
     const policy = await fetchRingPolicyConfig(client, ringProgramId);
     expect(policy.ruleCount).toBe(4);
-    expect(policy.entriesTree).toBe(client.tree);
+    expect(policy.addressTree).toBe(client.tree);
 
     const sender = await freshActor(client);
     const recipient = await freshActor(client);
@@ -119,7 +119,7 @@ describe("ring policy", () => {
 
     // The head the SDK reads off the account is the root the indexer proves the latest entry against.
     const account = await client.getAccount(client.tree);
-    if (account === undefined) throw new Error("entries tree missing");
+    if (account === undefined) throw new Error("address tree missing");
     const heads = decodeTreeHeadRoots(account.data);
     if (again.kind !== "unchanged") throw new Error("unreachable");
     const { proofs } = await client.getMerkleProofs(client.tree, [again.entry.utxoHash]);

@@ -49,12 +49,18 @@ export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from ".
 export {
   auditorMessageData,
   auditorViewTag,
-  customRingPublicInputHash,
+  policyPublicInputHash,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
+  openAuditOutputDisclosure,
   parseAuditorMessage,
 } from "./audit.js";
-export type { AuditorEncryption, AuditorMessage, CustomRingBasePublicInput } from "./audit.js";
+export type {
+  AuditOutputOpening,
+  AuditorEncryption,
+  AuditorMessage,
+  CustomRingBasePublicInput,
+} from "./audit.js";
 export { P256PublicKey, ShieldedPublicKey } from "./public-key.js";
 export { SigningKey } from "./signing-key.js";
 export { NullifierKey } from "./nullifier-key.js";

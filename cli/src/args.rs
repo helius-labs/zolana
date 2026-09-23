@@ -298,6 +298,13 @@ pub(crate) struct TestValidatorOptions {
 
     #[arg(
         long,
+        env = "ZOLANA_PHOTON_RING_PROJECTION",
+        help = "Enable custom ring projection in Photon"
+    )]
+    pub(crate) photon_ring_projection: bool,
+
+    #[arg(
+        long,
         help = "Photon database URL; omit for Photon's temporary SQLite database"
     )]
     pub(crate) photon_db_url: Option<String>,

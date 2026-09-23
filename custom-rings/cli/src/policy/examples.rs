@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use zolana_ring_policy::{Guard, RuleSource};
+use zolana_ring_policy::{Guard, RuleSource, VelocityMode};
 
 use crate::{
     config::{RingConfig, Target},
@@ -11,7 +11,7 @@ use crate::{
     policy::{SourceSpec, SubjectName},
 };
 
-const EXAMPLES: [&str; 7] = [
+const EXAMPLES: [&str; 9] = [
     "audit-only",
     "empty-policy",
     "own-blocklist",
@@ -19,6 +19,8 @@ const EXAMPLES: [&str; 7] = [
     "allowlist",
     "asset-allowlist-owner-threshold",
     "token-blocklist",
+    "velocity-window",
+    "transfer-cap",
 ];
 
 fn path(name: &str) -> PathBuf {
@@ -37,9 +39,11 @@ struct Forms {
     assets: bool,
     above: bool,
     per_cluster_source: bool,
-    entries_tree: bool,
+    address_tree: bool,
     empty_table: bool,
     audit_only: bool,
+    velocity: bool,
+    transfer_cap: bool,
 }
 
 #[test]
@@ -70,9 +74,14 @@ fn every_example_loads_and_compiles_on_both_clusters() {
                 forms.assets |= matches!(rule.source, RuleSource::InlineAssets);
             }
             forms.assets |= !compiled.rules.inline_assets().is_empty();
+            forms.velocity |= matches!(
+                compiled.rules.velocity_mode(),
+                VelocityMode::PerWindow { .. }
+            );
+            forms.transfer_cap |= compiled.rules.velocity_mode() == VelocityMode::PerTransfer;
         }
         forms.empty_table |= policy.rules.is_empty();
-        forms.entries_tree |= policy.entries_tree.is_some();
+        forms.address_tree |= policy.address_tree.is_some();
         forms.per_cluster_source |= Target::ALL
             .into_iter()
             .all(|target| !policy.sources.get(target).is_empty());
@@ -105,7 +114,9 @@ fn every_example_loads_and_compiles_on_both_clusters() {
         forms.per_cluster_source,
         "an example names a curator per cluster"
     );
-    assert!(forms.entries_tree, "an example names its tree");
+    assert!(forms.address_tree, "an example names its tree");
     assert!(forms.empty_table, "an example pins an empty table");
     assert!(forms.audit_only, "an example carries no policy table");
+    assert!(forms.velocity, "an example bounds spending per window");
+    assert!(forms.transfer_cap, "an example caps each transfer");
 }

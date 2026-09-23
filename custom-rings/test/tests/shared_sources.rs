@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use custom_ring_program::CustomRingError;
-use custom_ring_sdk::{CreateEntry, EntryProofEnvironment, SetSourceOwner, SourceOwner};
+use custom_ring_sdk::{CreateEntry, EntryProofEnvironment, PoolTree, SetSourceOwner, SourceOwner};
 use custom_ring_test_validator::{
     policy::{
         owner_member, policy_config, CuratedRings, EntryTarget, EntryWrite, PolicyTransfer,
@@ -49,7 +49,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         payer: &env.payer,
         auditor_pubkey: ViewingKey::new().pubkey(),
         tier: Tier::Policy {
-            entries_tree: env.tree,
+            address_tree: env.tree,
             rules: &BLOCK_ONLY,
             shared_sources: vec![(ListId::Block, curator)],
         },
@@ -94,14 +94,12 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
 
     // 5. The curator-served list is immutable on the subscriber ring, the
     //    program refuses the mutation after a valid entry proof.
+    let subscriber_tree = PoolTree::address_tree(&policy_config(subscriber, rpc)?);
     let foreign = CreateEntry {
         ring: subscriber,
         payer: authority,
-        entries_tree: env.tree,
-        entries_tree_id: subscriber
-            .read_policy_config(rpc)?
-            .ok_or_else(|| anyhow::anyhow!("policy config of the subscriber"))?
-            .entries_tree_id(),
+        address_tree: subscriber_tree,
+        output_tree: subscriber_tree,
         list_id: ListId::Block,
         member,
         state: EntryState::Active,

@@ -1,15 +1,20 @@
 use thiserror::Error;
 
+use crate::deposit_audit::DepositAuditError;
 use crate::{
-    authority::AuthorityError, config::ConfigError, deploy::DeployError, init::InitError,
-    list::ListError, localnet::LocalnetError, merge::MergeError, new::NewError,
-    pipeline::PipelineError, policy::PolicyCommandError, probe::ProbeError, reader::ReaderError,
-    ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError,
+    authority::AuthorityError, config::ConfigError, cosigner::CoSignerError,
+    delegate::DelegateError, deploy::DeployError, init::InitError, key::KeyError, list::ListError,
+    localnet::LocalnetError, merge::MergeError, new::NewError, pipeline::PipelineError,
+    policy::PolicyCommandError, probe::ProbeError, reader::ReaderError,
+    ring_rpc::RingRpcClientError, spend::SpendError, tool::ToolError, transact::TransactError,
+    window::WindowError,
 };
 use zolana_ring_rpc::KeyFileError;
 
 #[derive(Debug, Error)]
 pub enum CliError {
+    #[error(transparent)]
+    DepositAudit(Box<DepositAuditError>),
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
@@ -39,15 +44,25 @@ pub enum CliError {
     #[error(transparent)]
     Reader(Box<ReaderError>),
     #[error(transparent)]
+    CoSigner(Box<CoSignerError>),
+    #[error(transparent)]
+    Window(Box<WindowError>),
+    #[error(transparent)]
+    Delegate(Box<DelegateError>),
+    #[error(transparent)]
+    Spend(Box<SpendError>),
+    #[error(transparent)]
+    Key(Box<KeyError>),
+    #[error(transparent)]
     List(Box<ListError>),
     #[error(transparent)]
     Policy(Box<PolicyCommandError>),
 }
 
 macro_rules! boxed_from {
-    ($($variant:ident($error:ty)),* $(,)?) => {
+    ($target:ty { $($variant:ident($error:ty)),* $(,)? }) => {
         $(
-            impl From<$error> for CliError {
+            impl From<$error> for $target {
                 fn from(error: $error) -> Self {
                     Self::$variant(Box::new(error))
                 }
@@ -56,7 +71,10 @@ macro_rules! boxed_from {
     };
 }
 
-boxed_from!(
+pub(crate) use boxed_from;
+
+boxed_from!(CliError {
+    DepositAudit(DepositAuditError),
     New(NewError),
     Probe(ProbeError),
     Pipeline(PipelineError),
@@ -70,9 +88,14 @@ boxed_from!(
     RingRpc(RingRpcClientError),
     Authority(AuthorityError),
     Reader(ReaderError),
+    CoSigner(CoSignerError),
+    Window(WindowError),
+    Delegate(DelegateError),
+    Spend(SpendError),
+    Key(KeyError),
     List(ListError),
     Policy(PolicyCommandError),
-);
+});
 
 /// One `Client` variant per module, boxed for enum size.
 macro_rules! client_from {
@@ -87,11 +110,15 @@ macro_rules! client_from {
 
 client_from!(
     crate::ContextError,
+    crate::assets::AssetError,
     crate::catalogue::CatalogueError,
     crate::catalogue::CuratorError,
+    crate::cosigner::CoSignerError,
     crate::deploy::DeployError,
     crate::fund::FundError,
+    crate::key::KeyError,
     crate::status::StatusError,
     crate::transact::TransactError,
     crate::merge::MergeError,
+    crate::window::WindowError,
 );

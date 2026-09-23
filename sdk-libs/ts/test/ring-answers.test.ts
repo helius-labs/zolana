@@ -5,7 +5,7 @@ import { initializePoseidon } from "../src/hasher/index.js";
 import type { Bytes32 } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import type { ShieldedAddress } from "../src/keypair/shielded.js";
-import { planPolicyAnswers, provePolicyAnswers } from "../src/ring/answers.js";
+import { planPolicyAnswers, provePolicyAnswers, type PolicyAnswers } from "../src/ring/answers.js";
 import {
   ListId,
   RingListNamespace,
@@ -102,12 +102,25 @@ function input(
   const config = ringPolicyConfig({
     table,
     sources: ownSources(table, namespace),
-    entriesTree: TREE,
+    addressTree: TREE,
   });
   return { table, config, inputs: [], outputs };
 }
 
 const HEADS = FIXTURE_HEADS;
+
+/** The single policy tree's slot roots and history positions. */
+function rootsOf(proven: PolicyAnswers) {
+  expect(proven.policyTrees).toEqual([TREE]);
+  const [slot] = proven.treeSlots;
+  const [context] = proven.treeContexts;
+  return {
+    stateRoot: slot?.utxoRoot,
+    stateRootIndex: context?.utxoTreeRootIndex,
+    nullifierRoot: slot?.nullifierRoot,
+    nullifierRootIndex: context?.nullifierTreeRootIndex,
+  };
+}
 
 describe("answer planning", () => {
   it("list-backed asset rules name each live output asset", () => {
@@ -116,6 +129,8 @@ describe("answer planning", () => {
       rules: [require("asset", ListId.allow)],
       inlineAssets: [],
       inlineLimits: [],
+      windowSlots: 0n,
+      velocity: [],
     };
     const plan = planPolicyAnswers(input(table, [output(address, 1n)]));
     expect(plan.lookups).toEqual([
@@ -162,6 +177,8 @@ describe("answer planning", () => {
       rules: [{ ...require("outputOwner", ListId.allow), guard: { kind: "aboveAmountByAsset" } }],
       inlineAssets: [memberOfAsset(first), memberOfAsset(second)],
       inlineLimits: [10n, 20n],
+      windowSlots: 0n,
+      velocity: [],
     });
     const below = [
       output(address, 4n, first),
@@ -189,12 +206,14 @@ describe("answer planning", () => {
     const config = ringPolicyConfig({
       table: buildRuleTable({ rules: [require("sender", ListId.allow)] }),
       sources: ownSources(buildRuleTable({ rules: [require("sender", ListId.allow)] }), NAMESPACE),
-      entriesTree: TREE,
+      addressTree: TREE,
     });
     const guarded: RuleTable = {
       rules: [above(require("sender", ListId.allow), (1n << 64n) - 1n)],
       inlineAssets: [],
       inlineLimits: [],
+      windowSlots: 0n,
+      velocity: [],
     };
     const plan = planPolicyAnswers({ table: guarded, config, inputs: [spend], outputs: [] });
     expect(plan.demands).toHaveLength(1);
@@ -226,11 +245,13 @@ describe("answer proving", () => {
       member,
       states: ["active"],
     });
-    const client = entryProofReads({ tree: TREE, spenders: allow.spenders });
-    const { answers, roots } = await provePolicyAnswers({
+    const client = entryProofReads({ tree: TREE, spenders: allow.spenders, account: true });
+    const proven = await provePolicyAnswers({
       client,
       ...input(TWO_ALLOW, [output(address, 10n), output(address, 20n)]),
     });
+    const { answers } = proven;
+    const roots = rootsOf(proven);
     expect(client.merkle).toEqual([[allow.utxoHash]]);
     expect(client.nonInclusion).toEqual([[allow.nullifier]]);
     expect(client.accounts).toBe(0);
@@ -245,18 +266,45 @@ describe("answer proving", () => {
     expect(roots).toEqual({
       stateRoot: filled(1),
       stateRootIndex: 3,
-      nullifierRoot: filled(2),
-      nullifierRootIndex: 4,
+      nullifierRoot: HEADS.nullifierRoot,
+      nullifierRootIndex: HEADS.nullifierRootIndex,
     });
+  });
+
+  it("absence proofs at an older live root keep their own root and index", async () => {
+    const { member, address } = recipient();
+    const allow = lineage({
+      namespace: NAMESPACE,
+      tree: TREE,
+      listId: ListId.allow,
+      member,
+      states: ["active"],
+    });
+    const older = { value: filled(0x33) as Bytes32, index: 2 };
+    const client = entryProofReads({
+      tree: TREE,
+      spenders: allow.spenders,
+      account: true,
+      nullifierRoots: [older],
+    });
+    const proven = await provePolicyAnswers({
+      client,
+      ...input(TWO_ALLOW, [output(address, 10n)]),
+    });
+    const roots = rootsOf(proven);
+    expect(roots.nullifierRoot).toEqual(older.value);
+    expect(roots.nullifierRootIndex).toBe(older.index);
   });
 
   it("a guard-exempt subject triggers no request", async () => {
     const { address } = recipient();
     const client = entryProofReads({ tree: TREE, account: true });
-    const { answers, roots } = await provePolicyAnswers({
+    const proven = await provePolicyAnswers({
       client,
       ...input(GUARDED, [output(address, 1n)]),
     });
+    const { answers } = proven;
+    const roots = rootsOf(proven);
     expect(client.requests).toHaveLength(0);
     expect(client.merkle).toHaveLength(0);
     expect(client.nonInclusion).toHaveLength(0);
@@ -313,11 +361,13 @@ describe("answer proving", () => {
   it("unclaimed answers take the state root from the tree account", async () => {
     const { member, address } = recipient();
     const client = entryProofReads({ tree: TREE, account: true });
-    const { answers, roots } = await provePolicyAnswers({
+    const proven = await provePolicyAnswers({
       client,
       ...input(BLOCK, [output(address, 1n)]),
     });
-    expect(roots).toEqual({ ...HEADS, nullifierRoot: filled(2), nullifierRootIndex: 4 });
+    const { answers } = proven;
+    const roots = rootsOf(proven);
+    expect(roots).toEqual(HEADS);
     expect(client.merkle).toHaveLength(0);
     expect(client.nonInclusion).toEqual([
       [RingListNamespace.of(NAMESPACE, 0).entryAddress({ listId: ListId.block, member })],
@@ -333,8 +383,8 @@ describe("answer proving", () => {
 
   it("a table without answers reads both roots from the tree account", async () => {
     const client = entryProofReads({ tree: TREE, account: true });
-    const { roots } = await provePolicyAnswers({ client, ...input(EMPTY, []) });
-    expect(roots).toEqual(HEADS);
+    const proven = await provePolicyAnswers({ client, ...input(EMPTY, []) });
+    expect(rootsOf(proven)).toEqual(HEADS);
     expect(client.merkle).toHaveLength(0);
     expect(client.nonInclusion).toHaveLength(0);
     expect(client.accounts).toBe(1);
@@ -359,6 +409,7 @@ describe("answer proving", () => {
     const client = entryProofReads({
       tree: TREE,
       spenders: [...approved.spenders, ...blocked.spenders],
+      account: true,
     });
     const { answers } = await provePolicyAnswers({
       client,
@@ -423,7 +474,7 @@ describe("answer proving", () => {
       member,
       states: ["active", "cleared"],
     });
-    const client = entryProofReads({ tree: TREE, spenders: cleared.spenders });
+    const client = entryProofReads({ tree: TREE, spenders: cleared.spenders, account: true });
     const { answers } = await provePolicyAnswers({
       client,
       ...input(BLOCK, [output(address, 1n)]),
@@ -493,13 +544,13 @@ describe("answer proving", () => {
     }
   });
 
-  it("refuses a missing, foreign or undecodable entries tree account", async () => {
+  it("refuses a missing, foreign or undecodable address tree account", async () => {
     const { address } = recipient();
     const client = entryProofReads({ tree: TREE });
     await expect(
       provePolicyAnswers({ client, ...input(BLOCK, [output(address, 1n)]) }),
     ).rejects.toMatchObject({
-      code: "RING_ENTRIES_TREE_INVALID",
+      code: "RING_POLICY_TREE_INVALID",
     });
     client.getAccount.mockResolvedValue({
       owner: NAMESPACE,
@@ -509,7 +560,7 @@ describe("answer proving", () => {
     await expect(
       provePolicyAnswers({ client, ...input(BLOCK, [output(address, 1n)]) }),
     ).rejects.toMatchObject({
-      code: "RING_ENTRIES_TREE_INVALID",
+      code: "RING_POLICY_TREE_INVALID",
     });
   });
 
@@ -534,6 +585,8 @@ describe("answer proving", () => {
       ],
       inlineAssets: [],
       inlineLimits: [],
+      windowSlots: 0n,
+      velocity: [],
     };
     const parties = Array.from({ length: 4 }, () => recipient());
     const client = entryProofReads({

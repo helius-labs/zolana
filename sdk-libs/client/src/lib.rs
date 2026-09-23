@@ -34,16 +34,15 @@ pub use prover::timing;
 #[cfg(feature = "indexer-api")]
 pub use prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 pub use prover::{
-    input_utxos_from_nullifiers, spawn_prover, spawn_prover_with_artifacts,
+    attach_input_proofs, input_utxos_from_nullifiers, spawn_prover, spawn_prover_with_artifacts,
     transact::{assemble, assemble_with_dummy_policy, AssembledTransfer, SpendProof},
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
     AsyncProverClient, BatchAddressAppendInputs, Commitments, CompressedCommitments, Delivery,
     MergeProofResult, MergeProver, Proof, ProofCompressed, ProofInputUtxo, ProveRequest,
     ProverClient, PublicInputs, PublicTransfers, RingAuthorityProofResult, RingAuthorityProver,
-    RingAuthorityWitness, RingTransferP256ProofResult, RingTransferP256Prover,
-    RingTransferProofResult, RingTransferProver, Shape, TransferInput, TransferInputUtxo,
-    TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult, TransferProver,
-    TreeSlotFields, SPP_SUPPORTED_SHAPES,
+    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver, Shape, TransferInput, TransferInputUtxo, TransferInputs, TransferOutput,
+    TransferP256Inputs, TransferProofResult, TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 #[cfg(feature = "solana-rpc")]
 pub use rpc::solana_rpc::{
@@ -54,10 +53,12 @@ pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-    OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
+    OutputSlot, ProveResult, RingHistoryOptions, RingMemberProofRequest, RingSpendRecord,
+    RingSpendRecordRequest, Rpc, ShieldedTransaction, ShieldedTransactionStream,
     MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};

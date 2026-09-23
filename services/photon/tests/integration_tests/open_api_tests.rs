@@ -1,11 +1,17 @@
 use photon_indexer::openapi::update_docs;
 use utoipa::openapi::{OpenApi, RefOr, Required};
 
-const METHODS: [&str; 7] = [
+const METHODS: &[&str] = &[
     "getEncryptedUtxosByTags",
     "getMerkleProofs",
     "getNonInclusionProofs",
     "getNullifierQueueElements",
+    #[cfg(feature = "ring-projection")]
+    "getRingKeyRegistryEntry",
+    #[cfg(feature = "ring-projection")]
+    "getRingKeyRegistryRegisterProof",
+    #[cfg(feature = "ring-projection")]
+    "getRingSpendRecord",
     "getShieldedTransactionsByNullifiers",
     "getShieldedTransactionsBySignature",
     "getShieldedTransactionsByTags",
@@ -31,7 +37,7 @@ pub fn test_documentation_generation() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
     assert_eq!(paths, expected_paths);
 
-    for method in METHODS {
+    for &method in METHODS {
         let path = format!("/{method}");
         let path_item = document.paths.paths.get(&path).expect("path should exist");
         assert_eq!(path_item.summary.as_deref(), Some(method));

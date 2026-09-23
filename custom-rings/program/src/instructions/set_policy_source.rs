@@ -29,9 +29,9 @@ pub fn process_set_policy_source_ix(
     let curators = iter.remaining_unchecked()?;
 
     load_authorized_config(program_id, config, authority)?;
-    let (entries_tree, mut sources) = {
+    let (address_tree, mut sources) = {
         let stored = load_policy_config(program_id, policy_config)?;
-        (stored.entries_tree, stored.sources)
+        (stored.address_tree, stored.sources)
     };
 
     let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
@@ -41,7 +41,7 @@ pub fn process_set_policy_source_ix(
     }
     let entries = match (ix.source, curators) {
         (0, []) => namespace_pda(program_id)?.0,
-        (1, [curator]) => load_curator_policy_config(curator, &entries_tree)?
+        (1, [curator]) => load_curator_policy_config(curator, &address_tree)?
             .source_for(list_id)
             .ok_or(CustomRingError::CuratorSourceMissing)?,
         _ => return Err(CustomRingError::InvalidSource.into()),

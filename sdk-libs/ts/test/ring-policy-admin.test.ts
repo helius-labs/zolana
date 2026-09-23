@@ -9,12 +9,8 @@ import { describe, expect, it, vi } from "vitest";
 import { initializePoseidon } from "../src/hasher/index.js";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import type { Bytes32 } from "../src/interface/types.js";
-import {
-  ringConfigAddress,
-  ringPolicyConfigAddress,
-  ringPolicyNamespaceAddress,
-  ringProgramDataAddress,
-} from "../src/ring/config.js";
+import { ringConfigAddress, ringPolicyConfigAddress } from "../src/interface/pda/index.js";
+import { ringPolicyNamespaceAddress, ringProgramDataAddress } from "../src/ring/config.js";
 import {
   RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT,
   RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
@@ -49,7 +45,7 @@ const PAYER = addressOf(11);
 const AUTHORITY = addressOf(12);
 const CURATOR_A = addressOf(20);
 const CURATOR_B = addressOf(21);
-const ENTRIES_TREE = addressOf(30);
+const ADDRESS_TREE = addressOf(30);
 const ASSET = filled(0x14);
 
 const requireAllow: Rule = {
@@ -93,6 +89,9 @@ function tableBody(sources: readonly (readonly [number, number])[]): number[] {
     ...ASSET,
     1,
     ...new Uint8Array(8),
+    // No window, no velocity rows.
+    ...new Uint8Array(8),
+    0,
   ];
 }
 
@@ -102,7 +101,7 @@ describe("policy admin instructions", () => {
       ringProgramId: RING,
       payer: PAYER,
       authority: AUTHORITY,
-      entriesTree: ENTRIES_TREE,
+      addressTree: ADDRESS_TREE,
       table: TABLE,
       sharedSources: [{ listId: ListId.frozen, curatorRingProgramId: CURATOR_A }],
     });
@@ -110,8 +109,9 @@ describe("policy admin instructions", () => {
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [await ringConfigAddress(RING), AccountRole.READONLY],
       [await ringPolicyConfigAddress(RING), AccountRole.WRITABLE],
-      [ENTRIES_TREE, AccountRole.READONLY],
+      [ADDRESS_TREE, AccountRole.READONLY],
       [SYSTEM_PROGRAM, AccountRole.READONLY],
       [RING, AccountRole.READONLY],
       [await ringProgramDataAddress(RING), AccountRole.READONLY],
@@ -139,7 +139,7 @@ describe("policy admin instructions", () => {
       ringProgramId: RING,
       payer: PAYER,
       authority: AUTHORITY,
-      entriesTree: ENTRIES_TREE,
+      addressTree: ADDRESS_TREE,
       table: TABLE,
       sharedSources: shared,
     });
@@ -171,7 +171,7 @@ describe("policy admin instructions", () => {
         ringProgramId: RING,
         payer: PAYER,
         authority: AUTHORITY,
-        entriesTree: ENTRIES_TREE,
+        addressTree: ADDRESS_TREE,
         table: TABLE,
         sharedSources,
       }),
@@ -256,7 +256,7 @@ describe("policy admin instructions", () => {
         ringProgramId: RING,
         payer: PAYER,
         authority: AUTHORITY,
-        entriesTree: ENTRIES_TREE,
+        addressTree: ADDRESS_TREE,
         table: BLOCK_ONLY,
         sharedSources: [
           { listId: ListId.block, curatorRingProgramId: CURATOR_A },
@@ -271,9 +271,9 @@ describe("policy admin instructions", () => {
 });
 
 describe("policy admin transactions", () => {
-  /** The curator pins `BLOCK_ONLY` from its own namespace over `entriesTree`, the ring pins `TABLE` when `own` is set. */
+  /** The curator pins `BLOCK_ONLY` from its own namespace over `addressTree`, the ring pins `TABLE` when `own` is set. */
   async function chain(
-    input: Readonly<{ entriesTree: Address; own?: boolean; hasPolicy?: boolean }>,
+    input: Readonly<{ addressTree: Address; own?: boolean; hasPolicy?: boolean }>,
   ) {
     const [
       [config, configBump],
@@ -311,7 +311,7 @@ describe("policy admin transactions", () => {
           ringPolicyConfigData({
             table: BLOCK_ONLY,
             sources: ownSources(BLOCK_ONLY, curatorNamespace),
-            entriesTree: input.entriesTree,
+            addressTree: input.addressTree,
             bump: curatorBump,
           }),
         ),
@@ -325,7 +325,7 @@ describe("policy admin transactions", () => {
           ringPolicyConfigData({
             table: TABLE,
             sources: ownSources(TABLE, ownNamespace),
-            entriesTree: ENTRIES_TREE,
+            addressTree: ADDRESS_TREE,
             bump: ownBump,
           }),
         ),
@@ -336,13 +336,13 @@ describe("policy admin transactions", () => {
   }
 
   it("compiles create policy under the payer after reading the curator", async () => {
-    const client = await chain({ entriesTree: ENTRIES_TREE });
+    const client = await chain({ addressTree: ADDRESS_TREE });
     const transaction = await buildRingCreatePolicyTransaction({
       client,
       ringProgramId: RING,
       payer: PAYER,
       authority: AUTHORITY,
-      entriesTree: ENTRIES_TREE,
+      addressTree: ADDRESS_TREE,
       table: BLOCK_ONLY,
       sharedSources: [{ listId: ListId.block, curatorRingProgramId: CURATOR_A }],
     });
@@ -356,21 +356,21 @@ describe("policy admin transactions", () => {
   it("refuses a curator on another tree, without the list, or absent, before the blockhash", async () => {
     const cases = [
       {
-        client: await chain({ entriesTree: addressOf(31) }),
+        client: await chain({ addressTree: addressOf(31) }),
         table: BLOCK_ONLY,
         listId: ListId.block,
         curator: CURATOR_A,
         cause: "RING_POLICY_SOURCE_INVALID",
       },
       {
-        client: await chain({ entriesTree: ENTRIES_TREE }),
+        client: await chain({ addressTree: ADDRESS_TREE }),
         table: TABLE,
         listId: ListId.frozen,
         curator: CURATOR_A,
         cause: "RING_POLICY_SOURCE_INVALID",
       },
       {
-        client: await chain({ entriesTree: ENTRIES_TREE }),
+        client: await chain({ addressTree: ADDRESS_TREE }),
         table: BLOCK_ONLY,
         listId: ListId.block,
         curator: CURATOR_B,
@@ -384,7 +384,7 @@ describe("policy admin transactions", () => {
           ringProgramId: RING,
           payer: PAYER,
           authority: AUTHORITY,
-          entriesTree: ENTRIES_TREE,
+          addressTree: ADDRESS_TREE,
           table,
           sharedSources: [{ listId, curatorRingProgramId: curator }],
         }),
@@ -394,7 +394,7 @@ describe("policy admin transactions", () => {
   });
 
   it("refuses an audit-only ring before the curator or the blockhash", async () => {
-    const client = await chain({ entriesTree: ENTRIES_TREE, own: true, hasPolicy: false });
+    const client = await chain({ addressTree: ADDRESS_TREE, own: true, hasPolicy: false });
     const shared = { listId: ListId.block, curatorRingProgramId: CURATOR_A };
     await expect(
       buildRingCreatePolicyTransaction({
@@ -402,7 +402,7 @@ describe("policy admin transactions", () => {
         ringProgramId: RING,
         payer: PAYER,
         authority: AUTHORITY,
-        entriesTree: ENTRIES_TREE,
+        addressTree: ADDRESS_TREE,
         table: BLOCK_ONLY,
         sharedSources: [shared],
       }),
@@ -424,7 +424,7 @@ describe("policy admin transactions", () => {
   });
 
   it("set rules and set source read the ring's own tree and referenced lists", async () => {
-    const client = await chain({ entriesTree: ENTRIES_TREE, own: true });
+    const client = await chain({ addressTree: ADDRESS_TREE, own: true });
     const rules = await buildRingSetPolicyRulesTransaction({
       client,
       ringProgramId: RING,

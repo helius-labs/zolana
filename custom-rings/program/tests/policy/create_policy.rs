@@ -6,10 +6,10 @@ use zolana_account_checks::AccountError;
 use zolana_ring_policy::{EncodedRuleTable, ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    consumed, create_policy_fixture, create_policy_fixture_with, entries_tree,
-    entries_tree_account, largest_table, namespace_pda, own_source_slots, own_specs,
-    policy_hash_for, program_id, setup_mollusk, stored_policy_config, table_ix_data, PINNED_RULES,
-    WARPED_SLOT,
+    address_tree, address_tree_account, audit_only_config_account, auditor_pubkey, authority,
+    consumed, create_policy_fixture, create_policy_fixture_with, largest_table, namespace_pda,
+    own_source_slots, own_specs, policy_hash_for, program_id, setup_mollusk, stored_policy_config,
+    table_ix_data, PINNED_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -28,7 +28,7 @@ fn create_policy_pins_an_empty_table_at_generation_one() {
     assert_eq!(config.sources, own_source_slots(&empty));
     assert_eq!(config.rules, EncodedRuleTable::empty());
     assert_eq!(config.policy_hash, policy_hash_for(&empty, &config.sources));
-    assert_eq!(config.entries_tree.to_bytes(), entries_tree().to_bytes());
+    assert_eq!(config.address_tree.to_bytes(), address_tree().to_bytes());
     assert_eq!(config.namespace_bump, namespace_pda().1);
     assert_eq!(config.generation(), 1);
     assert_eq!(config.generation_slot(), WARPED_SLOT);
@@ -140,23 +140,23 @@ fn the_largest_table_with_no_curator_fits_the_create_policy_budget() {
 }
 
 #[test]
-fn an_entries_tree_owned_by_another_program_is_rejected_exactly() {
+fn an_address_tree_owned_by_another_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
-    let mut foreign = entries_tree_account();
+    let mut foreign = address_tree_account();
     foreign.owner = program_id();
-    fixture.set_account("entries_tree", foreign);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
+    fixture.set_account("address_tree", foreign);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAddressTree));
 }
 
 #[test]
-fn an_entries_tree_without_the_tree_discriminator_is_rejected_exactly() {
+fn an_address_tree_without_the_tree_discriminator_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
-    let mut wrong = entries_tree_account();
+    let mut wrong = address_tree_account();
     wrong.data[0] = 0;
-    fixture.set_account("entries_tree", wrong);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
+    fixture.set_account("address_tree", wrong);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAddressTree));
 }
 
 #[test]
@@ -213,4 +213,37 @@ fn a_short_account_list_is_rejected() {
         &mollusk,
         ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
     );
+}
+
+/// The tier is fixed at `create_config`.
+#[test]
+fn create_policy_on_an_audit_only_ring_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_policy_fixture();
+    fixture.set_account(
+        "config",
+        audit_only_config_account(authority(), auditor_pubkey(2)),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyOnAuditOnlyRing));
+}
+
+#[test]
+fn create_policy_with_a_wrong_system_program_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_policy_fixture();
+    fixture.substitute(
+        "system_program",
+        solana_pubkey::Pubkey::new_from_array([73; 32]),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSystemProgram));
+}
+
+#[test]
+fn an_address_tree_too_short_for_its_id_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_policy_fixture();
+    let mut short = address_tree_account();
+    short.data.truncate(short.data.len() - 1);
+    fixture.set_account("address_tree", short);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAddressTree));
 }

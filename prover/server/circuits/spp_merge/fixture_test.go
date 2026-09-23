@@ -53,6 +53,8 @@ type mergeFixtureOptions struct {
 	// inputSlot places input 1 in that tree slot: hashed under the slot's tree
 	// id and the sole leaf of a second state tree published as the slot's root.
 	inputSlot int
+	// outputNullifierPk publishes the merged output under another nullifier key.
+	outputNullifierPk *big.Int
 }
 
 // Slot 0's tree id is fixtureInputTreeID; fixtureOutputTreeID differs from
@@ -295,9 +297,16 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	if err != nil {
 		t.Fatal(err)
 	}
+	outputOwnerHash := userOwnerHash
+	if options.outputNullifierPk != nil {
+		outputOwnerHash, err = protocol.OwnerHash(ownerKeyHash, options.outputNullifierPk)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	outUtxo := protocol.Utxo{
 		Domain:        big.NewInt(protocol.UtxoDomain),
-		Owner:         userOwnerHash,
+		Owner:         outputOwnerHash,
 		Asset:         asset,
 		Amount:        outAmount,
 		Blinding:      outBlinding,

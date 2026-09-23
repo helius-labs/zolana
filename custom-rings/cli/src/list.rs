@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use clap::Args;
 use custom_ring_sdk::{
     AccountReadError, CreateEntry, CustomRing, EntryError as SdkEntryError, EntryProofEnvironment,
-    EntryProofError, LiveEntry, ReadEntry, SetSourceOwner, SourceOwner, UpdateEntry,
+    EntryProofError, LiveEntry, PoolTree, ReadEntry, SetSourceOwner, SourceOwner, UpdateEntry,
     ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::{error::ParseAddressError, Address};
@@ -218,9 +218,9 @@ impl EntryMutation<'_> {
                 curator,
             });
         }
+        let address_tree = PoolTree::address_tree(&config);
         let live = ReadEntry {
-            entries_tree: config.entries_tree,
-            entries_tree_id: config.entries_tree_id(),
+            address_tree_id: address_tree.id,
             namespace: self.ring.namespace_pda(),
             list_id: self.list_id,
             member: self.member,
@@ -230,8 +230,8 @@ impl EntryMutation<'_> {
             None => CreateEntry {
                 ring: self.ring,
                 payer: self.authority.pubkey(),
-                entries_tree: config.entries_tree,
-                entries_tree_id: config.entries_tree_id(),
+                address_tree,
+                output_tree: address_tree,
                 list_id: self.list_id,
                 member: self.member,
                 state: self.state,
@@ -244,12 +244,12 @@ impl EntryMutation<'_> {
                     change: EntryChange::Unchanged,
                 });
             }
-            Some(LiveEntry { entry, .. }) => UpdateEntry {
+            Some(spent) => UpdateEntry {
                 ring: self.ring,
                 payer: self.authority.pubkey(),
-                entries_tree: config.entries_tree,
-                entries_tree_id: config.entries_tree_id(),
-                spent: entry,
+                address_tree,
+                output_tree: address_tree,
+                spent,
                 state: self.state,
                 content_hash: [0u8; 32],
             }
@@ -325,8 +325,7 @@ impl EntryArg {
             .read_policy_config(&ctx.rpc)?
             .ok_or(ListError::NoPolicy)?;
         let live = ReadEntry {
-            entries_tree: config.entries_tree,
-            entries_tree_id: config.entries_tree_id(),
+            address_tree_id: config.address_tree_id(),
             namespace: config
                 .source_for(self.list_id)
                 .unwrap_or_else(|| ctx.ring.namespace_pda()),
@@ -359,7 +358,7 @@ fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result
             CuratorCheck {
                 curator,
                 list: list_id,
-                entries_tree: config.entries_tree,
+                address_tree: config.address_tree,
             }
             .run(&ctx.rpc)?;
             curator.namespace_pda()

@@ -31,7 +31,21 @@ pub struct RingRelease {
     pub proving_key: Option<Asset>,
     /// Absent from a lock older than the audit key.
     pub audit_key: Option<Asset>,
+    pub compressed_policy_key: Option<Asset>,
+    pub delegate_policy_key: Option<Asset>,
+    pub register_key: Option<Asset>,
+    pub deposit_key: Option<Asset>,
     pub binaries: Vec<Binary>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RingKey {
+    Policy,
+    Base,
+    CompressedPolicy,
+    DelegatePolicy,
+    RegisterKey,
+    Deposit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -53,6 +67,8 @@ pub struct Binary {
 
 #[derive(Debug, Error)]
 pub enum ReleaseError {
+    #[error("release {tag} ships no key for {circuit}, use a complete custom-rings release")]
+    MissingCircuitKey { tag: String, circuit: &'static str },
     #[error("the embedded release lock does not parse")]
     Lock(#[from] serde_json::Error),
     #[error("release {tag} ships no ring program, pass --program-so")]
@@ -109,6 +125,14 @@ struct ReleaseLock {
     #[serde(default)]
     audit_key: Option<Asset>,
     #[serde(default)]
+    compressed_policy_key: Option<Asset>,
+    #[serde(default)]
+    delegate_policy_key: Option<Asset>,
+    #[serde(default)]
+    register_key: Option<Asset>,
+    #[serde(default)]
+    deposit_key: Option<Asset>,
+    #[serde(default)]
     binaries: Vec<Binary>,
 }
 
@@ -119,12 +143,68 @@ impl From<ReleaseLock> for RingRelease {
             program: lock.ring_program,
             proving_key: lock.proving_key,
             audit_key: lock.audit_key,
+            compressed_policy_key: lock.compressed_policy_key,
+            delegate_policy_key: lock.delegate_policy_key,
+            register_key: lock.register_key,
+            deposit_key: lock.deposit_key,
             binaries: lock.binaries,
         }
     }
 }
 
+impl RingKey {
+    pub const ALL: [Self; 6] = [
+        Self::Policy,
+        Self::Base,
+        Self::CompressedPolicy,
+        Self::DelegatePolicy,
+        Self::RegisterKey,
+        Self::Deposit,
+    ];
+
+    /// Also the key's name in proving-keys.lock.
+    pub const fn file_name(self) -> &'static str {
+        match self {
+            Self::Policy => "custom_ring_policy.key",
+            Self::Base => "custom_ring_base.key",
+            Self::CompressedPolicy => "custom_ring_compressed_policy.key",
+            Self::DelegatePolicy => "custom_ring_delegate_policy.key",
+            Self::RegisterKey => "custom_ring_register_key.key",
+            Self::Deposit => "custom_ring_deposit.key",
+        }
+    }
+
+    /// The prover's circuit type, the name its health lists.
+    pub const fn circuit(self) -> &'static str {
+        match self {
+            Self::Policy => "custom-ring-policy",
+            Self::Base => "custom-ring-base",
+            Self::CompressedPolicy => "custom-ring-compressed-policy",
+            Self::DelegatePolicy => "custom-ring-delegate-policy",
+            Self::RegisterKey => "custom-ring-register-key",
+            Self::Deposit => "custom-ring-deposit",
+        }
+    }
+}
+
 impl RingRelease {
+    pub fn key(&self, key: RingKey) -> Result<&Asset, ReleaseError> {
+        let asset = match key {
+            RingKey::Policy => &self.proving_key,
+            RingKey::Base => &self.audit_key,
+            RingKey::CompressedPolicy => &self.compressed_policy_key,
+            RingKey::DelegatePolicy => &self.delegate_policy_key,
+            RingKey::RegisterKey => &self.register_key,
+            RingKey::Deposit => &self.deposit_key,
+        };
+        asset
+            .as_ref()
+            .ok_or_else(|| ReleaseError::MissingCircuitKey {
+                tag: self.tag.clone(),
+                circuit: key.circuit(),
+            })
+    }
+
     pub fn from_lock() -> Result<Self, ReleaseError> {
         Self::parse(LOCK_JSON)
     }
@@ -300,7 +380,7 @@ fn download(url: &str, asset: &Asset) -> Result<Vec<u8>, ReleaseError> {
     Ok(bytes)
 }
 
-fn verify(bytes: &[u8], asset: &Asset) -> Result<(), ReleaseError> {
+pub(crate) fn verify(bytes: &[u8], asset: &Asset) -> Result<(), ReleaseError> {
     if bytes.len() as u64 != asset.size {
         return Err(ReleaseError::Size {
             name: asset.name.clone(),
@@ -387,6 +467,41 @@ mod tests {
         );
         let program = RingProgram::of(release).expect("program");
         assert_eq!(program.tag, "v1");
+    }
+
+    #[test]
+    fn every_ring_key_is_served_or_named_as_missing() {
+        let mut lock: serde_json::Value = serde_json::from_str(FULL_LOCK).expect("json");
+        for key in RingKey::ALL {
+            let section = match key {
+                RingKey::Policy => "proving_key",
+                RingKey::Base => "audit_key",
+                RingKey::CompressedPolicy => "compressed_policy_key",
+                RingKey::DelegatePolicy => "delegate_policy_key",
+                RingKey::RegisterKey => "register_key",
+                RingKey::Deposit => "deposit_key",
+            };
+            lock[section] = serde_json::json!({"asset": key.file_name(), "size": 1, "sha256": "x"});
+        }
+        let release = RingRelease::parse(&lock.to_string()).expect("parses");
+        for key in RingKey::ALL {
+            assert_eq!(release.key(key).expect("served").name, key.file_name());
+        }
+        let partial = RingRelease::parse(FULL_LOCK).expect("parses");
+        assert!(matches!(
+            partial.key(RingKey::RegisterKey),
+            Err(ReleaseError::MissingCircuitKey {
+                circuit: "custom-ring-register-key",
+                ..
+            })
+        ));
+        assert!(matches!(
+            partial.key(RingKey::Deposit),
+            Err(ReleaseError::MissingCircuitKey {
+                circuit: "custom-ring-deposit",
+                ..
+            })
+        ));
     }
 
     #[test]

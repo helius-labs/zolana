@@ -18,6 +18,7 @@ export interface RpcContext {
 
 export interface GetByTagsRequest {
   readonly tags: readonly Bytes32[];
+  readonly ringProgramId?: Address;
   readonly cursor?: Uint8Array;
   readonly limit?: number;
 }

@@ -3,6 +3,10 @@ use std::pin::Pin;
 use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
+pub use zolana_indexer_api::{
+    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
+    GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
+};
 use zolana_keypair::P256Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 
@@ -60,6 +64,14 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Vec<u8>>,
     pub scanned_through: Option<Vec<u8>>,
+}
+
+/// Page through every shielded transaction emitted by one custom ring.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RingHistoryOptions {
+    pub ring_program_id: Address,
+    pub cursor: Option<Vec<u8>>,
+    pub limit: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

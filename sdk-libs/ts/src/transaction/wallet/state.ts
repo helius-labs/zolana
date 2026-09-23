@@ -67,11 +67,20 @@ export type CursorStream = "transactions" | "proofless" | "nullifiers";
 /** @internal */
 export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, Uint8Array>>>;
 
-/** @internal Selection skips its UTXOs until expiry, per wallet instance, not a cross-process lock. */
+/** @internal Submission reservations end only after settlement or an observed spend. */
 export interface UtxoReservation {
   readonly id: string;
   readonly utxoHashes: readonly Bytes32[];
-  readonly expiresAtMs: bigint;
+  readonly expiresAtMs: bigint | null;
+}
+
+export interface PendingWalletSubmission {
+  readonly id: string;
+  readonly intentHash: Bytes32;
+  readonly utxoHashes: readonly Bytes32[];
+  readonly attempts: number;
+  readonly signature: Signature;
+  readonly lastValidBlockHeight: bigint;
 }
 
 /** @internal */
@@ -228,6 +237,7 @@ export class Wallet {
   #revision = 0;
   #syncQueue: Promise<unknown> = Promise.resolve();
   #reservations: UtxoReservation[] = [];
+  #pendingSubmissions: PendingWalletSubmission[] = [];
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry?: AssetRegistry }>) {
     this.identity = input.identity;
@@ -430,7 +440,9 @@ export class Wallet {
       this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
     );
     this.#reservations = this.#reservations.filter((reservation) =>
-      reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
+      reservation.expiresAtMs === null
+        ? reservation.utxoHashes.some((utxoHash) => unspent.has(hex(utxoHash)))
+        : reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
     );
     if (input.viewingKeyHistory !== undefined) {
       this.#viewingKeyHistory = input.viewingKeyHistory.map(snapshotViewingKeyEntry);
@@ -443,7 +455,7 @@ export class Wallet {
 
   /** @internal Validates and commits in one synchronous step, never bumps the revision. */
   _reserveUtxos(
-    input: Readonly<{ utxoHashes: readonly Bytes32[]; nowMs: bigint; ttlMs: bigint }>,
+    input: Readonly<{ utxoHashes: readonly Bytes32[]; nowMs: bigint; ttlMs: bigint | null }>,
   ): UtxoReservation {
     this.#sweepReservations(input.nowMs);
     const reserved = this._reservedUtxoKeys(input.nowMs);
@@ -461,10 +473,19 @@ export class Wallet {
     const reservation: UtxoReservation = Object.freeze({
       id: randomReservationId(),
       utxoHashes: Object.freeze(input.utxoHashes.map((utxoHash) => copy(utxoHash) as Bytes32)),
-      expiresAtMs: input.nowMs + input.ttlMs,
+      expiresAtMs: input.ttlMs === null ? null : input.nowMs + input.ttlMs,
     });
     this.#reservations.push(reservation);
     return reservation;
+  }
+
+  /** @internal A swept reservation stays gone. */
+  _extendReservation(input: Readonly<{ id: string; nowMs: bigint; ttlMs: bigint }>): void {
+    this.#reservations = this.#reservations.map((reservation) =>
+      reservation.id === input.id && reservation.expiresAtMs !== null
+        ? Object.freeze({ ...reservation, expiresAtMs: input.nowMs + input.ttlMs })
+        : reservation,
+    );
   }
 
   /** @internal Idempotent. */
@@ -474,7 +495,9 @@ export class Wallet {
 
   /** @internal */
   _activeReservations(nowMs: bigint): readonly UtxoReservation[] {
-    return this.#reservations.filter((reservation) => reservation.expiresAtMs > nowMs);
+    return this.#reservations.filter(
+      (reservation) => reservation.expiresAtMs === null || reservation.expiresAtMs > nowMs,
+    );
   }
 
   /** @internal Hex hashes of every UTXO an unexpired reservation holds. */
@@ -492,8 +515,10 @@ export class Wallet {
     );
     this.#reservations = this.#reservations.filter(
       (reservation) =>
-        reservation.expiresAtMs > nowMs &&
-        reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
+        (reservation.expiresAtMs === null || reservation.expiresAtMs > nowMs) &&
+        (reservation.expiresAtMs === null
+          ? reservation.utxoHashes.some((utxoHash) => unspent.has(hex(utxoHash)))
+          : reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash)))),
     );
   }
 
@@ -502,14 +527,41 @@ export class Wallet {
     return this.#reservations;
   }
 
-  /** @internal Drops entries that name a spent or unknown UTXO. */
+  /** @internal */
   _restoreReservations(reservations: readonly UtxoReservation[]): void {
     const unspent = new Set(
       this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
     );
     this.#reservations = reservations.filter((reservation) =>
-      reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
+      reservation.expiresAtMs === null
+        ? reservation.utxoHashes.some((utxoHash) => unspent.has(hex(utxoHash)))
+        : reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
     );
+  }
+
+  pendingSubmissions(): readonly PendingWalletSubmission[] {
+    return this.#pendingSubmissions.map((pending) => ({
+      ...pending,
+      intentHash: copy(pending.intentHash) as Bytes32,
+      utxoHashes: pending.utxoHashes.map((hash) => copy(hash) as Bytes32),
+    }));
+  }
+
+  /** @internal */
+  _setPendingSubmission(pending: PendingWalletSubmission): void {
+    this.#pendingSubmissions = [
+      ...this.#pendingSubmissions.filter((entry) => entry.id !== pending.id),
+      {
+        ...pending,
+        intentHash: copy(pending.intentHash) as Bytes32,
+        utxoHashes: pending.utxoHashes.map((hash) => copy(hash) as Bytes32),
+      },
+    ];
+  }
+
+  /** @internal */
+  _removePendingSubmission(id: string): void {
+    this.#pendingSubmissions = this.#pendingSubmissions.filter((entry) => entry.id !== id);
   }
 
   /** @internal */
@@ -537,6 +589,7 @@ export class Wallet {
       }
     }
     clone.#reservations = [...this.#reservations];
+    clone.#pendingSubmissions = [...this.#pendingSubmissions];
     return clone;
   }
 

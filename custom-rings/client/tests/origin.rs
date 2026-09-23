@@ -37,6 +37,10 @@ fn group(outer: Address, inner: &[(Address, u32)]) -> InstructionGroup {
     }
 }
 
+fn event_data() -> String {
+    bs58::encode([tag::EMIT_EVENT]).into_string()
+}
+
 #[test]
 fn pool_directly_under_the_ring_is_attributed() {
     let groups = [group(RING, &[(POOL, 2), (OTHER, 3)])];
@@ -106,7 +110,18 @@ fn v0_transactions_resolve_program_ids_from_loaded_addresses() {
                 {
                     "index": 0,
                     "instructions": [
-                        { "programIdIndex": 3, "accounts": [2], "data": "", "stackHeight": 2 }
+                        {
+                            "programIdIndex": 3,
+                            "accounts": [2],
+                            "data": ring_transact_data(Vec::new()),
+                            "stackHeight": 2
+                        },
+                        {
+                            "programIdIndex": 3,
+                            "accounts": [],
+                            "data": event_data(),
+                            "stackHeight": 3
+                        }
                     ]
                 }
             ],
@@ -123,21 +138,109 @@ fn v0_transactions_resolve_program_ids_from_loaded_addresses() {
         signature: Signature::from([6u8; 64]),
         transaction,
     }
-    .ring_invoked(RING)
+    .ring_invoked(0, RING)
     .expect("walk");
     assert!(invoked);
+}
+
+#[test]
+fn event_ordinals_separate_two_origins_in_one_transaction() {
+    let payer = Address::new_from_array([1u8; 32]);
+    let signature = Signature::from([7u8; 64]);
+    let json = serde_json::json!({
+        "slot": 7,
+        "blockTime": null,
+        "transaction": {
+            "signatures": [signature.to_string()],
+            "message": {
+                "header": {
+                    "numRequiredSignatures": 1,
+                    "numReadonlySignedAccounts": 0,
+                    "numReadonlyUnsignedAccounts": 3
+                },
+                "accountKeys": [
+                    payer.to_string(), RING.to_string(), OTHER.to_string(), POOL.to_string()
+                ],
+                "recentBlockhash": Address::default().to_string(),
+                "instructions": [
+                    { "programIdIndex": 1, "accounts": [0], "data": "", "stackHeight": null },
+                    { "programIdIndex": 2, "accounts": [0], "data": "", "stackHeight": null }
+                ]
+            }
+        },
+        "meta": {
+            "err": null,
+            "status": { "Ok": null },
+            "fee": 5000,
+            "preBalances": [1, 0, 0, 0],
+            "postBalances": [0, 0, 0, 0],
+            "innerInstructions": [
+                {
+                    "index": 0,
+                    "instructions": [
+                        {
+                            "programIdIndex": 3,
+                            "accounts": [],
+                            "data": ring_transact_data(Vec::new()),
+                            "stackHeight": 2
+                        },
+                        {
+                            "programIdIndex": 3,
+                            "accounts": [],
+                            "data": event_data(),
+                            "stackHeight": 3
+                        }
+                    ]
+                },
+                {
+                    "index": 1,
+                    "instructions": [
+                        {
+                            "programIdIndex": 3,
+                            "accounts": [],
+                            "data": ring_transact_data(Vec::new()),
+                            "stackHeight": 2
+                        },
+                        {
+                            "programIdIndex": 3,
+                            "accounts": [],
+                            "data": event_data(),
+                            "stackHeight": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    });
+    let first: EncodedConfirmedTransactionWithStatusMeta =
+        serde_json::from_value(json.clone()).expect("rpc shape");
+    let second: EncodedConfirmedTransactionWithStatusMeta =
+        serde_json::from_value(json).expect("rpc shape");
+
+    assert!(ConfirmedTransaction {
+        signature,
+        transaction: first,
+    }
+    .ring_invoked(0, RING)
+    .expect("first origin"));
+    assert!(!ConfirmedTransaction {
+        signature,
+        transaction: second,
+    }
+    .ring_invoked(1, RING)
+    .expect("second origin"));
 }
 
 /// The settlement walk reads instruction groups, so it needs no confirmed
 /// transaction and no RPC.
 #[test]
 fn withdrawals_read_from_instruction_groups_without_a_transaction() {
-    let mut answers = instruction(POOL, 2);
-    answers.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
-    answers.accounts = vec![Address::default(), SOL, RECIPIENT];
+    let mut pool = instruction(POOL, 2);
+    pool.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
+    pool.accounts = vec![Address::default(), SOL, RECIPIENT];
     let groups = [InstructionGroup {
         outer: instruction(RING, 1),
-        inner: vec![answers],
+        inner: vec![pool],
     }];
 
     assert_eq!(
@@ -152,12 +255,12 @@ fn withdrawals_read_from_instruction_groups_without_a_transaction() {
 
 #[test]
 fn withdrawals_of_a_ring_that_did_not_sign_are_not_reported() {
-    let mut answers = instruction(POOL, 2);
-    answers.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
-    answers.accounts = vec![Address::default(), SOL, RECIPIENT];
+    let mut pool = instruction(POOL, 2);
+    pool.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
+    pool.accounts = vec![Address::default(), SOL, RECIPIENT];
     let groups = [InstructionGroup {
         outer: instruction(OTHER, 1),
-        inner: vec![answers],
+        inner: vec![pool],
     }];
 
     assert!(ring_withdrawals_in(&groups, RING).expect("walk").is_empty());
@@ -237,12 +340,20 @@ fn withdrawing_transaction(
             "innerInstructions": [
                 {
                     "index": 0,
-                    "instructions": [{
-                        "programIdIndex": 2,
-                        "accounts": accounts,
-                        "data": ring_transact_data(interface_transfers),
-                        "stackHeight": 2
-                    }]
+                    "instructions": [
+                        {
+                            "programIdIndex": 2,
+                            "accounts": accounts,
+                            "data": ring_transact_data(interface_transfers),
+                            "stackHeight": 2
+                        },
+                        {
+                            "programIdIndex": 2,
+                            "accounts": [],
+                            "data": event_data(),
+                            "stackHeight": 3
+                        }
+                    ]
                 }
             ]
         }
@@ -261,7 +372,7 @@ fn sol_withdrawal_reports_its_recipient_and_amount() {
             vec![0, 5, 5, 2, 3, 4, 6, 7],
         ),
     }
-    .origin(RING)
+    .origin(0, RING)
     .expect("walk");
 
     assert!(origin.ring_invoked);
@@ -289,7 +400,7 @@ fn spl_withdrawal_reports_its_mint_and_token_account() {
             vec![0, 5, 5, 2, 3, 8, 9, 4, 10, 4],
         ),
     }
-    .origin(RING)
+    .origin(0, RING)
     .expect("walk");
 
     assert_eq!(
@@ -318,7 +429,7 @@ fn mixed_spl_and_sol_legs_are_both_reported() {
             vec![0, 5, 5, 2, 3, 8, 9, 4, 10, 4, 6, 7],
         ),
     }
-    .origin(RING)
+    .origin(0, RING)
     .expect("walk");
 
     assert_eq!(
@@ -350,7 +461,7 @@ fn spl_settlement_group_without_the_cpi_authority_is_an_error() {
             vec![0, 5, 5, 2, 3, 4, 9, 4, 10, 4],
         ),
     }
-    .origin(RING);
+    .origin(0, RING);
 
     assert!(matches!(origin, Err(OriginError::SettlementAccounts)));
 }

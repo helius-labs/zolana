@@ -1,15 +1,9 @@
 # Ring policy and entries
 
-The policy system mediates between a ring operator who sets transfer rules and
-a participant who proves compliance without revealing the transfer. Hold it as
-one idea, membership checks move out of program code and into the transfer
-proof.
-
-The naive ring stores its lists in accounts and checks the recipient in the
-processor. That design's flaw is exposure. The program reads the recipient in
-clear and the ring loses anonymity. Instead the ring pins one hash of its
-rules, and the transfer proof shows the rules hold against lists in SPP's own
-trees.
+The ring pins a rule table and proves compliance over the same private
+transaction that SPP settles. List answers stay private. The auditor can
+decrypt the transfer. Windowed spend records expose the sender's identity
+and record history without exposing its counters.
 
 ## The model
 
@@ -26,19 +20,21 @@ Seven terms carry the whole design.
   side, an owner rule looks up the output owners and an asset rule the output
   mints.
 - An **entry** (`ListEntry`) states one `(list, member)` fact. It lives as a
-  zero-amount data UTXO in the SPP state tree.
+  zero-amount data UTXO in any SPP state tree. Its address lives in the
+  ring's address tree.
 - The **writer** (`Writer`) of a list is the party that may mutate its list,
   the ring authority or the member.
 - The **answers** array is the transfer proof's set of entry checks, one
-  slot per distinct `(list, member, mode)` triple the rules need.
+  slot per distinct `(list, member, mode)` triple the rules need, the circuit
+  names them list facts.
 - The **source map** binds each referenced list to the namespace serving
   it, the ring's own or a curator ring's.
 
 A blocklist ring runs through every section below, the `own-blocklist`
 example. Its table holds one rule,
 `Rule::forbid(Subject::OutputOwner, ListId::Block)`. The authority lists
-Mallory under `Block`. A transfer to Mallory has no witness, its answer slot
-cannot show the live entry absent. A transfer to Bob proves absence, no
+Mallory under `Block`. Once SPP queues that claim's nullifier, a transfer
+to Mallory cannot prove her absent. A transfer to Bob proves absence, no
 entry under his pair exists. After the authority clears Mallory, a transfer
 to her proves absence through the cleared entry.
 
@@ -94,8 +90,7 @@ subject plus both list sets, a guarded sender rule, a zero threshold, an
 owner guard without exactly one unguarded inline asset rule, and a table past
 the answer budget below are refused. The cli refuses such a table at `new`,
 `init` and `policy set` naming the row. The program refuses it at
-`create_policy` and `set_policy_rules` with `InvalidPolicyRules` and logs the
-reason.
+`create_policy` and `set_policy_rules` with `InvalidPolicyRules`.
 
 `Rule::encoded` packs a rule into one row of 32 bytes. Byte 31 is the
 subject, byte 30 the primary mode, byte 29 the list mask of that mode (bit
@@ -106,14 +101,41 @@ The form is canonical. A rule with a present set is `Present` primary and
 carries its absent set in byte 19, a rule with absent lists only is `Absent`
 primary with byte 19 zero. `Rule::decode` refuses every other row, the
 stored rows are exactly what `encoded` emits. The circuit range-checks the
-components and re-derives the row by weighted sum (`ruleShift` in
-`prover/server/circuits/custom_ring/policy/constants.go`).
+components and re-derives the row by weighted sum (`ruleWeights` in
+`prover/server/custom_rings/circuits/policy/constants.go`).
+
+A velocity table bounds a sender's outflow per mint and puts a single
+transfer above a threshold under dual control. It is `window_slots` and up
+to `MAX_VELOCITY_ASSETS` rows of `VelocityRow { asset, cap, cosign_above }`,
+a zero cap leaves the mint uncapped and a zero threshold disables the co-sign
+demand. A zero window caps each transfer alone with no record, a nonzero
+window carries the counters across it. A window without rows is refused, a
+row names a nonzero mint once and carries at least one bound. The rows pin
+with the rules and move only under the upgrade authority.
+
+```toml
+[policy.velocity]
+window_slots = 216000
+rows = [
+  { asset = "11111111111111111111111111111111", cap = 5000000000, cosign_above = 1000000000 },
+]
+```
+
+Dropping `window_slots` caps each transfer on its own with no record.
+
+```toml
+[policy.velocity]
+rows = [
+  { asset = "11111111111111111111111111111111", cap = 5000000000, cosign_above = 1000000000 },
+]
+```
 
 `EncodedRuleTable::hash` chains `POLICY_TABLE_DOMAIN`, `POLICY_VERSION`, the
-eight source slots, the rule count, every row, and the inline asset-limit pairs. The
-count closes the variable-length preimage. The source map ties the table to
-the entries serving each list. `POLICY_VERSION` moves with any change of the
-row encoding.
+eight source slots, the rule, inline and velocity counts, every row, the
+inline asset-limit pairs, the window length and every velocity row as mint,
+cap and threshold. The counts close the variable-length preimage. The source
+map ties the table to the entries serving each list. `POLICY_VERSION` moves
+with any change of the row encoding.
 
 ## The answer budget
 
@@ -129,8 +151,9 @@ outputs, within `ANSWER_SLOTS`. A spend from several keys can need more,
 ## Rules as data
 
 `ring.toml` carries the table in its `[policy]` table
-(`custom-rings/cli/src/policy/grammar.rs`). `entries_tree` names the tree
-every entry lives in, the SPP default tree when absent.
+(`custom-rings/cli/src/policy/grammar.rs`). `address_tree` names the tree
+that holds every entry and spend record address, the SPP default tree when
+absent.
 `[policy.sources.<cluster>]` names a curator ring per list and per cluster,
 a list left out reads the ring's own entries. Each `[[policy.rules]]` row has
 a `subject` (`output-owner`, `sender` or `asset`), exactly one of `require`,
@@ -140,7 +163,8 @@ takes a name in a rule. The rows compile in order through
 `RuleTableBuilder`. One released binary serves every ring.
 
 `create_policy` carries the rows, the inline assets and the source specs
-(`PolicyTableIxData`) and is signed by the upgrade authority. It binds each
+(`PolicyTableIxData`), is signed by the upgrade authority and refuses an
+audit-only ring, the tier is fixed at `create_config`. It binds each
 referenced list to its namespace, stores the rows in `PolicyConfig.rules`
 (`EncodedRuleTable`) beside the map, pins `policy_hash` over both, and writes
 `generation` one with the current slot in `generation_slot`. `set_policy_rules`
@@ -165,9 +189,25 @@ hash into the public input chain.
 ## Roles
 
 The **upgrade authority** deploys the binary, pins the table at
-`create_policy` and replaces it with `set_policy_rules`. The **config
+`create_policy`, replaces it with `set_policy_rules` and sets the delegate
+once. The **auditor** decrypts transfers and registered nullifier keys but
+cannot authorize an ownership transfer or withdrawal. The **permanent
+delegate** signs moves between members over the authority rail and cannot
+withdraw. Its dedicated policy key keeps ordinary rules and
+exempts velocity. Scoped co-signing still applies. It spends a member's notes
+with the member's nullifier key, escrowed to the ring auditor in the key
+registry. Setting the delegate turns on key escrow for the ring, after which
+every UTXO output needs a nullifier key registered for its owner and only the
+spend record the namespace owns keeps the zero key. The current
+delegate workflow needs both the auditor secret for
+recovery and the configured delegate's Solana signature for authorization,
+see the custom-rings [README](../custom-rings/README.md#controls). The **config
 authority** writes the authority-written lists, re-points sources, grants
-readers and pauses the ring. A **curator** is a ring whose lists other rings
+readers, sets or clears the co-signer and the spend windows, and pauses the
+ring. The **co-signer**
+signs beside the sender on the operations its scope names and on every
+transfer the velocity statement marks for approval. A **member** of a windowed velocity ring registers its own spend record
+once and spends it with every transfer. A **curator** is a ring whose lists other rings
 read, it writes its own entries and nothing on its subscribers. The
 **operator** answers `zolana-ring new` and holds the ring directory, one key
 serves both authorities unless `ring.toml` splits them.
@@ -187,16 +227,19 @@ signature.
 Creating an entry claims the address, and the nullifier tree admits each
 address once. One lineage per pair, for the life of the tree.
 
-Every entry leaf and address hashes under the entries tree id the policy
-config pins. The entry's blinding is the SPP output blinding of the transact
+Every entry address hashes under the address tree id the policy config
+pins. The entry leaf hashes under the id of the tree it lives in. The entry's
+blinding is the SPP output blinding of the transact
 that wrote it, derived from the spent nullifier and published in the record,
 so a reader rebuilds the leaf from the record alone. A member cleared and
 recorded again never repeats a `utxo_hash` or a nullifier.
 
 A mutation is a one-input one-output SPP transact built over
 `mutation_private_tx_hash`. `create_entry` claims the address and inserts the
-version-zero UTXO. `update_entry` spends the live UTXO and inserts the next
-version at the same address. There is no delete, removal is an update to
+version-zero UTXO. It names the address tree as the SPP input tree, SPP
+nullifies the claimed address there (`InvalidAddressTree` otherwise).
+`update_entry` spends the live UTXO in its tree and inserts the next version
+at the same address. The output of either lands in any SPP tree. There is no delete, removal is an update to
 `Cleared`. Absence therefore has two provable shapes, an address never claimed
 or a live entry in `Cleared`. `create_entry` and `update_entry` refuse a
 content commitment the list's schema does not recover (`InvalidEntryContent`).
@@ -220,6 +263,63 @@ owner tag hashes to the member. The ring admits the eddsa rail only, a P-256
 identity can be listed by the authority but cannot transact in the ring or
 self-manage a member-written list.
 
+## Spend records
+
+A windowed velocity ring keeps a spend record per member, a per-transfer cap
+ring keeps none. A spend record is the second record kind under the namespace PDA, a
+zero-amount SOL data note keyed by the member's identity through
+`SPEND_ADDRESS_DOMAIN`, so no list instruction reaches it. Its address
+hashes under the address tree. The note itself lands in the output tree of
+the instruction that writes it. Its
+public opening is `member || version || window || counters_commitment ||
+blinding`, `SpendRecord::data_hash` binds it to its derived address and the
+program checks every published record against the leaf it names. The
+counters, `SpendCounters { salt, assets, spent }`, stay behind
+`HashChain(salt, (asset, spent) x 8)`, each counter bound to its mint
+independent of its table position.
+
+`register_spend` claims the member's address at version zero under the
+current window with the zero counters, the payer's Solana key is the member
+and the program derives every field except the blinding. From then on only the member's
+own transfer writes the record. The transfer carries the record as the last
+input and the last output of its SPP transact, the namespace PDA raised as
+one more owner signer inside the program's CPI, and the policy circuit pins
+the two slots at the sender's address, the input at the latest version, the
+output at version plus one, every other opening a different owner. Money
+inputs open to one identity, that identity is the record's member.
+
+For each row the circuit charges `outflow = inputs of the mint - change the
+sender keeps inside the ring`, payments, exits and withdrawals alike, and
+writes `spent' = (record.window == window ? spent : 0) + outflow` into the
+successor under a fresh salt, `spent' <= cap` where the cap is nonzero. The
+program derives `window = slot / window_slots` and binds it into the public
+input beside the ring id, the namespace owner and the approval bit, the bit
+the circuit sets when any `outflow > cosign_above`. The program then demands
+the configured co-signer, `ApprovalWithoutCoSigner` when the ring has none.
+A record from a future window is refused, an expired one is consumed from
+its published commitment alone.
+
+Registration publishes the opening as plaintext output data. A transfer
+uses SPP's standard confidential output format for the record, publishing
+the opening in one message tagged
+`SHA256("zolana:spend-record:v1" || namespace)`. The program reconstructs the
+last output's commitment from that message. Missing or duplicate messages
+are refused. The carrier is a zero-amount note the namespace PDA owns.
+
+The successor's counters follow in a message under the
+transaction viewing key, tagged with the namespace, before the auditor
+message. The sender derives that key from the transfer's first nullifier and
+recovers the counters for its next transfer, the auditor recovers it from
+the audit ciphertext and reports the record with its counters, or without
+them when no message opens to the commitment. `ReadSpendRecord::read_current`
+reads the member's latest record from Photon's `getRingSpendRecord`, checks
+it hashes under the member's spend address, and reports a record whose
+nullifier PDA exists as `RingSpendRecordOutOfSync`. `RegisterSpend` creates
+the genesis record and claims that address, once per member. Then
+`CustomRingTransfer::prove` reads the record, the slot and the counters
+before it stages the slots, refusing `SpendRecordMissing`,
+`SpendCountersUnknown` and `VelocityCapExceeded` before any prover round.
+
 ## Sources
 
 `create_policy` declares each referenced list's source and stores the map in
@@ -231,9 +331,9 @@ subscriber from one write.
 
 `set_policy_source` lets the ring authority re-point one list the stored
 table references, to the ring's own entries or to a curator policy config
-pinned to the same entries tree. It rewrites the hash over the stored rows,
-the rows themselves move only under the upgrade authority. All sources live
-in one entries tree.
+pinned to the same address tree. It rewrites the hash over the stored rows,
+the rows themselves move only under the upgrade authority. Every source
+shares one address tree.
 
 Mutations of a curator sourced list fail on the subscriber with
 `ForeignSource`, the list is mutated on its curator ring. Members enroll
@@ -248,25 +348,33 @@ per distinct triple, unused slots disabled and zero-filled. For each rule and
 each live subject it takes the first alternative the entries satisfy and
 refuses with `PolicyRuleUnsatisfied` when none does, before any proof
 request. It walks every entry lineage by its nullifier chain before the
-first proof read and takes the state root and the nullifier root from the
-proof responses against the pinned entries tree, `PolicyRootMismatch` when a
-response mixes roots. Presence is an inclusion proof of the entry's
-`utxo_hash` in the state tree plus a non-inclusion proof of its nullifier.
-Absence is a non-inclusion proof of the pair's address, or the same two
-proofs over the cleared entry.
+first proof read and groups the facts by the tree each entry lives in. A
+never-claimed address counts under the address tree, and a statement without
+facts still reads the address tree. Each tree takes one root pair from the
+proof responses, `PolicyRootMismatch` when the responses for one tree mix
+roots, `TooManyPolicyTrees` past `INPUT_TREES` trees. Presence is an
+inclusion proof of the entry's `utxo_hash` in its tree plus a non-inclusion
+proof of its nullifier there. Absence is a non-inclusion proof of the pair's
+address in the address tree, or the same two proofs over the cleared entry.
 
-The public input chains the audit statement with `policy_hash`, `state_root`,
-and `nullifier_root` (`custom-rings/interface/src/public_input.rs`). The
-program resolves both roots from the history indices in the instruction data
-and verifies one proof.
+The public input chains the eleven audit elements with `policy_hash`, the
+tree slots chain, `address_tree_id`, `ring_id` and `namespace_owner_hash`
+(`custom-rings/interface/src/policy_public_input.rs`). Then follow
+`window_index`, `approval_required`, `key_escrow`, `key_registry_root`, the
+packed revocation tree indexes and one revocation target per answer slot. Windowed member
+transfers append the counters disclosure hash and use the compressed policy
+key. The transact carries one policy tree account and one pair of root
+history indices per tree slot. The program resolves each slot from its
+account. Each fact selects a slot, and the packed indexes publish it as
+the tree of the fact's revocation target.
 
 A ring is one of two tiers, pinned by the config `has_policy` flag that transact
-dispatches on. A policy ring proves the folded audit-and-policy statement above.
-An audit-only ring proves the eight-element audit statement alone against a
+dispatches on. A policy ring proves the combined audit-and-policy statement above.
+An audit-only ring proves the eleven-element audit statement alone against a
 lighter circuit and verifying key, with no policy accounts. Within the policy
-circuit an empty table proves a zero-length table with every answer slot
-disabled, and proof size, account list, and verification cost do not vary with
-the table, a transfer reveals none of the checks it passed.
+circuit an empty table creates no list obligations. The client disables unused
+answer slots. The account list and key distinguish windowed velocity from
+ordinary policy. Individual list answers stay private.
 
 ## Adding a list
 
@@ -283,9 +391,11 @@ are reused unchanged.
 
 `zolana-ring new` asks, in order, for the ring name, the service URLs of both
 clusters and the target. It then offers common policy options and an advanced
-rule builder. Finishing without an option creates an audit-only ring; any
+rule builder. Finishing without an option creates an audit-only ring, any
 option creates a policy ring, and `configure policy later` creates one with an
-empty table. A policy uses the SPP default entries tree without asking and
+empty table. The options build list rules. A velocity table comes from
+`--policy-from` or a hand-written `ring.toml`. Co-signing is configured
+separately in `ring.toml`'s `[cosigner]` table. A policy uses the SPP default tree as its address tree without asking and
 writes that address explicitly to `ring.toml`. Each option compiles as one
 unit when added. After `finish`, the wizard derives the lists the rules read
 and asks for those sources only. The wizard prints the `ring.toml` it will
@@ -294,18 +404,18 @@ write and asks before writing. `--silent` takes every default. `--policy-from
 that table, checks it on both clusters, and skips the policy option questions.
 
 The source question offers `own entries`, the curators of the catalogue
-serving the list from their own entries in the ring's tree, and `another
-curator` by program id. The catalogue is the bundled
+serving the list from their own entries and pinned to the ring's address
+tree, and `another curator` by program id. The catalogue is the bundled
 `custom-rings/cli/catalogue.toml`, one table per cluster where curators
 register by pull request, merged with every ring registered with SPP on the
 target that pins a policy. `--catalogue <path or URL>` (`RING_CATALOGUE`)
 replaces the bundled file.
 
 `init` compiles `[policy]` for the target and checks each curator, deployed,
-with a policy, serving the list from its own entries, in the ring's tree.
-It pins the table with `create_policy`. A table whose curator accounts push
-the transaction past one legacy packet is pinned over the ring's own sources,
-each curated list is then pointed with `set_policy_source`. `init` reads the
+with a policy, serving the list from its own entries, pinned to the ring's
+address tree.
+It pins the table with `create_policy`. The SDK refuses a `create_policy`
+transaction past the signed V1 size (`TransactionTooLarge`). `init` reads the
 chain back and refuses to register a ring whose pinned policy differs from
 `ring.toml` (`PolicyDrift`).
 
@@ -314,7 +424,12 @@ and sources. `policy check` compares `ring.toml` with the chain, rows and
 hash, then the tree, then every source, and exits non-zero on a difference.
 `policy set` prints the rows added and removed and replaces the table under
 the upgrade authority, `--yes` skips the confirmation. A changed
-`entries_tree` is refused, the tree is fixed at `init`.
+`address_tree` is refused, the tree is fixed at `init`.
+
+`spend register` claims the sender's spend record on a windowed velocity ring and
+`spend show` prints its live version, window and commitment. `transact` and
+`transfer` register the sender before its first transfer and refuse a
+transfer the proof marks for approval unless `--cosigner-keypair` is given.
 
 `list add|clear|show <list>` names the member with `--owner <tag>` or
 `--asset <mint>`, exactly one, and `sol` is the native token. `add` and
@@ -344,30 +459,35 @@ the cli loads and re-renders.
   own `Approval` list.
 - [`allowlist`](../custom-rings/examples/allowlist/ring.toml) is a closed
   ring, the sender and every output owner on `Allow`, a frozen sender
-  refused, entries in a named tree.
+  refused, addresses in a named tree.
 - [`asset-allowlist-owner-threshold`](../custom-rings/examples/asset-allowlist-owner-threshold/ring.toml)
   admits one mint inline and demands `Allow` from an owner receiving more
   than the threshold.
+- [`velocity-window`](../custom-rings/examples/velocity-window/ring.toml)
+  caps each sender's SOL outflow per window and demands the co-signer above
+  a threshold.
+- [`transfer-cap`](../custom-rings/examples/transfer-cap/ring.toml) caps each
+  transfer's SOL outflow on its own with no window and no record.
 
 ## Pitfalls
 
-- Photon learns a tree from the first transaction it indexes in it, so an
-  entries tree serves no membership proof before its first transact lands.
-  An entry claim into a fresh tree fails at the indexer until a deposit or
+- Photon learns a tree from the first transaction it indexes in it, so a
+  tree serves no membership proof before its first transact lands. An entry
+  claim in a fresh address tree fails at the indexer until a deposit or
   transfer has reached the tree.
-- The transact reads its roots from a dedicated entries-tree account, its
-  address checked equal to `PolicyConfig.entries_tree`, and refuses roots from
-  any other tree. The SPP money input and output trees are independent and may
-  be any registered tree. A paused entries tree stops every policy transact,
-  money in other trees included.
+- The transact takes one policy tree account per tree its facts read, each an
+  SPP tree, unpaused and distinct (`InvalidPolicyTrees`). A paused tree stops
+  every policy transact that reads it. Every absence of a never-claimed
+  address reads the address tree.
 - A policy ring pins `create_policy` and the transact path loads its policy
   config, an audit-only ring pins none and takes the audit path.
 - A ring-owned entry tree looks equivalent to reusing SPP's trees. It fails
   on maintenance, nothing rolls its roots forward or drains its nullifier
   queue. Entries as SPP UTXOs inherit the forester, the root history, and the
   indexer.
-- A curator on another entries tree is refused at `create_policy`. The proof
-  runs against one root pair, every source shares the transfer's tree.
+- A curator pinned to another address tree is refused at `create_policy`
+  (`CuratorTreeMismatch`). A never-claimed address is proven absent in one
+  address tree, every source shares it.
 - A subscriber trusts its curator wholly. A curator mutation reaches every
   subscriber on the same schedule as the ring's own entries, with no per-ring
   review step.
@@ -375,18 +495,13 @@ the cli loads and re-renders.
   A new state leaf, an `Allow` entry or a `Cleared` version, is provable at
   the next transfer, transact appends the leaf synchronously. An effect that
   lives in the nullifier tree, a `Block` address claim or the retirement of an
-  `Allow` entry, is enforced on chain only after the forester appends the zkp
-  batch holding it and the window has dropped every earlier root,
-  `NULLIFIER_ROOT_WINDOW` rotations later. Indexer-backed clients are refused
-  at once, photon serves no non-inclusion proof for a queued leaf and the SDK
-  refuses a contradicting live entry. No slot or clock bound exists.
-- A re-pin takes effect at once. A proof built against the old table fails
-  at verification, a transfer in flight across `policy set` or `list
-  set-source` is rebuilt from the new config.
-- A full table pinned with its curator accounts can exceed one legacy packet
-  at `create_policy` (`TransactionTooLarge`). `init` pins it over the ring's
-  own sources and points each curated list afterwards. `set_policy_rules`
-  carries fewer accounts and fits the same table.
+  `Allow` entry, is enforced on chain once SPP queues its nullifier. The proof
+  binds each absence target and the tree it reads, and transact refuses a
+  target whose nullifier PDA exists under that tree. Any root in the tree's
+  history is accepted. No slot or clock bound exists.
+- A changed policy hash takes effect at once. In-flight proofs over the old
+  hash must be rebuilt. An identical re-pin advances `generation` and keeps
+  the proof statement.
 - The answer budget is guaranteed for one sender key at the output width. A
   spend from several keys against a table near `ANSWER_SLOTS` is refused at
   witness build, split it by key.
@@ -412,28 +527,35 @@ the cli loads and re-renders.
   recipients fits `ANSWER_SLOTS`. A shape past `POLICY_INPUT_SLOTS` inputs or
   `POLICY_OUTPUT_SLOTS` outputs, or a spend whose answers exceed
   `ANSWER_SLOTS`, is refused at witness build with `PolicyShapeUnsupported`.
-  A padded change slot pushes the transact past the packet limit, `prove`
-  refuses it with `PaddedChange`.
-- The entries tree is pinned at `create_policy` for the life of the ring, like
-  the tier. The grammar accepts a missing `entries_tree` as the SPP default;
-  the cli writes the effective address explicitly.
-  `set_policy_rules` keeps the stored tree. A full entries tree ends list
-  changes, transfers in other trees still prove against its roots. Another
-  tree means a new ring.
+- The address tree is pinned at `create_policy` for the life of the ring,
+  like the tier. The grammar accepts a missing `address_tree` as the SPP
+  default, the cli writes the effective address explicitly.
+  `set_policy_rules` keeps the stored tree. A full address tree ends new
+  entries and spend record registrations. Another address tree means a new
+  ring.
 - The table moves only under the upgrade authority. `generation` is a `u32`
   counter, a write at its ceiling fails with `PolicyGenerationOverflow`.
 - The tier is fixed at `create_config` and immutable. A ring cannot move
   between audit-only and policy after init, `init` refuses a `ring.toml`
   whose tier differs from the chain (`TierDrift`).
-- The program reads a config account of another size as uninitialized, the
-  SDK refuses it.
+- The program and SDK reject a config account with an incompatible layout.
+- A velocity ring, per transfer or windowed, takes no deposit leg on a
+  member transfer. Delegation is exempt from velocity caps and counters.
+  Ordinary rules and transfer-scoped co-signing apply to it. A windowed ring
+  needs a registered record before a member's first transfer. A per-transfer
+  cap ring keeps none, each transfer stands alone against its cap. Windows are fixed, a boundary
+  admits up to twice the cap. A member spends only its own notes in one
+  transfer. The record publishes the member's identity and lineage.
+- One input and one output carry the record, leaving four money inputs and
+  three outputs. See
+  [compressed history](ring-policy-design.md#compressed-history).
 
 ## The cycle
 
 1. The operator answers `zolana-ring new` and deploys the released ring
    program.
 2. `create_policy` stores the rows and the source map, pins `policy_hash` and
-   the entries tree at generation one, signed by the upgrade authority.
+   the address tree at generation one, signed by the upgrade authority.
 3. `init_spp_ring_config` registers the ring with SPP under its `ring_auth`
    PDA, refused before step 2.
 4. Each list's writer creates and updates entries through SPP transacts on
@@ -442,7 +564,7 @@ the cli loads and re-renders.
    reads the entries and builds the answers witness.
 6. The prover produces one proof over the audit statement and the table
    statement.
-7. The ring program reads the pinned hash, resolves the roots, verifies the
-   proof, and CPIs into SPP.
-8. `set_policy_rules` or `set_policy_source` re-pins the hash at the next
-   generation, a proof in flight over the old hash fails.
+7. The ring program reads the pinned hash, resolves each policy tree's roots,
+   verifies the proof, and CPIs into SPP.
+8. `set_policy_rules` or `set_policy_source` advances the generation. A changed
+   hash invalidates proofs over the prior policy.
