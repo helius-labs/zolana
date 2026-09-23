@@ -79,8 +79,7 @@ impl Reconstruction<'_> {
             &SuccessorContext {
                 namespace,
                 rail: &rail,
-                entries_tree: policy.entries_tree.to_bytes(),
-                entries_tree_id: policy.entries_tree_id(),
+                address_tree_id: policy.address_tree_id(),
             },
         )?;
         let nullifier = entry_nullifier(&output.output_context.hash.0, &spend.blinding)
@@ -124,8 +123,7 @@ impl Reconstruction<'_> {
 pub struct SuccessorContext<'a> {
     pub namespace: [u8; 32],
     pub rail: &'a Rail,
-    pub entries_tree: [u8; 32],
-    pub entries_tree_id: u16,
+    pub address_tree_id: u16,
 }
 
 pub fn successor(
@@ -164,15 +162,16 @@ pub fn successor(
     let owner = ListNamespace::new(&context.namespace)
         .map_err(|error| anyhow::anyhow!("spend-record namespace derivation failed ({error:?})"))?;
     let address = owner
-        .spend_address(&spend.member, context.entries_tree_id)
+        .spend_address(&spend.member, context.address_tree_id)
         .map_err(|error| anyhow::anyhow!("spend-record address derivation failed ({error:?})"))?;
+    let tree_id = output.output_context.tree_id;
+    if output.output_context.tree.0.to_bytes() != zolana_interface::pda::tree(tree_id).to_bytes() {
+        bail!("spend-record output names a tree its id does not derive");
+    }
     let leaf = spend
-        .utxo_hash(&owner, &address, context.entries_tree_id)
+        .utxo_hash(&owner, &address, tree_id)
         .map_err(|error| anyhow::anyhow!("spend-record leaf hash failed ({error:?})"))?;
-    if output.output_context.tree.0.to_bytes() != context.entries_tree
-        || output.output_context.tree_id != context.entries_tree_id
-        || output.output_context.hash.0 != leaf
-    {
+    if output.output_context.hash.0 != leaf {
         bail!("spend-record message does not open its successor output");
     }
     Ok(spend)

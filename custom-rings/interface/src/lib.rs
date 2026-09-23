@@ -49,12 +49,13 @@ pub use instruction::{
 pub use key_registry::{RegisterKeyPublicInput, RegisteredKey};
 pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
 pub use state::{
-    CoSignScope, CoSigner, Delegate, FixedWindow, KeyRegistryRoot, PolicyConfig, ReadAccessRecord,
-    RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow, CONFIG_PDA_SEED, CO_SIGNER,
-    CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED, HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT,
-    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
-    POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
-    SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    CoSignScope, CoSigner, Delegate, FixedWindow, KeyEscrow, KeyRegistryRoot, PolicyConfig,
+    ReadAccessRecord, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow,
+    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
+    HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, KEY_REGISTRY_ROOT_PDA_SEED,
+    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW,
+    SPEND_WINDOW_PDA_SEED,
 };
 pub use state::{DepositAudit, DEPOSIT_AUDIT};
 

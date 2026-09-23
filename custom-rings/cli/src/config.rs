@@ -537,11 +537,11 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(policy.sources.is_empty());
         let rendered = config.render().expect("render");
         assert!(rendered.contains(&format!(
-            "[policy]\n# every entry the rules read lives in the named tree\nentries_tree = \"{}\"",
+            "[policy]\n# entry and spend record addresses are claimed in the named tree\naddress_tree = \"{}\"",
             zolana_interface::pda::tree(0)
         )));
         let mut normalized = config;
-        normalized.policy.as_mut().expect("policy").entries_tree =
+        normalized.policy.as_mut().expect("policy").address_tree =
             Some(Base58Address(zolana_interface::pda::tree(0)));
         assert_eq!(
             toml::from_str::<RingConfig>(&rendered).expect("reparse"),

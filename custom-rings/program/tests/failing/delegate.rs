@@ -1,6 +1,8 @@
 //! Pins permanent delegate authorization and transfer confinement.
 
-use custom_ring_interface::{tag, CoSignScope, Delegate, AUDITOR_MESSAGE_LEN, DELEGATE};
+use custom_ring_interface::{
+    tag, CoSignScope, Delegate, KeyEscrow, RingProgramConfig, AUDITOR_MESSAGE_LEN, DELEGATE,
+};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use pinocchio::Address;
@@ -11,12 +13,14 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    account, audit_only_config_account, auditor_pubkey, authority, cosigner_account, custom,
-    delegate, delegate_account, delegate_pda, delegate_transact_fixture,
+    account, audit_only_config_account, auditor_pubkey, authority, config_pda, cosigner_account,
+    custom, delegate, delegate_account, delegate_pda, delegate_transact_fixture,
     initialized_config_account, policy_delegate_transact_fixture, program_id, set_delegate_data,
-    set_delegate_fixture, setup_mollusk, Fixture,
+    set_delegate_fixture, setup_mollusk, stored, Fixture,
 };
-use crate::transact::{auditor_message, bogus_proof, instruction_data, transact};
+use crate::transact::{
+    audit_instruction_data, auditor_message, bogus_proof, instruction_data, transact,
+};
 
 #[test]
 fn set_delegate_creates_the_account_at_the_canonical_bump() {
@@ -38,6 +42,30 @@ fn set_delegate_creates_the_account_at_the_canonical_bump() {
         Address::new_from_array(delegate().to_bytes())
     );
     assert_eq!(state.bump, delegate_pda().1);
+    let config: RingProgramConfig = stored(&result, config_pda().0);
+    assert_eq!(config.key_escrow(), KeyEscrow::Registry);
+}
+
+#[test]
+fn set_delegate_on_an_audit_only_ring_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = set_delegate_fixture(set_delegate_data(delegate()), None);
+    fixture.set_account(
+        "config",
+        audit_only_config_account(authority(), auditor_pubkey(2)),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::DelegateRequiresPolicy));
+}
+
+#[test]
+fn set_delegate_without_a_key_registry_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut missing = set_delegate_fixture(set_delegate_data(delegate()), None);
+    missing.set_account("key_registry_root", account(0));
+    missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+    let mut foreign = set_delegate_fixture(set_delegate_data(delegate()), None);
+    foreign.substitute("key_registry_root", Pubkey::new_from_array([70; 32]));
+    foreign.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
 }
 
 #[test]
@@ -83,6 +111,17 @@ fn set_delegate_with_malformed_data_is_rejected_exactly() {
         .expect_err(&mollusk, custom(CustomRingError::InvalidDelegate));
 }
 
+fn delegate_data(
+    circuit: CircuitId,
+    messages: Vec<zolana_interface::instruction::MessageData>,
+) -> Vec<u8> {
+    let mut content = transact(messages);
+    content.circuit = circuit;
+    let mut data = instruction_data(bogus_proof(), content);
+    data[0] = tag::DELEGATE_TRANSACT;
+    data
+}
+
 /// Authority context reaches program checks before the deliberately invalid proof.
 fn delegate_move(legs: Vec<InterfaceTransfer>) -> Fixture {
     let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
@@ -90,31 +129,43 @@ fn delegate_move(legs: Vec<InterfaceTransfer>) -> Fixture {
     content.interface_transfers = legs;
     let mut data = instruction_data(bogus_proof(), content);
     data[0] = tag::DELEGATE_TRANSACT;
-    delegate_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
-        data,
-    )
+    policy_delegate_transact_fixture(data)
 }
 
 #[test]
-fn a_delegate_move_reaches_the_proof() {
+fn a_delegate_move_reaches_the_policy_proof() {
     let (mollusk, _) = setup_mollusk();
     delegate_move(Vec::new())
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 #[test]
-fn a_policy_ring_delegate_move_reaches_the_policy_proof() {
+fn an_audit_only_ring_refuses_the_delegate_rail_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
-    let mut data = instruction_data(bogus_proof(), content);
+    let mut data = audit_instruction_data(bogus_proof(), content);
     data[0] = tag::DELEGATE_TRANSACT;
-    policy_delegate_transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+    delegate_transact_fixture(
+        audit_only_config_account(authority(), auditor_pubkey(2)),
         data,
     )
-    .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    .expect_err(&mollusk, custom(CustomRingError::DelegateRequiresPolicy));
+}
+
+/// The delegate recovers nullifier secrets only through the escrow registry.
+#[test]
+fn the_delegate_rail_requires_the_key_registry() {
+    let (mollusk, _) = setup_mollusk();
+    let mut unescrowed = delegate_move(Vec::new());
+    unescrowed.set_account(
+        "config",
+        initialized_config_account(authority(), auditor_pubkey(2)),
+    );
+    unescrowed.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+    let mut missing = delegate_move(Vec::new());
+    missing.remove("key_registry_root");
+    missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
 }
 
 #[test]
@@ -156,14 +207,10 @@ fn a_public_leg_on_the_delegate_rail_is_rejected_exactly() {
 #[test]
 fn the_member_circuit_on_the_delegate_rail_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-    content.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
-    let mut data = instruction_data(bogus_proof(), content);
-    data[0] = tag::DELEGATE_TRANSACT;
-    delegate_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
-        data,
-    )
+    policy_delegate_transact_fixture(delegate_data(
+        CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        vec![auditor_message(AUDITOR_MESSAGE_LEN)],
+    ))
     .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
 }
 
@@ -174,7 +221,7 @@ fn the_authority_circuit_on_the_member_rail_is_rejected_exactly() {
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     crate::common::audit_transact_fixture(
         audit_only_config_account(authority(), auditor_pubkey(2)),
-        instruction_data(bogus_proof(), content),
+        audit_instruction_data(bogus_proof(), content),
     )
     .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
 }
@@ -182,14 +229,10 @@ fn the_authority_circuit_on_the_member_rail_is_rejected_exactly() {
 #[test]
 fn a_delegate_move_still_needs_the_auditor_message() {
     let (mollusk, _) = setup_mollusk();
-    let mut content = transact(Vec::new());
-    content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
-    let mut data = instruction_data(bogus_proof(), content);
-    data[0] = tag::DELEGATE_TRANSACT;
-    delegate_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
-        data,
-    )
+    policy_delegate_transact_fixture(delegate_data(
+        CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8),
+        Vec::new(),
+    ))
     .expect_err(&mollusk, custom(CustomRingError::MissingAuditorMessage));
 }
 

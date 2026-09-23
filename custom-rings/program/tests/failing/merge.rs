@@ -3,8 +3,8 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::common::{
-    entries_tree, initialized_policy_config_account, merge_fixture, policy_merge_fixture,
-    setup_mollusk, transfer_cap_policy_config_account, velocity_policy_config_account,
+    auditor_pubkey, authority, escrowed_config_account, initialized_config_account, merge_fixture,
+    merge_fixture_with, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -36,47 +36,11 @@ fn merge_requires_the_custom_ring_authority() {
     fixture.expect_err(&mollusk, custom(CustomRingError::MissingRingAuth));
 }
 
+/// Only the address tree is pinned, a windowed ring merges in any tree.
 #[test]
-fn a_windowed_merge_off_the_entries_tree_is_rejected_exactly() {
+fn a_policy_merge_keeps_its_tree_choice() {
     let (mollusk, _) = setup_mollusk();
-    policy_merge_fixture(velocity_policy_config_account())
-        .expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
-}
-
-#[test]
-fn a_windowed_merge_with_a_foreign_output_tree_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let mut fixture = policy_merge_fixture(velocity_policy_config_account());
-    fixture.substitute("input_tree", entries_tree());
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
-}
-
-#[test]
-fn a_windowed_merge_into_the_entries_tree_reaches_the_spp_cpi() {
-    let (mollusk, _) = setup_mollusk();
-    let mut fixture = policy_merge_fixture(velocity_policy_config_account());
-    fixture.substitute("input_tree", entries_tree());
-    fixture.substitute("output_tree", entries_tree());
-    fixture.expect_spp_cpi(&mollusk);
-}
-
-#[test]
-fn a_windowed_merge_consolidates_a_foreign_input_into_the_entries_tree() {
-    let (mollusk, _) = setup_mollusk();
-    let mut fixture = policy_merge_fixture(velocity_policy_config_account());
-    // Only the destination is confined during consolidation.
-    fixture.substitute("output_tree", entries_tree());
-    fixture.expect_spp_cpi(&mollusk);
-}
-
-#[test]
-fn a_per_transfer_merge_keeps_its_tree_choice() {
-    let (mollusk, _) = setup_mollusk();
-    policy_merge_fixture(transfer_cap_policy_config_account()).expect_spp_cpi(&mollusk);
-}
-
-#[test]
-fn an_ordinary_policy_merge_keeps_its_tree_choice() {
-    let (mollusk, _) = setup_mollusk();
-    policy_merge_fixture(initialized_policy_config_account()).expect_spp_cpi(&mollusk);
+    merge_fixture_with(initialized_config_account(authority(), auditor_pubkey(2)))
+        .expect_spp_cpi(&mollusk);
+    merge_fixture_with(escrowed_config_account()).expect_spp_cpi(&mollusk);
 }

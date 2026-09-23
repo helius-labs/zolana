@@ -35,6 +35,7 @@ fn set_authority_writes_the_new_authority() {
             auditor_pubkey: auditor_pubkey(2),
             bump: config_pda().1,
             has_policy: 1,
+            key_escrow: 0,
         }
     );
 }

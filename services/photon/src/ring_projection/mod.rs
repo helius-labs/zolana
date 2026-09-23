@@ -377,6 +377,7 @@ impl Projector {
             env: BlockEnv {
                 rpc: &self.rpc,
                 policies: HashMap::new(),
+                tree_ids: HashMap::new(),
             },
         }
         .run()
@@ -555,6 +556,7 @@ pub(crate) async fn load_root<P: Projection>(
 pub(crate) struct BlockEnv<'a> {
     rpc: &'a RpcClient,
     policies: HashMap<[u8; 32], PolicyConfig>,
+    tree_ids: HashMap<[u8; 32], u16>,
 }
 
 impl BlockEnv<'_> {
@@ -575,6 +577,19 @@ impl BlockEnv<'_> {
         }
         self.policies.insert(program.to_bytes(), *policy);
         Ok(*policy)
+    }
+
+    /// A leaf hashes under the id of the tree it lands in.
+    pub(crate) async fn tree_id(&mut self, tree: &Pubkey) -> Result<u16, ProjectError> {
+        if let Some(id) = self.tree_ids.get(&tree.to_bytes()) {
+            return Ok(*id);
+        }
+        let account = ring_account(self.rpc.get_account(tree).await)?;
+        let id = crate::monitor::tree_metadata_sync::rings_tree_id(*tree, &account)
+            .filter(|id| zolana_interface::pda::tree(*id).to_bytes() == tree.to_bytes())
+            .ok_or_else(|| fault("output tree is not the SPP tree of its id"))?;
+        self.tree_ids.insert(tree.to_bytes(), id);
+        Ok(id)
     }
 }
 

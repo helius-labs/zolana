@@ -6,9 +6,7 @@
 //! real BSB22 verifier against the committed verifying key, which is what proves
 //! the recomputed public-input hash path is reached.
 
-use custom_ring_interface::{
-    tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, AUDITOR_MESSAGE_LEN,
-};
+use custom_ring_interface::{tag, CustomRingProof, PlainGroth16Proof, AUDITOR_MESSAGE_LEN};
 use custom_ring_program::CustomRingError;
 use solana_account::Account;
 use solana_program_error::ProgramError;
@@ -25,8 +23,8 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    account, auditor_pubkey, authority, initialized_config_account, setup_mollusk,
-    transact_fixture, Fixture,
+    account, audit_ix_data, auditor_pubkey, authority, encode_transact, initialized_config_account,
+    policy_ix_data, setup_mollusk, transact_fixture, Fixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -100,20 +98,14 @@ pub(crate) fn bogus_proof() -> CustomRingProof {
     }
 }
 
+/// The policy layout, one policy tree.
 pub(crate) fn instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
-    let mut data = vec![tag::TRANSACT];
-    data.extend_from_slice(
-        &wincode::serialize(&CustomRingTransactIxData {
-            proof,
-            state_root_index: 0,
-            nullifier_root_index: 0,
-            approval_required: 0,
-            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
-            transact,
-        })
-        .expect("serialize transact body"),
-    );
-    data
+    encode_transact(tag::TRANSACT, &policy_ix_data(proof, transact))
+}
+
+/// The audit-only layout, no policy trees.
+pub(crate) fn audit_instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
+    encode_transact(tag::TRANSACT, &audit_ix_data(proof, transact))
 }
 
 /// `[payer(w,s), config]` followed by SPP's `RING_TRANSACT` list: `payer(w,s),

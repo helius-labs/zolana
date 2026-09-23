@@ -9,9 +9,10 @@ use custom_ring_sdk::{
     tag, ClearCoSigner, ClearSpendWindow, CoSignScope, CoSignThreshold, CreateConfig,
     CreateConfigIxData, CreateKeyRegistryRoot, CreatePolicy, CustomRing,
     CustomRingDelegateTransact, CustomRingProof, CustomRingTransact, CustomRingTransactIxData,
-    DelegateInstructionError, Deposit, EntryError, GrantReadAccess, InitSppRingConfig,
-    PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError, RevokeReadAccess, SetAuthority,
-    SetCoSigner, SetDelegate, SetPaused, SetPolicyRules, SetSpendWindow, CONFIG_PDA_SEED,
+    Deposit, DepositInstructionError, EntryError, EscrowBinding, GrantReadAccess,
+    InitSppRingConfig, PolicyReads, PolicyTableIxData, PolicyTreeContext, ReaderIxData, ReaderKey,
+    ReaderKeyError, RevokeReadAccess, SetAuthority, SetCoSigner, SetDelegate, SetPaused,
+    SetPolicyRules, SetSpendWindow, TransactInstructionError, CONFIG_PDA_SEED,
     READ_ACCESS_RECORD_PDA_SEED, SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
@@ -451,7 +452,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
         tree: Address::new_from_array([13; 32]),
         depositor: payer(),
         deposits: vec![sol_deposit_entry()],
-        has_policy: false,
+        escrow: EscrowBinding::Off,
     }
     .instruction()
     .expect("single SOL deposit");
@@ -487,7 +488,7 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
         tree: Address::new_from_array([13; 32]),
         depositor: payer(),
         deposits: vec![sol_deposit_entry()],
-        has_policy: false,
+        escrow: EscrowBinding::Off,
     }
     .instruction()
     .expect("single SOL deposit");
@@ -508,7 +509,7 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
         tree,
         depositor,
         deposits: vec![entry.clone()],
-        has_policy: false,
+        escrow: EscrowBinding::Off,
     }
     .instruction()
     .expect("single SOL deposit");
@@ -564,8 +565,8 @@ fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
             depositor: payer(),
             deposits: vec![sol_deposit_entry(); count],
             proof,
+            escrow: EscrowBinding::Off,
             cosigner: None,
-            has_policy: true,
         }
         .instruction()
     };
@@ -576,19 +577,50 @@ fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
         &audited.data[1..1 + CustomRingProof::SIZE],
         wincode::serialize(&sample_proof()).unwrap()
     );
-    assert_eq!(&audited.data[1 + CustomRingProof::SIZE..], legacy.data);
+    assert_eq!(audited.data[1 + CustomRingProof::SIZE], 0);
+    assert_eq!(&audited.data[2 + CustomRingProof::SIZE..], legacy.data);
     assert_eq!(audited.accounts, legacy.accounts);
     assert_eq!(
         audited.accounts[3],
         AccountMeta::new_readonly(ring().deposit_audit_pda(), false)
     );
-    assert_eq!(
-        audited.accounts[4],
-        AccountMeta::new_readonly(ring().policy_config_pda(), false)
-    );
     assert!(build(Some(sample_proof()), 8).is_ok());
     assert!(build(Some(sample_proof()), 9).is_err());
     assert!(build(None, 9).is_ok());
+}
+
+/// An escrowed ring names its registry root after the audit setting and refuses a plain deposit.
+#[test]
+fn an_escrowed_deposit_names_the_registry_root_and_requires_the_audit() {
+    let build = |proof| {
+        Deposit {
+            ring: ring(),
+            tree: input_tree(),
+            depositor: payer(),
+            deposits: vec![sol_deposit_entry()],
+            proof,
+            escrow: EscrowBinding::Registry { root_index: 3 },
+            cosigner: None,
+        }
+        .instruction()
+    };
+    let escrowed = build(Some(sample_proof())).unwrap();
+    assert_eq!(escrowed.data[1 + CustomRingProof::SIZE], 3);
+    assert_eq!(
+        escrowed.accounts[3..5],
+        [
+            AccountMeta::new_readonly(ring().deposit_audit_pda(), false),
+            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
+        ]
+    );
+    assert_eq!(
+        escrowed.accounts[5],
+        AccountMeta::new(ring().spend_window_pda(&Address::default()), false)
+    );
+    assert!(matches!(
+        build(None),
+        Err(DepositInstructionError::AuditRequired)
+    ));
 }
 
 #[test]
@@ -638,7 +670,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
         tree: Address::new_from_array([13; 32]),
         depositor: payer(),
         deposits: vec![spl_entry, sol_deposit_entry(), second_spl_entry],
-        has_policy: false,
+        escrow: EscrowBinding::Off,
     }
     .instruction()
     .expect("mixed batch");
@@ -699,8 +731,56 @@ fn output_tree() -> Address {
     Address::new_from_array([42; 32])
 }
 
-fn entries_tree() -> Address {
+fn address_tree() -> Address {
     Address::new_from_array([45; 32])
+}
+
+fn second_tree() -> Address {
+    Address::new_from_array([46; 32])
+}
+
+fn context(utxo: u16, nullifier: u16) -> TreeContext {
+    TreeContext {
+        utxo_tree_root_index: utxo,
+        nullifier_tree_root_index: nullifier,
+    }
+}
+
+/// Facts in the address tree only, no revocation target.
+fn address_tree_reads() -> PolicyReads {
+    PolicyReads {
+        trees: vec![PolicyTreeContext {
+            tree: address_tree(),
+            context: context(0, 0),
+        }],
+        escrow: EscrowBinding::Off,
+        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
+        revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
+    }
+}
+
+/// Fact 0 revokes in the address tree, fact 1 in the second tree.
+fn two_tree_reads() -> PolicyReads {
+    let mut revocation_targets = [[0; 32]; zolana_ring_policy::ANSWER_SLOTS];
+    revocation_targets[0][31] = 7;
+    revocation_targets[1][31] = 8;
+    let mut revocation_tree_indexes = [0; zolana_ring_policy::ANSWER_SLOTS];
+    revocation_tree_indexes[1] = 1;
+    PolicyReads {
+        trees: vec![
+            PolicyTreeContext {
+                tree: address_tree(),
+                context: context(1, 2),
+            },
+            PolicyTreeContext {
+                tree: second_tree(),
+                context: context(3, 4),
+            },
+        ],
+        escrow: EscrowBinding::Off,
+        revocation_targets,
+        revocation_tree_indexes,
+    }
 }
 
 fn owner_signer() -> Address {
@@ -746,30 +826,30 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
 }
 
 /// The account list the program's `process_transact_ix` reads: its own
-/// `[payer, config, policy_config, entries_tree]` prefix followed by SPP's
+/// prefix, one account per policy tree, the registry root and one revocation
+/// PDA per target under its slot's tree, followed by SPP's
 /// `RING_TRANSACT` list, which the builder takes from the interface builder
 /// instead of re-listing.
 #[test]
 fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
     let proof = sample_proof();
     let transact = transact_data(Vec::new());
-    let mut revocation_targets = [[0; 32]; zolana_ring_policy::ANSWER_SLOTS];
-    revocation_targets[0][31] = 7;
+    let reads = PolicyReads {
+        escrow: EscrowBinding::Registry { root_index: 5 },
+        ..two_tree_reads()
+    };
 
     let instruction = CustomRingTransact {
         ring: ring(),
         cosigner: None,
         payer: payer(),
-        input_tree: input_tree(),
+        input_trees: vec![input_tree()],
         output_tree: output_tree(),
-        entries_tree: Some(entries_tree()),
+        policy: Some(reads.clone()),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
         proof,
-        state_root_index: 0,
-        nullifier_root_index: 0,
         approval_required: false,
-        revocation_targets,
         transact: transact.clone(),
     }
     .instruction()
@@ -784,9 +864,15 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
-            AccountMeta::new_readonly(entries_tree(), false),
+            AccountMeta::new_readonly(address_tree(), false),
+            AccountMeta::new_readonly(second_tree(), false),
+            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
             AccountMeta::new_readonly(
-                pda::nullifier_pda(&entries_tree(), &revocation_targets[0]).0,
+                pda::nullifier_pda(&address_tree(), &reads.revocation_targets[0]).0,
+                false,
+            ),
+            AccountMeta::new_readonly(
+                pda::nullifier_pda(&second_tree(), &reads.revocation_targets[1]).0,
                 false,
             ),
             AccountMeta::new(payer(), true),
@@ -808,13 +894,43 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         decoded,
         CustomRingTransactIxData {
             proof,
-            state_root_index: 0,
-            nullifier_root_index: 0,
+            policy_trees: vec![context(1, 2), context(3, 4)],
+            key_registry_root_index: 5,
             approval_required: 0,
-            revocation_targets,
+            revocation_targets: reads.revocation_targets,
+            revocation_tree_indexes: reads.revocation_tree_indexes,
             transact,
         }
     );
+}
+
+/// A revocation slot naming a tree the statement does not read never builds.
+#[test]
+fn a_revocation_outside_the_policy_trees_is_refused() {
+    let mut reads = two_tree_reads();
+    reads.revocation_tree_indexes[1] = 2;
+    let refused = CustomRingTransact {
+        ring: ring(),
+        cosigner: None,
+        payer: payer(),
+        input_trees: vec![input_tree()],
+        output_tree: output_tree(),
+        policy: Some(reads),
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        proof: sample_proof(),
+        approval_required: false,
+        transact: transact_data(Vec::new()),
+    }
+    .instruction();
+    assert!(matches!(
+        refused,
+        Err(TransactInstructionError::RevocationTree {
+            slot: 1,
+            index: 2,
+            trees: 2
+        })
+    ));
 }
 
 /// `ring_config` is this program's `ring_auth` PDA, and no keypair exists for it:
@@ -826,22 +942,19 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         ring: ring(),
         cosigner: None,
         payer: payer(),
-        input_tree: input_tree(),
+        input_trees: vec![input_tree()],
         output_tree: output_tree(),
-        entries_tree: Some(entries_tree()),
+        policy: Some(address_tree_reads()),
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
-        state_root_index: 0,
-        nullifier_root_index: 0,
         approval_required: false,
-        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         transact: transact_data(Vec::new()),
     }
     .instruction()
     .expect("serialize the custom-ring transact content");
 
-    // The policy config and entries tree sit before the forwarded SPP list.
+    // The policy config and its one tree sit before the forwarded SPP list.
     let ring_config_index = 10;
     let ring_config = instruction
         .accounts
@@ -851,7 +964,7 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
     assert!(!ring_config.is_signer);
 }
 
-/// SPP creates one nullifier PDA per spent input, derived from the input
+/// SPP creates one nullifier PDA per spent input, derived from the input's own
 /// tree and the input's nullifier. The interface builder places them right after
 /// the input trees and before the owner signers; the wrapper must forward them.
 #[test]
@@ -864,24 +977,22 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
         },
         InputUtxo {
             nullifier_hash: [72; 32],
-            tree_index: 0,
+            tree_index: 1,
         },
     ];
+    transact.tree_contexts = vec![context(0, 0), context(0, 0)];
 
     let instruction = CustomRingTransact {
         ring: ring(),
         cosigner: None,
         payer: payer(),
-        input_tree: input_tree(),
+        input_trees: vec![input_tree(), second_tree()],
         output_tree: output_tree(),
-        entries_tree: None,
+        policy: None,
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
-        state_root_index: 0,
-        nullifier_root_index: 0,
         approval_required: false,
-        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         transact,
     }
     .instruction()
@@ -891,16 +1002,21 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
         instruction
             .accounts
             .get(8..)
-            .expect("ring_config, input tree, nullifier PDA and owner signer metas")
+            .expect("ring_config, input trees, nullifier PDAs and owner signer metas")
             .to_vec(),
         vec![
             AccountMeta::new_readonly(ring().ring_auth_pda(), false),
             AccountMeta::new(input_tree(), false),
+            AccountMeta::new(second_tree(), false),
             AccountMeta::new(pda::nullifier_pda(&input_tree(), &[71; 32]).0, false),
-            AccountMeta::new(pda::nullifier_pda(&input_tree(), &[72; 32]).0, false),
+            AccountMeta::new(pda::nullifier_pda(&second_tree(), &[72; 32]).0, false),
             AccountMeta::new_readonly(owner_signer(), true),
         ]
     );
+    let decoded: CustomRingTransactIxData =
+        wincode::deserialize_exact(split_tag(&instruction).1).expect("complete body");
+    assert!(decoded.policy_trees.is_empty());
+    assert_eq!(decoded.key_registry_root_index, 0);
 }
 
 /// Settlement accounts come from the same interface builder, so a withdrawal's
@@ -913,18 +1029,15 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         ring: ring(),
         cosigner: None,
         payer: payer(),
-        input_tree: input_tree(),
+        input_trees: vec![input_tree()],
         output_tree: output_tree(),
-        entries_tree: Some(entries_tree()),
+        policy: Some(address_tree_reads()),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
         proof: sample_proof(),
-        state_root_index: 0,
-        nullifier_root_index: 0,
         approval_required: false,
-        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
@@ -984,7 +1097,7 @@ fn create_policy(rules: &RuleTable, shared_sources: Vec<(ListId, CustomRing)>) -
         ring: ring(),
         payer: payer(),
         authority: authority(),
-        entries_tree: entries_tree(),
+        address_tree: address_tree(),
         rules,
         shared_sources,
     }
@@ -1029,7 +1142,7 @@ fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
             AccountMeta::new_readonly(authority(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new(ring().policy_config_pda(), false),
-            AccountMeta::new_readonly(entries_tree(), false),
+            AccountMeta::new_readonly(address_tree(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),
@@ -1332,7 +1445,9 @@ fn set_delegate_runs_under_the_upgrade_authority() {
         vec![
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new(ring().config_pda(), false),
             AccountMeta::new(ring().delegate_pda(), false),
+            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),
@@ -1345,25 +1460,26 @@ fn set_delegate_runs_under_the_upgrade_authority() {
 }
 
 /// `[payer, config, cosigner_pda, cosigner, delegate_pda, delegate(s)]` then
-/// the policy accounts precede SPP's authority rail list, a public leg never
-/// builds.
+/// the policy accounts and the registry root precede SPP's authority rail list,
+/// a public leg never builds.
 #[test]
 fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     let delegate = Address::new_from_array([47; 32]);
+    let reads = PolicyReads {
+        escrow: EscrowBinding::Registry { root_index: 4 },
+        ..two_tree_reads()
+    };
     let build = |legs: Vec<InterfaceTransfer>| {
         CustomRingDelegateTransact {
             ring: ring(),
             payer: payer(),
-            input_tree: input_tree(),
+            input_trees: vec![input_tree()],
             output_tree: output_tree(),
-            entries_tree: Some(entries_tree()),
+            policy: reads.clone(),
             cosigner: None,
             delegate,
             proof: sample_proof(),
             transact: transact_data(legs),
-            state_root_index: 0,
-            nullifier_root_index: 0,
-            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         }
         .instruction()
     };
@@ -1371,7 +1487,7 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(..9)
+            .get(..12)
             .expect("prefix metas")
             .to_vec(),
         vec![
@@ -1382,20 +1498,32 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
             AccountMeta::new_readonly(ring().delegate_pda(), false),
             AccountMeta::new_readonly(delegate, true),
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
-            AccountMeta::new_readonly(entries_tree(), false),
-            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(address_tree(), false),
+            AccountMeta::new_readonly(second_tree(), false),
+            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
+            AccountMeta::new_readonly(
+                pda::nullifier_pda(&address_tree(), &reads.revocation_targets[0]).0,
+                false,
+            ),
+            AccountMeta::new_readonly(
+                pda::nullifier_pda(&second_tree(), &reads.revocation_targets[1]).0,
+                false,
+            ),
         ]
     );
     assert_eq!(
-        instruction.accounts.get(12).expect("ring_config meta"),
+        instruction.accounts.get(16).expect("ring_config meta"),
         &AccountMeta::new_readonly(ring().ring_auth_pda(), false)
     );
-    let (ix_tag, _) = split_tag(&instruction);
+    let (ix_tag, body) = split_tag(&instruction);
     assert_eq!(ix_tag, tag::DELEGATE_TRANSACT);
     assert_eq!(ix_tag, 25);
+    let decoded: CustomRingTransactIxData = wincode::deserialize_exact(body).expect("body");
+    assert_eq!(decoded.key_registry_root_index, 4);
+    assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
     assert!(matches!(
         build(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),
-        Err(DelegateInstructionError::PublicLeg)
+        Err(TransactInstructionError::PublicLeg)
     ));
 }
 
@@ -1407,9 +1535,9 @@ fn the_cosigner_slot_signs_only_when_set() {
         CustomRingTransact {
             ring: ring(),
             payer: payer(),
-            input_tree: input_tree(),
+            input_trees: vec![input_tree()],
             output_tree: output_tree(),
-            entries_tree: None,
+            policy: None,
             cosigner,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
@@ -1423,10 +1551,7 @@ fn the_cosigner_slot_signs_only_when_set() {
                 commitment_pok: [0; 32],
             },
             transact: transact_data(Vec::new()),
-            state_root_index: 0,
-            nullifier_root_index: 0,
             approval_required: false,
-            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
         }
         .instruction()
         .expect("instruction")
@@ -1449,7 +1574,7 @@ fn the_cosigner_slot_signs_only_when_set() {
         tree: input_tree(),
         depositor: payer(),
         deposits: vec![sol_deposit_entry()],
-        has_policy: false,
+        escrow: EscrowBinding::Off,
     }
     .instruction()
     .expect("deposit");

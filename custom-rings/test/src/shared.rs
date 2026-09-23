@@ -181,7 +181,7 @@ impl std::ops::DerefMut for TestWallet {
 pub enum Tier {
     AuditOnly,
     Policy {
-        entries_tree: Address,
+        address_tree: Address,
         rules: &'static RuleTable,
         shared_sources: Vec<(ListId, CustomRing)>,
     },
@@ -189,9 +189,9 @@ pub enum Tier {
 
 impl Tier {
     /// Every referenced list served from the ring's own entries.
-    pub fn policy(rules: &'static RuleTable, entries_tree: Address) -> Self {
+    pub fn policy(rules: &'static RuleTable, address_tree: Address) -> Self {
         Self::Policy {
-            entries_tree,
+            address_tree,
             rules,
             shared_sources: Vec::new(),
         }
@@ -267,7 +267,7 @@ impl<'a> ConfiguredRing<'a> {
         let registration = self.registration();
         let authority = self.payer.pubkey();
         if let Tier::Policy {
-            entries_tree,
+            address_tree,
             rules,
             shared_sources,
         } = self.tier
@@ -279,7 +279,7 @@ impl<'a> ConfiguredRing<'a> {
                     ring: self.ring,
                     payer: authority,
                     authority,
-                    entries_tree,
+                    address_tree,
                     rules,
                     shared_sources,
                 }

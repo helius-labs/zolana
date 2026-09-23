@@ -13,10 +13,11 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    account, auditor_pubkey, authority, cosigner_account, custom, entries_tree,
-    initialized_config_account, initialized_policy_config_account, namespace_pda, payer,
-    policy_delegate_transact_fixture, register_spend_fixture, setup_mollusk, spend_record_output,
-    transact_fixture, velocity_policy_config_account, window_slot, Fixture, Slot,
+    account, address_tree, auditor_pubkey, authority, cosigner_account, custom,
+    initialized_config_account, initialized_other_tree_account, initialized_policy_config_account,
+    namespace_pda, other_tree, payer, policy_delegate_transact_fixture, register_spend_fixture,
+    setup_mollusk, spend_record_output, spend_record_output_in, transact_fixture,
+    velocity_policy_config_account, window_slot, Fixture, Slot, ADDRESS_TREE_ID, OTHER_TREE_ID,
 };
 use crate::transact::{body, confidential_output, transact_data};
 
@@ -61,8 +62,8 @@ fn velocity_fixture(approval_required: u8, transact: TransactIxData) -> Fixture 
         body(0, 0, approval_required, transact),
     );
     fixture.set_account("policy_config", velocity_policy_config_account());
-    fixture.substitute("input_tree", entries_tree());
-    fixture.substitute("output_tree", entries_tree());
+    fixture.substitute("input_tree", address_tree());
+    fixture.substitute("output_tree", address_tree());
     fixture
 }
 
@@ -73,12 +74,32 @@ fn a_velocity_transfer_reaches_the_proof() {
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
+/// The successor record lands in the money tree and hashes under its id.
 #[test]
-fn a_money_tree_apart_from_the_entries_tree_is_rejected_exactly() {
+fn a_money_tree_apart_from_the_address_tree_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let in_other_tree = |output_tree_id| {
+        let mut content = velocity_transact();
+        let record = spend_record_output_in(RECORD_MEMBER_TAG, output_tree_id);
+        content.outputs[1].utxo_hash = record.utxo_hash;
+        let mut fixture = velocity_fixture(0, content);
+        fixture.substitute("output_tree", other_tree());
+        fixture.substitute("input_tree", other_tree());
+        fixture.set_account("output_tree", initialized_other_tree_account());
+        fixture
+    };
+    in_other_tree(OTHER_TREE_ID)
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    in_other_tree(ADDRESS_TREE_ID)
+        .expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
+}
+
+#[test]
+fn a_record_output_tree_that_is_not_a_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = velocity_fixture(0, velocity_transact());
     fixture.substitute("output_tree", Pubkey::new_from_array([42; 32]));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }
 
 /// The published record must be the preimage of the last output's leaf.
@@ -161,12 +182,9 @@ fn the_delegate_rail_is_velocity_exempt_and_reaches_its_own_proof() {
     content.circuit = CircuitId::RingAuthority(1, 1, N_PUBLIC_SLOTS as u8);
     let mut data = body(0, 0, 0, content);
     data[0] = tag::DELEGATE_TRANSACT;
-    let mut fixture = policy_delegate_transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
-        data,
-    );
+    let mut fixture = policy_delegate_transact_fixture(data);
     fixture.set_account("policy_config", velocity_policy_config_account());
-    fixture.substitute("output_tree", entries_tree());
+    fixture.substitute("output_tree", address_tree());
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 

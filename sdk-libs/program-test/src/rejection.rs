@@ -78,6 +78,11 @@ impl Rejection {
         let transaction_error = source
             .get_transaction_error()
             .unwrap_or_else(|| panic!("expected a typed transaction error, got {error:?}"));
-        assert_eq!(transaction_error, self.expected());
+        self.assert_transaction(&transaction_error);
+    }
+
+    #[track_caller]
+    pub fn assert_transaction(&self, error: &TransactionError) {
+        assert_eq!(*error, self.expected());
     }
 }

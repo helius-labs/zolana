@@ -28,7 +28,7 @@ pub(crate) struct VelocityFacts {
     pub namespace: Address,
     pub owner: ListNamespace,
     pub identity: RingIdentity,
-    pub entries_tree_id: u16,
+    pub address_tree_id: u16,
     pub window_slots: u64,
     pub rows: Vec<VelocityRow>,
     pub window_index: u64,
@@ -41,7 +41,7 @@ pub(crate) struct VelocityContext<'a> {
     pub namespace: Address,
     pub owner: ListNamespace,
     pub identity: RingIdentity,
-    pub entries_tree_id: u16,
+    pub address_tree_id: u16,
     pub window_slots: u64,
     pub rows: Vec<VelocityRow>,
     pub sender: &'a (dyn ShieldedKeys + Send + Sync),
@@ -59,7 +59,7 @@ impl VelocityContext<'_> {
             namespace: self.namespace,
             owner: self.owner,
             identity: self.identity,
-            entries_tree_id: self.entries_tree_id,
+            address_tree_id: self.address_tree_id,
             window_slots: self.window_slots,
             rows: self.rows,
             window_index,
@@ -271,7 +271,7 @@ impl VelocityPlanInput<'_> {
         };
         let address = facts
             .owner
-            .spend_address(&spent.member, facts.entries_tree_id)
+            .spend_address(&spent.member, facts.address_tree_id)
             .map_err(|_| TransferError::PolicyHashing)?;
         let spent_data_hash = spent
             .data_hash(&address)
@@ -294,7 +294,7 @@ impl VelocityPlanInput<'_> {
             &nullifier_pubkey,
             &spent_data_hash,
             &[0; 32],
-            facts.entries_tree_id,
+            facts.live.tree_id,
         )?;
         let input = SppProofInputUtxo {
             utxo: input_utxo,
@@ -303,7 +303,7 @@ impl VelocityPlanInput<'_> {
             nullifier: zero_nullifier.nullifier(&utxo_hash, &spent.blinding)?,
             data_hash: Some(spent_data_hash),
             ring_data_hash: None,
-            tree_id: facts.entries_tree_id,
+            tree_id: facts.live.tree_id,
             leaf_index: facts.live.leaf_index,
         };
         let output = SppProofOutputUtxo {
@@ -403,6 +403,7 @@ mod tests {
             },
             utxo_hash: [0; 32],
             nullifier: [0; 32],
+            tree_id: 0,
             leaf_index: 0,
             origin: crate::RecordOrigin {
                 first_nullifier: [0; 32],
@@ -415,7 +416,7 @@ mod tests {
             namespace: Address::default(),
             owner: ListNamespace::new(&[0u8; 32]).unwrap(),
             identity: identity(),
-            entries_tree_id: 0,
+            address_tree_id: 0,
             window_slots: 1,
             rows: Vec::new(),
             sender: &sender,

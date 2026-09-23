@@ -35,11 +35,11 @@ use custom_ring_sdk::{
     auditor_view_tag, find_counters_message, AsyncTransferProofEnvironment, ClearSpendWindow,
     CoSignScope, CoSignThreshold, CreateConfig, CreateKeyRegistryRoot, CustomRing,
     CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
-    DelegateTransfer, DelegateTransferInput, DepositError, KeyRegistrationError,
-    ProvenDelegateTransfer, ProvenTransfer, ReadEnvironment, ReadSealedKey, ReadSpendRecord,
-    RegisterKey, RegisterSpend, RingDeposit, RingDepositReceipt, SealedCounters, SetAuthority,
-    SetCoSigner, SetDelegate, SetPaused, SetSpendWindow, TransactSend, TransferError,
-    TransferProofEnvironment,
+    DelegateTransfer, DelegateTransferInput, Deposit, DepositError, DepositInstructionError,
+    EscrowBinding, KeyRegistrationError, ProvenDelegateTransfer, ProvenTransfer, ReadEnvironment,
+    ReadSealedKey, ReadSpendRecord, RegisterKey, RegisterSpend, RingDeposit, RingDepositReceipt,
+    SealedCounters, SetAuthority, SetCoSigner, SetDelegate, SetPaused, SetSpendWindow,
+    TransactSend, TransferError, TransferProofEnvironment,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
@@ -66,7 +66,8 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts,
-        TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts, UpdateRingConfig,
+        EncryptedRingDepositData, RingAssetDeposit, TransactInterfaceTransferAccounts,
+        TransactSplWithdrawalAccounts, UpdateRingConfig,
     },
     pda,
     state::{
@@ -75,13 +76,13 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_program_test::Rejection;
 use zolana_ring_client::{
     AuditedOutput, AuditedTransaction, RecoveryEnvironment, RingAudit, RingEnvironment,
     RingRecovery, SourceMember,
 };
-use zolana_ring_policy::Member;
+use zolana_ring_policy::{Member, ZERO_NULLIFIER_PK};
 use zolana_ring_rpc::{
     ChainSource, CreateAuditorKeyRequest, Hub, RingRpcError, RootSecret, TransactionSource,
     Unauthorized, Upstreams,
@@ -512,6 +513,7 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
             cosigner: None,
         }
         .send(custom_ring_sdk::DepositProofEnvironment {
+            indexer: env.client.indexer(),
             rpc,
             prover: &zolana_client::ProverClient::local(),
         })?;
@@ -597,6 +599,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             auditor_pubkey,
             bump: config_bump,
             has_policy: 1,
+            key_escrow: 0,
         },
         "custom-ring config account"
     );
@@ -661,11 +664,12 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         "paused by the ring authority"
     );
     match deposit(RING_DEPOSIT_A).send(custom_ring_sdk::DepositProofEnvironment {
+        indexer: env.client.indexer(),
         rpc,
         prover: &zolana_client::ProverClient::local(),
     }) {
-        Err(DepositError::Client(error)) => {
-            Rejection::pool(ShieldedPoolError::RingPaused).assert_client(&error)
+        Err(DepositError::Rejected { error, .. }) => {
+            Rejection::pool(ShieldedPoolError::RingPaused).assert_transaction(&error)
         }
         Err(other) => return Err(anyhow!("expected RingPaused, got {other}")),
         Ok(_) => return Err(anyhow!("the paused ring took a deposit")),
@@ -688,11 +692,13 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         .instruction()?],
     )?;
     match deposit(RING_DEPOSIT_A).send(custom_ring_sdk::DepositProofEnvironment {
+        indexer: env.client.indexer(),
         rpc,
         prover: &zolana_client::ProverClient::local(),
     }) {
-        Err(DepositError::Client(error)) => {
-            Rejection::custom(CustomRingError::SpendWindowExceeded as u32).assert_client(&error)
+        Err(DepositError::Rejected { error, .. }) => {
+            Rejection::custom(CustomRingError::SpendWindowExceeded as u32)
+                .assert_transaction(&error)
         }
         Err(other) => return Err(anyhow!("expected SpendWindowExceeded, got {other}")),
         Ok(_) => return Err(anyhow!("the capped ring took a deposit")),
@@ -716,6 +722,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
         let RingDepositReceipt { utxo, .. } =
             deposit(amount).send(custom_ring_sdk::DepositProofEnvironment {
+                indexer: env.client.indexer(),
                 rpc,
                 prover: &zolana_client::ProverClient::local(),
             })?;
@@ -757,7 +764,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         nullifier_key: Some(&env.sender.keypair.nullifier_key),
         transaction: prepared,
     })
-    .with_tree(env.tree)
     .prove(TransferProofEnvironment {
         indexer,
         rpc,
@@ -788,17 +794,14 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             cosigner: None,
             ring,
             payer: sender_address,
-            input_tree: env.tree,
+            input_trees: vec![env.tree],
             output_tree: env.tree,
-            entries_tree: Some(env.tree),
+            policy: proven.policy.clone(),
             owner_signers: proven.owner_signers.clone(),
             interface_transfer_accounts: Vec::new(),
             proof: proven.proof,
             transact: tampered_data,
-            state_root_index: 0,
-            nullifier_root_index: 0,
             approval_required: false,
-            revocation_targets: proven.revocation_targets,
         }
         .instruction()?,
     )?;
@@ -1074,6 +1077,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
             cosigner: None,
         }
         .send(custom_ring_sdk::DepositProofEnvironment {
+            indexer: env.client.indexer(),
             rpc,
             prover: &zolana_client::ProverClient::local(),
         })?;
@@ -1109,7 +1113,6 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         nullifier_key: Some(&env.sender.keypair.nullifier_key),
         transaction: prepared,
     })
-    .with_tree(env.tree)
     .prove(TransferProofEnvironment {
         indexer,
         rpc,
@@ -1419,7 +1422,6 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
             nullifier_key: Some(&sender.nullifier_key),
             transaction: prepared,
         })
-        .with_tree(env.tree)
         .prove(TransferProofEnvironment {
             indexer,
             rpc,
@@ -1669,6 +1671,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         cosigner: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
+        indexer: env.client.indexer(),
         rpc,
         prover: &zolana_client::ProverClient::local(),
     })?;
@@ -1805,7 +1808,6 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         nullifier_key: Some(&sender.nullifier_key),
         transaction: withdraw()?,
     })
-    .with_tree(env.tree)
     .with_interface_transfer_accounts(vec![settlement])
     .prove(TransferProofEnvironment {
         indexer,
@@ -1917,7 +1919,6 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
                 amount: USDC_FINAL_SEND,
             }],
         })
-        .with_tree(env.tree)
         .with_assets(&env.assets)
         .prove(TransferProofEnvironment {
             indexer,
@@ -2026,6 +2027,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             cosigner: None,
         }
         .send(custom_ring_sdk::DepositProofEnvironment {
+            indexer: env.client.indexer(),
             rpc,
             prover: &zolana_client::ProverClient::local(),
         })?;
@@ -2053,8 +2055,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             sender,
             nullifier_key: Some(&sender.nullifier_key),
             transaction,
-        })
-        .with_tree(env.tree);
+        });
         if let Some(cosigner) = cosigner {
             transfer = transfer.with_cosigner(cosigner);
         }
@@ -2068,8 +2069,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     let read_record = || {
         ReadSpendRecord {
             ring,
-            entries_tree: env.tree,
-            entries_tree_id: 0,
+            address_tree_id: 0,
             member,
         }
         .read_current(ReadEnvironment { indexer, rpc })
@@ -2131,8 +2131,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         || {
             ReadSpendRecord {
                 ring,
-                entries_tree: env.tree,
-                entries_tree_id: 0,
+                address_tree_id: 0,
                 member: other_member,
             }
             .read_current(ReadEnvironment { indexer, rpc })
@@ -2302,6 +2301,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         cosigner: Some(&cosigner),
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
+        indexer: env.client.indexer(),
         rpc,
         prover: &zolana_client::ProverClient::local(),
     })?;
@@ -2319,7 +2319,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             amount: VELOCITY_CAP + 1,
         }],
     })
-    .with_tree(env.tree)
     .with_assets(&env.assets)
     .prove(TransferProofEnvironment {
         indexer,
@@ -2352,7 +2351,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             nullifier_key: Some(&sender.nullifier_key),
             transaction,
         })
-        .with_tree(env.tree)
         .prove(TransferProofEnvironment {
             indexer: &public_record_indexer,
             rpc,
@@ -2528,6 +2526,7 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
             cosigner: None,
         }
         .send(custom_ring_sdk::DepositProofEnvironment {
+            indexer: env.client.indexer(),
             rpc,
             prover: &zolana_client::ProverClient::local(),
         })?;
@@ -2552,8 +2551,7 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
             sender,
             nullifier_key: Some(&sender.nullifier_key),
             transaction,
-        })
-        .with_tree(env.tree);
+        });
         if let Some(cosigner) = cosigner {
             transfer = transfer.with_cosigner(cosigner);
         }
@@ -2639,7 +2637,7 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
 }
 
 #[test]
-fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Result<()> {
+fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     const SEND: u64 = DEFAULT_DEPOSIT / 2;
 
     let mut env = setup()?;
@@ -2654,7 +2652,7 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
-        tier: Tier::AuditOnly,
+        tier: Tier::policy(&EMPTY, env.tree),
     }
     .send(rpc)?;
     send(
@@ -2690,6 +2688,7 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
         cosigner: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
+        indexer: env.client.indexer(),
         rpc,
         prover: &prover,
     })?;
@@ -2796,11 +2795,112 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
         .collect();
     amounts.sort_unstable();
     assert_eq!(amounts, [SEND, DEFAULT_DEPOSIT - SEND]);
-    let moved = recovered
+    let (moved, change): (Vec<_>, Vec<_>) = recovered
         .utxos
         .into_iter()
-        .find(|held| held.utxo.amount == SEND)
-        .context("the sent note")?;
+        .partition(|held| held.utxo.amount == SEND);
+    let moved = moved.into_iter().next().context("the sent note")?;
+    let change = change.into_iter().next().context("the change note")?;
+    let pay = |to: &ShieldedAddress| -> Result<ConfidentialTransaction> {
+        let mut transfer = ConfidentialTransaction::new_with_ring(
+            vec![change.clone()],
+            member.pubkey(),
+            ring_program,
+        )?
+        .with_output_tree_id(tree_id)?;
+        transfer.transfer_sol(to, 1)?;
+        transfer.pad_utxos(canonical_shape(1, 2)?, &member_address)?;
+        Ok(transfer)
+    };
+
+    // 2. An owner without an enrolled key is refused before any prover round.
+    let unreachable = ProverClient::new("http://127.0.0.1:1".to_owned());
+    let refused = |to: &ShieldedAddress| -> Result<Member> {
+        let result = CustomRingTransfer::new(CustomRingTransferInput {
+            ring,
+            sender: member,
+            nullifier_key: Some(&member.nullifier_key),
+            transaction: pay(to)?,
+        })
+        .prove(TransferProofEnvironment {
+            indexer,
+            rpc,
+            prover: &unreachable,
+        });
+        match result {
+            Err(TransferError::KeyRegistration(KeyRegistrationError::UnregisteredOutputKey {
+                owner,
+            })) => Ok(owner),
+            other => Err(anyhow!(
+                "expected UnregisteredOutputKey, got {:?}",
+                other.err()
+            )),
+        }
+    };
+    let unregistered = env.recipient.keypair.shielded_address()?;
+    let unregistered_owner =
+        Member::owner_identity(&unregistered.signing_pubkey.owner_proof_input_hash()?)?;
+    assert_eq!(refused(&unregistered)?, unregistered_owner);
+
+    // 3. The zero key is refused, only the namespace-owned spend record carries it.
+    let zero_key = ShieldedAddress {
+        nullifier_pubkey: ZERO_NULLIFIER_PK,
+        ..unregistered
+    };
+    assert_eq!(refused(&zero_key)?, unregistered_owner);
+
+    // 4. A plain deposit never builds, the audited one binds the registry root.
+    let root = ring.read_key_registry_root(rpc)?.context("key registry")?;
+    let plain = RingAssetDeposit {
+        asset: DepositAsset::Sol,
+        view_tag: [0; 32],
+        owner_utxo_hash: [1; 32],
+        amount: 1,
+        data_hash: None,
+        ring_data_hash: [0; 32],
+        encrypted: EncryptedRingDepositData {
+            tx_viewing_pk: [2; 33],
+            salt: [0; 16],
+            ciphertext: vec![3],
+        },
+    };
+    assert!(matches!(
+        Deposit {
+            ring,
+            tree: env.tree,
+            depositor: member.pubkey(),
+            deposits: vec![plain],
+            proof: None,
+            escrow: EscrowBinding::Registry {
+                root_index: root.history_index,
+            },
+            cosigner: None,
+        }
+        .instruction(),
+        Err(DepositInstructionError::AuditRequired)
+    ));
+    let RingDepositReceipt { signature, .. } = RingDeposit {
+        ring,
+        payer: member,
+        recipient: member,
+        tree: env.tree,
+        asset: DepositAsset::Sol,
+        amount: DEFAULT_DEPOSIT,
+        cosigner: None,
+    }
+    .send(custom_ring_sdk::DepositProofEnvironment {
+        indexer,
+        rpc,
+        prover: &prover,
+    })?;
+    assert_transaction_compute_units(
+        rpc,
+        &signature,
+        "escrowed audited deposit",
+        u64::from(custom_ring_sdk::AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT),
+    )?;
+
+    // 5. The delegate moves the enrolled member's note back to the member.
     let proven = DelegateTransfer::new(DelegateTransferInput {
         ring,
         delegate: delegate.pubkey(),
@@ -2808,12 +2908,11 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
         source_nullifier_key: &nullifier_key,
         inputs: vec![SppProofInputUtxo::from(moved)],
         outputs: vec![DelegateOutput {
-            recipient: env.recipient.keypair.shielded_address()?,
+            recipient: member_address,
             asset: SOL_MINT,
             amount: SEND,
         }],
     })
-    .with_tree(env.tree)
     .with_assets(&env.assets)
     .prove(TransferProofEnvironment {
         indexer,
@@ -2827,16 +2926,16 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
     }
     .send(rpc)?;
     let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
-    let recipient_authority =
-        KeypairWalletAuthority::new(Address::default(), &env.recipient.keypair);
-    env.recipient.wallet.sync(
-        &recipient_authority,
+    assert_eq!(indexed.nullifiers.len(), 1, "the delegate spent the note");
+    let member_authority = KeypairWalletAuthority::new(Address::default(), member);
+    env.sender.wallet.sync(
+        &member_authority,
         std::slice::from_ref(&indexed),
         0,
         DEFAULT_TAG_WINDOW,
     )?;
     assert_eq!(
-        sorted_unspent_notes(&env.recipient.wallet),
+        sorted_unspent_notes(&env.sender.wallet),
         vec![(SOL_MINT, SEND, Some(ring_program))],
         "the delegate moved the registered member's note"
     );
@@ -2844,7 +2943,7 @@ fn the_delegate_moves_a_registered_members_notes_with_the_auditor_key() -> Resul
 }
 
 /// A note stranded in an old tree spends into the active tree while the ring's
-/// entries tree stays fixed.
+/// address tree stays fixed.
 #[test]
 fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     let mut env = setup()?;
@@ -2856,7 +2955,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     let prover = ProverClient::local();
 
-    // Spend from a separate input tree while the ring's entries stay in env.tree.
+    // Spend from a separate input tree, the ring's address tree stays env.tree.
     let old_tree = env.create_registered_tree()?;
     assert_ne!(old_tree, env.tree);
     RegisterRing {
@@ -2879,6 +2978,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         cosigner: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
+        indexer: env.client.indexer(),
         rpc,
         prover: &zolana_client::ProverClient::local(),
     })?;
@@ -2892,7 +2992,8 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         vec![indexed_note(utxo, sender, &env, old_tree)?],
         sender.pubkey(),
         ring_program,
-    )?;
+    )?
+    .with_output_tree_id(env.tree_id(env.tree)?)?;
     transfer.transfer_sol(&recipient.shielded_address()?, ENTRY_AMOUNT)?;
     let prepared = {
         transfer.pad_utxos(
@@ -2910,8 +3011,6 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         nullifier_key: Some(&sender.nullifier_key),
         transaction: prepared,
     })
-    .with_tree(old_tree)
-    .with_output_tree(env.tree)
     .prove(TransferProofEnvironment {
         indexer,
         rpc,
@@ -2985,10 +3084,9 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     Ok(())
 }
 
-/// The money output tree is free of the pinned entries tree, output lands in a
-/// third tree while the policy roots stay bound to the entries tree.
+/// Money moves between two trees apart from the address tree.
 #[test]
-fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
+fn a_transfer_outputs_apart_from_the_address_tree() -> Result<()> {
     let env = setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
@@ -2998,8 +3096,6 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     let prover = ProverClient::local();
 
-    // Three distinct trees, the entries tree the policy roots bind stays env.tree
-    // while the money moves between two other trees.
     let input_tree = env.create_registered_tree()?;
     let output_tree = env.create_registered_tree()?;
     assert_ne!(input_tree, env.tree);
@@ -3029,6 +3125,7 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         cosigner: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
+        indexer: env.client.indexer(),
         rpc,
         prover: &zolana_client::ProverClient::local(),
     })?;
@@ -3069,8 +3166,6 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         nullifier_key: Some(&sender.nullifier_key),
         transaction: prepared,
     })
-    .with_tree(input_tree)
-    .with_output_tree(output_tree)
     .prove(TransferProofEnvironment {
         indexer,
         rpc,
@@ -3235,7 +3330,6 @@ impl RingTransfer<'_> {
             nullifier_key: Some(&self.sender.nullifier_key),
             transaction: self.prepared,
         })
-        .with_tree(env.tree)
         .with_interface_transfer_accounts(self.interface_transfer_accounts);
         if let Some(cosigner) = self.cosigner {
             transfer = transfer.with_cosigner(cosigner.pubkey());
@@ -3291,7 +3385,6 @@ impl AsyncHopParity<'_> {
             nullifier_key: Some(&self.sender.nullifier_key),
             transaction: self.blocking,
         })
-        .with_tree(env.tree)
         .prove(TransferProofEnvironment {
             indexer,
             rpc,
@@ -3314,7 +3407,6 @@ impl AsyncHopParity<'_> {
                 nullifier_key: Some(&self.sender.nullifier_key),
                 transaction: self.asynchronous,
             })
-            .with_tree(env.tree)
             .prove_async(AsyncTransferProofEnvironment {
                 indexer: &async_indexer,
                 rpc: &async_rpc,

@@ -32,6 +32,7 @@ pub(crate) struct Reconstruction<'a> {
     pub rail: Rail,
     pub event: &'a RingsTransactionUpdate,
     pub policy: &'a PolicyConfig,
+    pub output_tree_id: u16,
 }
 
 impl Reconstruction<'_> {
@@ -41,8 +42,8 @@ impl Reconstruction<'_> {
             rail,
             event,
             policy,
+            output_tree_id,
         } = self;
-        // The event carries no tree id, the parser pins the output to the entries tree id.
         zolana_ring_indexer::spend_record::Reconstruction {
             instruction: instruction_view(invocation.instruction),
             rail,
@@ -50,7 +51,7 @@ impl Reconstruction<'_> {
             event: &ShieldedEvent {
                 event,
                 program: invocation.instruction.program_id,
-                output_tree_id: policy.entries_tree_id(),
+                output_tree_id,
             }
             .transaction()?,
             source_instruction_tag: u8::try_from(event.source_instruction_tag)?,
@@ -63,12 +64,13 @@ impl Reconstruction<'_> {
 pub(crate) fn successor(
     event: &RingsTransactionUpdate,
     context: &SuccessorContext<'_>,
+    output_tree_id: u16,
 ) -> Result<zolana_ring_policy::SpendRecord> {
     zolana_ring_indexer::spend_record::successor(
         &ShieldedEvent {
             event,
             program: Pubkey::default(),
-            output_tree_id: context.entries_tree_id,
+            output_tree_id,
         }
         .transaction()?,
         context,

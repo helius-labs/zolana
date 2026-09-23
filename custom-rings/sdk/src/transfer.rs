@@ -30,13 +30,13 @@ use zolana_interface::{
         TransactInterfaceTransferAccounts, TransactIxData, TransactOutput, TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
+    MAX_INPUT_TREES, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
     random_blinding, KeypairError, NullifierKey, P256Pubkey, ShieldedAddress, ShieldedKeypair,
     ViewingKey,
 };
-use zolana_ring_client::{DepositOpening, DepositSeal};
+use zolana_ring_client::{DepositEncryption, DepositOpening, DepositSeal};
 use zolana_ring_policy::{ListNamespace, Member, VelocityMode, VelocityRow};
 use zolana_transaction::{
     instructions::transact::{
@@ -51,22 +51,24 @@ use zolana_transaction::{
 use zolana_tree::{TreeAccount, TreeError};
 
 use crate::{
+    escrow::{EscrowedKeys, KeyRegistry, OutputKey, RegistryKeyOpening},
     instructions::{
         entry::zero_nullifier_key,
         spend::{ReadEnvironment, ReadSpendRecord},
         transact::{
-            request::json_body, CustomRingPolicyProofRequestJson, RingIdentity, VelocityProofInput,
+            request::json_body, CustomRingPolicyProofRequestJson, EscrowBinding, PolicyReads,
+            RingIdentity, TransactInstructionError, VelocityProofInput,
         },
     },
     to_instruction_proof,
     velocity::{
         ChargeRows, Outflows, VelocityContext, VelocityFacts, VelocityPlan, VelocityPlanInput,
     },
-    witness::{list_entry, CustomRingWitness, CustomRingWitnessInput, TransactRoots},
+    witness::{list_entry, CustomRingWitness, CustomRingWitnessInput},
     AccountReadError, CustomRing, CustomRingBaseProofRequest, CustomRingConfig,
     CustomRingPolicyProofRequest, CustomRingProof, CustomRingProofError, CustomRingProofInputError,
-    CustomRingProofParams, CustomRingTransact, Deposit, EncryptedAudit, PendingCustomRingProof,
-    PinnedPolicy, PolicyMatchError,
+    CustomRingProofParams, CustomRingTransact, Deposit, DepositInstructionError, EncryptedAudit,
+    KeyRegistrationError, PendingCustomRingProof, PinnedPolicy, PolicyMatchError, PoolTree,
 };
 
 const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
@@ -79,8 +81,6 @@ pub struct CustomRingTransfer<'a> {
     nullifier_key: Option<&'a NullifierKey>,
     transaction: ConfidentialTransaction,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    input_tree: Option<Address>,
-    output_tree: Option<Address>,
     cosigner: Option<Address>,
 }
 
@@ -106,7 +106,8 @@ pub struct CustomRingTransferInput<'a> {
     /// the raw secret rather than deriving it, so proving a real input without
     /// one fails. `None` is only valid for an all-padding transfer.
     pub nullifier_key: Option<&'a NullifierKey>,
-    /// The transaction with its output slots already padded to its shape.
+    /// The transaction with its output slots already padded to its shape, its
+    /// inputs grouped by tree.
     pub transaction: ConfidentialTransaction,
 }
 
@@ -130,20 +131,15 @@ pub struct ProvenTransfer {
     pub proof: CustomRingProof,
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    /// History entries a policy statement binds, zero without rules.
-    pub state_root_index: u16,
-    pub nullifier_root_index: u16,
-    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
+    /// `None` on an audit-only ring.
+    pub policy: Option<PolicyReads>,
     pub cosigner: Option<Address>,
     /// The velocity statement demands the co-signer, the caller must sign with it.
     pub approval_required: bool,
     #[cfg(feature = "solana-rpc")]
     pub(crate) window: Option<ProvedWindow>,
     payer: Address,
-    input_tree: Address,
-    output_tree: Address,
-    /// The pinned entries tree for a policy ring, `None` for an audit-only ring.
-    entries_tree: Option<Address>,
+    trees: SpendTrees,
     ring: CustomRing,
 }
 
@@ -165,8 +161,9 @@ pub struct RingDepositReceipt {
     pub utxo: Utxo,
 }
 
-/// RPC and prover handles for deposits that require auditor disclosure.
-pub struct DepositProofEnvironment<'a, R: Rpc> {
+/// RPC, indexer and prover handles for deposits that require auditor disclosure.
+pub struct DepositProofEnvironment<'a, I: Rpc, R: Rpc> {
+    pub indexer: &'a I,
     pub rpc: &'a R,
     pub prover: &'a ProverClient,
 }
@@ -186,9 +183,7 @@ pub enum TransferError {
     #[error(transparent)]
     Proof(#[from] CustomRingProofError),
     #[error(transparent)]
-    Instruction(#[from] wincode::Error),
-    #[error(transparent)]
-    DelegateInstruction(#[from] crate::DelegateInstructionError),
+    Instruction(#[from] TransactInstructionError),
     #[error(transparent)]
     Encoding(#[from] std::io::Error),
     #[error("indexer returned an incomplete proof set")]
@@ -201,8 +196,6 @@ pub enum TransferError {
     InvalidTreeOwner,
     #[error("input tree discriminator is invalid")]
     InvalidTreeDiscriminator,
-    #[error("input tree address is required")]
-    TreeRequired,
     #[error("tree {tree} has id {expected}, the transfer was prepared for {found}")]
     TreeIdMismatch {
         tree: Address,
@@ -223,8 +216,10 @@ pub enum TransferError {
     PolicyRuleUnsatisfied,
     #[error("the transfer uses an asset without a configured policy limit")]
     PolicyAssetUnsupported,
-    #[error("the indexer proved the entries against more than one root")]
+    #[error("the indexer proved one tree's entries against more than one root")]
     PolicyRootMismatch,
+    #[error("the entries live in {count} trees, a statement reads at most {max}", max = zolana_interface::INPUT_TREES)]
+    TooManyPolicyTrees { count: usize },
     #[error("no policy source serves the list")]
     MissingSourceOwner,
     #[error(transparent)]
@@ -261,10 +256,12 @@ pub enum TransferError {
     VelocityOverflow,
     #[error("change of {asset:?} exceeds the mint's inputs")]
     VelocityChangeExceedsInflow { asset: [u8; 32] },
-    #[error("a windowed transfer spends and lands in the entries tree {entries_tree}")]
-    EntriesTreeRequired { entries_tree: Address },
     #[error("a compressed policy statement needs a windowed policy")]
     CompressedWithoutWindow,
+    #[error("the delegate moves notes on escrowed rings only")]
+    DelegateRequiresEscrow,
+    #[error(transparent)]
+    KeyRegistration(#[from] KeyRegistrationError),
 }
 
 impl From<PolicyMatchError> for TransferError {
@@ -288,11 +285,30 @@ pub enum DepositError {
     #[error(transparent)]
     Instruction(#[from] DepositBuildError),
     #[error(transparent)]
+    DepositInstruction(#[from] DepositInstructionError),
+    #[error(transparent)]
     Client(#[from] ClientError),
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error("custom ring config does not exist")]
     MissingRingConfig,
+    #[error(transparent)]
+    KeyRegistration(#[from] KeyRegistrationError),
+    #[cfg(feature = "solana-rpc")]
+    #[error(transparent)]
+    Submission(Box<crate::SubmissionError>),
+    #[error("deposit {signature} failed with {error}")]
+    Rejected {
+        signature: Signature,
+        error: solana_transaction_error::TransactionError,
+    },
+}
+
+#[cfg(feature = "solana-rpc")]
+impl From<crate::SubmissionError> for DepositError {
+    fn from(error: crate::SubmissionError) -> Self {
+        Self::Submission(Box::new(error))
+    }
 }
 
 impl<'a> CustomRingTransfer<'a> {
@@ -303,8 +319,6 @@ impl<'a> CustomRingTransfer<'a> {
             nullifier_key: input.nullifier_key,
             transaction: input.transaction,
             interface_transfer_accounts: Vec::new(),
-            input_tree: None,
-            output_tree: None,
             cosigner: None,
         }
     }
@@ -312,21 +326,6 @@ impl<'a> CustomRingTransfer<'a> {
     #[must_use = "use the updated transfer"]
     pub fn with_cosigner(mut self, cosigner: Address) -> Self {
         self.cosigner = Some(cosigner);
-        self
-    }
-
-    /// The tree the spent notes live in, and where outputs land unless
-    /// [`Self::with_output_tree`] moves them.
-    #[must_use = "use the updated transfer"]
-    pub fn with_tree(mut self, tree: Address) -> Self {
-        self.input_tree = Some(tree);
-        self
-    }
-
-    /// Land the outputs in a tree other than the input tree.
-    #[must_use = "use the updated transfer"]
-    pub fn with_output_tree(mut self, tree: Address) -> Self {
-        self.output_tree = Some(tree);
         self
     }
 
@@ -348,6 +347,7 @@ impl<'a> CustomRingTransfer<'a> {
             .ring
             .read_config(environment.rpc)?
             .ok_or(TransferError::MissingRingConfig)?;
+        let key_registry = KeyRegistry::of(self.ring, &config);
         let policy = match self.policy_lookup(&config, environment.rpc)? {
             Some(lookup) => Some(lookup.read(ReadEnvironment {
                 indexer: environment.indexer,
@@ -361,26 +361,25 @@ impl<'a> CustomRingTransfer<'a> {
                 .as_ref()
                 .map_or(&SpendLimit::Unbounded, |policy| &policy.limit),
         )?;
-        // The tree is read and validated first. A tree that is absent, owned by
+        // The trees are read and validated first. A tree that is absent, owned by
         // another program, or not a tree account at all fails here rather than
         // after the indexer has served a full inclusion and non-inclusion proof
         // set that nothing can use.
-        let input_tree = read_tree_state(environment.rpc, staged.input_tree)?;
-        let output_tree = read_tree_state(environment.rpc, staged.output_tree)?;
-        staged.check_tree_ids(input_tree.tree.id, output_tree.tree.id)?;
+        let trees = staged.tree_plan().read(environment.rpc)?;
         let spends = SpendSet {
             inputs: RingSpendInputs {
                 indexer: environment.indexer,
-                tree: staged.input_tree,
                 input_utxos: &staged.proof_inputs.input_utxos,
             }
             .load()?,
-            allow_dummy_inputs: input_tree.allows_dummy_inputs(&staged.proof_inputs.input_utxos),
+            trees,
         };
         let tier = match &policy {
-            Some(policy) => staged
-                .policy_tier(&policy.pinned)?
-                .build(environment.indexer, environment.rpc)?,
+            Some(policy) => Tier::Policy(
+                staged
+                    .policy_tier(&policy.pinned, key_registry)?
+                    .build(environment.indexer, environment.rpc)?,
+            ),
             None => Tier::Base,
         };
         let witnessed = staged.witness(spends, tier)?;
@@ -411,6 +410,7 @@ impl<'a> CustomRingTransfer<'a> {
             .read_config_async(environment.rpc)
             .await?
             .ok_or(TransferError::MissingRingConfig)?;
+        let key_registry = KeyRegistry::of(self.ring, &config);
         let policy = match self.policy_lookup_async(&config, environment.rpc).await? {
             Some(lookup) => Some(
                 lookup
@@ -428,28 +428,25 @@ impl<'a> CustomRingTransfer<'a> {
                 .as_ref()
                 .map_or(&SpendLimit::Unbounded, |policy| &policy.limit),
         )?;
-        // Same ordering reason as the blocking path: validate the tree before
-        // asking the indexer for proofs against it.
-        let input_tree = read_tree_state_async(environment.rpc, staged.input_tree).await?;
-        let output_tree = read_tree_state_async(environment.rpc, staged.output_tree).await?;
-        staged.check_tree_ids(input_tree.tree.id, output_tree.tree.id)?;
+        // Same ordering reason as the blocking path: validate the trees before
+        // asking the indexer for proofs against them.
+        let trees = staged.tree_plan().read_async(environment.rpc).await?;
         let spends = SpendSet {
             inputs: RingSpendInputs {
                 indexer: environment.indexer,
-                tree: staged.input_tree,
                 input_utxos: &staged.proof_inputs.input_utxos,
             }
             .load_async()
             .await?,
-            allow_dummy_inputs: input_tree.allows_dummy_inputs(&staged.proof_inputs.input_utxos),
+            trees,
         };
         let tier = match &policy {
-            Some(policy) => {
+            Some(policy) => Tier::Policy(
                 staged
-                    .policy_tier(&policy.pinned)?
+                    .policy_tier(&policy.pinned, key_registry)?
                     .build_async(environment.indexer, environment.rpc)
-                    .await?
-            }
+                    .await?,
+            ),
             None => Tier::Base,
         };
         let witnessed = staged.witness(spends, tier)?;
@@ -517,17 +514,10 @@ impl<'a> CustomRingTransfer<'a> {
                 identity,
             }),
             VelocityMode::PerWindow { window_slots } => {
-                let entries_tree = pinned.config.entries_tree;
-                if self.input_tree != Some(entries_tree)
-                    || self.output_tree.unwrap_or(entries_tree) != entries_tree
-                {
-                    return Err(TransferError::EntriesTreeRequired { entries_tree });
-                }
                 Ok(SpendLimit::PerWindow(Box::new(VelocityLookup {
                     read: ReadSpendRecord {
                         ring: self.ring,
-                        entries_tree,
-                        entries_tree_id: pinned.config.entries_tree_id(),
+                        address_tree_id: pinned.config.address_tree_id(),
                         member: sender_member(&self.sender.address()?)?,
                     },
                     context: VelocityContext {
@@ -536,7 +526,7 @@ impl<'a> CustomRingTransfer<'a> {
                             owner_hash: pinned.config.namespace_owner_hash,
                         },
                         identity,
-                        entries_tree_id: pinned.config.entries_tree_id(),
+                        address_tree_id: pinned.config.address_tree_id(),
                         window_slots,
                         rows: pinned.table.velocity().to_vec(),
                         sender: self.sender,
@@ -552,9 +542,10 @@ impl<'a> CustomRingTransfer<'a> {
         auditor_pk: P256Pubkey,
         limit: &SpendLimit<VelocityFacts>,
     ) -> Result<StagedTransfer, TransferError> {
-        let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
-        let output_tree = self.output_tree.unwrap_or(input_tree);
-        let transaction = self.transaction;
+        let mut transaction = self.transaction;
+        if let SpendLimit::PerWindow(facts) = limit {
+            order_record_tree_last(&mut transaction, facts.live.tree_id)?;
+        }
         let program_id = self.ring.program_id();
         validate_transfer_accounts(&transaction, &self.interface_transfer_accounts)?;
         let payer = transaction.payer();
@@ -687,8 +678,6 @@ impl<'a> CustomRingTransfer<'a> {
             pending_proof,
             proof_inputs,
             payer,
-            input_tree,
-            output_tree,
             program_id,
             interface_transfer_accounts: self.interface_transfer_accounts,
             ring: self.ring,
@@ -696,6 +685,29 @@ impl<'a> CustomRingTransfer<'a> {
             velocity: stage.proof_input,
         })
     }
+}
+
+/// The record joins the last run, SPP rejects a tree split around another.
+fn order_record_tree_last(
+    transaction: &mut ConfidentialTransaction,
+    record_tree: u16,
+) -> Result<(), TransferError> {
+    let trees = transaction.input_tree_ids();
+    let got = trees.len() + usize::from(!trees.contains(&record_tree));
+    if got > MAX_INPUT_TREES {
+        return Err(TransactionError::TooManyInputTrees {
+            got,
+            max: MAX_INPUT_TREES,
+        }
+        .into());
+    }
+    transaction.move_input_tree_last(record_tree)?;
+    Ok(())
+}
+
+/// Padding rides the last run, a new record tree holds the record alone.
+fn record_padding_tree(inputs: &[SppProofInputUtxo]) -> Result<u16, TransferError> {
+    Ok(inputs.last().ok_or(TransactionError::NoInputs)?.tree_id)
 }
 
 /// The identity SPP hashes the sender as, one list serves every owner curve.
@@ -846,10 +858,11 @@ impl RecordSlots<'_> {
         {
             return Err(TransferError::PolicyShapeUnsupported);
         }
+        let padding_tree = record_padding_tree(&proof_inputs.input_utxos)?;
         while proof_inputs.input_utxos.len() + 1 < plan.shape.n_inputs() {
             proof_inputs
                 .input_utxos
-                .push(SppProofInputUtxo::dummy(plan.input.tree_id)?);
+                .push(SppProofInputUtxo::dummy(padding_tree)?);
         }
 
         let blindings = OutputBlindings::of(proof_inputs)?;
@@ -967,13 +980,14 @@ pub(crate) struct PolicyTierInput<'a> {
     pub outputs: &'a [SppProofOutputUtxo],
     pub output_tree_id: u16,
     pub velocity: Option<VelocityProofInput>,
+    pub key_registry: Option<KeyRegistry>,
 }
 
 impl PolicyTierInput<'_> {
     pub fn read<I: Rpc, R: Rpc>(
         self,
         env: ReadEnvironment<'_, I, R>,
-    ) -> Result<Tier, TransferError> {
+    ) -> Result<PolicyStatement, TransferError> {
         let pinned = self
             .ring
             .read_pinned_policy(env.rpc)?
@@ -984,7 +998,7 @@ impl PolicyTierInput<'_> {
     pub async fn read_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         env: ReadEnvironment<'_, I, R>,
-    ) -> Result<Tier, TransferError> {
+    ) -> Result<PolicyStatement, TransferError> {
         let pinned = self
             .ring
             .read_pinned_policy_async(env.rpc)
@@ -1002,15 +1016,6 @@ impl PolicyTierInput<'_> {
         let (velocity, committed_velocity) = match self.velocity {
             Some(velocity) => (velocity, None),
             None => {
-                if pinned.table.window_slots() != 0
-                    && self.output_tree_id != pinned.config.entries_tree_id()
-                {
-                    return Err(TransferError::TreeIdMismatch {
-                        tree: pinned.config.entries_tree,
-                        expected: pinned.config.entries_tree_id(),
-                        found: self.output_tree_id,
-                    });
-                }
                 // Record-free rails evaluate every money slot while still committing configured limits.
                 let off = VelocityProofInput::off(RingIdentity::new(
                     self.ring,
@@ -1034,6 +1039,7 @@ impl PolicyTierInput<'_> {
                 outputs: self.outputs,
                 output_tree_id: self.output_tree_id,
                 velocity,
+                key_registry: self.key_registry,
             },
         })
     }
@@ -1046,43 +1052,47 @@ pub(crate) struct PolicyTier<'a> {
 }
 
 impl PolicyTier<'_> {
-    pub fn build<I: Rpc, R: Rpc>(self, indexer: &I, rpc: &R) -> Result<Tier, TransferError> {
+    pub fn build<I: Rpc, R: Rpc>(
+        self,
+        indexer: &I,
+        rpc: &R,
+    ) -> Result<PolicyStatement, TransferError> {
         let mut witness = self.witness.build(indexer, rpc)?;
         if let Some(velocity) = self.committed_velocity {
             witness.velocity = velocity;
         }
-        Ok(Tier::policy(self.policy_config, witness))
+        Ok(PolicyStatement::new(self.policy_config, witness))
     }
 
     pub async fn build_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         indexer: &I,
         rpc: &R,
-    ) -> Result<Tier, TransferError> {
+    ) -> Result<PolicyStatement, TransferError> {
         let mut witness = self.witness.build_async(indexer, rpc).await?;
         if let Some(velocity) = self.committed_velocity {
             witness.velocity = velocity;
         }
-        Ok(Tier::policy(self.policy_config, witness))
+        Ok(PolicyStatement::new(self.policy_config, witness))
     }
 }
 
-/// A policy ring proves the folded statement over its entries-tree roots, an
+/// A policy ring proves the folded statement over its policy tree roots, an
 /// audit-only ring proves the audit statement alone.
 pub(crate) enum Tier {
     Base,
-    Policy {
-        policy_hash: [u8; 32],
-        entries_tree: Address,
-        witness: Box<CustomRingWitness>,
-    },
+    Policy(PolicyStatement),
 }
 
-impl Tier {
-    fn policy(config: &PolicyConfig, witness: CustomRingWitness) -> Self {
-        Self::Policy {
+pub(crate) struct PolicyStatement {
+    policy_hash: [u8; 32],
+    witness: Box<CustomRingWitness>,
+}
+
+impl PolicyStatement {
+    fn new(config: &PolicyConfig, witness: CustomRingWitness) -> Self {
+        Self {
             policy_hash: config.policy_hash,
-            entries_tree: config.entries_tree,
             witness: Box::new(witness),
         }
     }
@@ -1105,8 +1115,6 @@ struct StagedTransfer {
     pending_proof: PendingCustomRingProof,
     proof_inputs: SppProofInputs,
     payer: Address,
-    input_tree: Address,
-    output_tree: Address,
     program_id: Address,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     ring: CustomRing,
@@ -1115,33 +1123,17 @@ struct StagedTransfer {
 }
 
 impl StagedTransfer {
-    /// Every UTXO hash commits to its tree id, a prepared transfer under another id proves nothing.
-    fn check_tree_ids(&self, input_tree_id: u16, output_tree_id: u16) -> Result<(), TransferError> {
-        if let Some(input) = self
-            .proof_inputs
-            .input_utxos
-            .iter()
-            .find(|input| input.tree_id != input_tree_id)
-        {
-            return Err(TransferError::TreeIdMismatch {
-                tree: self.input_tree,
-                expected: input_tree_id,
-                found: input.tree_id,
-            });
-        }
-        if self.proof_inputs.output_tree_id != output_tree_id {
-            return Err(TransferError::TreeIdMismatch {
-                tree: self.output_tree,
-                expected: output_tree_id,
-                found: self.proof_inputs.output_tree_id,
-            });
-        }
-        Ok(())
+    fn tree_plan(&self) -> SpendTreePlan {
+        SpendTreePlan::new(
+            &self.proof_inputs.input_utxos,
+            PoolTree::from_id(self.proof_inputs.output_tree_id),
+        )
     }
 
     fn policy_tier<'s>(
         &'s self,
         pinned: &'s PinnedPolicy,
+        key_registry: Option<KeyRegistry>,
     ) -> Result<PolicyTier<'s>, TransferError> {
         PolicyTierInput {
             ring: self.ring,
@@ -1149,6 +1141,7 @@ impl StagedTransfer {
             outputs: &self.proof_inputs.output_utxos,
             output_tree_id: self.proof_inputs.output_tree_id,
             velocity: self.velocity,
+            key_registry,
         }
         .with_config(pinned)
     }
@@ -1163,9 +1156,10 @@ impl StagedTransfer {
     /// first's `private_tx_hash`, not its proof: a caller can then ask for both
     /// proofs at once.
     fn witness(self, spends: SpendSet, tier: Tier) -> Result<WitnessedTransfer, TransferError> {
+        let SpendSet { inputs, trees } = spends;
         let tx_shape = self.proof_inputs.check_shape()?;
         let mut ring_result = RingTransferProver {
-            inputs: spends.inputs,
+            inputs,
             outputs: self.proof_inputs.output_utxos.clone(),
             blinding_seed: self.proof_inputs.blinding_seed,
             output_tree_id: self.proof_inputs.output_tree_id,
@@ -1174,7 +1168,7 @@ impl StagedTransfer {
             signer_pk_hashes: self
                 .proof_inputs
                 .signer_pk_hashes(tx_shape.signer_width())?,
-            allow_dummy_inputs: spends.allow_dummy_inputs,
+            allow_dummy_inputs: trees.allow_dummy_inputs,
             ring_program_id: Some(self.program_id),
             shape: tx_shape,
         }
@@ -1198,13 +1192,12 @@ impl StagedTransfer {
             authority.complete_inputs(&mut ring_result.inputs.inputs)?;
         }
         let mut request = TierRequestInput {
-            tier,
             pending: self.pending_proof,
             private_tx_hash: ring_result.private_tx_hash.try_into()?,
             external_data: &self.proof_inputs.external_data,
             private_tx_blinding: self.proof_inputs.private_tx_blinding()?,
         }
-        .build()?;
+        .build(tier)?;
         if let Some(compressed) = self.compressed {
             request = request.with_compressed(compressed)?;
         }
@@ -1216,8 +1209,7 @@ impl StagedTransfer {
             proof_inputs: self.proof_inputs,
             ring_result,
             payer: self.payer,
-            input_tree: self.input_tree,
-            output_tree: self.output_tree,
+            trees,
             interface_transfer_accounts: self.interface_transfer_accounts,
             ring: self.ring,
             cosigner: self.cosigner,
@@ -1225,18 +1217,17 @@ impl StagedTransfer {
     }
 }
 
-/// The tier's prover request, with the accounts and roots the instruction binds
-/// for it.
 pub(crate) enum TierRequest {
     Base(CustomRingBaseProofRequest),
-    Policy {
-        request: Box<CustomRingPolicyProofRequest>,
-        entries_tree: Address,
-        roots: TransactRoots,
-        approval_required: bool,
-        revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
-        kind: PolicyProofKind,
-    },
+    Policy(PolicyRequest),
+}
+
+/// The policy prover request, with the reads the instruction binds for it.
+pub(crate) struct PolicyRequest {
+    request: Box<CustomRingPolicyProofRequest>,
+    reads: PolicyReads,
+    approval_required: bool,
+    kind: PolicyProofKind,
 }
 
 pub(crate) struct CompressedDisclosure {
@@ -1269,35 +1260,44 @@ impl ProveRequest for TierRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         match self {
             Self::Base(request) => request.body(),
-            Self::Policy { request, kind, .. } => match kind {
-                PolicyProofKind::Ordinary => request.body(),
-                PolicyProofKind::Delegate => json_body(&WrappedPolicyJson {
-                    circuit_type: "custom-ring-delegate-policy",
-                    policy: request.json()?,
-                }),
-                PolicyProofKind::Compressed(compressed) => json_body(&CompressedPolicyJson {
-                    transaction_salt: crate::instructions::transact::request::bytes_to_hex(
-                        &compressed.transaction_salt,
-                    ),
-                    wrapped: WrappedPolicyJson {
-                        circuit_type: "custom-ring-compressed-policy",
-                        policy: request.json()?,
-                    },
-                }),
-            },
+            Self::Policy(request) => request.body(),
         }
     }
 
     fn delivery(&self) -> Delivery {
         match self {
             Self::Base(request) => request.delivery(),
-            Self::Policy { request, .. } => request.delivery(),
+            Self::Policy(request) => request.delivery(),
         }
     }
 }
 
+impl ProveRequest for PolicyRequest {
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        match &self.kind {
+            PolicyProofKind::Ordinary => self.request.body(),
+            PolicyProofKind::Delegate => json_body(&WrappedPolicyJson {
+                circuit_type: "custom-ring-delegate-policy",
+                policy: self.request.json()?,
+            }),
+            PolicyProofKind::Compressed(compressed) => json_body(&CompressedPolicyJson {
+                transaction_salt: crate::instructions::transact::request::bytes_to_hex(
+                    &compressed.transaction_salt,
+                ),
+                wrapped: WrappedPolicyJson {
+                    circuit_type: "custom-ring-compressed-policy",
+                    policy: self.request.json()?,
+                },
+            }),
+        }
+    }
+
+    fn delivery(&self) -> Delivery {
+        self.request.delivery()
+    }
+}
+
 pub(crate) struct TierRequestInput<'a> {
-    pub tier: Tier,
     pub pending: PendingCustomRingProof,
     pub private_tx_hash: crate::CustomRingPrivateTxHash,
     pub external_data: &'a ExternalData,
@@ -1306,103 +1306,111 @@ pub(crate) struct TierRequestInput<'a> {
 
 impl TierRequestInput<'_> {
     /// Closes the auditor encryption over the `private_tx_hash` the SPP witness fixed.
-    pub(crate) fn build(self) -> Result<TierRequest, TransferError> {
-        Ok(match self.tier {
+    pub(crate) fn build(self, tier: Tier) -> Result<TierRequest, TransferError> {
+        Ok(match tier {
             Tier::Base => TierRequest::Base(self.pending.finish_base(self.private_tx_hash)?),
-            Tier::Policy {
-                policy_hash,
-                entries_tree,
-                witness,
-            } => {
-                let external_data_hash = self
-                    .external_data
-                    .hash()
-                    .map_err(|_| TransferError::PolicyHashing)?;
-                let roots = witness.roots;
-                let approval_required = witness.velocity.approval_required;
-                let revocation_targets = witness.revocation_targets;
-                let request = self.pending.finish(
-                    self.private_tx_hash,
-                    &external_data_hash,
-                    &self.private_tx_blinding,
-                    *witness,
-                    &policy_hash,
-                )?;
-                TierRequest::Policy {
-                    request: Box::new(request),
-                    entries_tree,
-                    roots,
+            Tier::Policy(statement) => TierRequest::Policy(self.policy(statement)?),
+        })
+    }
+
+    pub(crate) fn policy(self, statement: PolicyStatement) -> Result<PolicyRequest, TransferError> {
+        let PolicyStatement {
+            policy_hash,
+            witness,
+        } = statement;
+        let external_data_hash = self
+            .external_data
+            .hash()
+            .map_err(|_| TransferError::PolicyHashing)?;
+        let reads = witness.reads();
+        let approval_required = witness.velocity.approval_required;
+        let request = self.pending.finish(
+            self.private_tx_hash,
+            &external_data_hash,
+            &self.private_tx_blinding,
+            *witness,
+            &policy_hash,
+        )?;
+        Ok(PolicyRequest {
+            request: Box::new(request),
+            reads,
+            approval_required,
+            kind: PolicyProofKind::Ordinary,
+        })
+    }
+}
+
+impl TierRequest {
+    fn with_compressed(self, compressed: CompressedDisclosure) -> Result<Self, TransferError> {
+        match self {
+            Self::Base(_) => Err(TransferError::CompressedWithoutWindow),
+            Self::Policy(request) => request.with_compressed(compressed).map(Self::Policy),
+        }
+    }
+
+    fn proven(self, proof: Proof) -> Result<TierBinding, TransferError> {
+        Ok(match self {
+            Self::Base(_) => TierBinding {
+                proof: to_instruction_proof(proof)?,
+                policy: None,
+                approval_required: false,
+            },
+            Self::Policy(request) => {
+                let PolicyBinding {
+                    proof,
+                    reads,
                     approval_required,
-                    revocation_targets,
-                    kind: PolicyProofKind::Ordinary,
+                } = request.proven(proof)?;
+                TierBinding {
+                    proof,
+                    policy: Some(reads),
+                    approval_required,
                 }
             }
         })
     }
 }
 
-impl TierRequest {
+impl PolicyRequest {
     /// The compressed circuit folds the disclosure after the policy chain.
     fn with_compressed(mut self, compressed: CompressedDisclosure) -> Result<Self, TransferError> {
-        let Self::Policy { request, kind, .. } = &mut self else {
-            return Err(TransferError::CompressedWithoutWindow);
-        };
-        if request.velocity.window_slots == 0 {
+        if self.request.velocity.window_slots == 0 {
             return Err(TransferError::CompressedWithoutWindow);
         }
         use zolana_hasher::{Hasher, Poseidon};
-        request.public_input_hash = Poseidon::hashv(&[
-            &request.public_input_hash,
+        self.request.public_input_hash = Poseidon::hashv(&[
+            &self.request.public_input_hash,
             &compressed.counters_disclosure_hash,
         ])
         .map_err(|_| TransferError::PolicyHashing)?;
-        *kind = PolicyProofKind::Compressed(compressed);
+        self.kind = PolicyProofKind::Compressed(compressed);
         Ok(self)
     }
 
     pub(crate) fn for_delegate(mut self) -> Self {
-        if let Self::Policy { kind, .. } = &mut self {
-            *kind = PolicyProofKind::Delegate;
-        }
+        self.kind = PolicyProofKind::Delegate;
         self
     }
 
-    pub fn proven(self, proof: Proof) -> Result<TierBinding, TransferError> {
-        let proof = to_instruction_proof(proof)?;
-        Ok(match self {
-            Self::Base(_) => TierBinding {
-                proof,
-                entries_tree: None,
-                state_root_index: 0,
-                nullifier_root_index: 0,
-                approval_required: false,
-                revocation_targets: [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
-            },
-            Self::Policy {
-                entries_tree,
-                roots,
-                approval_required,
-                revocation_targets,
-                ..
-            } => TierBinding {
-                proof,
-                entries_tree: Some(entries_tree),
-                state_root_index: roots.state_index,
-                nullifier_root_index: roots.nullifier_index,
-                approval_required,
-                revocation_targets,
-            },
+    pub(crate) fn proven(self, proof: Proof) -> Result<PolicyBinding, TransferError> {
+        Ok(PolicyBinding {
+            proof: to_instruction_proof(proof)?,
+            reads: self.reads,
+            approval_required: self.approval_required,
         })
     }
 }
 
-pub(crate) struct TierBinding {
+pub(crate) struct PolicyBinding {
     pub proof: CustomRingProof,
-    pub entries_tree: Option<Address>,
-    pub state_root_index: u16,
-    pub nullifier_root_index: u16,
+    pub reads: PolicyReads,
     pub approval_required: bool,
-    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
+}
+
+struct TierBinding {
+    proof: CustomRingProof,
+    policy: Option<PolicyReads>,
+    approval_required: bool,
 }
 
 /// Both witnesses built and the auditor encryption closed over the transfer's
@@ -1415,8 +1423,7 @@ struct WitnessedTransfer {
     proof_inputs: SppProofInputs,
     ring_result: RingTransferProofResult,
     payer: Address,
-    input_tree: Address,
-    output_tree: Address,
+    trees: SpendTrees,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     ring: CustomRing,
     cosigner: Option<Address>,
@@ -1435,11 +1442,8 @@ impl WitnessedTransfer {
     ) -> Result<ProvenTransfer, TransferError> {
         let TierBinding {
             proof,
-            entries_tree,
-            state_root_index,
-            nullifier_root_index,
+            policy,
             approval_required,
-            revocation_targets,
         } = self.request.proven(ring_proof)?;
         let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
         Ok(ProvenTransfer {
@@ -1463,15 +1467,11 @@ impl WitnessedTransfer {
             proof,
             owner_signers: self.proof_inputs.owner_signer_pubkeys()?,
             interface_transfer_accounts: self.interface_transfer_accounts,
-            state_root_index,
-            nullifier_root_index,
+            policy,
             cosigner: self.cosigner,
             approval_required,
-            revocation_targets,
             payer: self.payer,
-            input_tree: self.input_tree,
-            output_tree: self.output_tree,
-            entries_tree,
+            trees: self.trees,
             ring: self.ring,
         })
     }
@@ -1482,18 +1482,15 @@ impl ProvenTransfer {
         CustomRingTransact {
             ring: self.ring,
             payer: self.payer,
-            input_tree: self.input_tree,
-            output_tree: self.output_tree,
-            entries_tree: self.entries_tree,
+            input_trees: self.trees.inputs.clone(),
+            output_tree: self.trees.output,
+            policy: self.policy.clone(),
             cosigner: self.cosigner,
             owner_signers: self.owner_signers.clone(),
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
             proof: self.proof,
             transact: self.data.clone(),
-            state_root_index: self.state_root_index,
-            nullifier_root_index: self.nullifier_root_index,
             approval_required: self.approval_required,
-            revocation_targets: self.revocation_targets,
         }
         .instruction()
         .map_err(Into::into)
@@ -1501,11 +1498,8 @@ impl ProvenTransfer {
 }
 
 impl RingDeposit<'_> {
-    pub fn send<R: Rpc>(
-        self,
-        env: DepositProofEnvironment<'_, R>,
-    ) -> Result<RingDepositReceipt, DepositError> {
-        let rpc = env.rpc;
+    /// Fixes the note, every proving attempt deposits the same one.
+    pub fn prepare<R: Rpc>(&self, rpc: &R) -> Result<PreparedRingDeposit, DepositError> {
         let address = self.asset.mint();
         let mint = if address == zolana_transaction::SOL_MINT {
             Mint::SOL
@@ -1547,9 +1541,10 @@ impl RingDeposit<'_> {
             }
             .encrypt(&self.recipient.viewing_pubkey())?,
         };
-        // 1. The on-chain setting selects disclosure proving before any deposit
-        // is sent.
-        let proof = if self.ring.read_deposit_audit(rpc)? {
+        // 1. The deposit setting or key escrow selects disclosure proving
+        // before any deposit is sent.
+        let key_registry = KeyRegistry::of(self.ring, &config);
+        let disclosure = if key_registry.is_some() || self.ring.read_deposit_audit(rpc)? {
             let encryption = DepositSeal {
                 openings: &[DepositOpening {
                     owner_hash,
@@ -1581,60 +1576,34 @@ impl RingDeposit<'_> {
             }
             .hash()
             .map_err(|_| DepositError::Hashing)?;
-            let public_input_hash = custom_ring_interface::DepositPublicInput {
-                context_hash: &context_hash,
-                owner_utxo_hashes: &[deposit.owner_utxo_hash],
-                ciphertexts: &encryption.ciphertexts,
-                auditor_pk: config.auditor_pubkey.as_bytes(),
-                eph_pk: encryption.ephemeral_pk.as_bytes(),
-            }
-            .hash()
-            .map_err(|_| DepositError::Hashing)?;
-            let mut owner_hashes = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
-            owner_hashes[0] = owner_hash;
+            let address = self.recipient.shielded_address()?;
+            let uncompressed = config.auditor_pubkey.to_p256()?.to_encoded_point(false);
+            let mut auditor_uncompressed = [0; 65];
+            auditor_uncompressed.copy_from_slice(uncompressed.as_bytes());
             let mut blindings = Zeroizing::new([[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]);
             blindings[0] = blinding;
-            let uncompressed = config.auditor_pubkey.to_p256()?.to_encoded_point(false);
-            let mut auditor_pk = [0; 65];
-            auditor_pk.copy_from_slice(uncompressed.as_bytes());
-            Some(to_instruction_proof(env.prover.prove(
-                &crate::instructions::deposit_request::RingDepositProofRequest {
-                    public_input_hash: &public_input_hash,
-                    context_hash: &context_hash,
-                    count: 1,
-                    owner_hashes: &owner_hashes,
-                    blindings: &blindings,
-                    ephemeral_sk: &encryption.ephemeral_sk,
-                    auditor_pk: &auditor_pk,
+            Some(DepositDisclosure {
+                context_hash,
+                owner_utxo_hash: deposit.owner_utxo_hash,
+                key: OutputKey {
+                    owner_pk_hash: address.signing_pubkey.owner_proof_input_hash()?,
+                    nullifier_pk: address.nullifier_pubkey,
                 },
-            )?)?)
+                blindings,
+                encryption,
+                auditor: config.auditor_pubkey,
+                auditor_uncompressed,
+                key_registry,
+            })
         } else {
             None
         };
-        let ix = Deposit {
+        Ok(PreparedRingDeposit {
             ring: self.ring,
             tree: self.tree,
             depositor: self.payer.pubkey(),
-            deposits: vec![deposit],
-            proof,
             cosigner: self.cosigner.map(Signer::pubkey),
-            has_policy: config.has_policy,
-        }
-        .instruction()?;
-        let mut signers = vec![self.payer];
-        signers.extend(self.cosigner);
-        let signature = rpc.create_and_send_transaction(
-            core::slice::from_ref(&ix),
-            self.payer.pubkey(),
-            &signers,
-            if proof.is_some() {
-                ComputeBudgetConfig::new(crate::AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT)
-            } else {
-                ComputeBudgetConfig::for_instruction_count(1)
-            },
-        )?;
-        Ok(RingDepositReceipt {
-            signature,
+            deposit,
             utxo: Utxo {
                 owner: self.recipient.signing_pubkey(),
                 asset: mint,
@@ -1643,7 +1612,197 @@ impl RingDeposit<'_> {
                 ring_program_id: Some(self.ring.program_id()),
                 data: Data::default(),
             },
+            disclosure,
         })
+    }
+
+    /// A stale key-registry root re-proves the prepared note under a fresh root.
+    #[cfg(feature = "solana-rpc")]
+    pub fn send<I: Rpc>(
+        self,
+        env: DepositProofEnvironment<'_, I, zolana_client::SolanaRpc>,
+    ) -> Result<RingDepositReceipt, DepositError> {
+        let prepared = self.prepare(env.rpc)?;
+        let utxo = prepared.utxo.clone();
+        let signers: Vec<&dyn Signer> = self.cosigner.into_iter().collect();
+        let status = crate::RingSubmission::new(prepared).send_until_settled(
+            crate::SubmissionEnvironment {
+                indexer: env.indexer,
+                rpc: env.rpc,
+                prover: env.prover,
+                payer: self.payer,
+                signers: &signers,
+            },
+        )?;
+        match status {
+            crate::SettledSubmission::Confirmed { signature, .. } => {
+                Ok(RingDepositReceipt { signature, utxo })
+            }
+            crate::SettledSubmission::Failed { signature, error } => {
+                Err(DepositError::Rejected { signature, error })
+            }
+        }
+    }
+}
+
+/// A deposit whose note and auditor ciphertext are fixed, the proof is not.
+pub struct PreparedRingDeposit {
+    ring: CustomRing,
+    tree: Address,
+    depositor: Address,
+    cosigner: Option<Address>,
+    deposit: RingAssetDeposit,
+    utxo: Utxo,
+    /// `None` for an undisclosed deposit.
+    disclosure: Option<DepositDisclosure>,
+}
+
+struct DepositDisclosure {
+    context_hash: [u8; 32],
+    owner_utxo_hash: [u8; 32],
+    key: OutputKey,
+    blindings: Zeroizing<[[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]>,
+    encryption: DepositEncryption,
+    auditor: P256Pubkey,
+    auditor_uncompressed: [u8; 65],
+    key_registry: Option<KeyRegistry>,
+}
+
+impl PreparedRingDeposit {
+    pub fn utxo(&self) -> &Utxo {
+        &self.utxo
+    }
+
+    pub fn budget(&self) -> ComputeBudgetConfig {
+        match self.disclosure {
+            Some(_) => ComputeBudgetConfig::new(crate::AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT),
+            None => ComputeBudgetConfig::for_instruction_count(1),
+        }
+    }
+
+    pub fn prove<I: Rpc, R: Rpc>(
+        &self,
+        env: DepositProofEnvironment<'_, I, R>,
+    ) -> Result<Instruction, DepositError> {
+        let Some(disclosure) = &self.disclosure else {
+            return self.instruction(None, None);
+        };
+        // An escrowed ring proves the recipient's key is enrolled.
+        let escrow = disclosure
+            .key_registry
+            .map(|registry| {
+                registry.openings(
+                    ReadEnvironment {
+                        indexer: env.indexer,
+                        rpc: env.rpc,
+                    },
+                    &[Some(disclosure.key)],
+                )
+            })
+            .transpose()?;
+        let statement = disclosure.statement(escrow.as_ref())?;
+        let proof = env.prover.prove(&disclosure.request(&statement))?;
+        self.instruction(Some(to_instruction_proof(proof)?), escrow)
+    }
+
+    pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
+        &self,
+        env: AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<Instruction, DepositError> {
+        let Some(disclosure) = &self.disclosure else {
+            return self.instruction(None, None);
+        };
+        let escrow = match disclosure.key_registry {
+            Some(registry) => Some(
+                registry
+                    .openings_async(
+                        ReadEnvironment {
+                            indexer: env.indexer,
+                            rpc: env.rpc,
+                        },
+                        &[Some(disclosure.key)],
+                    )
+                    .await?,
+            ),
+            None => None,
+        };
+        let statement = disclosure.statement(escrow.as_ref())?;
+        let proof = env.prover.prove(&disclosure.request(&statement)).await?;
+        self.instruction(Some(to_instruction_proof(proof)?), escrow)
+    }
+
+    fn instruction(
+        &self,
+        proof: Option<CustomRingProof>,
+        escrow: Option<EscrowedKeys>,
+    ) -> Result<Instruction, DepositError> {
+        Ok(Deposit {
+            ring: self.ring,
+            tree: self.tree,
+            depositor: self.depositor,
+            deposits: vec![self.deposit.clone()],
+            proof,
+            escrow: EscrowBinding::of(escrow.map(|escrow| escrow.root)),
+            cosigner: self.cosigner,
+        }
+        .instruction()?)
+    }
+}
+
+struct DepositStatement {
+    public_input_hash: [u8; 32],
+    owner_pk_hashes: [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+    nullifier_pks: [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+    keys: [Option<RegistryKeyOpening>; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+    key_registry_root: Option<[u8; 32]>,
+}
+
+impl DepositDisclosure {
+    fn statement(&self, escrow: Option<&EscrowedKeys>) -> Result<DepositStatement, DepositError> {
+        let key_registry_root = escrow.map(|escrow| escrow.root.root);
+        let public_input_hash = custom_ring_interface::DepositPublicInput {
+            context_hash: &self.context_hash,
+            owner_utxo_hashes: &[self.owner_utxo_hash],
+            ciphertexts: &self.encryption.ciphertexts,
+            auditor_pk: self.auditor.as_bytes(),
+            eph_pk: self.encryption.ephemeral_pk.as_bytes(),
+            key_registry_root: key_registry_root.as_ref(),
+        }
+        .hash()
+        .map_err(|_| DepositError::Hashing)?;
+        let mut keys = [None; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+        if let Some(escrow) = escrow {
+            keys[..escrow.keys.len()].copy_from_slice(&escrow.keys);
+        }
+        let mut owner_pk_hashes = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+        owner_pk_hashes[0] = self.key.owner_pk_hash;
+        let mut nullifier_pks = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+        nullifier_pks[0] = self.key.nullifier_pk;
+        Ok(DepositStatement {
+            public_input_hash,
+            owner_pk_hashes,
+            nullifier_pks,
+            keys,
+            key_registry_root,
+        })
+    }
+
+    fn request<'a>(
+        &'a self,
+        statement: &'a DepositStatement,
+    ) -> crate::instructions::deposit_request::RingDepositProofRequest<'a> {
+        crate::instructions::deposit_request::RingDepositProofRequest {
+            public_input_hash: &statement.public_input_hash,
+            context_hash: &self.context_hash,
+            count: 1,
+            owner_pk_hashes: &statement.owner_pk_hashes,
+            nullifier_pks: &statement.nullifier_pks,
+            blindings: &self.blindings,
+            keys: &statement.keys,
+            key_registry_root: statement.key_registry_root.as_ref(),
+            ephemeral_sk: &self.encryption.ephemeral_sk,
+            auditor_pk: &self.auditor_uncompressed,
+        }
     }
 }
 
@@ -1656,23 +1815,10 @@ pub async fn tree_id_async<R: AsyncRpc>(rpc: &R, tree: Address) -> Result<u16, T
     Ok(read_tree_state_async(rpc, tree).await?.tree.id)
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct BoundTree {
-    pub address: Address,
-    pub id: u16,
-}
-
 pub(crate) struct TreeState {
     /// Nullifier slots left above the state tree's full capacity, queued ones counted.
     pub dummy_input_headroom: u64,
-    pub tree: BoundTree,
-}
-
-impl TreeState {
-    /// SPP derives the same flag from this tree and the transaction's input count.
-    pub fn allows_dummy_inputs(&self, inputs: &[SppProofInputUtxo]) -> bool {
-        self.dummy_input_headroom >= inputs.len() as u64
-    }
+    pub tree: PoolTree,
 }
 
 pub(crate) fn read_tree_state<R: Rpc>(rpc: &R, tree: Address) -> Result<TreeState, TransferError> {
@@ -1684,6 +1830,101 @@ pub(crate) async fn read_tree_state_async<R: AsyncRpc>(
     tree: Address,
 ) -> Result<TreeState, TransferError> {
     tree_state(rpc.get_account(tree).await?, tree)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SpendTrees {
+    /// One per input group, in the order the inputs name them.
+    pub inputs: Vec<Address>,
+    pub output: Address,
+    /// SPP admits dummy inputs only when every input tree has headroom for its group.
+    pub allow_dummy_inputs: bool,
+}
+
+struct InputGroup {
+    tree: PoolTree,
+    positions: Vec<usize>,
+}
+
+/// Inputs by the tree they name, trees in first-use order.
+fn input_groups(inputs: &[SppProofInputUtxo]) -> Vec<InputGroup> {
+    let mut groups: Vec<InputGroup> = Vec::new();
+    for (position, input) in inputs.iter().enumerate() {
+        match groups
+            .iter_mut()
+            .find(|group| group.tree.id == input.tree_id)
+        {
+            Some(group) => group.positions.push(position),
+            None => groups.push(InputGroup {
+                tree: PoolTree::from_id(input.tree_id),
+                positions: vec![position],
+            }),
+        }
+    }
+    groups
+}
+
+pub(crate) struct SpendTreePlan {
+    groups: Vec<InputGroup>,
+    output: PoolTree,
+}
+
+impl SpendTreePlan {
+    pub fn new(inputs: &[SppProofInputUtxo], output: PoolTree) -> Self {
+        Self {
+            groups: input_groups(inputs),
+            output,
+        }
+    }
+
+    pub fn read<R: Rpc>(self, rpc: &R) -> Result<SpendTrees, TransferError> {
+        let inputs = self
+            .groups
+            .iter()
+            .map(|group| read_tree_state(rpc, group.tree.address))
+            .collect::<Result<Vec<_>, _>>()?;
+        let output = read_tree_state(rpc, self.output.address)?;
+        self.bind(inputs, output)
+    }
+
+    pub async fn read_async<R: AsyncRpc>(self, rpc: &R) -> Result<SpendTrees, TransferError> {
+        let inputs = futures::future::try_join_all(
+            self.groups
+                .iter()
+                .map(|group| read_tree_state_async(rpc, group.tree.address)),
+        )
+        .await?;
+        let output = read_tree_state_async(rpc, self.output.address).await?;
+        self.bind(inputs, output)
+    }
+
+    /// Every UTXO hash commits to its tree id, a tree under another id proves nothing.
+    fn bind(self, inputs: Vec<TreeState>, output: TreeState) -> Result<SpendTrees, TransferError> {
+        for (expected, state) in self
+            .groups
+            .iter()
+            .map(|group| &group.tree)
+            .chain([&self.output])
+            .zip(inputs.iter().chain([&output]))
+        {
+            if state.tree.id != expected.id {
+                return Err(TransferError::TreeIdMismatch {
+                    tree: expected.address,
+                    expected: state.tree.id,
+                    found: expected.id,
+                });
+            }
+        }
+        Ok(SpendTrees {
+            allow_dummy_inputs: self
+                .groups
+                .iter()
+                .zip(&inputs)
+                .all(|(group, state)| state.dummy_input_headroom >= group.positions.len() as u64),
+            inputs: self.groups.iter().map(|group| group.tree.address).collect(),
+            output: self.output.address,
+        })
+    }
 }
 
 /// Reading the state out of a fetched tree account is transport-independent.
@@ -1698,7 +1939,7 @@ fn tree_state(account: Option<Account>, tree: Address) -> Result<TreeState, Tran
     let tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
     Ok(TreeState {
         dummy_input_headroom: tree_account.dummy_input_headroom()?,
-        tree: BoundTree {
+        tree: PoolTree {
             address: tree,
             id: tree_account.tree_id(),
         },
@@ -1817,121 +2058,140 @@ pub(crate) fn frame_dummy_outputs(
 
 pub(crate) struct SpendSet {
     pub inputs: Vec<TransferInputUtxo>,
-    pub allow_dummy_inputs: bool,
+    pub trees: SpendTrees,
 }
 
-/// The two indexer queries one spend set needs.
-///
-/// Named fields rather than a pair of `Vec<[u8; 32]>`: the two have the same
-/// type, so a tuple lets a caller hand the nullifiers to the inclusion query and
-/// the hashes to the non-inclusion one without the compiler noticing.
-struct SpendQueries {
-    /// Hashes of the real spends, whose inclusion in the tree is proved.
+struct SpendGroup {
+    tree: Address,
+    positions: Vec<usize>,
+    /// Hashes of the group's real spends, whose inclusion is proved.
     utxo_hashes: Vec<[u8; 32]>,
-    /// Nullifiers of every spend, real and dummy, whose absence is proved.
+    /// Nullifiers of every spend in the group, real and dummy, whose absence is proved.
     nullifiers: Vec<[u8; 32]>,
+}
+
+struct GroupProofs {
+    states: Vec<MerkleProof>,
+    non_inclusions: Vec<NonInclusionProof>,
 }
 
 #[must_use = "use the updated transfer"]
 pub(crate) struct RingSpendInputs<'a, I> {
     pub indexer: &'a I,
-    pub tree: Address,
     pub input_utxos: &'a [SppProofInputUtxo],
 }
 
-impl<'a, I> RingSpendInputs<'a, I> {
-    /// The hashes to prove inclusion for, and the nullifiers to prove absence
-    /// of. Independent of transport.
-    fn queries(&self) -> SpendQueries {
-        let utxo_hashes = self
-            .input_utxos
-            .iter()
-            .filter(|input_utxo| !input_utxo.is_dummy())
-            .map(SppProofInputUtxo::hash)
-            .collect::<Vec<_>>();
-        let nullifiers = self
-            .input_utxos
-            .iter()
-            .map(SppProofInputUtxo::nullifier)
-            .collect::<Vec<_>>();
-        SpendQueries {
-            utxo_hashes,
-            nullifiers,
-        }
+impl<I> RingSpendInputs<'_, I> {
+    fn groups(&self) -> Vec<SpendGroup> {
+        input_groups(self.input_utxos)
+            .into_iter()
+            .map(|group| {
+                let inputs = group
+                    .positions
+                    .iter()
+                    .map(|&position| &self.input_utxos[position]);
+                SpendGroup {
+                    tree: group.tree.address,
+                    utxo_hashes: inputs
+                        .clone()
+                        .filter(|input_utxo| !input_utxo.is_dummy())
+                        .map(SppProofInputUtxo::hash)
+                        .collect(),
+                    nullifiers: inputs.map(SppProofInputUtxo::nullifier).collect(),
+                    positions: group.positions,
+                }
+            })
+            .collect()
     }
 }
 
 impl<I: AsyncRpc> RingSpendInputs<'_, I> {
     pub async fn load_async(self) -> Result<Vec<TransferInputUtxo>, TransferError> {
-        let SpendQueries {
-            utxo_hashes,
-            nullifiers,
-        } = self.queries();
-        let states = self
-            .indexer
-            .get_merkle_proofs(self.tree, utxo_hashes, None)
-            .await?
-            .proofs;
-        let non_inclusions = self
-            .indexer
-            .get_non_inclusion_proofs(self.tree, nullifiers, None)
-            .await?
-            .proofs;
-        self.assemble(states, non_inclusions)
+        let groups = self.groups();
+        let proofs = futures::future::try_join_all(groups.iter().map(|group| async {
+            let (states, non_inclusions) = futures::try_join!(
+                self.indexer
+                    .get_merkle_proofs(group.tree, group.utxo_hashes.clone(), None),
+                self.indexer
+                    .get_non_inclusion_proofs(group.tree, group.nullifiers.clone(), None),
+            )?;
+            Ok::<_, ClientError>(GroupProofs {
+                states: states.proofs,
+                non_inclusions: non_inclusions.proofs,
+            })
+        }))
+        .await?;
+        self.assemble(&groups, proofs)
     }
 }
 
 impl<I: Rpc> RingSpendInputs<'_, I> {
     pub fn load(self) -> Result<Vec<TransferInputUtxo>, TransferError> {
-        let SpendQueries {
-            utxo_hashes,
-            nullifiers,
-        } = self.queries();
-        let states = self
-            .indexer
-            .get_merkle_proofs(self.tree, utxo_hashes, None)?
-            .proofs;
-        let non_inclusions = self
-            .indexer
-            .get_non_inclusion_proofs(self.tree, nullifiers, None)?
-            .proofs;
-        self.assemble(states, non_inclusions)
+        let groups = self.groups();
+        let proofs = groups
+            .iter()
+            .map(|group| {
+                Ok(GroupProofs {
+                    states: self
+                        .indexer
+                        .get_merkle_proofs(group.tree, group.utxo_hashes.clone(), None)?
+                        .proofs,
+                    non_inclusions: self
+                        .indexer
+                        .get_non_inclusion_proofs(group.tree, group.nullifiers.clone(), None)?
+                        .proofs,
+                })
+            })
+            .collect::<Result<Vec<_>, ClientError>>()?;
+        self.assemble(&groups, proofs)
     }
 }
 
 impl<I> RingSpendInputs<'_, I> {
-    /// Pairs each spend with its proofs. Both transports share this.
+    /// Pairs each spend with its tree's proofs, in the caller's input order.
     fn assemble(
         self,
-        states: Vec<MerkleProof>,
-        non_inclusions: Vec<NonInclusionProof>,
+        groups: &[SpendGroup],
+        proofs: Vec<GroupProofs>,
     ) -> Result<Vec<TransferInputUtxo>, TransferError> {
-        let real_count = self
-            .input_utxos
-            .iter()
-            .filter(|input_utxo| !input_utxo.is_dummy())
-            .count();
-        if states.len() != real_count || non_inclusions.len() != self.input_utxos.len() {
+        if proofs.len() != groups.len() {
             return Err(TransferError::IncompleteProofSet);
         }
-        let mut states = states.into_iter();
-        self.input_utxos
-            .iter()
-            .zip(non_inclusions)
-            .map(|(input_utxo, nullifier)| {
+        let mut placed = Vec::with_capacity(self.input_utxos.len());
+        for (
+            group,
+            GroupProofs {
+                states,
+                non_inclusions,
+            },
+        ) in groups.iter().zip(proofs)
+        {
+            if states.len() != group.utxo_hashes.len()
+                || non_inclusions.len() != group.positions.len()
+            {
+                return Err(TransferError::IncompleteProofSet);
+            }
+            let mut states = states.into_iter();
+            for (&position, nullifier) in group.positions.iter().zip(non_inclusions) {
+                let input_utxo = &self.input_utxos[position];
                 let (proof, nullifier_proof) = if input_utxo.is_dummy() {
                     (None, Some(nullifier))
                 } else {
                     let state = states.next().ok_or(TransferError::IncompleteProofSet)?;
                     (Some(SpendProof { state, nullifier }), None)
                 };
-                Ok(TransferInputUtxo {
-                    utxo: input_utxo.clone(),
-                    proof,
-                    nullifier_proof,
-                })
-            })
-            .collect()
+                placed.push((
+                    position,
+                    TransferInputUtxo {
+                        utxo: input_utxo.clone(),
+                        proof,
+                        nullifier_proof,
+                    },
+                ));
+            }
+        }
+        placed.sort_unstable_by_key(|(position, _)| *position);
+        Ok(placed.into_iter().map(|(_, input)| input).collect())
     }
 }
 
@@ -2041,16 +2301,222 @@ mod tests {
             root_seq: 1,
             root_index: 0,
         };
-        let inputs = RingSpendInputs {
+        let spends = RingSpendInputs {
             indexer: &(),
-            tree: Address::default(),
             input_utxos: &input_utxos,
-        }
-        .assemble(vec![merkle], vec![non_inclusion])
-        .expect("one real input_utxo pairs with its proofs");
+        };
+        let groups = spends.groups();
+        let inputs = spends
+            .assemble(
+                &groups,
+                vec![GroupProofs {
+                    states: vec![merkle],
+                    non_inclusions: vec![non_inclusion],
+                }],
+            )
+            .expect("one real input_utxo pairs with its proofs");
         let input = inputs.first().expect("one assembled input_utxo");
         assert_eq!(input.utxo.data_hash, Some([7u8; 32]));
         assert_eq!(input.utxo.ring_data_hash, Some([8u8; 32]));
+    }
+
+    fn spend(tree_id: u16, amount: u64) -> SppProofInputUtxo {
+        let owner = ShieldedKeypair::new_ed25519().expect("owner");
+        zolana_test_utils::utxo::wallet(
+            Utxo {
+                owner: owner.signing_pubkey(),
+                asset: Mint::SOL,
+                amount,
+                blinding: random_blinding(),
+                ring_program_id: Some(ring().program_id()),
+                data: Data::default(),
+            },
+            &owner.nullifier_key,
+            tree_id,
+            amount,
+            None,
+            None,
+        )
+        .expect("input")
+        .into()
+    }
+
+    fn state_proof(leaf: [u8; 32]) -> MerkleProof {
+        MerkleProof {
+            leaf,
+            merkle_context: MerkleContext {
+                tree_type: 0,
+                tree: Address::default(),
+            },
+            path: vec![[0u8; 32]; 32],
+            leaf_index: 0,
+            root: [3u8; 32],
+            root_seq: 1,
+            root_index: 0,
+        }
+    }
+
+    fn absence_proof(leaf: [u8; 32]) -> NonInclusionProof {
+        NonInclusionProof {
+            leaf,
+            merkle_context: MerkleContext {
+                tree_type: 1,
+                tree: Address::default(),
+            },
+            path: vec![[0u8; 32]; 40],
+            low_element: [5u8; 32],
+            low_element_index: 0,
+            high_element: [6u8; 32],
+            high_element_index: 1,
+            root: [9u8; 32],
+            root_seq: 1,
+            root_index: 0,
+        }
+    }
+
+    /// Each tree answers for its own group, the proofs return in input order.
+    #[test]
+    fn spends_in_two_trees_fetch_per_tree_and_keep_their_order() {
+        let mut inputs = [spend(4, 1), spend(4, 2), spend(9, 3), spend(9, 4)];
+        inputs[3] = SppProofInputUtxo::dummy(9).expect("dummy");
+        let spends = RingSpendInputs {
+            indexer: &(),
+            input_utxos: &inputs,
+        };
+        let groups = spends.groups();
+        assert_eq!(
+            groups.iter().map(|group| group.tree).collect::<Vec<_>>(),
+            vec![
+                zolana_interface::pda::tree(4),
+                zolana_interface::pda::tree(9)
+            ]
+        );
+        assert_eq!(groups[1].positions, vec![2, 3]);
+        assert_eq!(groups[1].utxo_hashes, vec![inputs[2].hash()]);
+        assert_eq!(groups[1].nullifiers.len(), 2);
+        let proofs = groups
+            .iter()
+            .map(|group| GroupProofs {
+                states: group.utxo_hashes.iter().copied().map(state_proof).collect(),
+                non_inclusions: group
+                    .nullifiers
+                    .iter()
+                    .copied()
+                    .map(absence_proof)
+                    .collect(),
+            })
+            .collect();
+        let assembled = spends.assemble(&groups, proofs).expect("assembled");
+        for (input, assembled) in inputs.iter().zip(&assembled) {
+            let nullifier = match (&assembled.proof, &assembled.nullifier_proof) {
+                (Some(proof), None) => proof.nullifier.leaf,
+                (None, Some(proof)) => proof.leaf,
+                _ => panic!("a spend carries exactly one proof kind"),
+            };
+            assert_eq!(nullifier, input.nullifier());
+        }
+    }
+
+    #[test]
+    fn spend_trees_allow_dummies_only_when_every_group_has_headroom() {
+        let inputs = [spend(4, 1), spend(9, 2), spend(9, 3)];
+        let state = |id: u16, headroom: u64| TreeState {
+            dummy_input_headroom: headroom,
+            tree: PoolTree::from_id(id),
+        };
+        let plan = || SpendTreePlan::new(&inputs, PoolTree::from_id(4));
+        let trees = plan()
+            .bind(vec![state(4, 1), state(9, 2)], state(4, 0))
+            .expect("bound");
+        assert_eq!(
+            trees.inputs,
+            vec![PoolTree::from_id(4).address, PoolTree::from_id(9).address]
+        );
+        assert!(trees.allow_dummy_inputs);
+        assert!(
+            !plan()
+                .bind(vec![state(4, 1), state(9, 1)], state(4, 0))
+                .expect("bound")
+                .allow_dummy_inputs
+        );
+        assert!(matches!(
+            plan().bind(vec![state(4, 1), state(8, 2)], state(4, 0)),
+            Err(TransferError::TreeIdMismatch { found: 9, .. })
+        ));
+    }
+
+    /// Input tree ids after money padding, one record padding slot and the record.
+    fn record_input_trees(
+        spend_trees: &[u16],
+        record_tree: u16,
+    ) -> Result<Vec<u16>, TransferError> {
+        let sender = ShieldedKeypair::new_ed25519().expect("sender");
+        let inputs = spend_trees
+            .iter()
+            .enumerate()
+            .map(|(leaf_index, &tree_id)| {
+                zolana_test_utils::utxo::wallet(
+                    Utxo {
+                        owner: sender.signing_pubkey(),
+                        asset: Mint::SOL,
+                        amount: 1,
+                        blinding: random_blinding(),
+                        ring_program_id: None,
+                        data: Data::default(),
+                    },
+                    &sender.nullifier_key,
+                    tree_id,
+                    leaf_index as u64,
+                    None,
+                    None,
+                )
+                .expect("input")
+            })
+            .collect();
+        let mut transaction =
+            ConfidentialTransaction::new(inputs, solana_signer::Signer::pubkey(&sender))
+                .expect("transaction");
+        transaction
+            .transfer_sol(&sender.shielded_address().expect("address"), 1)
+            .expect("transfer");
+        order_record_tree_last(&mut transaction, record_tree)?;
+        let proof_inputs = transaction.encrypt(&sender).expect("encrypted");
+        assert!(!proof_inputs.input_utxos[0].is_dummy());
+        let padding_tree = record_padding_tree(&proof_inputs.input_utxos)?;
+        let trees: Vec<u16> = proof_inputs
+            .input_utxos
+            .iter()
+            .map(|input| input.tree_id)
+            .chain([padding_tree, record_tree])
+            .collect();
+        zolana_transaction::instructions::transact::validate_input_tree_order(
+            trees.iter().copied(),
+        )?;
+        Ok(trees)
+    }
+
+    #[test]
+    fn a_record_in_the_first_spend_tree_moves_that_run_last() {
+        assert_eq!(
+            record_input_trees(&[4, 9], 4).expect("ordered"),
+            vec![9, 4, 4, 4]
+        );
+    }
+
+    #[test]
+    fn a_record_in_a_new_tree_runs_alone_after_the_padded_spends() {
+        assert_eq!(record_input_trees(&[4], 9).expect("ordered"), vec![4, 4, 9]);
+    }
+
+    #[test]
+    fn a_record_tree_past_the_input_tree_limit_is_refused() {
+        let full: Vec<u16> = (1..=MAX_INPUT_TREES as u16).collect();
+        assert!(record_input_trees(&full, 1).is_ok());
+        assert!(matches!(
+            record_input_trees(&full, 99),
+            Err(TransferError::Transaction(TransactionError::TooManyInputTrees { got, max }))
+                if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
+        ));
     }
 
     fn prepared_transfer(amount: u64) -> (ShieldedKeypair, ConfidentialTransaction) {

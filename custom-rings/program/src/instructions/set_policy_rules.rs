@@ -35,9 +35,9 @@ pub fn process_set_policy_rules_ix(
         program_data,
     }
     .verify()?;
-    let (entries_tree, old_window_slots) = {
+    let (address_tree, old_window_slots) = {
         let config = load_policy_config(program_id, policy_config)?;
-        (config.entries_tree, config.rules.window_slots())
+        (config.address_tree, config.rules.window_slots())
     };
 
     let (own_namespace, _) = namespace_pda(program_id)?;
@@ -45,7 +45,7 @@ pub fn process_set_policy_rules_ix(
         table: &ix,
         curators,
         own_namespace: &own_namespace,
-        entries_tree: &entries_tree,
+        address_tree: &address_tree,
     }
     .bind()?;
 

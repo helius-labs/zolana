@@ -202,6 +202,27 @@ impl ConfidentialTransaction {
         })
     }
 
+    /// Stable within each run, the first nullifier follows the new order.
+    pub fn move_input_tree_last(&mut self, tree_id: u16) -> Result<&mut Self, TransactionError> {
+        if !self.input_tree_ids.contains(&tree_id) || self.input_tree_ids.last() == Some(&tree_id) {
+            return Ok(self);
+        }
+        if self.padded_inputs.is_some() {
+            return Err(TransactionError::OutputUtxosAlreadyPadded);
+        }
+        let (mut inputs, run): (Vec<_>, Vec<_>) = self
+            .inputs
+            .iter()
+            .cloned()
+            .partition(|input| input.tree_id != tree_id);
+        inputs.extend(run);
+        let reordered = Self::new(inputs, self.payer)?;
+        self.inputs = reordered.inputs;
+        self.first_nullifier = reordered.first_nullifier;
+        self.input_tree_ids = reordered.input_tree_ids;
+        Ok(self)
+    }
+
     /// Transfer SPL tokens to a recipient shielded address.
     ///
     /// A transfer means to create a new UTXO for the recipient, an output UTXO.

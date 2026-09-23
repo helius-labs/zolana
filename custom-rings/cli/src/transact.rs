@@ -270,7 +270,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
         ),
     }
     .load(ctx)?;
-    let tree = transfer_tree(rules.as_ref());
+    let tree = pda::tree(0);
     let session = Session::open(ctx, if mint == SOL_MINT { args.amount } else { 0 })?;
     // The recipient takes the whole amount, so the two deposits split it.
     let half = args.amount / 2;
@@ -426,7 +426,7 @@ impl DemoTransfer<'_> {
             deposits: [self.amount; 2],
             recipient: recipient.shielded_address()?,
             amount: self.amount,
-            tree: transfer_tree(self.rules),
+            tree: pda::tree(0),
             asset: DepositAsset::Sol,
             cosigner: self.cosigner,
             rules: self.rules,
@@ -477,6 +477,7 @@ impl<'a> RingTransfer<'a> {
                 cosigner: self.cosigner,
             }
             .send(DepositProofEnvironment {
+                indexer: env.indexer,
                 rpc: env.rpc,
                 prover: env.prover,
             })?;
@@ -631,8 +632,7 @@ impl Deposited<'_> {
             sender: &sender,
             nullifier_key: Some(&sender.nullifier_key),
             transaction: transfer,
-        })
-        .with_tree(this.tree);
+        });
         if let Some(cosigner) = this.cosigner {
             transfer = transfer.with_cosigner(cosigner.pubkey());
         }
@@ -666,14 +666,6 @@ impl RingRules {
 
     fn windowed(&self) -> bool {
         self.rules.window_slots() != 0
-    }
-}
-
-/// A windowed ring spends from its entries tree, every other from tree 0.
-fn transfer_tree(rules: Option<&RingRules>) -> Address {
-    match rules {
-        Some(rules) if rules.windowed() => rules.config.entries_tree,
-        _ => pda::tree(0),
     }
 }
 

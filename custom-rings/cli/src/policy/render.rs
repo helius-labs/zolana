@@ -15,11 +15,11 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     } else {
         "\n# Every rule below must hold, `zolana-ring policy set` replaces them on a live ring.\n"
     });
-    policy.insert("entries_tree", value(spec.entries_tree().to_string()));
+    policy.insert("address_tree", value(spec.address_tree().to_string()));
     comment(
         &mut policy,
-        "entries_tree",
-        "every entry the rules read lives in the named tree",
+        "address_tree",
+        "entry and spend record addresses are claimed in the named tree",
     );
     let mut sources = Table::new();
     sources.set_implicit(true);
@@ -186,7 +186,7 @@ mod tests {
     fn the_rendered_table_carries_a_comment_per_rule_and_per_source_and_reads_back() {
         let spec: PolicySpec = toml::from_str(&format!(
             r#"
-entries_tree = "{CURATOR}"
+address_tree = "{CURATOR}"
 
 [sources.devnet]
 block = "{CURATOR}"
@@ -208,7 +208,7 @@ above = 1000000
         .expect("parses");
         let text = document(&spec);
         for expected in [
-            "# every entry the rules read lives in the named tree\nentries_tree = ",
+            "# entry and spend record addresses are claimed in the named tree\naddress_tree = ",
             "[policy.sources.devnet]\n# the block list reads the entries of the named curator ring\nblock = ",
             "# each output owner must be on the approval list or must not be on the block list\n[[policy.rules]]\nsubject = \"output-owner\"\nany = [{ forbid = \"block\" }, { require = \"approval\" }]\n",
             "# each asset must be one of the listed assets\n[[policy.rules]]\nsubject = \"asset\"\nassets = [",
@@ -242,7 +242,7 @@ above = 1000000
         let text = document(&PolicySpec::default());
         assert!(
             text.contains(
-                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n# every entry the rules read lives in the named tree\nentries_tree = "
+                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n# entry and spend record addresses are claimed in the named tree\naddress_tree = "
             ),
             "{text}"
         );

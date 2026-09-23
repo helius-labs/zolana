@@ -189,12 +189,13 @@ mod tests {
             ciphertexts: &sealed.ciphertexts,
             auditor_pk: auditor.pubkey().as_bytes(),
             eph_pk: sealed.ephemeral_pk.as_bytes(),
+            key_registry_root: None,
         }
         .hash()
         .unwrap();
         assert_eq!(
             hex::encode(public_hash),
-            "04e0d6b0aceea6193897ffaf36076003b2d2257615b18a67c85a83a61218fa01"
+            "0bc3f76e72b6d6bd1a557447da49e445dafb11e6d9168005742013130b45e030"
         );
     }
 

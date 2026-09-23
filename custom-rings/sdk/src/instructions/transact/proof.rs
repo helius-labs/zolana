@@ -174,6 +174,8 @@ impl PendingCustomRingProof {
             .map(ProofInputUtxo::hash)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| CustomRingProofInputError::Hashing)?;
+        let tree_slots = witness.tree_slots();
+        let key_registry_root = witness.key_registry_root.map(|registry| registry.root);
         let public_input_hash = custom_ring_interface::CustomRingPolicyPublicInput {
             audit: CustomRingBasePublicInput {
                 private_tx_hash: private_tx_hash.as_ref(),
@@ -186,13 +188,14 @@ impl PendingCustomRingProof {
                 disclosure: message.disclosure(),
             },
             policy_hash,
-            state_root: &witness.roots.state,
-            nullifier_root: &witness.roots.nullifier,
-            entries_tree_id: witness.entries_tree_id,
+            tree_slots: &tree_slots,
+            address_tree_id: witness.address_tree_id,
             ring_id: &witness.velocity.ring_id,
             namespace_owner_hash: &witness.velocity.namespace_owner_hash,
             window_index: witness.velocity.window_index,
             approval_required: witness.velocity.approval_required,
+            key_registry_root: key_registry_root.as_ref(),
+            revocation_tree_indexes: &witness.revocation_tree_indexes,
             revocation_targets: &witness.revocation_targets,
         }
         .hash()
@@ -225,9 +228,9 @@ impl PendingCustomRingProof {
                 inline_assets: witness.inline_assets,
                 inline_limits: witness.inline_limits,
                 inline_count: witness.inline_count,
-                state_root: witness.roots.state,
-                nullifier_root: witness.roots.nullifier,
-                entries_tree_id: witness.entries_tree_id,
+                tree_slots,
+                address_tree_id: witness.address_tree_id,
+                key_registry_root,
                 velocity: witness.velocity,
                 answers: witness.answers,
             },
@@ -314,15 +317,19 @@ pub fn to_plain_proof(proof: Proof) -> Result<PlainGroth16Proof, CustomRingProof
 mod tests {
     use super::super::{CustomRingOpening, RingIdentity, SourceOwnerEntry, VelocityProofInput};
     use super::*;
-    use crate::witness::{CustomRingWitness, TransactRoots};
+    use crate::witness::{CustomRingWitness, PolicyTree, TransactRoots};
+    use crate::{IndexedMapRoot, PoolTree};
     use custom_ring_interface::CustomRingPolicyPublicInput;
+    use zolana_interface::tree_slot::TreeSlot;
     use zolana_ring_policy::{
-        MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
+        ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS,
+        POLICY_OUTPUT_SLOTS,
     };
 
     /// The `go_vectors.rs` fixture scalars, valid P-256 keys below the group order.
     const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
     const AUDITOR_SK: &str = "01323130373635343b3a39383f3e3d3c23222120272625242b2a29282f2e2d2c";
+    const REGISTRY_ROOT: [u8; 32] = [12u8; 32];
 
     fn key(hex_str: &str) -> ViewingKey {
         let bytes: [u8; 32] = hex::decode(hex_str)
@@ -332,15 +339,28 @@ mod tests {
         ViewingKey::from_bytes(&bytes).expect("valid P-256 scalar")
     }
 
-    fn witness(state: [u8; 32], nullifier: [u8; 32]) -> CustomRingWitness {
-        CustomRingWitness {
-            entries_tree_id: 0,
+    fn tree(id: u16, root: u8) -> PolicyTree {
+        PolicyTree {
+            tree: PoolTree::from_id(id),
             roots: TransactRoots {
-                state,
-                state_index: 0,
-                nullifier,
-                nullifier_index: 0,
+                state: [root; 32],
+                state_index: 1,
+                nullifier: [root + 1; 32],
+                nullifier_index: 2,
             },
+        }
+    }
+
+    /// Fact 1 reads the second tree, the registry root is the history slot 3 root.
+    fn witness() -> CustomRingWitness {
+        let mut revocation_targets = [[0u8; 32]; ANSWER_SLOTS];
+        revocation_targets[0] = [0x21; 32];
+        revocation_targets[1] = [0x22; 32];
+        let mut revocation_tree_indexes = [0u8; ANSWER_SLOTS];
+        revocation_tree_indexes[1] = 1;
+        CustomRingWitness {
+            trees: vec![tree(0, 7), tree(4, 9)],
+            address_tree_id: 0,
             sources: [SourceOwnerEntry::default(); MAX_SOURCES],
             inputs: [CustomRingOpening::default(); POLICY_INPUT_SLOTS],
             outputs: [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS],
@@ -351,18 +371,22 @@ mod tests {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
-            revocation_targets: [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
+            revocation_targets,
+            revocation_tree_indexes,
             velocity: VelocityProofInput::off(RingIdentity {
                 ring_id: [10u8; 32],
                 namespace_owner_hash: [11u8; 32],
             }),
             answers: Vec::new(),
+            key_registry_root: Some(IndexedMapRoot {
+                root: REGISTRY_ROOT,
+                next_index: 2,
+                history_index: 3,
+            }),
         }
     }
 
-    /// finish must fold the finish-side private_tx_hash, the witness roots, the
-    /// policy hash, and the published ciphertext into the one public input the
-    /// program recomputes on chain.
+    /// The public input binds every tree slot, the per-fact tree indexes and the registry root.
     #[test]
     fn finish_binds_the_public_input_the_program_recomputes() {
         let tx_key = key(TX_SK);
@@ -381,21 +405,26 @@ mod tests {
 
         let mut private_tx_hash = [0u8; 32];
         private_tx_hash[29..].copy_from_slice(&[0xab, 0xcd, 0xef]);
-        let state = [7u8; 32];
-        let nullifier = [9u8; 32];
         let policy_hash = [4u8; 32];
         let external_data_hash = [5u8; 32];
+        let witness = witness();
+        let revocation_targets = witness.revocation_targets;
+        let revocation_tree_indexes = witness.revocation_tree_indexes;
 
         let request = pending
             .finish(
                 CustomRingPrivateTxHash::try_from(private_tx_hash).expect("below the modulus"),
                 &external_data_hash,
                 &[0u8; 32],
-                witness(state, nullifier),
+                witness,
                 &policy_hash,
             )
             .expect("finish");
 
+        let slots = [
+            TreeSlot::new(0, [7u8; 32], [8u8; 32]),
+            TreeSlot::new(4, [9u8; 32], [10u8; 32]),
+        ];
         let expected = CustomRingPolicyPublicInput {
             audit: CustomRingBasePublicInput {
                 private_tx_hash: &private_tx_hash,
@@ -408,21 +437,22 @@ mod tests {
                 disclosure: message.disclosure(),
             },
             policy_hash: &policy_hash,
-            state_root: &state,
-            nullifier_root: &nullifier,
-            entries_tree_id: 0,
+            tree_slots: &slots,
+            address_tree_id: 0,
             ring_id: &[10u8; 32],
             namespace_owner_hash: &[11u8; 32],
             window_index: 0,
             approval_required: false,
-            revocation_targets: &[[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
+            key_registry_root: Some(&REGISTRY_ROOT),
+            revocation_tree_indexes: &revocation_tree_indexes,
+            revocation_targets: &revocation_targets,
         }
         .hash()
         .expect("public input hash");
 
         assert_eq!(request.public_input_hash, expected);
         assert_eq!(request.private_tx_hash, private_tx_hash);
-        assert_eq!(request.state_root, state);
-        assert_eq!(request.nullifier_root, nullifier);
+        assert_eq!(request.tree_slots, slots);
+        assert_eq!(request.key_registry_root, Some(REGISTRY_ROOT));
     }
 }

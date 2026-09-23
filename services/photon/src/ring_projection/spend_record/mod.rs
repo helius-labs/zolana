@@ -6,6 +6,7 @@ use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, QueryResult, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
+use solana_pubkey::Pubkey;
 use solana_signature::{Signature, SIGNATURE_BYTES};
 use zolana_indexer_api::{
     GetRingSpendRecordResponse, RingSpendRecord, RingSpendRecordRequest, SerializableSignature,
@@ -371,11 +372,15 @@ impl SpendStore<'_, DatabaseTransaction> {
             }
         };
         let policy = env.policy(&invocation.instruction.program_id).await?;
+        let output_tree_id = env
+            .tree_id(&Pubkey::new_from_array(event.output_tree))
+            .await?;
         let successor = parser::Reconstruction {
             invocation,
             rail,
             event: &event,
             policy: &policy,
+            output_tree_id,
         }
         .reconstruct()
         .map_err(invalid)?;

@@ -14,23 +14,23 @@
       "source": "release"
     },
     "custom_ring_compressed_policy.key": {
-      "sha256": "9e703e9b393da12a4543e2d338c7d39750ff6d0a5676023673f0fb05c3dabe35",
-      "size": 501846574,
+      "sha256": "bba441c5d149f6e7291dcab85022b18d8c68ab2017474017dc2fd833eb81ebc3",
+      "size": 514238009,
       "source": "release"
     },
     "custom_ring_delegate_policy.key": {
-      "sha256": "86c6475192ea41fd943a4ee5606955d42412d4d64e24d3b54c951c235374e310",
-      "size": 147989781,
+      "sha256": "922288c3dbff7bb5d7b5af91c84c223c33809668ecce87f01a02be4beaac1a06",
+      "size": 177034333,
       "source": "release"
     },
     "custom_ring_deposit.key": {
-      "sha256": "493552655b8697c7a02f8d4201512e1d00411eac77c789639cff480536c44f62",
-      "size": 189441064,
+      "sha256": "3a385a554a49c25d1eea8e3f5368874347ccb7c457512b5f0fe42ec519c498ad",
+      "size": 213136902,
       "source": "release"
     },
     "custom_ring_policy.key": {
-      "sha256": "bb774627f05abcd22e7850adc263424660fb58096d79dd66de08725f684a3145",
-      "size": 167983529,
+      "sha256": "b73e9883cac61948add911295fbaf36856020d9b77293b9da3981f9d1c25b011",
+      "size": 180247444,
       "source": "release"
     },
     "custom_ring_register_key.key": {

@@ -24,6 +24,8 @@ pub struct LiveSpendRecord {
     pub record: SpendRecord,
     pub utxo_hash: [u8; 32],
     pub nullifier: [u8; 32],
+    /// Its leaf hashes under the id of the tree it landed in.
+    pub tree_id: u16,
     pub leaf_index: u64,
     pub origin: RecordOrigin,
 }
@@ -44,8 +46,7 @@ impl<I, R> Copy for ReadEnvironment<'_, I, R> {}
 #[must_use]
 pub struct ReadSpendRecord {
     pub ring: CustomRing,
-    pub entries_tree: Address,
-    pub entries_tree_id: u16,
+    pub address_tree_id: u16,
     pub member: Member,
 }
 
@@ -59,7 +60,7 @@ impl ReadSpendRecord {
             return Ok(None);
         };
         let live = self.decode_current(record)?;
-        let spent = env.rpc.get_account(self.nullifier_pda(&live))?;
+        let spent = env.rpc.get_account(Self::nullifier_pda(&live))?;
         live_unless_spent(live, spent)
     }
 
@@ -76,22 +77,22 @@ impl ReadSpendRecord {
             return Ok(None);
         };
         let live = self.decode_current(record)?;
-        let spent = env.rpc.get_account(self.nullifier_pda(&live)).await?;
+        let spent = env.rpc.get_account(Self::nullifier_pda(&live)).await?;
         live_unless_spent(live, spent)
     }
 
-    fn nullifier_pda(&self, live: &LiveSpendRecord) -> Address {
-        zolana_interface::pda::nullifier_pda(&self.entries_tree, &live.nullifier).0
+    fn nullifier_pda(live: &LiveSpendRecord) -> Address {
+        zolana_interface::pda::nullifier_pda(
+            &zolana_interface::pda::tree(live.tree_id),
+            &live.nullifier,
+        )
+        .0
     }
 
     /// Unauthenticated history, unsuitable for transfer preparation.
     pub fn read<I: Rpc>(self, indexer: &I) -> Result<Option<LiveSpendRecord>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages {
-            entries_tree: self.entries_tree,
-            lookups: &[lookup],
-        }
-        .fetch(indexer)?;
+        let lineages = Lineages { lookups: &[lookup] }.fetch(indexer)?;
         Ok(lineages.into_iter().next().flatten())
     }
 
@@ -100,12 +101,7 @@ impl ReadSpendRecord {
         indexer: &I,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
         let lookup = self.lookup()?;
-        let lineages = Lineages {
-            entries_tree: self.entries_tree,
-            lookups: &[lookup],
-        }
-        .fetch_async(indexer)
-        .await?;
+        let lineages = Lineages { lookups: &[lookup] }.fetch_async(indexer).await?;
         Ok(lineages.into_iter().next().flatten())
     }
 
@@ -122,9 +118,6 @@ impl ReadSpendRecord {
         let slot = transaction
             .output_slots
             .get(usize::from(record.output_index))
-            .filter(|slot| {
-                zolana_interface::pda::tree(slot.output_context.tree_id) == self.entries_tree
-            })
             .ok_or(EntryProofError::InvalidSpendRecord)?;
         let lookup = self.lookup()?;
         lookup
@@ -144,7 +137,7 @@ impl ReadSpendRecord {
         Ok(SpendLookup {
             owner,
             member: self.member,
-            tree_id: self.entries_tree_id,
+            address_tree_id: self.address_tree_id,
         })
     }
 }
@@ -153,7 +146,7 @@ impl ReadSpendRecord {
 pub(crate) struct SpendLookup {
     pub owner: ListNamespace,
     pub member: Member,
-    pub tree_id: u16,
+    pub address_tree_id: u16,
 }
 
 impl LineageLookup for SpendLookup {
@@ -161,7 +154,7 @@ impl LineageLookup for SpendLookup {
 
     fn address(&self) -> Result<[u8; 32], EntryProofError> {
         self.owner
-            .spend_address(&self.member, self.tree_id)
+            .spend_address(&self.member, self.address_tree_id)
             .map_err(|_| EntryProofError::Hashing)
     }
 
@@ -176,7 +169,8 @@ impl LineageLookup for SpendLookup {
         if record.member != self.member {
             return None;
         }
-        let utxo_hash = record.utxo_hash(&self.owner, address, self.tree_id).ok()?;
+        let tree_id = slot.output_context.tree_id;
+        let utxo_hash = record.utxo_hash(&self.owner, address, tree_id).ok()?;
         if utxo_hash != slot.output_context.hash {
             return None;
         }
@@ -185,6 +179,7 @@ impl LineageLookup for SpendLookup {
             record,
             utxo_hash,
             nullifier,
+            tree_id,
             leaf_index: slot.output_context.leaf_index,
             origin: RecordOrigin {
                 first_nullifier: transaction.nullifiers.first().copied()?,
@@ -234,9 +229,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::instructions::entry::discovery::tests::{tree, NullifierRpc};
+    use crate::instructions::entry::discovery::tests::NullifierRpc;
 
-    const ENTRIES_TREE_ID: u16 = 7;
+    const ADDRESS_TREE_ID: u16 = 7;
+    const SECOND_TREE_ID: u16 = 9;
 
     fn ring() -> CustomRing {
         CustomRing::new(Address::new_from_array([8u8; 32]))
@@ -255,6 +251,11 @@ mod tests {
     }
 
     fn version(version: u64) -> (SpendRecord, [u8; 32], [u8; 32]) {
+        version_in(version, ADDRESS_TREE_ID)
+    }
+
+    /// The record's address stays in the address tree, its leaf hashes under `tree_id`.
+    fn version_in(version: u64, tree_id: u16) -> (SpendRecord, [u8; 32], [u8; 32]) {
         let record = SpendRecord {
             member: member(),
             version,
@@ -263,11 +264,9 @@ mod tests {
             blinding: [version as u8 + 1; 32],
         };
         let address = owner()
-            .spend_address(&member(), ENTRIES_TREE_ID)
+            .spend_address(&member(), ADDRESS_TREE_ID)
             .expect("address");
-        let utxo_hash = record
-            .utxo_hash(&owner(), &address, ENTRIES_TREE_ID)
-            .expect("leaf");
+        let utxo_hash = record.utxo_hash(&owner(), &address, tree_id).expect("leaf");
         (
             record,
             utxo_hash,
@@ -276,6 +275,15 @@ mod tests {
     }
 
     fn spender(spent: [u8; 32], record: &SpendRecord, utxo_hash: [u8; 32]) -> ShieldedTransaction {
+        spender_in(spent, record, utxo_hash, ADDRESS_TREE_ID)
+    }
+
+    fn spender_in(
+        spent: [u8; 32],
+        record: &SpendRecord,
+        utxo_hash: [u8; 32],
+        tree_id: u16,
+    ) -> ShieldedTransaction {
         let mut payload = record.to_output_data().to_vec();
         let mut messages = Vec::new();
         let tx_key = zolana_keypair::ViewingKey::new();
@@ -318,7 +326,7 @@ mod tests {
                 view_tag: namespace().to_bytes(),
                 output_context: OutputContext {
                     hash: utxo_hash,
-                    tree_id: ENTRIES_TREE_ID,
+                    tree_id,
                     leaf_index: record.version,
                 },
                 payload,
@@ -334,8 +342,7 @@ mod tests {
     fn read(rpc: &NullifierRpc) -> Result<Option<LiveSpendRecord>, EntryProofError> {
         ReadSpendRecord {
             ring: ring(),
-            entries_tree: tree(),
-            entries_tree_id: ENTRIES_TREE_ID,
+            address_tree_id: ADDRESS_TREE_ID,
             member: member(),
         }
         .read(rpc)
@@ -344,7 +351,7 @@ mod tests {
     #[test]
     fn the_walk_returns_the_live_version_with_its_origin() {
         let address = owner()
-            .spend_address(&member(), ENTRIES_TREE_ID)
+            .spend_address(&member(), ADDRESS_TREE_ID)
             .expect("address");
         let (first, first_hash, first_nullifier) = version(0);
         let (second, second_hash, second_nullifier) = version(1);
@@ -362,14 +369,68 @@ mod tests {
     }
 
     #[test]
+    fn a_record_moved_to_another_tree_hashes_under_its_own_tree() {
+        let address = owner()
+            .spend_address(&member(), ADDRESS_TREE_ID)
+            .expect("address");
+        let (first, first_hash, first_nullifier) = version(0);
+        let (second, second_hash, second_nullifier) = version_in(1, SECOND_TREE_ID);
+        let rpc = NullifierRpc::new(vec![
+            spender(address, &first, first_hash),
+            spender_in(first_nullifier, &second, second_hash, SECOND_TREE_ID),
+        ]);
+        let live = read(&rpc).expect("walk").expect("registered");
+        assert_eq!(live.record, second);
+        assert_eq!(live.tree_id, SECOND_TREE_ID);
+        assert_eq!(live.nullifier, second_nullifier);
+
+        let misplaced = NullifierRpc::new(vec![
+            spender(address, &first, first_hash),
+            spender_in(first_nullifier, &second, second_hash, ADDRESS_TREE_ID),
+        ]);
+        assert!(matches!(
+            read(&misplaced),
+            Err(EntryProofError::BrokenSpendLineage { version: 1, .. })
+        ));
+    }
+
+    #[test]
+    fn the_lag_check_reads_the_nullifier_pda_of_the_records_own_tree() {
+        let address = owner().spend_address(&member(), ADDRESS_TREE_ID).unwrap();
+        let (record, hash, nullifier) = version_in(1, SECOND_TREE_ID);
+        let transaction = spender_in(address, &record, hash, SECOND_TREE_ID);
+        let live = ReadSpendRecord {
+            ring: ring(),
+            address_tree_id: ADDRESS_TREE_ID,
+            member: member(),
+        }
+        .lookup()
+        .unwrap()
+        .decode(
+            &address,
+            SpentSlot {
+                transaction: &transaction,
+                slot: &transaction.output_slots[0],
+            },
+        )
+        .expect("decoded");
+        let pda = |tree_id| {
+            zolana_interface::pda::nullifier_pda(&zolana_interface::pda::tree(tree_id), &nullifier)
+                .0
+        };
+        assert_eq!(ReadSpendRecord::nullifier_pda(&live), pda(SECOND_TREE_ID));
+        assert_ne!(ReadSpendRecord::nullifier_pda(&live), pda(ADDRESS_TREE_ID));
+    }
+
+    #[test]
     fn a_successor_requires_one_bound_public_record_message() {
         let (record, hash, _) = version(1);
-        let address = owner().spend_address(&member(), ENTRIES_TREE_ID).unwrap();
+        let address = owner().spend_address(&member(), ADDRESS_TREE_ID).unwrap();
         let transaction = spender(address, &record, hash);
         let lookup = SpendLookup {
             owner: owner(),
             member: member(),
-            tree_id: ENTRIES_TREE_ID,
+            address_tree_id: ADDRESS_TREE_ID,
         };
         let decode = |transaction: &ShieldedTransaction| {
             lookup.decode(
@@ -403,7 +464,7 @@ mod tests {
     fn indexed_genesis() -> RingSpendRecord {
         let (record, hash, _) = version(0);
         let address = owner()
-            .spend_address(&member(), ENTRIES_TREE_ID)
+            .spend_address(&member(), ADDRESS_TREE_ID)
             .expect("address");
         RingSpendRecord {
             output_index: 0,
@@ -419,9 +480,9 @@ mod tests {
                     output_context: zolana_indexer_api::RingsOutputContext {
                         hash: Hash(hash),
                         tree: SerializablePubkey::from(
-                            zolana_interface::pda::tree(ENTRIES_TREE_ID).to_bytes(),
+                            zolana_interface::pda::tree(ADDRESS_TREE_ID).to_bytes(),
                         ),
-                        tree_id: ENTRIES_TREE_ID,
+                        tree_id: ADDRESS_TREE_ID,
                         leaf_index: 7,
                     },
                 }],
@@ -437,8 +498,7 @@ mod tests {
     fn current(member: Member) -> ReadSpendRecord {
         ReadSpendRecord {
             ring: ring(),
-            entries_tree: zolana_interface::pda::tree(ENTRIES_TREE_ID),
-            entries_tree_id: ENTRIES_TREE_ID,
+            address_tree_id: ADDRESS_TREE_ID,
             member,
         }
     }

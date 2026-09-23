@@ -33,13 +33,13 @@ pub struct Curator {
     pub program: Base58Address,
     /// Served from the curator's own entries.
     pub lists: Vec<ListName>,
-    pub entries_tree: Base58Address,
+    pub address_tree: Base58Address,
 }
 
 pub struct CuratorCheck {
     pub curator: CustomRing,
     pub list: ListId,
-    pub entries_tree: Address,
+    pub address_tree: Address,
 }
 
 #[derive(Debug, Error)]
@@ -82,7 +82,7 @@ pub enum CuratorError {
     NoPolicy { curator: Address },
     #[error("curator {curator} does not serve the {} list from its own entries", list_name(*list))]
     DoesNotServe { curator: Address, list: ListId },
-    #[error("curator {curator} keeps its entries in tree {tree}, the ring reads {expected}")]
+    #[error("curator {curator} claims its addresses in tree {tree}, the ring uses {expected}")]
     OtherTree {
         curator: Address,
         tree: Address,
@@ -136,7 +136,7 @@ impl Catalogue {
         self.curators(target)
             .iter()
             .filter(move |(_, curator)| {
-                curator.lists.contains(&list) && curator.entries_tree.0 == tree
+                curator.lists.contains(&list) && curator.address_tree.0 == tree
             })
             .map(|(name, curator)| (name.as_str(), curator))
     }
@@ -205,7 +205,7 @@ pub fn curator_of(ring: CustomRing, config: &PolicyConfig) -> Curator {
             .into_iter()
             .filter(|list| config.source_for(list.id()) == Some(own))
             .collect(),
-        entries_tree: Base58Address(config.entries_tree),
+        address_tree: Base58Address(config.address_tree),
     }
 }
 
@@ -225,11 +225,11 @@ impl CuratorCheck {
                 list: self.list,
             });
         }
-        if config.entries_tree != self.entries_tree {
+        if config.address_tree != self.address_tree {
             return Err(CuratorError::OtherTree {
                 curator,
-                tree: config.entries_tree,
-                expected: self.entries_tree,
+                tree: config.address_tree,
+                expected: self.address_tree,
             });
         }
         Ok(())
@@ -268,7 +268,7 @@ mod tests {
                 .iter()
                 .map(|list| list.parse().expect("list"))
                 .collect(),
-            entries_tree: Base58Address(tree),
+            address_tree: Base58Address(tree),
         }
     }
 
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn discovered_rings_join_the_bundled_names_and_resolve_both_ways() {
         let mut catalogue = catalogue(&format!(
-            "[devnet.desk]\nprogram = \"{RING}\"\nlists = [\"block\"]\nentries_tree = \"{TREE}\"\n\n[localnet]\n"
+            "[devnet.desk]\nprogram = \"{RING}\"\nlists = [\"block\"]\naddress_tree = \"{TREE}\"\n\n[localnet]\n"
         ));
         let other = Address::new_from_array([8u8; 32]);
         catalogue.merge(
@@ -341,7 +341,7 @@ mod tests {
     fn a_catalogue_with_an_unknown_key_is_refused() {
         assert!(toml::from_str::<Catalogue>("[mainnet]\n").is_err());
         assert!(toml::from_str::<Catalogue>(&format!(
-            "[devnet.desk]\nprogram = \"{RING}\"\nlists = [\"escrow\"]\nentries_tree = \"{TREE}\"\n"
+            "[devnet.desk]\nprogram = \"{RING}\"\nlists = [\"escrow\"]\naddress_tree = \"{TREE}\"\n"
         ))
         .is_err());
     }
@@ -387,8 +387,8 @@ mod tests {
         let config = PolicyConfig {
             discriminator: POLICY_CONFIG,
             policy_hash: [0u8; 32],
-            entries_tree: TREE,
-            entries_tree_id: [0; 2],
+            address_tree: TREE,
+            address_tree_id: [0; 2],
             namespace_bump: 0,
             namespace_owner_hash: [0u8; 32],
             bump: 0,

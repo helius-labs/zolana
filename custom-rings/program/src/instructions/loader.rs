@@ -1,6 +1,6 @@
 use bytemuck::{from_bytes, from_bytes_mut};
 use custom_ring_interface::{
-    CoSigner, Delegate, DepositAudit, PolicyConfig, SpendWindow, HEAD_MAP_CAPACITY,
+    CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig, SpendWindow, HEAD_MAP_CAPACITY,
 };
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{
@@ -9,7 +9,13 @@ use pinocchio::{
     AccountView, Address,
 };
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
-use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{
+    instruction::instruction_data::transact::TreeContext,
+    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, read_tree_id},
+    tree_slot::{resolve_tree_slot, TreeSlot},
+    BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID,
+};
+use zolana_tree::TreeAccount;
 
 use crate::{
     error::CustomRingError,
@@ -27,6 +33,23 @@ pub fn load_config<'a>(
     PdaCheck {
         program_id,
         address: account.address(),
+        seeds: &[RingProgramConfig::SEED],
+        mismatch: CustomRingError::InvalidConfigPda,
+    }
+    .verify_stored_bump(config.bump)?;
+    Ok(config)
+}
+
+#[inline(always)]
+pub fn load_config_mut<'a>(
+    program_id: &Address,
+    account: &'a mut AccountView,
+) -> Result<RefMut<'a, RingProgramConfig>, ProgramError> {
+    let address = *account.address();
+    let config = load_account_mut::<RingProgramConfig>(program_id, account)?;
+    PdaCheck {
+        program_id,
+        address: &address,
         seeds: &[RingProgramConfig::SEED],
         mismatch: CustomRingError::InvalidConfigPda,
     }
@@ -243,6 +266,66 @@ pub(crate) fn load_append_root_mut<'a, T: AppendRoot>(
         return Err(T::CURSOR.into());
     }
     Ok(root)
+}
+
+pub fn load_key_registry_root<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Ref<'a, KeyRegistryRoot>, ProgramError> {
+    let root = load_account::<KeyRegistryRoot>(program_id, account)?;
+    PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[KeyRegistryRoot::SEED],
+        mismatch: CustomRingError::InvalidKeyRegistryRoot,
+    }
+    .verify_stored_bump(root.bump)?;
+    Ok(root)
+}
+
+/// The raw id of an SPP tree account, `invalid` for any other account.
+pub fn load_spp_tree_id(
+    account: &AccountView,
+    invalid: CustomRingError,
+) -> Result<u16, ProgramError> {
+    check_spp_tree_owner(account, invalid)?;
+    let data = account.try_borrow().map_err(|_| invalid)?;
+    check_tree_discriminator(&data, invalid)?;
+    Ok(read_tree_id(&data).ok_or(invalid)?)
+}
+
+/// The borrow ends here, a policy tree may alias a tree the SPP CPI writes.
+pub fn load_policy_tree_slot(
+    account: &mut AccountView,
+    context: &TreeContext,
+) -> Result<TreeSlot, ProgramError> {
+    let invalid = CustomRingError::InvalidPolicyTrees;
+    check_spp_tree_owner(account, invalid)?;
+    let pubkey = account.address().to_bytes();
+    let mut data = account.try_borrow_mut().map_err(|_| invalid)?;
+    check_tree_discriminator(&data, invalid)?;
+    let tree = TreeAccount::from_bytes(&mut data, pubkey).map_err(|_| invalid)?;
+    if tree.is_paused() {
+        return Err(invalid.into());
+    }
+    resolve_tree_slot(&tree, context).map_err(|_| CustomRingError::StalePolicyRoot.into())
+}
+
+fn check_spp_tree_owner(
+    account: &AccountView,
+    invalid: CustomRingError,
+) -> Result<(), CustomRingError> {
+    if !account.owned_by(&Address::from(SHIELDED_POOL_PROGRAM_ID)) {
+        return Err(invalid);
+    }
+    Ok(())
+}
+
+fn check_tree_discriminator(data: &[u8], invalid: CustomRingError) -> Result<(), CustomRingError> {
+    if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
+        return Err(invalid);
+    }
+    Ok(())
 }
 
 #[inline(always)]

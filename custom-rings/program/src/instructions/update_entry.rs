@@ -7,7 +7,7 @@ use zolana_ring_policy::{EntryState, ListEntry, ListId, Member};
 use crate::{
     error::CustomRingError,
     instructions::policy_shared::{
-        cpi_spp_namespace_signed, entry_spend_input, EntryTransition, MutationAccounts,
+        cpi_spp_namespace_signed, EntryTransition, MutationAccounts, MutationKind,
     },
 };
 
@@ -31,7 +31,7 @@ pub fn process_update_entry_ix(
         return Err(CustomRingError::InvalidEntryContent.into());
     }
 
-    let parsed = MutationAccounts::validate_and_parse(program_id, accounts)?;
+    let parsed = MutationAccounts::validate_and_parse(program_id, accounts, MutationKind::Replace)?;
     parsed.check_source(list_id)?;
     parsed.check_mutator(list_id, &member)?;
 
@@ -43,7 +43,7 @@ pub fn process_update_entry_ix(
         content_hash: ix.spent_content_hash,
         blinding: ix.spent_blinding,
     };
-    let (spent_hash, nullifier) = entry_spend_input(&parsed.owner, &spent, parsed.entries_tree_id)?;
+    let (spent_hash, nullifier) = parsed.trees.spent_entry(&parsed.owner, &spent)?;
     let version = ix
         .spent_version
         .checked_add(1)
@@ -72,11 +72,7 @@ pub fn process_update_entry_ix(
         private_tx_blinding: ix.private_tx_blinding,
         proof: ix.proof,
     }
-    .into_transact(
-        &parsed.owner,
-        &parsed.namespace_address,
-        parsed.entries_tree_id,
-    )?;
+    .into_transact(&parsed)?;
 
     cpi_spp_namespace_signed(
         &parsed.namespace_address,

@@ -86,7 +86,10 @@ fn account(owner: Pubkey, data: &[u8]) -> Value {
     json!({"lamports": 1, "owner": owner.to_string(), "data": [STANDARD.encode(data), "base64"], "executable": false, "rentEpoch": 0})
 }
 
+/// The current root sits at the history cursor.
 fn root_account(program: Pubkey, root: [u8; 32], next_index: u64) -> Value {
+    let mut history = [[0u8; 32]; custom_ring_interface::KEY_REGISTRY_ROOT_HISTORY];
+    history[0] = root;
     account(
         program,
         bytemuck::bytes_of(&KeyRegistryRoot {
@@ -94,6 +97,8 @@ fn root_account(program: Pubkey, root: [u8; 32], next_index: u64) -> Value {
             root,
             next_index: next_index.to_le_bytes(),
             bump: key_registry::KeyRegistry::root_address(&program).1,
+            history_cursor: 0,
+            history,
         }),
     )
 }

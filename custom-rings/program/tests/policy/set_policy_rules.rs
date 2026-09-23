@@ -10,8 +10,8 @@ use zolana_account_checks::AccountError;
 use zolana_ring_policy::{ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    account, consumed, curator_policy_config_account_with, curator_slot, curator_source_slots,
-    entries_tree, initialized_curator_policy_config_account, largest_table, mixed_sources,
+    account, address_tree, consumed, curator_policy_config_account_with, curator_slot,
+    curator_source_slots, initialized_curator_policy_config_account, largest_table, mixed_sources,
     namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
     program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
     specs_with_block_source, stored_policy_config, table_ix_data, velocity_policy_config_account,
@@ -47,7 +47,7 @@ fn a_re_pin_replaces_the_rows_under_the_next_generation() {
     assert_eq!(config.policy_hash, policy_hash_for(&PINNED_RULES, &sources));
     assert_eq!(config.generation(), 2);
     assert_eq!(config.generation_slot(), WARPED_SLOT);
-    assert_eq!(config.entries_tree.to_bytes(), entries_tree().to_bytes());
+    assert_eq!(config.address_tree.to_bytes(), address_tree().to_bytes());
     assert_eq!(config.namespace_bump, namespace_pda().1);
 }
 
@@ -158,7 +158,7 @@ fn a_curated_list_kept_without_its_curator_account_is_rejected_exactly() {
 }
 
 #[test]
-fn a_curator_in_a_different_entries_tree_is_rejected_exactly() {
+fn a_curator_in_a_different_address_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let table = table_ix_data(&RELEASED_RULES, &specs_with_block_source(1));
     let mut fixture = set_policy_rules_fixture(released_config(), &table);

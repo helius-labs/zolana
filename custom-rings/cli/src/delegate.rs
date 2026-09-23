@@ -33,6 +33,8 @@ pub enum DelegateError {
     Transact(Box<TransactError>),
     #[error("the ring has no config, run `zolana-ring init` first")]
     NoConfig,
+    #[error("the ring has no policy, a delegate escrows keys only on a policy ring")]
+    NoPolicy,
     #[error("the ring has no delegate")]
     NotSet,
     #[error("the delegate keypair {given} is not the ring's delegate {stored}")]
@@ -85,6 +87,14 @@ struct SelectedNotes {
 pub fn run(ctx: &mut Context, command: DelegateCommand) -> Result<(), DelegateError> {
     match command {
         DelegateCommand::Set { delegate } => {
+            if !ctx
+                .ring
+                .read_config(&ctx.rpc)?
+                .ok_or(DelegateError::NoConfig)?
+                .has_policy
+            {
+                return Err(DelegateError::NoPolicy);
+            }
             ring_auditor_key(ctx, Path::new(AUDITOR_KEY_FILE))?;
             ctx.ring
                 .read_key_registry_root(&ctx.rpc)?
@@ -220,7 +230,6 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
     let tree_id = selection
         .tree_id()
         .ok_or(DelegateError::NoFundedTree { needed: amount })?;
-    let tree = pda::tree(tree_id);
     let SelectedNotes { notes, total } = selection.notes(tree_id)?;
 
     let authority = ctx.authority_with_balance(SENDER_FEE_BUDGET + PAYER_FEE_BUDGET)?;
@@ -254,7 +263,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
         inputs,
         outputs,
     })
-    .with_tree(tree)
+    .with_output_tree_id(tree_id)
     .with_assets(&assets);
     if let Some(cosigner) = &cosigner {
         transfer = transfer.with_cosigner(cosigner.pubkey());

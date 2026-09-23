@@ -53,7 +53,7 @@ pub enum PolicyCommandError {
     #[error("the pinned table differs from ring.toml")]
     Drift(#[source] PolicyMatchError),
     #[error(
-        "ring.toml names tree {toml}, the policy config pins {chain}, a tree is fixed at init"
+        "ring.toml names address tree {toml}, the policy config pins {chain}, it is fixed at init"
     )]
     TreeDrift { toml: Address, chain: Address },
     #[error("the {list} list reads {chain} on chain, ring.toml expects {expected}")]
@@ -91,10 +91,10 @@ pub fn verify_rows(
     config: &PolicyConfig,
 ) -> Result<(), PolicyCommandError> {
     client_rules_match(&compiled.rules, config).map_err(PolicyCommandError::Drift)?;
-    if config.entries_tree != compiled.entries_tree {
+    if config.address_tree != compiled.address_tree {
         return Err(PolicyCommandError::TreeDrift {
-            toml: compiled.entries_tree,
-            chain: config.entries_tree,
+            toml: compiled.address_tree,
+            chain: config.address_tree,
         });
     }
     Ok(())
@@ -123,7 +123,7 @@ pub fn verify_sources(
 }
 
 pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
-    ui::heading(Icon::Tree, &format!("tree {}", config.entries_tree));
+    ui::heading(Icon::Tree, &format!("tree {}", config.address_tree));
     line(
         "generation",
         format_args!(
@@ -221,7 +221,7 @@ fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
         CuratorCheck {
             curator: *curator,
             list: *list_id,
-            entries_tree: compiled.entries_tree,
+            address_tree: compiled.address_tree,
         }
         .run(&ctx.rpc)?;
     }

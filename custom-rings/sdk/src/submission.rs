@@ -17,13 +17,14 @@ use zolana_client::{
 use crate::{
     budget::TRANSACT_COMPUTE_UNIT_LIMIT, instructions::transact::ProvedWindow,
     AsyncCustomRingMergeProofEnvironment, AsyncTransferProofEnvironment,
-    CustomRingMergeProofEnvironment, CustomRingTransfer, DelegateTransfer, EntryError,
-    KeyRegistrationError, MergeError, MergeProofInput, PreparedCustomRingMerge, RegisterKey,
-    RegisterSpend, TransferError, TransferProofEnvironment, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
-    REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+    CustomRingMergeProofEnvironment, CustomRingTransfer, DelegateTransfer, DepositError,
+    DepositProofEnvironment, EntryError, KeyRegistrationError, MergeError, MergeProofInput,
+    PreparedCustomRingMerge, PreparedRingDeposit, RegisterKey, RegisterSpend, TransferError,
+    TransferProofEnvironment, REGISTER_KEY_COMPUTE_UNIT_LIMIT, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 };
 
 const MAX_ATTEMPTS: u8 = 3;
+const PENDING_POLL: std::time::Duration = std::time::Duration::from_millis(500);
 const STALE_KEY_REGISTRY_ROOT: u32 = 8169;
 const POLICY_PROOF_FAILED: u32 = 8101;
 
@@ -42,6 +43,19 @@ pub enum SubmissionStatus {
     },
 }
 
+/// A [`SubmissionStatus`] past its pending state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettledSubmission {
+    Confirmed {
+        signature: Signature,
+        slot: u64,
+    },
+    Failed {
+        signature: Signature,
+        error: TransactionError,
+    },
+}
+
 #[derive(Debug, Error)]
 pub enum SubmissionError {
     #[error(transparent)]
@@ -54,6 +68,8 @@ pub enum SubmissionError {
     KeyRegistration(Box<KeyRegistrationError>),
     #[error(transparent)]
     Merge(Box<MergeError>),
+    #[error(transparent)]
+    Deposit(Box<DepositError>),
     #[error("submission has no signed attempt")]
     MissingAttempt,
 }
@@ -66,6 +82,11 @@ impl From<EntryError> for SubmissionError {
 impl From<KeyRegistrationError> for SubmissionError {
     fn from(error: KeyRegistrationError) -> Self {
         Self::KeyRegistration(Box::new(error))
+    }
+}
+impl From<DepositError> for SubmissionError {
+    fn from(error: DepositError) -> Self {
+        Self::Deposit(Box::new(error))
     }
 }
 impl From<MergeError> for SubmissionError {
@@ -88,6 +109,7 @@ pub enum RingOperation<'a> {
     RegisterSpend(RegisterSpend),
     RegisterKey(RegisterKey<'a>),
     Merge(Box<RingMergeOperation>),
+    Deposit(Box<PreparedRingDeposit>),
 }
 
 pub struct RingMergeOperation {
@@ -131,6 +153,11 @@ impl<'a> From<RegisterKey<'a>> for RingOperation<'a> {
         Self::RegisterKey(value)
     }
 }
+impl From<PreparedRingDeposit> for RingOperation<'_> {
+    fn from(value: PreparedRingDeposit) -> Self {
+        Self::Deposit(Box::new(value))
+    }
+}
 impl From<RingMergeOperation> for RingOperation<'_> {
     fn from(value: RingMergeOperation) -> Self {
         Self::Merge(Box::new(value))
@@ -140,7 +167,7 @@ impl From<RingMergeOperation> for RingOperation<'_> {
 struct ProvedOperation {
     instruction: Instruction,
     window: Option<ProvedWindow>,
-    compute_limit: u32,
+    budget: ComputeBudgetConfig,
 }
 
 struct AttemptSigning<'a> {
@@ -156,7 +183,7 @@ impl ProvedOperation {
             &signing.payer.pubkey(),
             &[self.instruction],
             signing.blockhash,
-            ComputeBudgetConfig::new(self.compute_limit),
+            self.budget,
         )?;
         let mut signers = vec![signing.payer];
         signers.extend_from_slice(signing.signers);
@@ -175,6 +202,14 @@ pub struct SubmissionEnvironment<'a, I: Rpc> {
     pub payer: &'a dyn Signer,
     pub signers: &'a [&'a dyn Signer],
 }
+
+impl<I: Rpc> Clone for SubmissionEnvironment<'_, I> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<I: Rpc> Copy for SubmissionEnvironment<'_, I> {}
 
 struct Attempt {
     transaction: VersionedTransaction,
@@ -298,6 +333,24 @@ impl<'a> RingSubmission<'a> {
             }
         }
     }
+
+    pub fn send_until_settled<I: Rpc>(
+        &mut self,
+        env: SubmissionEnvironment<'_, I>,
+    ) -> Result<SettledSubmission, SubmissionError> {
+        loop {
+            match self.send(env)? {
+                SubmissionStatus::Confirmed { signature, slot } => {
+                    return Ok(SettledSubmission::Confirmed { signature, slot })
+                }
+                SubmissionStatus::Failed { signature, error } => {
+                    return Ok(SettledSubmission::Failed { signature, error })
+                }
+                SubmissionStatus::Pending { .. } => std::thread::sleep(PENDING_POLL),
+            }
+        }
+    }
+
     /// Inputs remain reserved while the submitted signature is unresolved.
     pub async fn send_async<I: AsyncRpc>(
         &mut self,
@@ -507,7 +560,7 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction()?,
                     window: proven.window,
-                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
                 }
             }
             Self::Delegate(transfer) => {
@@ -515,7 +568,7 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction()?,
                     window: None,
-                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
                 }
             }
             Self::RegisterSpend(registration) => {
@@ -524,7 +577,7 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction()?,
                     window,
-                    compute_limit: REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(REGISTER_SPEND_COMPUTE_UNIT_LIMIT),
                 }
             }
             Self::RegisterKey(registration) => {
@@ -532,7 +585,7 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction()?,
                     window: None,
-                    compute_limit: REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(REGISTER_KEY_COMPUTE_UNIT_LIMIT),
                 }
             }
             Self::Merge(operation) => {
@@ -551,9 +604,18 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction(env.payer.pubkey()),
                     window: None,
-                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
                 }
             }
+            Self::Deposit(deposit) => ProvedOperation {
+                instruction: deposit.prove(DepositProofEnvironment {
+                    indexer: env.indexer,
+                    rpc: env.rpc,
+                    prover: env.prover,
+                })?,
+                window: None,
+                budget: deposit.budget(),
+            },
         })
     }
     async fn prove_async<I: AsyncRpc>(
@@ -571,7 +633,7 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction()?,
                     window: proven.window,
-                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
                 }
             }
             Self::Delegate(transfer) => {
@@ -579,7 +641,7 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction()?,
                     window: None,
-                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
                 }
             }
             Self::RegisterSpend(registration) => {
@@ -588,7 +650,7 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction()?,
                     window,
-                    compute_limit: REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(REGISTER_SPEND_COMPUTE_UNIT_LIMIT),
                 }
             }
             Self::RegisterKey(registration) => {
@@ -596,7 +658,7 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction()?,
                     window: None,
-                    compute_limit: REGISTER_KEY_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(REGISTER_KEY_COMPUTE_UNIT_LIMIT),
                 }
             }
             Self::Merge(operation) => {
@@ -619,9 +681,14 @@ impl RingOperation<'_> {
                 ProvedOperation {
                     instruction: proven.instruction(env.payer.pubkey()),
                     window: None,
-                    compute_limit: TRANSACT_COMPUTE_UNIT_LIMIT,
+                    budget: ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
                 }
             }
+            Self::Deposit(deposit) => ProvedOperation {
+                instruction: deposit.prove_async(proving).await?,
+                window: None,
+                budget: deposit.budget(),
+            },
         })
     }
 }

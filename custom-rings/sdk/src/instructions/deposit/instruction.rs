@@ -1,17 +1,23 @@
 use custom_ring_interface::MAX_RING_DEPOSIT_AUDIT_SLOTS;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
+use thiserror::Error;
 use zolana_interface::instruction::{
     DepositAsset, DepositBuildError, RingAssetDeposit, RingDeposit,
 };
 
 use crate::{
-    instructions::{
-        cosigner::{RingPolicy, RingPrefix},
-        spend_window::window_metas,
-    },
-    CustomRing, CustomRingProof,
+    instructions::{cosigner::RingPrefix, spend_window::window_metas},
+    CustomRing, CustomRingProof, EscrowBinding,
 };
+
+#[derive(Debug, Error)]
+pub enum DepositInstructionError {
+    #[error(transparent)]
+    Build(#[from] DepositBuildError),
+    #[error("an escrowed ring accepts audited deposits only")]
+    AuditRequired,
+}
 
 #[must_use]
 /// An enabled deposit audit requires a proof bound to the exact SPP payload.
@@ -22,28 +28,31 @@ pub struct Deposit {
     pub depositor: Address,
     pub deposits: Vec<RingAssetDeposit>,
     pub proof: Option<CustomRingProof>,
+    pub escrow: EscrowBinding,
     pub cosigner: Option<Address>,
-    /// Mirrors the ring config's policy flag.
-    pub has_policy: bool,
 }
 
 impl Deposit {
-    pub fn instruction(self) -> Result<Instruction, DepositBuildError> {
+    pub fn instruction(self) -> Result<Instruction, DepositInstructionError> {
         let Self {
             ring,
             tree,
             depositor,
             deposits,
             proof,
+            escrow,
             cosigner,
-            has_policy,
         } = self;
 
+        if proof.is_none() && escrow != EscrowBinding::Off {
+            return Err(DepositInstructionError::AuditRequired);
+        }
         if proof.is_some() && deposits.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {
             return Err(DepositBuildError::TooManyEntries {
                 count: deposits.len(),
                 max: MAX_RING_DEPOSIT_AUDIT_SLOTS,
-            });
+            }
+            .into());
         }
 
         let windows = window_metas(ring, settled_mints(&deposits));
@@ -57,23 +66,13 @@ impl Deposit {
         if let Some(proof) = proof {
             let mut data = vec![custom_ring_interface::tag::AUDITED_DEPOSIT];
             data.extend(wincode::serialize(&proof).map_err(|_| DepositBuildError::Serialization)?);
+            data.push(escrow.root_index());
             data.extend_from_slice(&instruction.data);
             instruction.data = data;
         }
-        let mut prefix = RingPrefix {
-            ring,
-            cosigner,
-            policy: if has_policy {
-                RingPolicy::Config
-            } else {
-                RingPolicy::Off
-            },
-        }
-        .metas();
-        prefix.insert(
-            3,
-            AccountMeta::new_readonly(ring.deposit_audit_pda(), false),
-        );
+        let mut prefix = RingPrefix { ring, cosigner }.metas();
+        prefix.push(AccountMeta::new_readonly(ring.deposit_audit_pda(), false));
+        prefix.extend(escrow.meta(ring));
         prefix.extend(windows);
         instruction.accounts.splice(0..0, prefix);
         Ok(instruction)

@@ -70,10 +70,7 @@ fn the_delegate_rail_is_exempt_from_per_transfer_caps() {
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     let mut data = body(0, 0, 0, content);
     data[0] = tag::DELEGATE_TRANSACT;
-    let mut fixture = policy_delegate_transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
-        data,
-    );
+    let mut fixture = policy_delegate_transact_fixture(data);
     fixture.set_account("policy_config", transfer_cap_policy_config_account());
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }

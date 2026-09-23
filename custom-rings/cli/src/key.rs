@@ -170,7 +170,7 @@ impl KeyEnrolment<'_> {
                     {
                         Ok(Probe::Ready(false))
                     }
-                    Err(error) if is_key_registry_retryable(&error) => {
+                    Err(error) if error.is_projection_lag() => {
                         Ok(Probe::Retry(KeyError::from(error)))
                     }
                     Err(error) => Err(KeyError::from(error)),
@@ -202,7 +202,7 @@ impl KeyEnrolment<'_> {
                 });
                 match proven {
                     Ok(proven) => Ok(Probe::Ready(proven)),
-                    Err(error) if is_key_registry_retryable(&error) => Ok(Probe::Retry(error)),
+                    Err(error) if error.is_projection_lag() => Ok(Probe::Retry(error)),
                     Err(error) => Err(error),
                 }
             },
@@ -223,13 +223,6 @@ impl KeyEnrolment<'_> {
     fn member_tag(&self) -> Result<Member, KeyError> {
         Ok(Member::owner_tag(self.member.pubkey().as_array())?)
     }
-}
-
-fn is_key_registry_retryable(error: &KeyRegistrationError) -> bool {
-    matches!(error, KeyRegistrationError::Client(error) if matches!(
-        error.as_ref(),
-        ClientError::RingKeyRegistryOutOfSync | ClientError::RingKeyRegistryRootChanged
-    ))
 }
 
 fn timed_out(error: WaitError<KeyRegistrationError>) -> KeyError {
@@ -266,8 +259,9 @@ mod tests {
     }
 
     const ROOT: IndexedMapRoot = IndexedMapRoot {
-        root: [0u8; 32],
+        root: [3u8; 32],
         next_index: 2,
+        history_index: 0,
     };
 
     struct RegistryRpc {
@@ -293,16 +287,21 @@ mod tests {
             assert_eq!(address, expected);
             let reads = self.reads.get();
             self.reads.set(reads + 1);
+            let current = if self.advance && reads > 0 {
+                [1; 32]
+            } else {
+                self.root.root
+            };
+            let mut history = [[0; 32]; custom_ring_interface::KEY_REGISTRY_ROOT_HISTORY];
+            history[0] = current;
             let root = KeyRegistryRoot {
                 discriminator: KEY_REGISTRY_ROOT,
-                root: if self.advance && reads > 0 {
-                    [1; 32]
-                } else {
-                    self.root.root
-                },
+                root: current,
                 next_index: (self.root.next_index + u64::from(self.advance && reads > 0))
                     .to_le_bytes(),
                 bump,
+                history_cursor: 0,
+                history,
             };
             Ok(Some(Account {
                 lamports: 1,
@@ -375,6 +374,7 @@ mod tests {
                 root: IndexedMapRoot {
                     root,
                     next_index: 2,
+                    history_index: 0,
                 },
                 ..RegistryRpc::fixed()
             },
