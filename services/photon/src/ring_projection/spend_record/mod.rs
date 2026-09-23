@@ -11,7 +11,7 @@ use solana_signature::{Signature, SIGNATURE_BYTES};
 use zolana_indexer_api::{
     GetRingSpendRecordResponse, RingSpendRecord, RingSpendRecordRequest, SerializableSignature,
 };
-use zolana_ring_head_map::FIELD_MAX;
+use zolana_ring_key_registry::FIELD_MAX;
 
 use super::{
     api::{canonical_context, internal},

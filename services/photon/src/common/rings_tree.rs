@@ -26,7 +26,7 @@ impl RingsTreeKind {
             Self::State => STATE_HEIGHT as u32,
             Self::Nullifier => NULLIFIER_TREE_HEIGHT,
             #[cfg(feature = "ring-projection")]
-            Self::KeyRegistry => custom_ring_interface::HEAD_MAP_HEIGHT as u32,
+            Self::KeyRegistry => custom_ring_interface::KEY_REGISTRY_HEIGHT as u32,
         }
     }
 

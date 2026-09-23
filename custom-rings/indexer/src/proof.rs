@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use custom_ring_interface::{MerklePath, HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT};
+use custom_ring_interface::{MerklePath, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT};
 use std::collections::HashMap;
 use zolana_hasher::{Hasher, Poseidon};
 
@@ -28,15 +28,15 @@ pub struct PathOverlay<'a> {
 
 impl PathOverlay<'_> {
     pub fn apply(&self, target_index: u64, target: &mut LeafPath) -> Result<()> {
-        if self.updated_index >= HEAD_MAP_CAPACITY
-            || target_index >= HEAD_MAP_CAPACITY
-            || self.updated_path.len() != HEAD_MAP_HEIGHT
-            || target.siblings.len() != HEAD_MAP_HEIGHT
+        if self.updated_index >= KEY_REGISTRY_CAPACITY
+            || target_index >= KEY_REGISTRY_CAPACITY
+            || self.updated_path.len() != KEY_REGISTRY_HEIGHT
+            || target.siblings.len() != KEY_REGISTRY_HEIGHT
         {
             bail!("invalid overlay path");
         }
         let mut changed = HashMap::new();
-        let mut node = HEAD_MAP_CAPACITY + self.updated_index;
+        let mut node = KEY_REGISTRY_CAPACITY + self.updated_index;
         let mut leaf = self.updated_leaf;
         changed.insert(node, leaf);
         for sibling in self.updated_path {
@@ -48,7 +48,7 @@ impl PathOverlay<'_> {
             node >>= 1;
             changed.insert(node, leaf);
         }
-        let mut target_node = HEAD_MAP_CAPACITY + target_index;
+        let mut target_node = KEY_REGISTRY_CAPACITY + target_index;
         for sibling in &mut target.siblings {
             if let Some(replacement) = changed.get(&(target_node ^ 1)) {
                 *sibling = *replacement;
@@ -71,23 +71,23 @@ mod tests {
     fn path_indices_cannot_alias_above_the_circuit_height() {
         let path = LeafPath {
             leaf: [0; 32],
-            siblings: vec![[0; 32]; HEAD_MAP_HEIGHT],
+            siblings: vec![[0; 32]; KEY_REGISTRY_HEIGHT],
         };
-        assert!(path.root(HEAD_MAP_CAPACITY).is_err());
+        assert!(path.root(KEY_REGISTRY_CAPACITY).is_err());
         assert!(LeafPath {
             leaf: [0; 32],
-            siblings: vec![[0; 32]; HEAD_MAP_HEIGHT + 1],
+            siblings: vec![[0; 32]; KEY_REGISTRY_HEIGHT + 1],
         }
         .root(0)
         .is_err());
         let mut target = LeafPath {
             leaf: [0; 32],
-            siblings: vec![[0; 32]; HEAD_MAP_HEIGHT],
+            siblings: vec![[0; 32]; KEY_REGISTRY_HEIGHT],
         };
         assert!(PathOverlay {
-            updated_index: HEAD_MAP_CAPACITY,
+            updated_index: KEY_REGISTRY_CAPACITY,
             updated_leaf: [0; 32],
-            updated_path: &[[0; 32]; HEAD_MAP_HEIGHT],
+            updated_path: &[[0; 32]; KEY_REGISTRY_HEIGHT],
         }
         .apply(1, &mut target)
         .is_err());

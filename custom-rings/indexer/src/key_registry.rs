@@ -2,12 +2,12 @@ use crate::{InstructionView, Leaf, OnChainRoot};
 use anyhow::{bail, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    pda, HeadMapLeaf, KeyRegistryRoot, RegisterKeyIxData, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
+    pda, KeyRegistryLeaf, KeyRegistryRoot, RegisterKeyIxData, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
     COMPRESSED_P256_KEY_LEN,
 };
 use serde::{Deserialize, Serialize};
 use zolana_hasher::HasherError;
-use zolana_ring_head_map::FIELD_MAX;
+use zolana_ring_key_registry::FIELD_MAX;
 use zolana_ring_policy::Member;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub struct MemberKey {
     pub member: [u8; 32],
     pub index: u64,
     pub next: [u8; 32],
-    pub ct_commitment: [u8; 32],
+    pub key_hash: [u8; 32],
     #[serde(with = "compressed_key")]
     pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
@@ -27,7 +27,7 @@ impl Leaf for MemberKey {
             member: [0; 32],
             index: 0,
             next: FIELD_MAX,
-            ct_commitment: [0; 32],
+            key_hash: [0; 32],
             eph_pk: [0; COMPRESSED_P256_KEY_LEN],
             ciphertext: [0; AUDIT_CIPHERTEXT_LEN],
         }
@@ -50,10 +50,10 @@ impl Leaf for MemberKey {
     }
 
     fn hash(&self) -> Result<[u8; 32], HasherError> {
-        HeadMapLeaf {
+        KeyRegistryLeaf {
             member: &self.member,
             next: &self.next,
-            nullifier: &self.ct_commitment,
+            key: &self.key_hash,
         }
         .hash()
     }
@@ -103,7 +103,7 @@ pub struct Registration {
     pub new_root: [u8; 32],
     pub next_index: u64,
     pub member: [u8; 32],
-    pub ct_commitment: [u8; 32],
+    pub key_hash: [u8; 32],
     pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }
@@ -130,11 +130,11 @@ pub fn registration(instruction: InstructionView<'_>) -> Result<Option<Registrat
         new_root: ix.registry_new_root,
         next_index: ix.registry_next_index,
         member,
-        ct_commitment: RegisteredKey {
+        key_hash: RegisteredKey {
             nullifier_pk: &ix.nullifier_pk,
             ciphertext: &ix.ciphertext,
         }
-        .commitment()?,
+        .hash()?,
         eph_pk: ix.eph_pk,
         ciphertext: ix.ciphertext,
     }))

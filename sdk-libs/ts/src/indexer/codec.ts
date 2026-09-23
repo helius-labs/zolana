@@ -25,7 +25,7 @@ import type {
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
 } from "./types.js";
-import { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "../interface/head-map.js";
+import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../interface/key-registry.js";
 import {
   checkedAddress,
   checkedBase64,
@@ -56,18 +56,18 @@ export function encodeRingMemberProofRequest(
       value.expectedNextIndex,
       "expectedNextIndex",
       1n,
-      HEAD_MAP_CAPACITY,
+      KEY_REGISTRY_CAPACITY,
     ),
   };
 }
 
 function indexedPath(value: unknown, path: string) {
   const proof = array(value, path, checkedHash);
-  if (proof.length !== HEAD_MAP_HEIGHT) {
+  if (proof.length !== KEY_REGISTRY_HEIGHT) {
     return schemaFailure(
       "INDEXER_SCHEMA_INVALID_TYPE",
       path,
-      `${String(HEAD_MAP_HEIGHT)} siblings`,
+      `${String(KEY_REGISTRY_HEIGHT)} siblings`,
       value,
     );
   }
@@ -79,7 +79,7 @@ function memberContext(record: WireObject) {
     context: context(record["context"], "context"),
     root: checkedHash(record["root"], "root"),
     member: checkedHash(record["member"], "member"),
-    nextIndex: wireInteger(record["nextIndex"], "nextIndex", 1n, HEAD_MAP_CAPACITY),
+    nextIndex: wireInteger(record["nextIndex"], "nextIndex", 1n, KEY_REGISTRY_CAPACITY),
   };
 }
 
@@ -91,7 +91,7 @@ export function decodeRingKeyRegistryRegisterProof(value: unknown): RingKeyRegis
     "nextIndex",
     "lowMember",
     "lowNext",
-    "lowCtCommitment",
+    "lowKeyHash",
     "lowIndex",
     "lowProof",
     "newProof",
@@ -101,7 +101,7 @@ export function decodeRingKeyRegistryRegisterProof(value: unknown): RingKeyRegis
     ...common,
     lowMember: checkedHash(row["lowMember"], "lowMember"),
     lowNext: checkedHash(row["lowNext"], "lowNext"),
-    lowCtCommitment: checkedHash(row["lowCtCommitment"], "lowCtCommitment"),
+    lowKeyHash: checkedHash(row["lowKeyHash"], "lowKeyHash"),
     lowIndex: wireInteger(row["lowIndex"], "lowIndex", 0n, common.nextIndex - 1n),
     lowProof: indexedPath(row["lowProof"], "lowProof"),
     newProof: indexedPath(row["newProof"], "newProof"),

@@ -23,7 +23,7 @@ type RegisteredKey struct {
 func NewKeyRegistry(t testing.TB, height int) *KeyRegistry {
 	t.Helper()
 	r := &KeyRegistry{tree: merkletree.NewTree(height)}
-	r.tree.Update(0, *registryLeaf(t, big.NewInt(0), HeadMapSentinelNext(), big.NewInt(0)))
+	r.tree.Update(0, *registryLeaf(t, big.NewInt(0), KeyRegistrySentinelNext(), big.NewInt(0)))
 	return r
 }
 
@@ -34,9 +34,9 @@ func (r *KeyRegistry) Root() *big.Int {
 
 func (r *KeyRegistry) Register(t testing.TB, member, nullifierPk, ctHash *big.Int) RegisteredKey {
 	t.Helper()
-	key := RegisteredKey{Member: member, Next: HeadMapSentinelNext(), CtHash: ctHash, Index: r.size + 1}
-	commitment := MustPoseidon(t, 3, []*big.Int{nullifierPk, ctHash})
-	r.tree.Update(int(key.Index), *registryLeaf(t, member, key.Next, commitment))
+	key := RegisteredKey{Member: member, Next: KeyRegistrySentinelNext(), CtHash: ctHash, Index: r.size + 1}
+	keyHash := MustPoseidon(t, 3, []*big.Int{nullifierPk, ctHash})
+	r.tree.Update(int(key.Index), *registryLeaf(t, member, key.Next, keyHash))
 	r.size++
 	return key
 }
@@ -46,7 +46,7 @@ func (r *KeyRegistry) Path(index uint64) []big.Int {
 	return r.tree.GenerateProof(int(index))
 }
 
-func registryLeaf(t testing.TB, member, next, commitment *big.Int) *big.Int {
+func registryLeaf(t testing.TB, member, next, keyHash *big.Int) *big.Int {
 	t.Helper()
-	return HeadLeaf{Member: member, Next: next, Nullifier: commitment}.Hash(t)
+	return KeyRegistryLeaf{Member: member, Next: next, Key: keyHash}.Hash(t)
 }

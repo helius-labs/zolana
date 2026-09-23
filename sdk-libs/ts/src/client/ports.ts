@@ -109,7 +109,7 @@ export interface RingSpendRecordReader {
 export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
   readonly lowMember: Bytes32;
   readonly lowNext: Bytes32;
-  readonly lowCtCommitment: Bytes32;
+  readonly lowKeyHash: Bytes32;
   readonly lowIndex: bigint;
   readonly lowProof: readonly Bytes32[];
   readonly newProof: readonly Bytes32[];

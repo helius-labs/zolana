@@ -109,7 +109,7 @@ describe("key registry wire", () => {
     nextIndex: 1,
     lowMember: TAG,
     lowNext: TAG,
-    lowCtCommitment: TAG,
+    lowKeyHash: TAG,
     lowIndex: 0,
     lowProof: Array.from({ length: 40 }, () => TAG),
     newProof: Array.from({ length: 40 }, () => TAG),
@@ -129,9 +129,9 @@ describe("key registry wire", () => {
     proof: Array.from({ length: 40 }, () => TAG),
   };
 
-  it("names the predecessor commitment and keeps the entry inside the cursor", () => {
+  it("names the predecessor key hash and keeps the entry inside the cursor", () => {
     expect(decodeRingKeyRegistryRegisterProof(proof)).toMatchObject({ lowIndex: 0n });
-    expect(() => decodeRingKeyRegistryRegisterProof({ ...proof, lowNullifier: TAG })).toThrow();
+    expect(() => decodeRingKeyRegistryRegisterProof({ ...proof, lowKey: TAG })).toThrow();
     expect(decodeRingKeyRegistryEntry(entry)).toMatchObject({ index: 1n, nextIndex: 2n });
     for (const changed of [{ index: 0 }, { index: 2 }, { proof: [] }, { ephPk: 3 }])
       expect(() => decodeRingKeyRegistryEntry({ ...entry, ...changed })).toThrow();

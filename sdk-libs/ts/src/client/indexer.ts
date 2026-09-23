@@ -207,7 +207,7 @@ export class ZolanaIndexer {
         nextIndex: response.nextIndex,
         lowMember: hashBytes(response.lowMember),
         lowNext: hashBytes(response.lowNext),
-        lowCtCommitment: hashBytes(response.lowCtCommitment),
+        lowKeyHash: hashBytes(response.lowKeyHash),
         lowIndex: response.lowIndex,
         lowProof: Object.freeze(response.lowProof.map(hashBytes)),
         newProof: Object.freeze(response.newProof.map(hashBytes)),

@@ -2,12 +2,12 @@ use std::fmt::Display;
 
 use anyhow::Context as _;
 
-use custom_ring_interface::HEAD_MAP_CAPACITY;
+use custom_ring_interface::KEY_REGISTRY_CAPACITY;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
 use zolana_indexer_api::{Context as ApiContext, RingMemberProofRequest};
-use zolana_ring_head_map::FIELD_MAX;
+use zolana_ring_key_registry::FIELD_MAX;
 
 use super::{
     load_root,
@@ -49,7 +49,7 @@ pub(crate) async fn insertion<P: Projection>(
     set_transaction_isolation_if_needed(&tx).await?;
     let snapshot = snapshot::<P>(&tx, request).await?;
     let root = &snapshot.root;
-    if root.next_index >= HEAD_MAP_CAPACITY {
+    if root.next_index >= KEY_REGISTRY_CAPACITY {
         return Err(PhotonApiError::ValidationError(format!(
             "{} capacity exhausted",
             P::KIND
@@ -170,7 +170,7 @@ async fn snapshot<P: Projection>(
     request: &RingMemberProofRequest,
 ) -> Result<Snapshot, PhotonApiError> {
     if request.expected_next_index == 0
-        || request.expected_next_index > HEAD_MAP_CAPACITY
+        || request.expected_next_index > KEY_REGISTRY_CAPACITY
         || request.member.0 == [0; 32]
         || request.member.0 >= FIELD_MAX
     {

@@ -87,7 +87,7 @@ mod tests {
             next: [5; 32],
             ct_hash: [6; 32],
             index: 3,
-            path: [[7; 32]; custom_ring_interface::HEAD_MAP_HEIGHT],
+            path: [[7; 32]; custom_ring_interface::KEY_REGISTRY_HEIGHT],
         }
     }
 
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(json["keys"][0]["index"], 3);
         assert_eq!(
             json["keys"][0]["path"].as_array().unwrap().len(),
-            custom_ring_interface::HEAD_MAP_HEIGHT
+            custom_ring_interface::KEY_REGISTRY_HEIGHT
         );
         assert!(json["keys"][1].is_null());
         assert_eq!(json["keyEscrow"], true);

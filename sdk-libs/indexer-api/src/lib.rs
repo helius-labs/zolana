@@ -772,7 +772,7 @@ pub struct GetRingKeyRegistryRegisterProofResponse {
     pub member: Hash,
     pub low_member: Hash,
     pub low_next: Hash,
-    pub low_ct_commitment: Hash,
+    pub low_key_hash: Hash,
     pub low_index: u64,
     pub low_proof: Vec<Hash>,
     /// Computed after the predecessor update.

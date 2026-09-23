@@ -11,7 +11,7 @@ import (
 
 type KeyRegisterParameters struct {
 	PublicInputHash *big.Int
-	headInsertion
+	registryInsertion
 	NullifierSecret [scalarLen]byte
 	EphSk           [scalarLen]byte
 	AuditorPk       [uncompressedPubkeyLen]byte
@@ -20,7 +20,7 @@ type KeyRegisterParameters struct {
 type keyRegisterParametersJSON struct {
 	CircuitType     string `json:"circuitType"`
 	PublicInputHash string `json:"publicInputHash"`
-	headInsertionJSON
+	registryInsertionJSON
 	NullifierSecret string `json:"nullifierSecret"`
 	EphSk           string `json:"ephSk"`
 	AuditorPk       string `json:"auditorPk"`
@@ -28,12 +28,12 @@ type keyRegisterParametersJSON struct {
 
 func (p *KeyRegisterParameters) MarshalJSON() ([]byte, error) {
 	return json.Marshal(keyRegisterParametersJSON{
-		CircuitType:       string(common.CustomRingKeyRegisterCircuitType),
-		PublicInputHash:   common.ToHex(p.PublicInputHash),
-		headInsertionJSON: p.headInsertion.json(),
-		NullifierSecret:   bytesHex(p.NullifierSecret[:]),
-		EphSk:             bytesHex(p.EphSk[:]),
-		AuditorPk:         bytesHex(p.AuditorPk[:]),
+		CircuitType:           string(common.CustomRingKeyRegisterCircuitType),
+		PublicInputHash:       common.ToHex(p.PublicInputHash),
+		registryInsertionJSON: p.registryInsertion.json(),
+		NullifierSecret:       bytesHex(p.NullifierSecret[:]),
+		EphSk:                 bytesHex(p.EphSk[:]),
+		AuditorPk:             bytesHex(p.AuditorPk[:]),
 	})
 }
 
@@ -69,19 +69,19 @@ func (p *KeyRegisterParameters) UnmarshalJSON(data []byte) error {
 	if err := validateP256Point(p.AuditorPk[:], "auditorPk"); err != nil {
 		return err
 	}
-	return p.headInsertion.decode(raw.headInsertionJSON, rail)
+	return p.registryInsertion.decode(raw.registryInsertionJSON, rail)
 }
 
 func (p *KeyRegisterParameters) CreateWitness() (*policy.KeyRegisterCircuit, error) {
 	circuit := &policy.KeyRegisterCircuit{
 		PublicInputHash: p.PublicInputHash,
-		HeadOldRoot:     p.HeadOldRoot,
-		HeadNewRoot:     p.HeadNewRoot,
+		RegistryOldRoot: p.RegistryOldRoot,
+		RegistryNewRoot: p.RegistryNewRoot,
 		Member:          p.Member,
 		NewIndex:        p.NewIndex,
 		LowMember:       p.LowMember,
 		LowNext:         p.LowNext,
-		LowNullifier:    p.LowNullifier,
+		LowKey:          p.LowKey,
 		LowIndex:        p.LowIndex,
 	}
 	assignBytes(circuit.NullifierSecret[:], p.NullifierSecret[:])

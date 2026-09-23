@@ -20,9 +20,9 @@ members = [
     "cli",
     "custom-rings/cli",
     "custom-rings/client",
-    "custom-rings/head-map",
     "custom-rings/interface",
     "custom-rings/indexer",
+    "custom-rings/key-registry",
     "custom-rings/policy",
     "custom-rings/program",
     "custom-rings/sdk",
@@ -87,7 +87,7 @@ zolana-user-registry-interface = { path = "program-libs/user-registry-interface"
 zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
 zolana-ring-policy = { path = "custom-rings/policy", version = "0.1.0" }
 zolana-ring-indexer = { path = "custom-rings/indexer", version = "0.1.0" }
-zolana-ring-head-map = { path = "custom-rings/head-map", version = "0.1.0" }
+zolana-ring-key-registry = { path = "custom-rings/key-registry", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }

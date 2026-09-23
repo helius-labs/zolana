@@ -164,13 +164,13 @@ describe("compressed ring prover contracts", () => {
     nullifierSecret[31] = 7;
     const request = {
       publicInputHash: bytes(0),
-      headOldRoot: bytes(1),
-      headNewRoot: bytes(2),
+      registryOldRoot: bytes(1),
+      registryNewRoot: bytes(2),
       member: bytes(3),
       newIndex: 1n,
       lowMember: bytes(0),
       lowNext: bytes(5),
-      lowNullifier: bytes(0),
+      lowKey: bytes(0),
       lowIndex: 0n,
       lowProof: Array.from({ length: 40 }, () => bytes(0)),
       newProof: Array.from({ length: 40 }, () => bytes(0)),
@@ -187,7 +187,8 @@ describe("compressed ring prover contracts", () => {
     });
     expect(String(body["auditorPk"])).toHaveLength(132);
     expect(String(body["ephSk"])).toHaveLength(66);
-    expect(body).not.toHaveProperty("genesis");
+    expect(body).not.toHaveProperty("key");
+    expect(body["registryNewRoot"]).toBe(fieldHex(2));
     const high = bytes(0);
     high[0] = 1;
     expect(() => customRingRegisterKeyProofRequest({ ...request, nullifierSecret: high })).toThrow(

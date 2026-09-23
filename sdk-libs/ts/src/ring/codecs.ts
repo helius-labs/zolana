@@ -13,7 +13,7 @@ import { ZERO_32, bytesToBigInt } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
 
 import { RingError } from "./error.js";
-import { checkedHeadMapField, HEAD_MAP_CAPACITY } from "./head-map.js";
+import { checkedRegistryField, KEY_REGISTRY_CAPACITY } from "./key-registry-tree.js";
 
 export interface RingProgramConfig {
   readonly authority: Address;
@@ -255,7 +255,7 @@ export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot
   }
   const reader = new Reader(data);
   reader.u8("discriminator");
-  const root = checkedHeadMapField(reader.bytes(32, "root"));
+  const root = checkedRegistryField(reader.bytes(32, "root"));
   const nextIndex = reader.u64("nextIndex");
   const bump = reader.u8("bump");
   const historyCursor = reader.u8("historyCursor");
@@ -266,7 +266,7 @@ export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot
     ),
   );
   reader.done();
-  if (nextIndex < 1n || nextIndex > HEAD_MAP_CAPACITY) {
+  if (nextIndex < 1n || nextIndex > KEY_REGISTRY_CAPACITY) {
     throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { nextIndex } });
   }
   // Rust `advance_to` keeps `history[history_cursor] == root`.

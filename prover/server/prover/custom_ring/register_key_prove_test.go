@@ -22,8 +22,8 @@ func TestKeyRegisterProofVerifiesEndToEnd(t *testing.T) {
 	keys := audittest.DefaultKeys(t)
 	sealed := keys.Seal(t, nullifierSecret[:], policy.NfKeyEncInfo)
 
-	genesis := spptest.MustPoseidon(t, 3, []*big.Int{nullifierPk, sealed.CiphertextHash})
-	insertion := spptest.NewHeadMap(t, registry.Height).Register(t, member, genesis)
+	keyHash := spptest.MustPoseidon(t, 3, []*big.Int{nullifierPk, sealed.CiphertextHash})
+	insertion := spptest.NewKeyRegistryTree(t, registry.Height).Register(t, member, keyHash)
 	chain := func(ctHash *big.Int) *big.Int {
 		return spptest.MustHashChain(t, []*big.Int{
 			insertion.OldRoot, insertion.NewRoot, member, nullifierPk,
@@ -32,11 +32,11 @@ func TestKeyRegisterProofVerifiesEndToEnd(t *testing.T) {
 		})
 	}
 	params := &KeyRegisterParameters{
-		PublicInputHash: chain(sealed.CiphertextHash),
-		headInsertion:   fixtureInsertion(insertion, member),
-		NullifierSecret: nullifierSecret,
-		EphSk:           keys.EphSk(),
-		AuditorPk:       keys.AuditorPk(),
+		PublicInputHash:   chain(sealed.CiphertextHash),
+		registryInsertion: fixtureInsertion(insertion, member),
+		NullifierSecret:   nullifierSecret,
+		EphSk:             keys.EphSk(),
+		AuditorPk:         keys.AuditorPk(),
 	}
 
 	registerSystem := loadRingSystem(t, common.CustomRingKeyRegisterKeyFile)
@@ -62,20 +62,20 @@ func TestKeyRegisterProofVerifiesEndToEnd(t *testing.T) {
 	rejectInstalledProof(t, registerSystem, proof, tampered)
 }
 
-func fixtureInsertion(insertion spptest.HeadMapInsertion, member *big.Int) headInsertion {
-	h := headInsertion{
-		HeadOldRoot:  insertion.OldRoot,
-		HeadNewRoot:  insertion.NewRoot,
-		Member:       member,
-		NewIndex:     new(big.Int).SetUint64(insertion.NewIndex),
-		LowMember:    insertion.Low.Member,
-		LowNext:      insertion.Low.Next,
-		LowNullifier: insertion.Low.Nullifier,
-		LowIndex:     new(big.Int).SetUint64(insertion.LowIndex),
+func fixtureInsertion(insertion spptest.KeyRegistryInsertion, member *big.Int) registryInsertion {
+	r := registryInsertion{
+		RegistryOldRoot: insertion.OldRoot,
+		RegistryNewRoot: insertion.NewRoot,
+		Member:          member,
+		NewIndex:        new(big.Int).SetUint64(insertion.NewIndex),
+		LowMember:       insertion.Low.Member,
+		LowNext:         insertion.Low.Next,
+		LowKey:          insertion.Low.Key,
+		LowIndex:        new(big.Int).SetUint64(insertion.LowIndex),
 	}
-	for i := range h.LowProof {
-		h.LowProof[i] = &insertion.LowProof[i]
-		h.NewProof[i] = &insertion.NewProof[i]
+	for i := range r.LowProof {
+		r.LowProof[i] = &insertion.LowProof[i]
+		r.NewProof[i] = &insertion.NewProof[i]
 	}
-	return h
+	return r
 }

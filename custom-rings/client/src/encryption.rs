@@ -468,8 +468,8 @@ impl AuditDecryption<'_> {
 
 #[cfg(test)]
 mod tests {
-    use custom_ring_interface::{RegisterKeyPublicInput, RegisteredKey, HEAD_MAP_EMPTY_ROOT};
-    use zolana_ring_head_map::{HeadMap, Registration};
+    use custom_ring_interface::{RegisterKeyPublicInput, RegisteredKey, KEY_REGISTRY_EMPTY_ROOT};
+    use zolana_ring_key_registry::{KeyRegistryTree, Registration};
     use zolana_ring_policy::Member;
 
     use super::*;
@@ -575,7 +575,7 @@ mod tests {
     const NULLIFIER_PK: &str = "2d1faf6cf358763421511eb637adf7b6609443d38edc4ed2b042dfbf834b03f5";
     const EPH_PK: &str = "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5";
     const CIPHERTEXT: &str = "f329a32e36717753ba70f955e2102b53fa3a1bfd7389ebda109030ea70602d40";
-    const GENESIS: &str = "095939aeb6e0dc92dd4455bab6058c5c5f639b52a610932c22e517fc87d64a94";
+    const KEY_HASH: &str = "095939aeb6e0dc92dd4455bab6058c5c5f639b52a610932c22e517fc87d64a94";
     const REGISTRY_NEW_ROOT: &str =
         "01c9026ae3349a610ca0d39793c06c924e3ad8e2dcacb64c120c800185372618";
     const PUBLIC_INPUT_HASH: &str =
@@ -605,23 +605,23 @@ mod tests {
             &bytes::<31>(NULLIFIER_SECRET)
         );
 
-        let genesis = RegisteredKey {
+        let key = RegisteredKey {
             nullifier_pk: &envelope.nullifier_pk,
             ciphertext: &envelope.sealed.ciphertext,
         }
-        .commitment()
-        .expect("genesis");
-        assert_eq!(genesis, bytes(GENESIS));
+        .hash()
+        .expect("key hash");
+        assert_eq!(key, bytes(KEY_HASH));
 
         let member = Member::owner_tag(&MEMBER_TAG).expect("member");
-        let inserted = HeadMap::new()
+        let inserted = KeyRegistryTree::new()
             .expect("empty registry")
             .register(Registration {
                 member: *member.as_bytes(),
-                genesis,
+                key,
             })
             .expect("first registration");
-        assert_eq!(inserted.old_root, HEAD_MAP_EMPTY_ROOT);
+        assert_eq!(inserted.old_root, KEY_REGISTRY_EMPTY_ROOT);
         assert_eq!(inserted.new_root, bytes(REGISTRY_NEW_ROOT));
         assert_eq!(inserted.new_index, 1);
 

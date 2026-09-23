@@ -156,17 +156,17 @@ fn transaction(program: Pubkey, accounts: &[Pubkey], data: &[u8]) -> Value {
 async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8; 32]) {
     let program = Pubkey::new_from_array([11; 32]);
     let address = key_registry::KeyRegistry::root_address(&program).0;
-    let mut tree = zolana_ring_head_map::HeadMap::new().unwrap();
-    let commitment = RegisteredKey {
+    let mut tree = zolana_ring_key_registry::KeyRegistryTree::new().unwrap();
+    let key = RegisteredKey {
         nullifier_pk: &field(5),
         ciphertext: &[5; 32],
     }
-    .commitment()
+    .hash()
     .unwrap();
     let insertion = tree
-        .register(zolana_ring_head_map::Registration {
+        .register(zolana_ring_key_registry::Registration {
             member: member(5),
-            genesis: commitment,
+            key,
         })
         .unwrap();
     let mut data = vec![tag::REGISTER_KEY];

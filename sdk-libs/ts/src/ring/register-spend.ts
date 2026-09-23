@@ -8,13 +8,12 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
 import { signerAddress, type SignerAccount } from "../interface/instructions/index.js";
 import { addressBytes } from "../interface/internal.js";
-import type { Address, RequestContext, Transaction } from "../interface/types.js";
+import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { hashChain } from "../transaction/internal.js";
 import type { RingPolicyConfig } from "./codecs.js";
 import { fetchRingConfigs, ringPolicyNamespaceAddress, windowedPolicy } from "./config.js";
 import { proveRingSpendRegistration, type RingEntryProofClient } from "./entry-proof.js";
 import { RingError } from "./error.js";
-import { checkedHeadMapField } from "./head-map.js";
 import {
   registerRingSpendInstruction,
   RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
@@ -165,7 +164,7 @@ async function registrationSubmission(
     registration: input.registration,
   });
   const intent = hashChain([
-    checkedHeadMapField(hashBytes(addressBytes(held.params.ringProgramId))),
+    hashBytes(addressBytes(held.params.ringProgramId)) as Bytes32,
     held.registration.member,
   ]);
   const build = async (context?: RequestContext): Promise<RingSubmissionAttempt> => ({

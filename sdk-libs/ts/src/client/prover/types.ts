@@ -346,22 +346,22 @@ export interface CustomRingCompressedPolicyProofRequest {
   readonly policy: CustomRingPolicyProofRequest;
 }
 
-/** Mirrors Go `headInsertion`, the append the key registration circuit proves. */
-export interface CustomRingHeadInsertion {
-  readonly headOldRoot: Bytes32;
-  readonly headNewRoot: Bytes32;
+/** Mirrors Go `registryInsertion`, the append the key registration circuit proves. */
+export interface CustomRingRegistryInsertion {
+  readonly registryOldRoot: Bytes32;
+  readonly registryNewRoot: Bytes32;
   readonly member: Bytes32;
   readonly newIndex: bigint;
   readonly lowMember: Bytes32;
   readonly lowNext: Bytes32;
-  readonly lowNullifier: Bytes32;
+  readonly lowKey: Bytes32;
   readonly lowIndex: bigint;
   readonly lowProof: readonly Bytes32[];
   readonly newProof: readonly Bytes32[];
 }
 
 /** Proves disclosure of a member nullifier key to the auditor. */
-export interface CustomRingRegisterKeyProofRequest extends CustomRingHeadInsertion {
+export interface CustomRingRegisterKeyProofRequest extends CustomRingRegistryInsertion {
   readonly publicInputHash: Bytes32;
   readonly nullifierSecret: Bytes32;
   readonly ephemeralSecret: Bytes32;

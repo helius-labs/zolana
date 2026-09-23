@@ -31,7 +31,7 @@ name = "photon-snapshot-loader"
 path = "src/snapshot/loader/main.rs"
 
 [features]
-ring-projection = ["dep:custom-ring-interface", "dep:zolana-ring-policy", "dep:zolana-ring-head-map", "dep:zolana-ring-indexer"]
+ring-projection = ["dep:custom-ring-interface", "dep:zolana-ring-policy", "dep:zolana-ring-key-registry", "dep:zolana-ring-indexer"]
 surfpool-fixture = []
 
 [dependencies]
@@ -94,7 +94,7 @@ zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", d
 zolana-tree = { workspace = true }
 custom-ring-interface = { workspace = true, optional = true }
 zolana-ring-policy = { workspace = true, optional = true }
-zolana-ring-head-map = { workspace = true, optional = true }
+zolana-ring-key-registry = { workspace = true, optional = true }
 zolana-ring-indexer = { workspace = true, optional = true }
 zolana-hasher = { workspace = true }
 wincode = { workspace = true }

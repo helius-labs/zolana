@@ -33,7 +33,7 @@ export {
   openNullifierKey,
   openRingSealedKey,
   prepareRingKeyRegistration,
-  registeredKeyCommitment,
+  registeredKeyHash,
   registerKeyPublicInputHash,
   sealNullifierKey,
 } from "./key-registry.js";
@@ -51,13 +51,17 @@ export type {
 export { recoverRingMemberNotes } from "./recover.js";
 export type { RecoveredRingNotes, RingRecoveryClient, RingRecoveryParams } from "./recover.js";
 export {
-  HEAD_MAP_HEIGHT,
-  HEAD_MAP_CAPACITY,
-  headMapLeaf,
-  headMapRootFromProof,
-  verifyHeadMapInsert,
-} from "./head-map.js";
-export type { HeadMapInsertProofInput, HeadMapLeaf, HeadMapPath } from "./head-map.js";
+  KEY_REGISTRY_HEIGHT,
+  KEY_REGISTRY_CAPACITY,
+  keyRegistryLeaf,
+  keyRegistryRootFromProof,
+  verifyKeyRegistryInsert,
+} from "./key-registry-tree.js";
+export type {
+  KeyRegistryInsertProofInput,
+  KeyRegistryLeaf,
+  KeyRegistryPath,
+} from "./key-registry-tree.js";
 export {
   buildRingSpendRegistrationTransaction,
   prepareRingSpendRegistration,

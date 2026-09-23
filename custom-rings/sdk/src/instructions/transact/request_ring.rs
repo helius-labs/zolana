@@ -784,7 +784,7 @@ mod tests {
             next: [15u8; 32],
             ct_hash: [16u8; 32],
             index: 5,
-            path: [[17u8; 32]; custom_ring_interface::HEAD_MAP_HEIGHT],
+            path: [[17u8; 32]; custom_ring_interface::KEY_REGISTRY_HEIGHT],
         });
         request.answers[0].tree_slot = 1;
         let value: serde_json::Value =
@@ -802,7 +802,7 @@ mod tests {
         assert_eq!(key["index"], 5);
         assert_eq!(
             key["path"].as_array().expect("path").len(),
-            custom_ring_interface::HEAD_MAP_HEIGHT
+            custom_ring_interface::KEY_REGISTRY_HEIGHT
         );
         assert!(value["outputs"][1].get("key").is_none());
         assert_eq!(value["answers"][0]["treeSlot"], 1);

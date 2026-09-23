@@ -1,4 +1,4 @@
-import { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "../../interface/head-map.js";
+import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../../interface/key-registry.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
@@ -41,7 +41,7 @@ import type {
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
-  CustomRingHeadInsertion,
+  CustomRingRegistryInsertion,
   CustomRingRegisterKeyProofRequest,
   CustomRingRegistryKey,
   CustomRingSpendRecordProofInput,
@@ -584,18 +584,18 @@ function registryKeyJson(
   key: CustomRingRegistryKey | undefined,
 ): Readonly<Record<string, unknown>> | null {
   if (key === undefined) return null;
-  if (typeof key.index !== "bigint" || key.index < 0n || key.index >= HEAD_MAP_CAPACITY)
+  if (typeof key.index !== "bigint" || key.index < 0n || key.index >= KEY_REGISTRY_CAPACITY)
     throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "key index" } });
   return Object.freeze({
     next: hex32(key.next, "key next"),
     ctHash: hex32(key.ctHash, "key ctHash"),
     index: u64Json(key.index, "key index"),
-    path: sized(key.path, HEAD_MAP_HEIGHT, "key path").map((node) => hex32(node, "key path")),
+    path: sized(key.path, KEY_REGISTRY_HEIGHT, "key path").map((node) => hex32(node, "key path")),
   });
 }
 
-function headIndexHex(index: bigint, field: string): string {
-  if (typeof index !== "bigint" || index < 0n || index >= HEAD_MAP_CAPACITY)
+function registryIndexHex(index: bigint, field: string): string {
+  if (typeof index !== "bigint" || index < 0n || index >= KEY_REGISTRY_CAPACITY)
     throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
   return `0x${index.toString(16).padStart(64, "0")}`;
 }
@@ -610,20 +610,22 @@ export function customRingCompressedPolicyProofRequest(
   });
 }
 
-function headInsertionJson(input: CustomRingHeadInsertion): Readonly<Record<string, unknown>> {
+function registryInsertionJson(
+  input: CustomRingRegistryInsertion,
+): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    headOldRoot: hex32(input.headOldRoot, "headOldRoot"),
-    headNewRoot: hex32(input.headNewRoot, "headNewRoot"),
+    registryOldRoot: hex32(input.registryOldRoot, "registryOldRoot"),
+    registryNewRoot: hex32(input.registryNewRoot, "registryNewRoot"),
     member: hex32(input.member, "member"),
-    newIndex: headIndexHex(input.newIndex, "newIndex"),
-    lowIndex: headIndexHex(input.lowIndex, "lowIndex"),
+    newIndex: registryIndexHex(input.newIndex, "newIndex"),
+    lowIndex: registryIndexHex(input.lowIndex, "lowIndex"),
     lowMember: hex32(input.lowMember, "lowMember"),
     lowNext: hex32(input.lowNext, "lowNext"),
-    lowNullifier: hex32(input.lowNullifier, "lowNullifier"),
-    lowProof: sized(input.lowProof, HEAD_MAP_HEIGHT, "lowProof").map((node) =>
+    lowKey: hex32(input.lowKey, "lowKey"),
+    lowProof: sized(input.lowProof, KEY_REGISTRY_HEIGHT, "lowProof").map((node) =>
       hex32(node, "lowProof"),
     ),
-    newProof: sized(input.newProof, HEAD_MAP_HEIGHT, "newProof").map((node) =>
+    newProof: sized(input.newProof, KEY_REGISTRY_HEIGHT, "newProof").map((node) =>
       hex32(node, "newProof"),
     ),
   });
@@ -638,7 +640,7 @@ export function customRingRegisterKeyProofRequest(
   return Object.freeze({
     circuitType: "custom-ring-register-key",
     publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
-    ...headInsertionJson(input),
+    ...registryInsertionJson(input),
     nullifierSecret: bytesHex(nullifierSecret),
     ephSk: hex32(input.ephemeralSecret, "ephSk"),
     auditorPk: auditorPkHex(input.auditorPublicKey),

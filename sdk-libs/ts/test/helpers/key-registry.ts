@@ -5,26 +5,26 @@ import type { NullifierKey } from "../../src/keypair/nullifier-key.js";
 import type { P256PublicKey } from "../../src/keypair/public-key.js";
 import { RING_KEY_REGISTRY_ROOT_HISTORY } from "../../src/ring/codecs.js";
 import {
-  HEAD_MAP_EMPTY_ROOT,
-  HEAD_MAP_FIELD_MAX,
-  headMapLeaf,
-  headMapZeroBytes,
-  verifyHeadMapInsert,
-} from "../../src/ring/head-map.js";
-import { registeredKeyCommitment, sealNullifierKey } from "../../src/ring/key-registry.js";
+  KEY_REGISTRY_EMPTY_ROOT,
+  KEY_REGISTRY_FIELD_MAX,
+  keyRegistryLeaf,
+  keyRegistryZeroBytes,
+  verifyKeyRegistryInsert,
+} from "../../src/ring/key-registry-tree.js";
+import { registeredKeyHash, sealNullifierKey } from "../../src/ring/key-registry.js";
 
 const ZERO = new Uint8Array(32) as Bytes32;
 
 /** The sentinel-only registry and the insertion of `member` at slot 1. */
 export function firstInsertion(member: Bytes32) {
-  const zeros = headMapZeroBytes();
+  const zeros = keyRegistryZeroBytes();
   return {
     lowMember: ZERO,
-    lowNext: HEAD_MAP_FIELD_MAX,
-    lowCtCommitment: ZERO,
+    lowNext: KEY_REGISTRY_FIELD_MAX,
+    lowKeyHash: ZERO,
     lowIndex: 0n,
     lowProof: zeros.slice(0, 40),
-    newProof: [headMapLeaf({ member: ZERO, next: member, nullifier: ZERO }), ...zeros.slice(1, 40)],
+    newProof: [keyRegistryLeaf({ member: ZERO, next: member, key: ZERO }), ...zeros.slice(1, 40)],
   };
 }
 
@@ -58,17 +58,17 @@ export function oneMemberRegistry(
   const insertion = firstInsertion(input.member);
   const envelope = sealNullifierKey(input.nullifierKey, input.auditor);
   envelope.ephemeralSecret.fill(0);
-  const root = verifyHeadMapInsert({
-    root: HEAD_MAP_EMPTY_ROOT,
+  const root = verifyKeyRegistryInsert({
+    root: KEY_REGISTRY_EMPTY_ROOT,
     appendIndex: 1n,
     member: input.member,
-    genesis: registeredKeyCommitment({
+    key: registeredKeyHash({
       nullifierPublicKey: envelope.nullifierPublicKey,
       ciphertext: envelope.sealed.ciphertext,
     }),
     lowMember: insertion.lowMember,
     lowNext: insertion.lowNext,
-    lowNullifier: insertion.lowCtCommitment,
+    lowKey: insertion.lowKeyHash,
     lowIndex: insertion.lowIndex,
     lowProof: insertion.lowProof,
     newProof: insertion.newProof,
@@ -80,7 +80,7 @@ export function oneMemberRegistry(
       root,
       nextIndex: 2n,
       member: input.member,
-      next: HEAD_MAP_FIELD_MAX,
+      next: KEY_REGISTRY_FIELD_MAX,
       index: 1n,
       ephemeralPublicKey: envelope.sealed.ephemeralPublicKey,
       ciphertext: envelope.sealed.ciphertext,

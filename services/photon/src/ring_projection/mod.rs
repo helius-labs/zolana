@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use custom_ring_interface::{PolicyConfig, HEAD_MAP_CAPACITY, POLICY_CONFIG};
+use custom_ring_interface::{PolicyConfig, KEY_REGISTRY_CAPACITY, POLICY_CONFIG};
 use futures::{stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_account::Account;
@@ -45,7 +45,7 @@ const ACCOUNTS_PER_REQUEST: usize = 100;
 const JOURNAL_RETENTION_SLOTS: u64 = 8_192;
 /// A ring activated after its pending root expired needs a reindex.
 const PENDING_TTL_SLOTS: u64 = 43_200;
-const EMPTY_ROOT: [u8; 32] = custom_ring_interface::HEAD_MAP_EMPTY_ROOT;
+const EMPTY_ROOT: [u8; 32] = custom_ring_interface::KEY_REGISTRY_EMPTY_ROOT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectionKind {
@@ -919,7 +919,7 @@ pub(crate) async fn append<P: Projection>(
         ref leaf,
     } = transition;
     // 1. Require the current root, append cursor and an absent member.
-    if next_index != root.next_index || next_index >= HEAD_MAP_CAPACITY {
+    if next_index != root.next_index || next_index >= KEY_REGISTRY_CAPACITY {
         return Err(fault("append cursor mismatch"));
     }
     if old_root != root.root {

@@ -22,7 +22,7 @@ import { equalBytes } from "../wallet/internal.js";
 import { RingError } from "./error.js";
 import type { LeafTree } from "./policy.js";
 
-/** Mirrors Rust `head_roots`, the roots a proof binds when no indexer answer fixed them. */
+/** Mirrors Rust `current_roots`, the roots a proof binds when no indexer answer fixed them. */
 export async function readTreeHeads(
   client: Pick<ChainReader, "getAccount">,
   tree: LeafTree,

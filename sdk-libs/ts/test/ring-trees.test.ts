@@ -41,7 +41,7 @@ describe("readTreeHeads", () => {
     expect(heads.stateRootIndex).toBe(1);
   });
 
-  it("refuses an account whose tree id differs, like Rust `head_roots`", async () => {
+  it("refuses an account whose tree id differs, like Rust `current_roots`", async () => {
     await expect(
       readTreeHeads(
         { getAccount: async () => treeWithId(0) },

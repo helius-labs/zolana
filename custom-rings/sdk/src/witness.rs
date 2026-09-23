@@ -676,14 +676,14 @@ struct TreeQuery {
 
 struct TreeProofs {
     tree: PoolTree,
-    heads: TransactRoots,
+    current: TransactRoots,
     states: Vec<MerkleProof>,
     absences: Vec<NonInclusionProof>,
 }
 
 impl TreeQuery {
     fn fetch<I: Rpc, R: Rpc>(self, indexer: &I, rpc: &R) -> Result<TreeProofs, TransferError> {
-        let heads = head_roots(rpc.get_account(self.tree.address)?, self.tree)?;
+        let current = current_roots(rpc.get_account(self.tree.address)?, self.tree)?;
         let states = if self.states.is_empty() {
             Vec::new()
         } else {
@@ -700,7 +700,7 @@ impl TreeQuery {
         };
         self.proofs(TreeProofs {
             tree: self.tree,
-            heads,
+            current,
             states,
             absences,
         })
@@ -711,7 +711,7 @@ impl TreeQuery {
         indexer: &I,
         rpc: &R,
     ) -> Result<TreeProofs, TransferError> {
-        let heads = head_roots(rpc.get_account(self.tree.address).await?, self.tree)?;
+        let current = current_roots(rpc.get_account(self.tree.address).await?, self.tree)?;
         let states = if self.states.is_empty() {
             Vec::new()
         } else {
@@ -730,13 +730,13 @@ impl TreeQuery {
         };
         self.proofs(TreeProofs {
             tree: self.tree,
-            heads,
+            current,
             states,
             absences,
         })
     }
 
-    /// `fetched.heads` holds the live heads until the answered roots replace them.
+    /// `fetched.current` holds the live roots until the answered roots replace them.
     fn proofs(&self, fetched: TreeProofs) -> Result<TreeProofs, TransferError> {
         if fetched.states.len() != self.states.len()
             || fetched.absences.len() != self.absences.len()
@@ -745,7 +745,7 @@ impl TreeQuery {
         }
         let fixed = FixedRoots::from_proofs(&fetched.states, &fetched.absences)?;
         Ok(TreeProofs {
-            heads: fixed.at_heads(fetched.heads),
+            current: fixed.at_current(fetched.current),
             ..fetched
         })
     }
@@ -755,7 +755,7 @@ impl TreeProofs {
     fn policy_tree(&self) -> PolicyTree {
         PolicyTree {
             tree: self.tree,
-            roots: self.heads,
+            roots: self.current,
         }
     }
 }
@@ -789,14 +789,14 @@ impl FixedRoots {
         })
     }
 
-    fn at_heads(self, heads: TransactRoots) -> TransactRoots {
+    fn at_current(self, current: TransactRoots) -> TransactRoots {
         let state = self.state.unwrap_or(HistoryRoot {
-            value: heads.state,
-            index: heads.state_index,
+            value: current.state,
+            index: current.state_index,
         });
         let nullifier = self.nullifier.unwrap_or(HistoryRoot {
-            value: heads.nullifier,
-            index: heads.nullifier_index,
+            value: current.nullifier,
+            index: current.nullifier_index,
         });
         TransactRoots {
             state: state.value,
@@ -820,7 +820,7 @@ fn single_root(
     Ok(Some(first))
 }
 
-fn head_roots(account: Option<Account>, tree: PoolTree) -> Result<TransactRoots, TransferError> {
+fn current_roots(account: Option<Account>, tree: PoolTree) -> Result<TransactRoots, TransferError> {
     let mut account = account.ok_or(TransferError::MissingTree)?;
     if account.owner.to_bytes() != SHIELDED_POOL_PROGRAM_ID {
         return Err(TransferError::InvalidTreeOwner);
@@ -1318,16 +1318,16 @@ mod tests {
     impl ProofRpc {
         fn new(spenders: Vec<ShieldedTransaction>) -> Self {
             let account = tree_account();
-            let heads = head_roots(Some(account.clone()), address_tree()).expect("tree heads");
+            let current = current_roots(Some(account.clone()), address_tree()).expect("tree roots");
             Self {
                 lineages: NullifierRpc::new(spenders),
                 state_roots: vec![HistoryRoot {
-                    value: heads.state,
-                    index: heads.state_index,
+                    value: current.state,
+                    index: current.state_index,
                 }],
                 nullifier_roots: vec![HistoryRoot {
-                    value: heads.nullifier,
-                    index: heads.nullifier_index,
+                    value: current.nullifier,
+                    index: current.nullifier_index,
                 }],
                 account: Some(account),
                 others: Vec::new(),
@@ -1527,7 +1527,7 @@ mod tests {
         assert_eq!(enabled[0].absent_branch, 2);
         assert_eq!(
             witness.trees[0].roots,
-            head_roots(Some(tree_account()), address_tree()).expect("heads")
+            current_roots(Some(tree_account()), address_tree()).expect("current roots")
         );
     }
 
@@ -1648,14 +1648,14 @@ mod tests {
         }
         .build(&rpc, &rpc)
         .expect("witness");
-        let heads = head_roots(Some(tree_account()), address_tree()).expect("heads");
-        assert_eq!(witness.trees[0].roots.nullifier, heads.nullifier);
+        let current = current_roots(Some(tree_account()), address_tree()).expect("current roots");
+        assert_eq!(witness.trees[0].roots.nullifier, current.nullifier);
         assert_eq!(
             witness.trees[0].roots.nullifier_index,
-            heads.nullifier_index
+            current.nullifier_index
         );
-        assert_eq!(witness.trees[0].roots.state, heads.state);
-        assert_eq!(witness.trees[0].roots.state_index, heads.state_index);
+        assert_eq!(witness.trees[0].roots.state, current.state);
+        assert_eq!(witness.trees[0].roots.state_index, current.state_index);
         let calls = rpc.calls.lock().expect("calls");
         assert!(calls.merkle.is_empty());
         assert_eq!(calls.non_inclusion.len(), 1);
@@ -1681,7 +1681,7 @@ mod tests {
         .expect("witness");
         assert_eq!(
             witness.trees[0].roots,
-            head_roots(Some(tree_account()), address_tree()).expect("heads")
+            current_roots(Some(tree_account()), address_tree()).expect("current roots")
         );
         let calls = rpc.calls.lock().expect("calls");
         assert!(calls.merkle.is_empty() && calls.non_inclusion.is_empty());

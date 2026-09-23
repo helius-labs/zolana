@@ -110,7 +110,10 @@ Added
 - `createRingKeyRegistryRootInstruction` creates a ring's member key
   registry, and `buildRingKeyRegistrationTransaction` seals a member's
   nullifier key to the ring auditor, which `fetchRingSealedKey` and
-  `openRingSealedKey` read back.
+  `openRingSealedKey` read back. `registeredKeyHash`, `keyRegistryLeaf`,
+  `keyRegistryRootFromProof` and `verifyKeyRegistryInsert` recompute a
+  registry leaf and a root of the `KEY_REGISTRY_HEIGHT` tree for a custom
+  prover.
 - `initializeRingConfigInstructions` takes `depositAudit`,
   `setRingDepositAuditInstruction` toggles it, `buildRingDepositTransaction`
   then proves auditor-readable openings for up to eight deposits, and

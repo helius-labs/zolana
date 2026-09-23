@@ -23,7 +23,7 @@ import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { buildRingDepositTransaction } from "../src/ring/deposit.js";
 import { sealRingDepositOpenings } from "../src/ring/deposit-audit.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
-import { HEAD_MAP_EMPTY_ROOT } from "../src/ring/head-map.js";
+import { KEY_REGISTRY_EMPTY_ROOT } from "../src/ring/key-registry-tree.js";
 import { openRingEscrowedKeys, ringEscrowedOwners } from "../src/ring/key-escrow.js";
 import { ZERO_NULLIFIER_PK, memberOfTag, ringNamespaceOwnerHash } from "../src/ring/policy.js";
 import {
@@ -79,7 +79,7 @@ async function escrowedRing() {
           nextIndex: 2n,
           bump: rootBump,
           cursor: 1,
-          history: [HEAD_MAP_EMPTY_ROOT],
+          history: [KEY_REGISTRY_EMPTY_ROOT],
         }),
       ),
     ],

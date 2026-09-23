@@ -1,7 +1,7 @@
 use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
     CoSigner, Delegate, KeyRegistryRoot, PolicyConfig, SourceSlot, SpendWindow,
-    WithdrawalThresholdRow, CO_SIGNER, DELEGATE, HEAD_MAP_CAPACITY, HEAD_MAP_EMPTY_ROOT,
+    WithdrawalThresholdRow, CO_SIGNER, DELEGATE, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_EMPTY_ROOT,
     KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
     POLICY_CONFIG, SPEND_WINDOW,
 };
@@ -387,10 +387,10 @@ impl AppendRoot for KeyRegistryRoot {
 
     fn sentinel(bump: u8) -> Self {
         let mut history = [[0u8; 32]; KEY_REGISTRY_ROOT_HISTORY];
-        history[0] = HEAD_MAP_EMPTY_ROOT;
+        history[0] = KEY_REGISTRY_EMPTY_ROOT;
         Self {
             discriminator: KEY_REGISTRY_ROOT,
-            root: HEAD_MAP_EMPTY_ROOT,
+            root: KEY_REGISTRY_EMPTY_ROOT,
             next_index: 1u64.to_le_bytes(),
             bump,
             history_cursor: 0,
@@ -441,7 +441,7 @@ impl RootTransition<'_> {
             return Err(T::STALE.into());
         }
         let cursor = root.next_index();
-        if cursor == 0 || cursor >= HEAD_MAP_CAPACITY {
+        if cursor == 0 || cursor >= KEY_REGISTRY_CAPACITY {
             return Err(T::CURSOR.into());
         }
         root.advance_to(self.new_root, cursor + 1);
@@ -535,7 +535,7 @@ mod tests {
     #[test]
     fn the_sentinel_root_is_the_first_history_entry() {
         let state = KeyRegistryRoot::sentinel(254);
-        assert_eq!(state.root_at(0), Some(HEAD_MAP_EMPTY_ROOT));
+        assert_eq!(state.root_at(0), Some(KEY_REGISTRY_EMPTY_ROOT));
         assert_eq!(state.root_at(1), None);
         assert_eq!(state.root_at(KEY_REGISTRY_ROOT_HISTORY as u8), None);
         assert_eq!(state.root_at(u8::MAX), None);
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn registration_refuses_an_out_of_bounds_cursor() {
-        for cursor in [0, HEAD_MAP_CAPACITY] {
+        for cursor in [0, KEY_REGISTRY_CAPACITY] {
             let mut state = root([1u8; 32], cursor);
             assert_eq!(
                 apply(&mut state, &[1u8; 32]),
