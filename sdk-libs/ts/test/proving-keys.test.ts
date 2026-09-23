@@ -31,6 +31,7 @@ describe("expectedProvingKey", () => {
       expectedProvingKey({ circuit: "transfer-confidential", nInputs: 1, nOutputs: 1 }),
       expectedProvingKey({ circuit: "transfer-ring", nInputs: 36, nOutputs: 2 }),
       expectedProvingKey({ circuit: "merge", nInputs: 8 }),
+      expectedProvingKey({ circuit: "merge-ring", nInputs: 36 }),
       expectedProvingKey({ circuit: "custom-ring-base" }),
       expectedProvingKey({ circuit: "custom-ring-policy" }),
     ];
@@ -39,6 +40,7 @@ describe("expectedProvingKey", () => {
         "transfer_confidential_1_1.key",
         "transfer_ring_36_2.key",
         "merge_8_1.key",
+        "merge_ring_36_1.key",
         "custom_ring_base.key",
         "custom_ring_policy.key",
       ].map((name) => ({ name, sha256: lock.keys[name]?.sha256 })),

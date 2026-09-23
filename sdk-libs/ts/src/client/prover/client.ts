@@ -171,7 +171,7 @@ export class ProverClient {
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
-    const key = provingKeyFor({ circuit: "merge", nInputs: inputs.inputs.length });
+    const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
     return this.#send(body, "inResponse", key, context);
   }
 
@@ -589,9 +589,14 @@ export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
 }
 
 /** Mirrors Rust `MergeParametersJson`, key set included. */
+/** A merge inside a custom ring is proven by the `merge-ring` circuit. */
+function mergeCircuit(inputs: MergeInputs): "merge" | "merge-ring" {
+  return BigInt(inputs.ringProgramId) === 0n ? "merge" : "merge-ring";
+}
+
 function mergeProverRequest(inputs: MergeInputs, secret: SecretEncoder): ProverRequestBody {
   return Object.freeze({
-    circuitType: BigInt(inputs.ringProgramId) === 0n ? "merge" : "merge-ring",
+    circuitType: mergeCircuit(inputs),
     inputs: inputs.inputs.map(mergeInputJson),
     output: mergeOutputJson(inputs.output),
     treeSlots: inputs.treeSlots.map(treeSlotJson),

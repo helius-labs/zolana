@@ -525,6 +525,30 @@ describe("prover request routing", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("expects the merge-ring key for a merge inside a custom ring", async () => {
+    const json = { "content-type": "application/json" };
+    const ringMerge = { ...mergeInputs(), ringProgramId: asField(7n) };
+    let posted: unknown;
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+      posted = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify(proofFor(posted)), { headers: json });
+    }) as typeof globalThis.fetch;
+    await new ProverClient({ url: "https://prover.example", fetch }).proveMerge(ringMerge);
+    expect(posted).toMatchObject({ circuitType: "merge-ring" });
+
+    // A proof from the plain merge key is refused.
+    const plainProof = proofFor({ ...(posted as Record<string, unknown>), circuitType: "merge" });
+    const plain = vi.fn(
+      async () => new Response(JSON.stringify(plainProof), { headers: json }),
+    ) as typeof globalThis.fetch;
+    await expect(
+      new ProverClient({ url: "https://prover.example", fetch: plain }).proveMerge(ringMerge),
+    ).rejects.toMatchObject({
+      code: "CLIENT_PROVING_KEY_MISMATCH",
+      details: { keyName: "merge_ring_8_1.key" },
+    });
+  });
+
   it("routes merge through its canonical circuit type", async () => {
     const bodies: unknown[] = [];
     const deliveries: (string | null)[] = [];
