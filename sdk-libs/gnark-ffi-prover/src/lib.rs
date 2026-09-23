@@ -24,6 +24,7 @@
 mod ffi;
 mod proof;
 mod prover;
+mod read;
 pub mod setup_cli;
 mod utxo;
 
@@ -34,6 +35,7 @@ use num_bigint::BigUint;
 pub use ffi::{ProveResult, Symbols};
 pub use proof::{Commitment, CompressedProof, ProveOutput};
 pub use prover::{Circuit, Prover};
+pub use read::utxo_read_proof_inputs;
 pub use utxo::{utxo_proof_input_keys, utxo_proof_inputs};
 
 /// Proof inputs keyed by `_`-joined circuit field path, as decimal strings.

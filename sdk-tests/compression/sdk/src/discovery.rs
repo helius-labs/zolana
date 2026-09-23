@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail, Result};
 use solana_address::Address;
 use zolana_client::{EncryptedUtxoMatch, Rpc};
 use zolana_interface::event::OutputDataEncoding;
+use zolana_program::compression::CompressedAccountData;
 use zolana_transaction::WalletUtxo;
 
 use crate::{
@@ -108,8 +109,7 @@ fn discover_from_matches(
 mod tests {
     use super::*;
     use crate::shared::DEFAULT_TREE_ID;
-    use crate::{account_pda, state::AccountState};
-    use compression_example_program::state::output_blinding;
+    use crate::{account_address, account_pda, state::AccountState};
     use zolana_transaction::{OutputContext, OutputSlot};
 
     const AUTHORITY: [u8; 32] = [7u8; 32];
@@ -118,21 +118,13 @@ mod tests {
         account_pda(&Address::new_from_array(AUTHORITY))
     }
 
-    fn derived_address(pda: &Address) -> [u8; 32] {
-        compression_example_program::state::PdaOwner::new(pda.as_array())
-            .unwrap()
-            .address(DEFAULT_TREE_ID)
-            .unwrap()
-    }
-
     fn account_state(pda: &Address, value: u64, version: u64) -> AccountState {
-        let address = derived_address(pda);
         AccountState {
-            address,
+            address: account_address(pda, DEFAULT_TREE_ID).unwrap(),
             authority: AUTHORITY,
             value,
             version,
-            blinding: output_blinding(&address, version).unwrap(),
+            blinding: [7u8; 32],
         }
     }
 
@@ -165,7 +157,10 @@ mod tests {
                     tree_id: DEFAULT_TREE_ID,
                     leaf_index,
                 },
-                payload: state.to_output_data().unwrap(),
+                payload: borsh::to_vec(&OutputDataEncoding::Plaintext(
+                    borsh::to_vec(state).unwrap(),
+                ))
+                .unwrap(),
             },
             tx_viewing_pk: None,
             salt: None,

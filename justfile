@@ -343,6 +343,7 @@ test-user-registry-litesvm: build-programs
 # zolana-keypair doctest covered. The zolana-client proving binaries are behind
 # its `proofs` feature, so `--features client` stays hermetic.
 test-sdk-libs:
+    cargo nextest run -p zolana-program --features compression
     cargo nextest run -p zolana-keypair
     cargo test --doc -p zolana-keypair
     cargo nextest run -p zolana-event-parser
@@ -364,7 +365,7 @@ test-sdk-libs:
 # The gnark SDK's Go tests and the example provers' tests. Needs Go.
 test-example-provers:
     cd sdk-libs/gnark-sdk && GOWORK=off go test ./... -count=1
-    cargo nextest run -p swap-prover -p timelock-escrow-prover -p dynamic-swap-prover
+    cargo nextest run -p zolana-gnark-ffi-prover -p swap-prover -p timelock-escrow-prover -p dynamic-swap-prover
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -576,7 +577,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features zolana-client/client
+    cargo llvm-cov --no-report $packages --features zolana-client/client,zolana-program/compression
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -676,10 +677,10 @@ bench-shielded-pool: build-programs
         solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo test -p shielded-pool-tests --features proofs --test bench_cu -- --ignored --nocapture
 
-# The example programs (swap, timelock escrow, dynamic swap) verify against
-# INSECURE TEST KEYS -- UNSAFE FOR PRODUCTION. They come from the setup CLI's
-# `--insecure-test-keys`, whose Groth16 randomness is a fixed public seed, so
-# anyone can forge proofs against them. That seed makes them deterministic: the
+# The example programs (swap, timelock escrow, dynamic swap, compression)
+# verify against INSECURE TEST KEYS -- UNSAFE FOR PRODUCTION. They come from the
+# setup CLI's `--insecure-test-keys`, whose Groth16 randomness is a fixed public
+# seed, so anyone can forge proofs against them. That seed makes them deterministic: the
 # same circuit and gnark version always yield the same keys, so they are
 # generated locally instead of published, and each example's checksum manifest
 # pins them to its committed Rust verifying keys.
@@ -739,6 +740,10 @@ regen-escrow-keys: (_regen-example-keys "sdk-tests/timelock-escrow" "timelock-es
 ensure-dynamic-swap-keys: (_ensure-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "regen-dynamic-swap-keys" "escrow_open escrow_settle")
 
 regen-dynamic-swap-keys: (_regen-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "escrow_open escrow_settle")
+
+ensure-compression-keys: (_ensure-example-keys "sdk-tests/compression" "compression-example-prover" "compression-keys.CHECKSUM" "regen-compression-keys" "read")
+
+regen-compression-keys: (_regen-example-keys "sdk-tests/compression" "compression-example-prover" "compression-keys.CHECKSUM" "read")
 
 # Rotate ring proving keys with their verifying keys and lock entries,
 # then repin the circuit fingerprints and run release-custom-rings.
@@ -1225,7 +1230,7 @@ test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 # Plaintext compressed-account lifecycle on a local validator
 # (sdk-tests/compression/test/tests/compression.rs), booted through
 # FixtureLocalnet like test-swap-validator.
-test-compression-validator: build-programs build-prover-server build-cli ensure-photon
+test-compression-validator: ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p compression-example-test --test compression
 
 # Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
@@ -1316,7 +1321,7 @@ test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
 # Every FixtureLocalnet example suite in one nextest run. Each test takes its
 # own `LocalnetPorts::for_test` number and they share one prover, so all of
 # them run in parallel.
-test-examples-validator: ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon
+test-examples-validator: ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -E 'not binary(bench_cu)'
 
 install-surfpool:
@@ -1416,7 +1421,7 @@ build-localnet: build-programs build-localnet-tools build-localnet-archives
 
 # The CLIs, the prover server, xtask, the ring suites' fixture Photon and the
 # example programs' test keys.
-build-localnet-tools: build-cli build-prover-server ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys
+build-localnet-tools: build-cli build-prover-server ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys ensure-compression-keys
     cargo build -p xtask --target-dir target
     cargo build --locked -p custom-ring-cli --target-dir target
     cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection --target-dir target

@@ -1596,6 +1596,7 @@ name = "compression-example-program"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "groth16-solana",
  "light-program-profiler",
  "pinocchio 0.11.2",
  "solana-address 2.6.1",
@@ -1603,12 +1604,19 @@ dependencies = [
  "thiserror 2.0.20",
  "wincode",
  "zolana-account-checks",
- "zolana-client",
  "zolana-hasher",
  "zolana-interface",
- "zolana-keypair",
  "zolana-program",
- "zolana-transaction",
+]
+
+[[package]]
+name = "compression-example-prover"
+version = "0.1.0"
+dependencies = [
+ "zolana-client",
+ "zolana-gnark-ffi-prover",
+ "zolana-gnark-ffi-prover-build",
+ "zolana-program",
 ]
 
 [[package]]
@@ -1618,6 +1626,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "compression-example-program",
+ "compression-example-prover",
  "num-bigint 0.4.8",
  "solana-address 2.6.1",
  "solana-instruction",
@@ -2420,6 +2429,7 @@ dependencies = [
  "zolana-account-checks",
  "zolana-hasher",
  "zolana-interface",
+ "zolana-program",
 ]
 
 [[package]]
@@ -9241,6 +9251,7 @@ dependencies = [
  "zolana-account-checks",
  "zolana-hasher",
  "zolana-interface",
+ "zolana-program",
  "zolana-test-utils",
 ]
 
@@ -9515,6 +9526,7 @@ dependencies = [
  "zolana-account-checks",
  "zolana-hasher",
  "zolana-interface",
+ "zolana-program",
 ]
 
 [[package]]
@@ -11260,14 +11272,19 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "bytemuck",
+ "pinocchio 0.11.2",
  "serde_json",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-pubkey 4.2.1",
  "thiserror 2.0.20",
  "wincode",
+ "zolana-account-checks",
+ "zolana-client",
  "zolana-hasher",
  "zolana-interface",
+ "zolana-keypair",
+ "zolana-transaction",
  "zolana-tree",
 ]
 
