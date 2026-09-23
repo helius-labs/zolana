@@ -6,9 +6,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetRingHeadRegisterProof, GetRingHeadTransferProof, GetRingKeyRegistryEntry,
-        GetRingKeyRegistryRegisterProof, GetShieldedTransactionsByNullifiers,
-        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
+        GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof, GetRingSpendRecord,
+        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
+        GetShieldedTransactionsByTags,
     },
     RpcMethod,
 };
@@ -17,14 +17,15 @@ pub use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingHeadRegisterProofResponse,
-    GetRingHeadTransferProofResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+    GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, Hash,
     IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
-    NullifierQueueElement, RingMemberProofRequest, RingsOutputContext, RingsOutputSlot,
-    SerializablePubkey, SerializableSignature, ShieldedTransaction, PAGE_LIMIT,
+    NullifierQueueElement, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
+    RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
+    ShieldedTransaction, PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -243,18 +244,11 @@ impl ZolanaApi {
         .await
     }
 
-    pub async fn get_ring_head_register_proof(
+    pub async fn get_ring_spend_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadRegisterProofResponse, ApiError> {
-        self.call::<GetRingHeadRegisterProof>(request).await
-    }
-
-    pub async fn get_ring_head_transfer_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadTransferProofResponse, ApiError> {
-        self.call::<GetRingHeadTransferProof>(request).await
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ApiError> {
+        self.call::<GetRingSpendRecord>(request).await
     }
 
     pub async fn get_ring_key_registry_entry(
@@ -437,18 +431,11 @@ impl BlockingZolanaApi {
         })
     }
 
-    pub fn get_ring_head_register_proof(
+    pub fn get_ring_spend_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadRegisterProofResponse, ApiError> {
-        self.call::<GetRingHeadRegisterProof>(request)
-    }
-
-    pub fn get_ring_head_transfer_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadTransferProofResponse, ApiError> {
-        self.call::<GetRingHeadTransferProof>(request)
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ApiError> {
+        self.call::<GetRingSpendRecord>(request)
     }
 
     pub fn get_ring_key_registry_entry(

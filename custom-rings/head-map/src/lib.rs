@@ -242,9 +242,7 @@ impl IndexedHead {
 
 #[cfg(test)]
 mod tests {
-    use custom_ring_interface::{
-        HeadMapInsert, HeadMapTransfer, HeadMapVerifyError, HEAD_MAP_EMPTY_ROOT,
-    };
+    use custom_ring_interface::{HeadMapInsert, HeadMapVerifyError, HEAD_MAP_EMPTY_ROOT};
 
     use super::*;
 
@@ -367,26 +365,6 @@ mod tests {
         );
     }
 
-    fn transfer_of(inputs: &TransferProofInputs) -> HeadMapTransfer<'_> {
-        HeadMapTransfer {
-            root: &inputs.old_root,
-            member: &inputs.member,
-            next: &inputs.next,
-            spent: &inputs.spent,
-            successor: &inputs.successor,
-            index: inputs.index,
-            proof: &inputs.proof,
-        }
-    }
-
-    #[test]
-    fn transfer_proof_inputs_reach_the_reference_root() {
-        let mut map = HeadMap::new().expect("map");
-        map.register(registration(5, 50)).expect("register");
-        let inputs = map.transfer(head_transfer(5, 50, 51)).expect("transfer");
-        assert_eq!(transfer_of(&inputs).verify(), Ok(inputs.new_root));
-    }
-
     #[test]
     fn failed_registration_does_not_splice_the_predecessor() {
         let mut map = HeadMap::new().expect("map");
@@ -411,7 +389,6 @@ mod tests {
     fn a_stale_root_or_wrong_proof_length_is_refused_on_chain() {
         let mut map = HeadMap::new().expect("map");
         let register = map.register(registration(5, 50)).expect("register");
-        let transfer = map.transfer(head_transfer(5, 50, 51)).expect("transfer");
 
         let mut stale = register.clone();
         stale.old_root = [9; 32];
@@ -432,20 +409,6 @@ mod tests {
         assert_eq!(
             insert_of(&occupied).verify(),
             Err(HeadMapVerifyError::SlotOccupied)
-        );
-
-        let mut stale_transfer = transfer.clone();
-        stale_transfer.old_root = [9; 32];
-        assert_eq!(
-            transfer_of(&stale_transfer).verify(),
-            Err(HeadMapVerifyError::RootMismatch)
-        );
-
-        let mut wrong_spent = transfer.clone();
-        wrong_spent.spent = wrong_spent.successor;
-        assert_eq!(
-            transfer_of(&wrong_spent).verify(),
-            Err(HeadMapVerifyError::RootMismatch)
         );
     }
 }

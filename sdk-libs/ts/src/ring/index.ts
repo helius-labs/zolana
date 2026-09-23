@@ -18,20 +18,10 @@ export type {
   CustomRingBasePublicInput,
 } from "../keypair/audit.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
-export {
-  ringHeadMapRootAddress,
-  ringHeadMapRootPda,
-  ringKeyRegistryRootAddress,
-  ringKeyRegistryRootPda,
-} from "../interface/pda/index.js";
-export {
-  fetchRingHeadMapRoot,
-  createRingHeadMapRootInstruction,
-  fetchRingKeyRegistryRoot,
-  createRingKeyRegistryRootInstruction,
-} from "./config.js";
-export { decodeRingHeadMapRoot, decodeRingKeyRegistryRoot } from "./codecs.js";
-export type { RingHeadMapRoot, RingKeyRegistryRoot } from "./codecs.js";
+export { ringKeyRegistryRootAddress, ringKeyRegistryRootPda } from "../interface/pda/index.js";
+export { fetchRingKeyRegistryRoot, createRingKeyRegistryRootInstruction } from "./config.js";
+export { decodeRingKeyRegistryRoot } from "./codecs.js";
+export type { RingKeyRegistryRoot } from "./codecs.js";
 export {
   NF_KEY_ENC_INFO,
   buildRingKeyRegistrationTransaction,
@@ -63,14 +53,8 @@ export {
   headMapLeaf,
   headMapRootFromProof,
   verifyHeadMapInsert,
-  verifyHeadMapTransfer,
 } from "./head-map.js";
-export type {
-  HeadMapInsertProofInput,
-  HeadMapLeaf,
-  HeadMapPath,
-  HeadMapTransferProofInput,
-} from "./head-map.js";
+export type { HeadMapInsertProofInput, HeadMapLeaf, HeadMapPath } from "./head-map.js";
 export {
   buildRingSpendRegistrationTransaction,
   prepareRingSpendRegistration,

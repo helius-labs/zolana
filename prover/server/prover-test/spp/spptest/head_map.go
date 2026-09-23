@@ -36,14 +36,6 @@ type HeadMapInsertion struct {
 	NewProof []big.Int
 }
 
-type HeadMapTransition struct {
-	OldRoot *big.Int
-	NewRoot *big.Int
-	Leaf    HeadLeaf
-	Index   uint64
-	Proof   []big.Int
-}
-
 // Above every member.
 func HeadMapSentinelNext() *big.Int {
 	return new(big.Int).Sub(ecc.BN254.ScalarField(), big.NewInt(1))
@@ -79,20 +71,6 @@ func (m *HeadMap) Register(t testing.TB, member, genesis *big.Int) HeadMapInsert
 	m.set(t, newIndex, HeadLeaf{Member: member, Next: low.Next, Nullifier: genesis})
 	insertion.NewRoot = m.Root()
 	return insertion
-}
-
-func (m *HeadMap) Transfer(t testing.TB, index uint64, successor *big.Int) HeadMapTransition {
-	t.Helper()
-	leaf := m.leaves[index]
-	transition := HeadMapTransition{
-		OldRoot: m.Root(),
-		Leaf:    leaf,
-		Index:   index,
-		Proof:   m.tree.GenerateProof(int(index)),
-	}
-	m.set(t, int(index), HeadLeaf{Member: leaf.Member, Next: leaf.Next, Nullifier: successor})
-	transition.NewRoot = m.Root()
-	return transition
 }
 
 func (m *HeadMap) lowIndex(member *big.Int) int {

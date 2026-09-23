@@ -6,7 +6,6 @@
 mod authority;
 mod budget;
 mod delegate;
-mod head_map;
 mod instructions;
 mod key_registry;
 mod prepared_authority;
@@ -22,7 +21,7 @@ mod witness;
 pub use custom_ring_interface::{
     tag, CoSignScope, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
     PolicyTableIxData, ReaderIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT, CONFIG_PDA_SEED,
-    CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
+    CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
     CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     DELEGATE_PDA_SEED, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
@@ -47,7 +46,6 @@ pub use crate::{
     instructions::{
         cosigner::{ClearCoSigner, CoSignThreshold, SetCoSigner},
         create_config::{CreateConfig, CreateConfigError},
-        create_head_map_root::CreateHeadMapRoot,
         create_key_registry_root::CreateKeyRegistryRoot,
         delegate::{CustomRingDelegateTransact, DelegateInstructionError, SetDelegate},
         deposit::{Deposit, SetDepositAudit},

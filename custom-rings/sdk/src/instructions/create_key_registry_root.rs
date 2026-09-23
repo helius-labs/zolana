@@ -1,6 +1,6 @@
-use crate::{instructions::create_head_map_root::CreateIndexedRoot, tag, CustomRing};
+use crate::{tag, CustomRing};
 use solana_address::Address;
-use solana_instruction::Instruction;
+use solana_instruction::{AccountMeta, Instruction};
 
 #[must_use]
 pub struct CreateKeyRegistryRoot {
@@ -11,13 +11,16 @@ pub struct CreateKeyRegistryRoot {
 
 impl CreateKeyRegistryRoot {
     pub fn instruction(self) -> Instruction {
-        CreateIndexedRoot {
-            ring: self.ring,
-            payer: self.payer,
-            authority: self.authority,
-            root: self.ring.key_registry_root_pda(),
-            tag: tag::CREATE_KEY_REGISTRY_ROOT,
+        Instruction {
+            program_id: self.ring.program_id(),
+            accounts: vec![
+                AccountMeta::new(self.payer, true),
+                AccountMeta::new_readonly(self.authority, true),
+                AccountMeta::new_readonly(self.ring.config_pda(), false),
+                AccountMeta::new(self.ring.key_registry_root_pda(), false),
+                AccountMeta::new_readonly(Address::default(), false),
+            ],
+            data: vec![tag::CREATE_KEY_REGISTRY_ROOT],
         }
-        .instruction()
     }
 }

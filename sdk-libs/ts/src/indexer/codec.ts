@@ -19,9 +19,9 @@ import type {
   RingsOutputContext,
   RingsOutputSlot,
   SignatureIndexedShieldedTransaction,
+  GetRingSpendRecordResponse,
   RingMemberProofRequest,
-  RingHeadRegisterProof,
-  RingHeadTransferProof,
+  RingMemberRequest,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
 } from "./types.js";
@@ -37,12 +37,20 @@ import {
 
 type WireObject = Record<string, unknown>;
 
-export function encodeRingMemberProofRequest(
-  value: RingMemberProofRequest,
+export function encodeRingMemberRequest(
+  value: RingMemberRequest,
 ): Readonly<Record<string, unknown>> {
   return {
     ringProgramId: checkedAddress(value.ringProgramId, "ringProgramId"),
     member: checkedHash(value.member, "member"),
+  };
+}
+
+export function encodeRingMemberProofRequest(
+  value: RingMemberProofRequest,
+): Readonly<Record<string, unknown>> {
+  return {
+    ...encodeRingMemberRequest(value),
     expectedRoot: checkedHash(value.expectedRoot, "expectedRoot"),
     expectedNextIndex: toWireInteger(
       value.expectedNextIndex,
@@ -53,7 +61,7 @@ export function encodeRingMemberProofRequest(
   };
 }
 
-function headPath(value: unknown, path: string) {
+function indexedPath(value: unknown, path: string) {
   const proof = array(value, path, checkedHash);
   if (proof.length !== HEAD_MAP_HEIGHT) {
     return schemaFailure(
@@ -75,8 +83,7 @@ function memberContext(record: WireObject) {
   };
 }
 
-/** The head map and the key registry name the predecessor's leaf slot differently. */
-function insertionProof(value: unknown, lowLeaf: "lowNullifier" | "lowCtCommitment") {
+export function decodeRingKeyRegistryRegisterProof(value: unknown): RingKeyRegistryRegisterProof {
   const row = object(value, "$", [
     "context",
     "root",
@@ -84,7 +91,7 @@ function insertionProof(value: unknown, lowLeaf: "lowNullifier" | "lowCtCommitme
     "nextIndex",
     "lowMember",
     "lowNext",
-    lowLeaf,
+    "lowCtCommitment",
     "lowIndex",
     "lowProof",
     "newProof",
@@ -94,21 +101,11 @@ function insertionProof(value: unknown, lowLeaf: "lowNullifier" | "lowCtCommitme
     ...common,
     lowMember: checkedHash(row["lowMember"], "lowMember"),
     lowNext: checkedHash(row["lowNext"], "lowNext"),
-    lowLeaf: checkedHash(row[lowLeaf], lowLeaf),
+    lowCtCommitment: checkedHash(row["lowCtCommitment"], "lowCtCommitment"),
     lowIndex: wireInteger(row["lowIndex"], "lowIndex", 0n, common.nextIndex - 1n),
-    lowProof: headPath(row["lowProof"], "lowProof"),
-    newProof: headPath(row["newProof"], "newProof"),
+    lowProof: indexedPath(row["lowProof"], "lowProof"),
+    newProof: indexedPath(row["newProof"], "newProof"),
   };
-}
-
-export function decodeRingHeadRegisterProof(value: unknown): RingHeadRegisterProof {
-  const { lowLeaf, ...proof } = insertionProof(value, "lowNullifier");
-  return { ...proof, lowNullifier: lowLeaf };
-}
-
-export function decodeRingKeyRegistryRegisterProof(value: unknown): RingKeyRegistryRegisterProof {
-  const { lowLeaf, ...proof } = insertionProof(value, "lowCtCommitment");
-  return { ...proof, lowCtCommitment: lowLeaf };
 }
 
 export function decodeRingKeyRegistryEntry(value: unknown): RingKeyRegistryEntry {
@@ -130,23 +127,14 @@ export function decodeRingKeyRegistryEntry(value: unknown): RingKeyRegistryEntry
     index: wireInteger(row["index"], "index", 1n, common.nextIndex - 1n),
     ephPk: checkedBase64(row["ephPk"], "ephPk"),
     ciphertext: checkedBase64(row["ciphertext"], "ciphertext"),
-    proof: headPath(row["proof"], "proof"),
+    proof: indexedPath(row["proof"], "proof"),
   };
 }
 
-export function decodeRingHeadTransferProof(value: unknown): RingHeadTransferProof {
-  const row = object(value, "$", [
-    "context",
-    "root",
-    "member",
-    "nextIndex",
-    "next",
-    "nullifier",
-    "index",
-    "proof",
-    "record",
-  ]);
-  const common = memberContext(row);
+export function decodeRingSpendRecordResponse(value: unknown): GetRingSpendRecordResponse {
+  const row = object(value, "$", ["context", "record"]);
+  const indexed = context(row["context"], "context");
+  if (row["record"] === null) return { context: indexed, record: null };
   const record = object(row["record"], "record", ["transaction", "outputIndex"]);
   const transaction = indexedTransaction(record["transaction"], "record.transaction");
   const outputIndex = u16(record["outputIndex"], "record.outputIndex");
@@ -157,14 +145,7 @@ export function decodeRingHeadTransferProof(value: unknown): RingHeadTransferPro
       "an existing output",
       outputIndex,
     );
-  return {
-    ...common,
-    next: checkedHash(row["next"], "next"),
-    nullifier: checkedHash(row["nullifier"], "nullifier"),
-    index: wireInteger(row["index"], "index", 1n, common.nextIndex - 1n),
-    proof: headPath(row["proof"], "proof"),
-    record: { transaction, outputIndex },
-  };
+  return { context: indexed, record: { transaction, outputIndex } };
 }
 
 const I64_MIN = -(1n << 63n);

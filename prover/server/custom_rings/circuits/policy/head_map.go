@@ -18,14 +18,6 @@ type headLeaf struct {
 	nullifier frontend.Variable
 }
 
-type headTransition struct {
-	oldRoot   frontend.Variable
-	leaf      headLeaf
-	successor frontend.Variable
-	index     frontend.Variable
-	proof     []frontend.Variable
-}
-
 type headRegistration struct {
 	oldRoot  frontend.Variable
 	low      headLeaf
@@ -43,21 +35,6 @@ func headMapEmptyLeaf() frontend.Variable {
 
 func (l headLeaf) hash(api frontend.API) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{l.member, l.next, l.nullifier})
-}
-
-// Membership authenticates the consumed nullifier while preserving member ordering.
-func (t headTransition) newRoot(api frontend.API) frontend.Variable {
-	// Index zero is the sentinel.
-	api.AssertIsDifferent(t.index, 0)
-	gadget.AssertStrictlyOrderedFullField(api, 0, t.leaf.member, t.leaf.next)
-	return abstractor.Call(api, gadget.MerkleRootUpdateGadget{
-		OldRoot:     t.oldRoot,
-		OldLeaf:     t.leaf.hash(api),
-		NewLeaf:     headLeaf{member: t.leaf.member, next: t.leaf.next, nullifier: t.successor}.hash(api),
-		PathIndex:   api.ToBinary(t.index, HeadMapHeight),
-		MerkleProof: t.proof,
-		Height:      HeadMapHeight,
-	})
 }
 
 // Registration preserves the ordered member chain across both root updates.

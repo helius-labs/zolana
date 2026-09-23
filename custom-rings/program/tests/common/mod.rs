@@ -6,15 +6,14 @@ use core::num::NonZeroU64;
 use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::{
     tag, CoSignScope, CoSigner, CreateConfigIxData, CreateEntryIxData, CustomRingProof, Delegate,
-    HeadMapRoot, KeyRegistryRoot, PlainGroth16Proof, PolicyConfig, PolicyTableIxData,
-    ReadAccessRecord, ReaderKeyBytes, RegisterKeyIxData, RegisterSpendIxData, RingProgramConfig,
-    SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow,
-    UpdateEntryIxData, WithdrawalThreshold, WithdrawalThresholdRow, CONFIG_PDA_SEED, CO_SIGNER,
-    CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT,
-    HEAD_MAP_ROOT_PDA_SEED, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_PDA_SEED,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
-    READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
-    RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    KeyRegistryRoot, PlainGroth16Proof, PolicyConfig, PolicyTableIxData, ReadAccessRecord,
+    ReaderKeyBytes, RegisterKeyIxData, RegisterSpendIxData, RingProgramConfig, SetCoSignerIxData,
+    SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow, UpdateEntryIxData,
+    WithdrawalThreshold, WithdrawalThresholdRow, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED,
+    DELEGATE, DELEGATE_PDA_SEED, HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT,
+    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 use custom_ring_program::CustomRingError;
 use mollusk_svm::{
@@ -605,57 +604,6 @@ pub fn set_spend_window_fixture(mint: Pubkey, data: Vec<u8>, existing: Option<Ac
     )
 }
 
-pub fn head_map_root_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[HEAD_MAP_ROOT_PDA_SEED], &program_id())
-}
-
-pub fn head_map_root_account(root: [u8; 32], next_index: u64) -> Account {
-    let state = HeadMapRoot {
-        discriminator: HEAD_MAP_ROOT,
-        root,
-        next_index: next_index.to_le_bytes(),
-        bump: head_map_root_pda().1,
-    };
-    owned_account(&state, 1_000_000_000)
-}
-
-pub fn head_map_root_slot(account: Account) -> Slot {
-    Slot {
-        label: "head_map_root",
-        meta: AccountMeta::new(head_map_root_pda().0, false),
-        account,
-    }
-}
-
-pub fn create_head_map_root_fixture(existing: Option<Account>) -> Fixture {
-    Fixture::new(
-        vec![tag::CREATE_HEAD_MAP_ROOT],
-        vec![
-            Slot {
-                label: "payer",
-                meta: AccountMeta::new(payer(), true),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "authority",
-                meta: AccountMeta::new_readonly(authority(), true),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "config",
-                meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
-            },
-            Slot {
-                label: "head_map_root",
-                meta: AccountMeta::new(head_map_root_pda().0, false),
-                account: existing.unwrap_or_else(|| account(0)),
-            },
-            system_program_slot(),
-        ],
-    )
-}
-
 pub fn key_registry_root_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[KEY_REGISTRY_ROOT_PDA_SEED], &program_id())
 }
@@ -1033,16 +981,6 @@ pub fn spend_record_output(tag: [u8; 32]) -> TransactOutput {
             .expect("record leaf"),
         owner_tag: OwnerTag::Inline(namespace_pda().0.to_bytes()),
         data: Some(record.to_output_data().to_vec()),
-    }
-}
-
-pub fn uninitialized_head_map_root_account() -> Account {
-    Account {
-        lamports: 0,
-        data: Vec::new(),
-        owner: Pubkey::new_from_array([0u8; 32]),
-        executable: false,
-        rent_epoch: 0,
     }
 }
 
@@ -1458,7 +1396,7 @@ impl EntryFixture {
     }
 }
 
-/// Registration shares the entry mutation prefix and requires the current map root.
+/// `payer` registers its own identity over the entry mutation layout.
 pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture {
     let mut data = vec![tag::REGISTER_SPEND];
     data.extend_from_slice(
@@ -1468,23 +1406,10 @@ pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture 
             nullifier_tree_root_index: 0,
             utxo_tree_root_index: 0,
             proof: TransactProof::zeroed(),
-            head_old_root: HEAD_MAP_EMPTY_ROOT,
-            head_new_root: [1; 32],
-            head_next_index: 1,
-            head_proof: PlainGroth16Proof {
-                proof_a: [0; 32],
-                proof_b: [0; 64],
-                proof_c: [0; 32],
-            },
         })
         .expect("register_spend data"),
     );
-    let mut slots = entry_mutation_slots(policy_config, payer);
-    slots.push(head_map_root_slot(head_map_root_account(
-        HEAD_MAP_EMPTY_ROOT,
-        1,
-    )));
-    Fixture::new(data, slots)
+    Fixture::new(data, entry_mutation_slots(policy_config, payer))
 }
 
 /// An initialized policy-ring config as this program would have written it.

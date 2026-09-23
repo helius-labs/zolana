@@ -60,3 +60,21 @@ func TestKeyRegisterProofVerifiesEndToEnd(t *testing.T) {
 	tampered.PublicInputHash = chain(new(big.Int).Add(sealed.CiphertextHash, big.NewInt(1)))
 	rejectInstalledProof(t, registerSystem, proof, tampered)
 }
+
+func fixtureInsertion(insertion spptest.HeadMapInsertion, member *big.Int) headInsertion {
+	h := headInsertion{
+		HeadOldRoot:  insertion.OldRoot,
+		HeadNewRoot:  insertion.NewRoot,
+		Member:       member,
+		NewIndex:     new(big.Int).SetUint64(insertion.NewIndex),
+		LowMember:    insertion.Low.Member,
+		LowNext:      insertion.Low.Next,
+		LowNullifier: insertion.Low.Nullifier,
+		LowIndex:     new(big.Int).SetUint64(insertion.LowIndex),
+	}
+	for i := range h.LowProof {
+		h.LowProof[i] = &insertion.LowProof[i]
+		h.NewProof[i] = &insertion.NewProof[i]
+	}
+	return h
+}

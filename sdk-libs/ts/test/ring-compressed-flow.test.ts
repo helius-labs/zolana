@@ -7,7 +7,7 @@ import {
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { initializePoseidon } from "../src/hasher/index.js";
 import { ClientError } from "../src/client/error.js";
-import type { CustomRingRegisterProofRequest, TransferInputs } from "../src/client/prover/types.js";
+import type { TransferInputs } from "../src/client/prover/types.js";
 import type { RingSpendRegistrationClient } from "../src/ring/register-spend.js";
 import {
   buildRingSpendRegistrationTransaction,
@@ -15,12 +15,8 @@ import {
   prepareRingSpendRegistration,
 } from "../src/ring/register-spend.js";
 import { ringPolicyNamespaceAddress, fetchRingConfigs } from "../src/ring/config.js";
-import {
-  ringConfigAddress,
-  ringHeadMapRootPda,
-  ringPolicyConfigAddress,
-} from "../src/interface/pda/index.js";
-import { Writer, addressBytes } from "../src/interface/internal.js";
+import { ringConfigAddress, ringPolicyConfigAddress } from "../src/interface/pda/index.js";
+import { addressBytes } from "../src/interface/internal.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, TransactProof } from "../src/interface/types.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
@@ -33,15 +29,9 @@ import {
   spendCountersCommitment,
   zeroSpendCounters,
 } from "../src/ring/policy.js";
-import {
-  HEAD_MAP_EMPTY_ROOT,
-  HEAD_MAP_FIELD_MAX,
-  headMapLeaf,
-  headMapZeroBytes,
-  verifyHeadMapInsert,
-} from "../src/ring/head-map.js";
+import { HEAD_MAP_FIELD_MAX, headMapZeroBytes } from "../src/ring/head-map.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
-import { hashChain, bigIntBytes } from "../src/transaction/internal.js";
+import { bigIntBytes } from "../src/transaction/internal.js";
 import { BLOCKHASH } from "./helpers/clients.js";
 import {
   ownSources,
@@ -71,7 +61,6 @@ async function fixture(payer = PAYER) {
   const namespace = await ringPolicyNamespaceAddress(RING);
   const config = await ringConfigAddress(RING),
     policy = await ringPolicyConfigAddress(RING);
-  const [root, rootBump] = await ringHeadMapRootPda(RING);
   const [, configBump] = await getProgramDerivedAddress({
     programAddress: RING,
     seeds: [new TextEncoder().encode("config")],
@@ -88,26 +77,6 @@ async function fixture(payer = PAYER) {
   });
   const member = memberOfTag(addressBytes(payer));
   const zeros = headMapZeroBytes();
-  const head = {
-    context: { slot: 1n, blockTime: 1n },
-    root: HEAD_MAP_EMPTY_ROOT,
-    nextIndex: 1n,
-    member,
-    lowMember: field(0),
-    lowNext: HEAD_MAP_FIELD_MAX,
-    lowNullifier: field(0),
-    lowIndex: 0n,
-    lowProof: zeros.slice(0, 40),
-    newProof: [
-      headMapLeaf({ member: field(0), next: member, nullifier: field(0) }),
-      ...zeros.slice(1, 40),
-    ],
-  };
-  let request: CustomRingRegisterProofRequest | undefined;
-  const prove = vi.fn(async (input: CustomRingRegisterProofRequest) => {
-    request = input;
-    return new Uint8Array(128);
-  });
   const spp = vi.fn(async (_input: TransferInputs) => PROOF);
   let slot = 700n;
   const client: RingSpendRegistrationClient = {
@@ -133,16 +102,6 @@ async function fixture(payer = PAYER) {
             namespaceOwnerHash: ringNamespaceOwnerHash(namespace),
           }),
         );
-      if (key === root)
-        return ownedAccount(
-          RING,
-          new Writer()
-            .u8(8, "tag")
-            .bytes(HEAD_MAP_EMPTY_ROOT)
-            .u64(1n, "cursor")
-            .u8(rootBump, "bump")
-            .finish(),
-        );
       if (key === TREE)
         return ownedAccount(
           SHIELDED_POOL_PROGRAM_ID,
@@ -152,12 +111,7 @@ async function fixture(payer = PAYER) {
     },
     getLatestBlockhash: async () => BLOCKHASH,
     getSlot: async () => slot,
-    getRingHeadRegisterProof: async () => head,
-    getRingHeadTransferProof: async () => {
-      throw new ClientError("CLIENT_HEAD_MEMBER_UNREGISTERED", {
-        details: { method: "getRingHeadTransferProof" },
-      });
-    },
+    getRingSpendRecord: async () => ({ context: { slot: 1n, blockTime: 1n }, record: null }),
     getMerkleProofs: async () => {
       throw new Error("registration must not request membership");
     },
@@ -177,14 +131,11 @@ async function fixture(payer = PAYER) {
       })),
     }),
     proveTransferInputs: spp,
-    proveCustomRingRegister: prove,
   };
   return {
     client,
-    head,
-    prove,
+    member,
     spp,
-    request: () => request,
     auditor,
     setSlot: (value: bigint) => {
       slot = value;
@@ -192,56 +143,34 @@ async function fixture(payer = PAYER) {
   };
 }
 
+function outputHash(spp: { mock: { calls: readonly (readonly [TransferInputs])[] } }, call = 0) {
+  const output = spp.mock.calls[call]?.[0]?.outputs[0];
+  if (output === undefined) throw new Error("registration output missing");
+  return { hash: bigIntBytes(output.hash), blinding: bigIntBytes(output.circuit.blinding) };
+}
+
 describe("compressed registration flow", () => {
-  it("proves the address claim and a separate authenticated head insertion", async () => {
+  it("proves the address claim for a genesis record in the pinned window", async () => {
     const test = await fixture();
-    const transaction = await buildRingSpendRegistrationTransaction({
+    await buildRingSpendRegistrationTransaction({
       client: test.client,
       ringProgramId: RING,
       payer: PAYER,
     });
-    expect(transaction.messageBytes.length).toBeGreaterThan(461);
-    const request = test.request();
-    if (request === undefined) throw new Error("registration proof missing");
     const config = await fetchRingConfigs(test.client, RING);
     if (!config.hasPolicy) throw new Error("policy missing");
-    const spp = test.spp.mock.calls[0]?.[0];
-    const output = spp?.outputs[0];
-    if (output === undefined) throw new Error("registration output missing");
+    const output = outputHash(test.spp);
     const hashes = RingListNamespace.of(
       await ringPolicyNamespaceAddress(RING),
       config.policy.entriesTreeId,
     ).spendRecordHashes({
-      member: test.head.member,
+      member: test.member,
       version: 0n,
       window: 7n,
       countersCommitment: spendCountersCommitment(zeroSpendCounters()),
-      blinding: bigIntBytes(output.circuit.blinding) as Bytes32,
+      blinding: output.blinding as Bytes32,
     });
-    expect(request.genesis).toEqual(hashes.nullifier);
-    expect(request.headNewRoot).toEqual(
-      verifyHeadMapInsert({
-        root: test.head.root,
-        appendIndex: test.head.nextIndex,
-        member: test.head.member,
-        genesis: request.genesis,
-        lowMember: test.head.lowMember,
-        lowNext: test.head.lowNext,
-        lowNullifier: test.head.lowNullifier,
-        lowIndex: test.head.lowIndex,
-        lowProof: test.head.lowProof,
-        newProof: test.head.newProof,
-      }),
-    );
-    expect(request.publicInputHash).toEqual(
-      hashChain([
-        request.headOldRoot,
-        request.headNewRoot,
-        request.member,
-        request.genesis,
-        bigIntBytes(1n) as Bytes32,
-      ]),
-    );
+    expect(output.hash).toEqual(hashes.utxoHash);
     test.auditor.destroy();
   });
 
@@ -257,7 +186,6 @@ describe("compressed registration flow", () => {
     const sign = vi.fn(async (transaction: Parameters<typeof signTransactionWithSigners>[1]) =>
       signTransactionWithSigners([payer], transaction),
     );
-    const first = test.request();
     const unknown = await submission.send({
       sign,
       send,
@@ -267,7 +195,7 @@ describe("compressed registration flow", () => {
     expect(
       await submission.send({ sign, send, status: async () => ({ kind: "unknown" }) }),
     ).toEqual(unknown);
-    expect(test.prove).toHaveBeenCalledTimes(1);
+    expect(test.spp).toHaveBeenCalledTimes(1);
     let statuses = 0;
     const result = await submission.send({
       sign,
@@ -279,52 +207,41 @@ describe("compressed registration flow", () => {
     });
     expect(result).toMatchObject({ kind: "confirmed", attempts: 2 });
     expect(send).toHaveBeenCalledTimes(2);
-    expect(test.prove).toHaveBeenCalledTimes(2);
-    expect(test.request()?.genesis).not.toEqual(first?.genesis);
+    expect(test.spp).toHaveBeenCalledTimes(2);
+    expect(outputHash(test.spp, 1).hash).not.toEqual(outputHash(test.spp, 0).hash);
     test.auditor.destroy();
   });
 
-  it("rejects stale correlated head state before requesting either proof", async () => {
+  it("surfaces an indexer failure instead of treating the member as unregistered", async () => {
     const test = await fixture();
-    const spp = vi.fn(test.client.proveTransferInputs);
+    const failure = new ClientError("CLIENT_INDEXER", {
+      details: { method: "getRingSpendRecord", retryable: true },
+    });
     await expect(
-      buildRingSpendRegistrationTransaction({
+      prepareRingSpendRegistration({
         client: {
           ...test.client,
-          proveTransferInputs: spp,
-          getRingHeadRegisterProof: async () => ({ ...test.head, nextIndex: 2n }),
+          getRingSpendRecord: async () => {
+            throw failure;
+          },
         },
         ringProgramId: RING,
         payer: PAYER,
       }),
-    ).rejects.toMatchObject({ code: "RING_HEAD_MAP_STALE" });
-    expect(spp).not.toHaveBeenCalled();
-    expect(test.prove).not.toHaveBeenCalled();
+    ).rejects.toBe(failure);
+    expect(test.spp).not.toHaveBeenCalled();
     test.auditor.destroy();
   });
 
-  it("waits out indexer unavailability without treating it as unregistered", async () => {
+  it("builds a registration only for an unregistered member", async () => {
     const test = await fixture();
-    const abort = new AbortController();
-    await expect(
-      prepareRingSpendRegistration(
-        {
-          client: {
-            ...test.client,
-            getRingHeadTransferProof: async () => {
-              abort.abort();
-              throw new ClientError("CLIENT_HEAD_MAP_OUT_OF_SYNC", {
-                details: { method: "getRingHeadTransferProof" },
-              });
-            },
-          },
-          ringProgramId: RING,
-          payer: PAYER,
-        },
-        { signal: abort.signal },
-      ),
-    ).rejects.toMatchObject({ code: "CLIENT_ABORTED" });
-    expect(test.prove).not.toHaveBeenCalled();
+    const prepared = await prepareRingSpendRegistration({
+      client: test.client,
+      ringProgramId: RING,
+      payer: PAYER,
+    });
+    expect(prepared.kind).toBe("pending");
+    expect(test.spp).toHaveBeenCalledTimes(1);
     test.auditor.destroy();
   });
 });

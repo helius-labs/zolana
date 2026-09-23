@@ -14,8 +14,6 @@ mod deposit;
 mod deposit_audit;
 #[path = "failing/dispatch.rs"]
 mod dispatch;
-#[path = "failing/head_map_root.rs"]
-mod head_map_root;
 #[path = "failing/init_spp_ring_config.rs"]
 mod init_spp_ring_config;
 #[path = "failing/key_registry.rs"]

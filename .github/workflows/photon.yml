@@ -103,8 +103,8 @@ jobs:
                 ('ring_projection_cursor'),
                 ('ring_projection_blocks'),
                 ('ring_projection_pending'),
-                ('ring_head_map_roots'),
-                ('ring_head_map_members'),
+                ('ring_spend_record_rings'),
+                ('ring_spend_records'),
                 ('ring_key_registry_roots'),
                 ('ring_key_registry_members')
             )

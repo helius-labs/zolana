@@ -264,8 +264,7 @@ export class RingTransactionSubmission {
           status.kind === "expired" ||
           (status.kind === "failed" &&
             ringFailure &&
-            (status.customCode === RingProgramError.staleHeadMapRoot ||
-              status.customCode === RingProgramError.staleKeyRegistryRoot));
+            status.customCode === RingProgramError.staleKeyRegistryRoot);
         if (
           status.kind === "failed" &&
           ringFailure &&

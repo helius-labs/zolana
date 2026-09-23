@@ -15,31 +15,10 @@ import (
 	"zolana/prover/prover/common"
 )
 
-type compressedFixture struct {
-	register *CompressedRegisterParameters
-	transfer *CompressedPolicyParameters
-}
-
-func TestCompressedRegistrationAndSuccessorProofsVerify(t *testing.T) {
-	f := compressedProofParameters(t, nil)
-	registerSystem := loadRingSystem(t, common.CustomRingCompressedRegisterKeyFile)
-	var decodedRegister CompressedRegisterParameters
-	roundTripProofParameters(t, f.register, &decodedRegister)
-	registrationProof, err := Prove(registerSystem, &decodedRegister)
-	if err != nil {
-		t.Fatal(err)
-	}
-	registrationAssignment, err := decodedRegister.CreateWitness()
-	if err != nil {
-		t.Fatal(err)
-	}
-	verifyInstalledProof(t, registerSystem, registrationProof, registrationAssignment)
-	registrationAssignment.PublicInputHash = big.NewInt(1)
-	rejectInstalledProof(t, registerSystem, registrationProof, registrationAssignment)
-
+func TestCompressedSuccessorProofVerifies(t *testing.T) {
 	transferSystem := loadRingSystem(t, common.CustomRingCompressedPolicyKeyFile)
 	var decodedTransfer CompressedPolicyParameters
-	roundTripProofParameters(t, f.transfer, &decodedTransfer)
+	roundTripProofParameters(t, compressedProofParameters(t, nil), &decodedTransfer)
 	transferProof, err := Prove(transferSystem, &decodedTransfer)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +40,7 @@ func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
 	transfer := compressedProofParameters(t, func(p *PolicyParameters) {
 		unknownCounters(p)
 		p.Record.Window--
-	}).transfer
+	})
 	ps := loadRingSystem(t, common.CustomRingCompressedPolicyKeyFile)
 	var decoded CompressedPolicyParameters
 	roundTripProofParameters(t, transfer, &decoded)
@@ -76,7 +55,7 @@ func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
 	verifyInstalledProof(t, ps, proof, assignment)
 
 	decoded.Base.WindowIndex = decoded.Base.Record.Window
-	bindRulesFreeStatement(t, &decoded.Base, decoded.HeadOldRoot, decoded.HeadNewRoot, compressedDisclosure(t, &decoded))
+	bindRulesFreeStatement(t, &decoded.Base, compressedDisclosure(t, &decoded))
 	staleWindow, err := decoded.CreateWitness()
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +65,7 @@ func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
 		t.Fatal("an expired successor was proven under the predecessor window")
 	}
 
-	live := compressedProofParameters(t, unknownCounters).transfer
+	live := compressedProofParameters(t, unknownCounters)
 	if _, err := Prove(ps, live); err == nil {
 		t.Fatal("a live record was proven without its counter opening")
 	}
@@ -147,7 +126,7 @@ func verifyProofAssignment(ps *common.RingProofSystem, proof *common.Proof, assi
 	return groth16.Verify(proof.Proof, ps.VerifyingKey, witness)
 }
 
-func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) compressedFixture {
+func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) *CompressedPolicyParameters {
 	t.Helper()
 	p := rulesFreeParams(t)
 	zero := big.NewInt(0)
@@ -186,49 +165,9 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 		}
 	}
 	p.Inputs[1], p.Outputs[1] = opening(p.Record.Version, p.Record.Commitment, 101), opening(p.Record.Version+1, nextCommitment, 102)
-	genesis := spptest.MustNullifier(t, openingHash(t, p.Inputs[1]), p.Inputs[1].Blinding, zero)
-	successor := spptest.MustNullifier(t, openingHash(t, p.Outputs[1]), p.Outputs[1].Blinding, zero)
-	heads := spptest.NewHeadMap(t, policy.HeadMapHeight)
-	insertion := heads.Register(t, member, genesis)
-	transition := heads.Transfer(t, insertion.NewIndex, successor)
-
-	register := &CompressedRegisterParameters{
-		headInsertion: fixtureInsertion(insertion, member),
-		Genesis:       genesis,
-	}
-	register.PublicInputHash = spptest.MustHashChain(t, []*big.Int{
-		register.HeadOldRoot, register.HeadNewRoot, member, genesis, register.NewIndex,
-	})
-	transfer := &CompressedPolicyParameters{
-		Base:        *p,
-		HeadOldRoot: transition.OldRoot,
-		HeadNewRoot: transition.NewRoot,
-		HeadNext:    transition.Leaf.Next,
-		HeadIndex:   new(big.Int).SetUint64(transition.Index),
-	}
-	for i := range transfer.HeadProof {
-		transfer.HeadProof[i] = &transition.Proof[i]
-	}
-	bindRulesFreeStatement(t, &transfer.Base, transfer.HeadOldRoot, transfer.HeadNewRoot, compressedDisclosure(t, transfer))
-	return compressedFixture{register: register, transfer: transfer}
-}
-
-func fixtureInsertion(insertion spptest.HeadMapInsertion, member *big.Int) headInsertion {
-	h := headInsertion{
-		HeadOldRoot:  insertion.OldRoot,
-		HeadNewRoot:  insertion.NewRoot,
-		Member:       member,
-		NewIndex:     new(big.Int).SetUint64(insertion.NewIndex),
-		LowMember:    insertion.Low.Member,
-		LowNext:      insertion.Low.Next,
-		LowNullifier: insertion.Low.Nullifier,
-		LowIndex:     new(big.Int).SetUint64(insertion.LowIndex),
-	}
-	for i := range h.LowProof {
-		h.LowProof[i] = &insertion.LowProof[i]
-		h.NewProof[i] = &insertion.NewProof[i]
-	}
-	return h
+	transfer := &CompressedPolicyParameters{Base: *p}
+	bindRulesFreeStatement(t, &transfer.Base, compressedDisclosure(t, transfer))
+	return transfer
 }
 
 func proofCounters(t *testing.T, salt, asset, spent *big.Int) *big.Int {

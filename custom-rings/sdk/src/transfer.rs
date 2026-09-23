@@ -51,13 +51,11 @@ use zolana_transaction::{
 use zolana_tree::{TreeAccount, TreeError};
 
 use crate::{
-    head_map::HeadWitness,
     instructions::{
         entry::zero_nullifier_key,
         spend::{ReadEnvironment, ReadSpendRecord},
         transact::{
-            request::json_body, CustomRingPolicyProofRequestJson, HeadTransitionJson, RingIdentity,
-            VelocityProofInput,
+            request::json_body, CustomRingPolicyProofRequestJson, RingIdentity, VelocityProofInput,
         },
     },
     to_instruction_proof,
@@ -139,7 +137,6 @@ pub struct ProvenTransfer {
     pub cosigner: Option<Address>,
     /// The velocity statement demands the co-signer, the caller must sign with it.
     pub approval_required: bool,
-    pub head_transition: Option<custom_ring_interface::HeadMapTransition>,
     #[cfg(feature = "solana-rpc")]
     pub(crate) window: Option<ProvedWindow>,
     payer: Address,
@@ -147,8 +144,6 @@ pub struct ProvenTransfer {
     output_tree: Address,
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring.
     entries_tree: Option<Address>,
-    /// Present only for windowed member transfers.
-    head_map_root: Option<Address>,
     ring: CustomRing,
 }
 
@@ -268,8 +263,8 @@ pub enum TransferError {
     VelocityChangeExceedsInflow { asset: [u8; 32] },
     #[error("a windowed transfer spends and lands in the entries tree {entries_tree}")]
     EntriesTreeRequired { entries_tree: Address },
-    #[error("a head transition needs a windowed policy statement")]
-    HeadWithoutWindow,
+    #[error("a compressed policy statement needs a windowed policy")]
+    CompressedWithoutWindow,
 }
 
 impl From<PolicyMatchError> for TransferError {
@@ -592,7 +587,7 @@ impl<'a> CustomRingTransfer<'a> {
             SpendLimit::Unbounded => VelocityStage {
                 plan: None,
                 proof_input: None,
-                head: None,
+                compressed: None,
             },
             SpendLimit::PerTransfer { rows, identity } => {
                 let outflows = Outflows {
@@ -610,7 +605,7 @@ impl<'a> CustomRingTransfer<'a> {
                 VelocityStage {
                     plan: None,
                     proof_input: Some(VelocityProofInput::per_transfer(&charges, *identity)),
-                    head: None,
+                    compressed: None,
                 }
             }
             SpendLimit::PerWindow(facts) => {
@@ -638,9 +633,7 @@ impl<'a> CustomRingTransfer<'a> {
                 .append(&mut proof_inputs)?;
                 VelocityStage {
                     proof_input: Some(plan.proof_input),
-                    head: Some(CompressedHead {
-                        witness: facts.head.clone(),
-                        transition: plan.head_transition,
+                    compressed: Some(CompressedDisclosure {
                         transaction_salt: salt,
                         counters_disclosure_hash:
                             zolana_ring_policy::spend_counters_disclosure_hash(
@@ -687,9 +680,8 @@ impl<'a> CustomRingTransfer<'a> {
         // private_tx_hash, so it must be bound before anything hashes external data.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
 
-        let head_map_root = stage.head.is_some().then(|| self.ring.head_map_root_pda());
         Ok(StagedTransfer {
-            head_witness: stage.head,
+            compressed: stage.compressed,
             tx_viewing_key,
             nullifier_key: self.nullifier_key.cloned(),
             pending_proof,
@@ -702,7 +694,6 @@ impl<'a> CustomRingTransfer<'a> {
             ring: self.ring,
             cosigner: self.cosigner,
             velocity: stage.proof_input,
-            head_map_root,
         })
     }
 }
@@ -752,7 +743,7 @@ impl PolicyLookup<'_> {
 struct VelocityStage {
     plan: Option<VelocityPlan>,
     proof_input: Option<VelocityProofInput>,
-    head: Option<CompressedHead>,
+    compressed: Option<CompressedDisclosure>,
 }
 
 /// The window read is the one transport-bound step.
@@ -814,16 +805,25 @@ impl VelocityLookup<'_> {
         self,
         env: ReadEnvironment<'_, I, R>,
     ) -> Result<VelocityFacts, TransferError> {
-        let head = self.read.current(env).map_err(list_entry)?;
-        self.context.facts(head, env.rpc.get_slot()?)
+        let live = self
+            .read
+            .read_current(env.indexer)
+            .map_err(list_entry)?
+            .ok_or(TransferError::SpendRecordMissing)?;
+        self.context.facts(live, env.rpc.get_slot()?)
     }
 
     async fn read_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         env: ReadEnvironment<'_, I, R>,
     ) -> Result<VelocityFacts, TransferError> {
-        let head = self.read.current_async(env).await.map_err(list_entry)?;
-        self.context.facts(head, env.rpc.get_slot().await?)
+        let live = self
+            .read
+            .read_current_async(env.indexer)
+            .await
+            .map_err(list_entry)?
+            .ok_or(TransferError::SpendRecordMissing)?;
+        self.context.facts(live, env.rpc.get_slot().await?)
     }
 }
 
@@ -1096,7 +1096,7 @@ impl Tier {
 /// one, does not compile, so no state has to be checked at run time and no
 /// error variant has to stand in for "called out of order".
 struct StagedTransfer {
-    head_witness: Option<CompressedHead>,
+    compressed: Option<CompressedDisclosure>,
     tx_viewing_key: ViewingKey,
     /// The sender's proof authority, which completes the built witness. Owned
     /// rather than borrowed: `stage` consumes the transfer, so the caller's
@@ -1112,7 +1112,6 @@ struct StagedTransfer {
     ring: CustomRing,
     cosigner: Option<Address>,
     velocity: Option<VelocityProofInput>,
-    head_map_root: Option<Address>,
 }
 
 impl StagedTransfer {
@@ -1184,7 +1183,7 @@ impl StagedTransfer {
         // record as its final input. Its fixed zero authority is distinct from
         // the sender, so complete it first and let the sender authority skip
         // the now-complete slot.
-        if self.head_witness.is_some() {
+        if self.compressed.is_some() {
             let record = ring_result
                 .inputs
                 .inputs
@@ -1206,8 +1205,8 @@ impl StagedTransfer {
             private_tx_blinding: self.proof_inputs.private_tx_blinding()?,
         }
         .build()?;
-        if let Some(head) = self.head_witness {
-            request = request.with_head(head)?;
+        if let Some(compressed) = self.compressed {
+            request = request.with_compressed(compressed)?;
         }
         Ok(WitnessedTransfer {
             request,
@@ -1222,7 +1221,6 @@ impl StagedTransfer {
             interface_transfer_accounts: self.interface_transfer_accounts,
             ring: self.ring,
             cosigner: self.cosigner,
-            head_map_root: self.head_map_root,
         })
     }
 }
@@ -1241,16 +1239,14 @@ pub(crate) enum TierRequest {
     },
 }
 
-pub(crate) struct CompressedHead {
+pub(crate) struct CompressedDisclosure {
     pub transaction_salt: [u8; 16],
     pub counters_disclosure_hash: [u8; 32],
-    pub witness: HeadWitness,
-    pub transition: custom_ring_interface::HeadMapTransition,
 }
 
 pub(crate) enum PolicyProofKind {
     Ordinary,
-    Compressed(Box<CompressedHead>),
+    Compressed(CompressedDisclosure),
     Delegate,
 }
 
@@ -1267,8 +1263,6 @@ struct CompressedPolicyJson {
     transaction_salt: String,
     #[serde(flatten)]
     wrapped: WrappedPolicyJson,
-    #[serde(flatten)]
-    head: HeadTransitionJson,
 }
 
 impl ProveRequest for TierRequest {
@@ -1281,15 +1275,14 @@ impl ProveRequest for TierRequest {
                     circuit_type: "custom-ring-delegate-policy",
                     policy: request.json()?,
                 }),
-                PolicyProofKind::Compressed(head) => json_body(&CompressedPolicyJson {
+                PolicyProofKind::Compressed(compressed) => json_body(&CompressedPolicyJson {
                     transaction_salt: crate::instructions::transact::request::bytes_to_hex(
-                        &head.transaction_salt,
+                        &compressed.transaction_salt,
                     ),
                     wrapped: WrappedPolicyJson {
                         circuit_type: "custom-ring-compressed-policy",
                         policy: request.json()?,
                     },
-                    head: HeadTransitionJson::new(&head.witness, &head.transition),
                 }),
             },
         }
@@ -1349,23 +1342,21 @@ impl TierRequestInput<'_> {
 }
 
 impl TierRequest {
-    /// The compressed circuit folds both roots after the policy chain.
-    fn with_head(mut self, head: CompressedHead) -> Result<Self, TransferError> {
+    /// The compressed circuit folds the disclosure after the policy chain.
+    fn with_compressed(mut self, compressed: CompressedDisclosure) -> Result<Self, TransferError> {
         let Self::Policy { request, kind, .. } = &mut self else {
-            return Err(TransferError::HeadWithoutWindow);
+            return Err(TransferError::CompressedWithoutWindow);
         };
         if request.velocity.window_slots == 0 {
-            return Err(TransferError::HeadWithoutWindow);
+            return Err(TransferError::CompressedWithoutWindow);
         }
         use zolana_hasher::{Hasher, Poseidon};
-        let old = Poseidon::hashv(&[&request.public_input_hash, &head.transition.old_root])
-            .map_err(|_| TransferError::PolicyHashing)?;
-        request.public_input_hash = Poseidon::hashv(&[&old, &head.transition.new_root])
-            .map_err(|_| TransferError::PolicyHashing)?;
-        request.public_input_hash =
-            Poseidon::hashv(&[&request.public_input_hash, &head.counters_disclosure_hash])
-                .map_err(|_| TransferError::PolicyHashing)?;
-        *kind = PolicyProofKind::Compressed(Box::new(head));
+        request.public_input_hash = Poseidon::hashv(&[
+            &request.public_input_hash,
+            &compressed.counters_disclosure_hash,
+        ])
+        .map_err(|_| TransferError::PolicyHashing)?;
+        *kind = PolicyProofKind::Compressed(compressed);
         Ok(self)
     }
 
@@ -1386,14 +1377,12 @@ impl TierRequest {
                 nullifier_root_index: 0,
                 approval_required: false,
                 revocation_targets: [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
-                head_transition: None,
             },
             Self::Policy {
                 entries_tree,
                 roots,
                 approval_required,
                 revocation_targets,
-                kind,
                 ..
             } => TierBinding {
                 proof,
@@ -1402,10 +1391,6 @@ impl TierRequest {
                 nullifier_root_index: roots.nullifier_index,
                 approval_required,
                 revocation_targets,
-                head_transition: match kind {
-                    PolicyProofKind::Compressed(head) => Some(head.transition),
-                    _ => None,
-                },
             },
         })
     }
@@ -1418,7 +1403,6 @@ pub(crate) struct TierBinding {
     pub nullifier_root_index: u16,
     pub approval_required: bool,
     pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
-    pub head_transition: Option<custom_ring_interface::HeadMapTransition>,
 }
 
 /// Both witnesses built and the auditor encryption closed over the transfer's
@@ -1436,7 +1420,6 @@ struct WitnessedTransfer {
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     ring: CustomRing,
     cosigner: Option<Address>,
-    head_map_root: Option<Address>,
 }
 
 impl WitnessedTransfer {
@@ -1457,7 +1440,6 @@ impl WitnessedTransfer {
             nullifier_root_index,
             approval_required,
             revocation_targets,
-            head_transition,
         } = self.request.proven(ring_proof)?;
         let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
         Ok(ProvenTransfer {
@@ -1486,12 +1468,10 @@ impl WitnessedTransfer {
             cosigner: self.cosigner,
             approval_required,
             revocation_targets,
-            head_transition,
             payer: self.payer,
             input_tree: self.input_tree,
             output_tree: self.output_tree,
             entries_tree,
-            head_map_root: self.head_map_root,
             ring: self.ring,
         })
     }
@@ -1505,7 +1485,6 @@ impl ProvenTransfer {
             input_tree: self.input_tree,
             output_tree: self.output_tree,
             entries_tree: self.entries_tree,
-            head_map_root: self.head_map_root,
             cosigner: self.cosigner,
             owner_signers: self.owner_signers.clone(),
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
@@ -1515,7 +1494,6 @@ impl ProvenTransfer {
             nullifier_root_index: self.nullifier_root_index,
             approval_required: self.approval_required,
             revocation_targets: self.revocation_targets,
-            head_transition: self.head_transition,
         }
         .instruction()
         .map_err(Into::into)

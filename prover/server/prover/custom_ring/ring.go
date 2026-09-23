@@ -56,11 +56,6 @@ var (
 		circuit: func() frontend.Circuit { return &policy.CompressedPolicyCircuit{} },
 		request: func() Request { return new(CompressedPolicyParameters) },
 	}
-	compressedRegisterRing = RingCircuit{
-		Type:    common.CustomRingCompressedRegisterCircuitType,
-		circuit: func() frontend.Circuit { return &policy.CompressedRegisterCircuit{} },
-		request: func() Request { return new(CompressedRegisterParameters) },
-	}
 	keyRegisterRing = RingCircuit{
 		Type:    common.CustomRingKeyRegisterCircuitType,
 		circuit: func() frontend.Circuit { return &policy.KeyRegisterCircuit{} },
@@ -78,7 +73,6 @@ var RingCircuits = []RingCircuit{
 	baseRing,
 	delegatePolicyRing,
 	compressedPolicyRing,
-	compressedRegisterRing,
 	keyRegisterRing,
 	depositRing,
 }
@@ -97,10 +91,6 @@ func R1CSDelegatePolicy() (constraint.ConstraintSystem, error) {
 
 func R1CSCompressedPolicy() (constraint.ConstraintSystem, error) {
 	return compressedPolicyRing.R1CS()
-}
-
-func R1CSCompressedRegister() (constraint.ConstraintSystem, error) {
-	return compressedRegisterRing.R1CS()
 }
 
 func R1CSKeyRegister() (constraint.ConstraintSystem, error) {
@@ -183,10 +173,6 @@ func (p *DelegatePolicyParameters) assignment() (frontend.Circuit, error) {
 }
 
 func (p *CompressedPolicyParameters) assignment() (frontend.Circuit, error) {
-	return p.CreateWitness()
-}
-
-func (p *CompressedRegisterParameters) assignment() (frontend.Circuit, error) {
 	return p.CreateWitness()
 }
 

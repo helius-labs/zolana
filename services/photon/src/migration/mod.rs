@@ -114,7 +114,8 @@ mod tests {
             }
         }
         db.execute_unprepared("DELETE FROM seaql_migrations WHERE version IN ('m20260913_000001_head_maps', 'm20260914_000001_key_registry')").await.unwrap();
-        RingsMigrator::up(&db, None).await.unwrap();
+        // Stops before the spend-record migration resets every cursor.
+        RingsMigrator::up(&db, Some(4)).await.unwrap();
         let row = db
             .query_one(Statement::from_string(
                 db.get_database_backend(),
@@ -156,6 +157,86 @@ mod tests {
         assert_eq!(cursor["start_slot"], 10);
         assert_eq!(cursor["scanned_slot"], 10);
         assert_eq!(cursor["ready"], false);
+        RingsMigrator::up(&db, None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn spend_record_upgrade_drops_the_head_map_and_replays_from_the_start_slot() {
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        let before_spend_records =
+            <u32 as TryFrom<usize>>::try_from(RingsMigrator::migrations().len() - 1).unwrap();
+        RingsMigrator::up(&db, Some(before_spend_records))
+            .await
+            .unwrap();
+        let cursor = serde_json::json!({"start_slot": 10, "scanned_slot": 90,
+            "tip": null, "revision": 400, "ready": true});
+        db.execute(Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "INSERT INTO ring_projection_cursor(id,state) VALUES(1,$1)",
+            [cursor.to_string().into()],
+        ))
+        .await
+        .unwrap();
+        db.execute(Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "INSERT INTO ring_key_registry_roots(program,state) VALUES($1,'{}')",
+            [vec![1u8; 32].into()],
+        ))
+        .await
+        .unwrap();
+        for kind in [1, 3, 4] {
+            db.execute(Statement::from_sql_and_values(db.get_database_backend(),
+                "INSERT INTO state_trees(tree,tree_kind,node_idx,level,hash,seq) VALUES($1,$2,1,40,$3,7)",
+                vec![vec![1u8; 32].into(), kind.into(), vec![2u8; 32].into()],
+            )).await.unwrap();
+        }
+        RingsMigrator::up(&db, None).await.unwrap();
+        assert!(table_exists(&db, "ring_spend_records").await);
+        assert!(table_exists(&db, "ring_spend_record_rings").await);
+        for table in [
+            "ring_head_map_roots",
+            "ring_head_map_members",
+            "ring_head_cursor",
+        ] {
+            assert!(!table_exists(&db, table).await);
+        }
+        let row = db
+            .query_one(Statement::from_string(
+                db.get_database_backend(),
+                "SELECT state FROM ring_projection_cursor WHERE id=1".to_string(),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let cursor: serde_json::Value =
+            serde_json::from_str(&row.try_get::<String>("", "state").unwrap()).unwrap();
+        assert_eq!(cursor["start_slot"], 10);
+        assert_eq!(cursor["scanned_slot"], 10);
+        assert_eq!(cursor["revision"], 0);
+        assert_eq!(cursor["ready"], false);
+        let count = |sql: &'static str| {
+            let db = &db;
+            async move {
+                db.query_one(Statement::from_string(db.get_database_backend(), sql))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .try_get::<i64>("", "count")
+                    .unwrap()
+            }
+        };
+        assert_eq!(
+            count("SELECT COUNT(*) AS count FROM ring_key_registry_roots").await,
+            0
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) AS count FROM state_trees WHERE tree_kind <> 1").await,
+            0
+        );
+        RingsMigrator::down(&db, Some(1)).await.unwrap();
+        assert!(table_exists(&db, "ring_head_map_roots").await);
+        assert!(table_exists(&db, "ring_head_cursor").await);
+        assert!(!table_exists(&db, "ring_spend_records").await);
         RingsMigrator::up(&db, None).await.unwrap();
     }
 

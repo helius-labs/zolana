@@ -1,29 +1,21 @@
-import type { BlockhashProvider, Prover, RingHeadReader, SlotReader } from "../client/ports.js";
-import { ClientError } from "../client/error.js";
+import type { BlockhashProvider, RingSpendRecordReader, SlotReader } from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
 import { signerAddress, type SignerAccount } from "../interface/instructions/index.js";
 import { addressBytes } from "../interface/internal.js";
-import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
-import { bigIntBytes, hashChain } from "../transaction/internal.js";
-import { equalBytes } from "../wallet/internal.js";
+import type { Address, RequestContext, Transaction } from "../interface/types.js";
+import { hashChain } from "../transaction/internal.js";
 import type { RingPolicyConfig } from "./codecs.js";
-import {
-  fetchRingConfigs,
-  fetchRingHeadMapRoot,
-  ringPolicyNamespaceAddress,
-  windowedPolicy,
-} from "./config.js";
+import { fetchRingConfigs, ringPolicyNamespaceAddress, windowedPolicy } from "./config.js";
 import { proveRingSpendRegistration, type RingEntryProofClient } from "./entry-proof.js";
 import { RingError } from "./error.js";
-import { HEAD_MAP_CAPACITY, checkedHeadMapField, verifyHeadMapInsert } from "./head-map.js";
+import { checkedHeadMapField } from "./head-map.js";
 import {
   registerRingSpendInstruction,
   RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 } from "./instructions.js";
 import { memberOfTag, memberOfIdentity, type LiveSpendRecord, type Member } from "./policy.js";
-import { readCurrentSpendRecord } from "./head-reader.js";
-import { HEAD_MAP_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
+import { findCurrentSpendRecord } from "./spend-record-reader.js";
 import {
   RingTransactionSubmission,
   windowChangedOn,
@@ -34,12 +26,10 @@ import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 
 export type RingSpendRegistrationClient = RingEntryProofClient &
-  RingHeadReader &
+  RingSpendRecordReader &
   BlockhashProvider &
-  SlotReader &
-  Pick<Prover, "proveCustomRingRegister">;
+  SlotReader;
 
-/** Registers the member's initial record and compressed head atomically. */
 export interface RingSpendRegistrationParams {
   readonly client: RingSpendRegistrationClient;
   readonly ringProgramId: Address;
@@ -57,23 +47,18 @@ export async function prepareRingSpendRegistration(
   context?: RequestContext,
 ): Promise<RingSpendRegistrationPreparation> {
   const registration = await registrationContext(input, context);
-  try {
-    const { live } = await readCurrentSpendRecord(
-      {
-        client: input.client,
-        ringProgramId: input.ringProgramId,
-        namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
-        entriesTree: registration.policy.entriesTree,
-        entriesTreeId: registration.policy.entriesTreeId,
-        sender: registration.member,
-      },
-      context,
-    );
-    return { kind: "registered", record: live };
-  } catch (cause) {
-    if (!(cause instanceof ClientError) || cause.code !== "CLIENT_HEAD_MEMBER_UNREGISTERED")
-      throw cause;
-  }
+  const live = await findCurrentSpendRecord(
+    {
+      client: input.client,
+      ringProgramId: input.ringProgramId,
+      namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
+      entriesTree: registration.policy.entriesTree,
+      entriesTreeId: registration.policy.entriesTreeId,
+      sender: registration.member,
+    },
+    context,
+  );
+  if (live !== undefined) return { kind: "registered", record: live };
   return {
     kind: "pending",
     submission: await registrationSubmission({ params: input, registration }, context),
@@ -91,8 +76,7 @@ export async function createRingSpendRegistrationSubmission(
 /** Expired counters reset without decryption. */
 export async function readRingVelocityState(
   input: Readonly<{
-    client: Pick<RingSpendRegistrationClient, "getAccount" | "getRingHeadTransferProof"> &
-      SlotReader;
+    client: Pick<RingSpendRegistrationClient, "getAccount" | "getRingSpendRecord"> & SlotReader;
     ringProgramId: Address;
     member: ShieldedAddress;
     keys: ShieldedKeys;
@@ -179,34 +163,7 @@ async function buildRegistrationAttempt(
 ): Promise<Pick<RingSubmissionAttempt, "transaction" | "lastValidBlockHeight" | "window">> {
   const { params, registration } = input;
   const { policy, payer, member } = registration;
-  // 1. Pin the window and authenticate the member's empty head.
   const windowIndex = (await params.client.getSlot(context)) / policy.windowSlots;
-  const { root, head } = await waitForRingProjection(
-    async (attemptContext) => {
-      const root = await fetchRingHeadMapRoot(params.client, params.ringProgramId, attemptContext);
-      if (root.nextIndex >= HEAD_MAP_CAPACITY)
-        throw new RingError("RING_HEAD_MAP_INVALID", { details: { reason: "capacity" } });
-      const head = await params.client.getRingHeadRegisterProof(
-        {
-          ringProgramId: params.ringProgramId,
-          member,
-          expectedRoot: root.root,
-          expectedNextIndex: root.nextIndex,
-        },
-        attemptContext,
-      );
-      if (
-        !equalBytes(head.root, root.root) ||
-        !equalBytes(head.member, member) ||
-        head.nextIndex !== root.nextIndex
-      )
-        throw new RingError("RING_HEAD_MAP_STALE");
-      return { root, head };
-    },
-    HEAD_MAP_PROJECTION_ERRORS,
-    context,
-  );
-  // 2. Prove creation of the initial compressed record.
   const entry = await proveRingSpendRegistration(
     {
       client: params.client,
@@ -219,53 +176,12 @@ async function buildRegistrationAttempt(
     },
     context,
   );
-  // 3. Bind head insertion to the nullifier of that exact record.
-  const headNewRoot = verifyHeadMapInsert({
-    root: root.root,
-    appendIndex: root.nextIndex,
-    member,
-    genesis: entry.genesis,
-    lowMember: head.lowMember,
-    lowNext: head.lowNext,
-    lowNullifier: head.lowNullifier,
-    lowIndex: head.lowIndex,
-    lowProof: head.lowProof,
-    newProof: head.newProof,
-  });
-  const publicInputHash = hashChain([
-    root.root,
-    headNewRoot,
-    member,
-    entry.genesis,
-    bigIntBytes(root.nextIndex) as Bytes32,
-  ]);
-  const headProof = await params.client.proveCustomRingRegister(
-    {
-      publicInputHash,
-      headOldRoot: root.root,
-      headNewRoot,
-      member,
-      genesis: entry.genesis,
-      newIndex: root.nextIndex,
-      lowMember: head.lowMember,
-      lowNext: head.lowNext,
-      lowNullifier: head.lowNullifier,
-      lowIndex: head.lowIndex,
-      lowProof: head.lowProof,
-      newProof: head.newProof,
-    },
-    context,
-  );
   const instruction = await registerRingSpendInstruction({
     ringProgramId: params.ringProgramId,
     payer: params.payer,
     entriesTree: policy.entriesTree,
     blinding: entry.record.blinding,
     proof: entry.proof,
-    headOldRoot: root.root,
-    headNewRoot,
-    headNextIndex: root.nextIndex,
-    headProof,
   });
   const lifetime = await params.client.getLatestBlockhash(context);
   const transaction = compileUnsignedTransaction({

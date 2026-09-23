@@ -6,10 +6,8 @@ use solana_pubkey::ParsePubkeyError;
 use thiserror::Error;
 #[cfg(feature = "ring-projection")]
 use zolana_indexer_api::error_code::{
-    RING_HEAD_MAP_OUT_OF_SYNC, RING_HEAD_MEMBER_ALREADY_REGISTERED, RING_HEAD_MEMBER_UNREGISTERED,
-    RING_HEAD_ROOT_CHANGED, RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED,
-    RING_KEY_REGISTRY_MEMBER_UNREGISTERED, RING_KEY_REGISTRY_OUT_OF_SYNC,
-    RING_KEY_REGISTRY_ROOT_CHANGED,
+    RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
+    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED, RING_SPEND_RECORD_OUT_OF_SYNC,
 };
 use zolana_indexer_api::ParseHashError;
 
@@ -53,15 +51,10 @@ pub enum RingProjectionError {
     MemberUnregistered(ProjectionKind),
     #[error("member is already registered in the {0}")]
     MemberAlreadyRegistered(ProjectionKind),
+    #[error("spend records are out of sync ({0})")]
+    SpendRecordOutOfSync(String),
 }
 
-#[cfg(feature = "ring-projection")]
-const HEAD_MAP_CODES: [i32; 4] = [
-    wire_code(RING_HEAD_MAP_OUT_OF_SYNC),
-    wire_code(RING_HEAD_ROOT_CHANGED),
-    wire_code(RING_HEAD_MEMBER_UNREGISTERED),
-    wire_code(RING_HEAD_MEMBER_ALREADY_REGISTERED),
-];
 #[cfg(feature = "ring-projection")]
 const KEY_REGISTRY_CODES: [i32; 4] = [
     wire_code(RING_KEY_REGISTRY_OUT_OF_SYNC),
@@ -84,9 +77,9 @@ impl RingProjectionError {
             Self::RootChanged(kind) => (*kind, 1),
             Self::MemberUnregistered(kind) => (*kind, 2),
             Self::MemberAlreadyRegistered(kind) => (*kind, 3),
+            Self::SpendRecordOutOfSync(_) => return wire_code(RING_SPEND_RECORD_OUT_OF_SYNC),
         };
         match kind {
-            ProjectionKind::HeadMap => HEAD_MAP_CODES[cause],
             ProjectionKind::KeyRegistry => KEY_REGISTRY_CODES[cause],
         }
     }

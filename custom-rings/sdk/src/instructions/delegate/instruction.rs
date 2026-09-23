@@ -131,7 +131,6 @@ impl CustomRingDelegateTransact {
             state_root_index,
             nullifier_root_index,
             approval_required: 0,
-            head_transition: None,
             revocation_targets,
             transact,
         })?;

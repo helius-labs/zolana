@@ -1,6 +1,6 @@
-pub mod head_map;
 pub mod key_registry;
 pub mod proof;
+pub mod spend_record;
 
 use serde::{de::DeserializeOwned, Serialize};
 use solana_address::Address;

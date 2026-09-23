@@ -223,36 +223,25 @@ export function decodeRingSpendWindow(data: Uint8Array): RingSpendWindow {
   });
 }
 
-/** Anchors the compressed member heads in one on-chain account. */
-export interface RingHeadMapRoot {
+/** Rust `KeyRegistryRoot`. */
+export interface RingKeyRegistryRoot {
   readonly root: Bytes32;
   readonly nextIndex: bigint;
   readonly bump: number;
 }
 
-/** Same layout as the head map root, Rust `KeyRegistryRoot`. */
-export type RingKeyRegistryRoot = RingHeadMapRoot;
-
-/** Rust `HEAD_MAP_ROOT`, `KEY_REGISTRY_ROOT` and `HeadMapRoot::SIZE`. */
-const RING_HEAD_MAP_ROOT_DISCRIMINATOR = 8;
+/** Rust `KEY_REGISTRY_ROOT` and `KeyRegistryRoot::SIZE`. */
 const RING_KEY_REGISTRY_ROOT_DISCRIMINATOR = 9;
-const RING_INDEXED_ROOT_SIZE = 42;
-
-export function decodeRingHeadMapRoot(data: Uint8Array): RingHeadMapRoot {
-  return decodeIndexedRoot(data, RING_HEAD_MAP_ROOT_DISCRIMINATOR, "RING_HEAD_MAP_INVALID");
-}
+const RING_KEY_REGISTRY_ROOT_SIZE = 42;
 
 export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot {
-  return decodeIndexedRoot(data, RING_KEY_REGISTRY_ROOT_DISCRIMINATOR, "RING_KEY_REGISTRY_INVALID");
-}
-
-function decodeIndexedRoot(
-  data: Uint8Array,
-  discriminator: number,
-  invalid: "RING_HEAD_MAP_INVALID" | "RING_KEY_REGISTRY_INVALID",
-): RingHeadMapRoot {
-  if (data.length !== RING_INDEXED_ROOT_SIZE || data[0] !== discriminator) {
-    throw new RingError(invalid, { details: { length: data.length, discriminator: data[0] } });
+  if (
+    data.length !== RING_KEY_REGISTRY_ROOT_SIZE ||
+    data[0] !== RING_KEY_REGISTRY_ROOT_DISCRIMINATOR
+  ) {
+    throw new RingError("RING_KEY_REGISTRY_INVALID", {
+      details: { length: data.length, discriminator: data[0] },
+    });
   }
   const reader = new Reader(data);
   reader.u8("discriminator");
@@ -261,7 +250,7 @@ function decodeIndexedRoot(
   const bump = reader.u8("bump");
   reader.done();
   if (nextIndex < 1n || nextIndex > HEAD_MAP_CAPACITY) {
-    throw new RingError(invalid, { details: { nextIndex } });
+    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { nextIndex } });
   }
   return Object.freeze({ root, nextIndex, bump });
 }

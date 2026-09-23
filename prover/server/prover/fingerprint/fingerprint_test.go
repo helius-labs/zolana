@@ -75,9 +75,6 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	compressed, err := customring.R1CSCompressedPolicy()
 	add("custom_ring_compressed_policy", compressed, err)
 
-	register, err := customring.R1CSCompressedRegister()
-	add("custom_ring_compressed_register", register, err)
-
 	registerKey, err := customring.R1CSKeyRegister()
 	add("custom_ring_register_key", registerKey, err)
 
@@ -100,20 +97,19 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_confidential_2_3":       {constraints: 54912, public: 2},
-	"transfer_ring_2_3":               {constraints: 55017, public: 2},
-	"transfer_ring_authority_2_2":     {constraints: 52036, public: 2},
-	"transfer_p256_ring_2_3":          {constraints: 199973, public: 2},
-	"custom_ring_policy":              {constraints: 532572, public: 2},
-	"custom_ring_compressed_policy":   {constraints: 1885142, public: 2},
-	"custom_ring_compressed_register": {constraints: 43106, public: 2},
-	"custom_ring_register_key":        {constraints: 240449, public: 2},
-	"custom_ring_deposit":             {constraints: 896319, public: 2},
-	"custom_ring_delegate_policy":     {constraints: 520217, public: 2},
-	"custom_ring_base":                {constraints: 237921, public: 2},
-	"merge_8_1":                       {constraints: 177739, public: 2},
-	"merge_ring_8_1":                  {constraints: 177772, public: 2},
-	"batch_address-append_40_10":      {constraints: 421991, public: 2},
+	"transfer_confidential_2_3":     {constraints: 54912, public: 2},
+	"transfer_ring_2_3":             {constraints: 55017, public: 2},
+	"transfer_ring_authority_2_2":   {constraints: 52036, public: 2},
+	"transfer_p256_ring_2_3":        {constraints: 199973, public: 2},
+	"custom_ring_policy":            {constraints: 532572, public: 2},
+	"custom_ring_compressed_policy": {constraints: 1862154, public: 2},
+	"custom_ring_register_key":      {constraints: 240449, public: 2},
+	"custom_ring_deposit":           {constraints: 896319, public: 2},
+	"custom_ring_delegate_policy":   {constraints: 520217, public: 2},
+	"custom_ring_base":              {constraints: 237921, public: 2},
+	"merge_8_1":                     {constraints: 177739, public: 2},
+	"merge_ring_8_1":                {constraints: 177772, public: 2},
+	"batch_address-append_40_10":    {constraints: 421991, public: 2},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {

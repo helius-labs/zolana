@@ -226,24 +226,24 @@ namespace signature only when consuming a spend record.
 ## The circuit
 
 One ring proof serves audit and policy. The base audit statement is an exported
-block, and its eight-element hash chain is a strict prefix of the new
-statement. The public input is one hash chain over sixteen elements:
+block, and its eleven-element hash chain is a strict prefix of the new
+statement. The public input is one hash chain over nineteen elements and one
+revocation target per answer slot:
 
 ```
 private_tx_hash,
 tx_viewing_pk_lo, tx_viewing_pk_hi,
 auditor_pk_lo, auditor_pk_hi,
 eph_pk_lo, eph_pk_hi,
-ct_hash,
+ct_hash, output_hash_chain, salt, disclosure_hash,
 policy_hash, state_root, nullifier_root,
 entries_tree_id, ring_id, namespace_owner_hash,
-window_index, approval_required
+window_index, approval_required,
+revocation_target[0..ANSWER_SLOTS]
 ```
 
-Windowed member transfers append `head_old_root, head_new_root`, making
-eighteen elements. The program reads the old root from the ring's shared
-head-map account and commits the new root atomically with the SPP transfer.
-That path selects `CompressedPolicyCircuit`.
+Windowed member transfers append `counters_disclosure_hash`. That path
+selects `CompressedPolicyCircuit`.
 
 The program recomputes this chain from accounts it trusts and runs one
 Groth16 verification. Policy enforcement costs no second proof, and a
@@ -418,8 +418,8 @@ applies. The delegate spends a member's notes with the member's nullifier
 key escrowed to the ring auditor in the key registry. Recovery needs the
 auditor secret, authorization needs the configured delegate's Solana
 signature. The CLI expects one operator to hold both keys, see the custom-rings
-[README](../custom-rings/README.md#controls). A delegate does not register a
-spend record or advance the head map. Its outputs stay in the entries tree
+[README](../custom-rings/README.md#controls). A delegate neither registers nor
+spends a spend record. Its outputs stay in the entries tree
 on a windowed ring. The rail requires
 every UTXO to carry the ring id, and entries hash with the zero ring id, so
 a delegate cannot consume or create an entry.
@@ -458,31 +458,23 @@ record, the circuit caps each transfer's `outflow_m` on its own and binds
 
 ### Compressed history
 
-The SPP state tree holds the spend record. A separate indexed head map
-authenticates which record is current. Its leaves are
-`Poseidon(member, next_member, record_nullifier)`, with a forty-level path.
-One ring-owned `HeadMapRoot` PDA at `[b"headmap"]` stores the root, append
-cursor and discriminator/bump in 42 bytes for the whole ring. Photon stores
-the leaves, Merkle nodes and record origins.
+The SPP state tree holds the spend record, one chain per member.
+Registration claims `spend_address(member)` as an SPP address, so a member
+registers once, and creates the zero-counter genesis record through SPP.
+Each windowed transfer spends the member's record and creates exactly one
+successor. The policy circuit fixes the successor's version, window and
+counters and keeps the namespace owner off every other slot. SPP refuses a
+spent record's nullifier, so only the latest record is spendable.
 
-Registration proves the member absent between two ordered members, inserts
-its genesis nullifier and updates the predecessor link. The program binds
-that proof to the zero-counter record it creates through SPP. Both updates
-land or neither does. Registration uses a dedicated key.
+Only the ring program creates a namespace-owned data note. SPP transact
+requires the owner's signature for an output carrying data, merge refuses
+data outputs, and a deposit carrying data requires its owner's signature.
+A member cannot mint a zero-counter record to reset the meter.
 
-A transfer proves membership of the predecessor record's nullifier at the
-exact on-chain head root, then replaces only that leaf's nullifier with the
-successor's. The policy constraints prove the counter transition. SPP
-proves the record and money inputs are spendable. The program compares the
-old root, verifies the ring proof, updates the root and calls SPP. A
-failed CPI rolls back everything. The head map accepts only its current
-root. Two transfers built on the same root cannot both commit.
-
-Photon replays confirmed ring invocations into a durable projection and
-checks its root against the account. Requests name the expected root and
-cursor. Behind, forked or mismatched state returns a typed error. A client
-independently checks the returned Merkle
-path and re-hashes the published record before asking the prover.
+Photon's spend record projection maps each member to the transaction
+holding its latest record and serves it through `getRingSpendRecord`. The
+client re-hashes the record under the member's spend address before
+proving. A stale answer names a spent record and fails in SPP.
 
 Registration publishes its record opening as plaintext output data. The
 transfer's successor is a standard SPP confidential output exposing
@@ -496,13 +488,11 @@ The counter envelope is encrypted to the transaction viewing key. The
 sender derives the key and the auditor recovers it. The record's member,
 window, version, blinding and salted counters commitment remain public.
 The pseudonymous spend history remains visible. Transaction data and Photon
-state grow with activity. The on-chain head account stays constant-size.
-Its writable root serializes
-windowed member transfers within a ring.
+state grow with activity.
 
 The opt-in Rust `RingTransferSubmission` and TS `RingTransactionSubmission` preserve
 the selected inputs and payment intent across at most three attempts.
-Only a definite stale-head failure or a failed proof across a window
+Only a definite stale key-registry root or a failed proof across a window
 boundary permits rebuilding. An unknown broadcast outcome retains the
 original signature for status checks.
 

@@ -62,5 +62,5 @@ name = "policy_repin"
 path = "tests/policy_repin.rs"
 
 [[test]]
-name = "head_contention"
-path = "tests/head_contention.rs"
+name = "windowed_concurrency"
+path = "tests/windowed_concurrency.rs"

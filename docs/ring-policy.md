@@ -302,8 +302,9 @@ message. The sender derives that key from the transfer's first nullifier and
 recovers the counters for its next transfer, the auditor recovers it from
 the audit ciphertext and reports the record with its counters, or without
 them when no message opens to the commitment. `ReadSpendRecord::read_current`
-authenticates the record against the shared head root. `RegisterSpend`
-proves both the SPP claim and insertion into the indexed head map. Then
+reads the member's latest record from Photon's `getRingSpendRecord` and
+checks it hashes under the member's spend address. `RegisterSpend` creates
+the genesis record and claims that address, once per member. Then
 `CustomRingTransfer::prove` reads the record, the slot and the counters
 before it stages the slots, refusing `SpendRecordMissing`,
 `SpendCountersUnknown` and `VelocityCapExceeded` before any prover round.
@@ -343,14 +344,14 @@ response mixes roots. Presence is an inclusion proof of the entry's
 Absence is a non-inclusion proof of the pair's address, or the same two
 proofs over the cleared entry.
 
-The public input chains the eight audit elements with `policy_hash`,
+The public input chains the eleven audit elements with `policy_hash`,
 `state_root`, `nullifier_root`, `entries_tree_id`, `ring_id`,
-`namespace_owner_hash`, `window_index` and `approval_required`, sixteen in
-all (`custom-rings/interface/src/policy_public_input.rs`). Windowed member
-transfers append the old and new shared head roots, eighteen elements,
-and use the compressed policy key. The program resolves the list state and
-nullifier roots from history indices. The old head root must equal the
-head-map account's current root. One ring proof binds both checks.
+`namespace_owner_hash`, `window_index` and `approval_required`, then one
+revocation target per answer slot
+(`custom-rings/interface/src/policy_public_input.rs`). Windowed member
+transfers append the counters disclosure hash and use the compressed policy
+key. The program resolves the list state and nullifier roots from history
+indices.
 
 A ring is one of two tiers, pinned by the config `has_policy` flag that transact
 dispatches on. A policy ring proves the combined audit-and-policy statement above.
@@ -531,10 +532,8 @@ the cli loads and re-renders.
   each transfer stands alone against its cap. Windows are fixed, a boundary
   admits up to twice the cap. A member spends only its own notes in one
   transfer. The record publishes the member's identity and lineage.
-- Windowed members share one 42-byte head-map account.
-  Photon supplies proofs for its exact root. A concurrent update makes a
-  proof stale and requires rebuilding. One input and one output carry the
-  record, leaving four money inputs and three outputs. See
+- One input and one output carry the record, leaving four money inputs and
+  three outputs. See
   [compressed history](ring-policy-design.md#compressed-history).
 
 ## The cycle

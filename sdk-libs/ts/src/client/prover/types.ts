@@ -318,18 +318,12 @@ export interface CustomRingDepositProofRequest {
   readonly auditorPublicKey: Uint8Array;
 }
 
-/** Proves policy satisfaction with the member's compressed head update. */
 export interface CustomRingCompressedPolicyProofRequest {
   readonly transactionSalt: Bytes16;
   readonly policy: CustomRingPolicyProofRequest;
-  readonly headOldRoot: Bytes32;
-  readonly headNewRoot: Bytes32;
-  readonly headNext: Bytes32;
-  readonly headIndex: bigint;
-  readonly headProof: readonly Bytes32[];
 }
 
-/** Mirrors Go `headInsertion`, the append both registration circuits prove. */
+/** Mirrors Go `headInsertion`, the append the key registration circuit proves. */
 export interface CustomRingHeadInsertion {
   readonly headOldRoot: Bytes32;
   readonly headNewRoot: Bytes32;
@@ -341,12 +335,6 @@ export interface CustomRingHeadInsertion {
   readonly lowIndex: bigint;
   readonly lowProof: readonly Bytes32[];
   readonly newProof: readonly Bytes32[];
-}
-
-/** Adds the initial spend record to the member head map. */
-export interface CustomRingRegisterProofRequest extends CustomRingHeadInsertion {
-  readonly publicInputHash: Bytes32;
-  readonly genesis: Bytes32;
 }
 
 /** Proves disclosure of a member nullifier key to the auditor. */
@@ -374,8 +362,6 @@ export interface CompressedProof {
   toTransactProof(): TransactProof;
   /** `a(32) || b(64) || c(32) || commitment(32) || commitmentPok(32)`, Rust `CustomRingProof`. */
   toCustomRingProof(): Uint8Array;
-  /** `a(32) || b(64) || c(32)`, a proof without a BSB22 commitment. */
-  toPlainProof(): Uint8Array;
 }
 
 export type { SpendProof };

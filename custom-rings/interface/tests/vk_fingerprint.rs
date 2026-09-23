@@ -82,16 +82,7 @@ fn compressed_policy_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "compressed_policy_verifying_key",
         &custom_ring_interface::compressed_policy_verifying_key::VERIFYINGKEY,
-        "004d150d24d26ffdf515002d1dabe417339b25474d5b0d1d1cea9be71a1a9987",
-    );
-}
-
-#[test]
-fn compressed_register_verifying_key_fingerprint_is_pinned() {
-    assert_rail_fingerprint(
-        "compressed_register_verifying_key",
-        &custom_ring_interface::compressed_register_verifying_key::VERIFYINGKEY,
-        "00b806b5ca0ad7e48f519769b378ab0ddd22561507a8f8771c408f4042103f0d",
+        "008794339ddac67f6063a3ab2c64a511ef625810f62739f1a5700fa8d8414cbe",
     );
 }
 

@@ -16,10 +16,10 @@ use zolana_ring_policy::{
     POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
 };
 
-use crate::{head_map::HeadWitness, velocity::RowCharges};
+use crate::velocity::RowCharges;
 
 use crate::{
-    instructions::transact::request::{bytes_to_hex, field_hex, index_hex, json_body, SecretHex},
+    instructions::transact::request::{bytes_to_hex, field_hex, json_body, SecretHex},
     CustomRing, TransferError,
 };
 
@@ -323,31 +323,6 @@ impl ProveRequest for CustomRingPolicyProofRequest {
 
     fn delivery(&self) -> Delivery {
         Delivery::Queued
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct HeadTransitionJson {
-    head_old_root: String,
-    head_new_root: String,
-    head_next: String,
-    head_index: String,
-    head_proof: Vec<String>,
-}
-
-impl HeadTransitionJson {
-    pub(crate) fn new(
-        witness: &HeadWitness,
-        transition: &custom_ring_interface::HeadMapTransition,
-    ) -> Self {
-        Self {
-            head_old_root: field_hex(&transition.old_root),
-            head_new_root: field_hex(&transition.new_root),
-            head_next: field_hex(&witness.next),
-            head_index: index_hex(witness.index),
-            head_proof: witness.proof.iter().map(field_hex).collect(),
-        }
     }
 }
 

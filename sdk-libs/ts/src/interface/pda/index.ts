@@ -160,14 +160,6 @@ export function ringSpendWindowAddress(ringProgramId: Address, mint: Address): P
   return ringAddress(ringSpendWindowPda(ringProgramId, mint));
 }
 
-export function ringHeadMapRootPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return ringPda(ringProgramId, encoder.encode("headmap"));
-}
-
-export function ringHeadMapRootAddress(ringProgramId: Address): Promise<Address> {
-  return ringAddress(ringHeadMapRootPda(ringProgramId));
-}
-
 export function ringKeyRegistryRootPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
   return ringPda(ringProgramId, encoder.encode("keyreg"));
 }

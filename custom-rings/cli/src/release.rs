@@ -32,7 +32,6 @@ pub struct RingRelease {
     /// Absent from a lock older than the audit key.
     pub audit_key: Option<Asset>,
     pub compressed_policy_key: Option<Asset>,
-    pub compressed_register_key: Option<Asset>,
     pub delegate_policy_key: Option<Asset>,
     pub register_key: Option<Asset>,
     pub deposit_key: Option<Asset>,
@@ -44,7 +43,6 @@ pub enum RingKey {
     Policy,
     Base,
     CompressedPolicy,
-    CompressedRegister,
     DelegatePolicy,
     RegisterKey,
     Deposit,
@@ -129,8 +127,6 @@ struct ReleaseLock {
     #[serde(default)]
     compressed_policy_key: Option<Asset>,
     #[serde(default)]
-    compressed_register_key: Option<Asset>,
-    #[serde(default)]
     delegate_policy_key: Option<Asset>,
     #[serde(default)]
     register_key: Option<Asset>,
@@ -148,7 +144,6 @@ impl From<ReleaseLock> for RingRelease {
             proving_key: lock.proving_key,
             audit_key: lock.audit_key,
             compressed_policy_key: lock.compressed_policy_key,
-            compressed_register_key: lock.compressed_register_key,
             delegate_policy_key: lock.delegate_policy_key,
             register_key: lock.register_key,
             deposit_key: lock.deposit_key,
@@ -158,11 +153,10 @@ impl From<ReleaseLock> for RingRelease {
 }
 
 impl RingKey {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::Policy,
         Self::Base,
         Self::CompressedPolicy,
-        Self::CompressedRegister,
         Self::DelegatePolicy,
         Self::RegisterKey,
         Self::Deposit,
@@ -174,7 +168,6 @@ impl RingKey {
             Self::Policy => "custom_ring_policy.key",
             Self::Base => "custom_ring_base.key",
             Self::CompressedPolicy => "custom_ring_compressed_policy.key",
-            Self::CompressedRegister => "custom_ring_compressed_register.key",
             Self::DelegatePolicy => "custom_ring_delegate_policy.key",
             Self::RegisterKey => "custom_ring_register_key.key",
             Self::Deposit => "custom_ring_deposit.key",
@@ -187,7 +180,6 @@ impl RingKey {
             Self::Policy => "custom-ring-policy",
             Self::Base => "custom-ring-base",
             Self::CompressedPolicy => "custom-ring-compressed-policy",
-            Self::CompressedRegister => "custom-ring-compressed-register",
             Self::DelegatePolicy => "custom-ring-delegate-policy",
             Self::RegisterKey => "custom-ring-register-key",
             Self::Deposit => "custom-ring-deposit",
@@ -201,7 +193,6 @@ impl RingRelease {
             RingKey::Policy => &self.proving_key,
             RingKey::Base => &self.audit_key,
             RingKey::CompressedPolicy => &self.compressed_policy_key,
-            RingKey::CompressedRegister => &self.compressed_register_key,
             RingKey::DelegatePolicy => &self.delegate_policy_key,
             RingKey::RegisterKey => &self.register_key,
             RingKey::Deposit => &self.deposit_key,
@@ -486,7 +477,6 @@ mod tests {
                 RingKey::Policy => "proving_key",
                 RingKey::Base => "audit_key",
                 RingKey::CompressedPolicy => "compressed_policy_key",
-                RingKey::CompressedRegister => "compressed_register_key",
                 RingKey::DelegatePolicy => "delegate_policy_key",
                 RingKey::RegisterKey => "register_key",
                 RingKey::Deposit => "deposit_key",

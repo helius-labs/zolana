@@ -19,7 +19,7 @@ use zolana_client::{
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
         MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
-        RingMemberProofRequest, Rpc, ShieldedTransaction,
+        RingSpendRecordRequest, Rpc, ShieldedTransaction,
     },
     ClientError,
 };
@@ -576,55 +576,64 @@ fn by_signature_error_path_includes_transaction_nesting() {
         .contains("transactions[0].transaction.txViewingPk"));
 }
 
-fn head_query() -> RingMemberProofRequest {
-    RingMemberProofRequest {
+fn spend_record_query() -> RingSpendRecordRequest {
+    RingSpendRecordRequest {
         ring_program_id: SerializablePubkey::from(bytes32(1)),
         member: ApiHash(bytes32(2)),
-        expected_root: ApiHash(bytes32(3)),
-        expected_next_index: 19,
     }
 }
 
-fn head_registration() -> Value {
-    let hash = encode_hash_string(bytes32(4));
-    json!({
-        "context": {"blockTime": 90, "slot": 20},
-        "root": encode_hash_string(bytes32(3)), "member": encode_hash_string(bytes32(2)),
-        "nextIndex": 19, "lowMember": hash, "lowNext": hash, "lowNullifier": hash,
-        "lowIndex": 7, "lowProof": vec![hash.clone(); 40], "newProof": vec![hash; 40],
-    })
-}
-
 #[test]
-fn head_registration_transport_preserves_the_exact_root_and_cursor() {
-    let server = MockServer::respond_once(rpc_result(head_registration()));
-    let query = head_query();
+fn spend_record_transport_returns_the_indexed_record() {
+    let server = MockServer::respond_once(rpc_result(json!({
+        "context": {"blockTime": 90, "slot": 20},
+        "record": {
+            "transaction": {
+                "slot": 18,
+                "txSignature": signature(7).to_string(),
+                "eventIndex": 1,
+                "outputSlots": [],
+                "messages": [],
+                "nullifiers": [],
+                "proofless": false,
+            },
+            "outputIndex": 2,
+        },
+    })));
+    let query = spend_record_query();
     let response = ZolanaIndexer::new(server.url())
-        .get_ring_head_register_proof(query.clone())
+        .get_ring_spend_record(query.clone())
         .unwrap();
     let request = server.request();
-    assert_eq!(request.path, "/getRingHeadRegisterProof");
-    assert_json_rpc_request(&request.body, "getRingHeadRegisterProof");
-    assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
-    assert_eq!(response.next_index, 19);
-    assert_eq!(response.low_index, 7);
-    assert_eq!(response.low_proof.len(), 40);
-    assert_eq!(response.new_proof.len(), 40);
+    assert_eq!(request.path, "/getRingSpendRecord");
+    assert_json_rpc_request(&request.body, "getRingSpendRecord");
+    assert_eq!(
+        request.body["params"],
+        json!({"ringProgramId": query.ring_program_id.to_string(), "member": encode_hash_string(bytes32(2))})
+    );
+    assert_eq!(response.context.slot, 20);
+    let record = response.record.unwrap();
+    assert_eq!(record.output_index, 2);
+    assert_eq!(record.transaction.slot, 18);
+    assert_eq!(record.transaction.event_index, Some(1));
 }
 
 #[tokio::test]
-async fn async_head_registration_uses_the_same_contract() {
-    let server = MockServer::respond_once(rpc_result(head_registration()));
-    let query = head_query();
+async fn async_spend_record_transport_reads_an_unregistered_member_as_none() {
+    let server = MockServer::respond_once(rpc_result(json!({
+        "context": {"blockTime": 90, "slot": 21},
+        "record": null,
+    })));
+    let query = spend_record_query();
     let response = AsyncZolanaIndexer::new(server.url())
-        .get_ring_head_register_proof(query.clone())
+        .get_ring_spend_record(query.clone())
         .await
         .unwrap();
     let request = server.request();
-    assert_json_rpc_request(&request.body, "getRingHeadRegisterProof");
+    assert_json_rpc_request(&request.body, "getRingSpendRecord");
     assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
-    assert_eq!(response.root.0, bytes32(3));
-    assert_eq!(response.member.0, bytes32(2));
+    assert_eq!(response.context.slot, 21);
+    assert!(response.record.is_none());
 }
 
 fn assert_json_rpc_request(body: &Value, method: &str) {

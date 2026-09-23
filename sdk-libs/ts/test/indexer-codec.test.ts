@@ -6,9 +6,9 @@ import {
   decodeShieldedTransactionsResponse,
   decodeShieldedTransactionsBySignatureResponse,
   encodeRingsByTagsRequest,
-  decodeRingHeadRegisterProof,
   decodeRingKeyRegistryEntry,
   decodeRingKeyRegistryRegisterProof,
+  decodeRingSpendRecordResponse,
   encodeRingMemberProofRequest,
 } from "../src/indexer/codec.js";
 import { treeAddress } from "../src/interface/pda/index.js";
@@ -21,21 +21,67 @@ import type { Bytes32 } from "../src/interface/types.js";
 const TAG = hash("11111111111111111111111111111111");
 const RING = address("8hcir6LNDXjqKSof1KV41SBZxGaEQFB3WTtcoYn3Atpg");
 
-describe("compressed head proof wire", () => {
-  const response = {
+describe("ring spend record wire", () => {
+  const output = {
+    viewTag: TAG,
+    outputContext: { hash: TAG, tree: treeAddress(7), treeId: 7, leafIndex: 3 },
+    payload: "",
+  };
+  const transaction = {
+    slot: 1,
+    txSignature: "1".repeat(64),
+    outputSlots: [output],
+    messages: [],
+    nullifiers: [],
+    proofless: false,
+  };
+  const found = {
     context: { slot: 1, blockTime: 2 },
-    root: TAG,
-    member: TAG,
-    nextIndex: 1,
-    lowMember: TAG,
-    lowNext: TAG,
-    lowNullifier: TAG,
-    lowIndex: 0,
-    lowProof: Array.from({ length: 40 }, () => TAG),
-    newProof: Array.from({ length: 40 }, () => TAG),
+    record: { transaction, outputIndex: 0 },
   };
 
-  it("keeps the full forty-bit cursor exact and requires both complete paths", () => {
+  it("accepts an unregistered member and requires the record output to exist", () => {
+    expect(decodeRingSpendRecordResponse({ ...found, record: null })).toEqual({
+      context: { slot: 1n, blockTime: 2n },
+      record: null,
+    });
+    expect(decodeRingSpendRecordResponse(found).record?.outputIndex).toBe(0);
+    for (const changed of [
+      { record: { transaction, outputIndex: 1 } },
+      { record: { transaction } },
+      { record: undefined },
+      { extra: true },
+    ])
+      expect(() => decodeRingSpendRecordResponse({ ...found, ...changed })).toThrow();
+  });
+
+  it("sends only the ring and member and converts the record transaction", async () => {
+    const zero = new Uint8Array(32) as Bytes32;
+    const requests: unknown[] = [];
+    const indexerFor = (result: unknown) =>
+      new ZolanaIndexer(
+        new ZolanaApi({
+          url: "https://indexer.example",
+          fetch: async (_url, init) => {
+            requests.push(JSON.parse(String(init?.body)).params);
+            return Response.json({ jsonrpc: "2.0", id: "test-account", result });
+          },
+        }),
+      );
+    const request = { ringProgramId: RING, member: zero };
+    await expect(
+      indexerFor({ ...found, record: null }).getRingSpendRecord(request),
+    ).resolves.toMatchObject({ record: null });
+    const lookup = await indexerFor(found).getRingSpendRecord(request);
+    expect(lookup.record?.outputIndex).toBe(0);
+    expect(lookup.record?.transaction.outputSlots[0]?.outputContext.tree).toBe(treeAddress(7));
+    expect(requests).toEqual([
+      { ringProgramId: RING, member: TAG },
+      { ringProgramId: RING, member: TAG },
+    ]);
+  });
+
+  it("bounds the key registry cursor at forty bits", () => {
     expect(
       encodeRingMemberProofRequest({
         ringProgramId: RING,
@@ -44,15 +90,6 @@ describe("compressed head proof wire", () => {
         expectedNextIndex: 1n << 40n,
       }),
     ).toMatchObject({ expectedNextIndex: 2 ** 40 });
-    expect(decodeRingHeadRegisterProof(response)).toMatchObject({ nextIndex: 1n, lowIndex: 0n });
-    for (const changed of [
-      { lowProof: response.lowProof.slice(1) },
-      { newProof: [] },
-      { lowIndex: 1 },
-      { nextIndex: 2 ** 40 + 1 },
-      { extra: true },
-    ])
-      expect(() => decodeRingHeadRegisterProof({ ...response, ...changed })).toThrow();
     expect(() =>
       encodeRingMemberProofRequest({
         ringProgramId: RING,
@@ -61,51 +98,6 @@ describe("compressed head proof wire", () => {
         expectedNextIndex: (1n << 40n) + 1n,
       }),
     ).toThrow();
-  });
-
-  it("distinguishes every typed head RPC failure and rejects a response for another root", async () => {
-    const zero = new Uint8Array(32) as Bytes32;
-    const request = {
-      ringProgramId: RING,
-      member: zero,
-      expectedRoot: zero,
-      expectedNextIndex: 1n,
-    };
-    for (const [rpcCode, code] of [
-      [-32070, "CLIENT_HEAD_MAP_OUT_OF_SYNC"],
-      [-32071, "CLIENT_HEAD_ROOT_CHANGED"],
-      [-32072, "CLIENT_HEAD_MEMBER_UNREGISTERED"],
-      [-32073, "CLIENT_HEAD_MEMBER_ALREADY_REGISTERED"],
-    ] as const) {
-      const indexer = new ZolanaIndexer(
-        new ZolanaApi({
-          url: "https://indexer.example",
-          fetch: async () =>
-            Response.json({
-              jsonrpc: "2.0",
-              id: "test-account",
-              error: { code: rpcCode, message: "private server diagnostics" },
-            }),
-        }),
-      );
-      await expect(indexer.getRingHeadRegisterProof(request)).rejects.toMatchObject({ code });
-    }
-    const wrongRoot = new Uint8Array(32) as Bytes32;
-    wrongRoot[31] = 1;
-    const indexer = new ZolanaIndexer(
-      new ZolanaApi({
-        url: "https://indexer.example",
-        fetch: async () =>
-          Response.json({
-            jsonrpc: "2.0",
-            id: "test-account",
-            result: { ...response, root: hash(wrongRoot) },
-          }),
-      }),
-    );
-    await expect(indexer.getRingHeadRegisterProof(request)).rejects.toMatchObject({
-      code: "CLIENT_INVALID_RPC_RESPONSE",
-    });
   });
 });
 

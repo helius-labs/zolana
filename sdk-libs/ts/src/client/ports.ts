@@ -28,7 +28,6 @@ import type {
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
   CustomRingRegisterKeyProofRequest,
-  CustomRingRegisterProofRequest,
   MergeInputs,
   Proof,
   ProverInputs,
@@ -72,10 +71,12 @@ export interface SlotReader {
   getSlot(context?: RequestContext): Promise<bigint>;
 }
 
-/** Requests one member proof against an expected on-chain root. */
-export interface RingMemberProofRequest {
+export interface RingMemberRequest {
   readonly ringProgramId: Address;
   readonly member: Bytes32;
+}
+
+export interface RingMemberProofRequest extends RingMemberRequest {
   readonly expectedRoot: Bytes32;
   readonly expectedNextIndex: bigint;
 }
@@ -88,35 +89,20 @@ export interface RingMemberProofContext {
   readonly member: Bytes32;
 }
 
-/** Authenticates the predecessor and empty append slot for registration. */
-export interface RingHeadRegisterProof extends RingMemberProofContext {
-  readonly lowMember: Bytes32;
-  readonly lowNext: Bytes32;
-  readonly lowNullifier: Bytes32;
-  readonly lowIndex: bigint;
-  readonly lowProof: readonly Bytes32[];
-  readonly newProof: readonly Bytes32[];
+/** `record` is `null` until the member registers. */
+export interface RingSpendRecordLookup {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly record: Readonly<{
+    transaction: IndexedShieldedTransaction;
+    outputIndex: number;
+  }> | null;
 }
 
-/** Authenticates the current member head and its compressed record. */
-export interface RingHeadTransferProof extends RingMemberProofContext {
-  readonly next: Bytes32;
-  readonly nullifier: Bytes32;
-  readonly index: bigint;
-  readonly proof: readonly Bytes32[];
-  readonly record: Readonly<{ transaction: IndexedShieldedTransaction; outputIndex: number }>;
-}
-
-/** Reads authenticated paths for compressed spending state. */
-export interface RingHeadReader {
-  getRingHeadRegisterProof(
-    request: RingMemberProofRequest,
+export interface RingSpendRecordReader {
+  getRingSpendRecord(
+    request: RingMemberRequest,
     context?: RequestContext,
-  ): Promise<RingHeadRegisterProof>;
-  getRingHeadTransferProof(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingHeadTransferProof>;
+  ): Promise<RingSpendRecordLookup>;
 }
 
 /** Authenticates insertion of a member's encrypted nullifier key. */
@@ -267,10 +253,6 @@ export interface Prover {
   ): Promise<Uint8Array>;
   proveCustomRingCompressedPolicy(
     inputs: CustomRingCompressedPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
-  proveCustomRingRegister(
-    inputs: CustomRingRegisterProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array>;
   proveCustomRingRegisterKey(

@@ -5,8 +5,7 @@ import type {
   Prover,
   SlotReader,
   TreeContext,
-  RingHeadReader,
-  RingHeadTransferProof,
+  RingSpendRecordReader,
   WalletKeys,
 } from "../client/ports.js";
 import { bigintToBytes, hashChain4 } from "../client/internal.js";
@@ -104,7 +103,6 @@ import {
   withRecordSlotSecret,
   type VelocityPlan,
 } from "./velocity.js";
-import { verifyHeadMapTransfer } from "./head-map.js";
 import {
   checkRetainedEntries,
   RingTransactionSubmission,
@@ -125,7 +123,7 @@ export type RingTransferClient = TreeContext &
   BlockhashProvider &
   RingPolicyAnswerClient &
   SlotReader &
-  RingHeadReader &
+  RingSpendRecordReader &
   Pick<
     Prover,
     | "proveRingTransact"
@@ -227,8 +225,6 @@ export type ProvenRingTransfer = RingTransactTrees &
     revocationTargets: readonly Bytes32[];
     /** Non-payer ed25519 input owners, they sign the transaction beside the fee payer. */
     ownerSigners: readonly Address[];
-    /** The head transition must commit with the record spend. */
-    headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
     window?: Readonly<{ index: bigint; slots: bigint }>;
   }>;
 
@@ -531,7 +527,6 @@ async function buildRingSpend<R>(
         ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
         ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
         ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
-        ...(proven.headTransition === undefined ? {} : { headTransition: proven.headTransition }),
       }),
       params.client.getLatestBlockhash(context),
     ]);
@@ -691,8 +686,6 @@ async function proveRingTransferStatement(
 
   let velocity: CustomRingVelocityProofInput | undefined;
   let plan: VelocityPlan | undefined;
-  let head: RingHeadTransferProof | undefined;
-  let headTransition: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }> | undefined;
   if (policy !== undefined && flow.kind === "delegate") {
     const outputTree = input.outputTree ?? input.tree;
     if (policy.table.windowSlots !== 0n && outputTree !== policy.config.entriesTree) {
@@ -711,7 +704,7 @@ async function proveRingTransferStatement(
     };
   }
   if (policy !== undefined && policy.table.velocity.length !== 0 && flow.kind === "member") {
-    // 2. Bind member outflow to the current counters and successor head.
+    // 2. Bind member outflow to the current counters and successor record.
     const sender = memberOfIdentity(prepared.owner.signingPublicKey.ownerProofInputHash());
     const movement = {
       sender,
@@ -759,19 +752,6 @@ async function proveRingTransferStatement(
         output: plan.recordOutput,
       });
       velocity = plan.proofInput;
-      head = facts.head;
-      headTransition = {
-        oldRoot: head.root,
-        newRoot: verifyHeadMapTransfer({
-          root: head.root,
-          member: sender,
-          next: head.next,
-          spent: facts.live.nullifier,
-          successor: plan.nextNullifier,
-          index: head.index,
-          proof: head.proof,
-        }),
-      };
     }
   }
   const approvalRequired = velocity?.approvalRequired ?? false;
@@ -909,15 +889,12 @@ async function proveRingTransferStatement(
         ringId,
         namespaceOwnerHash: policyRound.config.namespaceOwnerHash,
       });
-    let compressedHead;
-    if (headTransition !== undefined) {
+    let countersDisclosureHash: Bytes32 | undefined;
+    if (plan !== undefined) {
       const namespace = await ringPolicyNamespaceAddress(input.ringProgramId);
       const counters = findSpendCountersMessage(messages, addressBytes(namespace) as Bytes32);
       if (counters === undefined) throw new RingError("RING_SPEND_COUNTERS_UNKNOWN");
-      compressedHead = {
-        ...headTransition,
-        countersDisclosureHash: spendCountersDisclosureHash(encrypted.salt, counters.data),
-      };
+      countersDisclosureHash = spendCountersDisclosureHash(encrypted.salt, counters.data);
     }
     const policyRequest: CustomRingPolicyProofRequest = {
       publicInputHash: policyPublicInputHash({
@@ -936,7 +913,7 @@ async function proveRingTransferStatement(
         windowIndex: velocityProofInput.windowIndex,
         approvalRequired: velocityProofInput.approvalRequired,
         revocationTargets,
-        ...(compressedHead === undefined ? {} : { headTransition: compressedHead }),
+        ...(countersDisclosureHash === undefined ? {} : { countersDisclosureHash }),
       }),
       privateTxHash: data.privateTxHash,
       txViewingSecret: encrypted.audit.txViewingSecret,
@@ -972,18 +949,10 @@ async function proveRingTransferStatement(
     const proof =
       flow.kind === "delegate"
         ? await flow.client.proveCustomRingDelegatePolicy(policyRequest, context)
-        : headTransition === undefined || head === undefined
+        : plan === undefined
           ? await flow.client.proveCustomRingPolicy(policyRequest, context)
           : await flow.client.proveCustomRingCompressedPolicy(
-              {
-                policy: policyRequest,
-                transactionSalt: encrypted.salt,
-                headOldRoot: headTransition.oldRoot,
-                headNewRoot: headTransition.newRoot,
-                headNext: head.next,
-                headIndex: head.index,
-                headProof: head.proof,
-              },
+              { policy: policyRequest, transactionSalt: encrypted.salt },
               context,
             );
     return Object.freeze({
@@ -995,7 +964,6 @@ async function proveRingTransferStatement(
       stateRootIndex: roots.stateRootIndex,
       nullifierRootIndex: roots.nullifierRootIndex,
       revocationTargets,
-      ...(headTransition === undefined ? {} : { headTransition }),
       ...(plan === undefined
         ? {}
         : {

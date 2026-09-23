@@ -272,7 +272,7 @@ mod tests {
                 metadata: metadata.clone(),
                 previous_tip: None,
                 undo: BlockUndo {
-                    head_map: vec![],
+                    spend_records: vec![],
                     key_registry: vec![undo],
                 },
             },
