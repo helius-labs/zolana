@@ -16,6 +16,10 @@
 //!
 //! Each circuit's keys live in `<key root>/<circuit>/{pk,vk}.bin`. A circuit's
 //! proving key is loaded on its first proof and stays loaded.
+//!
+//! [`Prover::setup_insecure_test_keys`] (setup CLI `--insecure-test-keys`)
+//! generates reproducible keys from a fixed public seed. Anyone can forge
+//! proofs against them, so they are for tests only.
 
 mod ffi;
 mod proof;

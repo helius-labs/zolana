@@ -151,7 +151,7 @@ func writeVerifyingKey(vk groth16.VerifyingKey, path string) error {
 	return nil
 }
 
-func setup(name, dir string) error {
+func setup(name, dir string, insecureTestKeys bool) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
@@ -159,7 +159,13 @@ func setup(name, dir string) error {
 	if err != nil {
 		return err
 	}
-	pk, vk, err := groth16.Setup(cs)
+	var pk groth16.ProvingKey
+	var vk groth16.VerifyingKey
+	if insecureTestKeys {
+		pk, vk, err = insecureTestSetup(name, cs)
+	} else {
+		pk, vk, err = systemRandomSetup(cs)
+	}
 	if err != nil {
 		return fmt.Errorf("setup: %w", err)
 	}
@@ -203,7 +209,17 @@ func errorString(err error) *C.char {
 //
 //export Setup
 func Setup(name, outDir *C.char) *C.char {
-	return errorString(setup(C.GoString(name), C.GoString(outDir)))
+	return errorString(setup(C.GoString(name), C.GoString(outDir), false))
+}
+
+// SetupInsecureTestKeys is Setup drawing its randomness from a fixed public
+// seed, so the same constraint system always gets the same keys. Anyone can
+// rebuild the toxic waste and forge proofs against these keys: they are for
+// tests only.
+//
+//export SetupInsecureTestKeys
+func SetupInsecureTestKeys(name, outDir *C.char) *C.char {
+	return errorString(setup(C.GoString(name), C.GoString(outDir), true))
 }
 
 // LoadKeys loads the circuit's proving key from pkPath. It returns NULL or an
@@ -262,7 +278,7 @@ func prove(name, witnessJSON string, result *C.C_ProveResult) error {
 	if err != nil {
 		return fmt.Errorf("new witness: %w", err)
 	}
-	proof, err := groth16.Prove(cs, pk, fullWitness)
+	proof, err := systemRandomProve(cs, pk, fullWitness)
 	if err != nil {
 		return fmt.Errorf("prove: %w", err)
 	}

@@ -19,6 +19,7 @@ pub struct ProveResult {
 /// symbol references and the archive land in the same rlib.
 pub struct Symbols {
     pub setup: unsafe extern "C" fn(*const c_char, *const c_char) -> *mut c_char,
+    pub setup_insecure_test_keys: unsafe extern "C" fn(*const c_char, *const c_char) -> *mut c_char,
     pub load_keys: unsafe extern "C" fn(*const c_char, *const c_char) -> *mut c_char,
     pub prove: unsafe extern "C" fn(*const c_char, *const c_char) -> *mut ProveResult,
     pub free_prove_result: unsafe extern "C" fn(*mut ProveResult),
@@ -46,6 +47,10 @@ macro_rules! prover {
                 name: *const ::core::ffi::c_char,
                 out_dir: *const ::core::ffi::c_char,
             ) -> *mut ::core::ffi::c_char;
+            fn SetupInsecureTestKeys(
+                name: *const ::core::ffi::c_char,
+                out_dir: *const ::core::ffi::c_char,
+            ) -> *mut ::core::ffi::c_char;
             fn LoadKeys(
                 name: *const ::core::ffi::c_char,
                 proving_key_path: *const ::core::ffi::c_char,
@@ -60,6 +65,7 @@ macro_rules! prover {
         $crate::Prover::new(
             $crate::Symbols {
                 setup: Setup,
+                setup_insecure_test_keys: SetupInsecureTestKeys,
                 load_keys: LoadKeys,
                 prove: Prove,
                 free_prove_result: FreeProveResult,

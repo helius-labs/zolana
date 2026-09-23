@@ -51,11 +51,29 @@ impl<C: Circuit> Prover<C> {
     /// key loaded. It never loads the keys already on disk first, which would
     /// be replaced anyway.
     pub fn setup(&self, circuit: C, out_dir: &Path) -> Result<()> {
+        self.run_setup(self.symbols.setup, circuit, out_dir)
+    }
+
+    /// [`Self::setup`] with randomness from a fixed seed derived from the
+    /// circuit name, so the same circuit and gnark version always get the
+    /// same `pk.bin` and `vk.bin`. The seed is public: anyone can forge proofs
+    /// against these keys, so they are for tests only and must never back a
+    /// deployed verifier.
+    pub fn setup_insecure_test_keys(&self, circuit: C, out_dir: &Path) -> Result<()> {
+        self.run_setup(self.symbols.setup_insecure_test_keys, circuit, out_dir)
+    }
+
+    fn run_setup(
+        &self,
+        setup: unsafe extern "C" fn(*const c_char, *const c_char) -> *mut c_char,
+        circuit: C,
+        out_dir: &Path,
+    ) -> Result<()> {
         std::fs::create_dir_all(out_dir)?;
         let name = CString::new(circuit.name())?;
         let dir = path_cstring(out_dir)?;
         let mut loaded = self.lock_loaded(circuit)?;
-        self.check(unsafe { (self.symbols.setup)(name.as_ptr(), dir.as_ptr()) })?;
+        self.check(unsafe { setup(name.as_ptr(), dir.as_ptr()) })?;
         *loaded = true;
         Ok(())
     }
