@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use solana_instruction::Instruction;
-use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
@@ -9,7 +8,7 @@ use zolana_keypair::{
 };
 use zolana_program_test::{
     fixture,
-    localnet::{FixtureLocalnet, LocalnetPorts},
+    localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
     workspace_path,
 };
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
@@ -68,9 +67,10 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         "timelock-escrow",
         LocalnetPorts::for_test(test)?,
         vec![(
-            Pubkey::new_from_array(*timelock_escrow_program::ID.as_array()),
+            timelock_escrow_program::ID,
             workspace_path("target/deploy/timelock_escrow_program.so"),
         )],
+        &LocalnetPaths::workspace(),
     )?;
     let payer = fixture::payer();
 

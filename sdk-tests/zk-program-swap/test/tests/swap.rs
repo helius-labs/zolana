@@ -30,7 +30,7 @@ const EXPIRY: u64 = 2_000_000_000;
 
 // Confidential SOL<->SPL swap on the shielded pool -- make then derived take --
 // driven against a real localnet (validator + Photon indexer + prover) that
-// `setup()` starts, including registering an SPL asset with the pool.
+// `setup()` starts.
 //
 // The maker orders an SPL token and wants SOL; the taker pays SOL and receives the
 // SPL. Destination is SOL, so the derived take rail applies; the SPL source stays

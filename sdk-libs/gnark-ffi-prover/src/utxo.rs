@@ -2,11 +2,11 @@ use zolana_client::ProofInputUtxo;
 
 use crate::decimal;
 
-/// Encodes one UTXO as witness entries for a Go circuit.
+/// Encodes one UTXO as proof input entries for a Go circuit.
 ///
 /// The nine `{prefix}_{field}` keys are the reflected field names of the
 /// circuit's `gnarksdk.Utxo` field, in its declaration order.
-pub fn utxo_witness_entries(utxo: &ProofInputUtxo, prefix: &str) -> Vec<(String, Vec<String>)> {
+pub fn utxo_proof_inputs(utxo: &ProofInputUtxo, prefix: &str) -> Vec<(String, Vec<String>)> {
     let fields: [(&str, &[u8; 32]); 9] = [
         ("Domain", &utxo.domain),
         ("Owner", &utxo.owner_hash),
@@ -24,11 +24,8 @@ pub fn utxo_witness_entries(utxo: &ProofInputUtxo, prefix: &str) -> Vec<(String,
         .collect()
 }
 
-/// The witness keys one UTXO prefix must produce, spelled out from the Go
-/// `gnarksdk.Utxo` field names. Exact-key-set tests compare an encoder's
-/// output against this, so it is written by hand rather than derived from
-/// [`utxo_witness_entries`].
-pub fn expected_utxo_witness_keys(prefix: &str) -> Vec<String> {
+/// The key set an encoder must produce for one UTXO prefix.
+pub fn utxo_proof_input_keys(prefix: &str) -> Vec<String> {
     [
         "Domain",
         "Owner",

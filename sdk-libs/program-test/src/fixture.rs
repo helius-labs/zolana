@@ -21,8 +21,8 @@ use std::{fs, path::Path};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use solana_account::Account;
+use solana_address::Address;
 use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{pda, state::SplAssetRegistry};
 
@@ -65,17 +65,17 @@ pub fn actor(index: u8) -> Keypair {
 }
 
 /// The SPL mint registered with the pool as [`SPL_ASSET_ID`].
-pub fn spl_mint() -> Pubkey {
+pub fn spl_mint() -> Address {
     Keypair::new_from_array(SPL_MINT_SEED).pubkey()
 }
 
 /// The payer's token account for [`spl_mint`].
-pub fn payer_token_account() -> Pubkey {
+pub fn payer_token_account() -> Address {
     Keypair::new_from_array(PAYER_TOKEN_ACCOUNT_SEED).pubkey()
 }
 
 /// Accounts a writer put in its directory, by label.
-pub type WrittenAccounts = Vec<(&'static str, Pubkey)>;
+pub type WrittenAccounts = Vec<(&'static str, Address)>;
 
 /// Write the protocol config, the SPL asset counter and the empty default
 /// tree built from `spp_so` into a cleared `dir`.
@@ -99,7 +99,7 @@ pub fn write_test_fixture(spp_so: &Path, dir: &Path) -> Result<WrittenAccounts, 
     let funded = Account {
         lamports: FUNDED_LAMPORTS,
         data: Vec::new(),
-        owner: Pubkey::default(),
+        owner: Address::default(),
         executable: false,
         rent_epoch: 0,
     };
@@ -173,7 +173,7 @@ fn register_spl_mint(test: &mut ZolanaProgramTest) -> Result<WrittenAccounts, Pr
 fn write_accounts(
     test: &ZolanaProgramTest,
     dir: &Path,
-    accounts: &[(&'static str, Pubkey)],
+    accounts: &[(&'static str, Address)],
 ) -> Result<(), ProgramTestError> {
     for (label, pubkey) in accounts {
         let account = test.svm.get_account(pubkey).ok_or_else(|| {
@@ -187,7 +187,7 @@ fn write_accounts(
 /// One account in the `solana account --output json` format surfpool and
 /// solana-test-validator load from `--account-dir`. Keys are in sorted order,
 /// so the release's snapshot bundle is byte-stable.
-pub fn account_json(pubkey: &Pubkey, account: &Account) -> String {
+pub fn account_json(pubkey: &Address, account: &Account) -> String {
     format!(
         r#"{{"account":{{"data":["{}","base64"],"executable":{},"lamports":{},"owner":"{}","rentEpoch":{}}},"pubkey":"{pubkey}"}}"#,
         STANDARD.encode(&account.data),
@@ -200,7 +200,7 @@ pub fn account_json(pubkey: &Pubkey, account: &Account) -> String {
 
 fn write_account_json(
     dir: &Path,
-    pubkey: &Pubkey,
+    pubkey: &Address,
     account: &Account,
 ) -> Result<(), ProgramTestError> {
     fs::write(

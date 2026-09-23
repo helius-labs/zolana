@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
-use zolana_gnark_ffi_prover::{decimal, utxo_witness_entries, WitnessMap};
+use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 
 use crate::{CircuitId, EscrowTermsProofInput, TimelockProof, PROVER};
 
@@ -17,7 +17,7 @@ pub struct EscrowProofInputs {
 }
 
 impl EscrowProofInputs {
-    fn witness(&self) -> WitnessMap {
+    fn witness(&self) -> ProofInputMap {
         let scalars: [(&str, [u8; 32]); 4] = [
             ("PrivateTxHash", self.private_tx_hash),
             ("SourceInputHash", self.source_input_hash),
@@ -32,8 +32,8 @@ impl EscrowProofInputs {
             .terms
             .witness_entries("Terms")
             .into_iter()
-            .chain(utxo_witness_entries(&self.escrow_utxo, "EscrowUtxo"))
-            .chain(utxo_witness_entries(&self.change, "Change"))
+            .chain(utxo_proof_inputs(&self.escrow_utxo, "EscrowUtxo"))
+            .chain(utxo_proof_inputs(&self.change, "Change"))
         {
             map.insert(key, value);
         }
@@ -52,7 +52,7 @@ impl EscrowProofInputs {
 mod tests {
     use std::collections::HashSet;
 
-    use zolana_gnark_ffi_prover::expected_utxo_witness_keys;
+    use zolana_gnark_ffi_prover::utxo_proof_input_keys;
 
     use super::*;
     use crate::escrow_terms::expected_escrow_terms_witness_keys;
@@ -84,8 +84,8 @@ mod tests {
             "PrivateTxBlinding".to_string(),
         ];
         expected.extend(expected_escrow_terms_witness_keys("Terms"));
-        expected.extend(expected_utxo_witness_keys("EscrowUtxo"));
-        expected.extend(expected_utxo_witness_keys("Change"));
+        expected.extend(utxo_proof_input_keys("EscrowUtxo"));
+        expected.extend(utxo_proof_input_keys("Change"));
 
         assert_eq!(keys, expected.into_iter().collect::<HashSet<String>>());
     }

@@ -7,7 +7,7 @@ use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_program_test::{
     fixture,
-    localnet::{FixtureLocalnet, LocalnetPorts},
+    localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
 };
 use zolana_transaction::{AssetRegistry, SOL_MINT};
 use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
@@ -50,7 +50,12 @@ impl std::ops::DerefMut for TestWallet {
 /// Boot the localnet of test number `test` ([`LocalnetPorts::for_test`]); tests
 /// running in parallel take distinct numbers.
 pub fn setup(test: u16) -> Result<TestEnv> {
-    let localnet = FixtureLocalnet::start("zolana-rfq", LocalnetPorts::for_test(test)?, vec![])?;
+    let localnet = FixtureLocalnet::start(
+        "zolana-rfq",
+        LocalnetPorts::for_test(test)?,
+        vec![],
+        &LocalnetPaths::workspace(),
+    )?;
     let payer = fixture::payer();
 
     let usdc_mint = fixture::spl_mint();

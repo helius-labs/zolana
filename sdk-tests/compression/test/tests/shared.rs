@@ -7,7 +7,7 @@ use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc};
 use zolana_program_test::{
     fixture,
-    localnet::{FixtureLocalnet, LocalnetPorts},
+    localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
     workspace_path,
 };
 use zolana_tree::TreeAccount;
@@ -32,6 +32,7 @@ pub fn setup(test: u16) -> Result<Environment> {
             compression_example_program::ID,
             workspace_path("target/deploy/compression_example_program.so"),
         )],
+        &LocalnetPaths::workspace(),
     )?;
     Ok(Environment {
         localnet,

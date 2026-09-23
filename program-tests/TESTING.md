@@ -11,7 +11,7 @@ end-to-end check.
 | Mollusk | Exact malformed-input failures, account-contract mutations, and deterministic execution for shielded-pool and swap SBF | the SBF build | `just test-program-mollusk` |
 | Groth16 integration | Every supported transfer/merge shape and ownership rail proves and verifies | prover server, proving keys | `just test-program-proofs` |
 | Validator + Photon | RPC submission, CPI, indexing, wallet sync, lifecycle rollback, and seed-replayable randomized workloads | validator, Photon, prover, proving keys | `just test-spp-validator`, `just test-ring-validator` |
-| Cross-program swap | Swap, shielded pool, registry, smart-account, prover, and indexer compose correctly | validator, Photon, prover, proving keys | `just test-swap-validator` |
+| Cross-program swap | Swap, shielded pool, registry, prover, and indexer compose correctly | validator, Photon, prover, proving keys | `just test-swap-validator` |
 
 The first three layers are hermetic and run together as `just test-hermetic`.
 CI runs these same suites on every push. `just test-all` adds the Groth16
@@ -208,7 +208,9 @@ Beyond `cargo test`, two tools sharpen the suite. Install locally with
   doctests keep a `cargo test --doc` line; (2) `#[serial]` (serial_test) is
   process-local and thus a no-op under nextest, so the validator/localnet tests
   that bind fixed ports are serialized by the `serial-validator` test-group in
-  `nextest.toml` instead. The manual `bench-*` profiling recipes stay on plain
+  `nextest.toml` instead. The `FixtureLocalnet` suites take per-test ports and
+  run in parallel, two at a time in CI. The manual `bench-*` profiling recipes
+  stay on plain
   `cargo test -- --ignored` (nextest's value does not apply there).
 - **cargo-llvm-cov** (`just coverage`; `just coverage --html`) reports
   line/region coverage over the host-instrumentable kernels + SDK. It cannot

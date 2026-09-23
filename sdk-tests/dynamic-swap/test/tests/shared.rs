@@ -19,7 +19,7 @@ use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_program_test::{
     fixture,
-    localnet::{FixtureLocalnet, LocalnetPorts},
+    localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
     workspace_path,
 };
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
@@ -84,7 +84,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         LocalnetPorts::for_test(test)?,
         vec![
             (
-                Pubkey::new_from_array(*dynamic_swap_program::ID.as_array()),
+                dynamic_swap_program::ID,
                 workspace_path("target/deploy/dynamic_swap_program.so"),
             ),
             (
@@ -92,6 +92,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
                 workspace_path("target/deploy/zolana_user_registry.so"),
             ),
         ],
+        &LocalnetPaths::workspace(),
     )?;
     let payer = fixture::payer();
     let spl_mint = fixture::spl_mint();
@@ -242,8 +243,8 @@ pub fn wait_until<T>(what: &str, mut poll: impl FnMut() -> Result<Option<T>>) ->
 }
 
 /// The validator's RPC connection can transiently drop a request right after
-/// a long CPU-bound stretch in this same process (e.g. the ~14s in-process
-/// Groth16 proving `escrow_open`/`escrow_settle` need), even though the
+/// a long CPU-bound stretch in this same process (e.g. the in-process Groth16
+/// proving `escrow_open`/`escrow_settle` need), even though the
 /// validator itself is healthy -- retry a few times with a short backoff
 /// rather than fail the whole flow on one dropped connection.
 pub fn get_slot_with_retry(client: &solana_rpc_client::rpc_client::RpcClient) -> Result<u64> {

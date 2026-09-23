@@ -81,8 +81,7 @@ fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Resu
 }
 
 // Proof-free access-control and validation rejections, all under one validator
-// (kept in a single `#[test]` because each `setup()` boots its own localnet on
-// fixed ports, so multiple tests in one binary would race for them):
+// (kept in one `#[test]` so they share one localnet boot):
 //   - create_pair with price 0            -> InvalidPrice
 //   - update_price to 0                    -> InvalidPrice
 //   - update_price by a non-authority      -> Unauthorized

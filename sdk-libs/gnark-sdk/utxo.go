@@ -7,7 +7,7 @@ import (
 )
 
 // Utxo is one UTXO's witness, in the field order and with the field names
-// zolana-gnark-ffi-prover's utxo_witness_entries writes. TreeID is the raw u16
+// zolana-gnark-ffi-prover's utxo_proof_inputs writes. TreeID is the raw u16
 // id of the tree the UTXO lives in: the tree an input is spent from, the tree
 // an output is appended to.
 type Utxo struct {

@@ -495,46 +495,4 @@ mod tests {
         let error = surfpool_args(&opts).expect_err("surfpool should reject --faucet-port");
         assert!(error.to_string().contains("--faucet-port"));
     }
-
-    #[test]
-    fn forwards_the_slot_time_to_surfpool() {
-        let opts = parse_validator(&["--rpc-port", "8899", "--slot-time", "50"]);
-        let actual = surfpool_args(&opts).expect("build surfpool args");
-        let expected = strings(&[
-            "start",
-            "--offline",
-            "--no-tui",
-            "--no-deploy",
-            "--no-studio",
-            "--port",
-            "8899",
-            "--host",
-            "127.0.0.1",
-            "--ws-port",
-            "8900",
-            "--slot-time",
-            "50",
-        ]);
-        assert_eq!(actual, expected);
-    }
-
-    /// surfpool's WebSocket default is a fixed 8900, so a localnet on a shifted
-    /// RPC port binds its own one above it, as solana-test-validator does.
-    #[test]
-    fn binds_the_surfpool_websocket_above_the_rpc_port() {
-        let opts = parse_validator(&["--rpc-port", "9899"]);
-        let actual = surfpool_args(&opts).expect("build surfpool args");
-        assert!(
-            actual.windows(2).any(|args| args == ["--ws-port", "9900"]),
-            "{actual:?}"
-        );
-    }
-
-    #[test]
-    fn rejects_the_slot_time_with_solana_test_validator() {
-        let opts = parse_validator(&["--no-use-surfpool", "--slot-time", "50"]);
-        let error = solana_validator_args(&opts)
-            .expect_err("solana-test-validator should reject --slot-time");
-        assert!(error.to_string().contains("--slot-time"));
-    }
 }

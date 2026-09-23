@@ -11,7 +11,7 @@
 //!   supplies the bridge, builds that package into a C archive and links it.
 //! - A [`Circuit`] enum and
 //!   `pub static PROVER: Prover<CircuitId> = prover!(<key root>);`.
-//! - The witness encoding and proof types of each circuit.
+//! - The proof input encoding and proof types of each circuit.
 //! - `src/bin/setup.rs`: `setup_cli::main(&PROVER)`.
 //!
 //! Each circuit's keys live in `<key root>/<circuit>/{pk,vk}.bin`. A circuit's
@@ -34,11 +34,10 @@ use num_bigint::BigUint;
 pub use ffi::{ProveResult, Symbols};
 pub use proof::{Commitment, CompressedProof, ProveOutput};
 pub use prover::{Circuit, Prover};
-pub use utxo::{expected_utxo_witness_keys, utxo_witness_entries};
+pub use utxo::{utxo_proof_input_keys, utxo_proof_inputs};
 
-/// Witness values by key: a circuit field path, `_`-joined through nested
-/// structs, mapped to its decimal field values.
-pub type WitnessMap = HashMap<String, Vec<String>>;
+/// Proof inputs keyed by `_`-joined circuit field path, as decimal strings.
+pub type ProofInputMap = HashMap<String, Vec<String>>;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -54,7 +53,7 @@ pub enum Error {
     PathEncoding,
     #[error("interior NUL in C string")]
     NulInString(#[from] std::ffi::NulError),
-    #[error("witness JSON serialization failed: {0}")]
+    #[error("proof input JSON serialization failed: {0}")]
     Json(#[from] serde_json::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -66,8 +65,7 @@ pub enum Error {
     MissingCommitment,
 }
 
-/// A 32-byte big-endian field element as the decimal string the Go witness
-/// assignment parses.
+/// A 32-byte big-endian value as a decimal string.
 pub fn decimal(bytes: &[u8; 32]) -> String {
     BigUint::from_bytes_be(bytes).to_string()
 }

@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use solana_pubkey::Pubkey;
+use solana_address::Address;
 use zolana_client::{
     AsyncProverClient, AsyncZolanaIndexer, ProverClient, Rpc, SolanaRpc, ZolanaClient,
     ZolanaIndexer,
@@ -91,16 +91,16 @@ pub struct LocalnetValidator {
     pub account_dir: PathBuf,
     /// Where the services write their logs.
     pub log_dir: PathBuf,
-    pub programs: Vec<(Pubkey, PathBuf)>,
+    pub programs: Vec<(Address, PathBuf)>,
     /// Surfpool's slot time, 400ms when unset. A transaction confirms in the
     /// slot after it lands, so on a localnet this is most of its latency.
     pub slot_time: Option<Duration>,
 }
 
 pub struct UpgradeableProgram {
-    pub address: Pubkey,
+    pub address: Address,
     pub path: PathBuf,
-    pub authority: Pubkey,
+    pub authority: Address,
 }
 
 impl LocalnetValidator {
@@ -208,13 +208,42 @@ fn run(mut command: Command, action: &str) -> Result<(), ProgramTestError> {
     }
 }
 
+/// The binaries, keys and scratch directory a [`FixtureLocalnet`] uses.
+#[derive(Clone, Debug)]
+pub struct LocalnetPaths {
+    pub cli_bin: PathBuf,
+    pub shielded_pool_program: PathBuf,
+    /// The CLI resolves surfpool and Photon relative to this.
+    pub working_dir: PathBuf,
+    pub proving_keys_dir: PathBuf,
+    /// Parent of each localnet's `<label>-<rpc port>` directory.
+    pub scratch_dir: PathBuf,
+}
+
+impl LocalnetPaths {
+    /// This workspace's builds, with scratch under `target/localnet`.
+    /// `ZOLANA_CLI_BIN` and `SHIELDED_POOL_PROGRAM_PATH` override the CLI and
+    /// the pool program.
+    pub fn workspace() -> Self {
+        Self {
+            cli_bin: env::var("ZOLANA_CLI_BIN")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| paths::workspace_path("target/debug/zolana")),
+            shielded_pool_program: paths::default_program_path(),
+            working_dir: paths::workspace_path(""),
+            proving_keys_dir: paths::workspace_path("prover/server/proving-keys"),
+            scratch_dir: paths::workspace_path("target/localnet"),
+        }
+    }
+}
+
 /// A localnet booted from [`write_test_fixture`] with the prover running, in
 /// place of the setup transactions a test would otherwise send. Dropping it
 /// stops its validator and Photon.
 pub struct FixtureLocalnet {
     pub client: ZolanaClient<SolanaRpc>,
     /// The default tree, `pda::tree(0)`.
-    pub tree: Pubkey,
+    pub tree: Address,
     /// Raw id of `tree`, read from its account.
     pub tree_id: u16,
     validator: LocalnetValidator,
@@ -222,35 +251,29 @@ pub struct FixtureLocalnet {
 
 impl FixtureLocalnet {
     /// Boot on `ports` with the shielded pool and `programs` loaded. The
-    /// account and log directories live in `<temp>/<label>-<rpc port>`, cleared
-    /// at every start: disk stays bounded at one directory per port, and the
-    /// last run's logs stay behind for debugging.
-    ///
-    /// Artifacts default to this workspace's builds; `ZOLANA_CLI_BIN` and
-    /// `SHIELDED_POOL_PROGRAM_PATH` override the CLI and the pool program.
+    /// account and log directories live in `<scratch_dir>/<label>-<rpc port>`,
+    /// cleared at every start: disk stays bounded at one directory per port,
+    /// and the last run's logs stay behind for debugging.
     pub fn start(
         label: &str,
         ports: LocalnetPorts,
-        programs: Vec<(Pubkey, PathBuf)>,
+        programs: Vec<(Address, PathBuf)>,
+        paths: &LocalnetPaths,
     ) -> Result<Self, ProgramTestError> {
-        let spp = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-        let spp_so = paths::default_program_path();
-        let scratch = env::temp_dir().join(format!("{label}-{}", ports.rpc));
+        let spp = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+        let scratch = paths.scratch_dir.join(format!("{label}-{}", ports.rpc));
         if scratch.exists() {
             std::fs::remove_dir_all(&scratch)?;
         }
         let account_dir = scratch.join("accounts");
-        write_test_fixture(&spp_so, &account_dir)?;
+        write_test_fixture(&paths.shielded_pool_program, &account_dir)?;
 
-        let cli_bin = env::var("ZOLANA_CLI_BIN")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| paths::workspace_path("target/debug/zolana"));
-        let mut loaded = vec![(spp, spp_so)];
+        let mut loaded = vec![(spp, paths.shielded_pool_program.clone())];
         loaded.extend(programs);
-        let program_ids: Vec<Pubkey> = loaded.iter().map(|(address, _)| *address).collect();
+        let program_ids: Vec<Address> = loaded.iter().map(|(address, _)| *address).collect();
         let validator = LocalnetValidator {
-            cli_bin: cli_bin.clone(),
-            working_dir: paths::workspace_path(""),
+            cli_bin: paths.cli_bin.clone(),
+            working_dir: paths.working_dir.clone(),
             ports,
             account_dir,
             log_dir: scratch.join("logs"),
@@ -258,7 +281,7 @@ impl FixtureLocalnet {
             slot_time: Some(FIXTURE_SLOT_TIME),
         };
         validator.start()?;
-        match connect(&cli_bin, ports, &program_ids) {
+        match connect(paths, ports, &program_ids) {
             Ok((client, tree_id)) => Ok(Self {
                 client,
                 tree: pda::tree(0),
@@ -276,14 +299,11 @@ impl FixtureLocalnet {
 /// Start the prover, check that every program loaded and read the default
 /// tree's id.
 fn connect(
-    cli_bin: &Path,
+    paths: &LocalnetPaths,
     ports: LocalnetPorts,
-    program_ids: &[Pubkey],
+    program_ids: &[Address],
 ) -> Result<(ZolanaClient<SolanaRpc>, u16), ProgramTestError> {
-    zolana_client::spawn_prover_with_artifacts(
-        cli_bin,
-        paths::workspace_path("prover/server/proving-keys"),
-    )?;
+    zolana_client::spawn_prover_with_artifacts(&paths.cli_bin, &paths.proving_keys_dir)?;
     let rpc = SolanaRpc::new(ports.rpc_url()).with_poll_interval(FIXTURE_POLL_INTERVAL);
     for program_id in program_ids {
         rpc.assert_executable(program_id)?;

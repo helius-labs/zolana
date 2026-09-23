@@ -20,9 +20,9 @@ final-status-level = "slow"
 
 # CI: don't stop at the first failure (collect the full picture). The profile
 # itself is retry-free so deterministic suites are never masked by a retry that
-# passes; only the validator/localnet override group below retries (twice) to
-# absorb localnet/prover flakiness. A test that only passes on retry is
-# reported as FLAKY.
+# passes; only the override groups below retry (twice) to absorb
+# localnet/prover flakiness. A test that only passes on retry is reported as
+# FLAKY.
 [profile.ci]
 retries = 0
 fail-fast = false

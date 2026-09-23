@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use zolana_gnark_ffi_prover::{decimal, utxo_witness_entries, WitnessMap};
+use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 
 use crate::{CircuitId, OrderProof, ProofInputUtxo, PROVER};
 
@@ -36,7 +36,7 @@ pub struct EscrowOpenProofInputs {
 }
 
 impl EscrowOpenProofInputs {
-    fn witness(&self) -> WitnessMap {
+    fn witness(&self) -> ProofInputMap {
         let mut map = HashMap::new();
         map.insert(
             "Public_PublicInputHash".to_string(),
@@ -75,15 +75,12 @@ impl EscrowOpenProofInputs {
             "PrivateTxBlinding".to_string(),
             vec![decimal(&self.private_tx_blinding)],
         );
-        for (key, value) in utxo_witness_entries(&self.source_in, "SourceIn")
+        for (key, value) in utxo_proof_inputs(&self.source_in, "SourceIn")
             .into_iter()
-            .chain(utxo_witness_entries(&self.maker_funding, "MakerFunding"))
-            .chain(utxo_witness_entries(&self.order_out, "OrderOut"))
-            .chain(utxo_witness_entries(
-                &self.reservation_out,
-                "ReservationOut",
-            ))
-            .chain(utxo_witness_entries(&self.maker_change, "MakerChange"))
+            .chain(utxo_proof_inputs(&self.maker_funding, "MakerFunding"))
+            .chain(utxo_proof_inputs(&self.order_out, "OrderOut"))
+            .chain(utxo_proof_inputs(&self.reservation_out, "ReservationOut"))
+            .chain(utxo_proof_inputs(&self.maker_change, "MakerChange"))
         {
             map.insert(key, value);
         }
@@ -103,7 +100,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use zolana_gnark_ffi_prover::expected_utxo_witness_keys;
+    use zolana_gnark_ffi_prover::utxo_proof_input_keys;
 
     fn sample() -> EscrowOpenProofInputs {
         EscrowOpenProofInputs {
@@ -149,7 +146,7 @@ mod tests {
             "ReservationOut",
             "MakerChange",
         ] {
-            expected.extend(expected_utxo_witness_keys(prefix));
+            expected.extend(utxo_proof_input_keys(prefix));
         }
 
         let expected: HashSet<&str> = expected.iter().map(String::as_str).collect();

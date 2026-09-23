@@ -81,7 +81,7 @@ test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
+test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon
 
 # The tests need the test-only feature. Keep the prover-backed
 # nullifier_tree::prover_e2e module out of this hermetic lane.
@@ -355,6 +355,11 @@ test-sdk-libs:
     cargo nextest run -p custom-ring-cli
     cargo nextest run -p custom-ring-interface
     cargo nextest run -p zolana-ring-policy
+
+# The gnark SDK's Go tests and the example provers' tests. Needs Go.
+test-example-provers:
+    cd sdk-libs/gnark-sdk && GOWORK=off go test ./... -count=1
+    cargo nextest run -p swap-prover -p timelock-escrow-prover -p dynamic-swap-prover
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -1354,12 +1359,9 @@ build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
 
-# CI prebuild for the localnet matrix, with ZOLANA_PREBUILT and
-# ZOLANA_NEXTEST_ARCHIVE_DIR set the suite recipes run from it without building.
-# The example keys are generated here too, so the matrix jobs find them pinned
-# and never build a setup binary.
-# Everything the CI localnet matrix runs with. CI builds the three parts in
-# parallel jobs: the SBF programs, the tools, and the test archives.
+# Everything the CI localnet matrix runs with; CI builds the three parts in
+# parallel. With ZOLANA_PREBUILT and ZOLANA_NEXTEST_ARCHIVE_DIR set, the suite
+# recipes use them instead of building.
 build-localnet: build-programs build-localnet-tools build-localnet-archives
 
 # The CLI, the prover server, xtask and the example programs' test keys.

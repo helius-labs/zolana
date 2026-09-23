@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
-use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
@@ -10,7 +9,7 @@ use zolana_keypair::{
 };
 use zolana_program_test::{
     fixture,
-    localnet::{FixtureLocalnet, LocalnetPorts},
+    localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
     workspace_path,
 };
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
@@ -64,7 +63,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         LocalnetPorts::for_test(test)?,
         vec![
             (
-                Pubkey::new_from_array(*swap_program::ID.as_array()),
+                swap_program::ID,
                 workspace_path("target/deploy/swap_program.so"),
             ),
             (
@@ -72,6 +71,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
                 workspace_path("target/deploy/zolana_user_registry.so"),
             ),
         ],
+        &LocalnetPaths::workspace(),
     )?;
     let payer = fixture::payer();
 

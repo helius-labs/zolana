@@ -6,7 +6,7 @@ use std::{
     sync::{Mutex, MutexGuard, OnceLock, PoisonError},
 };
 
-use crate::{Error, ProveOutput, Result, Symbols, WitnessMap};
+use crate::{Error, ProofInputMap, ProveOutput, Result, Symbols};
 
 /// A circuit a prover crate's Go archive registers.
 pub trait Circuit: Copy + PartialEq + fmt::Debug + 'static {
@@ -96,11 +96,11 @@ impl<C: Circuit> Prover<C> {
         Ok(())
     }
 
-    pub fn prove(&self, circuit: C, witness: &WitnessMap) -> Result<ProveOutput> {
+    pub fn prove(&self, circuit: C, inputs: &ProofInputMap) -> Result<ProveOutput> {
         self.preload(circuit)?;
         let name = CString::new(circuit.name())?;
-        let witness = CString::new(serde_json::to_string(witness)?)?;
-        let result = unsafe { (self.symbols.prove)(name.as_ptr(), witness.as_ptr()) };
+        let inputs = CString::new(serde_json::to_string(inputs)?)?;
+        let result = unsafe { (self.symbols.prove)(name.as_ptr(), inputs.as_ptr()) };
         if result.is_null() {
             return Err(Error::Go("Prove returned NULL".into()));
         }

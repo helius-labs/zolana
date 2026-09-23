@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
-use zolana_gnark_ffi_prover::{decimal, utxo_witness_entries, WitnessMap};
+use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 
 use crate::{CircuitId, OrderProof, OrderTermsProofInput, PROVER};
 
@@ -22,7 +22,7 @@ pub struct TakeVerifiableEncryptionProofInputs {
 }
 
 impl TakeVerifiableEncryptionProofInputs {
-    fn witness(&self) -> WitnessMap {
+    fn witness(&self) -> ProofInputMap {
         let scalars: [(&str, [u8; 32]); 5] = [
             ("Public_PublicInputHash", self.public_input_hash),
             ("Public_PrivateTxHash", self.private_tx_hash),
@@ -38,13 +38,10 @@ impl TakeVerifiableEncryptionProofInputs {
             .order
             .witness_entries("Core_Order")
             .into_iter()
-            .chain(utxo_witness_entries(&self.order_utxo, "Core_OrderUtxo"))
-            .chain(utxo_witness_entries(&self.taker_in, "Core_TakerIn"))
-            .chain(utxo_witness_entries(
-                &self.source_output,
-                "Core_SourceOutput",
-            ))
-            .chain(utxo_witness_entries(
+            .chain(utxo_proof_inputs(&self.order_utxo, "Core_OrderUtxo"))
+            .chain(utxo_proof_inputs(&self.taker_in, "Core_TakerIn"))
+            .chain(utxo_proof_inputs(&self.source_output, "Core_SourceOutput"))
+            .chain(utxo_proof_inputs(
                 &self.destination_output,
                 "Core_DestinationOutput",
             ))
@@ -66,7 +63,7 @@ impl TakeVerifiableEncryptionProofInputs {
 mod tests {
     use std::collections::HashSet;
 
-    use zolana_gnark_ffi_prover::expected_utxo_witness_keys;
+    use zolana_gnark_ffi_prover::utxo_proof_input_keys;
 
     use super::*;
     use crate::{order_terms::expected_order_terms_witness_keys, TAKE_MODE_VERIFIABLE};
@@ -113,7 +110,7 @@ mod tests {
             "Core_SourceOutput",
             "Core_DestinationOutput",
         ] {
-            expected.extend(expected_utxo_witness_keys(prefix));
+            expected.extend(utxo_proof_input_keys(prefix));
         }
 
         assert_eq!(keys, expected.into_iter().collect::<HashSet<String>>());

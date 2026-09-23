@@ -145,7 +145,9 @@ test passes its own number to `setup(n)`, which binds
 no other FixtureLocalnet test uses; `just test-examples-validator` runs all of
 them at once. The validator's WebSocket always takes the port above its RPC
 port, and each Photon keeps its database in a temp dir named by its port.
-Services are stopped by the port they listen on, never by process name.
+Services are stopped by the port they listen on, never by process name. A
+localnet's accounts and logs stay in `target/localnet/<label>-<rpc port>` until
+that port's next start.
 
 ## Transactions Are v1, 4 KB, With No Lookup Tables
 

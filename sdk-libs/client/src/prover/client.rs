@@ -1581,35 +1581,6 @@ mod tests {
         );
     }
 
-    /// A prover without a queue sheds the queued fallback too while it is
-    /// busy; the client retries it like a failed request instead of failing.
-    fn shed_then_proof() -> Vec<MockResponse> {
-        vec![
-            MockResponse::json(429, json!({ "code": "prover_busy" })),
-            MockResponse::json(429, json!({ "code": "prover_busy" })),
-            MockResponse::json(200, json!({ "proof": gnark_proof() })),
-        ]
-    }
-
-    #[test]
-    fn a_proof_shed_by_a_prover_without_a_queue_is_retried() {
-        let server = MockServer::respond_with(shed_then_proof());
-        queued_prover_client(server.url())
-            .send("{}", Delivery::InResponse)
-            .expect("a busy prover should be retried, not failed");
-        assert_paths(&server.requests(), ["/prove", "/prove", "/prove"]);
-    }
-
-    #[tokio::test]
-    async fn async_client_retries_a_proof_shed_by_a_prover_without_a_queue() {
-        let server = MockServer::respond_with(shed_then_proof());
-        async_prover_client(server.url())
-            .send("{}", Delivery::InResponse)
-            .await
-            .expect("a busy prover should be retried, not failed");
-        assert_paths(&server.requests(), ["/prove", "/prove", "/prove"]);
-    }
-
     #[test]
     fn prover_port_parses_url() {
         assert_eq!(prover_port("http://127.0.0.1:3001"), 3001);

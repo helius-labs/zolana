@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
-use zolana_gnark_ffi_prover::{decimal, utxo_witness_entries, WitnessMap};
+use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 
 use crate::{CircuitId, OrderProof, OrderTermsProofInput, PROVER};
 
@@ -17,7 +17,7 @@ pub struct MakeProofInputs {
 }
 
 impl MakeProofInputs {
-    fn witness(&self) -> WitnessMap {
+    fn witness(&self) -> ProofInputMap {
         let scalars: [(&str, [u8; 32]); 4] = [
             ("PrivateTxHash", self.private_tx_hash),
             ("SourceInputHash", self.source_input_hash),
@@ -32,8 +32,8 @@ impl MakeProofInputs {
             .order
             .witness_entries("Order")
             .into_iter()
-            .chain(utxo_witness_entries(&self.order_utxo, "OrderUtxo"))
-            .chain(utxo_witness_entries(&self.change, "Change"))
+            .chain(utxo_proof_inputs(&self.order_utxo, "OrderUtxo"))
+            .chain(utxo_proof_inputs(&self.change, "Change"))
         {
             map.insert(key, value);
         }
@@ -52,7 +52,7 @@ impl MakeProofInputs {
 mod tests {
     use std::collections::HashSet;
 
-    use zolana_gnark_ffi_prover::expected_utxo_witness_keys;
+    use zolana_gnark_ffi_prover::utxo_proof_input_keys;
 
     use super::*;
     use crate::{order_terms::expected_order_terms_witness_keys, TAKE_MODE_DERIVED};
@@ -89,8 +89,8 @@ mod tests {
             "PrivateTxBlinding".to_string(),
         ];
         expected.extend(expected_order_terms_witness_keys("Order"));
-        expected.extend(expected_utxo_witness_keys("OrderUtxo"));
-        expected.extend(expected_utxo_witness_keys("Change"));
+        expected.extend(utxo_proof_input_keys("OrderUtxo"));
+        expected.extend(utxo_proof_input_keys("Change"));
 
         assert_eq!(keys, expected.into_iter().collect::<HashSet<String>>());
     }
