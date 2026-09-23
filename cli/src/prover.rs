@@ -4,10 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     args::StartProverOptions,
-    config::{
-        DEFAULT_LOG_DIR, DEFAULT_METRICS_PORT, DEFAULT_PROVER_PORT, PROVER_READINESS_STABLE_CHECKS,
-        READINESS_TIMEOUT,
-    },
+    config::{DEFAULT_LOG_DIR, DEFAULT_METRICS_PORT, DEFAULT_PROVER_PORT, READINESS_TIMEOUT},
     http::wait_for_http_get_with_child,
     process::{find_binary, path_string_with_trailing_separator, spawn_service, stop_port},
 };
@@ -65,7 +62,6 @@ pub(crate) fn start_prover_service(
         prover_port,
         "/health",
         READINESS_TIMEOUT,
-        PROVER_READINESS_STABLE_CHECKS,
         &mut child,
         "prover",
     )

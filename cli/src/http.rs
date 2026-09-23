@@ -9,34 +9,50 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 
+use crate::config::READINESS_POLL_INTERVAL;
+
 pub(crate) fn wait_for_rpc_with_child(
     port: u16,
     timeout: Duration,
-    stable_checks: u32,
     child: &mut Child,
     label: &str,
 ) -> Result<()> {
-    wait_until_with_child(timeout, stable_checks, child, label, || rpc_health(port))
+    wait_until_with_child(timeout, child, label, || rpc_health(port))
 }
 
 pub(crate) fn wait_for_http_get_with_child(
     port: u16,
     path: &str,
     timeout: Duration,
-    stable_checks: u32,
     child: &mut Child,
     label: &str,
 ) -> Result<()> {
-    wait_until_with_child(timeout, stable_checks, child, label, || {
+    wait_until_with_child(timeout, child, label, || {
         http_get_status(port, path)
             .map(|status| (200..300).contains(&status))
             .unwrap_or(false)
     })
 }
 
+/// Wait until nothing accepts connections on `port`, so a service started next
+/// can bind it.
+pub(crate) fn wait_for_port_closed(port: u16, timeout: Duration) -> Result<()> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if TcpStream::connect_timeout(&address, READINESS_POLL_INTERVAL).is_err() {
+            return Ok(());
+        }
+        thread::sleep(READINESS_POLL_INTERVAL);
+    }
+    bail!(
+        "port {port} still accepts connections after {} seconds",
+        timeout.as_secs()
+    )
+}
+
 fn wait_until_with_child<F>(
     timeout: Duration,
-    stable_checks: u32,
     child: &mut Child,
     label: &str,
     mut ready: F,
@@ -44,22 +60,15 @@ fn wait_until_with_child<F>(
 where
     F: FnMut() -> bool,
 {
-    let required = stable_checks.max(1);
     let start = Instant::now();
-    let mut consecutive = 0;
     while start.elapsed() < timeout {
         if let Some(status) = child.try_wait()? {
             bail!("{label} exited early with status {status}");
         }
         if ready() {
-            consecutive += 1;
-            if consecutive >= required {
-                return Ok(());
-            }
-        } else {
-            consecutive = 0;
+            return Ok(());
         }
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(READINESS_POLL_INTERVAL);
     }
     bail!("timed out after {} seconds", timeout.as_secs())
 }

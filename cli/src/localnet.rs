@@ -4,8 +4,8 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     args::TestValidatorOptions,
-    config::{READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
-    http::{wait_for_http_get_with_child, wait_for_rpc_with_child},
+    config::{READINESS_TIMEOUT, TERMINATION_GRACE_PERIOD},
+    http::{wait_for_http_get_with_child, wait_for_port_closed, wait_for_rpc_with_child},
     process::{
         find_binary, path_string, remove_launchd_validators, spawn_service, stop_name, stop_port,
     },
@@ -23,7 +23,7 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
 
     println!("Starting local validator");
     stop_test_validator(opts.rpc_port);
-    thread::sleep(Duration::from_secs(1));
+    wait_for_port_closed(opts.rpc_port, TERMINATION_GRACE_PERIOD)?;
 
     // Default rail: fetch version-pinned programs, initialized account snapshots,
     // and helper binaries from the release. `--local` (or explicit --sbf-program)
@@ -70,7 +70,6 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
     wait_for_rpc_with_child(
         opts.rpc_port,
         READINESS_TIMEOUT,
-        READINESS_STABLE_CHECKS,
         &mut validator,
         "validator",
     )
@@ -268,7 +267,6 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
             opts.photon_port,
             "/readiness",
             READINESS_TIMEOUT,
-            READINESS_STABLE_CHECKS,
             &mut child,
             "photon",
         )
