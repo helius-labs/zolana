@@ -42,6 +42,10 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 # prover, so they run in parallel.
 [test-groups]
 serial-validator = { max-threads = 1 }
+# CI's cap on the FixtureLocalnet suites: each test starts its own surfpool and
+# Photon, and a 4-vCPU runner starting more of them at once is where Photon's
+# SQLite migrations have failed.
+fixture-localnet = { max-threads = 2 }
 
 # Assign every validator/localnet-spawning test to that group. Applied to both
 # profiles (nextest does not inherit overrides across profiles); only the ci
@@ -56,8 +60,10 @@ filter = "package(spp-test-validator) | package(ring-test-program) | package(cus
 test-group = "serial-validator"
 retries = 2
 
-# The FixtureLocalnet suites run in parallel outside the serial group; in CI
-# they get the same two retries against localnet and prover flakiness.
+# The FixtureLocalnet suites run fully in parallel outside the serial group. In
+# CI they run two at a time and get the same two retries against localnet and
+# prover flakiness.
 [[profile.ci.overrides]]
 filter = "package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | package(rfq-test) | package(compression-example-test)"
+test-group = "fixture-localnet"
 retries = 2
