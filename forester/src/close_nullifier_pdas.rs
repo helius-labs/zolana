@@ -13,7 +13,8 @@ use zolana_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, P
 use zolana_client::{
     compile_message, sign_transaction, transaction_size, ComputeBudgetConfig, TransactionSize,
 };
-use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
+use zolana_interface::{pda, NULLIFIER_PDA_SIZE};
+use zolana_program::instruction::CloseNullifierPdas;
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeAccount;
 

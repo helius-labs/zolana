@@ -2,9 +2,9 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{instruction_data::transact::TransactIxData, nullifier_pda_accounts},
-    SHIELDED_POOL_PROGRAM_ID,
+    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program::instruction::nullifier_pda_accounts;
 
 use crate::{err, escrow_authority_pda, tag, CreateEscrowIxData, EscrowOpenProof};
 

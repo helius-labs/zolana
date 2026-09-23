@@ -31,14 +31,12 @@ use zolana_client::{
     },
     ClientError, ProofAuthority,
 };
-use zolana_interface::{
-    instruction::{
-        InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
-        TransactSolTransferAccounts, TransactSplDepositAccounts,
-    },
-    pda,
-};
+use zolana_interface::{instruction::InterfaceTransfer, pda};
 use zolana_keypair::ShieldedKeypair;
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts,
+};
 use zolana_transaction::{
     instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
     WalletUtxo,

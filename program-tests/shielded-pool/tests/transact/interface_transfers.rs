@@ -9,12 +9,14 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        instruction_data::transact::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+    instruction::instruction_data::transact::{
+        CircuitId, InterfaceTransfer, TransactIxData, TransactProof,
     },
     pda, N_PUBLIC_SLOTS,
+};
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};

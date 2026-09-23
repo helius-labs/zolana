@@ -3,12 +3,13 @@
 use solana_pubkey::Pubkey;
 use zolana_client::ProofInputUtxo;
 use zolana_hasher::Poseidon;
-use zolana_interface::instruction::{deposit_blinding, AssetDeposit};
+use zolana_interface::instruction::deposit_blinding;
 use zolana_interface::{
     pda,
     state::{read_tree_id, STATE_HEIGHT},
 };
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::SOL_MINT;
 use zolana_wallet::{SyncWalletAuthority, Wallet};

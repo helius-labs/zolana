@@ -26,8 +26,7 @@ use zolana_client::{
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
-        tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, OwnerTag, RingAssetDeposit,
-        TransactInterfaceTransferAccounts, TransactIxData, TransactOutput, TransactProof,
+        tag::RING_TRANSACT, CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     MAX_INPUT_TREES, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -35,6 +34,9 @@ use zolana_interface::{
 use zolana_keypair::{
     random_blinding, KeypairError, NullifierKey, P256Pubkey, ShieldedAddress, ShieldedKeypair,
     ViewingKey,
+};
+use zolana_program::instruction::{
+    DepositAsset, DepositBuildError, RingAssetDeposit, TransactInterfaceTransferAccounts,
 };
 use zolana_ring_client::{DepositEncryption, DepositOpening, DepositSeal};
 use zolana_ring_policy::{ListNamespace, Member, VelocityMode, VelocityRow};
@@ -1560,7 +1562,7 @@ impl RingDeposit<'_> {
                 recipient_ciphertext: &deposit.encrypted.ciphertext,
             }
             .encode();
-            let spp_instruction = zolana_interface::instruction::RingDeposit {
+            let spp_instruction = zolana_program::instruction::RingDeposit {
                 tree: self.tree,
                 depositor: self.payer.pubkey(),
                 ring_program_id: self.ring.program_id(),
@@ -2239,12 +2241,10 @@ impl RingInstructionData<'_> {
 #[cfg(test)]
 mod tests {
     use zolana_client::MerkleContext;
-    use zolana_interface::instruction::{
-        instruction_data::transact::{
-            confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
-        },
-        TransactSolTransferAccounts,
+    use zolana_interface::instruction::instruction_data::transact::{
+        confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
     };
+    use zolana_program::instruction::TransactSolTransferAccounts;
     use zolana_transaction::keys::LocalShieldedKeys;
     use zolana_transaction::Mint;
 

@@ -1,8 +1,9 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
-use zolana_interface::{error::ShieldedPoolError, instruction::DepositBuildError};
+use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::KeypairError;
+use zolana_program::instruction::DepositBuildError;
 use zolana_transaction::TransactionError;
 
 #[derive(Debug, Error)]

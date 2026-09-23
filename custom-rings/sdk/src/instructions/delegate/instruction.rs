@@ -1,7 +1,8 @@
 use custom_ring_interface::{tag, CustomRingProof};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::instruction::{RingAuthorityTransact, TransactIxData};
+use zolana_interface::instruction::TransactIxData;
+use zolana_program::instruction::RingAuthorityTransact;
 
 use crate::{
     instructions::{

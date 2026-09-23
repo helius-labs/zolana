@@ -7,12 +7,10 @@ use solana_rent::Rent;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{ClaimTreeLamports, UpdateProtocolConfigData},
-    pda,
-    state::tree_working_capital_lamports,
-    NULLIFIER_PDA_SIZE,
+    error::ShieldedPoolError, instruction::UpdateProtocolConfigData, pda,
+    state::tree_working_capital_lamports, NULLIFIER_PDA_SIZE,
 };
+use zolana_program::instruction::ClaimTreeLamports;
 use zolana_program_test::Rejection;
 use zolana_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, sweep_account_matrix, AccountMutation, Expected,

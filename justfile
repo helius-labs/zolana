@@ -97,7 +97,7 @@ test-tree:
 # run (without it `program_test()` finds no .so and the suite skips). Builds
 # the prover server and zolana CLI because transact tests spawn a local prover.
 test-shielded-pool: build-programs build-prover-server build-cli
-    cargo nextest run -p zolana-interface --features solana
+    cargo nextest run -p zolana-interface -p zolana-program --features zolana-program/protocol
     cargo nextest run -p shielded-pool-program --lib --tests
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
     # them serially because nextest isolates tests in separate processes, so a
@@ -110,7 +110,7 @@ test-shielded-pool: build-programs build-prover-server build-cli
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-program-fast: build-programs
-    cargo nextest run -p zolana-interface --features solana
+    cargo nextest run -p zolana-interface -p zolana-program --features zolana-program/protocol
     cargo nextest run -p shielded-pool-program --lib --tests
     cargo nextest run -p zolana-user-registry --tests
     cargo nextest run -p shielded-pool-tests
@@ -572,7 +572,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features zolana-interface/solana,zolana-client/client
+    cargo llvm-cov --no-report $packages --features zolana-client/client
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -616,7 +616,7 @@ test-programs: build-programs build-prover-server build-cli
 # proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-proofless-programs: build-programs
-    cargo test -p zolana-interface --features solana
+    cargo test -p zolana-interface -p zolana-program --features zolana-program/protocol
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
 

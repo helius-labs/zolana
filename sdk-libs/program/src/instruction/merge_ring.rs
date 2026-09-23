@@ -1,12 +1,12 @@
+use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-
-use crate::{
-    instruction::{
-        builders::transact::nullifier_pda_accounts, tag, MergeRingIxData, MergeTransactIxData,
-    },
+use zolana_interface::{
+    instruction::{tag, MergeRingIxData, MergeTransactIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
+
+use super::transact::nullifier_pda_accounts;
 
 /// Builder for the `merge_ring` instruction, the policy-ring analog of
 /// [`super::merge_transact::MergeTransact`]. The account layout mirrors the
@@ -78,8 +78,10 @@ impl MergeRing {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+    use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
+
     use super::*;
-    use crate::instruction::instruction_data::merge_transact::MergeProof;
 
     fn nullifiers() -> Vec<[u8; 32]> {
         (1u8..=8).map(|i| [i; 32]).collect()

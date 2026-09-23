@@ -6,10 +6,10 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient};
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{instruction_data::merge_transact::MergeProof, MergeRing},
+    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
 };
 use zolana_keypair::ShieldedKeypair;
+use zolana_program::instruction::MergeRing;
 use zolana_program_test::Rejection;
 use zolana_transaction::Utxo;
 

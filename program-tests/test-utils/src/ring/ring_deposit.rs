@@ -8,14 +8,12 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_event_parser::indexed_events_from_instruction_groups;
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{
-        AssetDeposit, Deposit, DepositAsset, DepositSplAccounts, EncryptedRingDepositData,
-        RingAssetDeposit, RingDeposit,
-    },
-    SHIELDED_POOL_PROGRAM_ID,
+    error::ShieldedPoolError, instruction::EncryptedRingDepositData, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::random_blinding;
+use zolana_program::instruction::{
+    AssetDeposit, Deposit, DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit,
+};
 use zolana_program_test::{
     ring_deposit_output_from_event, test_blinding, Rejection, RING_TEST_PROGRAM_ID,
 };

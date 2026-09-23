@@ -45,7 +45,7 @@ toml_edit = { workspace = true }
 wincode = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-indexer-api = { workspace = true }
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
 zolana-ring-policy = { workspace = true }

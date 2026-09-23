@@ -3,8 +3,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::SplTransfer;
-use zolana_interface::instruction::{AssetDeposit, Deposit};
 use zolana_keypair::PublicKey;
+use zolana_program::instruction::{AssetDeposit, Deposit};
 use zolana_transaction::Utxo;
 
 use zolana_event_parser::general_event_from_indexed;

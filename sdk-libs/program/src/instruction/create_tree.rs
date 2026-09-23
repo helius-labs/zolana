@@ -1,13 +1,13 @@
+use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
-
-use crate::{
+use zolana_interface::{
     instruction::{encode_instruction, tag, CreateTreeData},
     pda,
     state::tree_creation_step_count,
     PROGRAM_ID_PUBKEY,
 };
+use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 pub struct CreateTree {
     pub payer: Pubkey,

@@ -10,14 +10,12 @@ use solana_signer::Signer;
 use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput, TransferOutput};
 use zolana_event_parser::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
-    instruction::{
-        instruction_data::transact::{InterfaceTransfer, TransactIxData},
-        CreateProtocolConfig,
-    },
+    instruction::instruction_data::transact::{InterfaceTransfer, TransactIxData},
     state::{default_tree_fees, nullifier_tree_params},
     tree_slot::TreeSlot,
     INPUT_TREES,
 };
+use zolana_program::instruction::CreateProtocolConfig;
 use zolana_program_test::{
     create_tree_instructions, index_events, IndexedEvent, IndexedTransaction, ParsedInstruction,
     TestIndexer,

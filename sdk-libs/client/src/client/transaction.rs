@@ -1,10 +1,8 @@
 use solana_hash::Hash;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
-use zolana_interface::{
-    instruction::{Transact, TransactInterfaceTransferAccounts, TransactIxData},
-    pda,
-};
+use zolana_interface::{instruction::TransactIxData, pda};
+use zolana_program::instruction::{Transact, TransactInterfaceTransferAccounts};
 use zolana_transaction::instructions::transact::SppProofInputs;
 
 use crate::{

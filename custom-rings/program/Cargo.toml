@@ -30,7 +30,7 @@ solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
 zolana-program = { workspace = true }
 zolana-ring-policy = { workspace = true }
 zolana-tree = { workspace = true }

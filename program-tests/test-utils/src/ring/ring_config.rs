@@ -11,10 +11,12 @@ use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner},
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
     SHIELDED_POOL_PROGRAM_ID,
+};
+use zolana_program::instruction::{
+    CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner,
 };
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
 use zolana_smart_account_client::execute_sync_ix;

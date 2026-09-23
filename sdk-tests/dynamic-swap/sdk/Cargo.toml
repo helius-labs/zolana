@@ -16,6 +16,7 @@ solana-system-interface = { workspace = true }
 wincode = { workspace = true }
 zolana-client = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-program = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 

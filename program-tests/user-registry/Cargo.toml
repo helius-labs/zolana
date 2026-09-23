@@ -26,4 +26,5 @@ zolana-keypair = { workspace = true }
 
 [dev-dependencies]
 solana-transaction-error = { workspace = true }
+zolana-program = { workspace = true }
 zolana-user-registry = { workspace = true }

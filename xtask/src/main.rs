@@ -893,7 +893,7 @@ fn tx_size(args: Vec<String>) {
         if let Some(circuit) = circuit {
             data.circuit = circuit;
         }
-        zolana_interface::instruction::Transact {
+        zolana_program::instruction::Transact {
             payer: payer_pk,
             input_trees: vec![tree],
             output_tree: tree,
@@ -917,7 +917,7 @@ fn tx_size(args: Vec<String>) {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         data.circuit = circuit;
-        zolana_interface::instruction::RingTransact {
+        zolana_program::instruction::RingTransact {
             payer: payer_pk,
             input_trees: vec![tree],
             output_tree: tree,
@@ -962,9 +962,8 @@ fn tx_size(args: Vec<String>) {
         );
     }
     for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
-        use zolana_interface::instruction::{
-            instruction_data::MergeProof, MergeTransact, MergeTransactIxData,
-        };
+        use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
+        use zolana_program::instruction::MergeTransact;
         let nullifiers = (0..input_count)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();

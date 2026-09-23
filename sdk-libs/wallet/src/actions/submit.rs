@@ -9,8 +9,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::MergeTransact;
 use zolana_keypair::{Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair};
+use zolana_program::instruction::MergeTransact;
 use zolana_transaction::{instructions::merge::MergeProofInputs, Address};
 use zolana_user_registry_interface::{user_record_pda, UserRecord};
 

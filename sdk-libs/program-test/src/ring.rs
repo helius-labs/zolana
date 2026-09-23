@@ -4,14 +4,14 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::SplTransfer;
 use zolana_interface::{
-    instruction::{
-        encode_instruction, tag, CreateRingConfigData, DepositAsset, DepositSplAccounts,
-        EncryptedRingDepositData, RingAssetDeposit, RingDeposit, SetRingActivation,
-        UpdateRingConfig, UpdateRingConfigOwner,
-    },
+    instruction::{encode_instruction, tag, CreateRingConfigData, EncryptedRingDepositData},
     pda,
 };
 use zolana_keypair::shielded::ShieldedAddress;
+use zolana_program::instruction::{
+    DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit, SetRingActivation,
+    UpdateRingConfig, UpdateRingConfigOwner,
+};
 use zolana_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Blinding};
 
 use crate::{

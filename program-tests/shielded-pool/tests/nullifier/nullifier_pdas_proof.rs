@@ -7,14 +7,12 @@ use solana_signer::Signer;
 use zolana_client::{PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{instruction_data::transact::TransactIxData, Transact},
-    pda,
-    state::TreeFeeSchedule,
-    NullifierPda,
+    error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxData, pda,
+    state::TreeFeeSchedule, NullifierPda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::Transact;
 use zolana_program_test::{Rejection, Rpc, TransactionTrace};
 use zolana_test_utils::{
     nullifier_pda::{

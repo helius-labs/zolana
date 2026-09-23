@@ -1,7 +1,7 @@
+use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-
-use crate::{
+use zolana_interface::{
     instruction::{tag, InputUtxo, InterfaceTransfer, TransactIxData},
     pda, MAX_INTERFACE_TRANSFERS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
     SOL_INTERFACE_PUBKEY,
@@ -194,7 +194,7 @@ impl Transact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::instruction_data::transact::{
+    use zolana_interface::instruction::instruction_data::transact::{
         CircuitId, InputUtxo, TransactProof, TreeContext,
     };
 

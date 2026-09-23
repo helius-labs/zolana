@@ -62,7 +62,6 @@ program-libs/interface/src/
   lib.rs               -- canonical program ids and public modules
   instruction/
     tag.rs             -- first-byte instruction tags
-    builders/          -- client instruction builders
     instruction_data/  -- Borsh or fixed-layout instruction data structs
   state/               -- client-visible account headers and discriminators
   verifying_keys/      -- verifier constants when proof paths need them
@@ -74,7 +73,8 @@ sdk-libs/
   event/               -- indexer-side event discovery; rebuilds GeneralEvent from
                           the emitting instruction plus the minimal on-chain event
   keypair/             -- shielded key material and hashes
-  program/             -- SBF-buildable SDK for programs: on-chain SPP derivations
+  program/             -- SBF-buildable SDK for programs: shielded-pool instruction
+                          builders and on-chain SPP derivations
   program-test/        -- reusable local test/indexer harness
   transaction/         -- wallet, UTXO, encryption, and transaction logic
 
@@ -337,33 +337,49 @@ pub enum ShieldedPoolError {
   be cfg-gated: use `Address::find_program_address` on Solana target and do not
   pretend host tests can derive it unless a host implementation exists.
 
-## Instruction Builder Pattern (interface crate)
+## Instruction Builder Pattern (zolana-program crate)
 
-Builders live in `program-libs/interface/src/instruction/builders/`. Reference:
-`create_pool_tree.rs`
+Builders live in `sdk-libs/program/src/instruction/`, not in the interface
+crate: the shielded-pool program links the interface and must not carry client
+surface. `zolana-program` is `no_std` and SBF-buildable, so programs that CPI
+into SPP use the same builders as clients. Reference: `create_spl_interface.rs`
 
 ```rust
+use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use crate::{instruction::{tag, CreatePoolTreeData}, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 
-pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -> Instruction {
-    let mut instruction_data = vec![tag::CREATE_POOL_TREE];
-    data.serialize(&mut instruction_data)
-        .expect("shielded-pool instruction serialization is infallible");
+pub struct CreateSplInterface {
+    pub authority: Pubkey,
+    pub mint: Pubkey,
+    pub token_program: Pubkey,
+}
 
-    Instruction {
-        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-        accounts: vec![AccountMeta::new(payer, true), AccountMeta::new(tree, false)],
-        data: instruction_data,
+impl CreateSplInterface {
+    pub fn instruction(&self) -> Instruction {
+        Instruction {
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts: vec![
+                AccountMeta::new(self.authority, true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
+                // ...
+            ],
+            data: vec![tag::CREATE_SPL_INTERFACE],
+        }
     }
 }
 ```
 
 - Use canonical program ids from `program-libs/interface/src/lib.rs`, do not pass as parameter
 - Use fixed-size arrays for instruction data, not Vec, when the instruction data is fixed
-- Add `pub mod <name>;` + `pub use <name>::<item>;` to `program-libs/interface/src/instruction/builders/mod.rs`
-- Builders are imported in tests as `zolana_interface::instruction::<builder>`
+- Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/program/src/instruction/mod.rs`
+- Builders are imported as `zolana_program::instruction::<builder>`
+- Builders for instructions only a protocol authority or the forester can send
+  go behind the non-default `protocol` feature (`#[cfg(feature = "protocol")]`
+  on the module or item and its re-export). Instructions that the protocol
+  config can open to everyone (`CreateTree`, `CreateSplInterface`) stay
+  ungated.
 
 ### Instruction data
 

@@ -16,7 +16,7 @@ use zolana_hasher::{
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{CircuitId, TransactIxData},
-        tag, Transact,
+        tag,
     },
     shape::Shape,
     state::{discriminator::RING_CONFIG, RingConfig},
@@ -25,6 +25,7 @@ use zolana_interface::{
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::sha256, pubkey::PublicKey, NullifierKey, ShieldedKeypair, SigningKey};
+use zolana_program::instruction::Transact;
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,

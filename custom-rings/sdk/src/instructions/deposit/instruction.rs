@@ -2,9 +2,7 @@ use custom_ring_interface::MAX_RING_DEPOSIT_AUDIT_SLOTS;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
-use zolana_interface::instruction::{
-    DepositAsset, DepositBuildError, RingAssetDeposit, RingDeposit,
-};
+use zolana_program::instruction::{DepositAsset, DepositBuildError, RingAssetDeposit, RingDeposit};
 
 use crate::{
     instructions::{cosigner::RingPrefix, spend_window::window_metas},

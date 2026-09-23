@@ -10,7 +10,6 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree},
     pda,
     state::{
         nullifier_tree_params, tree_account_size, tree_creation_lamports, ProtocolConfig,
@@ -18,6 +17,7 @@ use zolana_interface::{
     },
     BPF_LOADER_UPGRADEABLE_PUBKEY, NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program::instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree};
 use zolana_smart_account_client::{
     create_role_smart_account_ix,
     roles::Role,

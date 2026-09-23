@@ -16,15 +16,15 @@ use zolana_client::{ProverClient, PublicInputs, PublicTransfers, STATE_TREE_HEIG
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::Poseidon;
 use zolana_interface::{
-    instruction::{
-        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
-        TransactInterfaceTransferAccounts, TransactIxData, TransactSolTransferAccounts,
-    },
+    instruction::{instruction_data::transact::InterfaceTransfer, TransactIxData},
     state::{nullifier_tree_params, tree_account_size, tree_working_capital_lamports},
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::{
+    Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
 

@@ -19,12 +19,14 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
     state::{default_tree_fees, nullifier_tree_params},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
+use zolana_program::instruction::{
+    CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree,
+};
 use zolana_smart_account_client::{execute_sync_each, execute_sync_ix};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, WalletUtxo};
 use zolana_tree::NullifierTreeInitParams;

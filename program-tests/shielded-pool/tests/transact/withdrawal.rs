@@ -25,15 +25,14 @@ use zolana_client::{PublicInputs, PublicTransfers, TransferInput, STATE_TREE_HEI
 use zolana_event::{OutputDataEncoding, ProoflessOutput};
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{
-        instruction_data::transact::InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
-        TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
-    },
-    pda,
+    error::ShieldedPoolError, instruction::instruction_data::transact::InterfaceTransfer, pda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+};
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     instructions::transact::PrivateTxHash, Data, SppProofOutputUtxo, Utxo, SOL_MINT,

@@ -1,7 +1,7 @@
 [package]
 name = "zolana-program"
 version = "0.1.0"
-description = "SPP protocol math for Solana programs: the blinding seed derivations a program recomputes on-chain, buildable for the SBF target."
+description = "SPP SDK for Solana programs and clients: shielded-pool instruction builders and the blinding seed derivations a program recomputes on-chain, buildable for the SBF target."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -9,10 +9,26 @@ repository.workspace = true
 [lib]
 name = "zolana_program"
 
+[features]
+# Builders for the instructions only the protocol can send: protocol-authority
+# and fee-authority administration, ring activation, and the forester's
+# nullifier tree maintenance. Off by default so programs and wallets never
+# compile them.
+protocol = []
+
 [dependencies]
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true }
+zolana-interface = { workspace = true, features = ["borsh", "tree"] }
+zolana-tree = { workspace = true }
+
+[dev-dependencies]
+borsh = { workspace = true }
+serde_json = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

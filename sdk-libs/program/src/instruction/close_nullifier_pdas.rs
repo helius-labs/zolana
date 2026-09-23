@@ -1,10 +1,9 @@
+use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+use zolana_interface::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 
-use crate::{
-    instruction::{builders::transact::nullifier_pda_accounts, tag},
-    pda, PROGRAM_ID_PUBKEY,
-};
+use super::transact::nullifier_pda_accounts;
 
 pub struct CloseNullifierPdas {
     pub authority: Pubkey,

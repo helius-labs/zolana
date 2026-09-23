@@ -14,10 +14,11 @@ use zolana_interface::{
     instruction::{
         instruction_data::transact::{CircuitId, OwnerTag, TransactOutput, TransactProof},
         tag::RING_AUTHORITY_TRANSACT,
-        RingAuthorityTransact, TransactIxData,
+        TransactIxData,
     },
 };
 use zolana_keypair::{random_blinding, random_salt, ViewingKey};
+use zolana_program::instruction::RingAuthorityTransact;
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
