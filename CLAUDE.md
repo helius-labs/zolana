@@ -375,6 +375,11 @@ impl CreateSplInterface {
 - Use fixed-size arrays for instruction data, not Vec, when the instruction data is fixed
 - Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/program/src/instruction/mod.rs`
 - Builders are imported as `zolana_program::instruction::<builder>`
+- Builders for instructions only a protocol authority or the forester can send
+  go behind the non-default `protocol` feature (`#[cfg(feature = "protocol")]`
+  on the module or item and its re-export). Instructions that the protocol
+  config can open to everyone (`CreateTree`, `CreateSplInterface`) stay
+  ungated.
 
 ### Instruction data
 

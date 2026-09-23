@@ -1,5 +1,8 @@
+#[cfg(feature = "protocol")]
 mod batch_update_nullifier_tree;
+#[cfg(feature = "protocol")]
 mod close_nullifier_pdas;
+#[cfg(feature = "protocol")]
 mod create_asset_counter;
 mod create_associated_token_account;
 mod create_spl_interface;
@@ -7,6 +10,7 @@ mod create_tree;
 mod deposit;
 mod merge_ring;
 mod merge_transact;
+#[cfg(feature = "protocol")]
 mod protocol_config;
 mod ring_authority_transact;
 mod ring_config;
@@ -14,8 +18,11 @@ mod ring_deposit;
 mod ring_transact;
 mod transact;
 
+#[cfg(feature = "protocol")]
 pub use batch_update_nullifier_tree::BatchUpdateNullifierTree;
+#[cfg(feature = "protocol")]
 pub use close_nullifier_pdas::CloseNullifierPdas;
+#[cfg(feature = "protocol")]
 pub use create_asset_counter::CreateAssetCounter;
 pub use create_associated_token_account::CreateAssociatedTokenAccount;
 pub use create_spl_interface::CreateSplInterface;
@@ -23,13 +30,14 @@ pub use create_tree::CreateTree;
 pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
 pub use merge_ring::MergeRing;
 pub use merge_transact::MergeTransact;
+#[cfg(feature = "protocol")]
 pub use protocol_config::{
     ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };
 pub use ring_authority_transact::RingAuthorityTransact;
-pub use ring_config::{
-    CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner,
-};
+#[cfg(feature = "protocol")]
+pub use ring_config::SetRingActivation;
+pub use ring_config::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};
 pub use ring_deposit::{RingAssetDeposit, RingDeposit};
 pub use ring_transact::RingTransact;
 pub use transact::{

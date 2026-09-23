@@ -2,17 +2,17 @@ use alloc::vec;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
+#[cfg(feature = "protocol")]
+use zolana_interface::instruction::SetRingActivationData;
 use zolana_interface::{
-    instruction::{
-        encode_instruction, tag, CreateRingConfigData, SetRingActivationData, UpdateRingConfigData,
-    },
+    instruction::{encode_instruction, tag, CreateRingConfigData, UpdateRingConfigData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
 /// Permissionless: `payer` only funds rent and is checked against no authority.
 /// The config is created inert unless the protocol config sets
 /// `ring_activation_is_permissionless`; governance admits it with
-/// [`SetRingActivation`].
+/// `SetRingActivation`.
 pub struct CreateRingConfig {
     pub payer: Pubkey,
     pub program_id: Address,
@@ -94,6 +94,7 @@ impl UpdateRingConfig {
 /// Governance admits or contains a ring. `authority` must be
 /// `protocol_config.ring_creation_authority`, and the pool is called directly so
 /// no ring program is ever in the call chain.
+#[cfg(feature = "protocol")]
 pub struct SetRingActivation {
     pub authority: Pubkey,
     pub ring_config: Pubkey,
@@ -101,6 +102,7 @@ pub struct SetRingActivation {
     pub ring_authority_transact_is_enabled: bool,
 }
 
+#[cfg(feature = "protocol")]
 impl SetRingActivation {
     pub fn instruction(&self) -> Instruction {
         Instruction {

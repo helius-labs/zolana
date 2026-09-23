@@ -37,7 +37,7 @@ zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-merkle-tree = { workspace = true }
-zolana-program = { workspace = true }
+zolana-program = { workspace = true, features = ["protocol"] }
 zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-transaction = { workspace = true }
 zolana-wallet = { workspace = true }

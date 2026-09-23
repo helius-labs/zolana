@@ -35,7 +35,7 @@ solana-transaction = { workspace = true }
 tar = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true }
+zolana-program = { workspace = true, features = ["protocol"] }
 zolana-tree = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-keypair = { workspace = true }
