@@ -68,6 +68,7 @@ fn register_rejects_wrong_pda() {
     let wrong_pda_ix = instruction::register(
         wrong_record,
         owner.pubkey(),
+        owner.pubkey(),
         RegisterData {
             owner_p256: Some(value.owner_p256),
             nullifier_pubkey: value.nullifier,
@@ -85,12 +86,19 @@ fn register_rejects_wrong_pda() {
 fn register_requires_owner_signature() {
     let mut rig = UserRegistryTestRig::new();
     let unsigned_owner = funded_keypair(&mut rig);
+    // A distinct payer keeps index 1 the owner's only meta; with `payer == owner`
+    // the message compiler would merge the payer meta's signer flag back in.
+    let rent_payer = funded_keypair(&mut rig);
     let unsigned_value = keys(4);
-    let mut unsigned_ix = build_register_ix(
-        &unsigned_owner.pubkey(),
-        Some(unsigned_value.owner_p256),
-        unsigned_value.nullifier,
-        unsigned_value.viewing,
+    let mut unsigned_ix = instruction::register(
+        user_record_pda(&unsigned_owner.pubkey()).0,
+        unsigned_owner.pubkey(),
+        rent_payer.pubkey(),
+        RegisterData {
+            owner_p256: Some(unsigned_value.owner_p256),
+            nullifier_pubkey: unsigned_value.nullifier,
+            viewing_pubkey: unsigned_value.viewing,
+        },
     );
     unsigned_ix
         .accounts
@@ -99,7 +107,7 @@ fn register_requires_owner_signature() {
         .is_signer = false;
 
     assert_error(
-        rig.send(unsigned_ix, &[]),
+        rig.send(unsigned_ix, &[&rent_payer]),
         InstructionError::MissingRequiredSignature,
     );
 }
@@ -118,13 +126,41 @@ fn register_rejects_invalid_system_program() {
     );
     bad_system_ix
         .accounts
-        .get_mut(2)
+        .get_mut(3)
         .expect("system program account")
         .pubkey = owner.pubkey();
 
     assert_registry_error(
         rig.send(bad_system_ix, &[&bad_system_owner]),
         UserRegistryError::InvalidSystemProgram,
+    );
+}
+
+#[test]
+fn register_requires_payer_signature() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let rent_payer = funded_keypair(&mut rig);
+    let value = keys(6);
+    let mut ix = instruction::register(
+        user_record_pda(&owner.pubkey()).0,
+        owner.pubkey(),
+        rent_payer.pubkey(),
+        RegisterData {
+            owner_p256: None,
+            nullifier_pubkey: value.nullifier,
+            viewing_pubkey: value.viewing,
+        },
+    );
+    ix.accounts.get_mut(2).expect("payer account").is_signer = false;
+
+    assert_error(
+        rig.send(ix, &[&owner]),
+        InstructionError::MissingRequiredSignature,
+    );
+    assert_eq!(
+        rig.svm.get_account(&user_record_pda(&owner.pubkey()).0),
+        None
     );
 }
 
@@ -419,11 +455,14 @@ fn register_rejects_too_few_accounts() {
     };
     let mut encoded = vec![discriminator::REGISTER];
     borsh::to_writer(&mut encoded, &data).expect("encode register data");
+    // One short of the four required accounts: no payer before the system
+    // program, whose id is the all-zero pubkey.
     let too_few = Instruction {
         program_id: user_registry_program_id(),
         accounts: vec![
             AccountMeta::new(record_address, false),
             AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new_readonly(Pubkey::default(), false),
         ],
         data: encoded,
     };

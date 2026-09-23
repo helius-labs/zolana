@@ -550,6 +550,10 @@ The worktree may contain user changes. Do not revert unrelated edits. Keep PRs
 small when possible: protocol/program changes, tooling cleanup, and prover
 renames should be split unless the task explicitly asks for a combined change.
 
+Review fixes and cleanup must not change `programs/` or `program-libs/` unless
+the finding is a correctness or security bug in that code or the task asks for
+the change. Report other findings there instead of fixing them.
+
 ## Solana account deserialization
 - never deserialize an account twice
 
