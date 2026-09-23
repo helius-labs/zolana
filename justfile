@@ -1092,7 +1092,7 @@ test-ring-validator: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu --release
+      tools/ci/nextest-suite.sh -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu
 
 # Run only real-validator CU ceilings for ring EdDSA/P256 transact,
 # ring-authority transact, and maximal 8x1 merge-ring.
@@ -1113,7 +1113,7 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p ring-test-program --test proof_cu --release --no-capture
+      tools/ci/nextest-suite.sh -p ring-test-program --test proof_cu --no-capture
 
 # Regenerate services/photon/tests/fixtures/ring_transact.json from a real ring
 # CPI. The fixture is committed; Photon replays it without a validator. Run this
@@ -1135,7 +1135,7 @@ dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon en
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p ring-test-program --test ring_lifecycle --release \
+      tools/ci/nextest-suite.sh -p ring-test-program --test ring_lifecycle \
       --run-ignored all --no-capture -E 'test(=dump_ring_transact_fixture)'
 
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
@@ -1365,7 +1365,7 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
     cargo build -p xtask --target-dir target
     cargo nextest archive -p shielded-pool-tests --features localnet --test localnet_photon --test localnet_wallet_cli --archive-file {{dir}}/shielded-pool-tests.tar.zst
     cargo nextest archive -p spp-test-validator --test lifecycle --test proof_cu --archive-file {{dir}}/spp-test-validator.tar.zst
-    cargo nextest archive -p ring-test-program --release --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu --archive-file {{dir}}/ring-test-program.tar.zst
+    cargo nextest archive -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu --archive-file {{dir}}/ring-test-program.tar.zst
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
