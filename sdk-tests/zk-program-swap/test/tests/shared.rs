@@ -8,10 +8,8 @@ use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaClient};
 use zolana_keypair::{
     constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
-use zolana_test_utils::{
-    localnet_fixture::{self, FixtureLocalnet},
-    test_validator_asserts::wait_for_indexed_utxo,
-};
+use zolana_program_test::{fixture, localnet::FixtureLocalnet, workspace_path};
+use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
 use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
@@ -63,32 +61,32 @@ pub fn setup() -> Result<TestEnv> {
         tree_id,
     } = FixtureLocalnet::start(
         "zolana-swap",
-        &[
+        vec![
             (
                 Pubkey::new_from_array(*swap_program::ID.as_array()),
-                "target/deploy/swap_program.so",
+                workspace_path("target/deploy/swap_program.so"),
             ),
             (
                 user_registry_program_id(),
-                "target/deploy/zolana_user_registry.so",
+                workspace_path("target/deploy/zolana_user_registry.so"),
             ),
         ],
     )?;
-    let payer = localnet_fixture::payer();
+    let payer = fixture::payer();
 
-    let spl_mint = localnet_fixture::spl_mint();
+    let spl_mint = fixture::spl_mint();
     let mut assets = AssetRegistry::default();
-    assets.insert(localnet_fixture::SPL_ASSET_ID, spl_mint)?;
-    let spl_funding = localnet_fixture::payer_token_account();
+    assets.insert(fixture::SPL_ASSET_ID, spl_mint)?;
+    let spl_funding = fixture::payer_token_account();
 
-    let maker_solana_keypair = localnet_fixture::actor(0);
+    let maker_solana_keypair = fixture::actor(0);
     let maker_seed: [u8; 32] = maker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
     let maker_shielded_keypair =
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&maker_seed))?;
 
-    let taker_solana_keypair = localnet_fixture::actor(1);
+    let taker_solana_keypair = fixture::actor(1);
     let taker_seed: [u8; 32] = taker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");

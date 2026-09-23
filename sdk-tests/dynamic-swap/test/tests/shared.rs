@@ -17,10 +17,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaClient};
 use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
-use zolana_test_utils::{
-    localnet_fixture::{self, FixtureLocalnet},
-    test_validator_asserts::wait_for_indexed_utxo,
-};
+use zolana_program_test::{fixture, localnet::FixtureLocalnet, workspace_path};
+use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{
     instructions::transact::asset_field, utxo::Blinding, AssetRegistry, SOL_MINT,
 };
@@ -32,7 +30,7 @@ const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 /// SPL is the pair's source asset (escrowed by the taker); SOL is the pair's
 /// destination asset (the maker funds it, the recipient is paid it on settle).
-pub const SOURCE_ASSET_ID: u64 = localnet_fixture::SPL_ASSET_ID;
+pub const SOURCE_ASSET_ID: u64 = fixture::SPL_ASSET_ID;
 pub const DESTINATION_ASSET_ID: u64 = 1; // SOL_ASSET_ID
 
 pub const USER_SPL_SHIELD: u64 = 1_000_000_000;
@@ -83,29 +81,29 @@ pub fn setup() -> Result<TestEnv> {
         tree_id,
     } = FixtureLocalnet::start(
         "zolana-dynamic-swap",
-        &[
+        vec![
             (
                 Pubkey::new_from_array(*dynamic_swap_program::ID.as_array()),
-                "target/deploy/dynamic_swap_program.so",
+                workspace_path("target/deploy/dynamic_swap_program.so"),
             ),
             (
                 user_registry_program_id(),
-                "target/deploy/zolana_user_registry.so",
+                workspace_path("target/deploy/zolana_user_registry.so"),
             ),
         ],
     )?;
-    let payer = localnet_fixture::payer();
-    let spl_mint = localnet_fixture::spl_mint();
-    let spl_funding = localnet_fixture::payer_token_account();
+    let payer = fixture::payer();
+    let spl_mint = fixture::spl_mint();
+    let spl_funding = fixture::payer_token_account();
 
-    let authority_solana = localnet_fixture::actor(0);
+    let authority_solana = fixture::actor(0);
     let authority_seed: [u8; 32] = authority_solana.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
     let authority_shielded_keypair =
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&authority_seed))?;
 
-    let user_solana = localnet_fixture::actor(1);
+    let user_solana = fixture::actor(1);
     let user_seed: [u8; 32] = user_solana.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");

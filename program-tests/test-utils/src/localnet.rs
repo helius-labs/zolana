@@ -5,13 +5,12 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use std::{
-    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 use zolana_client::{ClientError, ComputeBudgetConfig, Proof, ProofCompressed, Rpc, SolanaRpc};
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
+use zolana_program_test::localnet::{LocalnetValidator, UpgradeableProgram};
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
 
@@ -172,108 +171,6 @@ pub fn isolated_temp_path(label: &str) -> String {
         .into_owned()
 }
 
-/// Boot a fresh validator with Photon (and no bundled prover) via the `zolana`
-/// CLI, loading the given SBF programs and the Squads smart-account
-/// program-config fixture. Mirrors the per-crate `restart_localnet` helpers the
-/// swap, spp and ring test crates each used to copy.
-///
-/// The caller resolves the CLI path, ports, account directory and the
-/// `(program_id, program_so)` list so this stays program-agnostic.
-pub struct LocalnetValidator {
-    pub cli_bin: String,
-    pub working_dir: String,
-    pub rpc_port: String,
-    pub photon_port: String,
-    /// Unused: surfpool is the backend and holds its state in memory, so there
-    /// is no ledger directory to place. Kept because callers still name one.
-    pub ledger: String,
-    pub account_dir: String,
-    pub programs: Vec<(String, String)>,
-}
-
-pub struct UpgradeableProgram<'a> {
-    pub address: &'a str,
-    pub path: &'a str,
-    pub authority: &'a str,
-}
-
-impl LocalnetValidator {
-    #[track_caller]
-    pub fn start(&self) {
-        self.start_with_upgradeable_programs(&[]);
-    }
-
-    #[track_caller]
-    pub fn start_with_upgradeable_programs(&self, upgradeable: &[UpgradeableProgram<'_>]) {
-        assert_required_file("zolana CLI", &self.cli_bin);
-        assert!(
-            Path::new(&self.working_dir).is_dir(),
-            "localnet working directory is missing at {}",
-            self.working_dir
-        );
-        assert!(
-            !self.programs.is_empty() || !upgradeable.is_empty(),
-            "localnet has no SBF programs"
-        );
-        let mut program_ids = BTreeSet::<String>::new();
-        for (program_id, program_so) in &self.programs {
-            assert!(
-                !program_id.trim().is_empty(),
-                "localnet program id is empty"
-            );
-            assert!(
-                program_ids.insert(program_id.clone()),
-                "localnet program id {program_id} is duplicated"
-            );
-            assert_required_file(&format!("SBF program {program_id}"), program_so);
-        }
-        for program in upgradeable {
-            assert!(
-                !program.address.trim().is_empty(),
-                "localnet program id is empty"
-            );
-            assert!(
-                program_ids.insert(program.address.into()),
-                "localnet program id {} is duplicated",
-                program.address
-            );
-            assert_required_file(&format!("SBF program {}", program.address), program.path);
-        }
-
-        crate::smart_account::write_program_config_fixture(&self.account_dir);
-
-        let mut args: Vec<String> = vec![
-            "test-env".into(),
-            "--local".into(),
-            "--skip-prover".into(),
-            "--rpc-port".into(),
-            self.rpc_port.clone(),
-            "--photon-port".into(),
-            self.photon_port.clone(),
-        ];
-        for (program_id, program_so) in &self.programs {
-            args.push("--sbf-program".into());
-            args.push(program_id.clone());
-            args.push(program_so.clone());
-        }
-        for program in upgradeable {
-            args.push("--upgradeable-program".into());
-            args.push(program.address.into());
-            args.push(program.path.into());
-            args.push(program.authority.into());
-        }
-        args.push("--account-dir".into());
-        args.push(self.account_dir.clone());
-
-        let status = Command::new(&self.cli_bin)
-            .current_dir(&self.working_dir)
-            .args(&args)
-            .status()
-            .expect("run zolana test-validator");
-        assert!(status.success(), "zolana test-validator start failed");
-    }
-}
-
 /// Start the standard shielded-pool validator/Photon stack, optionally loading
 /// additional workspace SBF programs. Program paths are workspace-relative.
 pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str)]) {
@@ -282,57 +179,67 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
         std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/zolana"));
     let shielded_pool_id =
         std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_owned());
-    let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_owned());
-    let shielded_pool_path = artifacts.path("target/deploy/shielded_pool_program.so");
     let upgrade_authority = match std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
         Ok(path) => read_keypair_file(&path)
             .unwrap_or_else(|error| panic!("read SPP upgrade authority keypair {path}: {error}"))
-            .pubkey()
-            .to_string(),
-        Err(_) => crate::smart_account::standard_accounts()
-            .protocol_vault
-            .to_string(),
+            .pubkey(),
+        Err(_) => crate::smart_account::standard_accounts().protocol_vault,
     };
     let mut programs = vec![
         (
-            user_registry_program_id().to_string(),
-            artifacts.path("target/deploy/zolana_user_registry.so"),
+            user_registry_program_id(),
+            artifacts
+                .path("target/deploy/zolana_user_registry.so")
+                .into(),
         ),
         (
-            SMART_ACCOUNT_PROGRAM_ID.to_string(),
-            artifacts.path("target/deploy/squads_smart_account_program.so"),
+            SMART_ACCOUNT_PROGRAM_ID,
+            artifacts
+                .path("target/deploy/squads_smart_account_program.so")
+                .into(),
         ),
     ];
-    programs.extend(
-        extra_programs
-            .iter()
-            .map(|(program_id, relative_path)| (program_id.clone(), artifacts.path(relative_path))),
-    );
+    programs.extend(extra_programs.iter().map(|(program_id, relative_path)| {
+        (
+            parse_pubkey(program_id),
+            artifacts.path(relative_path).into(),
+        )
+    }));
 
-    let validator = LocalnetValidator {
-        cli_bin: cli,
-        working_dir: artifacts.root(),
-        rpc_port,
-        photon_port,
-        ledger: isolated_temp_path(&format!("{label}-ledger")),
-        account_dir: isolated_temp_path(&format!("{label}-smart-accounts")),
+    let account_dir = isolated_temp_path(&format!("{label}-smart-accounts"));
+    crate::smart_account::write_program_config_fixture(&account_dir);
+    LocalnetValidator {
+        cli_bin: cli.into(),
+        working_dir: artifacts.root().into(),
+        rpc_port: env_port("ZOLANA_LOCALNET_RPC_PORT", 8899),
+        photon_port: env_port("ZOLANA_LOCALNET_PHOTON_PORT", 8784),
+        account_dir: account_dir.into(),
         programs,
-    };
-    validator.start_with_upgradeable_programs(&[UpgradeableProgram {
-        address: &shielded_pool_id,
-        path: &shielded_pool_path,
-        authority: &upgrade_authority,
-    }]);
+        slot_time: None,
+    }
+    .start_with_upgradeable_programs(&[UpgradeableProgram {
+        address: parse_pubkey(&shielded_pool_id),
+        path: artifacts
+            .path("target/deploy/shielded_pool_program.so")
+            .into(),
+        authority: upgrade_authority,
+    }])
+    .expect("start the shielded-pool localnet");
 }
 
 #[track_caller]
-fn assert_required_file(label: &str, path: &str) {
-    assert!(
-        Path::new(path).is_file(),
-        "required {label} is missing at {path}; build it before running this test"
-    );
+fn parse_pubkey(value: &str) -> Pubkey {
+    value
+        .parse()
+        .unwrap_or_else(|error| panic!("{value} is not a pubkey: {error}"))
+}
+
+#[track_caller]
+pub fn env_port(name: &str, default: u16) -> u16 {
+    std::env::var(name).map_or(default, |port| {
+        port.parse()
+            .unwrap_or_else(|error| panic!("{name}={port} is not a port: {error}"))
+    })
 }
 
 #[cfg(test)]

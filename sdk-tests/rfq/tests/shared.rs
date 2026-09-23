@@ -6,7 +6,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaClient};
 use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_test_utils::localnet_fixture::{self, FixtureLocalnet};
+use zolana_program_test::{fixture, localnet::FixtureLocalnet};
 use zolana_transaction::{AssetRegistry, SOL_MINT};
 use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 
@@ -52,29 +52,29 @@ pub fn setup() -> Result<TestEnv> {
         client,
         tree,
         tree_id,
-    } = FixtureLocalnet::start("zolana-rfq", &[])?;
-    let payer = localnet_fixture::payer();
+    } = FixtureLocalnet::start("zolana-rfq", vec![])?;
+    let payer = fixture::payer();
 
-    let usdc_mint = localnet_fixture::spl_mint();
+    let usdc_mint = fixture::spl_mint();
     let mut assets = AssetRegistry::default();
-    assets.insert(localnet_fixture::SPL_ASSET_ID, usdc_mint)?;
-    let usdc_funding = localnet_fixture::payer_token_account();
+    assets.insert(fixture::SPL_ASSET_ID, usdc_mint)?;
+    let usdc_funding = fixture::payer_token_account();
 
-    let maker_solana_keypair = localnet_fixture::actor(0);
+    let maker_solana_keypair = fixture::actor(0);
     let maker_seed: [u8; 32] = maker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
     let maker_shielded_keypair =
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&maker_seed))?;
 
-    let taker_solana_keypair = localnet_fixture::actor(1);
+    let taker_solana_keypair = fixture::actor(1);
     let taker_seed: [u8; 32] = taker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
     let taker_shielded_keypair =
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&taker_seed))?;
 
-    Deposit::new(DepositParams {
+    let maker_deposit = Deposit::new(DepositParams {
         recipient: &maker_shielded_keypair.shielded_address()?,
         asset: SOL_MINT,
         amount: MAKER_SHIELD_SOL,
@@ -83,7 +83,7 @@ pub fn setup() -> Result<TestEnv> {
         memo: None,
     })?
     .send(&client, &payer, tree, &payer)?;
-    Deposit::new(DepositParams {
+    let taker_deposit = Deposit::new(DepositParams {
         recipient: &taker_shielded_keypair.shielded_address()?,
         asset: usdc_mint,
         amount: TAKER_SHIELD_USDC,
@@ -92,6 +92,12 @@ pub fn setup() -> Result<TestEnv> {
         memo: None,
     })?
     .send(&client, &payer, tree, &payer)?;
+    // The wallets sync from Photon, so wait until both deposits are indexed.
+    for deposit in [maker_deposit, taker_deposit] {
+        client
+            .confirm_private_transaction_sync(deposit)
+            .map_err(|e| anyhow!("index deposit {deposit}: {e:?}"))?;
+    }
 
     let maker_address = maker_shielded_keypair
         .shielded_address()

@@ -432,8 +432,13 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         .instruction()
         .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
 
-        send(env.client.rpc(), &authority_solana, &[&user_solana], ix)
+        let signature = send(env.client.rpc(), &authority_solana, &[&user_solana], ix)
             .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
+        // Settle discovers the escrow note through Photon, so wait until it has
+        // indexed the create_escrow outputs.
+        env.client
+            .confirm_private_transaction_sync(signature)
+            .map_err(|e| anyhow!("index create_escrow: {e:?}"))?;
 
         escrow
     };

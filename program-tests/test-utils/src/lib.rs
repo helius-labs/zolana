@@ -13,7 +13,6 @@ pub mod harness;
 pub mod lifecycle;
 pub mod litesvm_asserts;
 pub mod localnet;
-pub mod localnet_fixture;
 #[cfg(feature = "mollusk")]
 pub mod mollusk;
 pub mod nullifier_pda;

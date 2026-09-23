@@ -1,6 +1,6 @@
-use std::{path::Path, process::Command};
+use std::path::PathBuf;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -8,8 +8,9 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
+use zolana_program_test::{fixture::write_protocol_snapshot, localnet::LocalnetValidator};
 use zolana_test_utils::{
-    localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
+    localnet::{env_port, isolated_temp_path, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
 };
 use zolana_tree::TreeAccount;
@@ -25,53 +26,34 @@ pub struct Environment {
 
 pub fn setup() -> Result<Environment> {
     let artifacts = WorkspaceArtifacts::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."));
-    let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/zolana"));
-    let xtask = artifacts.path("target/debug/xtask");
-    let account_dir = isolated_temp_path("zolana-compression-accounts");
-    let ledger = isolated_temp_path("zolana-compression-ledger");
-    for (label, path) in [("zolana CLI", cli.as_str()), ("xtask", xtask.as_str())] {
-        if !Path::new(path).is_file() {
-            bail!("{label} is missing at {path}; build it before running this test");
-        }
-    }
-    let snapshot_status = Command::new(&xtask)
-        .current_dir(artifacts.root())
-        .args([
-            "generate-account-snapshots",
-            "--deploy-dir",
-            "target/deploy",
-            "--accounts-dir",
-            &account_dir,
-        ])
-        .status()
-        .context("generate canonical default-tree snapshots")?;
-    if !snapshot_status.success() {
-        bail!("default-tree snapshot generation failed");
-    }
+    let account_dir = PathBuf::from(isolated_temp_path("zolana-compression-accounts"));
+    let spp_so = PathBuf::from(artifacts.path("target/deploy/shielded_pool_program.so"));
+    write_protocol_snapshot(&spp_so, &account_dir)
+        .map_err(|e| anyhow!("write the protocol snapshot: {e}"))?;
 
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".into());
-    let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".into());
+    let rpc_port = env_port("ZOLANA_LOCALNET_RPC_PORT", 8899);
+    let photon_port = env_port("ZOLANA_LOCALNET_PHOTON_PORT", 8784);
     LocalnetValidator {
-        cli_bin: cli,
-        working_dir: artifacts.root(),
-        rpc_port: rpc_port.clone(),
-        photon_port: photon_port.clone(),
-        ledger,
+        cli_bin: std::env::var("ZOLANA_CLI_BIN")
+            .unwrap_or_else(|_| artifacts.path("target/debug/zolana"))
+            .into(),
+        working_dir: artifacts.root().into(),
+        rpc_port,
+        photon_port,
         account_dir,
         programs: vec![
             (
-                compression_example_program::ID.to_string(),
-                artifacts.path("target/deploy/compression_example_program.so"),
+                compression_example_program::ID,
+                artifacts
+                    .path("target/deploy/compression_example_program.so")
+                    .into(),
             ),
-            (
-                Address::new_from_array(SHIELDED_POOL_PROGRAM_ID).to_string(),
-                artifacts.path("target/deploy/shielded_pool_program.so"),
-            ),
+            (Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), spp_so),
         ],
+        slot_time: None,
     }
-    .start();
+    .start()
+    .map_err(|e| anyhow!("start the compression localnet: {e}"))?;
     spawn_workspace_prover();
 
     let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")

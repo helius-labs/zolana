@@ -112,12 +112,19 @@ fn main() {
         }
         Some("generate-account-snapshots") => {
             let (deploy_dir, accounts_dir) = parse_account_snapshot_options(args.collect());
-            if let Err(error) = zolana_test_utils::localnet_fixture::write_protocol_snapshot(
+            match zolana_program_test::fixture::write_protocol_snapshot(
                 &deploy_dir.join("shielded_pool_program.so"),
                 &accounts_dir,
             ) {
-                eprintln!("generate-account-snapshots failed: {error:?}");
-                std::process::exit(1);
+                Ok(accounts) => {
+                    for (label, pubkey) in accounts {
+                        println!("snapshot {label} {pubkey}");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("generate-account-snapshots failed: {error:?}");
+                    std::process::exit(1);
+                }
             }
         }
         Some("tx-size") => tx_size(args.collect()),

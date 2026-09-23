@@ -8,11 +8,15 @@ repository.workspace = true
 
 [features]
 default = []
+# `localnet`: boot a surfpool validator and Photon through the `zolana` CLI and
+# talk to them with the RPC and indexer clients.
+localnet = ["zolana-client/client"]
 # Resolve the shielded-pool .so via SHIELDED_POOL_PROGRAM_PATH (env var or
 # absolute path passed at construction time). The default search path is
 # `<workspace>/target/deploy/shielded_pool_program.so`.
 
 [dependencies]
+base64 = { workspace = true }
 litesvm = { workspace = true }
 sha2 = { workspace = true }
 solana-account = { workspace = true }
@@ -40,3 +44,7 @@ zolana-tree = { workspace = true }
 [[test]]
 name = "indexer_events"
 path = "tests/indexer_events.rs"
+
+[[test]]
+name = "fixture"
+path = "tests/fixture.rs"

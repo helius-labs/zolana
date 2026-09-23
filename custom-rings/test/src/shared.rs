@@ -7,6 +7,8 @@
 //! also registers one SPL mint, named USDC in the tests, under asset id 2,
 //! with the mint authority parked on the payer.
 
+use std::path::PathBuf;
+
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
     CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, TransactSend,
@@ -28,10 +30,13 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{P256Pubkey, ShieldedKeypair};
-use zolana_program_test::create_tree_instructions;
+use zolana_program_test::{
+    create_tree_instructions,
+    localnet::{LocalnetValidator, UpgradeableProgram},
+};
 use zolana_ring_policy::{ListId, RuleTable};
 use zolana_test_utils::{
-    localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
+    localnet::{env_port, isolated_temp_path, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, RegisterSplAsset},
@@ -294,57 +299,60 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     let artifacts = WorkspaceArtifacts::new(root);
     let cli =
         std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/zolana"));
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
-    let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
-
     let ring_program = custom_ring_program_id()?;
-    let ring_program_so = ring_program_so();
+    let ring_program_so = PathBuf::from(ring_program_so());
     let spp_program = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let spp_program_so = artifacts.path("target/deploy/shielded_pool_program.so");
-    let user_registry = user_registry_program_id();
-    let user_registry_so = artifacts.path("target/deploy/zolana_user_registry.so");
     let smart_account = smart_account::SMART_ACCOUNT_PROGRAM_ID;
-    let smart_account_so = artifacts.path("target/deploy/squads_smart_account_program.so");
 
     let payer = Keypair::new();
     let payer_address = payer.pubkey();
     let accounts = smart_account::standard_accounts();
-    let spp_program_address = spp_program.to_string();
-    let protocol_vault_address = accounts.protocol_vault.to_string();
-    let payer_address_string = payer_address.to_string();
+    let account_dir = isolated_temp_path("zolana-custom-ring-smart-accounts");
+    smart_account::write_program_config_fixture(&account_dir);
     let validator = LocalnetValidator {
         // The Squads smart-account program is loaded for the protocol bootstrap
         // only: `CreateProtocolConfig` and `CreateTree` check authorities that the
         // bootstrap parks in Squads vaults, so both are wrapped in
         // `execute_sync_ix`. The custom-ring program never touches a smart account.
-        cli_bin: cli,
-        working_dir: artifacts.root(),
-        rpc_port,
-        photon_port,
-        ledger: isolated_temp_path("zolana-custom-ring-ledger"),
-        account_dir: isolated_temp_path("zolana-custom-ring-smart-accounts"),
+        cli_bin: cli.into(),
+        working_dir: artifacts.root().into(),
+        rpc_port: env_port("ZOLANA_LOCALNET_RPC_PORT", 8899),
+        photon_port: env_port("ZOLANA_LOCALNET_PHOTON_PORT", 8784),
+        account_dir: account_dir.into(),
         programs: vec![
-            (user_registry.to_string(), user_registry_so),
-            (smart_account.to_string(), smart_account_so),
+            (
+                user_registry_program_id(),
+                artifacts
+                    .path("target/deploy/zolana_user_registry.so")
+                    .into(),
+            ),
+            (
+                smart_account,
+                artifacts
+                    .path("target/deploy/squads_smart_account_program.so")
+                    .into(),
+            ),
         ],
+        slot_time: None,
     };
-    let ring_addresses: Vec<String> = std::iter::once(ring_program)
-        .chain(extra_ring_programs.iter().copied())
-        .map(|address| address.to_string())
-        .collect();
-    let deployments: Vec<UpgradeableProgram<'_>> = std::iter::once(UpgradeableProgram {
-        address: &spp_program_address,
-        path: &spp_program_so,
-        authority: &protocol_vault_address,
+    let deployments: Vec<UpgradeableProgram> = std::iter::once(UpgradeableProgram {
+        address: spp_program,
+        path: artifacts
+            .path("target/deploy/shielded_pool_program.so")
+            .into(),
+        authority: accounts.protocol_vault,
     })
-    .chain(ring_addresses.iter().map(|address| UpgradeableProgram {
-        address,
-        path: &ring_program_so,
-        authority: &payer_address_string,
-    }))
+    .chain(
+        std::iter::once(ring_program)
+            .chain(extra_ring_programs.iter().copied())
+            .map(|address| UpgradeableProgram {
+                address,
+                path: ring_program_so.clone(),
+                authority: payer_address,
+            }),
+    )
     .collect();
-    validator.start_with_upgradeable_programs(&deployments);
+    validator.start_with_upgradeable_programs(&deployments)?;
 
     spawn_workspace_prover();
 

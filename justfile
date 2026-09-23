@@ -1345,16 +1345,14 @@ test-escrow-validator: ensure-escrow-keys build-programs build-prover-server bui
 test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 
 # Plaintext compressed-account lifecycle on a local validator
-# (sdk-tests/compression/test/tests/compression.rs). The test binary runs
-# `xtask generate-account-snapshots` itself and boots solana-test-validator
-# via the `zolana` CLI with the compression example program and the shielded
-# pool loaded, plus Photon and the persistent SPP prover -- mirroring
-# test-escrow-validator. The test resolves target/debug/{zolana,xtask} itself,
-# so build-cli and the explicit xtask build must run first.
+# (sdk-tests/compression/test/tests/compression.rs). The test binary writes the
+# protocol account snapshot itself (zolana_program_test::fixture) and boots a
+# localnet via the `zolana` CLI with the compression example program and the
+# shielded pool loaded, plus Photon and the persistent SPP prover -- mirroring
+# test-escrow-validator.
 test-compression-validator: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo build -q -p xtask
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true

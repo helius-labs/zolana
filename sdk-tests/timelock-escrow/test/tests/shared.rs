@@ -7,10 +7,8 @@ use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaClient};
 use zolana_keypair::{
     constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
-use zolana_test_utils::{
-    localnet_fixture::{self, FixtureLocalnet},
-    test_validator_asserts::wait_for_indexed_utxo,
-};
+use zolana_program_test::{fixture, localnet::FixtureLocalnet, workspace_path};
+use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
 use zolana_wallet::{Deposit, DepositParams, Wallet};
 
@@ -68,18 +66,18 @@ pub fn setup() -> Result<TestEnv> {
         tree_id,
     } = FixtureLocalnet::start(
         "timelock-escrow",
-        &[(
+        vec![(
             Pubkey::new_from_array(*timelock_escrow_program::ID.as_array()),
-            "target/deploy/timelock_escrow_program.so",
+            workspace_path("target/deploy/timelock_escrow_program.so"),
         )],
     )?;
-    let payer = localnet_fixture::payer();
+    let payer = fixture::payer();
 
     // SOL only: asset id 1 is a built-in AssetRegistry::default() entry, no
     // SPL registration needed.
     let assets = AssetRegistry::default();
 
-    let creator_solana_keypair = localnet_fixture::actor(0);
+    let creator_solana_keypair = fixture::actor(0);
     let creator_seed: [u8; 32] = creator_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");

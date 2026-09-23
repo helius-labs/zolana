@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use zolana_test_utils::localnet_fixture::write_protocol_snapshot;
+use zolana_program_test::fixture::write_protocol_snapshot;
 
 const DEFAULT_SURFPOOL_TAG: &str = "v1.6.0-light";
 const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
@@ -246,7 +246,8 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     write_protocol_snapshot(
         &options.deploy_dir.join("shielded_pool_program.so"),
         &accounts_dir,
-    )?;
+    )
+    .map_err(|e| anyhow!("write the localnet account snapshot: {e}"))?;
 
     // Bundle the snapshot directory; the CLI extracts it into --account-dir.
     let accounts_asset = format!("accounts-{}.tar.gz", options.tag);

@@ -1641,6 +1641,7 @@ dependencies = [
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -2458,6 +2459,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -5664,6 +5666,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -9264,6 +9267,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -9529,6 +9533,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -11210,6 +11215,7 @@ dependencies = [
 name = "zolana-program-test"
 version = "0.23.0"
 dependencies = [
+ "base64",
  "litesvm",
  "sha2 0.10.9",
  "solana-account 4.3.2",
