@@ -1,12 +1,14 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
-use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_program_test::{fixture, localnet::FixtureLocalnet};
+use zolana_program_test::{
+    fixture,
+    localnet::{FixtureLocalnet, LocalnetPorts},
+};
 use zolana_transaction::{AssetRegistry, SOL_MINT};
 use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
 
@@ -19,11 +21,9 @@ pub const MAKER_SHIELD_SOL: u64 = SELL_SOL;
 pub const TAKER_SHIELD_USDC: u64 = BUY_USDC;
 
 pub struct TestEnv {
-    pub client: ZolanaClient<SolanaRpc>,
-    pub tree: Pubkey,
-    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
-    /// in, so the client and the pool must hash under the same value.
-    pub tree_id: u16,
+    /// The localnet with its client and default tree. Dropping it stops the
+    /// validator, so it lives as long as the test.
+    pub localnet: FixtureLocalnet,
     pub maker: TestWallet,
     pub taker: TestWallet,
     pub usdc_mint: Address,
@@ -47,12 +47,10 @@ impl std::ops::DerefMut for TestWallet {
     }
 }
 
-pub fn setup() -> Result<TestEnv> {
-    let FixtureLocalnet {
-        client,
-        tree,
-        tree_id,
-    } = FixtureLocalnet::start("zolana-rfq", vec![])?;
+/// Boot the localnet of test number `test` ([`LocalnetPorts::for_test`]); tests
+/// running in parallel take distinct numbers.
+pub fn setup(test: u16) -> Result<TestEnv> {
+    let localnet = FixtureLocalnet::start("zolana-rfq", LocalnetPorts::for_test(test)?, vec![])?;
     let payer = fixture::payer();
 
     let usdc_mint = fixture::spl_mint();
@@ -82,7 +80,7 @@ pub fn setup() -> Result<TestEnv> {
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?
-    .send(&client, &payer, tree, &payer)?;
+    .send(&localnet.client, &payer, localnet.tree, &payer)?;
     let taker_deposit = Deposit::new(DepositParams {
         recipient: &taker_shielded_keypair.shielded_address()?,
         asset: usdc_mint,
@@ -91,10 +89,11 @@ pub fn setup() -> Result<TestEnv> {
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?
-    .send(&client, &payer, tree, &payer)?;
+    .send(&localnet.client, &payer, localnet.tree, &payer)?;
     // The wallets sync from Photon, so wait until both deposits are indexed.
     for deposit in [maker_deposit, taker_deposit] {
-        client
+        localnet
+            .client
             .confirm_private_transaction_sync(deposit)
             .map_err(|e| anyhow!("index deposit {deposit}: {e:?}"))?;
     }
@@ -108,18 +107,16 @@ pub fn setup() -> Result<TestEnv> {
 
     let mut maker_wallet =
         Wallet::new(maker_address, assets.clone()).map_err(|e| anyhow!("maker wallet: {e:?}"))?;
-    sync_wallet(&mut maker_wallet, &maker_shielded_keypair, &client)
+    sync_wallet(&mut maker_wallet, &maker_shielded_keypair, &localnet.client)
         .map_err(|e| anyhow!("sync maker deposit: {e:?}"))?;
 
     let mut taker_wallet =
         Wallet::new(taker_address, assets.clone()).map_err(|e| anyhow!("taker wallet: {e:?}"))?;
-    sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &client)
+    sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &localnet.client)
         .map_err(|e| anyhow!("sync taker deposit: {e:?}"))?;
 
     Ok(TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         maker: TestWallet {
             wallet: maker_wallet,
             keypair: maker_shielded_keypair,

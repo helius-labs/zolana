@@ -15,7 +15,7 @@ use zolana_program_test::{
     next_tree_id, workspace_path,
 };
 use zolana_test_utils::{
-    localnet::env_port,
+    localnet::env_localnet_ports,
     smart_account::{self, StandardSigners},
 };
 
@@ -39,9 +39,9 @@ pub fn setup() -> Result<SetupContext> {
             .map(Into::into)
             .unwrap_or_else(|_| workspace_path("target/debug/zolana")),
         working_dir: workspace_path(""),
-        rpc_port: env_port("ZOLANA_LOCALNET_RPC_PORT", 8899),
-        photon_port: env_port("ZOLANA_LOCALNET_PHOTON_PORT", 8784),
+        ports: env_localnet_ports(),
         account_dir,
+        log_dir: workspace_path("test-ledger"),
         programs: vec![
             (
                 zolana_user_registry_interface::user_registry_program_id(),

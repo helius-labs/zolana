@@ -10,7 +10,7 @@ use std::{
 };
 use zolana_client::{ClientError, ComputeBudgetConfig, Proof, ProofCompressed, Rpc, SolanaRpc};
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
-use zolana_program_test::localnet::{LocalnetValidator, UpgradeableProgram};
+use zolana_program_test::localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram};
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
 
@@ -211,9 +211,9 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
     LocalnetValidator {
         cli_bin: cli.into(),
         working_dir: artifacts.root().into(),
-        rpc_port: env_port("ZOLANA_LOCALNET_RPC_PORT", 8899),
-        photon_port: env_port("ZOLANA_LOCALNET_PHOTON_PORT", 8784),
+        ports: env_localnet_ports(),
         account_dir: account_dir.into(),
+        log_dir: artifacts.path("test-ledger").into(),
         programs,
         slot_time: None,
     }
@@ -232,6 +232,16 @@ fn parse_pubkey(value: &str) -> Pubkey {
     value
         .parse()
         .unwrap_or_else(|error| panic!("{value} is not a pubkey: {error}"))
+}
+
+/// The ports this checkout's recipes export for the localnet
+/// (`ZOLANA_LOCALNET_RPC_PORT`, `ZOLANA_LOCALNET_PHOTON_PORT`).
+#[track_caller]
+pub fn env_localnet_ports() -> LocalnetPorts {
+    LocalnetPorts {
+        rpc: env_port("ZOLANA_LOCALNET_RPC_PORT", 8899),
+        photon: env_port("ZOLANA_LOCALNET_PHOTON_PORT", 8784),
+    }
 }
 
 #[track_caller]

@@ -52,17 +52,15 @@ const EXPIRY: u64 = 2_000_000_000;
 #[test]
 fn make_and_take_swap_inline() -> Result<()> {
     let TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         maker,
         maker_input,
         mut taker,
         spl_mint,
-    } = setup()?;
+    } = setup(2)?;
     let swap_prover_client = SwapProverClient::new();
     {
-        ensure_registered(client.rpc(), &maker.keypair, &maker.keypair)
+        ensure_registered(localnet.client.rpc(), &maker.keypair, &maker.keypair)
             .map_err(|e| anyhow!("register maker: {e:?}"))?;
 
         // 1. Set order terms.
@@ -94,7 +92,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         let order_output_utxo = order_utxo.output_utxo(taker_address.viewing_pubkey)?;
 
         // 2. Select input utxos.
-        let input_utxos = vec![maker_input, SppProofInputUtxo::dummy(tree_id)?];
+        let input_utxos = vec![maker_input, SppProofInputUtxo::dummy(localnet.tree_id)?];
 
         // 3. create output utxos.
         let order_utxo_asset = order_output_utxo.asset;
@@ -112,7 +110,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         order_utxo.blinding = order_output_utxo.blinding;
 
         let order_utxo_hash = order_output_utxo
-            .hash(tree_id)
+            .hash(localnet.tree_id)
             .map_err(|e| anyhow!("order output hash: {e:?}"))?;
 
         // 4. Encrypt output utxos.
@@ -123,7 +121,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         let encoded_transaction_data = encrypt_transaction_data(
             &[change.clone(), order_output_utxo],
             &transaction_viewing_key,
-            tree_id,
+            localnet.tree_id,
         )?;
 
         let marker_message = OrderMarker {
@@ -145,12 +143,13 @@ fn make_and_take_swap_inline() -> Result<()> {
             external_data,
             payer: maker_address.solana_address()?,
             blinding_seed,
-            output_tree_id: tree_id,
+            output_tree_id: localnet.tree_id,
         };
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
         // 5. create spp proof.
-        let spp_proof = client
+        let spp_proof = localnet
+            .client
             .indexer()
             .prove_transact(
                 spp_proof_inputs,
@@ -170,14 +169,15 @@ fn make_and_take_swap_inline() -> Result<()> {
 
         let make_ix = Make {
             payer: maker_address.solana_address()?,
-            tree,
+            tree: localnet.tree,
             make_proof: make_proof.into(),
             spp_proof,
         }
         .instruction()?;
 
-        let make_signature = send(client.rpc(), &maker.keypair, make_ix)?;
-        client
+        let make_signature = send(localnet.client.rpc(), &maker.keypair, make_ix)?;
+        localnet
+            .client
             .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
     }
@@ -187,8 +187,8 @@ fn make_and_take_swap_inline() -> Result<()> {
         let order = index_taker(
             &mut taker.wallet,
             &taker.keypair,
-            client.indexer(),
-            client.rpc(),
+            localnet.client.indexer(),
+            localnet.client.rpc(),
             Duration::from_secs(60),
         )?
         .pop()
@@ -217,14 +217,14 @@ fn make_and_take_swap_inline() -> Result<()> {
             order_utxo.destination_output(terms.destination, random_blinding());
         let order_hash = order_utxo
             .output_utxo(taker_address.viewing_pubkey)?
-            .hash(tree_id)?;
+            .hash(localnet.tree_id)?;
         let order_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
-            client.indexer(),
-            tree,
+            localnet.client.indexer(),
+            localnet.tree,
             order_hash,
         );
         let order_input_utxo = order_utxo
-            .to_input_utxo(tree_id, order_state.leaf_index)
+            .to_input_utxo(localnet.tree_id, order_state.leaf_index)
             .map_err(|e| anyhow!("order input_utxo: {e:?}"))?;
         let taker_input_utxo = SppProofInputUtxo::from(taker_input_utxo);
         let inputs = vec![order_input_utxo, taker_input_utxo];
@@ -245,10 +245,10 @@ fn make_and_take_swap_inline() -> Result<()> {
             .try_into()
             .map_err(|_| anyhow!("take transaction must have two outputs"))?;
         let source_output_hash = source_output
-            .hash(tree_id)
+            .hash(localnet.tree_id)
             .map_err(|e| anyhow!("source output hash: {e:?}"))?;
         let destination_output_hash = destination_output
-            .hash(tree_id)
+            .hash(localnet.tree_id)
             .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
 
         let transaction_viewing_key = get_transaction_viewing_key(&taker.keypair, &inputs)
@@ -257,7 +257,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         let mut encoded = encrypt_transaction_data(
             &[source_output.clone(), destination_output.clone()],
             &transaction_viewing_key,
-            tree_id,
+            localnet.tree_id,
         )?;
 
         // Recovery must work even when the taker withholds the maker payload.
@@ -267,7 +267,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             .ok_or_else(|| anyhow!("missing maker payout"))?
             .data = None;
         let recovered = order_utxo.derived_destination_output(&first_nullifier)?;
-        assert_eq!(recovered.hash(tree_id)?, destination_output_hash);
+        assert_eq!(recovered.hash(localnet.tree_id)?, destination_output_hash);
 
         let mut external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -283,7 +283,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             external_data,
             payer: taker_address.solana_address()?,
             blinding_seed,
-            output_tree_id: tree_id,
+            output_tree_id: localnet.tree_id,
         };
 
         let take_proof_inputs = TakeProofInputParams {
@@ -298,11 +298,12 @@ fn make_and_take_swap_inline() -> Result<()> {
             private_tx_blinding: take_spp_proof_inputs
                 .private_tx_blinding()
                 .map_err(|e| anyhow!("take private tx blinding: {e:?}"))?,
-            input_tree_id: tree_id,
-            output_tree_id: tree_id,
+            input_tree_id: localnet.tree_id,
+            output_tree_id: localnet.tree_id,
         };
 
-        let spp_proof = client
+        let spp_proof = localnet
+            .client
             .indexer()
             .prove_transact(
                 take_spp_proof_inputs,
@@ -319,21 +320,23 @@ fn make_and_take_swap_inline() -> Result<()> {
 
         let take_ix = Take {
             payer: taker_address.solana_address()?,
-            tree,
+            tree: localnet.tree,
             take_proof: take_proof.into(),
             spp_proof,
         }
         .instruction()?;
 
-        let take_signature = send(client.rpc(), &taker.keypair, take_ix)?;
-        client
+        let take_signature = send(localnet.client.rpc(), &taker.keypair, take_ix)?;
+        localnet
+            .client
             .confirm_private_transaction_sync(take_signature)
             .map_err(|e| anyhow!("confirm take indexed: {e:?}"))?;
 
-        client
+        localnet
+            .client
             .indexer()
             .get_merkle_proofs(
-                tree,
+                localnet.tree,
                 vec![source_output_hash, destination_output_hash],
                 None,
             )

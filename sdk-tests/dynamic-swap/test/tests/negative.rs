@@ -67,7 +67,8 @@ fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Resu
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
-    env.client
+    env.localnet
+        .client
         .rpc()
         .create_and_send_transaction(
             &[create_pair_ix],
@@ -87,7 +88,7 @@ fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Resu
 //   - update_price by a non-authority      -> Unauthorized
 #[test]
 fn zero_price_and_authority_checks() -> Result<()> {
-    let env = setup()?;
+    let env = setup(7)?;
     let authority_solana = &env.authority.keypair;
 
     // create_pair rejects a zero price (create_escrow could not stamp a nonzero
@@ -109,6 +110,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
     .instruction()
     .map_err(|e| anyhow!("update_price instruction: {e:?}"))?;
     let err = env
+        .localnet
         .client
         .rpc()
         .create_and_send_transaction(
@@ -133,6 +135,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
     .instruction()
     .map_err(|e| anyhow!("update_price instruction: {e:?}"))?;
     let err = env
+        .localnet
         .client
         .rpc()
         .create_and_send_transaction(

@@ -3,11 +3,15 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_keypair::{
     constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
-use zolana_program_test::{fixture, localnet::FixtureLocalnet, workspace_path};
+use zolana_program_test::{
+    fixture,
+    localnet::{FixtureLocalnet, LocalnetPorts},
+    workspace_path,
+};
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
 use zolana_wallet::{Deposit, DepositParams, Wallet};
@@ -32,11 +36,9 @@ pub const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 // doubles as the Solana fee payer (`to_solana_keypair`), holding the asset
 // registry and synced spendable notes.
 pub struct TestEnv {
-    pub client: ZolanaClient<SolanaRpc>,
-    pub tree: Pubkey,
-    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
-    /// in, so the SPP and escrow proofs must hash under the same value.
-    pub tree_id: u16,
+    /// The localnet with its client and default tree. Dropping it stops the
+    /// validator, so it lives as long as the test.
+    pub localnet: FixtureLocalnet,
     pub creator: TestWallet,
     pub creator_input: SppProofInputUtxo,
 }
@@ -59,13 +61,12 @@ impl std::ops::DerefMut for TestWallet {
     }
 }
 
-pub fn setup() -> Result<TestEnv> {
-    let FixtureLocalnet {
-        client,
-        tree,
-        tree_id,
-    } = FixtureLocalnet::start(
+/// Boot the localnet of test number `test` ([`LocalnetPorts::for_test`]); tests
+/// running in parallel take distinct numbers.
+pub fn setup(test: u16) -> Result<TestEnv> {
+    let localnet = FixtureLocalnet::start(
         "timelock-escrow",
+        LocalnetPorts::for_test(test)?,
         vec![(
             Pubkey::new_from_array(*timelock_escrow_program::ID.as_array()),
             workspace_path("target/deploy/timelock_escrow_program.so"),
@@ -101,11 +102,13 @@ pub fn setup() -> Result<TestEnv> {
         memo: None,
     })?;
     let creator_view_tag = creator_deposit.view_tag();
-    let creator_signature = creator_deposit.send(&client, &payer, tree, &payer)?;
+    let creator_signature =
+        creator_deposit.send(&localnet.client, &payer, localnet.tree, &payer)?;
     // The escrow authority is a PDA holding no viewing key, but a proofless
     // deposit publishes its UTXO in the clear, so the depositor-chosen view tag
     // reads it back from the indexer.
-    let indexed_deposit = wait_for_indexed_utxo(&client, creator_view_tag, creator_signature);
+    let indexed_deposit =
+        wait_for_indexed_utxo(&localnet.client, creator_view_tag, creator_signature);
     let creator_deposited = indexed_deposit
         .output_slot
         .proofless_output()
@@ -120,7 +123,7 @@ pub fn setup() -> Result<TestEnv> {
             data: Data::default(),
         },
         &escrow_nullifier_key,
-        tree_id,
+        localnet.tree_id,
         indexed_deposit.output_slot.output_context.leaf_index,
         None,
         None,
@@ -139,9 +142,7 @@ pub fn setup() -> Result<TestEnv> {
         .map_err(|e| anyhow!("creator wallet: {e:?}"))?;
 
     Ok(TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         creator: TestWallet {
             wallet: creator_wallet,
             keypair: creator_shielded_keypair,

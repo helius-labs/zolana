@@ -36,7 +36,7 @@ use zolana_program_test::{
 };
 use zolana_ring_policy::{ListId, RuleTable};
 use zolana_test_utils::{
-    localnet::{env_port, isolated_temp_path, WorkspaceArtifacts},
+    localnet::{env_localnet_ports, isolated_temp_path, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, RegisterSplAsset},
@@ -316,9 +316,9 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         // `execute_sync_ix`. The custom-ring program never touches a smart account.
         cli_bin: cli.into(),
         working_dir: artifacts.root().into(),
-        rpc_port: env_port("ZOLANA_LOCALNET_RPC_PORT", 8899),
-        photon_port: env_port("ZOLANA_LOCALNET_PHOTON_PORT", 8784),
+        ports: env_localnet_ports(),
         account_dir: account_dir.into(),
+        log_dir: artifacts.path("test-ledger").into(),
         programs: vec![
             (
                 user_registry_program_id(),

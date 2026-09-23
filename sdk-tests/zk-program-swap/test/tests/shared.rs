@@ -4,11 +4,15 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_keypair::{
     constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
-use zolana_program_test::{fixture, localnet::FixtureLocalnet, workspace_path};
+use zolana_program_test::{
+    fixture,
+    localnet::{FixtureLocalnet, LocalnetPorts},
+    workspace_path,
+};
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
@@ -26,11 +30,9 @@ pub const DESTINATION_AMOUNT: u64 = 250_000_000;
 // Solana fee payer (`to_solana_keypair`), and the wallet holds the asset
 // registry and the synced spendable notes.
 pub struct TestEnv {
-    pub client: ZolanaClient<SolanaRpc>,
-    pub tree: Pubkey,
-    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
-    /// in, so the SPP and swap proofs must hash under the same value.
-    pub tree_id: u16,
+    /// The localnet with its client and default tree. Dropping it stops the
+    /// validator, so it lives as long as the test.
+    pub localnet: FixtureLocalnet,
     pub maker: TestWallet,
     pub maker_input: SppProofInputUtxo,
     pub taker: TestWallet,
@@ -54,13 +56,12 @@ impl std::ops::DerefMut for TestWallet {
         &mut self.wallet
     }
 }
-pub fn setup() -> Result<TestEnv> {
-    let FixtureLocalnet {
-        client,
-        tree,
-        tree_id,
-    } = FixtureLocalnet::start(
+/// Boot the localnet of test number `test` ([`LocalnetPorts::for_test`]); tests
+/// running in parallel take distinct numbers.
+pub fn setup(test: u16) -> Result<TestEnv> {
+    let localnet = FixtureLocalnet::start(
         "zolana-swap",
+        LocalnetPorts::for_test(test)?,
         vec![
             (
                 Pubkey::new_from_array(*swap_program::ID.as_array()),
@@ -111,11 +112,11 @@ pub fn setup() -> Result<TestEnv> {
         memo: None,
     })?;
     let maker_view_tag = maker_deposit.view_tag();
-    let maker_signature = maker_deposit.send(&client, &payer, tree, &payer)?;
+    let maker_signature = maker_deposit.send(&localnet.client, &payer, localnet.tree, &payer)?;
     // The order authority is a PDA holding no viewing key, but a proofless
     // deposit publishes its UTXO in the clear, so the depositor-chosen view tag
     // reads it back from the indexer.
-    let indexed_deposit = wait_for_indexed_utxo(&client, maker_view_tag, maker_signature);
+    let indexed_deposit = wait_for_indexed_utxo(&localnet.client, maker_view_tag, maker_signature);
     let maker_deposited = indexed_deposit
         .output_slot
         .proofless_output()
@@ -130,7 +131,7 @@ pub fn setup() -> Result<TestEnv> {
             data: Data::default(),
         },
         &order_nullifier_key,
-        tree_id,
+        localnet.tree_id,
         indexed_deposit.output_slot.output_context.leaf_index,
         None,
         None,
@@ -148,7 +149,7 @@ pub fn setup() -> Result<TestEnv> {
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?
-    .send(&client, &payer, tree, &payer)?;
+    .send(&localnet.client, &payer, localnet.tree, &payer)?;
 
     let maker_address = maker_shielded_keypair
         .shielded_address()
@@ -163,13 +164,11 @@ pub fn setup() -> Result<TestEnv> {
         Wallet::new(maker_address, assets.clone()).map_err(|e| anyhow!("maker wallet: {e:?}"))?;
     let mut taker_wallet =
         Wallet::new(taker_address, assets.clone()).map_err(|e| anyhow!("taker wallet: {e:?}"))?;
-    sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &client)
+    sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &localnet.client)
         .map_err(|e| anyhow!("sync taker deposit: {e:?}"))?;
 
     let env = TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         maker: TestWallet {
             wallet: maker_wallet,
             keypair: maker_shielded_keypair,

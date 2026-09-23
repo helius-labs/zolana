@@ -15,9 +15,13 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
-use zolana_program_test::{fixture, localnet::FixtureLocalnet, workspace_path};
+use zolana_program_test::{
+    fixture,
+    localnet::{FixtureLocalnet, LocalnetPorts},
+    workspace_path,
+};
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{
     instructions::transact::asset_field, utxo::Blinding, AssetRegistry, SOL_MINT,
@@ -58,11 +62,9 @@ impl TestWallet {
 }
 
 pub struct TestEnv {
-    pub client: ZolanaClient<SolanaRpc>,
-    pub tree: Pubkey,
-    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
-    /// in, so the SPP and dynamic-swap proofs must hash under the same value.
-    pub tree_id: u16,
+    /// The localnet with its client and default tree. Dropping it stops the
+    /// validator, so it lives as long as the test.
+    pub localnet: FixtureLocalnet,
     pub authority: TestWallet,
     pub user: TestWallet,
     pub spl_mint: Address,
@@ -74,13 +76,12 @@ pub struct TestEnv {
     pub user_spl_blinding: Blinding,
 }
 
-pub fn setup() -> Result<TestEnv> {
-    let FixtureLocalnet {
-        client,
-        tree,
-        tree_id,
-    } = FixtureLocalnet::start(
+/// Boot the localnet of test number `test` ([`LocalnetPorts::for_test`]); tests
+/// running in parallel take distinct numbers.
+pub fn setup(test: u16) -> Result<TestEnv> {
+    let localnet = FixtureLocalnet::start(
         "zolana-dynamic-swap",
+        LocalnetPorts::for_test(test)?,
         vec![
             (
                 Pubkey::new_from_array(*dynamic_swap_program::ID.as_array()),
@@ -125,10 +126,10 @@ pub fn setup() -> Result<TestEnv> {
         memo: None,
     })?;
     let user_view_tag = user_deposit.view_tag();
-    let user_signature = user_deposit.send(&client, &payer, tree, &payer)?;
+    let user_signature = user_deposit.send(&localnet.client, &payer, localnet.tree, &payer)?;
     // A proofless deposit publishes its UTXO in the clear, so read it back from
     // the indexer.
-    let user_spl_blinding = wait_for_indexed_utxo(&client, user_view_tag, user_signature)
+    let user_spl_blinding = wait_for_indexed_utxo(&localnet.client, user_view_tag, user_signature)
         .output_slot
         .proofless_output()
         .ok_or_else(|| anyhow!("indexed user deposit is not a proofless UTXO"))?
@@ -138,9 +139,13 @@ pub fn setup() -> Result<TestEnv> {
     // pubkeys). On settle, the caller resolves the recipient's shielded address
     // from `Escrow.owner` alone -- its owner hash reconstructs the escrow terms
     // and its viewing pubkey derives the shared escrow viewing key.
-    ensure_registered(&client, &authority_solana, &authority_shielded_keypair)
-        .map_err(|e| anyhow!("register authority: {e:?}"))?;
-    ensure_registered(&client, &user_solana, &user_shielded_keypair)
+    ensure_registered(
+        &localnet.client,
+        &authority_solana,
+        &authority_shielded_keypair,
+    )
+    .map_err(|e| anyhow!("register authority: {e:?}"))?;
+    ensure_registered(&localnet.client, &user_solana, &user_shielded_keypair)
         .map_err(|e| anyhow!("register user: {e:?}"))?;
 
     let mut assets = AssetRegistry::default();
@@ -149,9 +154,7 @@ pub fn setup() -> Result<TestEnv> {
         .map_err(|e| anyhow!("asset registry insert: {e:?}"))?;
 
     Ok(TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         authority: TestWallet {
             keypair: authority_shielded_keypair,
         },
@@ -179,9 +182,9 @@ pub fn escrow_authority_identity(
 /// `setup()` plus a registered SPL(source)->SOL(destination) pair at `price`.
 /// There is no shared pool; the maker funds each escrow directly, so this only
 /// creates the pair account. Returns the env and the pair PDA. Tests that
-/// exercise `create_pair` itself (pair/negative) keep plain `setup()`.
-pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
-    let env = setup()?;
+/// exercise `create_pair` itself (pair/negative) keep plain [`setup`].
+pub fn setup_with_pair(test: u16, price: u64) -> Result<(TestEnv, Pubkey)> {
+    let env = setup(test)?;
     let authority_solana = &env.authority.keypair;
     let pair = pair_pda(
         &authority_solana.pubkey(),
@@ -209,7 +212,8 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
-    env.client
+    env.localnet
+        .client
         .rpc()
         .create_and_send_transaction(
             &[create_pair_ix],

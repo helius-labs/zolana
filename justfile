@@ -6,10 +6,6 @@ sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.6.0-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.6.0")
 
-# Stop whichever localnet backend is running. surfpool is the default and
-# solana-test-validator remains reachable behind `--no-use-surfpool`, so a
-# teardown that names only one leaves the other holding the RPC port.
-stop-localnet-backends := "pkill -f surfpool 2>/dev/null || true; pkill -f solana-test-validator 2>/dev/null || true"
 # Per-clone port isolation: set ZOLANA_PORT_OFFSET in a local (gitignored) .env
 # (auto-loaded above) to shift every service port by a fixed amount so concurrent
 # checkouts never contend. Each individual port/URL var can still be overridden
@@ -19,6 +15,11 @@ localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", `echo $((889
 localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", `echo $((8784 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-prover-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_PORT", `echo $((3001 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-ring-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RING_RPC_PORT", `echo $((8785 + ${ZOLANA_PORT_OFFSET:-0}))`)
+# Stop this checkout's validator by the ports it binds, RPC and the WebSocket
+# one above it, never by process name: other checkouts and parallel test
+# localnets keep running. Either backend, surfpool or solana-test-validator,
+# holds these ports.
+stop-localnet-backends := "for port in " + localnet-rpc-port + " $((" + localnet-rpc-port + " + 1)); do lsof -t -i tcp:$port -s tcp:listen 2>/dev/null | xargs kill -9 2>/dev/null || true; done"
 localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:" + localnet-rpc-port)
 localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:" + localnet-photon-port)
 localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
@@ -1227,29 +1228,13 @@ dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon en
       --run-ignored all --no-capture -E 'test(=dump_ring_transact_fixture)'
 
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
-# create+cancel swap flows over a fresh validator
-# (sdk-tests/zk-program-swap/test/tests/{swap,take_verifiable_encryption,cancel}.rs).
-# Each test boots a localnet from the shared account fixture
-# (zolana_test_utils::localnet_fixture) with the swap program, the shielded pool
-# and the user registry loaded, plus Photon and the persistent SPP prover. Cargo
-# runs the test binaries serially, so each boots a fresh validator.
+# create+cancel swap flows (sdk-tests/zk-program-swap/test/tests/{swap,
+# take_verifiable_encryption,cancel}.rs). Each test boots its own localnet
+# through zolana_program_test::localnet::FixtureLocalnet with the swap program
+# and the shielded pool loaded, plus Photon and the shared SPP prover, on its
+# own ports, so the tests run in parallel.
 test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon
-    #!/usr/bin/env bash
-    set -euo pipefail
-    eval "$(tools/ci/xtask.sh program-ids)"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      {{stop-localnet-backends}}
-    }
-    trap cleanup EXIT
-    export SWAP_PROGRAM_ID
-    export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --no-capture
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel
 
 # Custom-ring lifecycle on a local validator
 # (custom-rings/test/tests/ring.rs): create the ring config holding the
@@ -1321,49 +1306,20 @@ _custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli e
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p custom-ring-test-validator --test {{test}} --no-capture
 
-# Timelock escrow lifecycle on a local validator, driven against a real
-# localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots a localnet
-# from the shared account fixture with the timelock escrow program and the
-# shielded pool loaded, plus Photon and the persistent SPP prover -- mirroring
-# test-swap-validator.
+# Timelock escrow lifecycle on a local validator
+# (sdk-tests/timelock-escrow/test/tests/escrow.rs), booted through
+# FixtureLocalnet like test-swap-validator.
 test-escrow-validator: ensure-escrow-keys build-programs build-prover-server build-cli ensure-photon
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      {{stop-localnet-backends}}
-    }
-    trap cleanup EXIT
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p timelock-escrow-test --test escrow --no-capture
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p timelock-escrow-test --test escrow
 
 # Runs the swap and escrow lifecycle suites back to back in one CI job.
 test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 
 # Plaintext compressed-account lifecycle on a local validator
-# (sdk-tests/compression/test/tests/compression.rs). The test binary writes the
-# protocol account snapshot itself (zolana_program_test::fixture) and boots a
-# localnet via the `zolana` CLI with the compression example program and the
-# shielded pool loaded, plus Photon and the persistent SPP prover -- mirroring
-# test-escrow-validator.
+# (sdk-tests/compression/test/tests/compression.rs), booted through
+# FixtureLocalnet like test-swap-validator.
 test-compression-validator: build-programs build-prover-server build-cli ensure-photon
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      {{stop-localnet-backends}}
-    }
-    trap cleanup EXIT
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p compression-example-test --test compression --no-capture
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p compression-example-test --test compression
 
 # Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
 # building the SPP instructions by hand and submitting them
@@ -1389,49 +1345,26 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
       cargo run -p client-example --example deposit_transfer_withdraw
 
 # Dynamic-swap example lifecycle tests
-# (sdk-tests/dynamic-swap/test/tests/{pair,escrow_flow,escrow_refund}.rs). Each
-# test boots a localnet from the shared account fixture plus Photon, and starts
-# the shared SPP prover server; dynamic-swap's own circuits (escrow_open/
-# escrow_settle) prove in-process through the embedded gnark prover. It exports
-# the per-clone ZOLANA_PORT_OFFSET-derived ports/URLs like the other localnet
-# recipes so it never collides with a concurrent session on the default ports.
-# Pass extra cargo-test args to select a single test binary, e.g.
+# (sdk-tests/dynamic-swap/test/tests/{pair,negative,escrow_flow,escrow_refund}.rs),
+# booted through FixtureLocalnet like test-swap-validator; dynamic-swap's own
+# circuits (escrow_open/escrow_settle) prove in-process through the embedded
+# gnark prover. Pass extra nextest args to select a single test binary, e.g.
 # `just test-dynamic-swap --test pair`.
 test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      {{stop-localnet-backends}}
-    }
-    trap cleanup EXIT
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p dynamic-swap-test {{args}} --no-capture
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p dynamic-swap-test {{args}}
 
 # Confidential RFQ settlement on a local validator: the maker and taker co-sign
 # one shielded-pool transact that swaps SOL for USDC with no escrow and no custom
-# program (sdk-tests/rfq/tests/rfq.rs). Boots a localnet from the shared account
-# fixture with the shielded pool loaded, plus Photon and the SPP prover.
+# program (sdk-tests/rfq/tests/rfq.rs), booted through FixtureLocalnet like
+# test-swap-validator.
 test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
-    #!/usr/bin/env bash
-    set -euo pipefail
-    eval "$(tools/ci/xtask.sh program-ids)"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      {{stop-localnet-backends}}
-    }
-    trap cleanup EXIT
-    export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p rfq-test --test rfq -- --nocapture
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p rfq-test --test rfq
+
+# Every FixtureLocalnet example suite in one nextest run. Each test takes its
+# own `LocalnetPorts::for_test` number and they share one prover, so all of
+# them run in parallel.
+test-examples-validator: ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon
+    ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-test -p compression-example-test -p dynamic-swap-test -p rfq-test -E 'not binary(bench_cu)'
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -1526,6 +1459,7 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
     cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --archive-file {{dir}}/custom-ring-test-validator.tar.zst
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
+    cargo nextest archive -p rfq-test --test rfq --archive-file {{dir}}/rfq-test.tar.zst
 
 # Regenerate all proving keys (transfer, merge, custom ring, and batch
 # address-append), the committed verifying keys in both crates, and

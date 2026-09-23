@@ -44,12 +44,10 @@ use zolana_wallet::sync_wallet;
 #[test]
 fn escrow_then_withdraw() -> Result<()> {
     let TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         mut creator,
         creator_input,
-    } = setup()?;
+    } = setup(4)?;
 
     let terms = EscrowTerms {
         creator: creator.keypair.shielded_address()?,
@@ -68,7 +66,7 @@ fn escrow_then_withdraw() -> Result<()> {
     let creator_address = creator.keypair.shielded_address()?;
     let escrow_output_utxo = escrow_utxo.output_utxo()?;
 
-    let input_utxos = vec![creator_input, SppProofInputUtxo::dummy(tree_id)?];
+    let input_utxos = vec![creator_input, SppProofInputUtxo::dummy(localnet.tree_id)?];
 
     let escrow_utxo_asset = escrow_output_utxo.asset;
     let leftover =
@@ -89,7 +87,7 @@ fn escrow_then_withdraw() -> Result<()> {
     let encoded = encrypt_transaction_data(
         &[change.clone(), escrow_output_utxo],
         &transaction_viewing_key,
-        tree_id,
+        localnet.tree_id,
     )
     .map_err(|e| anyhow!("encode escrow slots: {e:?}"))?;
 
@@ -106,11 +104,12 @@ fn escrow_then_withdraw() -> Result<()> {
         external_data,
         payer: creator_address.solana_address()?,
         blinding_seed,
-        output_tree_id: tree_id,
+        output_tree_id: localnet.tree_id,
     };
 
     let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
-    let spp_proof = client
+    let spp_proof = localnet
+        .client
         .indexer()
         .prove_transact(
             spp_proof_inputs,
@@ -129,14 +128,15 @@ fn escrow_then_withdraw() -> Result<()> {
 
     let escrow_ix = Escrow {
         payer: creator_address.solana_address()?,
-        tree,
+        tree: localnet.tree,
         escrow_proof: escrow_proof.into(),
         spp_proof,
     }
     .instruction()?;
 
-    let signature = send(client.rpc(), &creator.keypair, escrow_ix)?;
-    client
+    let signature = send(localnet.client.rpc(), &creator.keypair, escrow_ix)?;
+    localnet
+        .client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm escrow indexed: {e:?}"))?;
 
@@ -145,8 +145,12 @@ fn escrow_then_withdraw() -> Result<()> {
     // The escrow UTXO is owned by the escrow-authority PDA and tagged for
     // discovery using the PDA's own signing pubkey, so it never surfaces in
     // the creator's own wallet sync.
-    sync_wallet(&mut creator.wallet, &creator.keypair, client.indexer())
-        .map_err(|e| anyhow!("sync creator after escrow: {e:?}"))?;
+    sync_wallet(
+        &mut creator.wallet,
+        &creator.keypair,
+        localnet.client.indexer(),
+    )
+    .map_err(|e| anyhow!("sync creator after escrow: {e:?}"))?;
     let balance_after_escrow = creator
         .balance(SOL_MINT, None)
         .map_err(|e| anyhow!("creator balance after escrow: {e:?}"))?;
@@ -181,21 +185,21 @@ fn escrow_then_withdraw() -> Result<()> {
     // creator.
     let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
 
-    let escrow_hash = escrow_utxo.output_utxo()?.hash(tree_id)?;
+    let escrow_hash = escrow_utxo.output_utxo()?.hash(localnet.tree_id)?;
     let escrow_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
-        client.indexer(),
-        tree,
+        localnet.client.indexer(),
+        localnet.tree,
         escrow_hash,
     );
     let escrow_input_utxo = escrow_utxo
-        .to_input_utxo(tree_id, escrow_state.leaf_index)
+        .to_input_utxo(localnet.tree_id, escrow_state.leaf_index)
         .map_err(|e| anyhow!("escrow input_utxo: {e:?}"))?;
     let input_utxos = vec![escrow_input_utxo];
     let blinding_seed =
         prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))?;
     let source_output_blinding = source_output.blinding;
     let source_output_hash = source_output
-        .hash(tree_id)
+        .hash(localnet.tree_id)
         .map_err(|e| anyhow!("source output hash: {e:?}"))?;
 
     let transaction_viewing_key = get_transaction_viewing_key(&creator.keypair, &input_utxos)
@@ -203,7 +207,7 @@ fn escrow_then_withdraw() -> Result<()> {
     let encoded = encrypt_transaction_data(
         std::slice::from_ref(&source_output),
         &transaction_viewing_key,
-        tree_id,
+        localnet.tree_id,
     )
     .map_err(|e| anyhow!("encode withdraw slots: {e:?}"))?;
 
@@ -221,7 +225,7 @@ fn escrow_then_withdraw() -> Result<()> {
         external_data,
         payer: creator_address.solana_address()?,
         blinding_seed,
-        output_tree_id: tree_id,
+        output_tree_id: localnet.tree_id,
     };
 
     let withdraw_proof_inputs = WithdrawProofInputParams {
@@ -234,11 +238,12 @@ fn escrow_then_withdraw() -> Result<()> {
         private_tx_blinding: withdraw_spp_proof_inputs
             .private_tx_blinding()
             .map_err(|e| anyhow!("withdraw private tx blinding: {e:?}"))?,
-        input_tree_id: tree_id,
-        output_tree_id: tree_id,
+        input_tree_id: localnet.tree_id,
+        output_tree_id: localnet.tree_id,
     };
 
-    let spp_proof = client
+    let spp_proof = localnet
+        .client
         .indexer()
         .prove_transact(
             withdraw_spp_proof_inputs,
@@ -252,15 +257,16 @@ fn escrow_then_withdraw() -> Result<()> {
     let withdraw_ix = Withdraw {
         creator: creator_address.solana_address()?,
         payer: creator_address.solana_address()?,
-        tree,
+        tree: localnet.tree,
         withdraw_proof: withdraw_proof.into(),
         unlock_timestamp: UNLOCK_TIMESTAMP,
         spp_proof,
     }
     .instruction()?;
 
-    let signature = send(client.rpc(), &creator.keypair, withdraw_ix)?;
-    client
+    let signature = send(localnet.client.rpc(), &creator.keypair, withdraw_ix)?;
+    localnet
+        .client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm withdraw indexed: {e:?}"))?;
 
@@ -269,8 +275,12 @@ fn escrow_then_withdraw() -> Result<()> {
     // the original shielded deposit. Withdraw only spends the PDA-owned
     // escrow UTXO, so both notes stay as distinct entries: the change note
     // from the first sync, the source output from the second.
-    sync_wallet(&mut creator.wallet, &creator.keypair, client.indexer())
-        .map_err(|e| anyhow!("sync creator after withdraw: {e:?}"))?;
+    sync_wallet(
+        &mut creator.wallet,
+        &creator.keypair,
+        localnet.client.indexer(),
+    )
+    .map_err(|e| anyhow!("sync creator after withdraw: {e:?}"))?;
     let balance_after_withdraw = creator
         .balance(SOL_MINT, None)
         .map_err(|e| anyhow!("creator balance after withdraw: {e:?}"))?;
@@ -301,9 +311,10 @@ fn escrow_then_withdraw() -> Result<()> {
         )
     );
 
-    client
+    localnet
+        .client
         .indexer()
-        .get_merkle_proofs(tree, vec![source_output_hash], None)
+        .get_merkle_proofs(localnet.tree, vec![source_output_hash], None)
         .map_err(|e| anyhow!("withdraw output index: {e}"))?;
     Ok(())
 }
