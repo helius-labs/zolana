@@ -525,6 +525,33 @@ describe("prover request routing", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("expects the key of the circuit each transfer is proven by", async () => {
+    const json = { "content-type": "application/json" };
+    for (const [circuit, circuitType, keyName] of [
+      ["transfer", "transfer-confidential", "transfer_confidential_1_1.key"],
+      ["transferRing", "transfer-ring", "transfer_ring_1_1.key"],
+      ["transferRingAuthority", "transfer-ring-authority", "transfer_ring_authority_1_1.key"],
+    ] as const) {
+      const inputs = { ...transferInputs(), circuit };
+      let posted: unknown;
+      const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+        posted = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify(proofFor(posted)), { headers: json });
+      }) as typeof globalThis.fetch;
+      await new ProverClient({ url: "https://prover.example", fetch }).prove(inputs);
+      expect(posted).toMatchObject({ circuitType });
+
+      if (circuitType === "transfer-confidential") continue;
+      // A proof from the confidential key is refused for the ring circuits.
+      const wrong = vi.fn(
+        async () => new Response(JSON.stringify(TRANSFER_PROOF), { headers: json }),
+      ) as typeof globalThis.fetch;
+      await expect(
+        new ProverClient({ url: "https://prover.example", fetch: wrong }).prove(inputs),
+      ).rejects.toMatchObject({ code: "CLIENT_PROVING_KEY_MISMATCH", details: { keyName } });
+    }
+  });
+
   it("expects the merge-ring key for a merge inside a custom ring", async () => {
     const json = { "content-type": "application/json" };
     const ringMerge = { ...mergeInputs(), ringProgramId: asField(7n) };

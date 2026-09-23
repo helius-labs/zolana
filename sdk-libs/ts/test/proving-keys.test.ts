@@ -30,6 +30,7 @@ describe("expectedProvingKey", () => {
     const names = [
       expectedProvingKey({ circuit: "transfer-confidential", nInputs: 1, nOutputs: 1 }),
       expectedProvingKey({ circuit: "transfer-ring", nInputs: 36, nOutputs: 2 }),
+      expectedProvingKey({ circuit: "transfer-ring-authority", nInputs: 2, nOutputs: 2 }),
       expectedProvingKey({ circuit: "merge", nInputs: 8 }),
       expectedProvingKey({ circuit: "merge-ring", nInputs: 36 }),
       expectedProvingKey({ circuit: "custom-ring-base" }),
@@ -39,6 +40,7 @@ describe("expectedProvingKey", () => {
       [
         "transfer_confidential_1_1.key",
         "transfer_ring_36_2.key",
+        "transfer_ring_authority_2_2.key",
         "merge_8_1.key",
         "merge_ring_36_1.key",
         "custom_ring_base.key",

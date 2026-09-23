@@ -162,7 +162,7 @@ export class ProverClient {
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(proverRequest(inputs, completeSecret));
     const key = provingKeyFor({
-      circuit: inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential",
+      circuit: transferCircuit(inputs),
       nInputs: inputs.payload.inputs.length,
       nOutputs: inputs.payload.outputs.length,
     });
@@ -1015,15 +1015,18 @@ function sized<T>(values: readonly T[], expected: number, field: string): readon
 }
 
 /** Mirrors Rust `TransferInputsJson`, key set and order included. */
+/** The prover circuit a transfer is proven by. */
+function transferCircuit(
+  inputs: ProverInputs,
+): "transfer-ring-authority" | "transfer-ring" | "transfer-confidential" {
+  if (inputs.circuit === "transferRingAuthority") return "transfer-ring-authority";
+  return inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential";
+}
+
 function proverRequest(inputs: ProverInputs, secret: SecretEncoder): ProverRequestBody {
   const payload = inputs.payload;
   return Object.freeze({
-    circuitType:
-      inputs.circuit === "transferRingAuthority"
-        ? "transfer-ring-authority"
-        : inputs.circuit === "transferRing"
-          ? "transfer-ring"
-          : "transfer-confidential",
+    circuitType: transferCircuit(inputs),
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map((input) => inputJson(input, secret)),

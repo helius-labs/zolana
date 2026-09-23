@@ -89,6 +89,11 @@ export type ProvingKeyCircuit =
       readonly nOutputs: number;
     }
   | { readonly circuit: "transfer-ring"; readonly nInputs: number; readonly nOutputs: number }
+  | {
+      readonly circuit: "transfer-ring-authority";
+      readonly nInputs: number;
+      readonly nOutputs: number;
+    }
   | { readonly circuit: "merge"; readonly nInputs: number }
   | { readonly circuit: "merge-ring"; readonly nInputs: number }
   | { readonly circuit: "custom-ring-base" }
@@ -122,6 +127,8 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `transfer_confidential_${request.nInputs}_${request.nOutputs}.key`;
     case "transfer-ring":
       return `transfer_ring_${request.nInputs}_${request.nOutputs}.key`;
+    case "transfer-ring-authority":
+      return `transfer_ring_authority_${request.nInputs}_${request.nOutputs}.key`;
     case "merge":
       return `merge_${request.nInputs}_1.key`;
     case "merge-ring":
