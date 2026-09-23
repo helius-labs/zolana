@@ -434,7 +434,7 @@ impl Wizard<'_> {
         ui::heading(Icon::Lists, "list entry sources");
         let tree = spec.address_tree();
         line("tree", tree);
-        ui::hint("a discovered curator is offered only when it serves the list from this tree");
+        ui::hint("a discovered curator is offered only when it serves the list and pins this tree");
         let catalogue = self.curators.catalogue(target, rpc_url);
         for list in referenced {
             if let Some(curator) = self.source(target, list, tree, &catalogue)? {
