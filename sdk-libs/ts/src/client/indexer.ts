@@ -598,12 +598,13 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
 /** Photon's ring projection codes, `zolana_indexer_api::error_code`. */
 const RING_PROJECTION_CODES: ReadonlyMap<
   number,
-  Extract<ClientErrorCode, `CLIENT_KEY_REGISTRY_${string}`>
+  Extract<ClientErrorCode, `CLIENT_KEY_REGISTRY_${string}` | "CLIENT_SPEND_RECORD_OUT_OF_SYNC">
 > = new Map([
   [-32074, "CLIENT_KEY_REGISTRY_OUT_OF_SYNC"],
   [-32075, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
   [-32076, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
   [-32077, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
+  [-32078, "CLIENT_SPEND_RECORD_OUT_OF_SYNC"],
 ]);
 
 function wrapIndexer(cause: unknown, method: string): ClientError {

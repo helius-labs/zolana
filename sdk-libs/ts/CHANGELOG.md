@@ -76,7 +76,8 @@ Added
   `fetchRingSpendWindow` reads the cap.
 - `buildRingSpendRegistrationTransaction` registers a sender's spend record on
   a windowed ring, `ZolanaClient.getRingSpendRecord` locates a member's
-  current record, `proveCustomRingTransfer` charges each transfer against the
+  current record and reports projection lag as
+  `CLIENT_SPEND_RECORD_OUT_OF_SYNC`, `proveCustomRingTransfer` charges each transfer against the
   ring's private per-window velocity caps and refuses an overspend with
   `RING_VELOCITY_CAP_EXCEEDED`, `readRingVelocityState` reads the sender's
   counters, and `auditRingTransaction` reports them as `AuditedRingSpendRecord`.

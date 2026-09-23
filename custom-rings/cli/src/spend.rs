@@ -7,7 +7,7 @@ use custom_ring_sdk::{
 };
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ProverClient, SolanaRpc, ZolanaIndexer};
+use zolana_client::{ClientError, ProverClient, SolanaRpc, ZolanaIndexer};
 use zolana_keypair::KeypairError;
 use zolana_ring_policy::{Member, MemberError};
 
@@ -185,13 +185,27 @@ pub(crate) fn windowed_config(
 
 impl RecordQuery<'_> {
     fn read(&self, indexer: &ZolanaIndexer) -> Result<Option<LiveSpendRecord>, SpendError> {
-        Ok(ReadSpendRecord {
-            ring: self.ring,
-            entries_tree: self.config.entries_tree,
-            entries_tree_id: self.config.entries_tree_id(),
-            member: self.member,
-        }
-        .read_current(indexer)?)
+        wait_for(
+            format!("spend record projection of {:?}", self.member),
+            || {
+                let read = ReadSpendRecord {
+                    ring: self.ring,
+                    entries_tree: self.config.entries_tree,
+                    entries_tree_id: self.config.entries_tree_id(),
+                    member: self.member,
+                };
+                match read.read_current(indexer) {
+                    Ok(live) => Ok(Probe::Ready(live)),
+                    Err(EntryProofError::Client(error))
+                        if matches!(*error, ClientError::RingSpendRecordOutOfSync) =>
+                    {
+                        Ok(Probe::Retry(EntryProofError::Client(error)))
+                    }
+                    Err(error) => Err(error),
+                }
+            },
+        )
+        .map_err(timed_out)
     }
 }
 

@@ -549,9 +549,6 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
     Ok(TestWallet { wallet, keypair })
 }
 
-/// Send instructions as a transaction **v1** message paid and signed by
-/// `payer`. The compute ceilings ride in the message header, so nothing is
-/// prepended and the caller's first instruction stays at index 0.
 pub fn wait_for_spend_record(
     read: impl Fn() -> Result<Option<LiveSpendRecord>, EntryProofError>,
     version: u64,
@@ -568,6 +565,9 @@ pub fn wait_for_spend_record(
     )?)
 }
 
+/// Send instructions as a transaction **v1** message paid and signed by
+/// `payer`. The compute ceilings ride in the message header, so nothing is
+/// prepended and the caller's first instruction stays at index 0.
 pub fn send(rpc: &SolanaRpc, payer: &dyn Signer, ixs: &[Instruction]) -> Result<Signature> {
     Ok(rpc.create_and_send_transaction(
         ixs,
