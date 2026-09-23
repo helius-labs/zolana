@@ -8,7 +8,10 @@ use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_pubkey::Pubkey;
-use solana_rpc_client::{api::config::RpcTransactionConfig, rpc_client::RpcClient};
+use solana_rpc_client::{
+    api::config::{RpcSendTransactionConfig, RpcTransactionConfig},
+    rpc_client::RpcClient,
+};
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::{
@@ -23,11 +26,13 @@ use super::{
         instruction_groups_from_confirmed_transaction,
         transact_output_view_tags_from_instruction_groups, ConfirmedInstructionGroups,
     },
+    DEFAULT_POLL_INTERVAL,
 };
 
 pub struct SolanaRpc {
     client: RpcClient,
     confirmation_timeout: Duration,
+    poll_interval: Duration,
 }
 
 impl SolanaRpc {
@@ -42,7 +47,16 @@ impl SolanaRpc {
         Self {
             client,
             confirmation_timeout: Duration::from_secs(30),
+            poll_interval: DEFAULT_POLL_INTERVAL,
         }
+    }
+
+    /// Poll confirmations and transaction lookups every `interval`. A local
+    /// validator confirms within milliseconds, so tests poll far more often
+    /// than the default.
+    pub fn with_poll_interval(mut self, interval: Duration) -> Self {
+        self.poll_interval = interval;
+        self
     }
 
     pub fn client(&self) -> &RpcClient {
@@ -100,7 +114,7 @@ impl SolanaRpc {
             if confirmed {
                 return Ok(());
             }
-            sleep(Duration::from_millis(250));
+            sleep(self.poll_interval);
         }
         Err(ClientError::Rpc(format!(
             "signature not confirmed: {signature}"
@@ -138,7 +152,7 @@ impl SolanaRpc {
             match self.client.get_transaction_with_config(signature, config) {
                 Ok(transaction) => return Ok(transaction),
                 Err(_) if started.elapsed() < self.confirmation_timeout => {
-                    sleep(Duration::from_millis(250));
+                    sleep(self.poll_interval);
                 }
                 Err(err) => {
                     return Err(ClientError::Rpc(format!(
@@ -255,16 +269,52 @@ impl Rpc for SolanaRpc {
             })
     }
 
+    /// `RpcClient::send_and_confirm_transaction` with the status polled every
+    /// `poll_interval` instead of every 500ms: send with preflight at the
+    /// client's commitment, then poll until the transaction confirms, fails,
+    /// or its blockhash expires.
     fn process_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        self.client
-            .send_and_confirm_transaction(&transaction)
-            .map_err(|source| ClientError::SolanaRpcTransaction {
-                operation: "process_transaction",
-                source,
-            })
+        let error = |source| ClientError::SolanaRpcTransaction {
+            operation: "process_transaction",
+            source,
+        };
+        let commitment = self.client.commitment();
+        let signature = self
+            .client
+            .send_transaction_with_config(
+                &transaction,
+                RpcSendTransactionConfig {
+                    preflight_commitment: Some(commitment.commitment),
+                    ..RpcSendTransactionConfig::default()
+                },
+            )
+            .map_err(error)?;
+        let blockhash = transaction.message.recent_blockhash();
+        loop {
+            match self
+                .client
+                .get_signature_status_with_commitment(&signature, commitment)
+                .map_err(error)?
+            {
+                Some(Ok(())) => return Ok(signature),
+                Some(Err(failure)) => return Err(error(failure.into())),
+                None => {
+                    if !self
+                        .client
+                        .is_blockhash_valid(blockhash, CommitmentConfig::processed())
+                        .map_err(error)?
+                    {
+                        return Err(ClientError::Rpc(format!(
+                            "transaction {signature} was not confirmed before its blockhash expired"
+                        )));
+                    }
+                    sleep(self.poll_interval);
+                }
+            }
+        }
     }
 
     fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {

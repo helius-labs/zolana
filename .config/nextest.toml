@@ -20,9 +20,9 @@ final-status-level = "slow"
 
 # CI: don't stop at the first failure (collect the full picture). The profile
 # itself is retry-free so deterministic suites are never masked by a retry that
-# passes; only the validator/localnet override group below retries (twice) to
-# absorb localnet/prover flakiness. A test that only passes on retry is
-# reported as FLAKY.
+# passes; only the override groups below retry (twice) to absorb
+# localnet/prover flakiness. A test that only passes on retry is reported as
+# FLAKY.
 [profile.ci]
 retries = 0
 fail-fast = false
@@ -35,18 +35,35 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 # process and in parallel, so these must be serialized to one-at-a-time or they
 # contend on those ports. `cargo test`'s in-binary parallelism happened to avoid
 # this per-recipe; nextest's process-per-test does not, so the group is required.
+#
+# Suites that boot through `zolana_program_test::localnet::FixtureLocalnet`
+# (swap, timelock escrow, dynamic swap, rfq, compression) are not in the group:
+# each test takes its own `LocalnetPorts::for_test` number and they share one
+# prover, so they run in parallel.
 [test-groups]
 serial-validator = { max-threads = 1 }
+# CI's cap on the FixtureLocalnet suites: each test starts its own surfpool and
+# Photon, and a 4-vCPU runner starting more of them at once is where Photon's
+# SQLite migrations have failed.
+fixture-localnet = { max-threads = 2 }
 
 # Assign every validator/localnet-spawning test to that group. Applied to both
 # profiles (nextest does not inherit overrides across profiles); only the ci
 # override retries, since these are the suites exposed to localnet/prover
 # flakiness.
 [[profile.default.overrides]]
-filter = "package(spp-test-validator) | package(ring-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | package(custom-ring-test-validator) | (package(shielded-pool-tests) & binary_id(/localnet/))"
+filter = "package(spp-test-validator) | package(ring-test-program) | package(custom-ring-test-validator) | (package(shielded-pool-tests) & binary_id(/localnet/))"
 test-group = "serial-validator"
 
 [[profile.ci.overrides]]
-filter = "package(spp-test-validator) | package(ring-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | package(custom-ring-test-validator) | (package(shielded-pool-tests) & binary_id(/localnet/))"
+filter = "package(spp-test-validator) | package(ring-test-program) | package(custom-ring-test-validator) | (package(shielded-pool-tests) & binary_id(/localnet/))"
 test-group = "serial-validator"
+retries = 2
+
+# The FixtureLocalnet suites run fully in parallel outside the serial group. In
+# CI they run two at a time and get the same two retries against localnet and
+# prover flakiness.
+[[profile.ci.overrides]]
+filter = "package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | package(rfq-test) | package(compression-example-test)"
+test-group = "fixture-localnet"
 retries = 2

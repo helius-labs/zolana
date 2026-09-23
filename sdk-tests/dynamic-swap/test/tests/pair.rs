@@ -18,7 +18,7 @@ const INITIAL_PRICE: u64 = 100;
 // funds each escrow directly, so `create_pair` creates only the pair account.
 #[test]
 fn create_pair_then_update_price() -> Result<()> {
-    let env = setup()?;
+    let env = setup(8)?;
     let authority_solana = &env.authority.keypair;
     let authority_owner_hash = env.authority.owner_hash()?;
 
@@ -50,7 +50,8 @@ fn create_pair_then_update_price() -> Result<()> {
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
-    env.client
+    env.localnet
+        .client
         .rpc()
         .create_and_send_transaction(
             &[create_pair_ix],
@@ -61,6 +62,7 @@ fn create_pair_then_update_price() -> Result<()> {
         .map_err(|e| anyhow!("send create_pair: {e:?}"))?;
 
     let pair_account = env
+        .localnet
         .client
         .rpc()
         .get_account(pair)
@@ -103,7 +105,8 @@ fn create_pair_then_update_price() -> Result<()> {
     }
     .instruction()
     .map_err(|e| anyhow!("update_price instruction: {e:?}"))?;
-    env.client
+    env.localnet
+        .client
         .rpc()
         .create_and_send_transaction(
             &[update_price_ix],
@@ -114,6 +117,7 @@ fn create_pair_then_update_price() -> Result<()> {
         .map_err(|e| anyhow!("send update_price: {e:?}"))?;
 
     let pair_account = env
+        .localnet
         .client
         .rpc()
         .get_account(pair)

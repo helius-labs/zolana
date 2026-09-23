@@ -4,8 +4,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/cmp"
 
-	"zolana/prover/circuits/gadget"
-	spp "zolana/prover/circuits/spp_transaction/shared"
+	"zolana/gnarksdk"
 )
 
 const blindingSeedDomain = 0x44535458 // DSTX; matches the SDK's settle_blinding_seed.
@@ -32,19 +31,12 @@ const blindingSeedDomain = 0x44535458 // DSTX; matches the SDK's settle_blinding
 type Circuit struct {
 	Public PublicInputs
 
-	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
-	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
-	OrderIn             spp.UtxoCircuitFields
-	OrderInTreeID       frontend.Variable
-	ReservationIn       spp.UtxoCircuitFields
-	ReservationInTreeID frontend.Variable
+	OrderIn       gnarksdk.Utxo
+	ReservationIn gnarksdk.Utxo
 
-	RecipientOut       spp.UtxoCircuitFields
-	RecipientOutTreeID frontend.Variable
-	MakerCounter       spp.UtxoCircuitFields
-	MakerCounterTreeID frontend.Variable
-	MakerSource        spp.UtxoCircuitFields
-	MakerSourceTreeID  frontend.Variable
+	RecipientOut gnarksdk.Utxo
+	MakerCounter gnarksdk.Utxo
+	MakerSource  gnarksdk.Utxo
 
 	OrderAmount frontend.Variable
 
@@ -69,22 +61,22 @@ func (c *Circuit) Define(api frontend.API) error {
 	// The escrow creator and settler both hold these openings. The first
 	// nullifier is read from SPP instruction data by the native program, so the
 	// settler cannot substitute a seed that prevents the recipient's recovery.
-	blindingSeed := gadget.PoseidonHash(api, []frontend.Variable{blindingSeedDomain, c.OrderIn.Blinding, c.ReservationIn.Blinding})
-	seed := spp.DeriveOutputBlindingSeed(api, c.Public.FirstNullifier, blindingSeed)
-	api.AssertIsEqual(c.PrivateTxBlinding, spp.DerivePrivateTxBlinding(api, c.Public.FirstNullifier, blindingSeed))
-	for i, blinding := range []frontend.Variable{c.RecipientOut.Blinding, c.MakerCounter.Blinding, c.MakerSource.Blinding} {
-		api.AssertIsEqual(blinding, spp.DeriveOutputBlinding(api, c.Public.FirstNullifier, seed, i))
-	}
+	blindingSeed := gnarksdk.Poseidon(api, blindingSeedDomain, c.OrderIn.Blinding, c.ReservationIn.Blinding)
+	gnarksdk.AssertTransactionBlindings(
+		api,
+		c.Public.FirstNullifier,
+		blindingSeed,
+		c.PrivateTxBlinding,
+		c.RecipientOut.Blinding,
+		c.MakerCounter.Blinding,
+		c.MakerSource.Blinding,
+	)
 
 	// Bind the private MaxPrice/CreatedAt to the order UTXO's committed DataHash
 	// so the prover cannot choose a MaxPrice that flips the outcome. OrderInHash
 	// is public and pins OrderIn's whole hash (incl. DataHash), so a false
 	// MaxPrice cannot satisfy this equality.
-	api.AssertIsEqual(c.OrderIn.DataHash, gadget.PoseidonHash(api, []frontend.Variable{
-		c.RecipientOwnerHash,
-		c.MaxPrice,
-		c.CreatedAt,
-	}))
+	api.AssertIsEqual(c.OrderIn.DataHash, gnarksdk.Poseidon(api, c.RecipientOwnerHash, c.MaxPrice, c.CreatedAt))
 
 	// Pin MaxPrice to 64 bits before the bounded comparator below: cmp
 	// .IsLessOrEqual is only well-defined on in-range operands, so an out-of-
@@ -128,16 +120,16 @@ func (c *Circuit) Define(api frontend.API) error {
 	makerSourceAmount := api.Select(isSettle, c.OrderAmount, 0)
 	makerSourceHash := c.checkMakerSourceOutputUtxo(api, makerSourceAmount)
 
-	privateTxHashInputs{
-		OrderInputUtxoHash:         orderInHash,
-		ReservationInputUtxoHash:   reservationInHash,
-		RecipientOutputUtxoHash:    recipientOutHash,
-		MakerCounterOutputUtxoHash: makerCounterHash,
-		MakerSourceOutputUtxoHash:  makerSourceHash,
-		ExternalDataHash:           c.ExternalDataHash,
-		PrivateTxBlinding:          c.PrivateTxBlinding,
-		PrivateTxHash:              c.Public.PrivateTxHash,
-	}.Check(api)
+	// 2-in/3-out; output order (recipient, maker_counter, maker_source) must match
+	// the native program's output indices and the SDK.
+	privateTxHash := gnarksdk.PrivateTxHash(
+		api,
+		[]frontend.Variable{orderInHash, reservationInHash},
+		[]frontend.Variable{recipientOutHash, makerCounterHash, makerSourceHash},
+		c.ExternalDataHash,
+		c.PrivateTxBlinding,
+	)
+	api.AssertIsEqual(privateTxHash, c.Public.PrivateTxHash)
 
 	c.Public.Check(api, orderInHash, reservationInHash)
 	return nil
@@ -169,81 +161,37 @@ type PublicInputs struct {
 func (p PublicInputs) Check(api frontend.API, orderInHash, reservationInHash frontend.Variable) {
 	api.AssertIsEqual(p.OrderInHash, orderInHash)
 	api.AssertIsEqual(p.ReservationInHash, reservationInHash)
-	publicInputHash := gadget.PoseidonHash(api, []frontend.Variable{
+	publicInputHash := gnarksdk.Poseidon(
+		api,
 		p.PrivateTxHash,
 		p.ExecutionPrice,
 		p.OrderInHash,
 		p.ReservationInHash,
 		p.AuthorityOwnerHash,
 		p.FirstNullifier,
-	})
+	)
 	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
 }
 
-type privateTxHashInputs struct {
-	OrderInputUtxoHash         frontend.Variable
-	ReservationInputUtxoHash   frontend.Variable
-	RecipientOutputUtxoHash    frontend.Variable
-	MakerCounterOutputUtxoHash frontend.Variable
-	MakerSourceOutputUtxoHash  frontend.Variable
-	ExternalDataHash           frontend.Variable
-	PrivateTxBlinding          frontend.Variable
-	PrivateTxHash              frontend.Variable
-}
-
-func (t privateTxHashInputs) Check(api frontend.API) {
-	// 2-in/3-out; output order (recipient, maker_counter, maker_source) must match
-	// the native program's output indices and the SDK.
-	inputHashes := []frontend.Variable{
-		t.OrderInputUtxoHash,
-		t.ReservationInputUtxoHash,
-	}
-	outputHashes := []frontend.Variable{
-		t.RecipientOutputUtxoHash,
-		t.MakerCounterOutputUtxoHash,
-		t.MakerSourceOutputUtxoHash,
-	}
-	addressHashes := []frontend.Variable{
-		frontend.Variable(0),
-		frontend.Variable(0),
-	}
-
-	privateTxHash := spp.PrivateTxHashCircuit(
-		api,
-		inputHashes,
-		outputHashes,
-		addressHashes,
-		t.ExternalDataHash,
-		t.PrivateTxBlinding,
-	)
-	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
-}
-
 func (c *Circuit) checkOrderInputUtxo(api frontend.API) frontend.Variable {
-	api.AssertIsEqual(c.OrderIn.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.OrderIn.RingDataHash, 0)
-	api.AssertIsEqual(c.OrderIn.RingProgramID, 0)
+	c.OrderIn.AssertDefaultRing(api)
 	api.AssertIsEqual(c.OrderIn.Amount, c.OrderAmount)
-	return spp.UtxoHashCircuit(api, c.OrderIn, c.OrderInTreeID)
+	return c.OrderIn.Hash(api)
 }
 
 func (c *Circuit) checkReservationInputUtxo(api frontend.API, reserved frontend.Variable) frontend.Variable {
-	api.AssertIsEqual(c.ReservationIn.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.ReservationIn.RingDataHash, 0)
-	api.AssertIsEqual(c.ReservationIn.RingProgramID, 0)
+	c.ReservationIn.AssertDefaultRing(api)
 	api.AssertIsEqual(c.ReservationIn.Amount, reserved)
-	return spp.UtxoHashCircuit(api, c.ReservationIn, c.ReservationInTreeID)
+	return c.ReservationIn.Hash(api)
 }
 
 func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, amount, asset frontend.Variable) frontend.Variable {
-	api.AssertIsEqual(c.RecipientOut.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.RecipientOut.RingDataHash, 0)
-	api.AssertIsEqual(c.RecipientOut.RingProgramID, 0)
+	c.RecipientOut.AssertDefaultRing(api)
 	api.AssertIsEqual(c.RecipientOut.DataHash, 0)
 	api.AssertIsEqual(c.RecipientOut.Asset, asset)
 	api.AssertIsEqual(c.RecipientOut.Amount, amount)
 	api.AssertIsEqual(c.RecipientOut.Owner, c.RecipientOwnerHash)
-	return spp.UtxoHashCircuit(api, c.RecipientOut, c.RecipientOutTreeID)
+	return c.RecipientOut.Hash(api)
 }
 
 // checkMakerCounterOutputUtxo is the maker's counter-asset leg: the unspent
@@ -251,9 +199,7 @@ func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, amount, asset front
 // pool output -- there is no pool UTXO, so the amount is exactly `remainder`, not
 // pool_in + remainder. Asset is the reservation's (destination) asset.
 func (c *Circuit) checkMakerCounterOutputUtxo(api frontend.API, remainder frontend.Variable) frontend.Variable {
-	api.AssertIsEqual(c.MakerCounter.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.MakerCounter.RingDataHash, 0)
-	api.AssertIsEqual(c.MakerCounter.RingProgramID, 0)
+	c.MakerCounter.AssertDefaultRing(api)
 	api.AssertIsEqual(c.MakerCounter.DataHash, 0)
 	api.AssertIsEqual(c.MakerCounter.Asset, c.ReservationIn.Asset)
 	api.AssertIsEqual(c.MakerCounter.Owner, c.Public.AuthorityOwnerHash)
@@ -261,7 +207,7 @@ func (c *Circuit) checkMakerCounterOutputUtxo(api frontend.API, remainder fronte
 	api.AssertIsEqual(c.MakerCounter.Amount, remainder)
 	api.ToBinary(c.MakerCounter.Amount, 64)
 
-	return spp.UtxoHashCircuit(api, c.MakerCounter, c.MakerCounterTreeID)
+	return c.MakerCounter.Hash(api)
 }
 
 // checkMakerSourceOutputUtxo is the pair authority's (maker's) own shielded UTXO
@@ -269,12 +215,10 @@ func (c *Circuit) checkMakerCounterOutputUtxo(api frontend.API, remainder fronte
 // `amount` is 0: the output is still produced (so the shape never differs between
 // outcomes) but carries no value.
 func (c *Circuit) checkMakerSourceOutputUtxo(api frontend.API, amount frontend.Variable) frontend.Variable {
-	api.AssertIsEqual(c.MakerSource.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.MakerSource.RingDataHash, 0)
-	api.AssertIsEqual(c.MakerSource.RingProgramID, 0)
+	c.MakerSource.AssertDefaultRing(api)
 	api.AssertIsEqual(c.MakerSource.DataHash, 0)
 	api.AssertIsEqual(c.MakerSource.Asset, c.OrderIn.Asset)
 	api.AssertIsEqual(c.MakerSource.Amount, amount)
 	api.AssertIsEqual(c.MakerSource.Owner, c.Public.AuthorityOwnerHash)
-	return spp.UtxoHashCircuit(api, c.MakerSource, c.MakerSourceTreeID)
+	return c.MakerSource.Hash(api)
 }

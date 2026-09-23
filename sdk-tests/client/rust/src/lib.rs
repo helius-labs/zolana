@@ -9,9 +9,13 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program_test::{create_tree_instructions, next_tree_id};
-use zolana_test_utils::{
+use zolana_program_test::{
+    create_tree_instructions,
     localnet::{LocalnetValidator, UpgradeableProgram},
+    next_tree_id, workspace_path,
+};
+use zolana_test_utils::{
+    localnet::env_localnet_ports,
     smart_account::{self, StandardSigners},
 };
 
@@ -27,42 +31,34 @@ pub struct SetupContext {
 }
 
 pub fn setup() -> Result<SetupContext> {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../..");
-    let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
-    let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
-
-    let spp_program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID).to_string();
-    let spp_program_so = format!("{root}/target/deploy/shielded_pool_program.so");
-    let user_registry_so = format!("{root}/target/deploy/zolana_user_registry.so");
-    let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
-    let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
-
-    let protocol_vault = smart_account::standard_accounts()
-        .protocol_vault
-        .to_string();
+    let deploy = |file: &str| workspace_path("target/deploy").join(file);
+    let account_dir = std::env::temp_dir().join("zolana-client-example-accounts");
+    smart_account::write_program_config_fixture(&account_dir);
     LocalnetValidator {
-        cli_bin: cli,
-        working_dir: root.to_string(),
-        rpc_port,
-        photon_port,
-        ledger: "/tmp/zolana-client-example-test-ledger".to_string(),
-        account_dir: "/tmp/zolana-client-example-accounts".to_string(),
+        cli_bin: std::env::var("ZOLANA_CLI_BIN")
+            .map(Into::into)
+            .unwrap_or_else(|_| workspace_path("target/debug/zolana")),
+        working_dir: workspace_path(""),
+        ports: env_localnet_ports(),
+        account_dir,
+        log_dir: workspace_path("test-ledger"),
         programs: vec![
             (
-                zolana_user_registry_interface::user_registry_program_id().to_string(),
-                user_registry_so,
+                zolana_user_registry_interface::user_registry_program_id(),
+                deploy("zolana_user_registry.so"),
             ),
-            (smart_account_id, smart_account_so),
+            (
+                smart_account::SMART_ACCOUNT_PROGRAM_ID,
+                deploy("squads_smart_account_program.so"),
+            ),
         ],
+        slot_time: None,
     }
     .start_with_upgradeable_programs(&[UpgradeableProgram {
-        address: &spp_program_id,
-        path: &spp_program_so,
-        authority: &protocol_vault,
-    }]);
+        address: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        path: deploy("shielded_pool_program.so"),
+        authority: smart_account::standard_accounts().protocol_vault,
+    }])?;
 
     std::env::set_var(
         "ZOLANA_PROVER_KEYS_DIR",

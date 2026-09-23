@@ -317,8 +317,9 @@ impl ProverClient {
         self.send(to_json_batch_address_append(inputs), Delivery::Queued)
     }
 
-    /// One POST to `/prove`, retried only for transport failures. Returns the
-    /// status alongside the body so the caller can act on a shed request.
+    /// One POST to `/prove`, retried for transport failures and for a queued
+    /// request the prover shed. Returns the status alongside the body so the
+    /// caller can act on a shed request.
     fn post(
         &self,
         url: &str,
@@ -336,6 +337,15 @@ impl ProverClient {
                 request = request.header("X-Sync", "true");
             }
             match request.body(body.to_string()).send() {
+                // A prover without a queue proves a queued request in the
+                // response too, and sheds it the same way while it is busy.
+                Ok(response)
+                    if response.status() == StatusCode::TOO_MANY_REQUESTS
+                        && delivery == Delivery::Queued
+                        && attempt < PROVE_MAX_ATTEMPTS =>
+                {
+                    sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+                }
                 Ok(response) => break response,
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
@@ -690,6 +700,13 @@ impl AsyncProverClient {
                 request = request.header("X-Sync", "true");
             }
             match request.body(body.to_string()).send().await {
+                Ok(response)
+                    if response.status() == StatusCode::TOO_MANY_REQUESTS
+                        && delivery == Delivery::Queued
+                        && attempt < PROVE_MAX_ATTEMPTS =>
+                {
+                    async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
+                }
                 Ok(response) => {
                     let status = response.status();
                     let text = response.text().await.map_err(|e| {
@@ -806,7 +823,9 @@ fn spawn_prover_inner(
     cli_override: Option<String>,
     keys_dir: Option<&Path>,
 ) -> Result<(), ClientError> {
-    if health_check(10, 1) {
+    // One probe: a prover that is not up yet is started below, and the CLI
+    // reuses one a parallel start brought up in the meantime.
+    if health_check(1, 1) {
         return Ok(());
     }
 

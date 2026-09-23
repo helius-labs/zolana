@@ -62,7 +62,7 @@ const ORDER_AMOUNT: u64 = 100_000_000;
 fn create_pair_escrow_and_settle() -> Result<()> {
     // 1. setup_with_pair: register the SPL(source)->SOL(destination) pair at PRICE.
     // There is no shared pool; the maker funds each escrow directly.
-    let (env, pair) = setup_with_pair(PRICE)?;
+    let (env, pair) = setup_with_pair(5, PRICE)?;
     let authority_solana = &env.authority.keypair;
     let user_solana = &env.user.keypair;
 
@@ -87,8 +87,12 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             let mut user_wallet = Wallet::new(env.user.address()?, env.assets.clone())
                 .map_err(|e| anyhow!("user wallet: {e:?}"))?;
             let funding_utxo = wait_until("funding note", || {
-                sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
-                    .map_err(|e| anyhow!("sync user wallet: {e:?}"))?;
+                sync_wallet(
+                    &mut user_wallet,
+                    &env.user.keypair,
+                    env.localnet.client.indexer(),
+                )
+                .map_err(|e| anyhow!("sync user wallet: {e:?}"))?;
                 Ok(user_wallet
                     .balance(env.spl_mint, Some(Filter::MinAmount(ORDER_AMOUNT)))
                     .map_err(|e| anyhow!("user balance: {e:?}"))?
@@ -121,8 +125,9 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
             let viewing_key = get_transaction_viewing_key(&env.user.keypair, &input_utxos)
                 .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-            let encoded = encrypt_transaction_data(&transaction_outputs, &viewing_key, env.tree_id)
-                .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
+            let encoded =
+                encrypt_transaction_data(&transaction_outputs, &viewing_key, env.localnet.tree_id)
+                    .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
             let external_data = ExternalData::new(
                 *viewing_key.pubkey().as_bytes(),
                 encoded.salt,
@@ -136,9 +141,10 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 external_data,
                 payer: user_solana.pubkey(),
                 blinding_seed,
-                output_tree_id: env.tree_id,
+                output_tree_id: env.localnet.tree_id,
             };
             let split_transact = env
+                .localnet
                 .client
                 .indexer()
                 .prove_transact(spp_proof_inputs, &env.user.keypair)
@@ -146,14 +152,15 @@ fn create_pair_escrow_and_settle() -> Result<()> {
 
             let split_ix = Transact {
                 payer: user_solana.pubkey(),
-                input_trees: vec![env.tree],
-                output_tree: env.tree,
+                input_trees: vec![env.localnet.tree],
+                output_tree: env.localnet.tree,
                 owner_signers: Vec::new(),
                 interface_transfer_accounts: Vec::new(),
                 data: split_transact,
             }
             .instruction();
-            env.client
+            env.localnet
+                .client
                 .rpc()
                 .create_and_send_transaction(
                     &[split_ix],
@@ -166,8 +173,12 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             // Re-sync and select the freshly created exact-`ORDER_AMOUNT` note
             // from Photon, rather than reconstructing it from the split blinding.
             wait_until("exact split note", || {
-                sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
-                    .map_err(|e| anyhow!("resync user wallet: {e:?}"))?;
+                sync_wallet(
+                    &mut user_wallet,
+                    &env.user.keypair,
+                    env.localnet.client.indexer(),
+                )
+                .map_err(|e| anyhow!("resync user wallet: {e:?}"))?;
                 Ok(user_wallet
                     .balance(env.spl_mint, None)
                     .map_err(|e| anyhow!("user balance after split: {e:?}"))?
@@ -198,21 +209,24 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             let funding_view_tag = deposit.view_tag();
             let funding_signature = deposit
                 .send(
-                    env.client.rpc(),
+                    env.localnet.client.rpc(),
                     &authority_solana,
-                    env.tree,
+                    env.localnet.tree,
                     &authority_solana,
                 )
                 .map_err(|e| anyhow!("send maker funding deposit: {e:?}"))?;
             // The escrow authority is a PDA holding no viewing key, but a
             // proofless deposit publishes its UTXO in the clear, so the
             // depositor-chosen view tag reads it back from the indexer.
-            let funding_blinding =
-                wait_for_indexed_utxo(env.client.indexer(), funding_view_tag, funding_signature)
-                    .output_slot
-                    .proofless_output()
-                    .ok_or_else(|| anyhow!("indexed maker funding is not a proofless UTXO"))?
-                    .blinding;
+            let funding_blinding = wait_for_indexed_utxo(
+                env.localnet.client.indexer(),
+                funding_view_tag,
+                funding_signature,
+            )
+            .output_slot
+            .proofless_output()
+            .ok_or_else(|| anyhow!("indexed maker funding is not a proofless UTXO"))?
+            .blinding;
             Utxo {
                 owner: escrow_address.signing_pubkey,
                 asset: zolana_transaction::Mint::SOL,
@@ -231,7 +245,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             // (CREATED_AT_SLOT_TOLERANCE). Read the current slot and use it as-is: it
             // is <= the landing slot, and the tolerance window absorbs the proving
             // and landing latency, so the landing slot is not estimated.
-            let created_at = get_slot_with_retry(env.client.rpc().client())?;
+            let created_at = get_slot_with_retry(env.localnet.client.rpc().client())?;
             let order_amount = ORDER_AMOUNT;
             let max_price = PRICE;
             let prover = DynamicSwapProverClient::new();
@@ -243,8 +257,8 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             let maker_funding_in = SppProofInputUtxo::from(zolana_test_utils::utxo::indexed(
                 maker_funding.clone(),
                 escrow_owner.as_ref(),
-                env.client.indexer(),
-                env.tree_id,
+                env.localnet.client.indexer(),
+                env.localnet.tree_id,
             )?);
             let input_utxos = vec![source_in.clone(), maker_funding_in.clone()];
             // The circuit derives the seed and the private transaction blinding
@@ -277,7 +291,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             order_out.blinding =
                 derive_transact_output_blinding(&first_nullifier, &output_blinding_seed, 0)?;
             let order_utxo_hash = order_out
-                .hash(env.tree_id)
+                .hash(env.localnet.tree_id)
                 .map_err(|e| anyhow!("order_utxo hash: {e:?}"))?;
 
             let reserved = order_amount
@@ -316,7 +330,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                     maker_change.clone(),
                 ],
                 &viewing_key,
-                env.tree_id,
+                env.localnet.tree_id,
             )
             .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
             // reservation_out (index 1) is spent only by the program later (settle),
@@ -344,9 +358,10 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 external_data,
                 payer: authority_solana.pubkey(),
                 blinding_seed,
-                output_tree_id: env.tree_id,
+                output_tree_id: env.localnet.tree_id,
             };
             let transact = env
+                .localnet
                 .client
                 .indexer()
                 .prove_transact(
@@ -380,7 +395,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 order_amount,
                 external_data_hash,
                 private_tx_blinding,
-                output_tree_id: env.tree_id,
+                output_tree_id: env.localnet.tree_id,
             }
             .to_proof_inputs()
             .map_err(|e| anyhow!("escrow_open proof inputs: {e:?}"))?;
@@ -394,7 +409,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 owner: user_solana.pubkey(),
                 pair,
                 escrow,
-                tree: env.tree,
+                tree: env.localnet.tree,
                 proof: EscrowOpenProof {
                     proof_a: order_proof.proof_a,
                     proof_b: order_proof.proof_b,
@@ -406,8 +421,19 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .instruction()
             .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
 
-            send(env.client.rpc(), &authority_solana, &[&user_solana], ix)
-                .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
+            let signature = send(
+                env.localnet.client.rpc(),
+                &authority_solana,
+                &[&user_solana],
+                ix,
+            )
+            .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
+            // Settle discovers the escrow note through Photon, so wait until it has
+            // indexed the create_escrow outputs.
+            env.localnet
+                .client
+                .confirm_private_transaction_sync(signature)
+                .map_err(|e| anyhow!("index create_escrow: {e:?}"))?;
 
             escrow
         };
@@ -418,6 +444,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         // verifies them against the decrypted note + registry, so here we pin the
         // client-controlled terms (pair, owner, execution price).
         let escrow_account = env
+            .localnet
             .client
             .rpc()
             .get_account(escrow)
@@ -457,11 +484,12 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         // indexer, isolated in its own scope so the settlement math below can only
         // use recovered values, not create-time state or test-env conveniences.
         let (escrow_owner, recipient, discovered, source_asset) = {
-            let recipient = resolve_registered_address(env.client.rpc(), user_solana.pubkey())
-                .map_err(|e| anyhow!("resolve recipient: {e:?}"))?
-                .address;
+            let recipient =
+                resolve_registered_address(env.localnet.client.rpc(), user_solana.pubkey())
+                    .map_err(|e| anyhow!("resolve recipient: {e:?}"))?
+                    .address;
             let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
-            let discovered = discover_escrow_note(env.client.indexer(), &escrow_owner)?;
+            let discovered = discover_escrow_note(env.localnet.client.indexer(), &escrow_owner)?;
             // The scan matches the shared authority tag alone, so pin the
             // discovered order UTXO to the escrow account being settled.
             if discovered.order_utxo_hash != escrow_state.escrow_utxo_hash {
@@ -471,6 +499,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             // not the mint; resolve the mint from that id via the asset registry.
             let source_asset = {
                 let pair_account = env
+                    .localnet
                     .client
                     .rpc()
                     .get_account(pair)
@@ -508,12 +537,12 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             blinding: order_blinding,
         };
         let order_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
-            env.client.indexer(),
-            env.tree,
+            env.localnet.client.indexer(),
+            env.localnet.tree,
             order_utxo_hash,
         );
         let order_in = escrow_utxo
-            .to_input_utxo(&escrow_owner, env.tree_id, order_state.leaf_index)
+            .to_input_utxo(&escrow_owner, env.localnet.tree_id, order_state.leaf_index)
             .map_err(|e| anyhow!("order_in: {e:?}"))?;
         let reserved = order_amount
             .checked_mul(max_price)
@@ -525,17 +554,17 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         };
         let reservation_hash = reservation
             .output_utxo(&escrow_owner, order_utxo_hash)?
-            .hash(env.tree_id)?;
+            .hash(env.localnet.tree_id)?;
         let reservation_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
-            env.client.indexer(),
-            env.tree,
+            env.localnet.client.indexer(),
+            env.localnet.tree,
             reservation_hash,
         );
         let reservation_in = reservation
             .to_input_utxo(
                 &escrow_owner,
                 order_utxo_hash,
-                env.tree_id,
+                env.localnet.tree_id,
                 reservation_state.leaf_index,
             )
             .map_err(|e| anyhow!("reservation_in: {e:?}"))?;
@@ -598,13 +627,13 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .map_err(|_| anyhow!("settle transaction must have three outputs"))?;
 
         let recipient_out_hash = recipient_out
-            .hash(env.tree_id)
+            .hash(env.localnet.tree_id)
             .map_err(|e| anyhow!("recipient_out hash: {e:?}"))?;
         let maker_counter_hash = maker_counter
-            .hash(env.tree_id)
+            .hash(env.localnet.tree_id)
             .map_err(|e| anyhow!("maker_counter hash: {e:?}"))?;
         let maker_source_hash = maker_source
-            .hash(env.tree_id)
+            .hash(env.localnet.tree_id)
             .map_err(|e| anyhow!("maker_source hash: {e:?}"))?;
 
         // maker_counter (output index 1) returns to the maker and is tracked
@@ -620,7 +649,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 maker_source.clone(),
             ],
             &viewing_key,
-            env.tree_id,
+            env.localnet.tree_id,
         )
         .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
         let mut outputs = encoded.outputs;
@@ -644,9 +673,10 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             external_data,
             payer: authority_solana.pubkey(),
             blinding_seed,
-            output_tree_id: env.tree_id,
+            output_tree_id: env.localnet.tree_id,
         };
         let transact = env
+            .localnet
             .client
             .indexer()
             .prove_transact(spp_proof_inputs, escrow_owner.as_ref())
@@ -672,7 +702,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             authority_owner_hash,
             external_data_hash,
             private_tx_blinding,
-            output_tree_id: env.tree_id,
+            output_tree_id: env.localnet.tree_id,
         }
         .to_proof_inputs()
         .map_err(|e| anyhow!("settle proof inputs: {e:?}"))?;
@@ -685,7 +715,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             pair,
             escrow,
             rent_recipient: user_solana.pubkey(),
-            tree: env.tree,
+            tree: env.localnet.tree,
             proof: SettleProof {
                 proof_a: order_proof.proof_a,
                 proof_b: order_proof.proof_b,
@@ -695,7 +725,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         }
         .instruction()
         .map_err(|e| anyhow!("settle instruction: {e:?}"))?;
-        send(env.client.rpc(), &authority_solana, &[], settle_ix)
+        send(env.localnet.client.rpc(), &authority_solana, &[], settle_ix)
             .map_err(|e| anyhow!("send settle: {e:?}"))?;
 
         (recipient_out_hash, maker_counter_hash, maker_source_hash)
@@ -710,9 +740,10 @@ fn create_pair_escrow_and_settle() -> Result<()> {
     // All three legs landed as real UTXOs in the pool tree.
     let leaves = vec![recipient_out_hash, maker_counter_hash, maker_source_hash];
     let response = env
+        .localnet
         .client
         .indexer()
-        .get_merkle_proofs(env.tree, leaves.clone(), None)
+        .get_merkle_proofs(env.localnet.tree, leaves.clone(), None)
         .map_err(|e| anyhow!("get merkle proofs: {e:?}"))?;
     if response.proofs.len() != leaves.len() {
         bail!(
@@ -724,7 +755,8 @@ fn create_pair_escrow_and_settle() -> Result<()> {
 
     // Settlement closes the escrow account.
     assert!(
-        env.client
+        env.localnet
+            .client
             .rpc()
             .get_account(escrow)
             .map_err(|e| anyhow!("get escrow account after settle: {e:?}"))?

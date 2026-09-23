@@ -74,7 +74,17 @@ impl ZolanaProgramTest {
         owner: &Pubkey,
         token_program: Pubkey,
     ) -> Result<Pubkey, ProgramTestError> {
-        let account = Keypair::new();
+        self.create_token_account_from(&Keypair::new(), mint, owner, token_program)
+    }
+
+    /// A token account at a fixed address, for fixtures other code must find.
+    pub fn create_token_account_from(
+        &mut self,
+        account: &Keypair,
+        mint: &Pubkey,
+        owner: &Pubkey,
+        token_program: Pubkey,
+    ) -> Result<Pubkey, ProgramTestError> {
         let rent = self
             .svm
             .minimum_balance_for_rent_exemption(SPL_TOKEN_ACCOUNT_LEN);
@@ -95,7 +105,7 @@ impl ZolanaProgramTest {
             ],
             data,
         };
-        self.send(&[create_ix, init_ix], &[&account])?;
+        self.send(&[create_ix, init_ix], &[account])?;
         Ok(account.pubkey())
     }
 

@@ -5,14 +5,9 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use solana_account::Account;
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use zolana_interface::pda;
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::fixture::write_protocol_snapshot;
 
 const DEFAULT_SURFPOOL_TAG: &str = "v1.6.0-light";
 const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
@@ -268,7 +263,11 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
         .collect::<Result<Vec<_>>>()?;
 
     let accounts_dir = staging.join("accounts");
-    generate_account_snapshots(&options.deploy_dir, &accounts_dir)?;
+    write_protocol_snapshot(
+        &options.deploy_dir.join("shielded_pool_program.so"),
+        &accounts_dir,
+    )
+    .map_err(|e| anyhow!("write the localnet account snapshot: {e}"))?;
 
     // Bundle the snapshot directory; the CLI extracts it into --account-dir.
     let accounts_asset = format!("accounts-{}.tar.gz", options.tag);
@@ -600,73 +599,6 @@ fn git_head() -> Result<String> {
         bail!("git rev-parse HEAD failed");
     }
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
-}
-
-/// Public on purpose, the localnet protocol authority is nobody's secret.
-const LOCALNET_SNAPSHOT_AUTHORITY_SEED: [u8; 32] = *b"zolana localnet snapshot authori";
-
-/// Build the initialized account set fully in-process with LiteSVM. No maintainer
-/// keypairs and no running validator are needed: every authority is generated
-/// here.
-pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path) -> Result<()> {
-    let shielded_so = deploy_dir.join("shielded_pool_program.so");
-    require_file(&shielded_so, "run `just build-programs` first")?;
-    reset_dir(accounts_dir)?;
-
-    let mut test = ZolanaProgramTest::with_program_path(&shielded_so)
-        .map_err(|e| anyhow!("failed to boot litesvm: {e:?}"))?;
-
-    // A fixed localnet authority, the bundle hashes the same on every build.
-    let authority = Keypair::new_from_array(LOCALNET_SNAPSHOT_AUTHORITY_SEED);
-    test.create_protocol_config_permissionless(&authority)
-        .map_err(|e| anyhow!("create_protocol_config failed: {e:?}"))?;
-    test.create_asset_counter(&authority)
-        .map_err(|e| anyhow!("create_asset_counter failed: {e:?}"))?;
-
-    let tree = test
-        .create_tree(&authority)
-        .map_err(|e| anyhow!("create_tree failed: {e:?}"))?;
-    if tree != pda::tree(0) {
-        bail!(
-            "fresh protocol created tree {tree}, expected {}",
-            pda::tree(0)
-        );
-    }
-
-    for (label, pubkey) in [
-        ("protocol_config", pda::protocol_config()),
-        ("spl_asset_counter", pda::spl_asset_counter()),
-        ("tree", tree),
-    ] {
-        let account = test
-            .svm
-            .get_account(&pubkey)
-            .ok_or_else(|| anyhow!("{label} account {pubkey} missing after init"))?;
-        write_account_json(accounts_dir, &pubkey, &account)?;
-        println!("snapshot {label} {pubkey}");
-    }
-
-    Ok(())
-}
-
-fn write_account_json(dir: &Path, pubkey: &Pubkey, account: &Account) -> Result<()> {
-    let json = account_json(pubkey, account);
-    let path = dir.join(format!("{pubkey}.json"));
-    fs::write(&path, serde_json::to_string(&json)?)
-        .with_context(|| format!("failed to write {}", path.display()))
-}
-
-fn account_json(pubkey: &Pubkey, account: &Account) -> Value {
-    json!({
-        "pubkey": pubkey.to_string(),
-        "account": {
-            "lamports": account.lamports,
-            "data": [STANDARD.encode(&account.data), "base64"],
-            "owner": account.owner.to_string(),
-            "executable": account.executable,
-            "rentEpoch": account.rent_epoch,
-        }
-    })
 }
 
 struct Checksum {
@@ -1094,29 +1026,6 @@ mod tests {
             sha256_hex(b"hello"),
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         );
-    }
-
-    #[test]
-    fn account_json_uses_solana_dump_format() {
-        let pubkey = Pubkey::new_from_array([7u8; 32]);
-        let account = Account {
-            lamports: 42,
-            data: vec![1, 2, 3],
-            owner: Pubkey::new_from_array([9u8; 32]),
-            executable: false,
-            rent_epoch: u64::MAX,
-        };
-        let expected = json!({
-            "pubkey": pubkey.to_string(),
-            "account": {
-                "lamports": 42,
-                "data": [STANDARD.encode([1, 2, 3]), "base64"],
-                "owner": account.owner.to_string(),
-                "executable": false,
-                "rentEpoch": u64::MAX,
-            }
-        });
-        assert_eq!(account_json(&pubkey, &account), expected);
     }
 
     // Guard against drift between the JSON this tool writes and the schema the

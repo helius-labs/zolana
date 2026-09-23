@@ -1,0 +1,7 @@
+[package]
+name = "zolana-gnark-ffi-prover-build"
+version = "0.1.0"
+description = "Build-script helper that compiles a zolana-gnark-ffi-prover circuit package into a Go C archive."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true

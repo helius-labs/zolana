@@ -1,31 +1,18 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
-    AsyncProverClient, AsyncZolanaIndexer, ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc,
-    ZolanaClient, ZolanaIndexer,
-};
-use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface},
-    pda,
-    state::{default_tree_fees, nullifier_tree_params},
-    SHIELDED_POOL_PROGRAM_ID,
-};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_keypair::{
     constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
-use zolana_program_test::create_tree_instructions;
-use zolana_test_utils::{
-    localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
-    prover::spawn_workspace_prover,
-    smart_account::{self, StandardSigners},
-    spl::{create_mint, create_token_account, mint_to},
-    test_validator_asserts::wait_for_indexed_utxo,
+use zolana_program_test::{
+    fixture,
+    localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
+    workspace_path,
 };
+use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{utxo::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
 use zolana_wallet::{sync_wallet, Deposit, DepositParams, Wallet};
@@ -42,11 +29,9 @@ pub const DESTINATION_AMOUNT: u64 = 250_000_000;
 // Solana fee payer (`to_solana_keypair`), and the wallet holds the asset
 // registry and the synced spendable notes.
 pub struct TestEnv {
-    pub client: ZolanaClient<SolanaRpc>,
-    pub tree: Pubkey,
-    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
-    /// in, so the SPP and swap proofs must hash under the same value.
-    pub tree_id: u16,
+    /// The localnet with its client and default tree. Dropping it stops the
+    /// validator, so it lives as long as the test.
+    pub localnet: FixtureLocalnet,
     pub maker: TestWallet,
     pub maker_input: SppProofInputUtxo,
     pub taker: TestWallet,
@@ -70,206 +55,39 @@ impl std::ops::DerefMut for TestWallet {
         &mut self.wallet
     }
 }
-pub fn setup() -> Result<TestEnv> {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../..");
-    let artifacts = WorkspaceArtifacts::new(root);
-    let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/zolana"));
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
-    let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
-
-    let swap_program_id = swap_program::ID.to_string();
-    let swap_program_so = std::env::var("SWAP_PROGRAM_SO")
-        .unwrap_or_else(|_| artifacts.path("target/deploy/swap_program.so"));
-    let spp_program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID).to_string();
-    let spp_program_so = artifacts.path("target/deploy/shielded_pool_program.so");
-    let user_registry_id = user_registry_program_id().to_string();
-    let user_registry_so = artifacts.path("target/deploy/zolana_user_registry.so");
-    let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
-    let smart_account_so = artifacts.path("target/deploy/squads_smart_account_program.so");
-
-    let protocol_vault = smart_account::standard_accounts()
-        .protocol_vault
-        .to_string();
-    LocalnetValidator {
-        cli_bin: cli.clone(),
-        working_dir: artifacts.root(),
-        rpc_port,
-        photon_port,
-        ledger: isolated_temp_path("zolana-swap-ledger"),
-        account_dir: isolated_temp_path("zolana-swap-smart-accounts"),
-        programs: vec![
-            (swap_program_id, swap_program_so),
-            (user_registry_id, user_registry_so),
-            (smart_account_id, smart_account_so),
+/// Boot the localnet of test number `test` ([`LocalnetPorts::for_test`]); tests
+/// running in parallel take distinct numbers.
+pub fn setup(test: u16) -> Result<TestEnv> {
+    let localnet = FixtureLocalnet::start(
+        "zolana-swap",
+        LocalnetPorts::for_test(test)?,
+        vec![
+            (
+                swap_program::ID,
+                workspace_path("target/deploy/swap_program.so"),
+            ),
+            (
+                user_registry_program_id(),
+                workspace_path("target/deploy/zolana_user_registry.so"),
+            ),
         ],
-    }
-    .start_with_upgradeable_programs(&[UpgradeableProgram {
-        address: &spp_program_id,
-        path: &spp_program_so,
-        authority: &protocol_vault,
-    }]);
-
-    spawn_workspace_prover();
-
-    let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
-    let indexer_url =
-        std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| "http://127.0.0.1:8784".to_string());
-    let mut rpc = SolanaRpc::new(rpc_url);
-    let indexer = ZolanaIndexer::new(indexer_url.clone());
-
-    let spp_program = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    rpc.assert_executable(&spp_program)?;
-    let swap_program = Pubkey::new_from_array(*swap_program::ID.as_array());
-    rpc.assert_executable(&swap_program)?;
-
-    let payer = Keypair::new();
-    let authority = Keypair::new();
-    let forester_authority = Keypair::new();
-    let merge_authority = Keypair::new();
-    let tree_creation_authority = Keypair::new();
-    let ring_creation_authority = Keypair::new();
-    rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
-    rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
-    rpc.airdrop(&forester_authority.pubkey(), 1_000_000_000)?;
-    rpc.airdrop(&merge_authority.pubkey(), 1_000_000_000)?;
-    rpc.airdrop(&tree_creation_authority.pubkey(), 1_000_000_000)?;
-    rpc.airdrop(&ring_creation_authority.pubkey(), 1_000_000_000)?;
-
-    let payer_address = payer.pubkey();
-
-    let accounts = smart_account::standard_accounts();
-    for ix in accounts.create_ixs(
-        &payer.pubkey(),
-        StandardSigners {
-            protocol: authority.pubkey(),
-            forester: forester_authority.pubkey(),
-            merge: merge_authority.pubkey(),
-            tree: tree_creation_authority.pubkey(),
-            ring: ring_creation_authority.pubkey(),
-        },
-    ) {
-        rpc.create_and_send_transaction(
-            &[ix],
-            payer_address,
-            &[&payer],
-            ComputeBudgetConfig::for_instruction_count(1),
-        )?;
-    }
-
-    rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
-
-    let create_config_ix = CreateProtocolConfig {
-        fee_payer: payer.pubkey(),
-        initialization_authority: accounts.protocol_vault,
-        protocol_authority: accounts.protocol_vault.to_bytes().into(),
-        fee_authority: accounts.protocol_vault.to_bytes().into(),
-        tree_creation_authority: accounts.tree_vault.to_bytes().into(),
-        tree_creation_is_permissionless: false,
-        forester_authority: accounts.forester_vault.to_bytes().into(),
-        ring_creation_authority: accounts.ring_vault.to_bytes().into(),
-        ring_activation_is_permissionless: false,
-        spl_interface_creation_is_permissionless: false,
-    }
-    .instruction();
-    let create_config_sync = smart_account::execute_sync_ix(
-        &accounts.protocol_settings,
-        0,
-        &[authority.pubkey()],
-        &[create_config_ix],
-    );
-    rpc.create_and_send_transaction(
-        &[create_config_sync],
-        payer_address,
-        &[&payer, &authority],
-        ComputeBudgetConfig::for_instruction_count(1),
+        &LocalnetPaths::workspace(),
     )?;
+    let payer = fixture::payer();
 
-    let tree_creation = create_tree_instructions(
-        &rpc,
-        &payer.pubkey(),
-        &accounts.tree_vault,
-        nullifier_tree_params(),
-        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
-            .expect("default tree fees"),
-    )?;
-    let create_tree_syncs = smart_account::execute_sync_each(
-        &accounts.tree_settings,
-        0,
-        &[tree_creation_authority.pubkey()],
-        &tree_creation.instructions,
-    );
-    rpc.create_and_send_transaction(
-        &create_tree_syncs,
-        payer_address,
-        &[&payer, &tree_creation_authority],
-        ComputeBudgetConfig::for_instruction_count(create_tree_syncs.len()),
-    )?;
-
-    let tree = tree_creation.tree;
-    let tree_id = zolana_test_utils::nullifier_pda::tree_id(&rpc, &tree)?;
-
-    // Register an SPL asset with the pool so the maker can order it. Both
-    // CreateAssetCounter and CreateSplInterface check the protocol authority (the
-    // Squads protocol vault), so each is wrapped in execute_sync_ix.
-    let spl_mint = create_mint(&rpc, &payer)?;
-    if rpc.get_account(pda::spl_asset_counter())?.is_none() {
-        let counter_ix = CreateAssetCounter {
-            authority: accounts.protocol_vault,
-        }
-        .instruction();
-        let counter_sync = smart_account::execute_sync_ix(
-            &accounts.protocol_settings,
-            0,
-            &[authority.pubkey()],
-            &[counter_ix],
-        );
-        rpc.create_and_send_transaction(
-            &[counter_sync],
-            payer_address,
-            &[&payer, &authority],
-            ComputeBudgetConfig::for_instruction_count(1),
-        )?;
-    }
-    let interface_ix = CreateSplInterface {
-        authority: accounts.protocol_vault,
-        mint: spl_mint,
-        token_program: zolana_interface::pda::spl_token_program_id(),
-    }
-    .instruction();
-    let interface_sync = smart_account::execute_sync_ix(
-        &accounts.protocol_settings,
-        0,
-        &[authority.pubkey()],
-        &[interface_ix],
-    );
-    rpc.create_and_send_transaction(
-        &[interface_sync],
-        payer_address,
-        &[&payer, &authority],
-        ComputeBudgetConfig::for_instruction_count(1),
-    )?;
-
-    // SOL occupies asset id 1; the first registered SPL mint gets id 2.
-    let spl_asset_id = 2u64;
+    let spl_mint = fixture::spl_mint();
     let mut assets = AssetRegistry::default();
-    assets.insert(spl_asset_id, spl_mint)?;
+    assets.insert(fixture::SPL_ASSET_ID, spl_mint)?;
+    let spl_funding = fixture::payer_token_account();
 
-    let spl_funding = create_token_account(&rpc, &payer, &spl_mint, &payer.pubkey())?;
-    mint_to(&rpc, &payer, &spl_mint, &spl_funding, 1_000_000_000)?;
-
-    let maker_solana_keypair = Keypair::new();
+    let maker_solana_keypair = fixture::actor(0);
     let maker_seed: [u8; 32] = maker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
     let maker_shielded_keypair =
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&maker_seed))?;
-    rpc.airdrop(&maker_solana_keypair.pubkey(), 10_000_000_000)?;
 
-    let taker_solana_keypair = Keypair::new();
-    rpc.airdrop(&taker_solana_keypair.pubkey(), 10_000_000_000)?;
+    let taker_solana_keypair = fixture::actor(1);
     let taker_seed: [u8; 32] = taker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
@@ -294,11 +112,11 @@ pub fn setup() -> Result<TestEnv> {
         memo: None,
     })?;
     let maker_view_tag = maker_deposit.view_tag();
-    let maker_signature = maker_deposit.send(&rpc, &payer, tree, &payer)?;
+    let maker_signature = maker_deposit.send(&localnet.client, &payer, localnet.tree, &payer)?;
     // The order authority is a PDA holding no viewing key, but a proofless
     // deposit publishes its UTXO in the clear, so the depositor-chosen view tag
     // reads it back from the indexer.
-    let indexed_deposit = wait_for_indexed_utxo(&indexer, maker_view_tag, maker_signature);
+    let indexed_deposit = wait_for_indexed_utxo(&localnet.client, maker_view_tag, maker_signature);
     let maker_deposited = indexed_deposit
         .output_slot
         .proofless_output()
@@ -313,7 +131,7 @@ pub fn setup() -> Result<TestEnv> {
             data: Data::default(),
         },
         &order_nullifier_key,
-        tree_id,
+        localnet.tree_id,
         indexed_deposit.output_slot.output_context.leaf_index,
         None,
         None,
@@ -331,7 +149,7 @@ pub fn setup() -> Result<TestEnv> {
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?
-    .send(&rpc, &payer, tree, &payer)?;
+    .send(&localnet.client, &payer, localnet.tree, &payer)?;
 
     let maker_address = maker_shielded_keypair
         .shielded_address()
@@ -346,21 +164,11 @@ pub fn setup() -> Result<TestEnv> {
         Wallet::new(maker_address, assets.clone()).map_err(|e| anyhow!("maker wallet: {e:?}"))?;
     let mut taker_wallet =
         Wallet::new(taker_address, assets.clone()).map_err(|e| anyhow!("taker wallet: {e:?}"))?;
-    sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &indexer)
+    sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &localnet.client)
         .map_err(|e| anyhow!("sync taker deposit: {e:?}"))?;
 
-    let client = ZolanaClient::new(
-        rpc,
-        indexer,
-        ProverClient::default(),
-        AsyncZolanaIndexer::new(indexer_url),
-        AsyncProverClient::default(),
-    );
-
     let env = TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         maker: TestWallet {
             wallet: maker_wallet,
             keypair: maker_shielded_keypair,

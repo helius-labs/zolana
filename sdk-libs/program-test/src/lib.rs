@@ -46,7 +46,11 @@ pub use instructions::{
     create_tree_instructions, next_tree_id, rpc_state_root, system_create_account_ix, TreeCreation,
     RING_TEST_PROGRAM_ID,
 };
+pub mod fixture;
+#[cfg(feature = "localnet")]
+pub mod localnet;
 mod paths;
+pub use paths::workspace_path;
 mod rejection;
 use paths::default_program_path;
 mod proofless;
@@ -98,6 +102,10 @@ pub enum ProgramTestError {
     Pubkey(#[from] solana_pubkey::PubkeyError),
     #[error("the default tree fee schedule does not fit zkp batch size {0}")]
     InvalidTreeFees(u64),
+    #[error("account fixture: {0}")]
+    Fixture(String),
+    #[error("localnet: {0}")]
+    Localnet(String),
 }
 
 impl From<ClientError> for ProgramTestError {
