@@ -18,7 +18,6 @@ export const HEAD_MAP_EMPTY_ROOT = Uint8Array.from([
 
 const EMPTY_LEAF = new Uint8Array(32) as Bytes32;
 
-/** Ordered member link and the value committed for that member. */
 export interface HeadMapLeaf {
   readonly member: Bytes32;
   readonly next: Bytes32;

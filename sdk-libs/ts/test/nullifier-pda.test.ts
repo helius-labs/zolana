@@ -94,7 +94,7 @@ describe("nullifier PDA accounts", () => {
         await expect(
           ringTransactAccounts({
             payer: PAYER,
-            inputTree: TREE,
+            inputTrees: [TREE],
             outputTree: OUTPUT_TREE,
             ringAuth: RING_AUTH,
             inputs: data.inputs,
@@ -159,11 +159,40 @@ describe("nullifier PDA accounts", () => {
     ]);
   });
 
+  it("lists one ring input tree per context and derives each PDA under its input's tree", async () => {
+    const context = { utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 };
+    const inputs = [input(71), { ...input(72), treeIndex: 1 }];
+    const accounts = await ringTransactAccounts({
+      payer: PAYER,
+      inputTrees: [TREE, OUTPUT_TREE],
+      outputTree: OUTPUT_TREE,
+      ringAuth: RING_AUTH,
+      inputs,
+      treeContexts: [context, context],
+    });
+    expect(accounts.slice(5).map((meta) => [meta.address, meta.role])).toEqual([
+      [TREE, AccountRole.WRITABLE],
+      [OUTPUT_TREE, AccountRole.WRITABLE],
+      [await nullifierPdaAddress(TREE, filled(71, 32)), AccountRole.WRITABLE],
+      [await nullifierPdaAddress(OUTPUT_TREE, filled(72, 32)), AccountRole.WRITABLE],
+    ]);
+    await expect(
+      ringTransactAccounts({
+        payer: PAYER,
+        inputTrees: [TREE, TREE],
+        outputTree: OUTPUT_TREE,
+        ringAuth: RING_AUTH,
+        inputs,
+        treeContexts: [context, context],
+      }),
+    ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
+  });
+
   it("keeps ring_config at index 4 and puts the PDAs before the owner signers", async () => {
     const inputs = [input(71), input(72)];
     const accounts = await ringTransactAccounts({
       payer: PAYER,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs,

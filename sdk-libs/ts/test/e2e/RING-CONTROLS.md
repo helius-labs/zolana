@@ -20,9 +20,12 @@ npm run test:ring-controls:live
 
 A clone with `ZOLANA_PORT_OFFSET` set adds the offset to each port.
 
-The fixture enables deposit auditing at initialization. SOL, SPL and Token-2022
-deposits must land, decrypt for the recipient and recover through the auditor
-before any notes are spent. Co-signing initially covers withdrawals only. A
+The fixture sets the delegate before any note exists, which turns key escrow on.
+The sender and the recipient register their nullifier keys first. A deposit or
+transfer to an allow-listed owner without a registered key is refused before
+proving, and so is a deposit under the zero nullifier key. Deposit auditing stays off at initialization, and escrow alone forces
+the audited deposit. SOL, SPL and Token-2022 deposits must land, decrypt for the
+recipient and recover through the auditor before any notes are spent. Co-signing initially covers withdrawals only. A
 below-threshold private transfer lands without the co-signer, and an
 above-threshold transfer requires it. Transfer-scoped approval is enabled later
 for the delegate checks.

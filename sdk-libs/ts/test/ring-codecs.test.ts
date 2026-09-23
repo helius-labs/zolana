@@ -34,6 +34,7 @@ import {
   initSppRingConfigInstruction,
   ringDelegateTransactInstruction,
   ringTransactInstruction,
+  type RingTransactPolicy,
 } from "../src/ring/instructions.js";
 import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
 import {
@@ -56,8 +57,8 @@ import {
   ringDelegateAddress,
   ringDelegatePda,
   ringDepositAuditAddress,
+  ringKeyRegistryRootAddress,
   nullifierPdaAddress,
-  ringPolicyConfigAddress,
   ringSpendWindowAddress,
   ringSpendWindowPda,
 } from "../src/interface/pda/index.js";
@@ -185,7 +186,7 @@ const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const PAYER = address("k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn");
 const TREE = address("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
 const OUTPUT_TREE = address("2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z");
-const ENTRIES_TREE = addressOf(60);
+const ADDRESS_TREE = addressOf(60);
 const RING_AUTH = address("AtyqWdns8uYfWdpLhWJRN9DxRdpwB6Zaa33k66TAkwFx");
 const RING_CONFIG = address("CXJhGzAcN4NYaapjRqiTzmnRBTmtUL52Zg4ooG2PtMfP");
 const SPP = address("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
@@ -219,7 +220,6 @@ describe("ring deposit", () => {
       ringProgramId: RING,
       tree: TREE,
       depositor: PAYER,
-      hasPolicy: false,
       deposits: [
         {
           asset: DepositAsset.sol(),
@@ -255,43 +255,6 @@ describe("ring deposit", () => {
     );
   });
 
-  it("adds policy_config after the co-signer for a policy ring", async () => {
-    const instruction = await ringDepositInstruction({
-      ringProgramId: RING,
-      tree: TREE,
-      depositor: PAYER,
-      hasPolicy: true,
-      deposits: [
-        {
-          asset: DepositAsset.sol(),
-          viewTag: filled(31, 32) as Bytes32,
-          ownerUtxoHash: filled(32, 32) as Bytes32,
-          amount: 7_000_000n,
-          ringDataHash: filled(33, 32) as Bytes32,
-          encrypted: {
-            txViewingPublicKey: filled(3, 33) as Bytes33,
-            salt: filled(34, 16) as Bytes16,
-            ciphertext: Uint8Array.of(35, 36, 37),
-          },
-        },
-      ],
-    });
-    expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
-      [await ringConfigAddress(RING), AccountRole.READONLY],
-      [await ringCoSignerAddress(RING), AccountRole.READONLY],
-      [await ringCoSignerAddress(RING), AccountRole.READONLY],
-      [await ringDepositAuditAddress(RING), AccountRole.READONLY],
-      [await ringPolicyConfigAddress(RING), AccountRole.READONLY],
-      [await ringSpendWindowAddress(RING, SOL_MINT), AccountRole.WRITABLE],
-      [TREE, AccountRole.WRITABLE],
-      [PAYER, AccountRole.WRITABLE_SIGNER],
-      [RING_AUTH, AccountRole.READONLY],
-      [SPP, AccountRole.READONLY],
-      [SYSTEM, AccountRole.READONLY],
-      [SOL_INTERFACE, AccountRole.WRITABLE],
-    ]);
-  });
-
   it("decodes the output the shielded pool publishes", () => {
     const frame = decodeOutputData(
       hex(
@@ -321,7 +284,7 @@ describe("ring transact settlement", () => {
     const tokenProgram = addressOf(44);
     const pool = await ringTransactAccounts({
       payer: PAYER,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs: [],
@@ -346,7 +309,7 @@ describe("ring transact settlement", () => {
     const owner = addressOf(45);
     const pool = await ringTransactAccounts({
       payer: PAYER,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs: [],
@@ -448,12 +411,20 @@ describe("ring config", () => {
   });
 
   it("decodes the config account and rejects another layout", () => {
-    const data = Uint8Array.from([1, ...filled(12, 32), ...hex(P256_HEX), 254, 1]);
+    const data = Uint8Array.from([1, ...filled(12, 32), ...hex(P256_HEX), 254, 1, 0]);
     const config = decodeRingProgramConfig(data);
     expect(config.authority).toBe(AUTHORITY);
     expect(config.auditorPublicKey.equals(AUDITOR)).toBe(true);
     expect(config.bump).toBe(254);
     expect(config.hasPolicy).toBe(true);
+    expect(config.keyEscrow).toBe(false);
+    // Rust `RingProgramConfig::key_escrow`, any nonzero byte reads as on.
+    for (const flag of [1, 2, 0xff]) {
+      expect(
+        decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), flag])).keyEscrow,
+      ).toBe(true);
+    }
+    expect(() => decodeRingProgramConfig(data.subarray(0, 68))).toThrow("RING_CONFIG_INVALID");
     expect(() => decodeRingProgramConfig(data.subarray(1))).toThrow("RING_CONFIG_INVALID");
     expect(() => decodeRingProgramConfig(Uint8Array.from([2, ...data.subarray(1)]))).toThrow(
       "RING_CONFIG_INVALID",
@@ -465,8 +436,8 @@ describe("ring config", () => {
     expect(data).toHaveLength(1604);
     const config = decodeRingPolicyConfig(data);
     expect(config.policyHash).toEqual(filled(42, 32));
-    expect(config.entriesTree).toBe(addressOf(43));
-    expect(config.entriesTreeId).toBe(7);
+    expect(config.addressTree).toBe(addressOf(43));
+    expect(config.addressTreeId).toBe(7);
     expect(config.namespaceBump).toBe(253);
     expect(config.bump).toBe(252);
     expect(config.sources).toHaveLength(8);
@@ -719,7 +690,9 @@ describe("ring config", () => {
     expect(set.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [RING_CONFIG, AccountRole.WRITABLE],
       [await ringDelegateAddress(RING), AccountRole.WRITABLE],
+      [await ringKeyRegistryRootAddress(RING), AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
       [RING, AccountRole.READONLY],
       [programData, AccountRole.READONLY],
@@ -1359,17 +1332,24 @@ describe("ring transact", () => {
     messages: [],
   });
 
+  const ZERO_TARGETS = Array.from({ length: 10 }, () => filled(0, 32) as Bytes32);
+  const policy = (input: Partial<RingTransactPolicy> = {}): RingTransactPolicy => ({
+    trees: [ADDRESS_TREE],
+    treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
+    revocationTargets: ZERO_TARGETS,
+    revocationTreeIndexes: Array.from({ length: 10 }, () => 0),
+    ...input,
+  });
+
   it("appends the settlement accounts of a public withdrawal", async () => {
     const recipient = addressOf(31);
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      entriesTree: ENTRIES_TREE,
+      policy: policy(),
       proof: customRingProof(),
-      stateRootIndex: 0,
-      nullifierRootIndex: 0,
       withdrawal: { kind: "sol", recipient },
       data: transactData(),
     });
@@ -1379,64 +1359,58 @@ describe("ring transact", () => {
     expect(tail).toEqual([SOL_INTERFACE, recipient]);
   });
 
-  it("places the delegate after the co-signer and refuses a public leg", async () => {
+  it("places the delegate after the co-signer, requires key escrow and refuses a public leg", async () => {
     const delegate = addressOf(47);
-    const instruction = await ringDelegateTransactInstruction({
+    const [policyConfig] = await getProgramDerivedAddress({
+      programAddress: RING,
+      seeds: [new TextEncoder().encode("policy")],
+    });
+    const escrowed = await ringDelegateTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
       delegate,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      hasPolicy: false,
+      policy: policy({ keyRegistryRootIndex: 3 }),
       proof: customRingProof(),
-      stateRootIndex: 0,
-      nullifierRootIndex: 0,
       data: transactData(),
     });
-    expect(instruction.accounts?.slice(0, 7).map((meta) => [meta.address, meta.role])).toEqual([
+    expect(escrowed.data?.[0]).toBe(25);
+    expect(escrowed.accounts?.slice(0, 10).map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [RING_CONFIG, AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringDelegateAddress(RING), AccountRole.READONLY],
       [delegate, AccountRole.READONLY_SIGNER],
-      [PAYER, AccountRole.WRITABLE_SIGNER],
-    ]);
-    expect(instruction.data?.[0]).toBe(25);
-    const [policyConfig] = await getProgramDerivedAddress({
-      programAddress: RING,
-      seeds: [new TextEncoder().encode("policy")],
-    });
-    const policy = await ringDelegateTransactInstruction({
-      ringProgramId: RING,
-      payer: PAYER,
-      delegate,
-      inputTree: TREE,
-      outputTree: OUTPUT_TREE,
-      entriesTree: ENTRIES_TREE,
-      proof: customRingProof(),
-      stateRootIndex: 0,
-      nullifierRootIndex: 0,
-      data: transactData(),
-    });
-    expect(policy.accounts?.slice(4, 9).map((meta) => [meta.address, meta.role])).toEqual([
-      [await ringDelegateAddress(RING), AccountRole.READONLY],
-      [delegate, AccountRole.READONLY_SIGNER],
       [policyConfig, AccountRole.READONLY],
-      [ENTRIES_TREE, AccountRole.READONLY],
+      [ADDRESS_TREE, AccountRole.READONLY],
+      [await ringKeyRegistryRootAddress(RING), AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
     ]);
+    for (const unescrowed of [undefined, policy()]) {
+      await expect(
+        ringDelegateTransactInstruction({
+          ringProgramId: RING,
+          payer: PAYER,
+          delegate,
+          inputTrees: [TREE],
+          outputTree: OUTPUT_TREE,
+          ...(unescrowed === undefined ? {} : { policy: unescrowed }),
+          proof: customRingProof(),
+          data: transactData(),
+        }),
+      ).rejects.toThrow("RING_DELEGATE_INVALID");
+    }
     await expect(
       ringDelegateTransactInstruction({
         ringProgramId: RING,
         payer: PAYER,
         delegate,
-        inputTree: TREE,
+        inputTrees: [TREE],
         outputTree: OUTPUT_TREE,
-        hasPolicy: false,
+        policy: policy({ keyRegistryRootIndex: 3 }),
         proof: customRingProof(),
-        stateRootIndex: 0,
-        nullifierRootIndex: 0,
         data: { ...transactData(), interfaceTransfers: [{ kind: "solWithdrawal", amount: 1n }] },
       }),
     ).rejects.toThrow("RING_DELEGATE_PUBLIC_LEG");
@@ -1447,12 +1421,9 @@ describe("ring transact", () => {
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      hasPolicy: false,
       proof: customRingProof(),
-      stateRootIndex: 0,
-      nullifierRootIndex: 0,
       withdrawal: { kind: "sol", recipient },
       data: {
         ...transactData(),
@@ -1472,12 +1443,9 @@ describe("ring transact", () => {
       ringTransactInstruction({
         ringProgramId: RING,
         payer: PAYER,
-        inputTree: TREE,
+        inputTrees: [TREE],
         outputTree: OUTPUT_TREE,
-        hasPolicy: false,
         proof: customRingProof(),
-        stateRootIndex: 0,
-        nullifierRootIndex: 0,
         withdrawal: { kind: "sol", recipient },
         data: {
           ...transactData(),
@@ -1492,36 +1460,12 @@ describe("ring transact", () => {
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      proof: Uint8Array.from([
-        ...filled(51, 32),
-        ...filled(52, 64),
-        ...filled(53, 32),
-        ...filled(54, 32),
-        ...filled(55, 32),
-      ]),
-      entriesTree: ENTRIES_TREE,
+      proof: customRingProof(),
+      policy: policy(),
       ownerSigners: [owner],
-      stateRootIndex: 0,
-      nullifierRootIndex: 0,
-      data: {
-        expiryUnixTs: 0xffff_ffff_ffff_ffffn,
-        privateTxHash: filled(41, 32) as Bytes32,
-        circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
-        txViewingPk: filled(3, 33) as Bytes33,
-        salt: filled(42, 16) as Bytes16,
-        proof: {
-          a: filled(43, 32) as Bytes32,
-          b: filled(44, 128) as never,
-          c: filled(45, 32) as Bytes32,
-        },
-        inputs: [],
-        treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
-        interfaceTransfers: [],
-        outputs: [],
-        messages: [],
-      },
+      data: transactData(),
     });
 
     const signers = (instruction.accounts ?? []).filter(
@@ -1533,26 +1477,19 @@ describe("ring transact", () => {
     expect(signers[2]?.role).toBe(AccountRole.READONLY_SIGNER);
   });
 
-  it("wraps the pool's account list and data like Rust `CustomRingTransact`", async () => {
+  it("wraps the pool's account list and data like Rust `CustomRingTransactIxData`", async () => {
     const [policyConfig] = await getProgramDerivedAddress({
       programAddress: RING,
       seeds: [new TextEncoder().encode("policy")],
     });
     const revocationTarget = filled(66, 32) as Bytes32;
-    const revocationTargets = [
-      revocationTarget,
-      ...Array.from({ length: 9 }, () => filled(0, 32) as Bytes32),
-    ];
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      entriesTree: ENTRIES_TREE,
+      policy: policy({ revocationTargets: [revocationTarget, ...ZERO_TARGETS.slice(1)] }),
       proof: customRingProof(),
-      stateRootIndex: 0,
-      nullifierRootIndex: 0,
-      revocationTargets,
       data: transactData(),
     });
     expect(instruction.programAddress).toBe(RING);
@@ -1562,8 +1499,8 @@ describe("ring transact", () => {
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [policyConfig, AccountRole.READONLY],
-      [ENTRIES_TREE, AccountRole.READONLY],
-      [await nullifierPdaAddress(ENTRIES_TREE, revocationTarget), AccountRole.READONLY],
+      [ADDRESS_TREE, AccountRole.READONLY],
+      [await nullifierPdaAddress(ADDRESS_TREE, revocationTarget), AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SPP, AccountRole.READONLY],
@@ -1571,50 +1508,72 @@ describe("ring transact", () => {
       [RING_AUTH, AccountRole.READONLY],
       [TREE, AccountRole.WRITABLE],
     ]);
-    const encoded = Buffer.from(instruction.data ?? []).toString("hex");
-    const targetCountOffset = (1 + 192 + 5) * 2;
-    expect(encoded.slice(targetCountOffset, targetCountOffset + 2)).toBe("01");
-    const targetOffset = targetCountOffset + 2;
-    expect(encoded.slice(targetOffset, targetOffset + 32 * 2)).toBe("42".repeat(32));
-    const withoutRevocationTargets =
-      encoded.slice(0, targetCountOffset) + encoded.slice(targetOffset + 32 * 2);
-    expect(withoutRevocationTargets).toBe(
-      "033333333333333333333333333333333333333333333333333333333333333333343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343535353535353535353535353535353535353535353535353535353535353535363636363636363636363636363636363636363636363636363636363636363637373737373737373737373737373737373737373737373737373737373737370000000000ffffffffffffffff0303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000000292929292929292929292929292929292929292929292929292929292929292901000203032b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000100000000",
+    expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
+      "03" +
+        "333333333333333333333333333333333333333333333333333333333333333334343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434353535353535353535353535353535353535353535353535353535353535353536363636363636363636363636363636363636363636363636363636363636363737373737373737373737373737373737373737373737373737373737373737" +
+        "01" +
+        "00000000" +
+        "00" +
+        "00" +
+        "01" +
+        "42".repeat(32) +
+        "00".repeat(10) +
+        "ffffffffffffffff0303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000000292929292929292929292929292929292929292929292929292929292929292901000203032b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000100000000",
     );
   });
 
-  it("places the entries tree read-only at index 5 before the spp payer", async () => {
+  it("derives each revocation PDA under its fact's policy tree", async () => {
+    const targets = [
+      filled(66, 32) as Bytes32,
+      filled(67, 32) as Bytes32,
+      ...ZERO_TARGETS.slice(2),
+    ];
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
-      inputTree: TREE,
+      inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      entriesTree: ENTRIES_TREE,
+      policy: policy({
+        trees: [ADDRESS_TREE, TREE],
+        treeContexts: [
+          { utxoTreeRootIndex: 0x0102, nullifierTreeRootIndex: 0x0304 },
+          { utxoTreeRootIndex: 0x0506, nullifierTreeRootIndex: 0x0708 },
+        ],
+        keyRegistryRootIndex: 9,
+        revocationTargets: targets,
+        revocationTreeIndexes: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      }),
       proof: customRingProof(),
-      stateRootIndex: 0,
-      nullifierRootIndex: 0,
       data: transactData(),
     });
-    const accounts = instruction.accounts ?? [];
-    expect(accounts[5]).toMatchObject({ address: ENTRIES_TREE, role: AccountRole.READONLY });
-    expect(accounts[6]).toMatchObject({ address: PAYER, role: AccountRole.WRITABLE_SIGNER });
-  });
-
-  it("encodes the root indices little endian between proof and payload", async () => {
-    const instruction = await ringTransactInstruction({
-      ringProgramId: RING,
-      payer: PAYER,
-      inputTree: TREE,
-      outputTree: OUTPUT_TREE,
-      entriesTree: ENTRIES_TREE,
-      proof: customRingProof(),
-      stateRootIndex: 0x0102,
-      nullifierRootIndex: 0x0304,
-      data: transactData(),
-    });
-    expect(Array.from((instruction.data ?? new Uint8Array()).slice(193, 197))).toEqual([
-      2, 1, 4, 3,
+    expect(instruction.accounts?.slice(5, 10).map((meta) => meta.address)).toEqual([
+      ADDRESS_TREE,
+      TREE,
+      await ringKeyRegistryRootAddress(RING),
+      await nullifierPdaAddress(TREE, filled(66, 32)),
+      await nullifierPdaAddress(ADDRESS_TREE, filled(67, 32)),
     ]);
+    expect(Array.from((instruction.data ?? new Uint8Array()).slice(193, 204))).toEqual([
+      2, 2, 1, 4, 3, 6, 5, 8, 7, 9, 0,
+    ]);
+    const indexes = 204 + 1 + 2 * 32;
+    expect(Array.from((instruction.data ?? new Uint8Array()).slice(indexes, indexes + 10))).toEqual(
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    );
+    await expect(
+      ringTransactInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        inputTrees: [TREE],
+        outputTree: OUTPUT_TREE,
+        policy: policy({
+          revocationTargets: targets,
+          revocationTreeIndexes: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        }),
+        proof: customRingProof(),
+        data: transactData(),
+      }),
+    ).rejects.toThrow("RING_POLICY_SHAPE_UNSUPPORTED");
   });
 });
 

@@ -554,10 +554,7 @@ export function inputTreeIds(inputs: readonly ProofInputUtxo[]): readonly TreeId
   return Object.freeze(trees);
 }
 
-/**
- * The one tree a rail that publishes a single input tree spends from: merge,
- * and the custom-ring openings, which hash every slot under one tree id.
- */
+/** The one tree a rail that publishes a single input tree spends from: merge. */
 export function singleInputTreeId(inputs: readonly ProofInputUtxo[]): TreeId {
   const trees = inputTreeIds(inputs);
   const first = trees[0];
@@ -736,6 +733,8 @@ export interface PreparedTransfer {
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
   proofOutputs(): readonly ProofOutputUtxo[];
+  /** Mirrors Rust `move_input_tree_last`, a new first input rederives every output blinding. */
+  withInputTreeLast(treeId: TreeId): PreparedTransfer;
   /** Appends the velocity record after the dummy padding, Rust `append_record_slots`. */
   withAppendedSlot(
     extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
@@ -1036,7 +1035,7 @@ export class ConfidentialTransfer {
 
 type PreparedTransferFields = Omit<
   PreparedTransfer,
-  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withAppendedSlot"
+  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withInputTreeLast" | "withAppendedSlot"
 >;
 
 export function prepareRingAuthorityTransfer(
@@ -1146,10 +1145,39 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
     proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
+    withInputTreeLast: (treeId: TreeId): PreparedTransfer => moveInputTreeLast(fields, treeId),
     withAppendedSlot: (
       extension: Parameters<PreparedTransfer["withAppendedSlot"]>[0],
     ): PreparedTransfer => appendRecordSlot(fields, extension),
   });
+}
+
+function moveInputTreeLast(fields: PreparedTransferFields, treeId: TreeId): PreparedTransfer {
+  const inputs = [
+    ...fields.inputs.filter((input) => input.treeId !== treeId),
+    ...fields.inputs.filter((input) => input.treeId === treeId),
+  ];
+  const trees = inputTreeIds(inputs);
+  if (!trees.includes(treeId) && trees.length === MAX_INPUT_TREES) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_INPUT_TREES", {
+      got: trees.length + 1,
+      max: MAX_INPUT_TREES,
+    });
+  }
+  const first = inputs[0];
+  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  if (first === fields.inputs[0]) {
+    return preparedTransfer({ ...fields, inputs, inputTreeIds: trees });
+  }
+  const firstNullifier = first.nullifier();
+  const outputSeed = outputBlindingSeed(firstNullifier, fields.blindingSeed);
+  const outputs = fields.outputs.map((output, index) =>
+    createProofOutput({
+      ...outputInit(output),
+      blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
+    }),
+  );
+  return preparedTransfer({ ...fields, inputs, outputs, firstNullifier, inputTreeIds: trees });
 }
 
 /** Mirrors Rust `append_record_slots`. */
@@ -1166,8 +1194,11 @@ function appendRecordSlot(
   const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
   const ownerTag = fields.owner.confidentialViewTag();
   const inputs = [...fields.inputs];
+  const lastTreeId = fields.inputTreeIds.at(-1);
+  if (lastTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  // A dummy rides the run before it, only a real spend opens a tree.
   while (inputs.length + 1 < extension.shape.inputs) {
-    inputs.push(ProofInputUtxo.dummy(undefined, fields.inputTreeIds[0]));
+    inputs.push(ProofInputUtxo.dummy(undefined, lastTreeId));
   }
   const outputs = [...fields.outputs];
   while (outputs.length + 1 < extension.shape.outputs) {
@@ -1192,7 +1223,13 @@ function appendRecordSlot(
   }
   inputs.push(extension.input);
   outputs.push(extension.output);
-  return preparedTransfer({ ...fields, inputs, outputs, shape: extension.shape });
+  return preparedTransfer({
+    ...fields,
+    inputs,
+    outputs,
+    inputTreeIds: inputTreeIds(inputs),
+    shape: extension.shape,
+  });
 }
 
 /**
@@ -1375,7 +1412,12 @@ function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
 
 /** The same dummy slot under `ownerTag`; a dummy has no owner address, so only the tag changes. */
 function retagDummyOutput(output: ProofOutputUtxo, ownerTag: Bytes32): ProofOutputUtxo {
-  return createProofOutput({
+  return createProofOutput({ ...outputInit(output), ownerTag });
+}
+
+function outputInit(output: ProofOutputUtxo): ProofOutputInit {
+  return {
+    ...(output.ownerAddress === undefined ? {} : { ownerAddress: output.ownerAddress }),
     asset: output.asset,
     amount: output.amount,
     blinding: output.blinding,
@@ -1383,8 +1425,8 @@ function retagDummyOutput(output: ProofOutputUtxo, ownerTag: Bytes32): ProofOutp
     ...(output.dataHash === undefined ? {} : { dataHash: output.dataHash }),
     ...(output.ringDataHash === undefined ? {} : { ringDataHash: output.ringDataHash }),
     ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
-    ownerTag,
-  });
+    ...(output.ownerTag === undefined ? {} : { ownerTag: output.ownerTag }),
+  };
 }
 
 function randomBytes(length: number): Uint8Array {

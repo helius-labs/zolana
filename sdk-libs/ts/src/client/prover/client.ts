@@ -3,7 +3,7 @@ import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
-import { treeIdField } from "../../interface/tree-slot.js";
+import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { bytesToBigInt } from "../../keypair/bytes.js";
@@ -43,6 +43,7 @@ import type {
   CustomRingCompressedPolicyProofRequest,
   CustomRingHeadInsertion,
   CustomRingRegisterKeyProofRequest,
+  CustomRingRegistryKey,
   CustomRingSpendRecordProofInput,
   CustomRingVelocityRow,
   Field,
@@ -515,7 +516,10 @@ export function customRingPolicyProofRequest(
     salt: bytesHex(inputs.salt),
     nIn: u8(inputs.nIn, "nIn"),
     nOut: u8(inputs.nOut, "nOut"),
-    inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map(openingJson),
+    inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map((opening) => {
+      if (opening.key !== undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+      return openingJson(opening);
+    }),
     outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(openingJson),
     addressChain: hex32(inputs.addressChain, "addressChain"),
     externalDataHash: hex32(inputs.externalDataHash, "externalDataHash"),
@@ -530,9 +534,8 @@ export function customRingPolicyProofRequest(
       u64FieldHex(limit, "inlineLimits"),
     ),
     inlineCount: u8(inputs.inlineCount, "inlineCount"),
-    stateRoot: hex32(inputs.stateRoot, "stateRoot"),
-    nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
-    entriesTreeId: hex32(treeIdField(inputs.entriesTreeId), "entriesTreeId"),
+    treeSlots: policyTreeSlots(inputs.treeSlots).map(policyTreeSlotJson),
+    addressTreeId: hex32(treeIdField(inputs.addressTreeId), "addressTreeId"),
     windowSlots: u64Json(inputs.velocity.windowSlots, "windowSlots"),
     velocity: paddedVelocityRows(inputs.velocity.rows).map(velocityRowJson),
     velocityCount: u8(inputs.velocity.rows.length, "velocityCount"),
@@ -540,8 +543,54 @@ export function customRingPolicyProofRequest(
     namespaceOwnerHash: hex32(inputs.velocity.namespaceOwnerHash, "namespaceOwnerHash"),
     windowIndex: u64Json(inputs.velocity.windowIndex, "windowIndex"),
     approvalRequired: inputs.velocity.approvalRequired,
+    ...keyEscrowJson(inputs.keyRegistryRoot),
     record: spendRecordJson(inputs.velocity.record),
     answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
+  });
+}
+
+/** Mirrors Go `readTreeSlots`, the populated prefix of one to `INPUT_TREES` slots. */
+function policyTreeSlots(slots: readonly TreeSlot[]): readonly TreeSlot[] {
+  if (!Array.isArray(slots) || slots.length < 1 || slots.length > INPUT_TREES) {
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: {
+        field: "treeSlots",
+        expected: INPUT_TREES,
+        actual: Array.isArray(slots) ? slots.length : 0,
+      },
+    });
+  }
+  return slots;
+}
+
+function policyTreeSlotJson(slot: TreeSlot): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    id: hex32(treeIdField(slot.id), "treeSlots id"),
+    utxoRoot: hex32(slot.utxoRoot, "treeSlots utxoRoot"),
+    nullifierRoot: hex32(slot.nullifierRoot, "treeSlots nullifierRoot"),
+  });
+}
+
+/** Mirrors Go `readKeyEscrow`, the root is zero exactly when escrow is off. */
+function keyEscrowJson(root: Bytes32 | undefined): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    keyEscrow: root !== undefined,
+    keyRegistryRoot: hex32(root ?? new Uint8Array(32), "keyRegistryRoot"),
+  });
+}
+
+/** Mirrors Go `writeRegistryKey`, `null` for an absent key. */
+function registryKeyJson(
+  key: CustomRingRegistryKey | undefined,
+): Readonly<Record<string, unknown>> | null {
+  if (key === undefined) return null;
+  if (typeof key.index !== "bigint" || key.index < 0n || key.index >= HEAD_MAP_CAPACITY)
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "key index" } });
+  return Object.freeze({
+    next: hex32(key.next, "key next"),
+    ctHash: hex32(key.ctHash, "key ctHash"),
+    index: u64Json(key.index, "key index"),
+    path: sized(key.path, HEAD_MAP_HEIGHT, "key path").map((node) => hex32(node, "key path")),
   });
 }
 
@@ -599,14 +648,14 @@ export function customRingRegisterKeyProofRequest(
 export function customRingDepositProofRequest(
   input: CustomRingDepositProofRequest,
 ): Readonly<Record<string, unknown>> {
+  const columns = [input.ownerPkHashes, input.nullifierPks, input.blindings];
   if (
     !Number.isInteger(input.count) ||
     input.count < 1 ||
     input.count > RING_DEPOSIT_AUDIT_SLOTS ||
-    !Array.isArray(input.ownerHashes) ||
-    !Array.isArray(input.blindings) ||
-    input.ownerHashes.length !== RING_DEPOSIT_AUDIT_SLOTS ||
-    input.blindings.length !== RING_DEPOSIT_AUDIT_SLOTS
+    !Array.isArray(input.keys) ||
+    input.keys.length !== RING_DEPOSIT_AUDIT_SLOTS ||
+    columns.some((column) => !Array.isArray(column) || column.length !== RING_DEPOSIT_AUDIT_SLOTS)
   )
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   try {
@@ -615,22 +664,13 @@ export function customRingDepositProofRequest(
   } catch {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
-  const ownerFields: readonly Bytes32[] = input.ownerHashes;
-  const blindingFields: readonly Bytes32[] = input.blindings;
-  for (const field of [
-    input.publicInputHash,
-    input.contextHash,
-    ...ownerFields,
-    ...blindingFields,
-  ]) {
+  for (const field of [input.publicInputHash, input.contextHash, ...columns.flat()]) {
     if (!isCanonicalField(field)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
-  const ownerHashes = ownerFields.map((field) => hex32(field, "owner hash"));
-  const blindings = blindingFields.map((field) => hex32(field, "blinding"));
   for (let index = input.count; index < RING_DEPOSIT_AUDIT_SLOTS; index++) {
     if (
-      ownerFields[index]?.some((byte) => byte !== 0) ||
-      blindingFields[index]?.some((byte) => byte !== 0)
+      columns.some((column) => column[index]?.some((byte) => byte !== 0)) ||
+      input.keys[index] !== undefined
     )
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -639,10 +679,13 @@ export function customRingDepositProofRequest(
     publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
     contextHash: hex32(input.contextHash, "contextHash"),
     count: input.count,
-    ownerHashes,
-    blindings,
+    ownerPkHashes: input.ownerPkHashes.map((field) => hex32(field, "ownerPkHash")),
+    nullifierPks: input.nullifierPks.map((field) => hex32(field, "nullifierPk")),
+    blindings: input.blindings.map((field) => hex32(field, "blinding")),
+    keys: input.keys.map(registryKeyJson),
     ephSk: hex32(input.ephemeralSecret, "ephSk"),
     auditorPk: auditorPkHex(input.auditorPublicKey),
+    ...keyEscrowJson(input.keyRegistryRoot),
   });
 }
 
@@ -702,6 +745,7 @@ function openingJson(opening: CustomRingOpening): Readonly<Record<string, unknow
     dataHash: hex32(opening.dataHash, "dataHash"),
     ringDataHash: hex32(opening.ringDataHash, "ringDataHash"),
     ringProgramId: hex32(opening.ringProgramId, "ringProgramId"),
+    ...(opening.key === undefined ? {} : { key: registryKeyJson(opening.key) }),
   });
 }
 
@@ -735,6 +779,7 @@ function sourceJson(source: CustomRingSourceOwner): Readonly<Record<string, unkn
 function answersJson(entry: CustomRingRuleAnswer): Readonly<Record<string, unknown>> {
   return Object.freeze({
     enabled: entry.enabled,
+    treeSlot: u8(entry.treeSlot, "treeSlot"),
     mode: u8(entry.mode, "mode"),
     listId: u8(entry.listId, "listId"),
     state: u8(entry.state, "state"),

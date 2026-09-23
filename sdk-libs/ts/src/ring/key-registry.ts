@@ -18,6 +18,7 @@ import { ViewingKey } from "../keypair/viewing-key.js";
 import { bigIntBytes, hashChain, poseidon } from "../transaction/internal.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import { equalBytes } from "../wallet/internal.js";
+import type { RingKeyRegistryRoot } from "./codecs.js";
 import { fetchRingKeyRegistryRoot, fetchRingProgramConfig } from "./config.js";
 import { RingError } from "./error.js";
 import {
@@ -227,48 +228,66 @@ export async function fetchRingSealedKey(
   context?: RequestContext,
 ): Promise<RingSealedKeyEntry> {
   return waitForRingProjection(
-    async (attemptContext) => {
-      const root = await fetchRingKeyRegistryRoot(
-        input.client,
-        input.ringProgramId,
-        attemptContext,
-      );
-      const entry = await input.client.getRingKeyRegistryEntry(
+    async (attemptContext) =>
+      readSealedKey(
         {
-          ringProgramId: input.ringProgramId,
-          member: input.member,
-          expectedRoot: root.root,
-          expectedNextIndex: root.nextIndex,
+          ...input,
+          registry: await fetchRingKeyRegistryRoot(
+            input.client,
+            input.ringProgramId,
+            attemptContext,
+          ),
         },
         attemptContext,
-      );
-      if (
-        !equalBytes(entry.root, root.root) ||
-        entry.nextIndex !== root.nextIndex ||
-        !equalBytes(entry.member, input.member)
-      )
-        throw new RingError("RING_KEY_REGISTRY_STALE");
-      if (
-        entry.index === 0n ||
-        entry.index >= entry.nextIndex ||
-        entry.proof.length !== HEAD_MAP_HEIGHT
-      )
-        throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "entry" } });
-      return Object.freeze({
-        sealed: Object.freeze({
-          ephemeralPublicKey: entry.ephemeralPublicKey,
-          ciphertext: entry.ciphertext,
-        }),
-        member: input.member,
-        root: entry.root,
-        next: entry.next,
-        index: entry.index,
-        proof: entry.proof,
-      });
-    },
+      ),
     KEY_REGISTRY_PROJECTION_ERRORS,
     context,
   );
+}
+
+/** @internal The indexer answer must sit under the registry root read from Solana. */
+export async function readSealedKey(
+  input: Readonly<{
+    client: Pick<RingKeyRegistryReader, "getRingKeyRegistryEntry">;
+    ringProgramId: Address;
+    member: Member;
+    registry: Pick<RingKeyRegistryRoot, "root" | "nextIndex">;
+  }>,
+  context: RequestContext,
+): Promise<RingSealedKeyEntry> {
+  const { registry } = input;
+  const entry = await input.client.getRingKeyRegistryEntry(
+    {
+      ringProgramId: input.ringProgramId,
+      member: input.member,
+      expectedRoot: registry.root,
+      expectedNextIndex: registry.nextIndex,
+    },
+    context,
+  );
+  if (
+    !equalBytes(entry.root, registry.root) ||
+    entry.nextIndex !== registry.nextIndex ||
+    !equalBytes(entry.member, input.member)
+  )
+    throw new RingError("RING_KEY_REGISTRY_STALE");
+  if (
+    entry.index === 0n ||
+    entry.index >= entry.nextIndex ||
+    entry.proof.length !== HEAD_MAP_HEIGHT
+  )
+    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "entry" } });
+  return Object.freeze({
+    sealed: Object.freeze({
+      ephemeralPublicKey: entry.ephemeralPublicKey,
+      ciphertext: entry.ciphertext,
+    }),
+    member: input.member,
+    root: entry.root,
+    next: entry.next,
+    index: entry.index,
+    proof: entry.proof,
+  });
 }
 
 /** The opened key must reproduce the leaf under the root read from Solana. */
@@ -293,15 +312,21 @@ interface MemberIdentity {
 }
 
 function checkRegisteredKey(entry: RingSealedKeyEntry, nullifierPublicKey: Bytes32): void {
+  if (!registersKey(entry, nullifierPublicKey))
+    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "inclusion" } });
+}
+
+/** @internal Mirrors Go `KeyOpening.AssertEscrowed`, the member's leaf commits to the key under the root. */
+export function registersKey(entry: RingSealedKeyEntry, nullifierPublicKey: Bytes32): boolean {
   const leaf = headMapLeaf({
     member: entry.member,
     next: entry.next,
     nullifier: registeredKeyCommitment({ nullifierPublicKey, ciphertext: entry.sealed.ciphertext }),
   });
-  if (
-    !equalBytes(headMapRootFromProof({ leaf, index: entry.index, proof: entry.proof }), entry.root)
-  )
-    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "inclusion" } });
+  return equalBytes(
+    headMapRootFromProof({ leaf, index: entry.index, proof: entry.proof }),
+    entry.root,
+  );
 }
 
 /** The circuit binds a free nullifier key, the address check is the only tie to the member. */

@@ -156,7 +156,6 @@ describe("ring merge", () => {
       outputTree: treeAddress(7),
       payer: owner.shieldedAddress().solanaAddress(),
       cosigner,
-      hasPolicy: true,
       outputRingDataHash: field(0),
       data: assembly.instructionData({
         a: field(0),
@@ -171,11 +170,11 @@ describe("ring merge", () => {
       address: cosigner,
       role: AccountRole.READONLY_SIGNER,
     });
-    expect(instruction.accounts?.[6]).toMatchObject({
+    expect(instruction.accounts?.[5]).toMatchObject({
       address: await ringAuthAddress(RING),
       role: AccountRole.READONLY,
     });
-    expect(instruction.accounts).toHaveLength(18);
+    expect(instruction.accounts).toHaveLength(17);
   });
 
   it("binds ring identity and destination into approval", () => {

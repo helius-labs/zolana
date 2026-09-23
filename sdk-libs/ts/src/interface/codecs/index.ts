@@ -184,7 +184,8 @@ function writeInput(writer: Writer, value: InputUtxo): void {
     .u8(value.treeIndex, "input.treeIndex");
 }
 
-function writeTreeContext(writer: Writer, value: TreeContext): void {
+/** Mirrors Rust `TreeContext`, the root history positions of one input tree. */
+export function writeTreeContext(writer: Writer, value: TreeContext): void {
   writer
     .u16(value.utxoTreeRootIndex, "treeContext.utxoTreeRootIndex")
     .u16(value.nullifierTreeRootIndex, "treeContext.nullifierTreeRootIndex");

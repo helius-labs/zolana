@@ -3,12 +3,13 @@ import type {
   BlockhashProvider,
   ProofAuthority,
   Prover,
+  RingKeyRegistryReader,
   SlotReader,
   TreeContext,
   RingSpendRecordReader,
   WalletKeys,
 } from "../client/ports.js";
-import { bigintToBytes, hashChain4 } from "../client/internal.js";
+import { bigintToBytes, hashChain4, inputTreeAddress } from "../client/internal.js";
 import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js";
 import {
   RING_INLINE_ASSET_SLOTS,
@@ -45,6 +46,7 @@ import {
   ConfidentialTransfer,
   SppProofInputs,
   createExternalData,
+  inputTreeIds,
   type PreparedTransfer,
 } from "../transaction/instructions/transact.js";
 import {
@@ -95,7 +97,12 @@ import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.j
 import { RingError, wrapRingError } from "./error.js";
 import type { SignerAccount } from "../interface/instructions/index.js";
 
-import { ringTransactInstruction, type RingTransactTrees } from "./instructions.js";
+import {
+  ringTransactInstruction,
+  type RingTransactPolicy,
+  type RingTransactTrees,
+} from "./instructions.js";
+import { openRingEscrowedKeys, ringEscrowedOwners } from "./key-escrow.js";
 import {
   chargeRows,
   planVelocity,
@@ -111,7 +118,7 @@ import {
   type RingSubmissionBuildState,
 } from "./submission.js";
 import { equalBytes } from "../wallet/internal.js";
-import { resolveRingOutputTree } from "./trees.js";
+import { resolveRingOutputTree, ringTreeIdResolver } from "./trees.js";
 import { treeAddress } from "../interface/pda/index.js";
 
 /** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
@@ -124,6 +131,7 @@ export type RingTransferClient = TreeContext &
   RingPolicyAnswerClient &
   SlotReader &
   RingSpendRecordReader &
+  Pick<RingKeyRegistryReader, "getRingKeyRegistryEntry"> &
   Pick<
     Prover,
     | "proveRingTransact"
@@ -193,6 +201,7 @@ export interface CustomRingTransferParams {
 
 export type RingDelegateProofClient = TreeContext &
   RingPolicyAnswerClient &
+  Pick<RingKeyRegistryReader, "getRingKeyRegistryEntry"> &
   Pick<
     Prover,
     "proveRingAuthorityTransact" | "proveCustomRingDelegatePolicy" | "proveCustomRingBase"
@@ -219,10 +228,8 @@ export type ProvenRingTransfer = RingTransactTrees &
     txViewingPublicKey: P256PublicKey;
     payer: Address;
     approvalRequired: boolean;
-    /** History entries the ring proof binds, sent on the tag-3 wire. */
-    stateRootIndex: number;
-    nullifierRootIndex: number;
-    revocationTargets: readonly Bytes32[];
+    /** Absent on an audit-only ring. */
+    policy?: RingTransactPolicy;
     /** Non-payer ed25519 input owners, they sign the transaction beside the fee payer. */
     ownerSigners: readonly Address[];
     window?: Readonly<{ index: bigint; slots: bigint }>;
@@ -514,14 +521,10 @@ async function buildRingSpend<R>(
       ringTransactInstruction({
         ringProgramId: params.ringProgramId,
         payer: proven.payer,
-        inputTree: proven.tree,
+        inputTrees: proven.inputTrees,
         outputTree: proven.outputTree,
-        hasPolicy: proven.hasPolicy,
-        ...(proven.hasPolicy ? { entriesTree: proven.entriesTree } : {}),
+        ...(proven.policy === undefined ? {} : { policy: proven.policy }),
         proof: proven.proof,
-        stateRootIndex: proven.stateRootIndex,
-        nullifierRootIndex: proven.nullifierRootIndex,
-        revocationTargets: proven.revocationTargets,
         data: proven.data,
         approvalRequired: proven.approvalRequired,
         ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
@@ -655,7 +658,7 @@ async function proveRingTransferStatement(
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
   await initializePoseidon();
-  // The prover fetches merkle proofs from the client tree only.
+  // Money inputs spend from the client tree.
   if (input.tree !== flow.client.tree) {
     throw new RingError("RING_TREE_MISMATCH", {
       details: { tree: input.tree, clientTree: flow.client.tree },
@@ -670,6 +673,10 @@ async function proveRingTransferStatement(
   const configs = await fetchRingConfigs(flow.client, input.ringProgramId, context);
   // 1. Pin the ring tier and policy before extending the transaction statement.
   const config = configs.config;
+  // Mirrors the program's `DelegateRequiresPolicy` and escrow checks, before any prover round.
+  if (flow.kind === "delegate" && !(configs.hasPolicy && config.keyEscrow)) {
+    throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });
+  }
   const policy = configs.hasPolicy ? policyContext(configs.policy) : undefined;
   // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
@@ -687,16 +694,6 @@ async function proveRingTransferStatement(
   let velocity: CustomRingVelocityProofInput | undefined;
   let plan: VelocityPlan | undefined;
   if (policy !== undefined && flow.kind === "delegate") {
-    const outputTree = input.outputTree ?? input.tree;
-    if (policy.table.windowSlots !== 0n && outputTree !== policy.config.entriesTree) {
-      throw new RingError("RING_TREE_MISMATCH", {
-        details: {
-          tree: outputTree,
-          entriesTree: policy.config.entriesTree,
-          reason: "delegateRecordTree",
-        },
-      });
-    }
     velocity = {
       ...velocityProofInputOff({ ringId, namespaceOwnerHash: policy.config.namespaceOwnerHash }),
       rows: policy.table.velocity,
@@ -719,26 +716,29 @@ async function proveRingTransferStatement(
         namespaceOwnerHash: policy.config.namespaceOwnerHash,
       });
     } else {
-      const entriesTree = policy.config.entriesTree;
-      if (input.tree !== entriesTree || (input.outputTree ?? input.tree) !== entriesTree) {
-        throw new RingError("RING_TREE_MISMATCH", {
-          details: { tree: input.tree, entriesTree, reason: "velocityRecord" },
-        });
-      }
+      const addressTree = {
+        tree: policy.config.addressTree,
+        treeId: policy.config.addressTreeId,
+      };
       const facts = await readVelocityFacts(
         {
           client: flow.client,
           ringProgramId: input.ringProgramId,
           keys: flow.keys,
           namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
-          entriesTree,
-          entriesTreeId: policy.config.entriesTreeId,
+          addressTreeId: addressTree.treeId,
+          resolveTreeId: ringTreeIdResolver(
+            flow.client,
+            [addressTree, outputTree, { tree: input.tree, treeId: flow.client.treeId }],
+            context,
+          ),
           windowSlots: policy.table.windowSlots,
           rows: policy.table.velocity,
           sender,
         },
         context,
       );
+      prepared = prepared.withInputTreeLast(facts.live.treeId);
       plan = planVelocity({
         facts,
         movement,
@@ -815,6 +815,18 @@ async function proveRingTransferStatement(
               context,
             )),
           };
+    // A ring that escrows keys refuses an unregistered output key before any prover round.
+    const escrow =
+      policyRound !== undefined && config.keyEscrow
+        ? await openRingEscrowedKeys(
+            {
+              client: flow.client,
+              ringProgramId: input.ringProgramId,
+              owners: ringEscrowedOwners(openings.outputs, policyRound.config.namespaceOwnerHash),
+            },
+            context,
+          )
+        : undefined;
     // 4. Prove the SPP spend and bind the ring proof to that same transaction.
     const { data } =
       flow.kind === "delegate"
@@ -840,8 +852,10 @@ async function proveRingTransferStatement(
       data,
       txViewingPublicKey: encrypted.txViewingPublicKey,
       payer: prepared.payer,
-      tree: input.tree,
-      outputTree: input.outputTree ?? input.tree,
+      inputTrees: Object.freeze(
+        inputTreeIds(proofInputs.inputUtxos).map((treeId) => inputTreeAddress(flow.client, treeId)),
+      ),
+      outputTree: outputTree.tree,
       ownerSigners:
         flow.kind === "delegate" ? [] : ownerSignerAddresses(prepared.inputs, prepared.payer),
     } as const;
@@ -869,20 +883,9 @@ async function proveRingTransferStatement(
         },
         context,
       );
-      return Object.freeze({
-        ...common,
-        proof,
-        approvalRequired,
-        hasPolicy: false,
-        stateRootIndex: 0,
-        nullifierRootIndex: 0,
-        revocationTargets: Object.freeze(
-          Array.from({ length: 10 }, () => new Uint8Array(32) as Bytes32),
-        ),
-      });
+      return Object.freeze({ ...common, proof, approvalRequired });
     }
 
-    const { answers, roots, revocationTargets } = policyRound;
     const velocityProofInput =
       velocity ??
       velocityProofInputOff({
@@ -896,6 +899,7 @@ async function proveRingTransferStatement(
       if (counters === undefined) throw new RingError("RING_SPEND_COUNTERS_UNKNOWN");
       countersDisclosureHash = spendCountersDisclosureHash(encrypted.salt, counters.data);
     }
+    const keyRegistryRoot = escrow === undefined ? {} : { keyRegistryRoot: escrow.root };
     const policyRequest: CustomRingPolicyProofRequest = {
       publicInputHash: policyPublicInputHash({
         privateTxHash: data.privateTxHash,
@@ -905,14 +909,15 @@ async function proveRingTransferStatement(
         outputHashes: proofInputs.outputs.map((output) => output.hash(proofInputs.outputTreeId)),
         salt: encrypted.salt,
         policyHash: policyRound.config.policyHash,
-        stateRoot: roots.stateRoot,
-        nullifierRoot: roots.nullifierRoot,
-        entriesTreeId: policyRound.config.entriesTreeId,
+        treeSlots: policyRound.treeSlots,
+        addressTreeId: policyRound.config.addressTreeId,
         ringId: velocityProofInput.ringId,
         namespaceOwnerHash: velocityProofInput.namespaceOwnerHash,
         windowIndex: velocityProofInput.windowIndex,
         approvalRequired: velocityProofInput.approvalRequired,
-        revocationTargets,
+        ...keyRegistryRoot,
+        revocationTargets: policyRound.revocationTargets,
+        revocationTreeIndexes: policyRound.revocationTreeIndexes,
         ...(countersDisclosureHash === undefined ? {} : { countersDisclosureHash }),
       }),
       privateTxHash: data.privateTxHash,
@@ -923,7 +928,10 @@ async function proveRingTransferStatement(
       nIn: openings.nIn,
       nOut: openings.nOut,
       inputs: openings.inputs,
-      outputs: openings.outputs,
+      outputs: openings.outputs.map((opening, index) => {
+        const key = escrow?.keys[index];
+        return key === undefined ? opening : Object.freeze({ ...opening, key });
+      }),
       // Both MUST equal the preimage the SPP assembly folds into
       // `privateTxHash`, else the gnark witness is unsatisfiable.
       addressChain: ringAddressChain(openings.nIn),
@@ -940,11 +948,11 @@ async function proveRingTransferStatement(
         ),
       ),
       inlineCount: policyRound.config.inlineCount,
-      stateRoot: roots.stateRoot,
-      nullifierRoot: roots.nullifierRoot,
-      entriesTreeId: policyRound.config.entriesTreeId,
+      treeSlots: policyRound.treeSlots,
+      addressTreeId: policyRound.config.addressTreeId,
       velocity: velocityProofInput,
-      answers,
+      ...keyRegistryRoot,
+      answers: policyRound.answers,
     };
     const proof =
       flow.kind === "delegate"
@@ -959,11 +967,13 @@ async function proveRingTransferStatement(
       ...common,
       proof,
       approvalRequired,
-      entriesTree: policyRound.config.entriesTree,
-      hasPolicy: true,
-      stateRootIndex: roots.stateRootIndex,
-      nullifierRootIndex: roots.nullifierRootIndex,
-      revocationTargets,
+      policy: Object.freeze({
+        trees: policyRound.policyTrees,
+        treeContexts: policyRound.treeContexts,
+        ...(escrow === undefined ? {} : { keyRegistryRootIndex: escrow.rootIndex }),
+        revocationTargets: policyRound.revocationTargets,
+        revocationTreeIndexes: policyRound.revocationTreeIndexes,
+      }),
       ...(plan === undefined
         ? {}
         : {

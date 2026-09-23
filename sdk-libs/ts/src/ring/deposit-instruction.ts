@@ -1,7 +1,7 @@
 import type { Instruction } from "@solana/kit";
 import type { Address, RingAssetDeposit } from "../interface/types.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
-import { copyBytes, fail } from "../interface/internal.js";
+import { Writer, copyBytes, fail } from "../interface/internal.js";
 import { InstructionTag } from "../interface/program.js";
 import { encodeRingDepositInstructionData } from "../interface/codecs/index.js";
 import {
@@ -9,7 +9,7 @@ import {
   ringConfigAddress,
   ringCoSignerAddress,
   ringDepositAuditAddress,
-  ringPolicyConfigAddress,
+  ringKeyRegistryRootAddress,
 } from "../interface/pda/index.js";
 import {
   depositLayout,
@@ -28,6 +28,7 @@ import {
   RING_DEPOSIT_AUDIT_SLOTS,
   readRingDepositCapsule,
 } from "./deposit-capsule.js";
+import { RingError } from "./error.js";
 
 export async function ringDepositInstruction(
   input: Readonly<{
@@ -37,10 +38,14 @@ export async function ringDepositInstruction(
     deposits: readonly RingAssetDeposit[];
     proof?: Uint8Array;
     cosigner?: SignerAccount;
-    hasPolicy: boolean;
+    /** The registry history slot of the bound root, present exactly when the ring escrows keys. */
+    keyRegistryRootIndex?: number;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
+  if (input.keyRegistryRootIndex !== undefined && input.proof === undefined) {
+    throw new RingError("RING_DEPOSIT_AUDIT_REQUIRED", { details: { reason: "keyEscrow" } });
+  }
   if (input.proof !== undefined) {
     if (input.deposits.length > RING_DEPOSIT_AUDIT_SLOTS)
       fail("INTERFACE_CODEC", { field: "deposit count" });
@@ -57,17 +62,21 @@ export async function ringDepositInstruction(
       ephemeralKey = capsule.ephemeralPublicKey;
     }
   }
-  const [ringAuth, config, cosignerPda, depositAudit, policyConfig, windows] = await Promise.all([
-    ringAuthAddress(input.ringProgramId),
-    ringConfigAddress(input.ringProgramId),
-    ringCoSignerAddress(input.ringProgramId),
-    ringDepositAuditAddress(input.ringProgramId),
-    input.hasPolicy ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
-    ringSpendWindowMetas(input.ringProgramId, [
-      ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
-      ...layout.splGroups.map((spl) => spl.mint),
-    ]),
-  ]);
+  const [ringAuth, config, cosignerPda, depositAudit, keyRegistryRoot, windows] = await Promise.all(
+    [
+      ringAuthAddress(input.ringProgramId),
+      ringConfigAddress(input.ringProgramId),
+      ringCoSignerAddress(input.ringProgramId),
+      ringDepositAuditAddress(input.ringProgramId),
+      input.keyRegistryRootIndex === undefined
+        ? undefined
+        : ringKeyRegistryRootAddress(input.ringProgramId),
+      ringSpendWindowMetas(input.ringProgramId, [
+        ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
+        ...layout.splGroups.map((spl) => spl.mint),
+      ]),
+    ],
+  );
   const { accounts, splInterfaceBumps } = await depositAccounts(
     input.tree,
     input.depositor,
@@ -78,7 +87,7 @@ export async function ringDepositInstruction(
     meta(config, false, false),
     ...ringCoSignerMetas(cosignerPda, input.cosigner),
     meta(depositAudit, false, false),
-    ...(policyConfig === undefined ? [] : [meta(policyConfig, false, false)]),
+    ...(keyRegistryRoot === undefined ? [] : [meta(keyRegistryRoot, false, false)]),
     ...windows,
   );
   const sppWire = tagged(
@@ -109,6 +118,7 @@ export async function ringDepositInstruction(
           AUDITED_RING_DEPOSIT_TAG,
           new Uint8Array([
             ...copyBytes(input.proof, CUSTOM_RING_PROOF_LENGTH, "deposit proof"),
+            ...new Writer().u8(input.keyRegistryRootIndex ?? 0, "keyRegistryRootIndex").finish(),
             ...sppWire,
           ]),
         ),

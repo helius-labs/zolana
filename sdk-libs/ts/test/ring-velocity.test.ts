@@ -148,7 +148,8 @@ describe("spend registration", () => {
     const instruction = await registerRingSpendInstruction({
       ringProgramId: RING,
       payer: PAYER,
-      entriesTree: TREE,
+      inputTree: TREE,
+      outputTree: TREE,
       blinding: filled(7),
       proof: {
         proof: proof(),

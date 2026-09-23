@@ -18,6 +18,7 @@ import {
 import {
   encodeMergeTransactInstructionData,
   encodeTransactInstructionData,
+  writeTreeContext,
 } from "../interface/codecs/index.js";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import {
@@ -36,6 +37,7 @@ import type {
   Bytes33,
   TransactInstructionData,
   TransactWithdrawal,
+  TreeContext,
 } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
@@ -44,6 +46,7 @@ import { SOL_MINT } from "../transaction/asset.js";
 import { Writer } from "../interface/internal.js";
 
 import { CUSTOM_RING_PROOF_LENGTH } from "../client/prover/proof.js";
+import { RING_ANSWER_SLOTS } from "../client/prover/types.js";
 import { checkedCustomRingProof } from "./codecs.js";
 import {
   ringPolicyNamespaceAddress,
@@ -52,6 +55,7 @@ import {
 } from "./config.js";
 import type { RingEntryProof } from "./entry-proof.js";
 import { RingError } from "./error.js";
+import { revocationPdaAddresses } from "./policy-trees.js";
 import {
   encodeRuleTable,
   checkedListId,
@@ -88,15 +92,20 @@ export const RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT = 1_400_000;
 export const RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT = RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 export const RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT = RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
-export type RingTransactTrees = Readonly<{ tree: Address; outputTree: Address }> &
-  (
-    | Readonly<{ hasPolicy: false }>
-    | Readonly<{
-        hasPolicy: true;
-        /** The pinned `PolicyConfig.entriesTree`. */
-        entriesTree: Address;
-      }>
-  );
+/** SPP input trees in tree context order, then the output tree. */
+export type RingTransactTrees = Readonly<{ inputTrees: readonly Address[]; outputTree: Address }>;
+
+/** The accounts and bindings a policy statement reads, absent on an audit-only ring. */
+export interface RingTransactPolicy {
+  /** Distinct SPP trees in proof slot order, one history context each. */
+  readonly trees: readonly Address[];
+  readonly treeContexts: readonly TreeContext[];
+  /** The registry history slot of the bound root, present exactly when the ring escrows keys. */
+  readonly keyRegistryRootIndex?: number;
+  readonly revocationTargets: readonly Bytes32[];
+  /** Per fact slot, the index into `trees` its revocation target lives in. */
+  readonly revocationTreeIndexes: readonly number[];
+}
 
 /** Mirrors Rust `CreateConfig`. The authority signs, so the recorded authority consented to the role. */
 export async function createRingConfigInstruction(
@@ -179,25 +188,17 @@ export async function initSppRingConfigInstruction(
   };
 }
 
-type RingTransactCommon = Readonly<{
-  ringProgramId: Address;
-  payer: SignerAccount;
-  inputTree: Address;
-  outputTree: Address;
-  /** Read for the policy roots, never forwarded to SPP. */
-  entriesTree?: Address;
-  /** False drops the policy_config and entries_tree accounts. */
-  hasPolicy?: boolean;
-  proof: Uint8Array;
-  /** History entries the ring statement binds, unread by an audit-only ring. */
-  stateRootIndex: number;
-  nullifierRootIndex: number;
-  data: TransactInstructionData;
-  cosigner?: SignerAccount;
-  /** Must equal the proof's approval bit. */
-  approvalRequired?: boolean;
-  revocationTargets?: readonly Bytes32[];
-}>;
+type RingTransactCommon = RingTransactTrees &
+  Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    policy?: RingTransactPolicy;
+    proof: Uint8Array;
+    data: TransactInstructionData;
+    cosigner?: SignerAccount;
+    /** Must equal the proof's approval bit. */
+    approvalRequired?: boolean;
+  }>;
 
 export async function ringTransactInstruction(
   input: RingTransactCommon &
@@ -208,25 +209,17 @@ export async function ringTransactInstruction(
       withdrawal?: TransactWithdrawal;
     }>,
 ): Promise<Instruction> {
-  const hasPolicy = input.hasPolicy ?? true;
-  const entriesTree = input.entriesTree;
-  const [config, ringAuth, cosignerPda, windows, revocationPdas] = await Promise.all([
+  const [config, ringAuth, cosignerPda, windows, policy] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
     ringSpendWindowMetas(input.ringProgramId, settledMints(input.data, input.withdrawal)),
-    entriesTree === undefined
-      ? []
-      : Promise.all(
-          (input.revocationTargets ?? [])
-            .filter((target) => target.some((byte) => byte !== 0))
-            .map((target) => nullifierPdaAddress(entriesTree, target)),
-        ),
+    policyAccountMetas(input.ringProgramId, input.policy),
   ]);
   const payerAddress = signerAddress(input.payer);
   const raw = await ringTransactAccounts({
     payer: input.payer,
-    inputTree: input.inputTree,
+    inputTrees: input.inputTrees,
     outputTree: input.outputTree,
     ringAuth,
     inputs: input.data.inputs,
@@ -235,7 +228,8 @@ export async function ringTransactInstruction(
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
   // The namespace PDA signs only inside the program's CPI.
-  const namespace = hasPolicy ? await ringPolicyNamespaceAddress(input.ringProgramId) : undefined;
+  const namespace =
+    input.policy === undefined ? undefined : await ringPolicyNamespaceAddress(input.ringProgramId);
   const pool = raw.map((account) =>
     account.address === namespace && isSignerRole(account.role)
       ? { address: account.address, role: downgradeRoleToNonSigner(account.role) }
@@ -251,8 +245,7 @@ export async function ringTransactInstruction(
       },
       { address: config, role: AccountRole.READONLY },
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
-      ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
-      ...revocationPdas.map((address) => ({ address, role: AccountRole.READONLY })),
+      ...policy,
       ...windows,
       ...pool,
     ],
@@ -260,33 +253,42 @@ export async function ringTransactInstruction(
   };
 }
 
+/** Mirrors Rust `CustomRingTransactIxData`. */
 function transactData(
   tag: number,
   input: Readonly<{
     proof: Uint8Array;
-    stateRootIndex: number;
-    nullifierRootIndex: number;
+    policy?: RingTransactPolicy;
     approvalRequired?: boolean;
-    revocationTargets?: readonly Bytes32[];
     data: TransactInstructionData;
   }>,
 ): Uint8Array {
   const proof = checkedCustomRingProof(input.proof);
-  const prefix = new Writer()
-    .u16(input.stateRootIndex, "stateRootIndex")
-    .u16(input.nullifierRootIndex, "nullifierRootIndex")
+  const policy = input.policy;
+  const contexts = policy?.treeContexts ?? [];
+  const prefix = new Writer().u8(contexts.length, "policyTrees.length");
+  for (const context of contexts) writeTreeContext(prefix, context);
+  prefix
+    .u8(policy?.keyRegistryRootIndex ?? 0, "keyRegistryRootIndex")
     .u8(input.approvalRequired === true ? 1 : 0, "approvalRequired");
-  const targets = input.revocationTargets ?? [];
-  if (targets.length !== 0 && targets.length !== 10) {
+  const targets = policy?.revocationTargets ?? [];
+  const treeIndexes = policy?.revocationTreeIndexes ?? [];
+  if (
+    policy !== undefined &&
+    (targets.length !== RING_ANSWER_SLOTS || treeIndexes.length !== RING_ANSWER_SLOTS)
+  ) {
     throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED", {
-      details: { revocationTargets: targets.length },
+      details: { revocationTargets: targets.length, revocationTreeIndexes: treeIndexes.length },
     });
   }
   let targetCount = targets.length;
   while (targetCount > 0 && targets[targetCount - 1]?.every((byte) => byte === 0)) targetCount--;
   prefix.u8(targetCount, "revocationTargetCount");
-  for (let index = 0; index < targetCount; index++) {
-    prefix.bytes(targets[index]!, 32, "revocationTarget");
+  for (const target of targets.slice(0, targetCount)) {
+    prefix.bytes(target, 32, "revocationTarget");
+  }
+  for (let slot = 0; slot < RING_ANSWER_SLOTS; slot++) {
+    prefix.u8(treeIndexes[slot] ?? 0, "revocationTreeIndex");
   }
   const prefixBytes = prefix.finish();
   const transact = encodeTransactInstructionData(input.data);
@@ -312,24 +314,20 @@ export async function ringDelegateTransactInstruction(
       details: { legs: input.data.interfaceTransfers.length },
     });
   }
-  const hasPolicy = input.hasPolicy ?? true;
-  const entriesTree = input.entriesTree;
-  const [config, ringAuth, cosignerPda, delegatePda, revocationPdas] = await Promise.all([
+  // Mirrors the program's `DelegateRequiresPolicy` and escrow checks.
+  if (input.policy?.keyRegistryRootIndex === undefined) {
+    throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });
+  }
+  const [config, ringAuth, cosignerPda, delegatePda, policy] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
     ringDelegateAddress(input.ringProgramId),
-    entriesTree === undefined
-      ? []
-      : Promise.all(
-          (input.revocationTargets ?? [])
-            .filter((target) => target.some((byte) => byte !== 0))
-            .map((target) => nullifierPdaAddress(entriesTree, target)),
-        ),
+    policyAccountMetas(input.ringProgramId, input.policy),
   ]);
   const pool = await ringTransactAccounts({
     payer: input.payer,
-    inputTree: input.inputTree,
+    inputTrees: input.inputTrees,
     outputTree: input.outputTree,
     ringAuth,
     inputs: input.data.inputs,
@@ -343,8 +341,7 @@ export async function ringDelegateTransactInstruction(
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
       meta(delegatePda, false, false),
       meta(input.delegate, true, false),
-      ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
-      ...revocationPdas.map((address) => ({ address, role: AccountRole.READONLY })),
+      ...policy,
       ...pool,
     ],
     data: transactData(RingProgramTag.delegateTransact, input),
@@ -365,19 +362,34 @@ function settledMints(
   });
 }
 
-/** The policy tier reads `policy_config` and `entries_tree`, read-only and before the SPP list. */
+/** Mirrors Rust `TransactRail::verify_and_forward`, read-only and before the SPP list. */
 async function policyAccountMetas(
   ringProgramId: Address,
-  entriesTree: Address | undefined,
+  policy: RingTransactPolicy | undefined,
 ): Promise<readonly { address: Address; role: AccountRole }[]> {
-  if (entriesTree === undefined) {
-    throw new RingError("RING_ENTRIES_TREE_REQUIRED", { details: { ringProgramId } });
+  if (policy === undefined) return [];
+  if (policy.trees.length !== policy.treeContexts.length) {
+    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED", {
+      details: { policyTrees: policy.trees.length, treeContexts: policy.treeContexts.length },
+    });
   }
-  const policyConfig = await ringPolicyConfigAddress(ringProgramId);
+  const [policyConfig, keyRegistryRoot, revocations] = await Promise.all([
+    ringPolicyConfigAddress(ringProgramId),
+    policy.keyRegistryRootIndex === undefined
+      ? undefined
+      : ringKeyRegistryRootAddress(ringProgramId),
+    revocationPdaAddresses({
+      policyTrees: policy.trees,
+      targets: policy.revocationTargets,
+      treeIndexes: policy.revocationTreeIndexes,
+    }),
+  ]);
   return [
-    { address: policyConfig, role: AccountRole.READONLY },
-    { address: entriesTree, role: AccountRole.READONLY },
-  ];
+    policyConfig,
+    ...policy.trees,
+    ...(keyRegistryRoot === undefined ? [] : [keyRegistryRoot]),
+    ...revocations,
+  ].map((address) => ({ address, role: AccountRole.READONLY }));
 }
 
 export interface RingSharedSource {
@@ -398,7 +410,7 @@ export async function createRingPolicyInstruction(
       ringProgramId: Address;
       payer: SignerAccount;
       authority: SignerAccount;
-      entriesTree: Address;
+      addressTree: Address;
     }>,
 ): Promise<Instruction> {
   const [config, policyConfig, programData, body] = await Promise.all([
@@ -414,7 +426,7 @@ export async function createRingPolicyInstruction(
       meta(input.authority, true, false),
       meta(config, false, false),
       meta(policyConfig, false, true),
-      meta(input.entriesTree, false, false),
+      meta(input.addressTree, false, false),
       meta(SYSTEM_PROGRAM, false, false),
       meta(input.ringProgramId, false, false),
       meta(programData, false, false),
@@ -482,11 +494,16 @@ export async function setRingPolicySourceInstruction(
   };
 }
 
-export interface RingEntryInstructionInput {
+/** A claim spends from the address tree, an update from the tree holding the live leaf. */
+export interface RingEntryTrees {
+  readonly inputTree: Address;
+  readonly outputTree: Address;
+}
+
+export interface RingEntryInstructionInput extends RingEntryTrees {
   readonly ringProgramId: Address;
   /** An authority list needs the config authority, a member list the member's key. */
   readonly payer: SignerAccount;
-  readonly entriesTree: Address;
   readonly entry: ListEntry;
   readonly proof: RingEntryProof;
 }
@@ -521,15 +538,15 @@ export async function updateRingEntryInstruction(
 
 /** Mirrors Rust `ProvenSpendRegistration::instruction`, the record content is derived on chain. */
 export async function registerRingSpendInstruction(
-  input: Readonly<{
-    ringProgramId: Address;
-    /** The member, its Solana key is the record's identity. */
-    payer: SignerAccount;
-    entriesTree: Address;
-    /** The SPP output blinding the registration proof derived. */
-    blinding: Bytes32;
-    proof: RingEntryProof;
-  }>,
+  input: RingEntryTrees &
+    Readonly<{
+      ringProgramId: Address;
+      /** The member, its Solana key is the record's identity. */
+      payer: SignerAccount;
+      /** The SPP output blinding the registration proof derived. */
+      blinding: Bytes32;
+      proof: RingEntryProof;
+    }>,
 ): Promise<Instruction> {
   const data = new Writer()
     .u8(RingProgramTag.registerSpend, "tag")
@@ -600,14 +617,17 @@ function entryStateByte(entry: ListEntry): number {
 
 /** Everything after the two config accounts is forwarded to SPP position for position. */
 async function entryInstruction(
-  input: Pick<RingEntryInstructionInput, "ringProgramId" | "payer" | "entriesTree" | "proof">,
+  input: Pick<
+    RingEntryInstructionInput,
+    "ringProgramId" | "payer" | "inputTree" | "outputTree" | "proof"
+  >,
   data: Uint8Array,
 ): Promise<Instruction> {
   const [config, policyConfig, namespace, nullifierPda] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringPolicyConfigAddress(input.ringProgramId),
     ringPolicyNamespaceAddress(input.ringProgramId),
-    nullifierPdaAddress(input.entriesTree, input.proof.nullifier),
+    nullifierPdaAddress(input.inputTree, input.proof.nullifier),
   ]);
   return {
     programAddress: input.ringProgramId,
@@ -615,10 +635,10 @@ async function entryInstruction(
       meta(config, false, false),
       meta(policyConfig, false, false),
       meta(input.payer, true, true),
-      meta(input.entriesTree, false, true),
+      meta(input.outputTree, false, true),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
       meta(SYSTEM_PROGRAM, false, false),
-      meta(input.entriesTree, false, true),
+      meta(input.inputTree, false, true),
       meta(nullifierPda, false, true),
       meta(namespace, false, false),
     ],
@@ -687,7 +707,6 @@ export async function ringMergeInstruction(
     data: MergeTransactInstructionData;
     outputRingDataHash: Bytes32;
     cosigner?: SignerAccount;
-    hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
   const [config, cosigner, auth, nullifiers] = await Promise.all([
@@ -701,9 +720,6 @@ export async function ringMergeInstruction(
     accounts: [
       meta(config, false, false),
       ...ringCoSignerMetas(cosigner, input.cosigner),
-      ...(input.hasPolicy
-        ? [meta(await ringPolicyConfigAddress(input.ringProgramId), false, false)]
-        : []),
       meta(input.inputTree, false, true),
       meta(input.outputTree, false, true),
       meta(auth, false, false),

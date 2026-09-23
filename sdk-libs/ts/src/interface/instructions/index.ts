@@ -411,13 +411,15 @@ export async function transactInstruction(
 
 /**
  * Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring
- * program signs it inside its CPI. `inputs` are the payload's spent inputs; their
- * input tree and nullifier PDAs follow the fixed prefix ending in `ringAuth`.
+ * program signs it inside its CPI. `inputs` are the payload's spent inputs. The
+ * input trees, then one nullifier PDA per input under its own tree, follow the
+ * fixed prefix ending in `ringAuth`.
  */
 export async function ringTransactAccounts(
   input: Readonly<{
     payer: SignerAccount;
-    inputTree: Address;
+    /** One per tree context, in context order. */
+    inputTrees: readonly Address[];
     outputTree: Address;
     ringAuth: Address;
     inputs: readonly InputUtxo[];
@@ -426,18 +428,32 @@ export async function ringTransactAccounts(
     withdrawal?: TransactWithdrawal;
   }>,
 ): Promise<readonly Meta[]> {
-  validateSingleInputTree(input.inputs, input.treeContexts);
+  if (
+    input.inputTrees.length !== input.treeContexts.length ||
+    input.inputTrees.length === 0 ||
+    new Set(input.inputTrees).size !== input.inputTrees.length
+  ) {
+    fail("INTERFACE_INVALID_SHAPE", {
+      reason: "one distinct input tree per tree context",
+    });
+  }
+  const nullifierPdas = await Promise.all(
+    input.inputs.map((spent) => {
+      const tree = input.inputTrees[spent.treeIndex];
+      if (tree === undefined) {
+        fail("INTERFACE_INVALID_SHAPE", { reason: "input tree index outside the tree contexts" });
+      }
+      return nullifierPdaAddress(tree, spent.nullifierHash);
+    }),
+  );
   return [
     meta(input.payer, true, true),
     meta(input.outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
     meta(input.ringAuth, false, false),
-    meta(input.inputTree, false, true),
-    ...(await nullifierPdaAccounts(
-      input.inputTree,
-      input.inputs.map((spentInput) => spentInput.nullifierHash),
-    )),
+    ...input.inputTrees.map((tree) => meta(tree, false, true)),
+    ...nullifierPdas.map((pda) => meta(pda, false, true)),
     ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
     ...settlementAccounts(input.withdrawal),
   ];

@@ -26,13 +26,13 @@ export function ownSources(table: RuleTable, namespace: Address): readonly RingP
 
 /** The decoded policy config the table and sources pin. */
 export function ringPolicyConfig(
-  input: Readonly<{ table: RuleTable; sources: readonly RingPolicySource[]; entriesTree: Address }>,
+  input: Readonly<{ table: RuleTable; sources: readonly RingPolicySource[]; addressTree: Address }>,
 ): RingPolicyConfig {
   const encoded = encodeRuleTable(input.table);
   return {
     policyHash: ringPolicyHash(input.table, policySourceOwners(input.sources)),
-    entriesTree: input.entriesTree,
-    entriesTreeId: 0,
+    addressTree: input.addressTree,
+    addressTreeId: 0,
     namespaceBump: 0,
     bump: 0,
     namespaceOwnerHash: new Uint8Array(32) as Bytes32,
@@ -48,8 +48,8 @@ export function ringPolicyConfigData(
   input: Readonly<{
     table: RuleTable;
     sources: readonly RingPolicySource[];
-    entriesTree: Address;
-    entriesTreeId?: number;
+    addressTree: Address;
+    addressTreeId?: number;
     bump: number;
     namespaceBump?: number;
     namespaceOwnerHash?: Bytes32;
@@ -61,8 +61,8 @@ export function ringPolicyConfigData(
   const writer = new Writer()
     .u8(3, "discriminator")
     .bytes(input.policyHash ?? ringPolicyHash(input.table, policySourceOwners(input.sources)))
-    .bytes(addressBytes(input.entriesTree))
-    .u16(input.entriesTreeId ?? 0, "entriesTreeId")
+    .bytes(addressBytes(input.addressTree))
+    .u16(input.addressTreeId ?? 0, "addressTreeId")
     .u8(input.namespaceBump ?? 0, "namespaceBump")
     .u8(input.bump, "bump")
     .bytes(input.namespaceOwnerHash ?? new Uint8Array(32));
@@ -98,6 +98,7 @@ export function ringProgramConfigData(
     auditorPublicKey: Uint8Array;
     bump: number;
     hasPolicy: boolean;
+    keyEscrow?: boolean;
   }>,
 ): Uint8Array {
   return new Writer()
@@ -106,6 +107,7 @@ export function ringProgramConfigData(
     .bytes(input.auditorPublicKey, 33, "auditorPublicKey")
     .u8(input.bump, "bump")
     .u8(input.hasPolicy ? 1 : 0, "hasPolicy")
+    .u8(input.keyEscrow === true ? 1 : 0, "keyEscrow")
     .finish();
 }
 

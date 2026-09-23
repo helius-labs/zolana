@@ -21,7 +21,7 @@ import {
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
 import { equalBytes } from "../wallet/internal.js";
-import { fetchRingCoSigner, fetchRingConfigs, windowedPolicy } from "./config.js";
+import { fetchRingCoSigner } from "./config.js";
 import { checkRingCoSigner, TRANSFER_DEMAND } from "./cosign.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringMergeInstruction } from "./instructions.js";
@@ -75,14 +75,10 @@ async function buildRingMerge(
   try {
     await initializePoseidon();
     checkKeysIdentity(params.keys, params.wallet.identity);
-    const [configs, coSigner, outputTree] = await Promise.all([
-      fetchRingConfigs(params.client, params.ringProgramId, context),
+    const [coSigner, outputTree] = await Promise.all([
       fetchRingCoSigner(params.client, params.ringProgramId, context),
       resolveRingOutputTree(params.client, params.outputTree, context),
     ]);
-    const policy = windowedPolicy(configs);
-    if (policy !== undefined && outputTree.tree !== policy.entriesTree)
-      throw new RingError("RING_TREE_MISMATCH");
     checkRingCoSigner({
       ringProgramId: params.ringProgramId,
       configured: coSigner,
@@ -161,7 +157,6 @@ async function buildRingMerge(
         payer: params.feePayer,
         data,
         outputRingDataHash: new Uint8Array(32) as Bytes32,
-        hasPolicy: configs.hasPolicy,
         ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
       }),
       params.client.getLatestBlockhash(context),

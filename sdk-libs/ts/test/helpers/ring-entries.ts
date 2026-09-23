@@ -50,7 +50,7 @@ export function lineage(
       contentHash: filled(0) as Bytes32,
       blinding: filled(version + 1) as Bytes32,
     };
-    const hashes = namespace.entryHashes(entry);
+    const hashes = namespace.entryHashes(entry, input.treeId ?? 0);
     spenders.push({
       slot: 5n,
       txSignature: String(version).repeat(87) as Signature,

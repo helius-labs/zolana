@@ -1,4 +1,9 @@
-import { treeIdField } from "../interface/tree-slot.js";
+import {
+  inputTreeSlots,
+  treeIdField,
+  treeSlotsHashChain,
+  type TreeSlot,
+} from "../interface/tree-slot.js";
 import { hashBytes } from "../hasher/index.js";
 import { pack33 } from "../interface/merge-utils.js";
 import type { MessageData } from "../interface/types.js";
@@ -319,21 +324,25 @@ export function auditPublicInputHash(input: CustomRingBasePublicInput): Bytes32 
   return hashChain(auditChainElements(input));
 }
 
-/** The audit prefix then policy hash and roots, Rust `CustomRingPolicyPublicInput::hash`. */
+/** The audit prefix then the policy tail, Rust `CustomRingPolicyPublicInput::hash`. */
 export function policyPublicInputHash(
   input: CustomRingBasePublicInput &
     Readonly<{
       policyHash: Bytes32;
-      stateRoot: Bytes32;
-      nullifierRoot: Bytes32;
-      entriesTreeId: number;
+      /** The populated prefix, one to `INPUT_TREES` policy trees. */
+      treeSlots: readonly TreeSlot[];
+      addressTreeId: number;
       /** `hashBytes` of the ring program id. */
       ringId: Bytes32;
       namespaceOwnerHash: Bytes32;
       /** Zero for per-transfer caps and delegate moves. */
       windowIndex: bigint;
       approvalRequired: boolean;
+      /** Present exactly when output nullifier keys must be enrolled under it. */
+      keyRegistryRoot?: Bytes32;
       revocationTargets?: readonly Bytes32[];
+      /** Per fact slot, the index into `treeSlots` its revocation target lives in. */
+      revocationTreeIndexes?: readonly number[];
       /** Set exactly for a windowed transfer. */
       countersDisclosureHash?: Bytes32;
     }>,
@@ -341,18 +350,33 @@ export function policyPublicInputHash(
   return hashChain([
     ...auditChainElements(input),
     checkedBytes(input.policyHash, 32, "policy hash"),
-    checkedBytes(input.stateRoot, 32, "state root"),
-    checkedBytes(input.nullifierRoot, 32, "nullifier root"),
-    treeIdField(input.entriesTreeId),
+    treeSlotsHashChain(inputTreeSlots(input.treeSlots)),
+    treeIdField(input.addressTreeId),
     checkedBytes(input.ringId, 32, "ring id"),
     checkedBytes(input.namespaceOwnerHash, 32, "namespace owner hash"),
     u64Field(input.windowIndex),
     u64Field(input.approvalRequired ? 1n : 0n),
+    u64Field(input.keyRegistryRoot === undefined ? 0n : 1n),
+    checkedBytes(input.keyRegistryRoot ?? new Uint8Array(32), 32, "key registry root"),
+    packRevocationTreeIndexes(input.revocationTreeIndexes),
     ...checkedRevocationTargets(input.revocationTargets),
     ...(input.countersDisclosureHash === undefined
       ? []
       : [checkedBytes(input.countersDisclosureHash, 32, "counters disclosure hash")]),
   ]);
+}
+
+/** Mirrors Rust `pack_revocation_tree_indexes`, `Σ index_i · 8^i`, an index of 8 or more would alias its neighbour. */
+function packRevocationTreeIndexes(indexes: readonly number[] | undefined): Bytes32 {
+  const values = indexes ?? Array.from({ length: 10 }, () => 0);
+  if (values.length !== 10) throw new RangeError("revocation tree indexes must hold 10 entries");
+  const packed = values.reduce((sum, index, slot) => {
+    if (!Number.isInteger(index) || index < 0 || index >= 8) {
+      throw new RangeError("a revocation tree index must be below 8");
+    }
+    return sum | (BigInt(index) << BigInt(3 * slot));
+  }, 0n);
+  return u64Field(packed);
 }
 
 function checkedRevocationTargets(targets: readonly Bytes32[] | undefined): readonly Bytes32[] {

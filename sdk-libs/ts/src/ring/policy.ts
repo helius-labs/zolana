@@ -489,7 +489,7 @@ export function verifiedRuleTable(
   const hash = ringPolicyHash(table, sources);
   if (!equalBytes(hash, config.policyHash)) {
     throw new RingError("RING_POLICY_HASH_MISMATCH", {
-      details: { entriesTree: config.entriesTree, generation: config.generation },
+      details: { addressTree: config.addressTree, generation: config.generation },
     });
   }
   return table;
@@ -762,28 +762,34 @@ export interface SpendRecordHashes {
   readonly nullifier: Bytes32;
 }
 
+/** @internal Mirrors Rust `ZERO_NULLIFIER_PK`, `Poseidon(0)`, the nullifier public key of the zero secret. */
+export const ZERO_NULLIFIER_PK = Uint8Array.from([
+  0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
+  0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
+]) as Bytes32;
+
 /** Mirrors Rust `ListNamespace::new`, the shielded owner hash of the ring's entry notes. */
 export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
   return ownerHash(
     solanaOwnerIdentity(addressBytes(namespacePda, "namespacePda")) as Bytes32,
-    poseidon([new Uint8Array(32)]),
+    ZERO_NULLIFIER_PK,
   ) as Bytes32;
 }
 
-/** Mirrors Rust `ListNamespace`, every entry of it hashes under `treeId`. */
+/** Mirrors Rust `ListNamespace`, addresses hash under the address tree, leaves under the tree holding them. */
 export class RingListNamespace {
   readonly address: Address;
   readonly ownerHash: Bytes32;
-  readonly treeId: TreeId;
+  readonly addressTreeId: TreeId;
 
-  private constructor(address: Address, ownerHash: Bytes32, treeId: TreeId) {
+  private constructor(address: Address, ownerHash: Bytes32, addressTreeId: TreeId) {
     this.address = address;
     this.ownerHash = ownerHash;
-    this.treeId = treeId;
+    this.addressTreeId = addressTreeId;
   }
 
-  static of(namespace: Address, treeId: TreeId): RingListNamespace {
-    return new RingListNamespace(namespace, ringNamespaceOwnerHash(namespace), treeId);
+  static of(namespace: Address, addressTreeId: TreeId): RingListNamespace {
+    return new RingListNamespace(namespace, ringNamespaceOwnerHash(namespace), addressTreeId);
   }
 
   /** One address lineage per `(listId, member)` pair under one namespace. */
@@ -792,7 +798,7 @@ export class RingListNamespace {
     return entryNullifier(this.addressSlotHash(seed), seed);
   }
 
-  entryHashes(entry: ListEntry): EntryHashes {
+  entryHashes(entry: ListEntry, treeId: TreeId): EntryHashes {
     const address = this.entryAddress(entry);
     const dataHash = poseidon([
       POLICY_RECORD_DOMAIN,
@@ -803,7 +809,7 @@ export class RingListNamespace {
       fieldU64(entry.version),
       entry.contentHash,
     ]);
-    const utxoHash = this.leafHash(dataHash, entry.blinding);
+    const utxoHash = this.leafHash(dataHash, entry.blinding, treeId);
     return Object.freeze({
       address,
       dataHash,
@@ -819,17 +825,10 @@ export class RingListNamespace {
   }
 
   /** Mirrors Rust `SpendRecord::data_hash` and `utxo_hash`. */
-  spendRecordHashes(record: SpendRecord): SpendRecordHashes {
+  spendRecordHashes(record: SpendRecord, treeId: TreeId): SpendRecordHashes {
     const address = this.spendAddress(record.member);
-    const dataHash = poseidon([
-      SPEND_RECORD_DOMAIN,
-      address,
-      record.member,
-      fieldU64(record.version),
-      fieldU64(record.window),
-      record.countersCommitment,
-    ]);
-    const utxoHash = this.leafHash(dataHash, record.blinding);
+    const dataHash = this.spendRecordDataHash(record);
+    const utxoHash = this.leafHash(dataHash, record.blinding, treeId);
     return Object.freeze({
       address,
       dataHash,
@@ -838,11 +837,23 @@ export class RingListNamespace {
     });
   }
 
+  /** Mirrors Rust `SpendRecord::data_hash`, free of the tree the leaf lands in. */
+  spendRecordDataHash(record: SpendRecord): Bytes32 {
+    return poseidon([
+      SPEND_RECORD_DOMAIN,
+      this.spendAddress(record.member),
+      record.member,
+      fieldU64(record.version),
+      fieldU64(record.window),
+      record.countersCommitment,
+    ]);
+  }
+
   /** Mirrors Rust `ListNamespace::leaf_hash`, a zero-amount SOL data leaf in the default ring. */
-  leafHash(dataHash: Bytes32, blinding: Bytes32): Bytes32 {
+  leafHash(dataHash: Bytes32, blinding: Bytes32, treeId: TreeId): Bytes32 {
     return poseidon([
       fieldU16(UTXO_DOMAIN),
-      treeIdField(this.treeId),
+      treeIdField(treeId),
       solAssetField(),
       ZERO_32,
       dataHash,
@@ -855,7 +866,7 @@ export class RingListNamespace {
   addressSlotHash(seed: Bytes32): Bytes32 {
     return poseidon([
       fieldU16(ADDRESS_DOMAIN),
-      treeIdField(this.treeId),
+      treeIdField(this.addressTreeId),
       ZERO_32,
       ZERO_32,
       ZERO_32,
@@ -901,8 +912,14 @@ function packedAscii(text: string): Bytes32 {
   return rightAlign(new TextEncoder().encode(text));
 }
 
+/** The leaf's tree, a lineage moves between trees while its address stays in the address tree. */
+export interface LeafTree {
+  readonly tree: Address;
+  readonly treeId: TreeId;
+}
+
 /** The unspent version of a lineage. */
-export interface LiveEntry {
+export interface LiveEntry extends LeafTree {
   readonly entry: ListEntry;
   readonly utxoHash: Bytes32;
   readonly nullifier: Bytes32;
@@ -915,11 +932,14 @@ export type EntryIndexer = Pick<
   "getEncryptedUtxosByTags" | "getShieldedTransactionsByNullifiers"
 >;
 
-export interface ReadRingEntryInput {
+/** Where namespace records hash, a successor leaf is trusted only under its own tree id. */
+export interface RingRecordTrees {
+  readonly addressTreeId: TreeId;
+  readonly resolveTreeId: (tree: Address) => TreeId | Promise<TreeId>;
+}
+
+export interface ReadRingEntryInput extends RingRecordTrees {
   readonly indexer: EntryIndexer;
-  /** Only outputs in the entries tree continue a lineage. */
-  readonly entriesTree: Address;
-  readonly entriesTreeId: TreeId;
   readonly namespace: Address;
   readonly listId: ListId;
   readonly member: Member;
@@ -933,8 +953,8 @@ export async function readRingEntry(
   const [live] = await readRingEntryLineages(
     {
       indexer: input.indexer,
-      entriesTree: input.entriesTree,
-      entriesTreeId: input.entriesTreeId,
+      addressTreeId: input.addressTreeId,
+      resolveTreeId: input.resolveTreeId,
       lookups: [{ namespace: input.namespace, listId: input.listId, member: input.member }],
     },
     context,
@@ -942,10 +962,8 @@ export async function readRingEntry(
   return live;
 }
 
-export interface ReadRingEntriesInput {
+export interface ReadRingEntriesInput extends RingRecordTrees {
   readonly indexer: EntryIndexer;
-  readonly entriesTree: Address;
-  readonly entriesTreeId: TreeId;
   readonly namespace: Address;
   readonly pageLimit?: number;
 }
@@ -971,7 +989,6 @@ export async function readRingEntries(
       ),
     (page) => {
       for (const match of page.matches) {
-        if (match.outputSlot.outputContext.tree !== input.entriesTree) continue;
         const entry = tryDecodeListEntry(match.outputSlot.payload);
         if (entry === undefined) continue;
         pairs.set(pairKey(entry), { listId: entry.listId, member: entry.member });
@@ -981,8 +998,8 @@ export async function readRingEntries(
   const lineages = await readRingEntryLineages(
     {
       indexer: input.indexer,
-      entriesTree: input.entriesTree,
-      entriesTreeId: input.entriesTreeId,
+      addressTreeId: input.addressTreeId,
+      resolveTreeId: input.resolveTreeId,
       lookups: [...pairs.values()].map((pair) => ({ ...pair, namespace: input.namespace })),
     },
     context,
@@ -1017,10 +1034,8 @@ export interface RingEntryLookup extends EntryPair {
   readonly namespace: Address;
 }
 
-export interface ReadRingEntryLineagesInput {
+export interface ReadRingEntryLineagesInput extends RingRecordTrees {
   readonly indexer: EntryIndexer;
-  readonly entriesTree: Address;
-  readonly entriesTreeId: TreeId;
   readonly lookups: readonly RingEntryLookup[];
 }
 
@@ -1033,7 +1048,7 @@ export async function readRingEntryLineages(
   const heads: Head[] = input.lookups.map((lookup) => {
     const namespace =
       namespaces.get(lookup.namespace) ??
-      RingListNamespace.of(lookup.namespace, input.entriesTreeId);
+      RingListNamespace.of(lookup.namespace, input.addressTreeId);
     namespaces.set(lookup.namespace, namespace);
     const address = namespace.entryAddress(lookup);
     return { namespace, pair: lookup, address, live: undefined, nullifier: address, ended: false };
@@ -1052,8 +1067,8 @@ export async function readRingEntryLineages(
         head.ended = true;
         continue;
       }
-      const successor = successorIn(spender, input.entriesTree, (slot) =>
-        decodeSuccessor(head.namespace, head, slot),
+      const successor = await successorIn(spender, (slot) =>
+        decodeSuccessor({ head, slot, resolveTreeId: input.resolveTreeId }),
       );
       if (successor === undefined) {
         throw new RingError("RING_ENTRY_LINEAGE_BROKEN", {
@@ -1072,7 +1087,7 @@ export async function readRingEntryLineages(
 }
 
 /** Links a verified record to its transaction for counter recovery. */
-export interface LiveSpendRecord {
+export interface LiveSpendRecord extends LeafTree {
   readonly record: SpendRecord;
   readonly utxoHash: Bytes32;
   readonly nullifier: Bytes32;
@@ -1086,33 +1101,30 @@ export interface LiveSpendRecord {
 }
 
 /** Locates a member's record through its compressed entry lineage. */
-export interface ReadRingSpendRecordInput {
+export interface ReadRingSpendRecordInput extends RingRecordTrees {
   readonly indexer: EntryIndexer;
-  readonly entriesTree: Address;
-  readonly entriesTreeId: TreeId;
   readonly namespace: Address;
   readonly member: Member;
 }
 
 /** The decoded record must belong to `member` and hash under its spend address. */
-export function currentRingSpendRecord(
-  input: Readonly<{
-    record: NonNullable<RingSpendRecordLookup["record"]>;
-    entriesTree: Address;
-    entriesTreeId: TreeId;
-    namespace: Address;
-    member: Member;
-  }>,
-): LiveSpendRecord {
+export async function currentRingSpendRecord(
+  input: RingRecordTrees &
+    Readonly<{
+      record: NonNullable<RingSpendRecordLookup["record"]>;
+      namespace: Address;
+      member: Member;
+    }>,
+): Promise<LiveSpendRecord> {
   const { transaction, outputIndex } = input.record;
   const slot = transaction.outputSlots[outputIndex];
-  if (slot === undefined || slot.outputContext.tree !== input.entriesTree)
-    throw spendRecordInvalid("recordOutput");
-  const live = decodeSpendSuccessor({
-    namespace: RingListNamespace.of(input.namespace, input.entriesTreeId),
+  if (slot === undefined) throw spendRecordInvalid("recordOutput");
+  const live = await decodeSpendSuccessor({
+    namespace: RingListNamespace.of(input.namespace, input.addressTreeId),
     member: input.member,
     slot,
     messages: transaction.messages,
+    resolveTreeId: input.resolveTreeId,
   });
   if (live === undefined) throw spendRecordInvalid("recordMember");
   return liveSpendRecord(live, transaction);
@@ -1123,15 +1135,21 @@ export async function readRingSpendRecord(
   input: ReadRingSpendRecordInput,
   context?: RequestContext,
 ): Promise<LiveSpendRecord | undefined> {
-  const namespace = RingListNamespace.of(input.namespace, input.entriesTreeId);
+  const namespace = RingListNamespace.of(input.namespace, input.addressTreeId);
   let live: LiveSpendRecord | undefined;
   let nullifier = namespace.spendAddress(input.member);
   for (;;) {
     const spenders = await fetchSpenders(input.indexer, [nullifier], context);
     const spender = spenderOf(spenders, nullifier);
     if (spender === undefined) return live;
-    const successor = successorIn(spender, input.entriesTree, (slot) =>
-      decodeSpendSuccessor({ namespace, member: input.member, slot, messages: spender.messages }),
+    const successor = await successorIn(spender, (slot) =>
+      decodeSpendSuccessor({
+        namespace,
+        member: input.member,
+        slot,
+        messages: spender.messages,
+        resolveTreeId: input.resolveTreeId,
+      }),
     );
     if (successor === undefined) {
       throw new RingError("RING_SPEND_RECORD_LINEAGE_BROKEN", {
@@ -1146,8 +1164,13 @@ export async function readRingSpendRecord(
   }
 }
 
+type SpendSuccessor = Pick<
+  LiveSpendRecord,
+  "record" | "utxoHash" | "nullifier" | "tree" | "treeId"
+>;
+
 function liveSpendRecord(
-  successor: Pick<LiveSpendRecord, "record" | "utxoHash" | "nullifier">,
+  successor: SpendSuccessor,
   transaction: IndexedShieldedTransaction,
 ): LiveSpendRecord {
   const firstNullifier = transaction.nullifiers[0];
@@ -1164,22 +1187,25 @@ function liveSpendRecord(
   });
 }
 
-function decodeSpendSuccessor(
+async function decodeSpendSuccessor(
   input: Readonly<{
     namespace: RingListNamespace;
     member: Member;
     slot: OutputSlot;
     messages: readonly MessageData[];
+    resolveTreeId: RingRecordTrees["resolveTreeId"];
   }>,
-): Pick<LiveSpendRecord, "record" | "utxoHash" | "nullifier"> | undefined {
+): Promise<SpendSuccessor | undefined> {
   const { namespace, slot } = input;
   if (!equalBytes(slot.viewTag, addressBytes(namespace.address, "namespace"))) return undefined;
   const record = spendRecordFromSlot(slot, input.messages);
   if (record === undefined) return undefined;
   if (!equalBytes(record.member, input.member)) return undefined;
-  const hashes = namespace.spendRecordHashes(record);
+  const tree = slot.outputContext.tree;
+  const treeId = await input.resolveTreeId(tree);
+  const hashes = namespace.spendRecordHashes(record, treeId);
   if (!equalBytes(hashes.utxoHash, slot.outputContext.hash)) return undefined;
-  return { record, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier };
+  return { record, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier, tree, treeId };
 }
 
 async function fetchSpenders(
@@ -1210,32 +1236,37 @@ function spenderOf(
   );
 }
 
-/** The first entries-tree output `decode` accepts. */
-function successorIn<T>(
+/** The first output in any tree `decode` accepts. */
+async function successorIn<T>(
   spender: IndexedShieldedTransaction,
-  entriesTree: Address,
-  decode: (slot: OutputSlot) => T | undefined,
-): T | undefined {
-  return spender.outputSlots
-    .filter((slot) => slot.outputContext.tree === entriesTree)
-    .map(decode)
-    .find((candidate) => candidate !== undefined);
+  decode: (slot: OutputSlot) => Promise<T | undefined>,
+): Promise<T | undefined> {
+  for (const slot of spender.outputSlots) {
+    const candidate = await decode(slot);
+    if (candidate !== undefined) return candidate;
+  }
+  return undefined;
 }
 
 /** Content is trusted only after it reproduces the on-chain commitment. */
-function decodeSuccessor(
-  namespace: RingListNamespace,
-  head: Head,
-  slot: OutputSlot,
-): Omit<LiveEntry, "txSignature" | "slot"> | undefined {
+async function decodeSuccessor(
+  input: Readonly<{
+    head: Head;
+    slot: OutputSlot;
+    resolveTreeId: RingRecordTrees["resolveTreeId"];
+  }>,
+): Promise<Omit<LiveEntry, "txSignature" | "slot"> | undefined> {
+  const { head, slot } = input;
   const entry = tryDecodeListEntry(slot.payload);
   if (entry === undefined) return undefined;
   if (entry.listId !== head.pair.listId || !equalBytes(entry.member, head.pair.member)) {
     return undefined;
   }
-  const hashes = namespace.entryHashes(entry);
+  const tree = slot.outputContext.tree;
+  const treeId = await input.resolveTreeId(tree);
+  const hashes = head.namespace.entryHashes(entry, treeId);
   if (!equalBytes(hashes.utxoHash, slot.outputContext.hash)) return undefined;
-  return { entry, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier };
+  return { entry, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier, tree, treeId };
 }
 
 interface CursorPage {

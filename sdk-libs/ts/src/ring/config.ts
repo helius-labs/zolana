@@ -318,7 +318,7 @@ export async function fetchRingDelegate(
   return delegate;
 }
 
-/** No instruction replaces the delegate. */
+/** Irreversible, it also turns key escrow on and needs a policy ring with a key registry. */
 export async function setRingDelegateInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -327,8 +327,10 @@ export async function setRingDelegateInstruction(
     delegate: Address;
   }>,
 ): Promise<Instruction> {
-  const [delegatePda, programData] = await Promise.all([
+  const [config, delegatePda, [keyRegistryRoot], programData] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
     ringDelegateAddress(input.ringProgramId),
+    ringKeyRegistryRootPda(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
   ]);
   return {
@@ -336,7 +338,9 @@ export async function setRingDelegateInstruction(
     accounts: [
       meta(input.payer, true, true),
       meta(input.authority, true, false),
+      meta(config, false, true),
       meta(delegatePda, false, true),
+      meta(keyRegistryRoot, false, false),
       meta(SYSTEM_PROGRAM, false, false),
       meta(input.ringProgramId, false, false),
       meta(programData, false, false),

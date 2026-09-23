@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { getAddressDecoder, type Signature } from "@solana/kit";
+import { getAddressDecoder, type Address, type Signature } from "@solana/kit";
 import { initializePoseidon } from "../src/hasher/index.js";
 import type { RpcAccount } from "../src/client/rpc.js";
+import { nullifierPdaAddress } from "../src/interface/pda/index.js";
 import type { Bytes31, Bytes32 } from "../src/interface/types.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { ShieldedAddress } from "../src/keypair/shielded.js";
@@ -40,7 +41,8 @@ const ADDRESS = getAddressDecoder().decode(NAMESPACE);
 const TREE = getAddressDecoder().decode(field(11));
 beforeAll(initializePoseidon);
 
-function fixture() {
+/** `leafTreeId` is the tree the record lands in, its address hashes under tree 4. */
+function fixture(leafTreeId = 4) {
   const viewing = ViewingKey.fromBytes(field(12));
   const auditor = ViewingKey.fromBytes(field(13));
   const nullifier = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
@@ -57,7 +59,7 @@ function fixture() {
     countersCommitment: spendCountersCommitment(counters),
     blinding: field(15),
   };
-  const hashes = owner.spendRecordHashes(record);
+  const hashes = owner.spendRecordHashes(record, leafTreeId);
   const output = createProofOutput({
     ownerAddress: ShieldedAddress.forPda({
       pda: NAMESPACE,
@@ -75,7 +77,7 @@ function fixture() {
     outputs: [output],
     assets: new AssetRegistry(),
     auditorPublicKey: auditor.publicKey(),
-    outputTreeId: 4,
+    outputTreeId: leafTreeId,
     recordOutputIndex: 0,
     counterMessage: sealedSpendCounters(counters, NAMESPACE),
   });
@@ -213,20 +215,20 @@ describe("compressed spend record carrier", () => {
     }
   });
 
-  it("rebuilds the exact current leaf from its message, not the encrypted body", () => {
+  it("rebuilds the exact current leaf from its message, not the encrypted body", async () => {
     const f = fixture();
     try {
       const record = { transaction: f.transaction, outputIndex: 0 };
       const input = {
         record,
-        entriesTree: TREE,
-        entriesTreeId: 4,
+        addressTreeId: 4,
+        resolveTreeId: (tree: typeof TREE) => (tree === TREE ? 4 : 9),
         namespace: ADDRESS,
         member: f.record.member,
       };
-      expect(currentRingSpendRecord(input).record).toEqual(f.record);
+      expect((await currentRingSpendRecord(input)).record).toEqual(f.record);
       const altered = { ...f.record, window: 8n };
-      expect(() =>
+      await expect(
         currentRingSpendRecord({
           ...input,
           record: {
@@ -242,13 +244,13 @@ describe("compressed spend record carrier", () => {
             },
           },
         }),
-      ).toThrow("RING_SPEND_RECORD_INVALID");
+      ).rejects.toThrow("RING_SPEND_RECORD_INVALID");
       for (const changed of [
         { member: memberOfIdentity(field(3)) },
-        { entriesTree: ADDRESS },
-        { entriesTreeId: 5 },
+        { resolveTreeId: () => 5 },
+        { addressTreeId: 5 },
       ])
-        expect(() => currentRingSpendRecord({ ...input, ...changed })).toThrow(
+        await expect(currentRingSpendRecord({ ...input, ...changed })).rejects.toThrow(
           "RING_SPEND_RECORD_INVALID",
         );
     } finally {
@@ -256,26 +258,52 @@ describe("compressed spend record carrier", () => {
     }
   });
 
-  it("waits while the served record is already spent", async () => {
-    const f = fixture();
+  it("hashes a record's address under the address tree and its leaf under the tree it landed in", async () => {
+    const f = fixture(6);
+    try {
+      const live = await currentRingSpendRecord({
+        record: { transaction: f.transaction, outputIndex: 0 },
+        addressTreeId: 4,
+        resolveTreeId: () => 6,
+        namespace: ADDRESS,
+        member: f.record.member,
+      });
+      expect(live).toMatchObject({ record: f.record, tree: TREE, treeId: 6 });
+      expect(live.utxoHash).toEqual(f.hashes.utxoHash);
+      expect(f.hashes.address).toEqual(
+        RingListNamespace.of(ADDRESS, 4).spendAddress(f.record.member),
+      );
+    } finally {
+      f.auditor.destroy();
+    }
+  });
+
+  it("waits while the served record is spent in the tree it landed in", async () => {
+    const f = fixture(6);
     try {
       let spentReads = 1;
+      const queried: Address[] = [];
       const live = await readCurrentSpendRecord({
         client: {
           getRingSpendRecord: async () => ({
             context: { slot: 1n, blockTime: 0n },
             record: { transaction: f.transaction, outputIndex: 0 },
           }),
-          getAccount: async () => (spentReads-- > 0 ? ({} as RpcAccount) : undefined),
+          getAccount: async (address: Address) => {
+            queried.push(address);
+            return spentReads-- > 0 ? ({} as RpcAccount) : undefined;
+          },
         },
         ringProgramId: ADDRESS,
         namespace: ADDRESS,
-        entriesTree: TREE,
-        entriesTreeId: 4,
+        addressTreeId: 4,
+        resolveTreeId: () => 6,
         sender: f.record.member,
       });
       expect(live.record).toEqual(f.record);
       expect(spentReads).toBe(-1);
+      const pda = await nullifierPdaAddress(TREE, live.nullifier);
+      expect(queried).toEqual([pda, pda]);
     } finally {
       f.auditor.destroy();
     }
@@ -298,8 +326,8 @@ describe("compressed spend record carrier", () => {
         },
         ringProgramId: ADDRESS,
         namespace: ADDRESS,
-        entriesTree: TREE,
-        entriesTreeId: 4,
+        addressTreeId: 4,
+        resolveTreeId: () => 4,
         sender: f.record.member,
       });
       expect((await readCurrentSpendRecord(reader(true))).record).toEqual(f.record);
