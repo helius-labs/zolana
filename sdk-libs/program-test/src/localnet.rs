@@ -221,8 +221,10 @@ pub struct FixtureLocalnet {
 }
 
 impl FixtureLocalnet {
-    /// Boot on `ports` with the shielded pool and `programs` loaded. `label`
-    /// names the per-process account and log directories.
+    /// Boot on `ports` with the shielded pool and `programs` loaded. The
+    /// account and log directories live in `<temp>/<label>-<rpc port>`, cleared
+    /// at every start: disk stays bounded at one directory per port, and the
+    /// last run's logs stay behind for debugging.
     ///
     /// Artifacts default to this workspace's builds; `ZOLANA_CLI_BIN` and
     /// `SHIELDED_POOL_PROGRAM_PATH` override the CLI and the pool program.
@@ -233,7 +235,10 @@ impl FixtureLocalnet {
     ) -> Result<Self, ProgramTestError> {
         let spp = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         let spp_so = paths::default_program_path();
-        let scratch = env::temp_dir().join(format!("{label}-{}", std::process::id()));
+        let scratch = env::temp_dir().join(format!("{label}-{}", ports.rpc));
+        if scratch.exists() {
+            std::fs::remove_dir_all(&scratch)?;
+        }
         let account_dir = scratch.join("accounts");
         write_test_fixture(&spp_so, &account_dir)?;
 
