@@ -42,7 +42,6 @@ pub(crate) use init_spp_ring_config::process_init_spp_ring_config_ix;
 pub(crate) use register_key::process_register_key_ix;
 pub(crate) use register_spend::process_register_spend_ix;
 pub(crate) use revoke_read_access::process_revoke_read_access_ix;
-pub use roots::NULLIFIER_ROOT_WINDOW;
 pub(crate) use set_authority::process_set_authority_ix;
 pub(crate) use set_cosigner::process_set_cosigner_ix;
 pub(crate) use set_delegate::process_set_delegate_ix;

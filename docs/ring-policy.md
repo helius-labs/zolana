@@ -32,8 +32,8 @@ Seven terms carry the whole design.
 A blocklist ring runs through every section below, the `own-blocklist`
 example. Its table holds one rule,
 `Rule::forbid(Subject::OutputOwner, ListId::Block)`. The authority lists
-Mallory under `Block`. Once all accepted nullifier roots contain that claim,
-a transfer to Mallory cannot prove her absent. A transfer to Bob proves absence, no
+Mallory under `Block`. Once SPP queues that claim's nullifier, a transfer
+to Mallory cannot prove her absent. A transfer to Bob proves absence, no
 entry under his pair exists. After the authority clears Mallory, a transfer
 to her proves absence through the cleared entry.
 

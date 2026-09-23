@@ -256,6 +256,30 @@ describe("answer proving", () => {
     });
   });
 
+  it("absence proofs at an older live root keep their own root and index", async () => {
+    const { member, address } = recipient();
+    const allow = lineage({
+      namespace: NAMESPACE,
+      tree: TREE,
+      listId: ListId.allow,
+      member,
+      states: ["active"],
+    });
+    const older = { value: filled(0x33) as Bytes32, index: 2 };
+    const client = entryProofReads({
+      tree: TREE,
+      spenders: allow.spenders,
+      account: true,
+      nullifierRoots: [older],
+    });
+    const { roots } = await provePolicyAnswers({
+      client,
+      ...input(TWO_ALLOW, [output(address, 10n)]),
+    });
+    expect(roots.nullifierRoot).toEqual(older.value);
+    expect(roots.nullifierRootIndex).toBe(older.index);
+  });
+
   it("a guard-exempt subject triggers no request", async () => {
     const { address } = recipient();
     const client = entryProofReads({ tree: TREE, account: true });

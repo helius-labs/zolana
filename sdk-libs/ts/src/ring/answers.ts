@@ -383,21 +383,13 @@ function fixedRoots(proofs: EntryProofs): FixedRoots {
   return Object.freeze({
     state,
     nullifier,
-    atHeads: (heads: TreeHeadRoots) => {
-      if (
-        nullifier !== undefined &&
-        (nullifier.index !== heads.nullifierRootIndex ||
-          !equalBytes(nullifier.value, heads.nullifierRoot))
-      ) {
-        throw new RingError("RING_POLICY_ROOT_MISMATCH");
-      }
-      return Object.freeze({
+    atHeads: (heads: TreeHeadRoots) =>
+      Object.freeze({
         stateRoot: state?.value ?? heads.stateRoot,
         stateRootIndex: state?.index ?? heads.stateRootIndex,
-        nullifierRoot: heads.nullifierRoot,
-        nullifierRootIndex: heads.nullifierRootIndex,
-      });
-    },
+        nullifierRoot: nullifier?.value ?? heads.nullifierRoot,
+        nullifierRootIndex: nullifier?.index ?? heads.nullifierRootIndex,
+      }),
   });
 }
 

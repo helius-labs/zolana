@@ -199,7 +199,7 @@ chaining would let one captured curator authority rotate every downstream
 ring at once, with no downstream signature.
 
 Flattening freezes the map, not the list. A curator mutation affects every
-subscriber under the same accepted-root window as a local list mutation.
+subscriber on the same schedule as a local list mutation.
 Delegation bounds who writes, never what they write, a subscriber trusts
 its curator's writes wholly.
 
@@ -315,8 +315,8 @@ transaction stays at or below the threshold, a payment split across slots does
 not escape it. The quantifier
 direction carries the soundness. A wallet paying a blocked member cannot
 omit the convicting entry. Omission leaves the instance uncovered, and
-once the bound nullifier root absorbs the ban, neither absence branch is
-satisfiable. Extra entries answering no rule are harmless.
+once SPP queues the ban, neither absence branch survives the revocation
+target check. Extra entries answering no rule are harmless.
 
 Screened subjects come from the openings. `OutputOwner` collects every
 output that names an owner. Nonzero change is such an output, it names the
@@ -337,19 +337,16 @@ member transfers. Windowed member transfers keep money and record slots in
 the entries tree. A fabricated root cannot enter the statement, every
 admissible root is one the tree produced.
 
-Freshness is asymmetric on purpose. Any live state root is admissible.
-Inclusion is monotone, an old root can only miss new leaves. The nullifier
-root must sit within `NULLIFIER_ROOT_WINDOW = 8` entries of the live
-cursor. Absence is the one thing that rots. An old nullifier root still
-shows a freshly banned member as absent.
+Any live state root and any live nullifier root is admissible, the rule
+SPP applies to its own reads. Inclusion is monotone, an old root can only
+miss new leaves. Absence is the one thing that rots. An old nullifier root
+still shows a freshly banned member as absent.
 
 Transact closes that gap without waiting for the forester. The proof binds
 each absence target, and transact refuses a target whose nullifier PDA
 exists. SPP creates the PDA when it queues the nullifier and permits closing
 it only after every root lacking the nullifier has left the root history. Any
-admissible root therefore contains the ban or meets a live PDA. The window
-bounds only how far a transfer may trail the forester's rotations. Requiring
-the exact current root would fail every transfer a rotation overtakes.
+admissible root therefore contains the ban or meets a live PDA.
 
 ## The wallet cycle
 
@@ -539,8 +536,6 @@ entry.
 
 ## Limits
 
-- Revocation waits on the forester. One batch rotation must land, and up
-  to eight admissible rotations follow, unbounded in time on a quiet tree.
 - One entries tree per ring. The circuit binds one root pair, the entries
   tree's. Entries and curator entries share that one tree instance, pinned
   at `create_policy` and unrecoverable without a fresh deployment. The
