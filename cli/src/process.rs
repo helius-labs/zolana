@@ -14,12 +14,13 @@ use crate::config::TERMINATION_GRACE_PERIOD;
 pub(crate) fn spawn_service(
     binary: &Path,
     args: &[String],
+    envs: &[(&str, &Path)],
     log_name: &str,
     log_dir: &str,
 ) -> Result<Child> {
     std::fs::create_dir_all(log_dir)
         .with_context(|| format!("failed to create log directory {log_dir}"))?;
-    let log_path = Path::new(log_dir).join(format!("{log_name}.log"));
+    let log_path = log_path(log_dir, log_name);
     println!("Writing {log_name} logs to {}", log_path.display());
     let log = OpenOptions::new()
         .create(true)
@@ -32,11 +33,30 @@ pub(crate) fn spawn_service(
 
     Command::new(binary)
         .args(args)
+        .envs(envs.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(stderr))
         .spawn()
         .with_context(|| format!("failed to spawn {}", binary.display()))
+}
+
+fn log_path(log_dir: &str, log_name: &str) -> PathBuf {
+    Path::new(log_dir).join(format!("{log_name}.log"))
+}
+
+/// The last `lines` lines a service started by [`spawn_service`] logged. A
+/// service that exits early says why only there, so errors about it quote this.
+pub(crate) fn log_tail(log_dir: &str, log_name: &str, lines: usize) -> String {
+    let path = log_path(log_dir, log_name);
+    match std::fs::read_to_string(&path) {
+        Ok(log) => {
+            let skip = log.lines().count().saturating_sub(lines);
+            let tail: Vec<&str> = log.lines().skip(skip).collect();
+            format!("last lines of {}:\n{}", path.display(), tail.join("\n"))
+        }
+        Err(error) => format!("could not read {}: {error}", path.display()),
+    }
 }
 
 pub(crate) fn remove_launchd_validators() {
@@ -53,16 +73,13 @@ pub(crate) fn remove_launchd_validators() {
     }
 }
 
-pub(crate) fn stop_name(name: &str) {
-    let _ = signal_name(name, "-TERM");
-    if wait_for_process_exit(|| !process_name_exists(name)) {
-        return;
-    }
-    let _ = signal_name(name, "-KILL");
-}
-
+/// Stop the process listening on `port`. Processes merely connected to it, such
+/// as a test's RPC client or Photon polling the validator, are not the service
+/// and keep running.
 pub(crate) fn stop_port(port: u16) {
-    let output = Command::new("lsof").arg(format!("-ti:{port}")).output();
+    let output = Command::new("lsof")
+        .args(["-t", "-i", &format!("TCP:{port}"), "-s", "TCP:LISTEN"])
+        .output();
     let Ok(output) = output else {
         return;
     };
@@ -144,24 +161,6 @@ pub(crate) fn path_string_with_trailing_separator(path: &Path) -> Result<String>
         value.push(std::path::MAIN_SEPARATOR);
     }
     Ok(value)
-}
-
-fn signal_name(name: &str, signal: &str) -> bool {
-    Command::new("pkill")
-        .args([signal, "-x", name])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn process_name_exists(name: &str) -> bool {
-    Command::new("pgrep")
-        .args(["-x", name])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
 }
 
 fn stop_pid(pid: &str) {

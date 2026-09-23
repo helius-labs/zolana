@@ -90,6 +90,10 @@ name = "multi_tree_spend"
 [[test]]
 name = "witness_trees"
 
+# Hermetic: a loopback mock prover, no prover server.
+[[test]]
+name = "prover_retry"
+
 [[test]]
 name = "transaction_proving"
 required-features = ["proofs"]

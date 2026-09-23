@@ -9,34 +9,67 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 
+use crate::config::READINESS_POLL_INTERVAL;
+
 pub(crate) fn wait_for_rpc_with_child(
     port: u16,
     timeout: Duration,
-    stable_checks: u32,
     child: &mut Child,
     label: &str,
 ) -> Result<()> {
-    wait_until_with_child(timeout, stable_checks, child, label, || rpc_health(port))
+    wait_until_with_child(timeout, child, label, || rpc_health(port))
 }
 
 pub(crate) fn wait_for_http_get_with_child(
     port: u16,
     path: &str,
     timeout: Duration,
-    stable_checks: u32,
     child: &mut Child,
     label: &str,
 ) -> Result<()> {
-    wait_until_with_child(timeout, stable_checks, child, label, || {
+    wait_until_with_child(timeout, child, label, || {
         http_get_status(port, path)
             .map(|status| (200..300).contains(&status))
             .unwrap_or(false)
     })
 }
 
+/// Wait until Photon has indexed at least one slot. Its `/readiness` only checks
+/// the database connection, and until the first block is indexed every query
+/// fails with "No data has been indexed".
+pub(crate) fn wait_for_photon_indexing_with_child(
+    port: u16,
+    timeout: Duration,
+    child: &mut Child,
+    label: &str,
+) -> Result<()> {
+    wait_until_with_child(timeout, child, label, || {
+        rpc_request(port, "getIndexerSlot")
+            .ok()
+            .and_then(|value| value.get("result").and_then(Value::as_u64))
+            .is_some()
+    })
+}
+
+/// Wait until nothing accepts connections on `port`, so a service started next
+/// can bind it.
+pub(crate) fn wait_for_port_closed(port: u16, timeout: Duration) -> Result<()> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if TcpStream::connect_timeout(&address, READINESS_POLL_INTERVAL).is_err() {
+            return Ok(());
+        }
+        thread::sleep(READINESS_POLL_INTERVAL);
+    }
+    bail!(
+        "port {port} still accepts connections after {} seconds",
+        timeout.as_secs()
+    )
+}
+
 fn wait_until_with_child<F>(
     timeout: Duration,
-    stable_checks: u32,
     child: &mut Child,
     label: &str,
     mut ready: F,
@@ -44,22 +77,15 @@ fn wait_until_with_child<F>(
 where
     F: FnMut() -> bool,
 {
-    let required = stable_checks.max(1);
     let start = Instant::now();
-    let mut consecutive = 0;
     while start.elapsed() < timeout {
         if let Some(status) = child.try_wait()? {
             bail!("{label} exited early with status {status}");
         }
         if ready() {
-            consecutive += 1;
-            if consecutive >= required {
-                return Ok(());
-            }
-        } else {
-            consecutive = 0;
+            return Ok(());
         }
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(READINESS_POLL_INTERVAL);
     }
     bail!("timed out after {} seconds", timeout.as_secs())
 }
@@ -96,6 +122,11 @@ fn json_rpc_request(port: u16, path: &str, method: &str) -> Result<Value> {
         bail!("JSON-RPC HTTP status {status}");
     }
     serde_json::from_str(http_body(&response)).context("failed to parse JSON-RPC response")
+}
+
+/// Whether `path` on `port` answers with a 2xx status right now.
+pub(crate) fn http_get_ok(port: u16, path: &str) -> bool {
+    http_get_status(port, path).is_ok_and(|status| (200..300).contains(&status))
 }
 
 fn http_get_status(port: u16, path: &str) -> Result<u16> {

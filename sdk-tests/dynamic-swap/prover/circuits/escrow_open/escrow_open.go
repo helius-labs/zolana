@@ -3,8 +3,7 @@ package escrow_open
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
-	spp "zolana/prover/circuits/spp_transaction/shared"
+	"zolana/gnarksdk"
 )
 
 // Circuit binds create_escrow's 2-in/3-out real shape (taker's source UTXO +
@@ -21,19 +20,12 @@ import (
 type Circuit struct {
 	Public PublicInputs
 
-	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
-	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
-	SourceIn           spp.UtxoCircuitFields
-	SourceInTreeID     frontend.Variable
-	MakerFunding       spp.UtxoCircuitFields
-	MakerFundingTreeID frontend.Variable
+	SourceIn     gnarksdk.Utxo
+	MakerFunding gnarksdk.Utxo
 
-	OrderOut             spp.UtxoCircuitFields
-	OrderOutTreeID       frontend.Variable
-	ReservationOut       spp.UtxoCircuitFields
-	ReservationOutTreeID frontend.Variable
-	MakerChange          spp.UtxoCircuitFields
-	MakerChangeTreeID    frontend.Variable
+	OrderOut       gnarksdk.Utxo
+	ReservationOut gnarksdk.Utxo
+	MakerChange    gnarksdk.Utxo
 
 	OrderAmount frontend.Variable
 
@@ -66,16 +58,17 @@ func (c *Circuit) Define(api frontend.API) error {
 	reservationOutHash := c.checkReservationOutputUtxo(api, orderOutHash)
 	makerChangeHash := c.checkMakerChangeOutputUtxo(api)
 
-	privateTxHashInputs{
-		SourceInputUtxoHash:       sourceInHash,
-		MakerFundingInputUtxoHash: makerFundingHash,
-		OrderOutputUtxoHash:       orderOutHash,
-		ReservationOutputUtxoHash: reservationOutHash,
-		MakerChangeOutputUtxoHash: makerChangeHash,
-		ExternalDataHash:          c.ExternalDataHash,
-		PrivateTxBlinding:         c.PrivateTxBlinding,
-		PrivateTxHash:             c.Public.PrivateTxHash,
-	}.Check(api)
+	// The real shape is 2-in/3-out, exactly the supported IN2_OUT3 shape --
+	// no padding needed on either side. Output order (order, reservation,
+	// maker_change) must match the native program's output indices and the SDK.
+	privateTxHash := gnarksdk.PrivateTxHash(
+		api,
+		[]frontend.Variable{sourceInHash, makerFundingHash},
+		[]frontend.Variable{orderOutHash, reservationOutHash, makerChangeHash},
+		c.ExternalDataHash,
+		c.PrivateTxBlinding,
+	)
+	api.AssertIsEqual(privateTxHash, c.Public.PrivateTxHash)
 
 	c.Public.Check(api)
 	return nil
@@ -112,78 +105,35 @@ type PublicInputs struct {
 }
 
 func (p PublicInputs) Check(api frontend.API) {
-	publicInputHash := gadget.PoseidonHash(api, []frontend.Variable{
+	publicInputHash := gnarksdk.Poseidon(
+		api,
 		p.PrivateTxHash,
 		p.CreatedAt,
 		p.EscrowAuthorityOwnerHash,
 		p.SourceAsset,
 		p.DestinationAsset,
-	})
+	)
 	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
 }
 
-type privateTxHashInputs struct {
-	SourceInputUtxoHash       frontend.Variable
-	MakerFundingInputUtxoHash frontend.Variable
-	OrderOutputUtxoHash       frontend.Variable
-	ReservationOutputUtxoHash frontend.Variable
-	MakerChangeOutputUtxoHash frontend.Variable
-	ExternalDataHash          frontend.Variable
-	PrivateTxBlinding         frontend.Variable
-	PrivateTxHash             frontend.Variable
-}
-
-func (t privateTxHashInputs) Check(api frontend.API) {
-	// The real shape is 2-in/3-out, exactly the supported IN2_OUT3 shape --
-	// no padding needed on either side. Output order (order, reservation,
-	// maker_change) must match the native program's output indices and the SDK.
-	inputHashes := []frontend.Variable{
-		t.SourceInputUtxoHash,
-		t.MakerFundingInputUtxoHash,
-	}
-	outputHashes := []frontend.Variable{
-		t.OrderOutputUtxoHash,
-		t.ReservationOutputUtxoHash,
-		t.MakerChangeOutputUtxoHash,
-	}
-	addressHashes := []frontend.Variable{
-		frontend.Variable(0),
-		frontend.Variable(0),
-	}
-
-	privateTxHash := spp.PrivateTxHashCircuit(
-		api,
-		inputHashes,
-		outputHashes,
-		addressHashes,
-		t.ExternalDataHash,
-		t.PrivateTxBlinding,
-	)
-	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
-}
-
 func (c *Circuit) checkSourceInputUtxo(api frontend.API) frontend.Variable {
-	api.AssertIsEqual(c.SourceIn.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.SourceIn.RingDataHash, 0)
-	api.AssertIsEqual(c.SourceIn.RingProgramID, 0)
+	c.SourceIn.AssertDefaultRing(api)
 	api.AssertIsEqual(c.SourceIn.DataHash, 0)
 	// Bind the escrowed asset to the pair's source asset so a worthless token
 	// cannot stand in for it.
 	api.AssertIsEqual(c.SourceIn.Asset, c.Public.SourceAsset)
 	// No change output: the source input must be exactly OrderAmount.
 	api.AssertIsEqual(c.SourceIn.Amount, c.OrderAmount)
-	return spp.UtxoHashCircuit(api, c.SourceIn, c.SourceInTreeID)
+	return c.SourceIn.Hash(api)
 }
 
 func (c *Circuit) checkMakerFundingInputUtxo(api frontend.API) frontend.Variable {
-	api.AssertIsEqual(c.MakerFunding.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.MakerFunding.RingDataHash, 0)
-	api.AssertIsEqual(c.MakerFunding.RingProgramID, 0)
+	c.MakerFunding.AssertDefaultRing(api)
 	api.AssertIsEqual(c.MakerFunding.DataHash, 0)
 	// Bind the maker's funding asset to the pair's destination asset so the maker
 	// cannot fund with a worthless token that the taker would be paid on settle.
 	api.AssertIsEqual(c.MakerFunding.Asset, c.Public.DestinationAsset)
-	return spp.UtxoHashCircuit(api, c.MakerFunding, c.MakerFundingTreeID)
+	return c.MakerFunding.Hash(api)
 }
 
 // checkOrderOutputUtxo commits (recipient, MaxPrice, CreatedAt) into the order
@@ -197,18 +147,12 @@ func (c *Circuit) checkMakerFundingInputUtxo(api frontend.API) frontend.Variable
 // order and reservation UTXOs are provably owned by the pair's escrow_authority
 // PDA -- only the native program can spend them, via settle.
 func (c *Circuit) checkOrderOutputUtxo(api frontend.API) frontend.Variable {
-	api.AssertIsEqual(c.OrderOut.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.OrderOut.RingDataHash, 0)
-	api.AssertIsEqual(c.OrderOut.RingProgramID, 0)
+	c.OrderOut.AssertDefaultRing(api)
 	api.AssertIsEqual(c.OrderOut.Owner, c.Public.EscrowAuthorityOwnerHash)
 	api.AssertIsEqual(c.OrderOut.Asset, c.SourceIn.Asset)
 	api.AssertIsEqual(c.OrderOut.Amount, c.OrderAmount)
-	api.AssertIsEqual(c.OrderOut.DataHash, gadget.PoseidonHash(api, []frontend.Variable{
-		c.SourceIn.Owner,
-		c.MaxPrice,
-		c.Public.CreatedAt,
-	}))
-	return spp.UtxoHashCircuit(api, c.OrderOut, c.OrderOutTreeID)
+	api.AssertIsEqual(c.OrderOut.DataHash, gnarksdk.Poseidon(api, c.SourceIn.Owner, c.MaxPrice, c.Public.CreatedAt))
+	return c.OrderOut.Hash(api)
 }
 
 // checkReservationOutputUtxo binds the reservation's DataHash to the order UTXO's
@@ -217,16 +161,14 @@ func (c *Circuit) checkOrderOutputUtxo(api frontend.API) frontend.Variable {
 // liquidity (order_amount * max_price) in the destination asset, escrowed under the
 // escrow_authority PDA.
 func (c *Circuit) checkReservationOutputUtxo(api frontend.API, orderOutHash frontend.Variable) frontend.Variable {
-	api.AssertIsEqual(c.ReservationOut.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.ReservationOut.RingDataHash, 0)
-	api.AssertIsEqual(c.ReservationOut.RingProgramID, 0)
+	c.ReservationOut.AssertDefaultRing(api)
 	api.AssertIsEqual(c.ReservationOut.Asset, c.MakerFunding.Asset)
 	api.AssertIsEqual(c.ReservationOut.Owner, c.OrderOut.Owner)
 	api.AssertIsEqual(c.ReservationOut.DataHash, orderOutHash)
 
 	api.AssertIsEqual(c.ReservationOut.Amount, api.Mul(c.OrderAmount, c.MaxPrice))
 
-	return spp.UtxoHashCircuit(api, c.ReservationOut, c.ReservationOutTreeID)
+	return c.ReservationOut.Hash(api)
 }
 
 // checkMakerChangeOutputUtxo returns the maker's unspent funding (funding -
@@ -234,9 +176,7 @@ func (c *Circuit) checkReservationOutputUtxo(api frontend.API, orderOutHash fron
 // co-signing taker cannot redirect it. The 64-bit range check rejects an
 // over-reservation (funding < reserved would wrap the field subtraction).
 func (c *Circuit) checkMakerChangeOutputUtxo(api frontend.API) frontend.Variable {
-	api.AssertIsEqual(c.MakerChange.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.MakerChange.RingDataHash, 0)
-	api.AssertIsEqual(c.MakerChange.RingProgramID, 0)
+	c.MakerChange.AssertDefaultRing(api)
 	api.AssertIsEqual(c.MakerChange.DataHash, 0)
 	api.AssertIsEqual(c.MakerChange.Asset, c.MakerFunding.Asset)
 	api.AssertIsEqual(c.MakerChange.Owner, c.MakerFunding.Owner)
@@ -245,5 +185,5 @@ func (c *Circuit) checkMakerChangeOutputUtxo(api frontend.API) frontend.Variable
 	api.AssertIsEqual(c.MakerChange.Amount, api.Sub(c.MakerFunding.Amount, reserved))
 	api.ToBinary(c.MakerChange.Amount, 64)
 
-	return spp.UtxoHashCircuit(api, c.MakerChange, c.MakerChangeTreeID)
+	return c.MakerChange.Hash(api)
 }

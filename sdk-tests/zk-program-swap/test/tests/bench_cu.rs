@@ -19,7 +19,7 @@ use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use swap_prover::{preload, CircuitId};
+use swap_prover::{CircuitId, PROVER};
 use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
@@ -352,10 +352,14 @@ fn bench_cu_swap() {
     });
 
     zolana_test_utils::prover::spawn_workspace_prover();
-    preload(CircuitId::Make).expect("preload make keys");
-    preload(CircuitId::Take).expect("preload take keys");
-    preload(CircuitId::TakeVerifiableEncryption).expect("preload take_verifiable_encryption keys");
-    preload(CircuitId::Cancel).expect("preload cancel keys");
+    PROVER.preload(CircuitId::Make).expect("preload make keys");
+    PROVER.preload(CircuitId::Take).expect("preload take keys");
+    PROVER
+        .preload(CircuitId::TakeVerifiableEncryption)
+        .expect("preload take_verifiable_encryption keys");
+    PROVER
+        .preload(CircuitId::Cancel)
+        .expect("preload cancel keys");
 
     bench_make(&mut mollusk, &spp_id, &mut bench);
     bench_take_derived(&mut mollusk, &spp_id, &mut bench);

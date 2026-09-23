@@ -25,6 +25,7 @@ use zolana_interface::{
     },
 };
 use zolana_keypair::ShieldedKeypair;
+use zolana_program_test::fixture;
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_utxo, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
@@ -44,10 +45,10 @@ fn assert_account(
     expected_authority: Address,
     expected_value: u64,
     expected_tree: Address,
-    indexer: &zolana_client::ZolanaIndexer,
+    client: &impl Rpc,
 ) -> Result<()> {
     assert!(
-        indexer
+        client
             .get_shielded_transactions_by_nullifiers(
                 vec![wallet_utxo.nullifier],
                 None,
@@ -84,12 +85,11 @@ fn malformed_plaintext_payload() -> Vec<u8> {
     payload
 }
 
-fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<Signature> {
-    let attacker = ShieldedKeypair::new_ed25519()?;
-    env.rpc.airdrop(&attacker.pubkey(), 10_000_000_000)?;
+fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signature> {
+    let attacker = ShieldedKeypair::from_keypair(&fixture::actor(1))?;
     let attacker_address = attacker.shielded_address()?;
     let deposit_ix = Deposit {
-        tree: env.tree,
+        tree: env.localnet.tree,
         depositor: attacker.pubkey(),
         deposits: vec![AssetDeposit {
             asset: DepositAsset::Sol,
@@ -105,7 +105,7 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     // A proofless deposit publishes its UTXO in the clear, so read it back from
     // the indexer.
     let deposited = wait_for_indexed_utxo(
-        &env.indexer,
+        &env.localnet.client,
         attacker_address.confidential_view_tag()?,
         deposit_signature,
     )
@@ -123,7 +123,7 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
             data: Data::default(),
         },
         &attacker.nullifier_key,
-        &env.indexer,
+        &env.localnet.client,
         DEFAULT_TREE_ID,
     )?
     .into();
@@ -131,7 +131,7 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
         (input_utxo.utxo.asset.asset, input_utxo.utxo.amount),
         (SOL_MINT, POISON_AMOUNT)
     );
-    wait_for_merkle_proof(&env.indexer, env.tree, input_utxo.hash());
+    wait_for_merkle_proof(&env.localnet.client, env.localnet.tree, input_utxo.hash());
 
     let input_utxos = vec![input_utxo];
     let mut poison_outputs = vec![SppProofOutputUtxo {
@@ -160,7 +160,7 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
         vec![pda.to_bytes()],
         Vec::new(),
     );
-    let transact = env.indexer.prove_transact(
+    let transact = env.localnet.client.prove_transact(
         SppProofInputs {
             input_utxos,
             output_utxos: vec![poison_output],
@@ -169,19 +169,20 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
             blinding_seed,
             output_tree_id: DEFAULT_TREE_ID,
         },
+        None,
         &attacker,
     )?;
     let poison_ix = Transact {
         payer: attacker.pubkey(),
-        input_trees: vec![env.tree],
-        output_tree: env.tree,
+        input_trees: vec![env.localnet.tree],
+        output_tree: env.localnet.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact,
     }
     .instruction();
     let poison_signature = send_from(env, poison_ix, &attacker, None)?;
-    wait_for_indexed_utxo(&env.indexer, pda.to_bytes(), poison_signature);
+    wait_for_indexed_utxo(&env.localnet.client, pda.to_bytes(), poison_signature);
     Ok(poison_signature)
 }
 
@@ -195,12 +196,13 @@ fn default_tree_is_tree_pda_zero() {
 
 #[test]
 fn create_and_update_plaintext_compressed_account() -> Result<()> {
-    let mut env = setup()?;
+    let env = setup(10)?;
     let pda = account_pda(&env.authority.pubkey());
 
     let (_, address) = address_input(&pda, DEFAULT_TREE_ID)?;
-    let non_inclusion = wait_for_non_inclusion_proof(&env.indexer, env.tree, address);
-    let (utxo_root_index, utxo_root) = tree_root(&env.rpc, env.tree)?;
+    let non_inclusion =
+        wait_for_non_inclusion_proof(&env.localnet.client, env.localnet.tree, address);
+    let (utxo_root_index, utxo_root) = tree_root(&env.localnet.client, env.localnet.tree)?;
     let create = CreateProofInputParams {
         authority: env.authority.pubkey(),
         new_value: 1,
@@ -212,7 +214,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     let proof = ProverClient::local().prove_transfer(&create.transfer_inputs)?;
     let create_ix = Create {
         payer: env.authority.pubkey(),
-        tree: env.tree,
+        tree: env.localnet.tree,
         new_value: 1,
         nullifier_tree_root_index: create.nullifier_tree_root_index,
         utxo_tree_root_index: create.utxo_tree_root_index,
@@ -221,16 +223,16 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     .instruction()?;
 
     let create_signature = send(&env, create_ix.clone(), None)?;
-    wait_for_indexed_utxo(&env.indexer, pda.to_bytes(), create_signature);
-    let current = discover_account(&env.indexer, pda)?;
+    wait_for_indexed_utxo(&env.localnet.client, pda.to_bytes(), create_signature);
+    let current = discover_account(&env.localnet.client, pda)?;
     assert_account(
         &current.utxo,
         &create.output,
         create.output_hash,
         env.authority.pubkey(),
         1,
-        env.tree,
-        &env.indexer,
+        env.localnet.tree,
+        &env.localnet.client,
     )?;
     if current.version != 0 {
         bail!("created account version is not 0");
@@ -247,16 +249,16 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         bail!("compressed address is not the address-input nullifier");
     }
 
-    land_malformed_tagged_output(&mut env, pda)?;
-    let after_poison = discover_account(&env.indexer, pda)?;
+    land_malformed_tagged_output(&env, pda)?;
+    let after_poison = discover_account(&env.localnet.client, pda)?;
     assert_account(
         &after_poison.utxo,
         &create.output,
         create.output_hash,
         env.authority.pubkey(),
         1,
-        env.tree,
-        &env.indexer,
+        env.localnet.tree,
+        &env.localnet.client,
     )?;
     if after_poison.version != 0 {
         bail!("poisoned scan did not keep the created account");
@@ -284,30 +286,31 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     }
     let update_ix = Update {
         payer: env.authority.pubkey(),
-        input_tree: env.tree,
-        output_tree: env.tree,
+        input_tree: env.localnet.tree,
+        output_tree: env.localnet.tree,
         old_value,
         version,
         old_blinding: current.utxo.utxo.blinding,
         new_value: 2,
-        spp_proof: env.indexer.prove_transact(
+        spp_proof: env.localnet.client.prove_transact(
             spp_proof_inputs,
+            None,
             &compression_example_sdk::shared::zero_nullifier_key(),
         )?,
     }
     .instruction()?;
 
     let update_signature = send(&env, update_ix.clone(), None)?;
-    wait_for_indexed_utxo(&env.indexer, pda.to_bytes(), update_signature);
-    let updated = discover_account(&env.indexer, pda)?;
+    wait_for_indexed_utxo(&env.localnet.client, pda.to_bytes(), update_signature);
+    let updated = discover_account(&env.localnet.client, pda)?;
     assert_account(
         &updated.utxo,
         &update_output,
         update_output_hash,
         env.authority.pubkey(),
         2,
-        env.tree,
-        &env.indexer,
+        env.localnet.tree,
+        &env.localnet.client,
     )?;
     if updated.version != 1 {
         bail!("updated account version is not 1");

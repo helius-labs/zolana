@@ -11,7 +11,7 @@ use swap_program::{
     },
     verifying_keys::cancel::VERIFYINGKEY,
 };
-use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, TAKE_MODE_DERIVED};
+use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, PROVER, TAKE_MODE_DERIVED};
 use swap_sdk::state::DataHash;
 use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::hash_bytes;
@@ -22,13 +22,15 @@ mod shared;
 use shared::order_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/cancel")
+    PROVER.keys_dir(CircuitId::Cancel)
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        swap_prover::setup(CircuitId::Cancel, &dir).expect("setup failed");
+        PROVER
+            .setup_insecure_test_keys(CircuitId::Cancel, &dir)
+            .expect("setup failed");
     }
 }
 
@@ -150,12 +152,6 @@ fn verify_with_generated_vk(
     verifier.verify().is_ok()
 }
 
-fn keys_in_sync(vk: &Groth16VerifyingkeyOwned) -> bool {
-    let borrowed = vk.as_borrowed();
-    borrowed.vk_ic.len() == VERIFYINGKEY.vk_ic.len()
-        && borrowed.vk_alpha_g1 == VERIFYINGKEY.vk_alpha_g1
-}
-
 #[test]
 fn program_vk_has_no_commitment() {
     assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
@@ -192,34 +188,25 @@ fn cancel_prove_verify() {
         "groth16 proof must verify against the cancel verifying key"
     );
 
-    if keys_in_sync(&vk) {
-        let public_input_hash = CancelPublicInput {
-            private_tx_hash: &inputs.private_tx_hash,
-            expiry: inputs.order.expiry,
-            maker_owner_pk_field: &inputs.maker_owner_pk_field,
-        }
-        .hash()
-        .expect("program cancel public input hash");
-        let proof: CancelProof = proof.into();
-        verify_groth16(
-            CompressedGroth16Proof {
-                a: &proof.proof_a,
-                b: &proof.proof_b,
-                c: &proof.proof_c,
-                commitment: None,
-            },
-            public_input_hash,
-            &VERIFYINGKEY,
-        )
-        .expect("program cancel verify must accept a valid proof");
-    } else {
-        eprintln!(
-            "SKIP: committed cancel VERIFYINGKEY does not match the locally generated \
-             build/gnark/cancel/vk.bin (keys are gitignored and groth16 setup is randomized), \
-             so the on-chain verify_groth16 path was not exercised. Download the pinned keys \
-             matching swap-keys.CHECKSUM to run it."
-        );
+    let public_input_hash = CancelPublicInput {
+        private_tx_hash: &inputs.private_tx_hash,
+        expiry: inputs.order.expiry,
+        maker_owner_pk_field: &inputs.maker_owner_pk_field,
     }
+    .hash()
+    .expect("program cancel public input hash");
+    let proof: CancelProof = proof.into();
+    verify_groth16(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        public_input_hash,
+        &VERIFYINGKEY,
+    )
+    .expect("the committed cancel VERIFYINGKEY must accept the proof; run `just ensure-swap-keys`");
 }
 
 #[test]

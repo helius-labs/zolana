@@ -49,17 +49,15 @@ const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 #[test]
 fn make_and_cancel_swap_inline() -> Result<()> {
     let TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         mut maker,
         maker_input,
         taker,
         spl_mint,
-    } = setup()?;
+    } = setup(1)?;
     let swap_prover_client = SwapProverClient::new();
     {
-        ensure_registered(client.rpc(), &maker.keypair, &maker.keypair)
+        ensure_registered(localnet.client.rpc(), &maker.keypair, &maker.keypair)
             .map_err(|e| anyhow!("register maker: {e:?}"))?;
 
         let taker_address = taker.keypair.shielded_address()?;
@@ -87,7 +85,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         };
         let order_output_utxo = order_utxo.output_utxo(maker_address.viewing_pubkey)?;
 
-        let input_utxos = vec![maker_input, SppProofInputUtxo::dummy(tree_id)?];
+        let input_utxos = vec![maker_input, SppProofInputUtxo::dummy(localnet.tree_id)?];
 
         let order_utxo_asset = order_output_utxo.asset;
         let leftover =
@@ -103,7 +101,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         order_utxo.blinding = order_output_utxo.blinding;
 
         let order_utxo_hash = order_output_utxo
-            .hash(tree_id)
+            .hash(localnet.tree_id)
             .map_err(|e| anyhow!("order output hash: {e:?}"))?;
         let marker_message = OrderMarker {
             order_utxo_hash,
@@ -118,7 +116,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let encoded = encrypt_transaction_data(
             &[change.clone(), order_output_utxo],
             &transaction_viewing_key,
-            tree_id,
+            localnet.tree_id,
         )
         .map_err(|e| anyhow!("encode make slots: {e:?}"))?;
 
@@ -135,10 +133,11 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             external_data,
             payer: maker_address.solana_address()?,
             blinding_seed,
-            output_tree_id: tree_id,
+            output_tree_id: localnet.tree_id,
         };
 
-        let spp_proof = client
+        let spp_proof = localnet
+            .client
             .indexer()
             .prove_transact(
                 spp_proof_inputs.clone(),
@@ -158,14 +157,15 @@ fn make_and_cancel_swap_inline() -> Result<()> {
 
         let make_ix = Make {
             payer: maker_address.solana_address()?,
-            tree,
+            tree: localnet.tree,
             make_proof: make_proof.into(),
             spp_proof,
         }
         .instruction()?;
 
-        let make_signature = send(client.rpc(), &maker.keypair, make_ix)?;
-        client
+        let make_signature = send(localnet.client.rpc(), &maker.keypair, make_ix)?;
+        localnet
+            .client
             .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
     }
@@ -176,7 +176,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let order = index_maker(
             &mut maker.wallet,
             &maker.keypair,
-            client.indexer(),
+            localnet.client.indexer(),
             Duration::from_secs(60),
         )?
         .pop()
@@ -188,21 +188,21 @@ fn make_and_cancel_swap_inline() -> Result<()> {
 
         let order_hash = order_utxo
             .output_utxo(maker_address.viewing_pubkey)?
-            .hash(tree_id)?;
+            .hash(localnet.tree_id)?;
         let order_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
-            client.indexer(),
-            tree,
+            localnet.client.indexer(),
+            localnet.tree,
             order_hash,
         );
         let order_input_utxo = order_utxo
-            .to_input_utxo(tree_id, order_state.leaf_index)
+            .to_input_utxo(localnet.tree_id, order_state.leaf_index)
             .map_err(|e| anyhow!("order input_utxo: {e:?}"))?;
 
         let input_utxos = vec![order_input_utxo];
         let blinding_seed =
             prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))?;
         let source_output_hash = source_output
-            .hash(tree_id)
+            .hash(localnet.tree_id)
             .map_err(|e| anyhow!("source output hash: {e:?}"))?;
         let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
             .map_err(|e| anyhow!("cancel transaction viewing key: {e:?}"))?;
@@ -210,7 +210,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let encoded = encrypt_transaction_data(
             std::slice::from_ref(&source_output),
             &transaction_viewing_key,
-            tree_id,
+            localnet.tree_id,
         )
         .map_err(|e| anyhow!("encode cancel slots: {e:?}"))?;
 
@@ -228,7 +228,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             external_data,
             payer: maker_address.solana_address()?,
             blinding_seed,
-            output_tree_id: tree_id,
+            output_tree_id: localnet.tree_id,
         };
 
         let cancel_proof_inputs = CancelProofInputParams {
@@ -242,11 +242,12 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             private_tx_blinding: cancel_spp_proof_inputs
                 .private_tx_blinding()
                 .map_err(|e| anyhow!("cancel private tx blinding: {e:?}"))?,
-            input_tree_id: tree_id,
-            output_tree_id: tree_id,
+            input_tree_id: localnet.tree_id,
+            output_tree_id: localnet.tree_id,
         };
 
-        let spp_proof = client
+        let spp_proof = localnet
+            .client
             .indexer()
             .prove_transact(
                 cancel_spp_proof_inputs,
@@ -261,21 +262,23 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let cancel_ix = Cancel {
             maker: maker_address.solana_address()?,
             payer: maker_address.solana_address()?,
-            tree,
+            tree: localnet.tree,
             cancel_proof: cancel_proof.into(),
             order_expiry: order_utxo.terms.expiry,
             spp_proof,
         }
         .instruction()?;
 
-        let cancel_signature = send(client.rpc(), &maker.keypair, cancel_ix)?;
-        client
+        let cancel_signature = send(localnet.client.rpc(), &maker.keypair, cancel_ix)?;
+        localnet
+            .client
             .confirm_private_transaction_sync(cancel_signature)
             .map_err(|e| anyhow!("confirm cancel indexed: {e:?}"))?;
 
-        client
+        localnet
+            .client
             .indexer()
-            .get_merkle_proofs(tree, vec![source_output_hash], None)
+            .get_merkle_proofs(localnet.tree, vec![source_output_hash], None)
             .map_err(|e| anyhow!("cancel output index: {e}"))?;
     }
     Ok(())
