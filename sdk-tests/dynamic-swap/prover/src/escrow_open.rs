@@ -1,12 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{
-    bytes_to_decimal_string,
-    ffi::{self, CircuitId},
-    proof::{negate_and_compress_proof, OrderProof, ProofError},
-    utxo::utxo_witness_entries,
-    ProofInputUtxo,
-};
+use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
+
+use crate::{CircuitId, OrderProof, ProofInputUtxo, PROVER};
 
 /// Proof inputs for the `escrow_open` circuit (`create_escrow`): 2-in (source,
 /// maker_funding) / 3-out (order, reservation, maker_change), the exact supported
@@ -40,15 +36,15 @@ pub struct EscrowOpenProofInputs {
 }
 
 impl EscrowOpenProofInputs {
-    fn witness(&self) -> ffi::WitnessMap {
+    fn witness(&self) -> ProofInputMap {
         let mut map = HashMap::new();
         map.insert(
             "Public_PublicInputHash".to_string(),
-            vec![bytes_to_decimal_string(&self.public_input_hash)],
+            vec![decimal(&self.public_input_hash)],
         );
         map.insert(
             "Public_PrivateTxHash".to_string(),
-            vec![bytes_to_decimal_string(&self.private_tx_hash)],
+            vec![decimal(&self.private_tx_hash)],
         );
         map.insert("MaxPrice".to_string(), vec![self.max_price.to_string()]);
         map.insert(
@@ -57,15 +53,15 @@ impl EscrowOpenProofInputs {
         );
         map.insert(
             "Public_EscrowAuthorityOwnerHash".to_string(),
-            vec![bytes_to_decimal_string(&self.escrow_authority_owner_hash)],
+            vec![decimal(&self.escrow_authority_owner_hash)],
         );
         map.insert(
             "Public_SourceAsset".to_string(),
-            vec![bytes_to_decimal_string(&self.source_asset)],
+            vec![decimal(&self.source_asset)],
         );
         map.insert(
             "Public_DestinationAsset".to_string(),
-            vec![bytes_to_decimal_string(&self.destination_asset)],
+            vec![decimal(&self.destination_asset)],
         );
         map.insert(
             "OrderAmount".to_string(),
@@ -73,29 +69,29 @@ impl EscrowOpenProofInputs {
         );
         map.insert(
             "ExternalDataHash".to_string(),
-            vec![bytes_to_decimal_string(&self.external_data_hash)],
+            vec![decimal(&self.external_data_hash)],
         );
         map.insert(
             "PrivateTxBlinding".to_string(),
-            vec![bytes_to_decimal_string(&self.private_tx_blinding)],
+            vec![decimal(&self.private_tx_blinding)],
         );
-        for (key, value) in utxo_witness_entries(&self.source_in, "SourceIn")
+        for (key, value) in utxo_proof_inputs(&self.source_in, "SourceIn")
             .into_iter()
-            .chain(utxo_witness_entries(&self.maker_funding, "MakerFunding"))
-            .chain(utxo_witness_entries(&self.order_out, "OrderOut"))
-            .chain(utxo_witness_entries(
-                &self.reservation_out,
-                "ReservationOut",
-            ))
-            .chain(utxo_witness_entries(&self.maker_change, "MakerChange"))
+            .chain(utxo_proof_inputs(&self.maker_funding, "MakerFunding"))
+            .chain(utxo_proof_inputs(&self.order_out, "OrderOut"))
+            .chain(utxo_proof_inputs(&self.reservation_out, "ReservationOut"))
+            .chain(utxo_proof_inputs(&self.maker_change, "MakerChange"))
         {
             map.insert(key, value);
         }
         map
     }
 
-    pub fn prove(&self) -> Result<OrderProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::EscrowOpen, &self.witness())?)
+    pub fn prove(&self) -> zolana_gnark_ffi_prover::Result<OrderProof> {
+        Ok(PROVER
+            .prove(CircuitId::EscrowOpen, &self.witness())?
+            .compress()?
+            .into())
     }
 }
 
@@ -104,7 +100,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::utxo::expected_utxo_witness_keys;
+    use zolana_gnark_ffi_prover::utxo_proof_input_keys;
 
     fn sample() -> EscrowOpenProofInputs {
         EscrowOpenProofInputs {
@@ -150,7 +146,7 @@ mod tests {
             "ReservationOut",
             "MakerChange",
         ] {
-            expected.extend(expected_utxo_witness_keys(prefix));
+            expected.extend(utxo_proof_input_keys(prefix));
         }
 
         let expected: HashSet<&str> = expected.iter().map(String::as_str).collect();

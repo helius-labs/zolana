@@ -19,7 +19,7 @@ use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use timelock_escrow_prover::{preload, CircuitId};
+use timelock_escrow_prover::{CircuitId, PROVER};
 use timelock_escrow_sdk::{
     instructions::{
         escrow::{Escrow, EscrowProofInputParams, SppTxHashes},
@@ -361,8 +361,12 @@ fn bench_cu_escrow() {
     });
 
     start_prover();
-    preload(CircuitId::Escrow).expect("preload escrow keys");
-    preload(CircuitId::Withdraw).expect("preload withdraw keys");
+    PROVER
+        .preload(CircuitId::Escrow)
+        .expect("preload escrow keys");
+    PROVER
+        .preload(CircuitId::Withdraw)
+        .expect("preload withdraw keys");
 
     bench_escrow(&mut mollusk, &spp_id, &mut bench);
     bench_withdraw(&mut mollusk, &spp_id, &mut bench);

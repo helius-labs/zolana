@@ -1,6 +1,5 @@
 use swap_program::instructions::shared::u64_right_align;
-
-use crate::bytes_to_decimal_string;
+use zolana_gnark_ffi_prover::decimal;
 
 pub const TAKE_MODE_DERIVED: u64 = 0;
 pub const TAKE_MODE_VERIFIABLE: u64 = 1;
@@ -31,12 +30,7 @@ impl OrderTermsProofInput {
         ];
         let mut entries: Vec<(String, Vec<String>)> = scalars
             .iter()
-            .map(|(suffix, value)| {
-                (
-                    format!("{prefix}_{suffix}"),
-                    vec![bytes_to_decimal_string(value)],
-                )
-            })
+            .map(|(suffix, value)| (format!("{prefix}_{suffix}"), vec![decimal(value)]))
             .collect();
         entries.push((
             format!("{prefix}_MakerViewingPk"),

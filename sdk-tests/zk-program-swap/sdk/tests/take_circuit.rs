@@ -11,7 +11,7 @@ use swap_program::{
     },
     verifying_keys::take::VERIFYINGKEY,
 };
-use swap_prover::{CircuitId, TakeProofInputs, TAKE_MODE_DERIVED};
+use swap_prover::{CircuitId, TakeProofInputs, PROVER, TAKE_MODE_DERIVED};
 use swap_sdk::{
     instructions::take::{take_blinding_seed, TakeProofInputParams},
     state::{OrderTerms, OrderUtxo},
@@ -24,13 +24,15 @@ use zolana_transaction::{
 };
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/take")
+    PROVER.keys_dir(CircuitId::Take)
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        swap_prover::setup(CircuitId::Take, &dir).expect("setup failed");
+        PROVER
+            .setup_insecure_test_keys(CircuitId::Take, &dir)
+            .expect("setup failed");
     }
 }
 

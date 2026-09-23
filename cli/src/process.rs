@@ -41,13 +41,12 @@ struct OwnedReceipt {
 pub(crate) fn spawn_service(
     binary: &Path,
     args: &[String],
+    envs: &[(&str, &Path)],
     service: Service,
     log_dir: &str,
 ) -> Result<Child> {
     let scope = process_scope()?;
-    let log_dir = scope
-        .as_ref()
-        .map_or_else(|| PathBuf::from(log_dir), |scope| scope.join("logs"));
+    let log_dir = service_log_dir(scope.as_deref(), log_dir);
     std::fs::create_dir_all(&log_dir)
         .with_context(|| format!("failed to create log directory {}", log_dir.display()))?;
     let log_name = service.log_name();
@@ -63,6 +62,7 @@ pub(crate) fn spawn_service(
         .with_context(|| format!("failed to clone {}", log_path.display()))?;
 
     let mut command = Command::new(binary);
+    command.envs(envs.iter().copied());
     if let Some(scope) = scope.as_ref().filter(|_| service == Service::Photon) {
         let temporary = scope.join(format!("photon-data-{}", std::process::id()));
         if std::fs::symlink_metadata(&temporary)
@@ -95,6 +95,34 @@ pub(crate) fn spawn_service(
     Ok(child)
 }
 
+fn service_log_dir(scope: Option<&Path>, log_dir: &str) -> PathBuf {
+    scope.map_or_else(|| PathBuf::from(log_dir), |scope| scope.join("logs"))
+}
+
+/// The last `lines` lines a service started by [`spawn_service`] logged. A
+/// service that exits early says why only there, so errors about it quote this.
+pub(crate) fn log_tail(log_dir: &str, service: Service, lines: usize) -> String {
+    let scope = match process_scope() {
+        Ok(scope) => scope,
+        Err(error) => {
+            return format!(
+                "could not locate the {} log ({error:#})",
+                service.log_name()
+            )
+        }
+    };
+    let path =
+        service_log_dir(scope.as_deref(), log_dir).join(format!("{}.log", service.log_name()));
+    match std::fs::read_to_string(&path) {
+        Ok(log) => {
+            let skip = log.lines().count().saturating_sub(lines);
+            let tail: Vec<&str> = log.lines().skip(skip).collect();
+            format!("last lines of {}:\n{}", path.display(), tail.join("\n"))
+        }
+        Err(error) => format!("could not read {}: {error}", path.display()),
+    }
+}
+
 pub(crate) fn remove_launchd_validators() {
     if !matches!(process_scope(), Ok(None)) {
         return;
@@ -112,26 +140,16 @@ pub(crate) fn remove_launchd_validators() {
     }
 }
 
-pub(crate) fn stop_name(name: &str) {
-    let Some(scope) = stop_scope() else {
-        return;
-    };
-    if let Some(scope) = scope {
-        stop_owned_receipt(&receipt_path(&scope, name));
-        return;
-    }
-    let _ = signal_name(name, "-TERM");
-    if wait_for_process_exit(|| !process_name_exists(name)) {
-        return;
-    }
-    let _ = signal_name(name, "-KILL");
-}
-
+/// Stop the process listening on `port`. Processes merely connected to it, such
+/// as a test's RPC client or Photon polling the validator, are not the service
+/// and keep running.
 pub(crate) fn stop_port(port: u16) {
     let Some(scope) = stop_scope() else {
         return;
     };
-    let output = Command::new("lsof").arg(format!("-ti:{port}")).output();
+    let output = Command::new("lsof")
+        .args(["-t", "-i", &format!("TCP:{port}"), "-s", "TCP:LISTEN"])
+        .output();
     let Ok(output) = output else {
         return;
     };
@@ -346,24 +364,6 @@ pub(crate) fn path_string_with_trailing_separator(path: &Path) -> Result<String>
         value.push(std::path::MAIN_SEPARATOR);
     }
     Ok(value)
-}
-
-fn signal_name(name: &str, signal: &str) -> bool {
-    Command::new("pkill")
-        .args([signal, "-x", name])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn process_name_exists(name: &str) -> bool {
-    Command::new("pgrep")
-        .args(["-x", name])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
 }
 
 fn stop_pid(pid: &str) {

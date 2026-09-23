@@ -1,0 +1,71 @@
+//! # gnark-ffi-prover
+//!
+//! A host-side gnark Groth16 prover for ZK programs with their own circuits,
+//! running in-process through a Go C archive. A prover crate keeps only what
+//! is specific to it:
+//!
+//! - `circuits/`: a Go `main` package whose `init` registers its circuits with
+//!   the `zolana/gnarkffiprover` bridge, plus the circuits themselves. Its
+//!   `go.mod` requires the bridge module without a `replace`.
+//! - `build.rs`: `zolana_gnark_ffi_prover_build::build_prover_archive()`, which
+//!   supplies the bridge, builds that package into a C archive and links it.
+//! - A [`Circuit`] enum and
+//!   `pub static PROVER: Prover<CircuitId> = prover!(<key root>);`.
+//! - The proof input encoding and proof types of each circuit.
+//! - `src/bin/setup.rs`: `setup_cli::main(&PROVER)`.
+//!
+//! Each circuit's keys live in `<key root>/<circuit>/{pk,vk}.bin`. A circuit's
+//! proving key is loaded on its first proof and stays loaded.
+//!
+//! [`Prover::setup_insecure_test_keys`] (setup CLI `--insecure-test-keys`)
+//! generates reproducible keys from a fixed public seed. Anyone can forge
+//! proofs against them, so they are for tests only.
+
+mod ffi;
+mod proof;
+mod prover;
+pub mod setup_cli;
+mod utxo;
+
+use std::{collections::HashMap, path::PathBuf};
+
+use num_bigint::BigUint;
+
+pub use ffi::{ProveResult, Symbols};
+pub use proof::{Commitment, CompressedProof, ProveOutput};
+pub use prover::{Circuit, Prover};
+pub use utxo::{utxo_proof_input_keys, utxo_proof_inputs};
+
+/// Proof inputs keyed by `_`-joined circuit field path, as decimal strings.
+pub type ProofInputMap = HashMap<String, Vec<String>>;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("gnark FFI error: {0}")]
+    Go(String),
+    #[error("proving key missing at {0} -- fetch the keys or run the setup binary")]
+    MissingKeys(PathBuf),
+    #[error("circuit {0:?} is not in its Circuit::ALL")]
+    UnlistedCircuit(&'static str),
+    #[error("path is not valid UTF-8")]
+    PathEncoding,
+    #[error("interior NUL in C string")]
+    NulInString(#[from] std::ffi::NulError),
+    #[error("proof input JSON serialization failed: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("compress G1 failed: {0}")]
+    CompressG1(String),
+    #[error("compress G2 failed: {0}")]
+    CompressG2(String),
+    #[error("proof is missing its BSB22 commitment")]
+    MissingCommitment,
+}
+
+/// A 32-byte big-endian value as a decimal string.
+pub fn decimal(bytes: &[u8; 32]) -> String {
+    BigUint::from_bytes_be(bytes).to_string()
+}

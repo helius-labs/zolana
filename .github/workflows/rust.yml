@@ -127,10 +127,19 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # For test-example-provers.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: sdk-libs/gnark-sdk/go.mod
+          cache-dependency-path: |
+            sdk-libs/gnark-sdk/go.sum
+            sdk-libs/gnark-ffi-prover/build-helper/go/go.sum
+            sdk-tests/*/prover/circuits/go.sum
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs
+      - run: just test-example-provers
 
   test-programs:
     name: tests / programs
@@ -213,12 +222,40 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  build-localnet-tests:
-    name: build / localnet suites
+  # The localnet matrix's inputs, built in three parallel jobs so none waits on
+  # another: the SBF programs, the tools, and the test archives.
+  build-localnet-programs:
+    name: build / localnet programs
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.2.2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: litesvm
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Anza CLI
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
+      - name: Install pinned SBF platform tools
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
+      - run: just build-programs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: localnet-programs-${{ github.sha }}
+          path: target/deploy/*.so
+          if-no-files-found: error
+          retention-days: 1
+
+  build-localnet-tools:
+    name: build / localnet tools
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -229,21 +266,11 @@ jobs:
         with:
           shared-key: localnet-photon
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - name: Install Anza CLI
-        uses: ./.github/actions/install-anza
-        with:
-          version: ${{ env.AGAVE_VERSION }}
-      - name: Install pinned SBF platform tools
-        uses: ./.github/actions/install-sbf-tools
-        with:
-          version: ${{ env.SBF_TOOLS_VERSION }}
-      - run: just build-localnet-archives
+      - run: just build-localnet-tools
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: localnet-tests-${{ github.sha }}
+          name: localnet-tools-${{ github.sha }}
           path: |
-            target/nextest-archives/
-            target/deploy/*.so
             target/debug/zolana
             target/debug/xtask
             target/debug/zolana-ring
@@ -251,11 +278,44 @@ jobs:
             target/prover-server
           if-no-files-found: error
           retention-days: 1
+      # The example programs' insecure test keys; test-only and UNSAFE for
+      # production.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: example-test-keys-${{ github.sha }}
+          path: |
+            sdk-tests/zk-program-swap/build/gnark/
+            sdk-tests/timelock-escrow/build/gnark/
+            sdk-tests/dynamic-swap/build/gnark/
+          if-no-files-found: error
+          retention-days: 1
+
+  build-localnet-tests:
+    name: build / localnet suites
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: localnet-photon
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: just build-localnet-archives
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: localnet-tests-${{ github.sha }}
+          path: target/nextest-archives/
+          if-no-files-found: error
+          retention-days: 1
 
   test-localnet-photon:
     name: tests / localnet photon / ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    needs: [build-photon, build-localnet-tests]
+    needs: [build-photon, build-localnet-programs, build-localnet-tools, build-localnet-tests]
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
@@ -305,9 +365,9 @@ jobs:
             runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2
-      # GH_TOKEN is for the gh-release swap/escrow/custom-ring key downloads
-      # (ensure-swap-keys / ensure-escrow-keys / ensure-custom-ring-keys); SPP
-      # proving keys come from CloudFront and need no token.
+      # GH_TOKEN is for the gh-release custom-ring key downloads
+      # (ensure-custom-ring-keys); SPP proving keys come from CloudFront and
+      # the example programs' test keys from the build job, and need no token.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ZOLANA_PHOTON_BIN: target/bin/photon
       ZOLANA_PREBUILT: "1"
@@ -353,12 +413,27 @@ jobs:
           name: photon-linux-x86_64-${{ github.sha }}
           path: target/bin
       - run: chmod 0755 "$ZOLANA_PHOTON_BIN"
+      - name: Download prebuilt programs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: localnet-programs-${{ github.sha }}
+          path: target/deploy
+      - name: Download prebuilt tools
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: localnet-tools-${{ github.sha }}
+          path: target
       - name: Download prebuilt localnet suites
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: localnet-tests-${{ github.sha }}
-          path: target
+          path: target/nextest-archives
       - run: chmod 0755 target/debug/zolana target/debug/xtask target/debug/zolana-ring target/debug/photon target/prover-server
+      - name: Download example test keys
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: example-test-keys-${{ github.sha }}
+          path: sdk-tests
       - name: Cache Squads smart account binary
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: squads-cache
@@ -372,8 +447,8 @@ jobs:
       - name: Dump prover and photon logs on failure
         if: failure()
         run: |
-          # Services log under a test-ledger dir whose location depends on the
-          # spawning process's cwd, so search rather than assume the repo root.
+          # Services log under test-ledger in the spawning process's cwd, or
+          # under target/localnet for FixtureLocalnet suites, so search.
           echo "=== prover-server.log ==="
           find . -name prover-server.log -exec sh -c 'echo "--- {} ---"; tail -200 "{}"' \; 2>/dev/null \
             || echo "(no prover log)"

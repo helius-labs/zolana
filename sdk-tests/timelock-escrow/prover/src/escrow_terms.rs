@@ -1,6 +1,5 @@
 use timelock_escrow_program::instructions::shared::u64_right_align;
-
-use crate::bytes_to_decimal_string;
+use zolana_gnark_ffi_prover::decimal;
 
 #[derive(Debug, Clone, Copy)]
 pub struct EscrowTermsProofInput {
@@ -16,12 +15,7 @@ impl EscrowTermsProofInput {
         ];
         scalars
             .iter()
-            .map(|(suffix, value)| {
-                (
-                    format!("{prefix}_{suffix}"),
-                    vec![bytes_to_decimal_string(value)],
-                )
-            })
+            .map(|(suffix, value)| (format!("{prefix}_{suffix}"), vec![decimal(value)]))
             .collect()
     }
 }

@@ -11,10 +11,10 @@ instructions, and circuits.
   verification, verifying-key constants, instruction data, tags, errors, and
   the canonical public-input hashing. No separate interface crate; the sdk
   re-exports from here.
-- `prover`: in-process proving engine. Go gnark circuits, ffi bindings, proof
-  input struct definitions for the prover, circuit constants, and the
-  key-generation binary. Takes prepared proof inputs and proves; hashing and
-  domain logic belong in the sdk.
+- `prover`: in-process proving engine on the shared `sdk-libs/gnark-ffi-prover`.
+  Go gnark circuits and their registration, proof input struct definitions
+  for the prover, circuit constants, and the key-generation binary. Takes
+  prepared proof inputs and proves; hashing and domain logic belong in the sdk.
 - `sdk`: client library. State definitions, instruction data builders, proof
   input builders, utxo data definitions and hashing, discovery, encryption
   codecs, and the prover client. Owns all transformation between domain types
@@ -28,9 +28,20 @@ instructions, and circuits.
   program authority PDA flipped to a signer. Public-input hash impls live next
   to the instruction and are reused by the sdk. Host-side unit tests
   (error-code stability, boundary checks) in `tests/`.
-- prover: `build.rs` compiles the Go package to a c-archive, exposed as
-  `setup` / `preload` / `prove` over bindgen. Proof input structs are pure
-  containers whose only logic is witness-map encoding and a `prove()` method.
+- prover: `circuits/main.go` registers each circuit by name with the
+  `zolana/gnarkffiprover` bridge, which `circuits/go.mod` requires without a
+  `replace`; `build.rs` calls
+  `zolana_gnark_ffi_prover_build::build_prover_archive()`, which supplies the
+  bridge and compiles the package to a c-archive; `lib.rs` names the circuits
+  in a `zolana_gnark_ffi_prover::Circuit` enum and declares
+  `pub static PROVER = zolana_gnark_ffi_prover::prover!(<key root>)`, whose
+  `setup` / `preload` / `prove` the rest of the crate and the tests call.
+  Proof input structs are pure containers whose only logic is witness-map
+  encoding and a `prove()` method. Circuits take UTXOs as `gnarksdk.Utxo` and
+  build their hashes, the private tx hash and the blinding checks from
+  `zolana/gnarksdk` (`sdk-libs/gnark-sdk`); `circuits/go.mod` replaces it and
+  `zolana/prover` with their directories. Go tooling in `circuits/` needs the
+  bridge replace too: `just example-circuits-go vet ./...`.
 - sdk: one directory per instruction with `instruction.rs` (builder struct
   with a consuming `instruction()` method, not free functions) and
   `proof.rs` (a params struct with `to_proof_inputs()` doing validation and
@@ -46,9 +57,9 @@ instructions, and circuits.
   `zolana-hasher` (+`poseidon`), `groth16-solana` (+`bsb22`) for verification,
   `wincode`/`borsh` for instruction data, `thiserror` +
   `solana-program-error` for errors. Never sdk crates.
-- prover: `groth16-solana` (+`bsb22`) and `solana-bn254` for proof types,
-  `zolana-transaction` for proof input slots, the program crate for shared
-  types.
+- prover: `zolana-gnark-ffi-prover` for the FFI, key loading, proof compression and
+  UTXO witness encoding (`zolana-gnark-ffi-prover-build` as the build dependency),
+  `zolana-client` for proof input UTXOs, the program crate for shared types.
 - sdk: `zolana-client`, `zolana-keypair`, `zolana-transaction`,
   `solana-instruction`/`solana-address` for wire types, plus the program and
   prover crates.
@@ -59,6 +70,8 @@ instructions, and circuits.
 ## Key Artifacts
 
 - `build/gnark/<circuit>/{pk,vk}.bin`: generated proving/verifying keys,
-  pinned by checksum.
+  pinned by checksum. They are insecure deterministic test keys, UNSAFE for
+  production: `just ensure-swap-keys` generates them locally, and
+  `just regen-swap-keys` rewrites the committed verifying keys and checksums.
 - `program/src/verifying_keys/`: committed Rust vk constants; must match the
   generated keys.

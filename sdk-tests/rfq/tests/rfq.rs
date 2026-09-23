@@ -22,13 +22,11 @@ use zolana_wallet::{sync_wallet, Filter};
 #[test]
 fn cosigned_rfq_settlement() -> Result<()> {
     let TestEnv {
-        client,
-        tree,
-        tree_id,
+        localnet,
         mut maker,
         mut taker,
         usdc_mint,
-    } = setup()?;
+    } = setup(9)?;
 
     let maker_address = maker.keypair.shielded_address()?;
     let taker_address = taker.keypair.shielded_address()?;
@@ -61,7 +59,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
 
     let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &inputs)
         .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-    let encoded = encrypt_transaction_data(&outputs, &transaction_viewing_key, tree_id)?;
+    let encoded = encrypt_transaction_data(&outputs, &transaction_viewing_key, localnet.tree_id)?;
 
     let external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -76,10 +74,11 @@ fn cosigned_rfq_settlement() -> Result<()> {
         external_data,
         payer: maker_address.solana_address()?,
         blinding_seed,
-        output_tree_id: tree_id,
+        output_tree_id: localnet.tree_id,
     };
 
-    let data = client
+    let data = localnet
+        .client
         .prove_transact(
             proof_inputs,
             None,
@@ -91,16 +90,17 @@ fn cosigned_rfq_settlement() -> Result<()> {
         .map_err(|e| anyhow!("prove transact: {e:?}"))?;
     let ix = Transact {
         payer: maker_solana.pubkey(),
-        input_trees: vec![tree],
-        output_tree: tree,
+        input_trees: vec![localnet.tree],
+        output_tree: localnet.tree,
         owner_signers: vec![taker_solana.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data,
     }
     .instruction();
 
-    let signature = send_cosigned(client.rpc(), &maker_solana, &taker_solana, ix)?;
-    client
+    let signature = send_cosigned(localnet.client.rpc(), &maker_solana, &taker_solana, ix)?;
+    localnet
+        .client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm settlement indexed: {e:?}"))?;
 
@@ -111,19 +111,24 @@ fn cosigned_rfq_settlement() -> Result<()> {
         .get(1)
         .ok_or_else(|| anyhow!("missing usdc output"))?;
     let sol_to_taker_hash = sol_output
-        .hash(tree_id)
+        .hash(localnet.tree_id)
         .map_err(|e| anyhow!("sol output hash: {e:?}"))?;
     let usdc_to_maker_hash = usdc_output
-        .hash(tree_id)
+        .hash(localnet.tree_id)
         .map_err(|e| anyhow!("usdc output hash: {e:?}"))?;
-    client
+    localnet
+        .client
         .indexer()
-        .get_merkle_proofs(tree, vec![sol_to_taker_hash, usdc_to_maker_hash], None)
+        .get_merkle_proofs(
+            localnet.tree,
+            vec![sol_to_taker_hash, usdc_to_maker_hash],
+            None,
+        )
         .map_err(|e| anyhow!("settlement outputs index: {e}"))?;
 
-    sync_wallet(&mut maker.wallet, &maker.keypair, client.indexer())
+    sync_wallet(&mut maker.wallet, &maker.keypair, localnet.client.indexer())
         .map_err(|e| anyhow!("resync maker: {e:?}"))?;
-    sync_wallet(&mut taker.wallet, &taker.keypair, client.indexer())
+    sync_wallet(&mut taker.wallet, &taker.keypair, localnet.client.indexer())
         .map_err(|e| anyhow!("resync taker: {e:?}"))?;
 
     let usdc_asset_id = maker.registry.asset_id(&usdc_mint)?;

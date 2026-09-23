@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use solana_address::Address;
-use zolana_client::{EncryptedUtxoMatch, Rpc, ZolanaIndexer};
+use zolana_client::{EncryptedUtxoMatch, Rpc};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_transaction::WalletUtxo;
 
@@ -59,7 +59,7 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
     })
 }
 
-pub fn discover_account(indexer: &ZolanaIndexer, pda: Address) -> Result<DiscoveredAccount> {
+pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAccount> {
     let mut cursor = None;
     let mut matches = Vec::new();
     loop {

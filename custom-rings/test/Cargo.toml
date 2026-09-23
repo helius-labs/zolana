@@ -30,7 +30,7 @@ zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 # `DepositAsset`) the lifecycle builds its deposits from.
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
-zolana-program-test = { workspace = true }
+zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
 zolana-ring-policy = { workspace = true }
 zolana-ring-rpc = { path = "../../services/ring-rpc" }

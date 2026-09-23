@@ -13,13 +13,9 @@ name = "timelock-escrow-prover-setup"
 path = "src/bin/setup.rs"
 
 [dependencies]
-zolana-client = { workspace = true }
-groth16-solana = { workspace = true, features = ["bsb22", "gnark-vk"] }
-num-bigint = { workspace = true }
+zolana-gnark-ffi-prover = { workspace = true }
 timelock-escrow-program = { path = "../program" }
-serde_json = { workspace = true }
-solana-bn254 = { workspace = true }
-thiserror = { workspace = true }
+zolana-client = { workspace = true }
 
 [build-dependencies]
-bindgen = { workspace = true }
+zolana-gnark-ffi-prover-build = { workspace = true }
