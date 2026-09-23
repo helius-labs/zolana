@@ -11,10 +11,10 @@ use tower_http::cors::{Any, CorsLayer};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags,
+        GetRegisteredAssets, GetShieldedTransactionsByNullifiers,
+        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
     },
-    RpcMethod,
+    GetRegisteredAssetsRequest, RpcMethod,
 };
 
 use super::service::PhotonApi;
@@ -165,6 +165,17 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
         },
     )?;
 
+    module.register_async_method(
+        GetRegisteredAssets::NAME,
+        |rpc_params, rpc_context, _extensions| async move {
+            let api = rpc_context.as_ref();
+            let _request: GetRegisteredAssetsRequest = rpc_params.parse()?;
+            api.get_registered_assets()
+                .await
+                .map_err(ErrorObjectOwned::from)
+        },
+    )?;
+
     Ok(module)
 }
 
@@ -190,6 +201,7 @@ mod tests {
         assert!(methods.contains(&"getMerkleProofs"));
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
+        assert!(methods.contains(&"getRegisteredAssets"));
     }
 
     async fn test_api() -> PhotonApi {
