@@ -10,6 +10,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/custom_rings/circuits/policy"
+	"zolana/prover/custom_rings/circuits/registry"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
@@ -75,6 +76,9 @@ func TestDelegateProofVerifiesAboveCommittedWindowCap(t *testing.T) {
 	p := rulesFreeParams(t)
 	p.WindowSlots, p.VelocityCount = 100, 1
 	p.Velocity[0] = VelocityRow{Asset: p.Inputs[0].Asset, Cap: big.NewInt(1), CosignAbove: big.NewInt(1)}
+	keys := spptest.NewKeyRegistry(t, registry.Height)
+	p.Outputs[0].Key = registryKey(keys, keys.Register(t, p.Outputs[0].OwnerPkHash, p.Outputs[0].NullifierPk, big.NewInt(0x4b)))
+	p.KeyEscrow = KeyEscrow{Enabled: true, Root: keys.Root()}
 	bindRulesFreeStatement(t, p)
 	params := DelegatePolicyParameters{Policy: *p}
 	var decoded DelegatePolicyParameters
@@ -147,7 +151,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 	addressLeaf := spptest.MustUtxoHash(t, protocol.Utxo{
 		Domain: big.NewInt(protocol.AddressDomain), Owner: p.NamespaceOwnerHash,
 		Asset: zero, Amount: zero, Blinding: seed, DataHash: zero, RingDataHash: zero, RingProgramID: zero,
-	}, p.EntriesTreeID)
+	}, p.AddressTreeID)
 	address := spptest.MustNullifier(t, addressLeaf, seed, zero)
 	opening := func(version uint64, commitment *big.Int, blinding int64) Opening {
 		window := p.WindowIndex
@@ -155,7 +159,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 			window = p.Record.Window
 		}
 		return Opening{
-			Domain: big.NewInt(protocol.UtxoDomain), TreeID: p.EntriesTreeID,
+			Domain: big.NewInt(protocol.UtxoDomain), TreeID: p.AddressTreeID,
 			OwnerPkHash: ownerPk, NullifierPk: nullifierPk, Asset: protocol.SolAsset(), Amount: zero,
 			Blinding: big.NewInt(blinding), RingProgramID: zero, RingDataHash: zero,
 			DataHash: spptest.MustPoseidon(t, 7, []*big.Int{

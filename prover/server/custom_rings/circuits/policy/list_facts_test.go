@@ -67,12 +67,12 @@ func TestListFactRequiresStrictNullifierInterval(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s.nullifierRoot = root
+			s.trees[0].nullifierRoot = root
 			c := s.assignment(t, nil)
 			fact.NullifierLowValue = low
 			fact.NullifierNextValue = next
 			c.ListFacts[0] = fact
-			c.PublicInputHash = s.publicInputHashForTargets(t, s.revocationTargets([]int{allowedActive}))
+			c.PublicInputHash = s.publicInputHashFor(t, []int{allowedActive})
 			if tt.passes {
 				solve(t, testConstraintSystem(t), c)
 			} else {
@@ -90,7 +90,9 @@ func TestRevocationTargetsExportOnlyEnabledFacts(t *testing.T) {
 	assign := func(targets []*big.Int) *CustomRingPolicyCircuit {
 		c := s.assignment(t, nil)
 		c.ListFacts[0] = fact
-		c.PublicInputHash = s.publicInputHashForTargets(t, targets)
+		elements := s.policyChainElements(t, []int{allowedActive})
+		copy(elements[len(elements)-NListFacts:], targets)
+		c.PublicInputHash = spptest.MustHashChain(t, elements)
 		return c
 	}
 	solve(t, testConstraintSystem(t), assign(s.revocationTargets([]int{allowedActive})))

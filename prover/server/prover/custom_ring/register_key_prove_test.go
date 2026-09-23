@@ -6,6 +6,7 @@ import (
 
 	"zolana/prover/custom_rings/circuits/base/audittest"
 	"zolana/prover/custom_rings/circuits/policy"
+	"zolana/prover/custom_rings/circuits/registry"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
 )
@@ -22,7 +23,7 @@ func TestKeyRegisterProofVerifiesEndToEnd(t *testing.T) {
 	sealed := keys.Seal(t, nullifierSecret[:], policy.NfKeyEncInfo)
 
 	genesis := spptest.MustPoseidon(t, 3, []*big.Int{nullifierPk, sealed.CiphertextHash})
-	insertion := spptest.NewHeadMap(t, policy.HeadMapHeight).Register(t, member, genesis)
+	insertion := spptest.NewHeadMap(t, registry.Height).Register(t, member, genesis)
 	chain := func(ctHash *big.Int) *big.Int {
 		return spptest.MustHashChain(t, []*big.Int{
 			insertion.OldRoot, insertion.NewRoot, member, nullifierPk,

@@ -35,7 +35,6 @@ type velocityPolicy struct {
 
 type recordExpectation struct {
 	owner    frontend.Variable
-	treeID   frontend.Variable
 	dataHash frontend.Variable
 }
 
@@ -102,10 +101,9 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	shared.AssertWhen(api, policy.windowEnabled, outputTotalAtMost(api, c.Record.Window, c.WindowIndex))
 	shared.AssertWhen(api, api.Sub(1, policy.windowEnabled), api.IsZero(c.WindowIndex))
 	sameWindow := api.IsZero(api.Sub(c.Record.Window, c.WindowIndex))
-	address := spendAddress(api, c.NamespaceOwnerHash, sender, c.EntriesTreeID)
+	address := spendAddress(api, c.NamespaceOwnerHash, sender, c.AddressTreeID)
 	spent := recordExpectation{
-		owner:  c.NamespaceOwnerHash,
-		treeID: c.EntriesTreeID,
+		owner: c.NamespaceOwnerHash,
 		dataHash: spendRecordFields{
 			address:    address,
 			sender:     sender,
@@ -163,8 +161,7 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	rangeChecker.Check(api.Mul(policy.windowEnabled, nextVersion), amountBits)
 	nextCommitment := countersCommitment(api, c.Record.NextSalt, nextAssets[:], nextSpent[:])
 	successor := recordExpectation{
-		owner:  c.NamespaceOwnerHash,
-		treeID: c.EntriesTreeID,
+		owner: c.NamespaceOwnerHash,
 		dataHash: spendRecordFields{
 			address:    address,
 			sender:     sender,
@@ -190,7 +187,6 @@ func (w UtxoWires) assertRecord(api frontend.API, view utxoView, want recordExpe
 	for _, pair := range [][2]frontend.Variable{
 		{w.Domain, shared.UtxoDomain},
 		{view.owner, want.owner},
-		{w.TreeID, want.treeID},
 		{w.Asset, solAssetField},
 		{w.Amount, 0},
 		{w.RingDataHash, 0},

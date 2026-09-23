@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/custom_rings/circuits/policy"
+	"zolana/prover/custom_rings/circuits/registry"
 	"zolana/prover/prover/common"
 )
 
@@ -17,8 +17,8 @@ type headInsertion struct {
 	LowNext      *big.Int
 	LowNullifier *big.Int
 	LowIndex     *big.Int
-	LowProof     [policy.HeadMapHeight]*big.Int
-	NewProof     [policy.HeadMapHeight]*big.Int
+	LowProof     [registry.Height]*big.Int
+	NewProof     [registry.Height]*big.Int
 }
 
 type headInsertionJSON struct {
@@ -50,8 +50,8 @@ func (h *headInsertion) json() headInsertionJSON {
 }
 
 func (h *headInsertion) decode(raw headInsertionJSON, rail string) error {
-	if len(raw.LowProof) != policy.HeadMapHeight || len(raw.NewProof) != policy.HeadMapHeight {
-		return fmt.Errorf("%s: proof length is not %d", rail, policy.HeadMapHeight)
+	if len(raw.LowProof) != registry.Height || len(raw.NewProof) != registry.Height {
+		return fmt.Errorf("%s: proof length is not %d", rail, registry.Height)
 	}
 	scalars := []struct {
 		dst  **big.Int
@@ -74,7 +74,7 @@ func (h *headInsertion) decode(raw headInsertionJSON, rail string) error {
 		}
 		*s.dst = value
 	}
-	if h.NewIndex.Sign() == 0 || h.NewIndex.BitLen() > policy.HeadMapHeight ||
+	if h.NewIndex.Sign() == 0 || h.NewIndex.BitLen() > registry.Height ||
 		h.LowIndex.Cmp(h.NewIndex) >= 0 || h.LowMember.Cmp(h.Member) >= 0 || h.Member.Cmp(h.LowNext) >= 0 {
 		return fmt.Errorf("%s: invalid insertion index or member range", rail)
 	}

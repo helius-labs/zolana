@@ -32,16 +32,16 @@ func TestDepositCircuitRejectsOutOfRangeCountsWithMatchingPublicHash(t *testing.
 
 			// Zero padding isolates rejection of invalid counts.
 			vector.Params.Count = 0
-			for i := range vector.Params.OwnerHashes {
-				vector.Params.OwnerHashes[i], vector.Params.Blindings[i] = big.NewInt(0), big.NewInt(0)
+			for i := range vector.Params.OwnerPkHashes {
+				vector.Params.OwnerPkHashes[i], vector.Params.NullifierPks[i], vector.Params.Blindings[i] = big.NewInt(0), big.NewInt(0), big.NewInt(0)
 			}
 			_, chain := encryptDepositVector(t, vector.Params)
 			chain[2] = new(big.Int).SetUint64(uint64(row.invalid))
 			vector.Params.PublicInputHash = spptest.MustHashChain(t, chain)
 			assignment.Count = row.invalid
 			assignment.PublicInputHash = vector.Params.PublicInputHash
-			for i := range assignment.OwnerHashes {
-				assignment.OwnerHashes[i], assignment.Blindings[i] = vector.Params.OwnerHashes[i], vector.Params.Blindings[i]
+			for i := range assignment.OwnerPkHashes {
+				assignment.OwnerPkHashes[i], assignment.NullifierPks[i], assignment.Blindings[i] = vector.Params.OwnerPkHashes[i], vector.Params.NullifierPks[i], vector.Params.Blindings[i]
 			}
 			if err := test.IsSolved(&deposit.CustomRingDepositCircuit{}, assignment, ecc.BN254.ScalarField()); err == nil {
 				t.Fatal("circuit accepted a count outside its occupied prefix")

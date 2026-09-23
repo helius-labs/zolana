@@ -15,8 +15,10 @@ import (
 type ListFactWires struct {
 	// Disabled slots cannot cover rules.
 	Enabled frontend.Variable
-	Mode    frontend.Variable
-	ListId  frontend.Variable
+	// Index into TreeSlots of the tree holding the entry.
+	TreeSlot frontend.Variable
+	Mode     frontend.Variable
+	ListId   frontend.Variable
 	// Member matches a subject's owner public key hash or asset.
 	Member frontend.Variable
 	// Entry fields reconstruct the stored commitment for Present and
@@ -50,30 +52,32 @@ type listFact struct {
 }
 
 // listFactContext ties a list fact to its configured namespace owner and
-// supplied tree roots.
+// selected tree.
 type listFactContext struct {
 	ownerHash     frontend.Variable
-	stateRoot     frontend.Variable
-	nullifierRoot frontend.Variable
-	treeID        frontend.Variable
+	tree          shared.TreeSlot
+	addressTreeID frontend.Variable
 }
 
-// checkListFacts authenticates shared list facts before any rule can use them.
-func (c *CustomRingPolicyCircuit) checkListFacts(api frontend.API, rangeChecker frontend.Rangechecker) [NListFacts]listFact {
+// checkListFacts authenticates shared list facts before any rule can use them
+// and packs every enabled fact's slot index.
+func (c *CustomRingPolicyCircuit) checkListFacts(api frontend.API, rangeChecker frontend.Rangechecker) ([NListFacts]listFact, frontend.Variable) {
 	var out [NListFacts]listFact
+	packed := frontend.Variable(0)
 	for i, fact := range c.ListFacts {
-		// 1. Resolve the source namespace for the claimed list.
+		// 1. Resolve the source namespace and tree for the claimed list.
+		slot := api.Mul(fact.Enabled, fact.TreeSlot)
 		context := listFactContext{
 			ownerHash:     resolveSourceOwner(api, c.Sources, fact),
-			stateRoot:     c.StateRoot,
-			nullifierRoot: c.NullifierRoot,
-			treeID:        c.EntriesTreeID,
+			tree:          shared.SelectTreeSlot(api, slot, c.TreeSlots[:]),
+			addressTreeID: c.AddressTreeID,
 		}
 
-		// 2. Prove the list fact at the supplied roots.
+		// 2. Prove the list fact at the selected roots.
 		out[i] = fact.check(api, rangeChecker, context)
+		packed = api.Add(packed, api.Mul(slot, 1<<(shared.TreeIndexBits*i)))
 	}
-	return out
+	return out, packed
 }
 
 // check authenticates an enabled claim for rule evaluation.
@@ -94,11 +98,17 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 	unclaimed := api.IsZero(api.Sub(w.AbsentBranch, AbsentBranchUnclaimedAddress))
 	cleared := api.IsZero(api.Sub(w.AbsentBranch, AbsentBranchCleared))
 	shared.AssertWhen(api, absent, api.Add(unclaimed, cleared))
+	// Addresses live only in the address tree's nullifier tree.
+	abstractor.CallVoid(api, gadget.AssertEqualWhen{
+		Cond: api.Mul(absent, unclaimed),
+		A:    context.tree.ID,
+		B:    context.addressTreeID,
+	})
 
 	// 3. Derive the entry address from its source, list and member.
 	seed := gadget.PoseidonHash(api, []frontend.Variable{policyAddressDomain, w.ListId, w.Member})
 	address := gadget.PoseidonHash(api, []frontend.Variable{
-		addressUtxoHash(api, context.ownerHash, seed, context.treeID),
+		addressUtxoHash(api, context.ownerHash, seed, context.addressTreeID),
 		seed,
 		0,
 	})
@@ -116,7 +126,7 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 	})
 	utxoHash := gadget.PoseidonHash(api, []frontend.Variable{
 		shared.UtxoDomain,
-		context.treeID,
+		context.tree.ID,
 		solAssetField,
 		0,
 		dataHash,
@@ -137,7 +147,7 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: needsStateInclusion,
 		A:    stateRoot,
-		B:    context.stateRoot,
+		B:    context.tree.UtxoRoot,
 	})
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: needsStateInclusion,
@@ -149,7 +159,7 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 	// absence proof.
 	nonInclusionTarget := api.Select(api.Mul(absent, unclaimed), address, nullifier)
 
-	// 7. Authenticate the lower leaf at NullifierRoot.
+	// 7. Authenticate the lower leaf at the slot's nullifier root.
 	nullifierRoot := abstractor.Call(api, gadget.MerkleRootGadget{
 		Hash:   gadget.IndexedLeafHash(api, w.NullifierLowValue, w.NullifierNextValue),
 		Index:  api.ToBinary(w.NullifierLowPathIndex, shared.NullifierTreeHeight),
@@ -159,7 +169,7 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: w.Enabled,
 		A:    nullifierRoot,
-		B:    context.nullifierRoot,
+		B:    context.tree.NullifierRoot,
 	})
 
 	// 8. Prove the target lies strictly between canonical lower and upper

@@ -20,16 +20,10 @@ func compressedAssignment(t *testing.T, chain func(policy []*big.Int, disclosure
 	for i, b := range c.TxViewingSk {
 		secret[i] = byte(spptest.AsBigInt(b).Uint64())
 	}
-	elements := s.auditChainElements(t)
-	elements = append(elements,
-		s.policyHash, s.stateRoot, s.nullifierRoot, big.NewInt(entriesTreeID),
-		s.ringID, s.ownOwnerHash, new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval),
-	)
-	elements = append(elements, s.revocationTargets(f.facts())...)
 	disclosure := spptest.CounterDisclosure{
 		Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent,
 	}.Hash(t)
-	c.PublicInputHash = spptest.MustHashChain(t, chain(elements, disclosure))
+	c.PublicInputHash = spptest.MustHashChain(t, chain(s.policyChainElements(t, f.facts()), disclosure))
 
 	assignment := &CompressedPolicyCircuit{Policy: *c}
 	for i := range assignment.TransactionSalt {

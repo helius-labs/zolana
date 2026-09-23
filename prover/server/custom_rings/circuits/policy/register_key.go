@@ -7,6 +7,7 @@ import (
 	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 	base "zolana/prover/custom_rings/circuits/base"
+	"zolana/prover/custom_rings/circuits/registry"
 )
 
 // Separates the nullifier key ciphertext from the audit ciphertext, equals Rust NF_KEY_ENC_INFO.
@@ -30,8 +31,8 @@ type KeyRegisterCircuit struct {
 	LowNext      frontend.Variable
 	LowNullifier frontend.Variable
 	LowIndex     frontend.Variable
-	LowProof     [HeadMapHeight]frontend.Variable
-	NewProof     [HeadMapHeight]frontend.Variable
+	LowProof     [registry.Height]frontend.Variable
+	NewProof     [registry.Height]frontend.Variable
 }
 
 func (c *KeyRegisterCircuit) Define(api frontend.API) error {
@@ -66,16 +67,16 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 
 	// 3. Require member absence before inserting the ciphertext commitment.
 	ctCommitment := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, sealed.CiphertextHash})
-	newRoot := headRegistration{
-		oldRoot:  c.HeadOldRoot,
-		low:      headLeaf{member: c.LowMember, next: c.LowNext, nullifier: c.LowNullifier},
-		lowIndex: c.LowIndex,
-		lowProof: c.LowProof[:],
-		member:   c.Member,
-		genesis:  ctCommitment,
-		newIndex: c.NewIndex,
-		newProof: c.NewProof[:],
-	}.newRoot(api)
+	newRoot := registry.Insertion{
+		OldRoot:  c.HeadOldRoot,
+		Low:      registry.Leaf{Member: c.LowMember, Next: c.LowNext, Key: c.LowNullifier},
+		LowIndex: c.LowIndex,
+		LowProof: c.LowProof[:],
+		Member:   c.Member,
+		Key:      ctCommitment,
+		NewIndex: c.NewIndex,
+		NewProof: c.NewProof[:],
+	}.NewRoot(api)
 	api.AssertIsEqual(newRoot, c.HeadNewRoot)
 
 	// 4. Bind registration to the program's public statement.
