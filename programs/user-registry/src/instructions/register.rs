@@ -13,15 +13,16 @@ pub fn process_register(
     accounts: &mut [AccountView],
     data: RegisterData,
 ) -> ProgramResult {
-    if accounts.len() < 3 {
+    if accounts.len() < 4 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let (head, tail) = accounts.split_at_mut(1);
     let record = &mut head[0];
     let owner = &tail[0];
-    let system_program = &tail[1];
+    let payer = &tail[1];
+    let system_program = &tail[2];
 
-    if !owner.is_signer() {
+    if !owner.is_signer() || !payer.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
     if !record.is_writable() {
@@ -33,7 +34,7 @@ pub fn process_register(
     let bump = check_record_pda(record, &owner_address, program_id)?;
 
     if let Some(owner_p256) = &data.owner_p256 {
-        let instructions = tail.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        let instructions = tail.get(3).ok_or(ProgramError::NotEnoughAccountKeys)?;
         verify_p256_key_binding(instructions, record.address(), &owner_address, owner_p256)?;
     }
 
@@ -43,7 +44,7 @@ pub fn process_register(
 
     create_record_account(
         record,
-        owner,
+        payer,
         &owner_address,
         bump,
         UserRecord::SIZE,

@@ -2,9 +2,12 @@ import {
   AccountRole,
   address,
   assertIsFullySignedTransaction,
+  decompileTransactionMessage,
   getAddressEncoder,
+  getCompiledTransactionMessageDecoder,
   getProgramDerivedAddress,
   type Blockhash,
+  type Transaction,
   type TransactionSigner,
 } from "@solana/kit";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
@@ -79,6 +82,17 @@ async function kitTreePda(treeId: number) {
     programAddress: SHIELDED_POOL_PROGRAM_ID,
     seeds: [new TextEncoder().encode("tree"), seed],
   });
+}
+
+function onlyInstructionAccounts(transaction: Transaction) {
+  const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
+  if (compiled.version !== 1) {
+    throw new Error(`expected a version 1 message, got ${String(compiled.version)}`);
+  }
+  const { instructions } = decompileTransactionMessage(compiled, { lastValidBlockHeight: 1n });
+  expect(instructions).toHaveLength(1);
+  const [instruction] = instructions;
+  return instruction?.accounts;
 }
 
 describe("public package surface", () => {
@@ -303,6 +317,97 @@ describe("public package surface", () => {
 
     expect(transaction).toBeDefined();
     expect(() => assertIsFullySignedTransaction(transaction!)).toThrow();
+    expect(Object.keys(transaction!.signatures)).toEqual([owner]);
+  });
+
+  it("uses an optional payer for rent and fee and keeps the owner as a signer", async () => {
+    const keypair = ShieldedKeypair.fromKeypair(
+      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
+    );
+    const owner = keypair.shieldedAddress().solanaAddress();
+    const pda = await internalUserRecordPda(owner);
+    const payer = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
+    const transaction = await buildRegistrationTransaction({
+      client: {
+        getAccount: vi.fn(async () => undefined),
+        getLatestBlockhash: vi.fn(async () => ({
+          blockhash: BLOCKHASH,
+          lastValidBlockHeight: 1n,
+        })),
+      },
+      owner,
+      address: keypair.shieldedAddress(),
+      payer,
+    });
+
+    expect(transaction).toBeDefined();
+    expect(Object.keys(transaction!.signatures)).toEqual([payer, owner]);
+    expect(onlyInstructionAccounts(transaction!)).toEqual([
+      { address: pda.address, role: AccountRole.WRITABLE },
+      { address: owner, role: AccountRole.READONLY_SIGNER },
+      { address: payer, role: AccountRole.WRITABLE_SIGNER },
+      { address: SYSTEM, role: AccountRole.READONLY },
+    ]);
+  });
+
+  it("charges a key update's payer only the transaction fee", async () => {
+    const current = ShieldedKeypair.fromKeypair(
+      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
+    ).shieldedAddress();
+    const replacement = ShieldedKeypair.fromKeypair(
+      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(1) as Bytes32),
+    );
+    const owner = replacement.shieldedAddress().solanaAddress();
+    const pda = await internalUserRecordPda(owner);
+    const payer = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
+    const data = Uint8Array.of(
+      1,
+      ...getAddressEncoder().encode(owner),
+      pda.bump,
+      0,
+      ...current.nullifierPublicKey,
+      ...current.viewingPublicKey.toBytes(),
+      0,
+    );
+    const transaction = await buildRegistrationTransaction({
+      client: {
+        getAccount: vi.fn(async () => ({ owner: USER_REGISTRY_PROGRAM_ID, data, lamports: 1n })),
+        getLatestBlockhash: vi.fn(async () => ({
+          blockhash: BLOCKHASH,
+          lastValidBlockHeight: 1n,
+        })),
+      },
+      owner,
+      address: replacement.shieldedAddress(),
+      payer,
+    });
+
+    expect(transaction).toBeDefined();
+    expect(Object.keys(transaction!.signatures)).toEqual([payer, owner]);
+    expect(onlyInstructionAccounts(transaction!)).toEqual([
+      { address: pda.address, role: AccountRole.WRITABLE },
+      { address: owner, role: AccountRole.READONLY_SIGNER },
+    ]);
+  });
+
+  it("defaults the payer to the owner", async () => {
+    const keypair = ShieldedKeypair.fromKeypair(
+      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
+    );
+    const owner = keypair.shieldedAddress().solanaAddress();
+    const transaction = await buildRegistrationTransaction({
+      client: {
+        getAccount: vi.fn(async () => undefined),
+        getLatestBlockhash: vi.fn(async () => ({
+          blockhash: BLOCKHASH,
+          lastValidBlockHeight: 1n,
+        })),
+      },
+      owner,
+      address: keypair.shieldedAddress(),
+    });
+
+    expect(transaction).toBeDefined();
     expect(Object.keys(transaction!.signatures)).toEqual([owner]);
   });
 

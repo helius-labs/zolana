@@ -23,6 +23,9 @@ answer without releasing long-lived secrets.
 
 Breaking
 
+- `buildRegistrationTransaction` adds the `payer` account the user-registry
+  program now requires for a first registration → rebuild any unsigned
+  registration transaction an earlier release built, the program rejects it.
 - `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
   `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
   `WalletSyncMaterial` are removed → build
@@ -279,6 +282,8 @@ Added
 
 - `ZolanaClientConfig.proofDataSource` accepts `"prover"` to fetch transfer and merge proof data on the prover, with `LocalKeys.proveIndexed` or a remote `IndexedProofAuthority` completing the request.
 
+- `buildRegistrationTransaction({ payer })` lets a sponsor fund the record's
+  rent and pay the transaction fee; the owner still signs and may hold 0 SOL.
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for

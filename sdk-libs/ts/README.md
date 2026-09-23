@@ -218,6 +218,10 @@ if (registration !== undefined) {
 }
 ```
 
+`payer` is optional and defaults to `owner`. A sponsor passed as `payer` funds
+the record's rent and pays the transaction fee. The owner still signs but needs
+no SOL, so the transaction carries two signatures.
+
 `buildRegistrationTransaction` returns `undefined` when that owner is already
 registered with the same keys. A recipient that never submitted this
 transaction fails a transfer with `WALLET_RECIPIENT_NOT_REGISTERED`.
