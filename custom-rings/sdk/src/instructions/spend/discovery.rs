@@ -8,6 +8,7 @@ use zolana_ring_policy::{entry_nullifier, ListNamespace, Member, SpendRecord};
 
 use crate::{
     instructions::entry::{EntryProofError, LineageLookup, Lineages, SpentSlot},
+    projection::{retry_projection_lag, retry_projection_lag_async},
     CustomRing,
 };
 
@@ -56,6 +57,21 @@ impl ReadSpendRecord {
         self,
         env: ReadEnvironment<'_, I, R>,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
+        retry_projection_lag(|| self.fetch_current(env))
+    }
+
+    pub async fn read_current_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        env: ReadEnvironment<'_, I, R>,
+    ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
+        let read = &self;
+        retry_projection_lag_async(|| read.fetch_current_async(env)).await
+    }
+
+    fn fetch_current<I: Rpc, R: Rpc>(
+        &self,
+        env: ReadEnvironment<'_, I, R>,
+    ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
         let Some(record) = env.indexer.get_ring_spend_record(self.request())?.record else {
             return Ok(None);
         };
@@ -64,8 +80,8 @@ impl ReadSpendRecord {
         live_unless_spent(live, spent)
     }
 
-    pub async fn read_current_async<I: AsyncRpc, R: AsyncRpc>(
-        self,
+    async fn fetch_current_async<I: AsyncRpc, R: AsyncRpc>(
+        &self,
         env: ReadEnvironment<'_, I, R>,
     ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
         let Some(record) = env

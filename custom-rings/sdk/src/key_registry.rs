@@ -28,6 +28,7 @@ use zolana_ring_policy::Member;
 use crate::{
     escrow::RegistryKeyOpening,
     instructions::transact::request::{bytes_to_hex, field_hex, index_hex, json_body, SecretHex},
+    projection::{retry_projection_lag, retry_projection_lag_async, ProjectionLag},
     to_instruction_proof, AccountReadError, AsyncTransferProofEnvironment, CustomRing,
     CustomRingProofError, IndexedMapRoot, TransferProofEnvironment,
 };
@@ -72,6 +73,12 @@ impl KeyRegistrationError {
     }
 }
 
+impl ProjectionLag for KeyRegistrationError {
+    fn is_projection_lag(&self) -> bool {
+        KeyRegistrationError::is_projection_lag(self)
+    }
+}
+
 impl From<ClientError> for KeyRegistrationError {
     fn from(error: ClientError) -> Self {
         Self::Client(Box::new(error))
@@ -97,18 +104,24 @@ impl RegisterKey<'_> {
             .read_config(env.rpc)?
             .ok_or(KeyRegistrationError::MissingRingConfig)?
             .auditor_pubkey;
-        let root = self
-            .ring
-            .read_key_registry_root(env.rpc)?
-            .ok_or(KeyRegistrationError::MissingKeyRegistry)?;
-        let staged = self.stage(auditor, root)?;
-        let response = env
-            .indexer
-            .get_ring_key_registry_register_proof(staged.query.clone())?;
-        let KeyRegistration {
-            request,
-            transition,
-        } = staged.request(response)?;
+        let Witnessed {
+            staged,
+            registration:
+                KeyRegistration {
+                    request,
+                    transition,
+                },
+        } = retry_projection_lag(|| {
+            let root = self
+                .ring
+                .read_key_registry_root(env.rpc)?
+                .ok_or(KeyRegistrationError::MissingKeyRegistry)?;
+            let staged = self.stage(auditor, root)?;
+            let response = env
+                .indexer
+                .get_ring_key_registry_register_proof(staged.query.clone())?;
+            staged.witnessed(response)
+        })?;
         // 2. Registration proves key disclosure without authorizing ownership
         // transfers or withdrawals.
         let proof = to_instruction_proof(env.prover.prove(&request)?)?;
@@ -125,20 +138,27 @@ impl RegisterKey<'_> {
             .await?
             .ok_or(KeyRegistrationError::MissingRingConfig)?
             .auditor_pubkey;
-        let root = self
-            .ring
-            .read_key_registry_root_async(env.rpc)
-            .await?
-            .ok_or(KeyRegistrationError::MissingKeyRegistry)?;
-        let staged = self.stage(auditor, root)?;
-        let response = env
-            .indexer
-            .get_ring_key_registry_register_proof(staged.query.clone())
-            .await?;
-        let KeyRegistration {
-            request,
-            transition,
-        } = staged.request(response)?;
+        let (rpc, indexer) = (env.rpc, env.indexer);
+        let Witnessed {
+            staged,
+            registration:
+                KeyRegistration {
+                    request,
+                    transition,
+                },
+        } = retry_projection_lag_async(|| async move {
+            let root = self
+                .ring
+                .read_key_registry_root_async(rpc)
+                .await?
+                .ok_or(KeyRegistrationError::MissingKeyRegistry)?;
+            let staged = self.stage(auditor, root)?;
+            let response = indexer
+                .get_ring_key_registry_register_proof(staged.query.clone())
+                .await?;
+            staged.witnessed(response)
+        })
+        .await?;
         let proof = to_instruction_proof(env.prover.prove(&request).await?)?;
         Ok(staged.finish(transition, proof))
     }
@@ -179,17 +199,27 @@ struct StagedKeyRegistration {
     registry_next_index: u64,
 }
 
+/// The registry witness holds only under the root the staged insert names.
+struct Witnessed {
+    staged: StagedKeyRegistration,
+    registration: KeyRegistration,
+}
+
 impl StagedKeyRegistration {
-    fn request(
-        &self,
+    fn witnessed(
+        self,
         response: GetRingKeyRegistryRegisterProofResponse,
-    ) -> Result<KeyRegistration, KeyRegistrationError> {
-        KeySeal {
+    ) -> Result<Witnessed, KeyRegistrationError> {
+        let registration = KeySeal {
             envelope: &self.envelope,
             auditor: self.auditor,
             secret: self.secret.clone(),
         }
-        .register(&self.query, response)
+        .register(&self.query, response)?;
+        Ok(Witnessed {
+            staged: self,
+            registration,
+        })
     }
 
     fn finish(

@@ -57,7 +57,10 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zeroize::Zeroizing;
 use zolana_client::{
-    rpc::{GetRingSpendRecordResponse, RingSpendRecordRequest},
+    rpc::{
+        GetRingKeyRegistryEntryResponse, GetRingSpendRecordResponse, RingMemberProofRequest,
+        RingSpendRecordRequest,
+    },
     AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError, ComputeBudgetConfig,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig, ProverClient, Rpc,
     ShieldedTransaction, SolanaRpc, ZolanaIndexer,
@@ -1887,17 +1890,12 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
     // The delegate re-owns the recipient's final note to the sender over the
     // authority rail, refused until governance enables the rail.
     let delegate = Keypair::new();
-    send(
-        rpc,
-        &env.payer,
-        &[SetDelegate {
-            ring,
-            payer: env.payer.pubkey(),
-            authority: env.payer.pubkey(),
-            delegate: delegate.pubkey(),
-        }
-        .instruction()],
-    )?;
+    EscrowedDelegate {
+        ring,
+        delegate: delegate.pubkey(),
+        members: &[sender],
+    }
+    .set(&env, &prover)?;
     let moved = || -> Result<ProvenDelegateTransfer> {
         Ok(DelegateTransfer::new(DelegateTransferInput {
             ring,
@@ -2276,17 +2274,12 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
 
     // Delegation exceeds the velocity cap without changing member counters.
     let delegate = Keypair::new();
-    send(
-        rpc,
-        &env.payer,
-        &[SetDelegate {
-            ring,
-            payer: env.payer.pubkey(),
-            authority: env.payer.pubkey(),
-            delegate: delegate.pubkey(),
-        }
-        .instruction()],
-    )?;
+    EscrowedDelegate {
+        ring,
+        delegate: delegate.pubkey(),
+        members: &[sender, &env.recipient.keypair],
+    }
+    .set(&env, &prover)?;
     env.enable_authority_rail(ring)?;
     let RingDepositReceipt {
         utxo: delegated_note,
@@ -2449,6 +2442,13 @@ impl Rpc for WithoutSpendCounters<'_> {
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         self.indexer
             .get_non_inclusion_proofs(tree_account, leaves, config)
+    }
+
+    fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        self.indexer.get_ring_key_registry_entry(request)
     }
 }
 
@@ -2636,9 +2636,56 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
     Ok(())
 }
 
+/// Registers every member before the delegate turns key escrow on.
+struct EscrowedDelegate<'a> {
+    ring: CustomRing,
+    delegate: Address,
+    members: &'a [&'a ShieldedKeypair],
+}
+
+impl EscrowedDelegate<'_> {
+    fn set(self, env: &TestEnv, prover: &ProverClient) -> Result<()> {
+        let rpc = env.client.rpc();
+        send(
+            rpc,
+            &env.payer,
+            &[CreateKeyRegistryRoot {
+                ring: self.ring,
+                payer: env.payer.pubkey(),
+                authority: env.payer.pubkey(),
+            }
+            .instruction()],
+        )?;
+        for member in self.members {
+            let registration = RegisterKey {
+                ring: self.ring,
+                member,
+            }
+            .prove(TransferProofEnvironment {
+                indexer: env.client.indexer(),
+                rpc,
+                prover,
+            })?;
+            send(rpc, *member, &[registration.instruction()?])?;
+        }
+        send(
+            rpc,
+            &env.payer,
+            &[SetDelegate {
+                ring: self.ring,
+                payer: env.payer.pubkey(),
+                authority: env.payer.pubkey(),
+                delegate: self.delegate,
+            }
+            .instruction()],
+        )?;
+        Ok(())
+    }
+}
+
 #[test]
 fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
-    const SEND: u64 = DEFAULT_DEPOSIT / 2;
+    const SEND: u64 = DEFAULT_DEPOSIT / 4;
 
     let mut env = setup()?;
     let rpc = env.client.rpc();

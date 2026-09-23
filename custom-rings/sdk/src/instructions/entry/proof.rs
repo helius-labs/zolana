@@ -33,8 +33,8 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 use crate::{
-    instructions::entry::LiveEntry, AsyncTransferProofEnvironment, PoolTree,
-    TransferProofEnvironment,
+    instructions::entry::LiveEntry, projection::ProjectionLag, AsyncTransferProofEnvironment,
+    PoolTree, TransferProofEnvironment,
 };
 
 /// The mutation witness failed to assemble or prove.
@@ -62,6 +62,12 @@ pub enum EntryProofError {
     InvalidProof,
     #[error("the spend of the record of {member:?} published no version {version}")]
     BrokenSpendLineage { member: [u8; 32], version: u64 },
+}
+
+impl ProjectionLag for EntryProofError {
+    fn is_projection_lag(&self) -> bool {
+        matches!(self, Self::Client(error) if matches!(**error, ClientError::RingSpendRecordOutOfSync))
+    }
 }
 
 impl From<ClientError> for EntryProofError {
