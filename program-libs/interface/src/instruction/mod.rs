@@ -1,10 +1,6 @@
-#[cfg(feature = "solana")]
-pub mod builders;
 pub mod instruction_data;
 #[cfg(feature = "borsh")]
 use borsh::BorshSerialize;
-#[cfg(feature = "solana")]
-pub use builders::*;
 pub use instruction_data::{
     deposit_blinding, fetch_tag, validate_input_tree_contexts, validate_interface_transfers,
     CircuitId, CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind, DepositEntry,

@@ -1,8 +1,9 @@
+use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use super::deposit::{DepositAsset, DepositBuildError, DepositLayout};
-use crate::{
+use zolana_interface::{
     instruction::{tag, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -104,9 +105,8 @@ impl RingDeposit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::{
-        DepositAsset, DepositAssetKind, DepositSplAccounts, MAX_DEPOSIT_ASSETS,
-    };
+    use crate::instruction::{DepositAsset, DepositSplAccounts};
+    use zolana_interface::instruction::{DepositAssetKind, MAX_DEPOSIT_ASSETS};
 
     fn ring_entry(asset: DepositAsset, seed: u8) -> RingAssetDeposit {
         RingAssetDeposit {

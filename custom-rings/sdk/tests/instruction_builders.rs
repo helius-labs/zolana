@@ -21,14 +21,17 @@ use solana_message::v1::MAX_TRANSACTION_SIZE;
 use zolana_client::{transaction_size, ComputeBudgetConfig};
 use zolana_interface::{
     instruction::{
-        CircuitId, DepositAsset, DepositAssetKind, DepositSplAccounts, EncryptedRingDepositData,
-        InputUtxo, InterfaceTransfer, MessageData, RingAssetDeposit, RingDepositEntry,
-        RingDepositIxData, TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
-        TransactSolTransferAccounts, TreeContext,
+        CircuitId, DepositAssetKind, EncryptedRingDepositData, InputUtxo, InterfaceTransfer,
+        MessageData, RingDepositEntry, RingDepositIxData, TransactIxData, TransactProof,
+        TreeContext,
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
 use zolana_keypair::{P256Pubkey, SigningKey, ViewingKey};
+use zolana_program::instruction::{
+    DepositAsset, DepositSplAccounts, RingAssetDeposit, TransactInterfaceTransferAccounts,
+    TransactSolTransferAccounts,
+};
 use zolana_ring_policy::{ListId, ListSet, Rule, RuleTable, Subject, MAX_INLINE_ASSETS};
 
 /// The system program is the all-zero address.

@@ -1,8 +1,8 @@
+use alloc::vec;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
-
-use crate::{
+use zolana_interface::{
     instruction::{
         encode_instruction, tag, CreateRingConfigData, SetRingActivationData, UpdateRingConfigData,
     },

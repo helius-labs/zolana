@@ -1,7 +1,7 @@
+use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-
-use crate::pda;
+use zolana_interface::pda;
 
 /// Build an idempotent SPL Associated Token Account creation instruction for
 /// `(owner, mint)`, funded by `payer`.

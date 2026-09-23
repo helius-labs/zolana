@@ -1,19 +1,21 @@
-#![cfg(feature = "solana")]
-
 use borsh::BorshDeserialize;
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
+use zolana_interface::instruction::SetTreeFeesData;
 use zolana_interface::instruction::{
-    nullifier_pda_accounts, tag, CircuitId, CloseNullifierPdas, CreateTree, CreateTreeData,
-    InputUtxo, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
-    Transact, TransactIxData, TransactProof, TreeContext,
+    tag, CircuitId, CreateTreeData, InputUtxo, MergeTransactIxData, TransactIxData, TransactProof,
+    TreeContext,
 };
-use zolana_interface::instruction::{ClaimTreeLamports, SetTreeFees, SetTreeFeesData};
 use zolana_interface::state::{
     default_tree_fees, nullifier_tree_params, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
 };
 use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
+use zolana_program::instruction::{
+    nullifier_pda_accounts, CloseNullifierPdas, CreateTree, MergeRing, MergeTransact,
+    RingAuthorityTransact, RingTransact, Transact,
+};
+use zolana_program::instruction::{ClaimTreeLamports, SetTreeFees};
 
 fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData {
     TransactIxData {

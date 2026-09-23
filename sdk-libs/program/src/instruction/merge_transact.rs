@@ -1,10 +1,12 @@
+use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-
-use crate::{
-    instruction::{builders::transact::nullifier_pda_accounts, tag, MergeTransactIxData},
+use zolana_interface::{
+    instruction::{tag, MergeTransactIxData},
     PROGRAM_ID_PUBKEY,
 };
+
+use super::transact::nullifier_pda_accounts;
 
 /// Builder for the `merge_transact` instruction. The account layout mirrors the
 /// program loader (`MergeTransactAccounts::validate_and_parse`):

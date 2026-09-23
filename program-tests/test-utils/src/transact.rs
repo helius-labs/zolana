@@ -24,7 +24,7 @@ use zolana_interface::{
             CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, ResolvedOutput, TransactIxData,
             TransactOutput, TransactProof, TreeContext,
         },
-        tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
+        tag,
     },
     pda,
     shape::Shape,
@@ -38,6 +38,9 @@ use zolana_keypair::{
 };
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
+};
 use zolana_program::TransactExternalData;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{

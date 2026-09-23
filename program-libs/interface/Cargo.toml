@@ -9,7 +9,6 @@ publish = false
 [features]
 default = ["verifying-keys", "tree"]
 borsh = ["dep:borsh", "solana-address/borsh"]
-solana = ["dep:solana-instruction", "borsh", "tree"]
 events = []
 verifying-keys = ["dep:groth16-solana"]
 tree = ["dep:zolana-tree"]
@@ -19,7 +18,6 @@ arrayvec = { workspace = true }
 borsh = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 solana-address = { workspace = true, features = ["bytemuck"] }
-solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
 zolana-hasher = { workspace = true }

@@ -24,9 +24,10 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{NonInclusionProof, SpendProof};
 use zolana_interface::{
-    instruction::{encode_instruction, tag, CreateRingConfigData, RingAssetDeposit},
+    instruction::{encode_instruction, tag, CreateRingConfigData},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program::instruction::RingAssetDeposit;
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_transaction::{
     serialization::confidential::Confidential, ShieldedTransaction, Utxo, WalletUtxo,

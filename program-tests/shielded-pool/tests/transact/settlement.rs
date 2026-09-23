@@ -25,13 +25,15 @@ use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        instruction_data::transact::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplWithdrawalAccounts,
+    instruction::instruction_data::transact::{
+        CircuitId, InterfaceTransfer, TransactIxData, TransactProof,
     },
     pda, N_PUBLIC_SLOTS, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN,
     SPL_TOKEN_ACCOUNT_STATE_OFFSET,
+};
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplWithdrawalAccounts,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};

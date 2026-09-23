@@ -6,12 +6,12 @@ use solana_system_interface::error::SystemError;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        encode_instruction, tag, CreateRingConfig, CreateRingConfigData, SetRingActivation,
-        UpdateRingConfig, UpdateRingConfigOwner,
-    },
+    instruction::{encode_instruction, tag, CreateRingConfigData},
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
+};
+use zolana_program::instruction::{
+    CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner,
 };
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::backend::LiteSvmPoolBackend;

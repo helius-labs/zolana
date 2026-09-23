@@ -13,17 +13,17 @@ use zolana_event::SplTransfer;
 use zolana_event_parser::general_event_from_indexed;
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
-    instruction::{
-        instruction_data::transact::{InterfaceTransfer, TransactIxData},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
-    },
+    instruction::instruction_data::transact::{InterfaceTransfer, TransactIxData},
     pda,
     tree_slot::TreeSlot,
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,

@@ -12,7 +12,7 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{assemble, ProofAuthority, ProverClient, SpendProof};
-use zolana_interface::instruction::{
+use zolana_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
 use zolana_transaction::instructions::transact::ConfidentialTransaction;

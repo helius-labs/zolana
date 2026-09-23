@@ -1,7 +1,8 @@
 //! Post-instruction checks for `ring_deposit` (policy-ring deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{instruction::RingAssetDeposit, state::read_tree_id};
+use zolana_interface::state::read_tree_id;
+use zolana_program::instruction::RingAssetDeposit;
 use zolana_program_test::{RingDepositOutput, ZolanaProgramTest};
 use zolana_wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 

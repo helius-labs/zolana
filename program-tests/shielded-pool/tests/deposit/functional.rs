@@ -6,13 +6,14 @@ use solana_signer::Signer;
 use zolana_event::SplTransfer;
 use zolana_event_parser::general_event_from_indexed;
 use zolana_interface::{
-    instruction::{deposit_blinding, AssetDeposit, Deposit, UtxoData},
+    instruction::{deposit_blinding, UtxoData},
     pda,
     state::STATE_ROOT_HISTORY_CAPACITY,
 };
 use zolana_keypair::{
     hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey,
 };
+use zolana_program::instruction::{AssetDeposit, Deposit};
 use zolana_program_test::{
     DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID,
 };

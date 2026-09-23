@@ -8,12 +8,10 @@ use zolana_account_checks::AccountError;
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        tag, DepositAsset, DepositAssetKind, DepositEntry, EncryptedRingDepositData,
-        RingAssetDeposit, RingDeposit,
-    },
+    instruction::{tag, DepositAssetKind, DepositEntry, EncryptedRingDepositData},
     pda, PROGRAM_ID_PUBKEY,
 };
+use zolana_program::instruction::{DepositAsset, RingAssetDeposit, RingDeposit};
 use zolana_program_test::{Rejection, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 
 use zolana_test_utils::mollusk::{

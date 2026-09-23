@@ -6,10 +6,10 @@ use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::{
+use zolana_keypair::ShieldedAddress;
+use zolana_program::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
-use zolana_keypair::ShieldedAddress;
 use zolana_transaction::SOL_MINT;
 
 use zolana_client::{

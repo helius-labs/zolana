@@ -8,12 +8,11 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::SolanaRpc;
 use zolana_interface::{
-    instruction::{
-        encode_instruction, tag, CreateRingConfigData, Deposit, RingDeposit, SetRingActivation,
-    },
+    instruction::{encode_instruction, tag, CreateRingConfigData},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedKeypair;
+use zolana_program::instruction::{Deposit, RingDeposit, SetRingActivation};
 use zolana_program_test::{
     ring_deposit_output_from_event, rpc_state_root, single_deposit_view, TestIndexer,
     ZolanaProgramTest, RING_TEST_PROGRAM_ID,

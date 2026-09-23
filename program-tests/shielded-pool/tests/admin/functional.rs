@@ -4,7 +4,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{CreateTree, UpdateProtocolConfigData},
+    instruction::UpdateProtocolConfigData,
     pda,
     state::{
         default_tree_fees,
@@ -14,6 +14,7 @@ use zolana_interface::{
     },
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY,
 };
+use zolana_program::instruction::CreateTree;
 use zolana_program_test::{ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 use zolana_test_utils::mollusk::snapshot_instruction_accounts;

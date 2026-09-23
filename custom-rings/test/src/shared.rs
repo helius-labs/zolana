@@ -24,14 +24,14 @@ use zolana_client::{
     prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError,
     ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
-use zolana_interface::instruction::SetRingActivation;
 use zolana_interface::{
-    instruction::CreateProtocolConfig,
     pda,
     state::{default_tree_fees, nullifier_tree_params, SplAssetCounter},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{P256Pubkey, ShieldedKeypair};
+use zolana_program::instruction::CreateProtocolConfig;
+use zolana_program::instruction::SetRingActivation;
 use zolana_program_test::{
     create_tree_instructions,
     localnet::{LocalnetValidator, UpgradeableProgram},

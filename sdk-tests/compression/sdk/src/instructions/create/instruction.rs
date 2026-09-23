@@ -2,9 +2,9 @@ use anyhow::Result;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::{
-    instruction::{instruction_data::transact::TransactProof, nullifier_pda_accounts},
-    SHIELDED_POOL_PROGRAM_ID,
+    instruction::instruction_data::transact::TransactProof, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program::instruction::nullifier_pda_accounts;
 
 use crate::{account_address, account_pda, err, shared::DEFAULT_TREE_ID, tag, CreateIxData};
 

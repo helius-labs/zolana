@@ -9,7 +9,8 @@ use spl_token_2022_interface::{
     pod::{PodAccount, PodMint},
 };
 use zolana_account_checks::AccountError;
-use zolana_interface::{error::ShieldedPoolError, instruction::CreateSplInterface, pda};
+use zolana_interface::{error::ShieldedPoolError, pda};
+use zolana_program::instruction::CreateSplInterface;
 use zolana_program_test::{system_create_account_ix, Rejection, ZolanaProgramTest};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_accounts, spl_depositor, Pool};

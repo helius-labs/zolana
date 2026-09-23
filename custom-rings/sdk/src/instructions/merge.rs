@@ -7,8 +7,9 @@ use zolana_client::{
     AsyncProverClient, AsyncRpc, ClientError, MergeProofResult, NonInclusionProof, Proof,
     ProofCompressed, ProverClient, Rpc, SpendProof,
 };
-use zolana_interface::instruction::{instruction_data::merge_ring::MergeRingIxData, MergeRing};
+use zolana_interface::instruction::instruction_data::merge_ring::MergeRingIxData;
 use zolana_keypair::NullifierKey;
+use zolana_program::instruction::MergeRing;
 use zolana_transaction::{
     error::TransactionError,
     instructions::merge::{MergeProofInputs, MergeTransaction},

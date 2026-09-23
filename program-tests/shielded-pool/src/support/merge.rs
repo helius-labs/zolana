@@ -13,8 +13,7 @@ use zolana_client::{
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
-        instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeTransact,
-        MergeTransactIxData,
+        instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeTransactIxData,
     },
     verifying_keys::{merge_36_1, merge_8_1},
 };
@@ -25,6 +24,7 @@ use zolana_merkle_tree::indexed::{
     IndexedMerkleTree, NonInclusionProof as IndexedNonInclusionProof,
 };
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::MergeTransact;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{instructions::merge::merge_dummy_nullifier, Utxo, SOL_MINT};

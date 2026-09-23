@@ -19,12 +19,10 @@ use solana_signer::Signer;
 use zolana_client::{ProofCompressed, ProverClient, Rpc};
 use zolana_interface::{
     event::OutputDataEncoding,
-    instruction::{
-        instruction_data::transact::{OwnerTag, TransactOutput},
-        AssetDeposit, Deposit, DepositAsset, Transact,
-    },
+    instruction::instruction_data::transact::{OwnerTag, TransactOutput},
 };
 use zolana_keypair::ShieldedKeypair;
+use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset, Transact};
 use zolana_program_test::fixture;
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_utxo, wait_for_merkle_proof, wait_for_non_inclusion_proof,

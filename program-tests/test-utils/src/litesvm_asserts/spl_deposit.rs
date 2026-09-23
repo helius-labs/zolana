@@ -1,10 +1,8 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{
-    instruction::{deposit_blinding, AssetDeposit},
-    state::read_tree_id,
-};
+use zolana_interface::{instruction::deposit_blinding, state::read_tree_id};
+use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_wallet::{SyncWalletAuthority, Wallet};
 

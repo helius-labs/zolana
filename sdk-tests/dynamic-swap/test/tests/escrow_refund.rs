@@ -27,8 +27,8 @@ use shared::{
 };
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc};
-use zolana_interface::instruction::Transact;
 use zolana_keypair::random_blinding;
+use zolana_program::instruction::Transact;
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{
     instructions::transact::{asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo},

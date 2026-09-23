@@ -9,14 +9,12 @@ use solana_signer::Signer;
 use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        instruction_data::merge_transact::{
-            MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
-        },
-        MergeRing, MergeTransact,
+    instruction::instruction_data::merge_transact::{
+        MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
 };
+use zolana_program::instruction::{MergeRing, MergeTransact};
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::fe;
 use zolana_tree::TreeAccount;
@@ -263,7 +261,7 @@ fn merge_rejects_an_unsigned_payer() {
 #[test]
 fn merge_ring_rejects_an_unsigned_ring_config() {
     let (mut rpc, tree) = merge_env();
-    let mut ix = zolana_interface::instruction::MergeRing {
+    let mut ix = zolana_program::instruction::MergeRing {
         input_tree: tree,
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),

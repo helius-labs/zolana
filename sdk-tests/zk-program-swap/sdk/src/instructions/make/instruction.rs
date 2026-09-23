@@ -2,13 +2,11 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{
-        instruction_data::transact::{MessageData, TransactIxData},
-        nullifier_pda_accounts,
-    },
+    instruction::instruction_data::transact::{MessageData, TransactIxData},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedAddress;
+use zolana_program::instruction::nullifier_pda_accounts;
 use zolana_transaction::TransactionError;
 
 use crate::{err, order_authority_pda, tag, MakeIxData, MakeProof, MarkerData};

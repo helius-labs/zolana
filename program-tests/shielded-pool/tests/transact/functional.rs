@@ -35,7 +35,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{CircuitId, InterfaceTransfer, OwnerTag, TransactIxData},
-        tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        tag,
     },
     shape::Shape,
     state::{discriminator::RING_CONFIG, read_tree_id, RingConfig, TreeFeeSchedule},
@@ -45,6 +45,9 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+};
 use zolana_program_test::{test_blinding, Rejection};
 use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pda, assert_nullifier_pdas, assert_tree_lamports_after_spend,

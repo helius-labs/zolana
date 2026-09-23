@@ -18,7 +18,8 @@ client = ["indexer-api", "solana-rpc"]
 proofs = []
 
 [dependencies]
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
+zolana-program = { workspace = true }
 zolana-indexer-api = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }

@@ -23,11 +23,8 @@ use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
     SolanaRpc,
 };
-use zolana_interface::{
-    instruction::{deposit_blinding, AssetDeposit},
-    pda,
-    state::state_root_offset,
-};
+use zolana_interface::{instruction::deposit_blinding, pda, state::state_root_offset};
+use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::DepositOutput;
 use zolana_tree::TreeAccount;
 

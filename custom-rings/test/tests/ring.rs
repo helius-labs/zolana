@@ -67,11 +67,7 @@ use zolana_client::{
 };
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts,
-        EncryptedRingDepositData, RingAssetDeposit, TransactInterfaceTransferAccounts,
-        TransactSplWithdrawalAccounts, UpdateRingConfig,
-    },
+    instruction::EncryptedRingDepositData,
     pda,
     state::{
         discriminator::{PROTOCOL_CONFIG, RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},
@@ -80,6 +76,10 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_program::instruction::{
+    AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts, RingAssetDeposit,
+    TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts, UpdateRingConfig,
+};
 use zolana_program_test::Rejection;
 use zolana_ring_client::{
     AuditedOutput, AuditedTransaction, RecoveryEnvironment, RingAudit, RingEnvironment,

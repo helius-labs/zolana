@@ -1,40 +1,38 @@
+use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-
-use crate::{
-    instruction::{
-        builders::transact::{
-            append_interface_transfer_accounts, transact_nullifier_pda_accounts,
-            TransactInterfaceTransferAccounts,
-        },
-        tag, TransactIxData,
-    },
+use zolana_interface::{
+    instruction::{tag, TransactIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
-/// Builder for the `ring_authority_transact` instruction: a ring-authority state
-/// transition (freeze, thaw, permanent-delegate transfer) over ring-owned UTXOs.
-/// The account layout matches `ring_transact` (the loader reuses
-/// `RingTransactAccounts`): `payer`, `output_tree`, the SPP and System Program
-/// accounts, the `RingConfig` (the ring's
-/// `ring_auth` PDA, which must have `ring_authority_transact_is_enabled` set),
-/// one input tree per declared tree context, one writable nullifier PDA per
-/// input (in `inputs` order), then optional
-/// settlement accounts.
-pub struct RingAuthorityTransact {
+use super::transact::{
+    append_interface_transfer_accounts, transact_nullifier_pda_accounts,
+    TransactInterfaceTransferAccounts,
+};
+
+/// Builder for the `ring_transact` instruction, the confidential policy-ring analog
+/// of [`super::transact::Transact`]. The account layout mirrors the program
+/// loader (`RingTransactAccounts::validate_and_parse`): `payer`, `output_tree`,
+/// the SPP and System Program accounts, the `RingConfig` account (the ring's
+/// `ring_auth` PDA), one input tree per declared tree context, then one writable nullifier PDA per input (in
+/// `inputs` order), owner signers, then optional settlement accounts.
+pub struct RingTransact {
     pub payer: Pubkey,
     /// One tree per `data.tree_contexts` entry, in the same order.
     pub input_trees: Vec<Pubkey>,
     pub output_tree: Pubkey,
     /// Calling ring program; its `RingConfig` (canonical `ring_auth` PDA) signs.
     pub ring_program_id: Pubkey,
+    pub owner_signers: Vec<Pubkey>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     pub data: TransactIxData,
 }
 
-impl RingAuthorityTransact {
+impl RingTransact {
     /// Instruction sent to the ring program, which CPIs into SPP. The `ring_auth`
-    /// PDA is not a transaction-level signer; the ring program signs for it.
+    /// PDA is not a transaction-level signer; the ring program signs for it in its
+    /// CPI.
     pub fn instruction(&self) -> Instruction {
         self.build_instruction(self.ring_program_id, false)
     }
@@ -48,7 +46,7 @@ impl RingAuthorityTransact {
     fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
         let ring_config = pda::ring_auth(&self.ring_program_id).0;
 
-        let mut instruction_data = vec![tag::RING_AUTHORITY_TRANSACT];
+        let mut instruction_data = vec![tag::RING_TRANSACT];
         instruction_data.extend_from_slice(
             &self
                 .data
@@ -72,6 +70,12 @@ impl RingAuthorityTransact {
             &self.input_trees,
             self.data.inputs.iter(),
         ));
+        accounts.extend(
+            self.owner_signers
+                .iter()
+                .copied()
+                .map(|signer| AccountMeta::new_readonly(signer, true)),
+        );
         append_interface_transfer_accounts(
             &mut accounts,
             &self.data.interface_transfers,

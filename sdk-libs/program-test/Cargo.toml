@@ -32,7 +32,8 @@ solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 thiserror = { workspace = true }
 zolana-client = { workspace = true }
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
+zolana-program = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-keypair = { workspace = true }

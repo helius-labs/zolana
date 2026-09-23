@@ -5,7 +5,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::CreateAssociatedTokenAccount;
+use zolana_program::instruction::CreateAssociatedTokenAccount;
 
 use zolana_client::{
     error::ClientError,

@@ -3,7 +3,8 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::{instruction::AssetDeposit, state::read_tree_id};
+use zolana_interface::state::read_tree_id;
+use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::DepositOutput;
 use zolana_wallet::{SyncWalletAuthority, Wallet};
 

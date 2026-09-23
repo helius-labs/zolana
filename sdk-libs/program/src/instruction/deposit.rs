@@ -1,8 +1,8 @@
+use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use thiserror::Error;
-
-use crate::{
+use zolana_interface::{
     instruction::{
         tag, DepositAssetKind, DepositEntry, DepositIxData, UtxoData, MAX_DEPOSIT_ASSETS,
     },

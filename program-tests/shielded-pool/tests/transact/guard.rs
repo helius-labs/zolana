@@ -25,14 +25,14 @@ use zolana_client::ComputeBudgetConfig;
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        instruction_data::transact::{CircuitId, TransactIxData, TransactIxDataRef, TransactProof},
-        RingAuthorityTransact, RingTransact, Transact,
+    instruction::instruction_data::transact::{
+        CircuitId, TransactIxData, TransactIxDataRef, TransactProof,
     },
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
     MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
+use zolana_program::instruction::{RingAuthorityTransact, RingTransact, Transact};
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::transact::{
     fe, inline_output, input_utxo, input_utxo_in_tree, single_tree_context, tree_contexts,

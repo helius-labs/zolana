@@ -48,7 +48,8 @@ wincode = { workspace = true }
 zeroize = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api"] }
 # `solana` pulls in the instruction builders this crate wraps for ring deposits.
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
+zolana-program = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }

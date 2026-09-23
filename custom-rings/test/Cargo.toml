@@ -28,7 +28,8 @@ tokio = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 # `solana` pulls in the ring deposit instruction-data types (`RingAssetDeposit`,
 # `DepositAsset`) the lifecycle builds its deposits from.
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
+zolana-program = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
