@@ -1,15 +1,15 @@
+use custom_ring_interface::KeyEscrow;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
-use zolana_ring_policy::VelocityMode;
 
 use crate::{
     error::CustomRingError,
     instructions::{
         cosign::{require_cosigner, CoSignerRequirement},
         deposit_audit::{AuditedDeposit, DepositVerification},
-        loader::{load_config, load_deposit_audit, load_policy_config, validate_spp_program},
-        policy_shared::require_entries_trees,
+        key_escrow::EscrowRoot,
+        loader::{load_config, load_deposit_audit, validate_spp_program},
         public_legs::PublicLegs,
         shared::{cpi_spp_signed, SppSigners},
     },
@@ -25,14 +25,6 @@ pub(crate) enum Forward {
 }
 
 impl Forward {
-    /// The SPP tree the forward creates a note in.
-    const fn destination_tree(self) -> core::ops::Range<usize> {
-        match self {
-            Forward::Deposit | Forward::AuditedDeposit => 0..1,
-            Forward::Merge => 1..2,
-        }
-    }
-
     #[inline(never)]
     pub fn process(
         self,
@@ -41,12 +33,16 @@ impl Forward {
         data: &[u8],
     ) -> ProgramResult {
         // 1. Load ring controls and require disclosure when the deposit setting
-        // demands it.
+        // or key escrow demands it.
         let mut iter = AccountIterator::new(accounts);
         let config_account = iter.next_account("config")?;
         let cosigner_account = iter.next_account("cosigner_pda")?;
         let cosigner = iter.next_account("cosigner")?;
         let config = *load_config(program_id, config_account)?;
+        let escrow = config.key_escrow();
+        if matches!(self, Forward::Deposit) && escrow == KeyEscrow::Registry {
+            return Err(CustomRingError::DepositAuditRequired.into());
+        }
         let audited = match self {
             Forward::AuditedDeposit => Some(AuditedDeposit::parse(data)?),
             _ => None,
@@ -59,10 +55,14 @@ impl Forward {
                 return Err(CustomRingError::DepositAuditRequired.into());
             }
         }
-        let policy_config_account = if config.has_policy != 0 {
-            Some(iter.next_account("policy_config")?)
-        } else {
-            None
+        let key_registry_root = match &audited {
+            Some(audited) => EscrowRoot {
+                program_id,
+                escrow,
+                index: audited.key_registry_root_index,
+            }
+            .load(&mut iter)?,
+            None => None,
         };
         let rest = iter.remaining_mut()?;
         let deposit = match self {
@@ -78,8 +78,8 @@ impl Forward {
         }
         let (windows, spp_accounts) = rest.split_at_mut(leg_count);
         validate_spp_program(spp_accounts)?;
-        // 2. Verify supplied disclosure against the actual destination and
-        // deposit bytes.
+        // 2. Verify supplied disclosure against the actual destination, deposit
+        // bytes and escrow registry root, then apply public approval and caps.
         if let Some(audited) = &audited {
             let tree = spp_accounts
                 .first()
@@ -88,24 +88,13 @@ impl Forward {
                 program_id,
                 tree: tree.address(),
                 auditor_pk: &config.auditor_pubkey,
+                key_registry_root: key_registry_root.as_ref(),
                 audited,
                 deposit: deposit
                     .as_ref()
                     .ok_or(CustomRingError::InvalidInstructionData)?,
             }
             .verify()?;
-        }
-        // 3. Confine windowed outputs to the entries tree and apply public
-        // approval and caps.
-        if let Some(policy_config_account) = policy_config_account {
-            let policy = load_policy_config(program_id, policy_config_account)?;
-            // A windowed ring creates notes only in the entries tree, a merge input may be foreign.
-            if let VelocityMode::PerWindow { .. } = policy.rules.velocity_mode() {
-                let trees = spp_accounts
-                    .get(self.destination_tree())
-                    .ok_or(ProgramError::NotEnoughAccountKeys)?;
-                require_entries_trees(trees, &policy.entries_tree)?;
-            }
         }
         let demand = match &deposit {
             Some(deposit) => {
@@ -121,7 +110,7 @@ impl Forward {
             cosigner,
         )?;
         demand.legs.apply_windows(program_id, windows)?;
-        // 4. Authorize SPP settlement, any failure rolls back the public window
+        // 3. Authorize SPP settlement, any failure rolls back the public window
         // counters.
         cpi_spp_signed(program_id, spp_accounts, data, SppSigners::RingAuth)
     }

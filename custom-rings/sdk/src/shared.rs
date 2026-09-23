@@ -2,10 +2,10 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig,
-    ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE, DEPOSIT_AUDIT,
-    HEAD_MAP_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
-    SPEND_WINDOW,
+    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyEscrow, KeyRegistryRoot,
+    PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE,
+    DEPOSIT_AUDIT, HEAD_MAP_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
+    RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -35,6 +35,8 @@ pub struct CustomRingConfig {
     /// A policy ring enforces its compiled rules, an audit-only ring proves only
     /// the audit statement.
     pub has_policy: bool,
+    /// Once on, every output key but a namespace-owned record's must be enrolled in the registry.
+    pub key_escrow: KeyEscrow,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +55,40 @@ pub struct CustomRingDelegate {
 pub struct IndexedMapRoot {
     pub root: [u8; 32],
     pub next_index: u64,
+    /// The history slot a statement names `root` by.
+    pub history_index: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoolTree {
+    pub address: Address,
+    pub id: u16,
+}
+
+impl PoolTree {
+    /// SPP derives every tree account from its id.
+    pub fn from_id(id: u16) -> Self {
+        Self {
+            address: pda::tree(id),
+            id,
+        }
+    }
+
+    pub fn address_tree(config: &PolicyConfig) -> Self {
+        Self {
+            address: config.address_tree,
+            id: config.address_tree_id(),
+        }
+    }
+
+    /// Keeps `self` when the ids agree.
+    pub(crate) fn sibling(self, id: u16) -> Self {
+        if id == self.id {
+            self
+        } else {
+            Self::from_id(id)
+        }
+    }
 }
 
 pub struct PinnedPolicy {
@@ -207,7 +243,11 @@ impl CustomRing {
             return Ok(None);
         };
         let next_index = root.next_index();
-        if root.bump != pda.bump || next_index == 0 || next_index > HEAD_MAP_CAPACITY {
+        if root.bump != pda.bump
+            || next_index == 0
+            || next_index > HEAD_MAP_CAPACITY
+            || root.root_at(root.history_cursor) != Some(root.root)
+        {
             return Err(AccountReadError::InvalidAccount {
                 address: pda.address,
             });
@@ -215,6 +255,7 @@ impl CustomRing {
         Ok(Some(IndexedMapRoot {
             root: root.root,
             next_index,
+            history_index: root.history_cursor,
         }))
     }
 
@@ -286,6 +327,7 @@ impl CustomRing {
             authority: config.authority,
             auditor_pubkey,
             has_policy: config.has_policy != 0,
+            key_escrow: config.key_escrow(),
         }))
     }
 
@@ -780,6 +822,7 @@ mod tests {
             auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
             bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring().program_id()).1,
             has_policy: 1,
+            key_escrow: 0,
         }
     }
 
@@ -957,8 +1000,8 @@ mod tests {
         let mut config = PolicyConfig {
             discriminator: POLICY_CONFIG,
             policy_hash: [0; 32],
-            entries_tree: Address::new_from_array([5u8; 32]),
-            entries_tree_id: [0; 2],
+            address_tree: Address::new_from_array([5u8; 32]),
+            address_tree_id: [0; 2],
             namespace_bump: 0,
             namespace_owner_hash: [0u8; 32],
             bump: Address::find_program_address(&[PolicyConfig::SEED], &ring().program_id()).1,

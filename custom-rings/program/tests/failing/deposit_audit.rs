@@ -1,5 +1,7 @@
 use custom_ring_interface::RingDepositAuditCapsule;
-use custom_ring_interface::{pda, tag, CustomRingProof, DepositAudit, DEPOSIT_AUDIT};
+use custom_ring_interface::{
+    pda, tag, CustomRingProof, DepositAudit, DEPOSIT_AUDIT, KEY_REGISTRY_ROOT_HISTORY,
+};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_account::Account;
@@ -12,7 +14,8 @@ use zolana_interface::{
 
 use crate::common::{
     account, audit_only_config_account, auditor_pubkey, authority, config_pda, deposit_fixture,
-    payer, program_id, setup_mollusk, system_program_slot, Fixture, Slot,
+    escrowed_config_account, key_registry_root_slot, payer, program_id, setup_mollusk,
+    system_program_slot, Fixture, Slot,
 };
 
 fn audit_account(required: u8) -> Account {
@@ -57,6 +60,9 @@ fn setter(required: u8, existing: Account) -> Fixture {
     )
 }
 
+/// Offset of the key registry root index in the audited wire.
+const REGISTRY_INDEX: usize = 1 + CustomRingProof::SIZE;
+
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
 }
@@ -76,6 +82,7 @@ fn audited_fixture(count: usize) -> Fixture {
     }
     let mut wire = vec![tag::AUDITED_DEPOSIT];
     wire.extend_from_slice(&[0; CustomRingProof::SIZE]);
+    wire.push(0);
     wire.push(tag::DEPOSIT);
     wire.extend(deposit.serialize().unwrap());
     *fixture.data_mut() = wire;
@@ -83,7 +90,7 @@ fn audited_fixture(count: usize) -> Fixture {
 }
 
 fn mutate_deposit(fixture: &mut Fixture, change: impl FnOnce(&mut RingDepositIxData)) {
-    let body = 2 + CustomRingProof::SIZE;
+    let body = REGISTRY_INDEX + 2;
     let mut deposit = RingDepositIxData::deserialize(&fixture.instruction().data[body..]).unwrap();
     change(&mut deposit);
     fixture.data_mut().truncate(body);
@@ -119,7 +126,9 @@ fn proven_fixture(count: usize) -> Fixture {
     );
     fixture.set_account("config", audit_only_config_account(authority(), auditor));
     fixture.set_account("deposit_audit", audit_account(1));
-    *fixture.data_mut() = bytes.to_vec();
+    let mut wire = bytes.to_vec();
+    wire.insert(REGISTRY_INDEX, 0);
+    *fixture.data_mut() = wire;
     fixture
 }
 
@@ -304,7 +313,7 @@ fn audited_tag_rejects_truncated_proofs_and_nested_non_deposits() {
     truncated.data_mut().truncate(CustomRingProof::SIZE);
     truncated.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
     let mut other = audited_fixture(1);
-    other.data_mut()[1 + CustomRingProof::SIZE] = tag::MERGE;
+    other.data_mut()[REGISTRY_INDEX + 1] = tag::MERGE;
     other.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
 
@@ -335,4 +344,33 @@ fn every_slot_requires_a_capsule_with_its_own_index_and_the_same_key() {
         deposit.deposits[1].encrypted.ciphertext[10] ^= 1
     });
     other_key.expect_err(&mollusk, custom(CustomRingError::InvalidDepositDisclosure));
+}
+
+fn escrowed_fixture(registry_index: u8) -> Fixture {
+    let mut fixture = audited_fixture(1);
+    fixture.set_account("config", escrowed_config_account());
+    fixture.data_mut()[REGISTRY_INDEX] = registry_index;
+    let at = fixture.position("deposit_audit") + 1;
+    fixture.insert(at, key_registry_root_slot());
+    fixture
+}
+
+#[test]
+fn an_escrowed_audited_deposit_binds_the_registry_root() {
+    let (mollusk, _) = setup_mollusk();
+    escrowed_fixture(0).expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    for stale in [1, KEY_REGISTRY_ROOT_HISTORY as u8] {
+        escrowed_fixture(stale).expect_err(&mollusk, custom(CustomRingError::StaleKeyRegistryRoot));
+    }
+    let mut missing = escrowed_fixture(0);
+    missing.remove("key_registry_root");
+    missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+}
+
+#[test]
+fn a_registry_index_without_escrow_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = audited_fixture(1);
+    fixture.data_mut()[REGISTRY_INDEX] = 1;
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }

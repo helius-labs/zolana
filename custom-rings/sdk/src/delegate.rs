@@ -19,14 +19,15 @@ use zolana_transaction::{
 };
 
 use crate::{
-    instructions::spend::ReadEnvironment,
+    escrow::KeyRegistry,
+    instructions::{spend::ReadEnvironment, transact::PolicyReads},
     transfer::{
-        frame_dummy_outputs, read_tree_state, read_tree_state_async, BoundTree, PolicyTierInput,
-        RingInstructionData, RingMembership, RingSpendInputs, SpendSet, Tier, TierBinding,
-        TierRequest, TierRequestInput,
+        frame_dummy_outputs, PolicyBinding, PolicyRequest, PolicyStatement, PolicyTierInput,
+        RingInstructionData, RingMembership, RingSpendInputs, SpendSet, SpendTreePlan, SpendTrees,
+        TierRequestInput,
     },
     AsyncTransferProofEnvironment, CustomRing, CustomRingDelegateTransact, CustomRingProof,
-    CustomRingProofParams, EncryptedAudit, PendingCustomRingProof, TransferError,
+    CustomRingProofParams, EncryptedAudit, PendingCustomRingProof, PoolTree, TransferError,
     TransferProofEnvironment,
 };
 
@@ -58,8 +59,7 @@ pub struct DelegateTransfer<'a> {
     source_nullifier_key: NullifierKey,
     inputs: Vec<SppProofInputUtxo>,
     outputs: Vec<DelegateOutput>,
-    input_tree: Option<Address>,
-    output_tree: Option<Address>,
+    output_tree_id: Option<u16>,
     assets: Option<&'a AssetRegistry>,
     cosigner: Option<Address>,
 }
@@ -71,15 +71,11 @@ pub struct ProvenDelegateTransfer {
     pub outputs: Vec<SppProofOutputUtxo>,
     pub data: TransactIxData,
     pub proof: CustomRingProof,
-    pub state_root_index: u16,
-    pub nullifier_root_index: u16,
-    pub revocation_targets: [[u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
+    pub policy: PolicyReads,
     pub cosigner: Option<Address>,
     delegate: Address,
     payer: Address,
-    input_tree: Address,
-    output_tree: Address,
-    entries_tree: Option<Address>,
+    trees: SpendTrees,
     ring: CustomRing,
 }
 
@@ -92,28 +88,26 @@ impl<'a> DelegateTransfer<'a> {
             source_nullifier_key: input.source_nullifier_key.clone(),
             inputs: input.inputs,
             outputs: input.outputs,
-            input_tree: None,
-            output_tree: None,
+            output_tree_id: None,
             assets: None,
             cosigner: None,
         }
     }
 
-    pub fn with_tree(mut self, tree: Address) -> Self {
-        self.input_tree = Some(tree);
+    /// The outputs land in the first input's tree unless moved here.
+    #[must_use = "use the updated move"]
+    pub fn with_output_tree_id(mut self, tree_id: u16) -> Self {
+        self.output_tree_id = Some(tree_id);
         self
     }
 
-    pub fn with_output_tree(mut self, tree: Address) -> Self {
-        self.output_tree = Some(tree);
-        self
-    }
-
+    #[must_use = "use the updated move"]
     pub fn with_assets(mut self, assets: &'a AssetRegistry) -> Self {
         self.assets = Some(assets);
         self
     }
 
+    #[must_use = "use the updated move"]
     pub fn with_cosigner(mut self, cosigner: Address) -> Self {
         self.cosigner = Some(cosigner);
         self
@@ -134,35 +128,22 @@ impl<'a> DelegateTransfer<'a> {
         if stored.delegate != self.delegate {
             return Err(TransferError::UnauthorizedDelegate(stored.delegate));
         }
-        let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
-        let output_tree = self.output_tree.unwrap_or(input_tree);
-        let input_state = read_tree_state(env.rpc, input_tree)?;
-        let output_state = read_tree_state(env.rpc, output_tree)?;
-        let staged = self.stage(
-            config.auditor_pubkey,
-            DelegateTrees {
-                input: input_state.tree,
-                output: output_state.tree,
-            },
-        )?;
+        let key_registry =
+            KeyRegistry::of(self.ring, &config).ok_or(TransferError::DelegateRequiresEscrow)?;
+        let staged = self.stage(config.auditor_pubkey, key_registry)?;
         let spends = SpendSet {
+            trees: staged.tree_plan().read(env.rpc)?,
             inputs: RingSpendInputs {
                 indexer: env.indexer,
-                tree: input_tree,
                 input_utxos: &staged.prepared.inputs,
             }
             .load()?,
-            allow_dummy_inputs: input_state.allows_dummy_inputs(&staged.prepared.inputs),
         };
-        let tier = if config.has_policy {
-            staged.policy_tier().read(ReadEnvironment {
-                indexer: env.indexer,
-                rpc: env.rpc,
-            })?
-        } else {
-            Tier::Base
-        };
-        let witnessed = staged.witness(spends, tier)?;
+        let statement = staged.policy_tier().read(ReadEnvironment {
+            indexer: env.indexer,
+            rpc: env.rpc,
+        })?;
+        let witnessed = staged.witness(spends, statement)?;
         let spp_proof =
             ProofCompressed::try_from(env.prover.prove_ring_authority(witnessed.spp())?)?
                 .to_transact_proof();
@@ -188,39 +169,26 @@ impl<'a> DelegateTransfer<'a> {
         if stored.delegate != self.delegate {
             return Err(TransferError::UnauthorizedDelegate(stored.delegate));
         }
-        let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
-        let output_tree = self.output_tree.unwrap_or(input_tree);
-        let input_state = read_tree_state_async(env.rpc, input_tree).await?;
-        let output_state = read_tree_state_async(env.rpc, output_tree).await?;
-        let staged = self.stage(
-            config.auditor_pubkey,
-            DelegateTrees {
-                input: input_state.tree,
-                output: output_state.tree,
-            },
-        )?;
+        let key_registry =
+            KeyRegistry::of(self.ring, &config).ok_or(TransferError::DelegateRequiresEscrow)?;
+        let staged = self.stage(config.auditor_pubkey, key_registry)?;
         let spends = SpendSet {
+            trees: staged.tree_plan().read_async(env.rpc).await?,
             inputs: RingSpendInputs {
                 indexer: env.indexer,
-                tree: input_tree,
                 input_utxos: &staged.prepared.inputs,
             }
             .load_async()
             .await?,
-            allow_dummy_inputs: input_state.allows_dummy_inputs(&staged.prepared.inputs),
         };
-        let tier = if config.has_policy {
-            staged
-                .policy_tier()
-                .read_async(ReadEnvironment {
-                    indexer: env.indexer,
-                    rpc: env.rpc,
-                })
-                .await?
-        } else {
-            Tier::Base
-        };
-        let witnessed = staged.witness(spends, tier)?;
+        let statement = staged
+            .policy_tier()
+            .read_async(ReadEnvironment {
+                indexer: env.indexer,
+                rpc: env.rpc,
+            })
+            .await?;
+        let witnessed = staged.witness(spends, statement)?;
         let (spp, ring) = try_join(
             env.prover.prove_ring_authority(witnessed.spp()),
             env.prover.prove(&witnessed.request),
@@ -233,21 +201,21 @@ impl<'a> DelegateTransfer<'a> {
     fn stage(
         self,
         auditor_pk: zolana_keypair::P256Pubkey,
-        trees: DelegateTrees,
+        key_registry: KeyRegistry,
     ) -> Result<StagedDelegateTransfer, TransferError> {
         let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
+        let output_tree = self
+            .output_tree_id
+            .or_else(|| self.inputs.first().map(|input| input.tree_id))
+            .map(PoolTree::from_id)
+            .ok_or(zolana_transaction::TransactionError::NoInputs)?;
         let program_id = self.ring.program_id();
-        if let Some(input) = self
+        // Padding joins the last input group, SPP requires contiguous groups.
+        let padding_tree_id = self
             .inputs
-            .iter()
-            .find(|input| !input.is_dummy() && input.tree_id != trees.input.id)
-        {
-            return Err(TransferError::TreeIdMismatch {
-                tree: trees.input.address,
-                expected: trees.input.id,
-                found: input.tree_id,
-            });
-        }
+            .last()
+            .map(|input| input.tree_id)
+            .ok_or(zolana_transaction::TransactionError::NoInputs)?;
         let outputs = self
             .outputs
             .into_iter()
@@ -276,8 +244,8 @@ impl<'a> DelegateTransfer<'a> {
             inputs: self.inputs,
             outputs,
             payer: self.payer,
-            input_tree_id: trees.input.id,
-            output_tree_id: trees.output.id,
+            input_tree_id: padding_tree_id,
+            output_tree_id: output_tree.id,
         }
         .prepare()?
         .finalize(AuthoritySeal {
@@ -295,7 +263,7 @@ impl<'a> DelegateTransfer<'a> {
             outputs: prepared
                 .outputs
                 .iter()
-                .map(|output| ProofInputUtxo::try_from((output, trees.output.id)))
+                .map(|output| ProofInputUtxo::try_from((output, output_tree.id)))
                 .collect::<Result<Vec<_>, _>>()?,
         }
         .encrypt()?;
@@ -307,17 +275,12 @@ impl<'a> DelegateTransfer<'a> {
             prepared,
             source_nullifier_key: self.source_nullifier_key,
             delegate: self.delegate,
-            input_tree: trees.input.address,
-            output_tree: trees.output.address,
+            output_tree,
+            key_registry,
             ring: self.ring,
             cosigner: self.cosigner,
         })
     }
-}
-
-struct DelegateTrees {
-    input: BoundTree,
-    output: BoundTree,
 }
 
 /// Every asset moved in equals the asset moved out.
@@ -361,13 +324,17 @@ struct StagedDelegateTransfer {
     prepared: RingAuthorityProofInputs,
     source_nullifier_key: NullifierKey,
     delegate: Address,
-    input_tree: Address,
-    output_tree: Address,
+    output_tree: PoolTree,
+    key_registry: KeyRegistry,
     ring: CustomRing,
     cosigner: Option<Address>,
 }
 
 impl StagedDelegateTransfer {
+    fn tree_plan(&self) -> SpendTreePlan {
+        SpendTreePlan::new(&self.prepared.inputs, self.output_tree)
+    }
+
     fn policy_tier(&self) -> PolicyTierInput<'_> {
         PolicyTierInput {
             ring: self.ring,
@@ -375,24 +342,26 @@ impl StagedDelegateTransfer {
             outputs: &self.prepared.outputs,
             output_tree_id: self.prepared.output_tree_id,
             velocity: None,
+            key_registry: Some(self.key_registry),
         }
     }
 
     fn witness(
         self,
         spends: SpendSet,
-        tier: Tier,
+        statement: PolicyStatement,
     ) -> Result<WitnessedDelegateTransfer, TransferError> {
+        let SpendSet { inputs, trees } = spends;
         let shape = self.prepared.shape;
         let mut result = RingAuthorityProver {
-            inputs: spends.inputs,
+            inputs,
             outputs: self.prepared.outputs.clone(),
             blinding_seed: self.prepared.blinding_seed,
             output_tree_id: self.prepared.output_tree_id,
             external_data: self.prepared.external_data.clone(),
             public_transfers: self.prepared.public_transfers,
             payer: self.prepared.payer,
-            allow_dummy_inputs: spends.allow_dummy_inputs,
+            allow_dummy_inputs: trees.allow_dummy_inputs,
             ring_program_id: self.prepared.ring_program_id,
             shape,
         }
@@ -400,13 +369,12 @@ impl StagedDelegateTransfer {
         self.source_nullifier_key
             .complete_inputs(&mut result.inputs.inputs)?;
         let request = TierRequestInput {
-            tier,
             pending: self.pending_proof,
             private_tx_hash: result.private_tx_hash.try_into()?,
             external_data: &self.prepared.external_data,
             private_tx_blinding: self.prepared.private_tx_blinding()?,
         }
-        .build()?
+        .policy(statement)?
         .for_delegate();
         Ok(WitnessedDelegateTransfer {
             request,
@@ -414,8 +382,7 @@ impl StagedDelegateTransfer {
             prepared: self.prepared,
             result,
             delegate: self.delegate,
-            input_tree: self.input_tree,
-            output_tree: self.output_tree,
+            trees,
             ring: self.ring,
             cosigner: self.cosigner,
         })
@@ -423,13 +390,12 @@ impl StagedDelegateTransfer {
 }
 
 struct WitnessedDelegateTransfer {
-    request: TierRequest,
+    request: PolicyRequest,
     tx_viewing_key: ViewingKey,
     prepared: RingAuthorityProofInputs,
     result: RingAuthorityProofResult,
     delegate: Address,
-    input_tree: Address,
-    output_tree: Address,
+    trees: SpendTrees,
     ring: CustomRing,
     cosigner: Option<Address>,
 }
@@ -444,13 +410,10 @@ impl WitnessedDelegateTransfer {
         spp_proof: TransactProof,
         ring_proof: Proof,
     ) -> Result<ProvenDelegateTransfer, TransferError> {
-        let TierBinding {
+        let PolicyBinding {
             proof,
-            entries_tree,
-            state_root_index,
-            nullifier_root_index,
+            reads: policy,
             approval_required: _,
-            revocation_targets,
         } = self.request.proven(ring_proof)?;
         let width = self.prepared.shape.n_inputs() as u8;
         Ok(ProvenDelegateTransfer {
@@ -467,15 +430,11 @@ impl WitnessedDelegateTransfer {
             }
             .assemble()?,
             proof,
-            state_root_index,
-            nullifier_root_index,
-            revocation_targets,
+            policy,
             cosigner: self.cosigner,
             delegate: self.delegate,
             payer: self.prepared.payer,
-            input_tree: self.input_tree,
-            output_tree: self.output_tree,
-            entries_tree,
+            trees: self.trees,
             ring: self.ring,
         })
     }
@@ -486,16 +445,13 @@ impl ProvenDelegateTransfer {
         CustomRingDelegateTransact {
             ring: self.ring,
             payer: self.payer,
-            input_tree: self.input_tree,
-            output_tree: self.output_tree,
-            entries_tree: self.entries_tree,
+            input_trees: self.trees.inputs.clone(),
+            output_tree: self.trees.output,
+            policy: self.policy.clone(),
             cosigner: self.cosigner,
             delegate: self.delegate,
             proof: self.proof,
             transact: self.data.clone(),
-            state_root_index: self.state_root_index,
-            nullifier_root_index: self.nullifier_root_index,
-            revocation_targets: self.revocation_targets,
         }
         .instruction()
         .map_err(Into::into)

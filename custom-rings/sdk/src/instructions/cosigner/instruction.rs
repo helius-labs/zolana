@@ -84,48 +84,23 @@ impl ClearCoSigner {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum RingPolicy {
-    Off,
-    Config,
-    Entries(Address),
-}
-
-/// `[config, cosigner_pda, cosigner, policy accounts]`, unset the co-signer slot repeats the PDA.
+/// `[config, cosigner_pda, cosigner]`, unset the co-signer slot repeats the PDA.
 pub(crate) struct RingPrefix {
     pub ring: CustomRing,
     pub cosigner: Option<Address>,
-    pub policy: RingPolicy,
 }
 
 impl RingPrefix {
     /// A top-level slot inherits the signer flag of its address.
     pub(crate) fn metas(self) -> Vec<AccountMeta> {
         let pda = self.ring.cosigner_pda();
-        let mut metas = vec![
+        vec![
             AccountMeta::new_readonly(self.ring.config_pda(), false),
             AccountMeta::new_readonly(pda, false),
             match self.cosigner {
                 Some(cosigner) => AccountMeta::new_readonly(cosigner, true),
                 None => AccountMeta::new_readonly(pda, false),
             },
-        ];
-        match self.policy {
-            RingPolicy::Off => {}
-            RingPolicy::Config => {
-                metas.push(AccountMeta::new_readonly(
-                    self.ring.policy_config_pda(),
-                    false,
-                ));
-            }
-            RingPolicy::Entries(entries_tree) => {
-                metas.push(AccountMeta::new_readonly(
-                    self.ring.policy_config_pda(),
-                    false,
-                ));
-                metas.push(AccountMeta::new_readonly(entries_tree, false));
-            }
-        }
-        metas
+        ]
     }
 }

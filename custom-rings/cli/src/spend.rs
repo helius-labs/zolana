@@ -200,8 +200,7 @@ impl RecordQuery<'_> {
             || {
                 let read = ReadSpendRecord {
                     ring: self.ring,
-                    entries_tree: self.config.entries_tree,
-                    entries_tree_id: self.config.entries_tree_id(),
+                    address_tree_id: self.config.address_tree_id(),
                     member: self.member,
                 };
                 match read.read_current(env) {

@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8178 range is reserved for the ring program and is collision-free
+/// The 8100..8181 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7065) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -67,14 +67,13 @@ pub enum CustomRingError {
     #[error("entry state is unknown")]
     InvalidEntryState = 8127,
     // 8128 retired, an empty policy table is valid.
-    #[error("the tree must be the policy entries tree")]
-    InvalidPolicyTree = 8129,
+    // 8129 retired.
     #[error("entry version overflows")]
     EntryVersionOverflow = 8130,
     #[error("entries account is not the canonical namespace PDA")]
     InvalidNamespacePda = 8131,
-    #[error("entries tree account is not a shielded pool tree")]
-    InvalidEntriesTree = 8132,
+    #[error("address tree account is invalid")]
+    InvalidAddressTree = 8132,
     #[error("policy root index is outside the window the statement admits")]
     StalePolicyRoot = 8133,
     #[error("policy sources do not match the lists the compiled table references")]
@@ -153,6 +152,12 @@ pub enum CustomRingError {
     InvalidRevocationTarget = 8177,
     #[error("policy fact changed after proof creation")]
     PolicyFactRevoked = 8178,
+    #[error("a delegate needs a policy ring")]
+    DelegateRequiresPolicy = 8179,
+    #[error("revocation tree index is invalid")]
+    InvalidRevocationTreeIndex = 8180,
+    #[error("policy tree accounts are invalid")]
+    InvalidPolicyTrees = 8181,
 }
 
 impl From<CustomRingError> for ProgramError {

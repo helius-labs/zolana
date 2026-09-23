@@ -2,7 +2,8 @@ use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
     CoSigner, Delegate, KeyRegistryRoot, PolicyConfig, SourceSlot, SpendWindow,
     WithdrawalThresholdRow, CO_SIGNER, DELEGATE, HEAD_MAP_CAPACITY, HEAD_MAP_EMPTY_ROOT,
-    KEY_REGISTRY_ROOT, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
+    KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
+    POLICY_CONFIG, SPEND_WINDOW,
 };
 use custom_ring_interface::{DepositAudit, DEPOSIT_AUDIT};
 use custom_ring_interface::{
@@ -97,6 +98,7 @@ impl RingProgramConfigInitParams {
                 auditor_pubkey: self.auditor_pubkey,
                 bump: self.bump,
                 has_policy: self.has_policy,
+                key_escrow: 0,
             },
         )
     }
@@ -197,8 +199,8 @@ impl Account for PolicyConfig {
 /// Written field by field, a whole `PolicyConfig` exceeds the SBF stack frame.
 pub(crate) struct PolicyConfigInit<'a> {
     pub policy_hash: [u8; 32],
-    pub entries_tree: Address,
-    pub entries_tree_id: u16,
+    pub address_tree: Address,
+    pub address_tree_id: u16,
     pub namespace_bump: u8,
     pub bump: u8,
     pub namespace_owner_hash: [u8; 32],
@@ -212,8 +214,8 @@ impl PolicyConfigInit<'_> {
         init_account_with(account, |config: &mut PolicyConfig| {
             config.discriminator = POLICY_CONFIG;
             config.policy_hash = self.policy_hash;
-            config.entries_tree = self.entries_tree;
-            config.entries_tree_id = self.entries_tree_id.to_le_bytes();
+            config.address_tree = self.address_tree;
+            config.address_tree_id = self.address_tree_id.to_le_bytes();
             config.namespace_bump = self.namespace_bump;
             config.bump = self.bump;
             config.namespace_owner_hash = self.namespace_owner_hash;
@@ -384,11 +386,15 @@ impl AppendRoot for KeyRegistryRoot {
     const CURSOR: CustomRingError = CustomRingError::InvalidKeyRegistryCursor;
 
     fn sentinel(bump: u8) -> Self {
+        let mut history = [[0u8; 32]; KEY_REGISTRY_ROOT_HISTORY];
+        history[0] = HEAD_MAP_EMPTY_ROOT;
         Self {
             discriminator: KEY_REGISTRY_ROOT,
             root: HEAD_MAP_EMPTY_ROOT,
             next_index: 1u64.to_le_bytes(),
             bump,
+            history_cursor: 0,
+            history,
         }
     }
 
@@ -401,6 +407,9 @@ impl AppendRoot for KeyRegistryRoot {
     }
 
     fn advance_to(&mut self, root: [u8; 32], next_index: u64) {
+        let cursor = (usize::from(self.history_cursor) + 1) % KEY_REGISTRY_ROOT_HISTORY;
+        self.history[cursor] = root;
+        self.history_cursor = cursor as u8;
         self.root = root;
         self.next_index = next_index.to_le_bytes();
     }
@@ -486,12 +495,11 @@ mod tests {
     use pinocchio::error::ProgramError;
 
     fn root(root: [u8; 32], next_index: u64) -> KeyRegistryRoot {
-        KeyRegistryRoot {
-            discriminator: KEY_REGISTRY_ROOT,
-            root,
-            next_index: next_index.to_le_bytes(),
-            bump: 254,
-        }
+        let mut state = KeyRegistryRoot::sentinel(254);
+        state.root = root;
+        state.history[0] = root;
+        state.next_index = next_index.to_le_bytes();
+        state
     }
 
     fn apply(state: &mut KeyRegistryRoot, expected_root: &[u8; 32]) -> ProgramResult {
@@ -522,6 +530,38 @@ mod tests {
         apply(&mut state, &[1u8; 32]).expect("advance");
         assert_eq!(state.root, [7u8; 32]);
         assert_eq!(state.next_index(), 6);
+    }
+
+    #[test]
+    fn the_sentinel_root_is_the_first_history_entry() {
+        let state = KeyRegistryRoot::sentinel(254);
+        assert_eq!(state.root_at(0), Some(HEAD_MAP_EMPTY_ROOT));
+        assert_eq!(state.root_at(1), None);
+        assert_eq!(state.root_at(KEY_REGISTRY_ROOT_HISTORY as u8), None);
+        assert_eq!(state.root_at(u8::MAX), None);
+    }
+
+    #[test]
+    fn the_history_keeps_every_root_and_wraps_over_the_oldest() {
+        let mut state = root([1u8; 32], 1);
+        for step in 1..=KEY_REGISTRY_ROOT_HISTORY as u8 {
+            let head = state.root;
+            RootTransition {
+                expected_root: &head,
+                new_root: [step + 1; 32],
+            }
+            .apply(&mut state)
+            .expect("advance");
+            let slot = usize::from(step) % KEY_REGISTRY_ROOT_HISTORY;
+            assert_eq!(usize::from(state.history_cursor), slot);
+            assert_eq!(state.root_at(slot as u8), Some([step + 1; 32]));
+        }
+        assert_eq!(
+            state.root_at(0),
+            Some([KEY_REGISTRY_ROOT_HISTORY as u8 + 1; 32])
+        );
+        assert_eq!(state.root_at(1), Some([2u8; 32]));
+        assert!(!state.history.contains(&[1u8; 32]));
     }
 
     #[test]

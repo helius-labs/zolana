@@ -16,6 +16,7 @@ mod spend;
 pub use entry::{
     entry_nullifier, entry_seed, mutation_private_tx_hash, EntryState, Leaf, ListEntry, ListId,
     ListNamespace, ListSet, Writer, ENTRY_OUTPUT_DATA_LEN, LIST_ENTRY_LEN, NAMESPACE_PDA_SEED,
+    ZERO_NULLIFIER_PK,
 };
 pub use member::{Member, MemberError};
 pub use rule_table::{

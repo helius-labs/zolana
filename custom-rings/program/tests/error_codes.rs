@@ -30,10 +30,9 @@ fn error_codes_are_stable() {
         (UnauthorizedNamespaceSigner as u32, 8125),
         (InvalidListId as u32, 8126),
         (InvalidEntryState as u32, 8127),
-        (InvalidPolicyTree as u32, 8129),
         (EntryVersionOverflow as u32, 8130),
         (InvalidNamespacePda as u32, 8131),
-        (InvalidEntriesTree as u32, 8132),
+        (InvalidAddressTree as u32, 8132),
         (StalePolicyRoot as u32, 8133),
         (InvalidSource as u32, 8134),
         (InvalidCuratorPolicyConfig as u32, 8135),
@@ -71,6 +70,9 @@ fn error_codes_are_stable() {
         (InvalidSpendCountersDisclosure as u32, 8176),
         (InvalidRevocationTarget as u32, 8177),
         (PolicyFactRevoked as u32, 8178),
+        (DelegateRequiresPolicy as u32, 8179),
+        (InvalidRevocationTreeIndex as u32, 8180),
+        (InvalidPolicyTrees as u32, 8181),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -113,10 +115,9 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnauthorizedNamespaceSigner
         | InvalidListId
         | InvalidEntryState
-        | InvalidPolicyTree
         | EntryVersionOverflow
         | InvalidNamespacePda
-        | InvalidEntriesTree
+        | InvalidAddressTree
         | StalePolicyRoot
         | InvalidSource
         | InvalidCuratorPolicyConfig
@@ -153,6 +154,9 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidDepositDisclosure
         | InvalidSpendCountersDisclosure
         | InvalidRevocationTarget
-        | PolicyFactRevoked => {}
+        | PolicyFactRevoked
+        | DelegateRequiresPolicy
+        | InvalidRevocationTreeIndex
+        | InvalidPolicyTrees => {}
     }
 }

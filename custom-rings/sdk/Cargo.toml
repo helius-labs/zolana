@@ -43,6 +43,7 @@ solana-transaction = { workspace = true, features = ["serde"] }
 solana-transaction-error = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 wincode = { workspace = true }
 zeroize = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api"] }

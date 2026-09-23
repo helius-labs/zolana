@@ -375,9 +375,16 @@ fn invocation_subtree_excludes_sibling_emissions() {
     assert_eq!(children[0].program_id, Pubkey::new_from_array([3; 32]));
 }
 
+const ADDRESS_TREE_ID: u16 = 7;
+
 fn spend_fixture() -> (RingsTransactionUpdate, [u8; 32], SpendRecord) {
+    spend_fixture_in(ADDRESS_TREE_ID)
+}
+
+/// The successor lands in `output_tree_id`, its address stays in the address tree.
+fn spend_fixture_in(output_tree_id: u16) -> (RingsTransactionUpdate, [u8; 32], SpendRecord) {
     let namespace = Pubkey::new_from_array([9; 32]).to_bytes();
-    let entries_tree = zolana_interface::pda::tree(7).to_bytes();
+    let output_tree = zolana_interface::pda::tree(output_tree_id).to_bytes();
     let record = SpendRecord {
         member: Member::owner_tag(&[5; 32]).unwrap(),
         version: 1,
@@ -386,14 +393,16 @@ fn spend_fixture() -> (RingsTransactionUpdate, [u8; 32], SpendRecord) {
         blinding: field(13),
     };
     let owner = ListNamespace::new(&namespace).unwrap();
-    let address = owner.spend_address(&record.member, 7).unwrap();
+    let address = owner
+        .spend_address(&record.member, ADDRESS_TREE_ID)
+        .unwrap();
     let event = RingsTransactionUpdate {
         signature: Signature::from([1; 64]),
         event_index: 0,
         slot: 1,
         ring_config: None,
         source_instruction_tag: i16::from(zolana_event::tag::RING_TRANSACT),
-        output_tree: entries_tree,
+        output_tree,
         first_output_leaf_index: 0,
         tx_viewing_pk: None,
         salt: None,
@@ -403,10 +412,10 @@ fn spend_fixture() -> (RingsTransactionUpdate, [u8; 32], SpendRecord) {
         parse_version: 1,
         outputs: vec![RingsOutputUpdate {
             output_index: 0,
-            output_tree: entries_tree,
+            output_tree,
             leaf_index: 0,
             view_tag: namespace,
-            utxo_hash: record.utxo_hash(&owner, &address, 7).unwrap(),
+            utxo_hash: record.utxo_hash(&owner, &address, output_tree_id).unwrap(),
             payload: vec![zolana_event::OutputDataEncoding::ENCRYPTED_TAG],
         }],
         messages: vec![RingsMessageUpdate {
@@ -423,8 +432,7 @@ fn context<'a>(namespace: [u8; 32], rail: &'a Rail) -> SuccessorContext<'a> {
     SuccessorContext {
         namespace,
         rail,
-        entries_tree: zolana_interface::pda::tree(7).to_bytes(),
-        entries_tree_id: 7,
+        address_tree_id: ADDRESS_TREE_ID,
     }
 }
 
@@ -432,20 +440,25 @@ fn context<'a>(namespace: [u8; 32], rail: &'a Rail) -> SuccessorContext<'a> {
 fn record_message_opens_the_confidential_successor_and_registration_stays_plaintext() {
     let (mut event, namespace, record) = spend_fixture();
     assert_eq!(
-        parser::successor(&event, &context(namespace, &Rail::Transfer)).unwrap(),
+        parser::successor(
+            &event,
+            &context(namespace, &Rail::Transfer),
+            ADDRESS_TREE_ID
+        )
+        .unwrap(),
         record
     );
     event.messages.clear();
     event.outputs[0].payload = record.to_output_data().to_vec();
     let registration = Rail::Register { blinding: field(2) };
     assert_eq!(
-        parser::successor(&event, &context(namespace, &registration)).unwrap(),
+        parser::successor(&event, &context(namespace, &registration), ADDRESS_TREE_ID).unwrap(),
         record
     );
 }
 
 fn transfer_refusal(event: &RingsTransactionUpdate, namespace: [u8; 32]) -> String {
-    parser::successor(event, &context(namespace, &Rail::Transfer))
+    parser::successor(event, &context(namespace, &Rail::Transfer), ADDRESS_TREE_ID)
         .unwrap_err()
         .to_string()
 }
@@ -488,7 +501,10 @@ fn a_record_message_cannot_be_associated_with_another_output_or_tree() {
     assert_eq!(transfer_refusal(&changed, namespace), unopened);
     let mut changed = event.clone();
     changed.outputs[0].output_tree = [0; 32];
-    assert_eq!(transfer_refusal(&changed, namespace), unopened);
+    assert_eq!(
+        transfer_refusal(&changed, namespace),
+        "spend-record output names a tree its id does not derive"
+    );
     let mut changed = event.clone();
     changed.outputs[0].view_tag = [0; 32];
     assert_eq!(
@@ -500,6 +516,19 @@ fn a_record_message_cannot_be_associated_with_another_output_or_tree() {
     assert_eq!(
         transfer_refusal(&changed, namespace),
         "transfer spend-record output is not confidential"
+    );
+}
+
+#[test]
+fn a_successor_in_a_second_tree_hashes_under_that_tree() {
+    let (event, namespace, record) = spend_fixture_in(9);
+    let transfer = context(namespace, &Rail::Transfer);
+    assert_eq!(parser::successor(&event, &transfer, 9).unwrap(), record);
+    assert_eq!(
+        parser::successor(&event, &transfer, ADDRESS_TREE_ID)
+            .unwrap_err()
+            .to_string(),
+        "spend-record output names a tree its id does not derive"
     );
 }
 

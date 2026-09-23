@@ -1,7 +1,7 @@
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_config, UpgradeAuthorityCheck},
+        loader::{load_config, load_spp_tree_id, UpgradeAuthorityCheck},
         policy_shared::{compute_policy_hash, namespace_pda, TableBinding},
         shared::PdaCheck,
     },
@@ -10,15 +10,10 @@ use crate::{
 use custom_ring_interface::{PolicyConfig, PolicyTableIxData};
 use pinocchio::{
     cpi::{Seed, Signer},
-    error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{
-    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, read_tree_id},
-    SHIELDED_POOL_PROGRAM_ID,
-};
 use zolana_ring_policy::ListNamespace;
 
 /// Only the program upgrade authority pins a table.
@@ -36,7 +31,7 @@ pub fn process_create_policy_ix(
     let authority = iter.next_signer("authority")?;
     let config = iter.next_account("config")?;
     let policy_config = iter.next_mut("policy_config")?;
-    let entries_tree = iter.next_account("entries_tree")?;
+    let address_tree = iter.next_account("address_tree")?;
     let system_program = iter.next_account("system_program")?;
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
@@ -48,7 +43,7 @@ pub fn process_create_policy_ix(
     if load_config(program_id, config)?.has_policy == 0 {
         return Err(CustomRingError::PolicyOnAuditOnlyRing.into());
     }
-    let entries_tree_id = check_entries_tree(entries_tree)?;
+    let address_tree_id = load_spp_tree_id(address_tree, CustomRingError::InvalidAddressTree)?;
     UpgradeAuthorityCheck {
         program_id,
         authority,
@@ -76,7 +71,7 @@ pub fn process_create_policy_ix(
         table: &ix,
         curators,
         own_namespace: &own_namespace,
-        entries_tree: entries_tree.address(),
+        address_tree: address_tree.address(),
     }
     .bind()?;
     let policy_hash = compute_policy_hash(&bound.rules, &bound.sources)?;
@@ -98,8 +93,8 @@ pub fn process_create_policy_ix(
 
     PolicyConfigInit {
         policy_hash,
-        entries_tree: *entries_tree.address(),
-        entries_tree_id,
+        address_tree: *address_tree.address(),
+        address_tree_id,
         namespace_bump,
         bump,
         namespace_owner_hash,
@@ -108,18 +103,4 @@ pub fn process_create_policy_ix(
         generation_slot,
     }
     .write(policy_config)
-}
-
-/// The raw tree id the config pins for every entry hash.
-fn check_entries_tree(account: &AccountView) -> Result<u16, ProgramError> {
-    if account.owner().as_array() != &SHIELDED_POOL_PROGRAM_ID {
-        return Err(CustomRingError::InvalidEntriesTree.into());
-    }
-    let data = account
-        .try_borrow()
-        .map_err(|_| CustomRingError::InvalidEntriesTree)?;
-    if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
-        return Err(CustomRingError::InvalidEntriesTree.into());
-    }
-    read_tree_id(&data).ok_or_else(|| CustomRingError::InvalidEntriesTree.into())
 }

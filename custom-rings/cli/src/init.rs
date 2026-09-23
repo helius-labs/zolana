@@ -519,7 +519,7 @@ impl Init<'_> {
             CuratorCheck {
                 curator: *curator,
                 list: *list_id,
-                entries_tree: policy.entries_tree,
+                address_tree: policy.address_tree,
             }
             .run(rpc)?;
         }
@@ -551,7 +551,7 @@ impl Init<'_> {
                 ring: self.ring,
                 payer: self.config_authority.pubkey(),
                 authority: deployer.pubkey(),
-                entries_tree: policy.entries_tree,
+                address_tree: policy.address_tree,
                 rules: &policy.rules,
                 shared_sources,
             }

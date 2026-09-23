@@ -133,6 +133,14 @@ fn parse_rings_tree_account<'a>(
     Some(tree)
 }
 
+/// `None` unless the account is an SPP tree.
+#[cfg(feature = "ring-projection")]
+pub(crate) fn rings_tree_id(pubkey: Pubkey, account: &Account) -> Option<u16> {
+    let mut data = account.data.clone();
+    let tree_id = parse_rings_tree_account(pubkey, account, &mut data)?.tree_id();
+    Some(tree_id)
+}
+
 /// Every occupied entry of the UTXO tree's root history, paired with its index.
 ///
 /// A client quotes the index of the root its proof was built against, and the

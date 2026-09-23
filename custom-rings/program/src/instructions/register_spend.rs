@@ -11,7 +11,9 @@ use zolana_ring_policy::{Member, SpendCounters, SpendRecord};
 
 use crate::{
     error::CustomRingError,
-    instructions::policy_shared::{cpi_spp_namespace_signed, MutationAccounts, NamespaceWrite},
+    instructions::policy_shared::{
+        cpi_spp_namespace_signed, MutationAccounts, MutationKind, NamespaceWrite,
+    },
 };
 
 #[inline(never)]
@@ -23,7 +25,7 @@ pub fn process_register_spend_ix(
     let ix: RegisterSpendIxData =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
     // 1. Require windowed velocity before claiming a member record.
-    let parsed = MutationAccounts::validate_and_parse(program_id, accounts)?;
+    let parsed = MutationAccounts::validate_and_parse(program_id, accounts, MutationKind::Claim)?;
     let window = FixedWindow {
         slots: NonZeroU64::new(parsed.window_slots).ok_or(CustomRingError::VelocityDisabled)?,
     };
@@ -33,7 +35,7 @@ pub fn process_register_spend_ix(
         .map_err(|_| CustomRingError::HashingFailed)?;
     let address = parsed
         .owner
-        .spend_address(&member, parsed.entries_tree_id)
+        .spend_address(&member, parsed.trees.address)
         .map_err(|_| CustomRingError::HashingFailed)?;
     let record = SpendRecord {
         member,
@@ -45,7 +47,7 @@ pub fn process_register_spend_ix(
         blinding: ix.blinding,
     };
     let output_hash = record
-        .utxo_hash(&parsed.owner, &address, parsed.entries_tree_id)
+        .utxo_hash(&parsed.owner, &address, parsed.trees.output)
         .map_err(|_| CustomRingError::HashingFailed)?;
 
     // 3. Create the record through SPP, the address nullifier admits one

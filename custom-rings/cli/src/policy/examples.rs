@@ -39,7 +39,7 @@ struct Forms {
     assets: bool,
     above: bool,
     per_cluster_source: bool,
-    entries_tree: bool,
+    address_tree: bool,
     empty_table: bool,
     audit_only: bool,
     velocity: bool,
@@ -81,7 +81,7 @@ fn every_example_loads_and_compiles_on_both_clusters() {
             forms.transfer_cap |= compiled.rules.velocity_mode() == VelocityMode::PerTransfer;
         }
         forms.empty_table |= policy.rules.is_empty();
-        forms.entries_tree |= policy.entries_tree.is_some();
+        forms.address_tree |= policy.address_tree.is_some();
         forms.per_cluster_source |= Target::ALL
             .into_iter()
             .all(|target| !policy.sources.get(target).is_empty());
@@ -114,7 +114,7 @@ fn every_example_loads_and_compiles_on_both_clusters() {
         forms.per_cluster_source,
         "an example names a curator per cluster"
     );
-    assert!(forms.entries_tree, "an example names its tree");
+    assert!(forms.address_tree, "an example names its tree");
     assert!(forms.empty_table, "an example pins an empty table");
     assert!(forms.audit_only, "an example carries no policy table");
     assert!(forms.velocity, "an example bounds spending per window");

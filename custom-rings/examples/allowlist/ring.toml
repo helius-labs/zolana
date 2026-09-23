@@ -22,8 +22,8 @@ ring_rpc = "https://d24brah9h1i4q9.cloudfront.net"
 ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 
 [policy]
-# every entry the rules read lives in the named tree
-entries_tree = "Dn4cftC4fvAdQQgzNrr2r6MGt9HjBB8FxguBbcBFJXZn"
+# entry and spend record addresses are claimed in the named tree
+address_tree = "Dn4cftC4fvAdQQgzNrr2r6MGt9HjBB8FxguBbcBFJXZn"
 
 # the sender must be on the allow list
 [[policy.rules]]

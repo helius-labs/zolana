@@ -17,8 +17,8 @@ use zolana_transaction::{
 };
 
 use crate::{
-    instructions::cosigner::{RingPolicy, RingPrefix},
-    policy_config_table, tree_id, tree_id_async, AccountReadError, CustomRing, TransferError,
+    instructions::cosigner::RingPrefix, tree_id, tree_id_async, AccountReadError, CustomRing,
+    TransferError,
 };
 
 pub use zolana_client::MergeProver as MergeRingProver;
@@ -119,7 +119,6 @@ pub struct ProvenCustomRingMerge {
     output_tree: Address,
     ring: CustomRing,
     cosigner: Option<Address>,
-    has_policy: bool,
     pub data: MergeRingIxData,
     pub output_hash: [u8; 32],
     pub input_count: usize,
@@ -169,16 +168,11 @@ impl PreparedCustomRingMerge {
         input: MergeProofInput,
         env: CustomRingMergeProofEnvironment<'_, I, R>,
     ) -> Result<ProvenCustomRingMerge, MergeError> {
-        let has_policy = self
-            .ring
+        self.ring
             .read_config(env.rpc)?
-            .ok_or(MergeError::MissingRingConfig)?
-            .has_policy;
+            .ok_or(MergeError::MissingRingConfig)?;
         self.validate_source(tree_id(env.rpc, input.input_tree)?)?;
         self.inner.output_tree_id = tree_id(env.rpc, input.output_tree)?;
-        if has_policy {
-            self.validate_policy(self.ring.read_policy_config(env.rpc)?, &input)?;
-        }
         let commitments = self.input_utxo_hashes()?;
         let proofs = fetch_spend_proofs(env.indexer, input.input_tree, &commitments)?;
         let dummy_nullifiers = self.dummy_nullifiers();
@@ -193,7 +187,6 @@ impl PreparedCustomRingMerge {
             input,
             proofs,
             dummy: dummy_nullifier_proofs,
-            has_policy,
         })?;
         let proof = env.prover.prove_merge_ring(&staged.result.inputs)?;
         staged.finish(proof)
@@ -204,17 +197,12 @@ impl PreparedCustomRingMerge {
         input: MergeProofInput,
         env: AsyncCustomRingMergeProofEnvironment<'_, I, R>,
     ) -> Result<ProvenCustomRingMerge, MergeError> {
-        let has_policy = self
-            .ring
+        self.ring
             .read_config_async(env.rpc)
             .await?
-            .ok_or(MergeError::MissingRingConfig)?
-            .has_policy;
+            .ok_or(MergeError::MissingRingConfig)?;
         self.validate_source(tree_id_async(env.rpc, input.input_tree).await?)?;
         self.inner.output_tree_id = tree_id_async(env.rpc, input.output_tree).await?;
-        if has_policy {
-            self.validate_policy(self.ring.read_policy_config_async(env.rpc).await?, &input)?;
-        }
         let commitments = self.input_utxo_hashes()?;
         let (state, nullifier) = futures::try_join!(
             env.indexer.get_merkle_proofs(
@@ -247,7 +235,6 @@ impl PreparedCustomRingMerge {
             input,
             proofs,
             dummy: dummy_nullifier_proofs,
-            has_policy,
         })?;
         let proof = env.prover.prove_merge_ring(&staged.result.inputs).await?;
         staged.finish(proof)
@@ -266,28 +253,11 @@ impl PreparedCustomRingMerge {
         Ok(())
     }
 
-    fn validate_policy(
-        &self,
-        policy: Option<custom_ring_interface::PolicyConfig>,
-        input: &MergeProofInput,
-    ) -> Result<(), MergeError> {
-        let policy = policy.ok_or(TransferError::MissingPolicyConfig)?;
-        let table = policy_config_table(&policy).map_err(TransferError::from)?;
-        if table.window_slots() != 0 && input.output_tree != policy.entries_tree {
-            return Err(TransferError::EntriesTreeRequired {
-                entries_tree: policy.entries_tree,
-            }
-            .into());
-        }
-        Ok(())
-    }
-
     fn stage(self, proofs: MergeProofs) -> Result<StagedMerge, MergeError> {
         let MergeProofs {
             input,
             proofs,
             dummy,
-            has_policy,
         } = proofs;
         let ring = self.ring;
         let merged_amount = self.inner.output_utxo.amount;
@@ -302,7 +272,6 @@ impl PreparedCustomRingMerge {
             output_tree,
             merged_amount,
             input_count,
-            has_policy,
         })
     }
 }
@@ -311,7 +280,6 @@ struct MergeProofs {
     input: MergeProofInput,
     proofs: Vec<SpendProof>,
     dummy: Vec<NonInclusionProof>,
-    has_policy: bool,
 }
 
 struct StagedMerge {
@@ -321,7 +289,6 @@ struct StagedMerge {
     output_tree: Address,
     merged_amount: u64,
     input_count: usize,
-    has_policy: bool,
 }
 
 impl StagedMerge {
@@ -332,7 +299,6 @@ impl StagedMerge {
             input_tree: self.input_tree,
             output_tree: self.output_tree,
             cosigner: None,
-            has_policy: self.has_policy,
             data: self.result.ring_instruction_data(proof),
             output_hash: self.result.output_hash,
             input_count: self.input_count,
@@ -358,7 +324,6 @@ impl ProvenCustomRingMerge {
             output_tree: self.output_tree,
             payer,
             cosigner: self.cosigner,
-            has_policy: self.has_policy,
             data: self.data,
         }
         .instruction()
@@ -432,8 +397,6 @@ pub struct CustomRingMergeInstruction {
     pub output_tree: Address,
     pub payer: Address,
     pub cosigner: Option<Address>,
-    /// Mirrors the ring config's policy flag.
-    pub has_policy: bool,
     pub data: MergeRingIxData,
 }
 
@@ -445,7 +408,6 @@ impl CustomRingMergeInstruction {
             output_tree,
             payer,
             cosigner,
-            has_policy,
             data,
         } = self;
         let mut instruction = MergeRing {
@@ -457,16 +419,7 @@ impl CustomRingMergeInstruction {
             output_ring_data_hash: data.output_ring_data_hash,
         }
         .instruction();
-        let prefix = RingPrefix {
-            ring,
-            cosigner,
-            policy: if has_policy {
-                RingPolicy::Config
-            } else {
-                RingPolicy::Off
-            },
-        }
-        .metas();
+        let prefix = RingPrefix { ring, cosigner }.metas();
         instruction.accounts.splice(0..0, prefix);
         instruction
     }
@@ -537,7 +490,6 @@ mod tests {
             input_tree: Address::new_from_array([1; 32]),
             output_tree: Address::new_from_array([2; 32]),
             payer: Address::new_from_array([3; 32]),
-            has_policy: false,
             data,
         }
         .instruction();

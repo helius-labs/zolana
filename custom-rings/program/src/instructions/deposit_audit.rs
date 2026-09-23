@@ -12,6 +12,7 @@ use crate::{error::CustomRingError, instructions::verifier::verify_groth16};
 /// Ring disclosure proof wrapped around an unchanged SPP deposit instruction.
 pub(crate) struct AuditedDeposit<'a> {
     pub proof: CustomRingProof,
+    pub key_registry_root_index: u8,
     pub spp_data: &'a [u8],
 }
 
@@ -20,8 +21,11 @@ impl<'a> AuditedDeposit<'a> {
         let (&outer_tag, rest) = data
             .split_first()
             .ok_or(CustomRingError::InvalidInstructionData)?;
-        let (proof, spp_data) = rest
+        let (proof, rest) = rest
             .split_at_checked(CustomRingProof::SIZE)
+            .ok_or(CustomRingError::InvalidInstructionData)?;
+        let (&key_registry_root_index, spp_data) = rest
+            .split_first()
             .ok_or(CustomRingError::InvalidInstructionData)?;
         if outer_tag != tag::AUDITED_DEPOSIT || spp_data.first() != Some(&tag::DEPOSIT) {
             return Err(CustomRingError::InvalidInstructionData.into());
@@ -29,6 +33,7 @@ impl<'a> AuditedDeposit<'a> {
         Ok(Self {
             proof: wincode::deserialize_exact(proof)
                 .map_err(|_| CustomRingError::InvalidInstructionData)?,
+            key_registry_root_index,
             spp_data,
         })
     }
@@ -40,6 +45,7 @@ pub(crate) struct DepositVerification<'a, 'data> {
     pub program_id: &'a Address,
     pub tree: &'a Address,
     pub auditor_pk: &'a [u8; 33],
+    pub key_registry_root: Option<&'a [u8; 32]>,
     pub audited: &'a AuditedDeposit<'data>,
     pub deposit: &'a RingDepositIxDataRef<'data>,
 }
@@ -87,6 +93,7 @@ impl DepositVerification<'_, '_> {
             ciphertexts: &ciphertexts[..count],
             auditor_pk: self.auditor_pk,
             eph_pk: &eph_pk,
+            key_registry_root: self.key_registry_root,
         }
         .hash()
         .map_err(|_| CustomRingError::HashingFailed)?;

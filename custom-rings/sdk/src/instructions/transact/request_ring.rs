@@ -9,7 +9,7 @@ use zolana_client::{
     prover::{Delivery, ProveRequest},
     ClientError, ProofInputUtxo,
 };
-use zolana_interface::tree_slot::tree_id_field;
+use zolana_interface::tree_slot::{tree_id_field, TreeSlot};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_policy::{
     VelocityRow, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS,
@@ -19,6 +19,7 @@ use zolana_ring_policy::{
 use crate::velocity::RowCharges;
 
 use crate::{
+    escrow::RegistryKeyOpening,
     instructions::transact::request::{bytes_to_hex, field_hex, json_body, SecretHex},
     CustomRing, TransferError,
 };
@@ -40,12 +41,16 @@ pub struct CustomRingOpening {
     pub data_hash: [u8; 32],
     pub ring_data_hash: [u8; 32],
     pub ring_program_id: [u8; 32],
+    /// `None` with escrow off, in padding, or on a namespace-owned record.
+    pub key: Option<RegistryKeyOpening>,
 }
 
-/// One entry fact, proven against the two roots the program resolved.
+/// One entry fact, proven against the roots of its tree slot.
 #[derive(Clone, Debug)]
 pub struct RuleAnswer {
     pub enabled: bool,
+    /// Index into the statement's policy trees.
+    pub tree_slot: u8,
     pub mode: u8,
     pub list_id: u8,
     pub state: u8,
@@ -66,6 +71,7 @@ impl Default for RuleAnswer {
     fn default() -> Self {
         Self {
             enabled: false,
+            tree_slot: 0,
             mode: 1,
             list_id: 1,
             state: 1,
@@ -194,9 +200,11 @@ pub struct CustomRingPolicyProofRequest {
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_limits: [u64; MAX_INLINE_ASSETS],
     pub inline_count: u8,
-    pub state_root: [u8; 32],
-    pub nullifier_root: [u8; 32],
-    pub entries_tree_id: u16,
+    /// Populated prefix, the prover pads it to `INPUT_TREES`.
+    pub tree_slots: Vec<TreeSlot>,
+    pub address_tree_id: u16,
+    /// `None` with escrow off.
+    pub key_registry_root: Option<[u8; 32]>,
     pub velocity: VelocityProofInput,
     pub answers: Vec<RuleAnswer>,
 }
@@ -300,9 +308,10 @@ impl CustomRingPolicyProofRequest {
             inline_assets: self.inline_assets.iter().map(field_hex).collect(),
             inline_limits: self.inline_limits.iter().map(limit_hex).collect(),
             inline_count: self.inline_count,
-            state_root: field_hex(&self.state_root),
-            nullifier_root: field_hex(&self.nullifier_root),
-            entries_tree_id: field_hex(&tree_id_field(self.entries_tree_id)),
+            tree_slots: self.tree_slots.iter().map(tree_slot_json).collect(),
+            address_tree_id: field_hex(&tree_id_field(self.address_tree_id)),
+            key_escrow: self.key_registry_root.is_some(),
+            key_registry_root: field_hex(&self.key_registry_root.unwrap_or_default()),
             window_slots: self.velocity.window_slots,
             velocity: self.velocity.rows.iter().map(velocity_row_json).collect(),
             velocity_count: self.velocity.row_count,
@@ -338,6 +347,24 @@ fn opening_json(opening: &CustomRingOpening) -> CustomRingOpeningJson {
         data_hash: field_hex(&opening.data_hash),
         ring_data_hash: field_hex(&opening.ring_data_hash),
         ring_program_id: field_hex(&opening.ring_program_id),
+        key: opening.key.as_ref().map(registry_key_json),
+    }
+}
+
+pub(crate) fn registry_key_json(key: &RegistryKeyOpening) -> RegistryKeyJson {
+    RegistryKeyJson {
+        next: field_hex(&key.next),
+        ct_hash: field_hex(&key.ct_hash),
+        index: key.index,
+        path: key.path.iter().map(field_hex).collect(),
+    }
+}
+
+fn tree_slot_json(slot: &TreeSlot) -> TreeSlotJson {
+    TreeSlotJson {
+        id: field_hex(&slot.id),
+        utxo_root: field_hex(&slot.utxo_root),
+        nullifier_root: field_hex(&slot.nullifier_root),
     }
 }
 
@@ -421,6 +448,7 @@ fn record_json(record: &SpendRecordProofInput) -> SpendRecordJson {
 fn answers_json(entry: &RuleAnswer) -> RuleAnswerJson {
     RuleAnswerJson {
         enabled: entry.enabled,
+        tree_slot: entry.tree_slot,
         mode: entry.mode,
         list_id: entry.list_id,
         state: entry.state,
@@ -456,6 +484,25 @@ struct CustomRingOpeningJson {
     ring_data_hash: String,
     #[serde(rename = "ringProgramId")]
     ring_program_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<RegistryKeyJson>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RegistryKeyJson {
+    next: String,
+    ct_hash: String,
+    index: u64,
+    path: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TreeSlotJson {
+    id: String,
+    utxo_root: String,
+    nullifier_root: String,
 }
 
 #[derive(Serialize)]
@@ -489,6 +536,8 @@ struct SpendRecordJson {
 #[derive(Serialize)]
 struct RuleAnswerJson {
     enabled: bool,
+    #[serde(rename = "treeSlot")]
+    tree_slot: u8,
     mode: u8,
     #[serde(rename = "listId")]
     list_id: u8,
@@ -550,12 +599,14 @@ pub(crate) struct CustomRingPolicyProofRequestJson {
     inline_limits: Vec<String>,
     #[serde(rename = "inlineCount")]
     inline_count: u8,
-    #[serde(rename = "stateRoot")]
-    state_root: String,
-    #[serde(rename = "nullifierRoot")]
-    nullifier_root: String,
-    #[serde(rename = "entriesTreeId")]
-    entries_tree_id: String,
+    #[serde(rename = "treeSlots")]
+    tree_slots: Vec<TreeSlotJson>,
+    #[serde(rename = "addressTreeId")]
+    address_tree_id: String,
+    #[serde(rename = "keyEscrow")]
+    key_escrow: bool,
+    #[serde(rename = "keyRegistryRoot")]
+    key_registry_root: String,
     #[serde(rename = "windowSlots")]
     window_slots: u64,
     velocity: Vec<VelocityRowJson>,
@@ -602,9 +653,9 @@ mod tests {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
-            state_root: [8u8; 32],
-            nullifier_root: [9u8; 32],
-            entries_tree_id: 3,
+            tree_slots: vec![TreeSlot::new(3, [8u8; 32], [9u8; 32])],
+            address_tree_id: 3,
+            key_registry_root: None,
             velocity: VelocityProofInput::off(RingIdentity {
                 ring_id: [10u8; 32],
                 namespace_owner_hash: [11u8; 32],
@@ -624,21 +675,22 @@ mod tests {
             keys,
             [
                 "addressChain",
+                "addressTreeId",
                 "answers",
                 "approvalRequired",
                 "auditorPk",
                 "circuitType",
-                "entriesTreeId",
                 "ephSk",
                 "externalDataHash",
                 "inlineAssets",
                 "inlineCount",
                 "inlineLimits",
                 "inputs",
+                "keyEscrow",
+                "keyRegistryRoot",
                 "nIn",
                 "nOut",
                 "namespaceOwnerHash",
-                "nullifierRoot",
                 "outputs",
                 "policyLen",
                 "privateTxBlinding",
@@ -649,7 +701,7 @@ mod tests {
                 "ruleEnc",
                 "salt",
                 "sources",
-                "stateRoot",
+                "treeSlots",
                 "txViewingSk",
                 "velocity",
                 "velocityCount",
@@ -719,5 +771,41 @@ mod tests {
         let hash = value["publicInputHash"].as_str().expect("hash");
         assert_eq!(hash.len(), 66);
         assert!(hash.starts_with("0x") && hash.to_lowercase() == hash);
+    }
+
+    #[test]
+    fn escrowed_outputs_and_facts_name_their_key_and_tree_slot() {
+        let mut request = request();
+        request
+            .tree_slots
+            .push(TreeSlot::new(9, [12u8; 32], [13u8; 32]));
+        request.key_registry_root = Some([14u8; 32]);
+        request.outputs[0].key = Some(RegistryKeyOpening {
+            next: [15u8; 32],
+            ct_hash: [16u8; 32],
+            index: 5,
+            path: [[17u8; 32]; custom_ring_interface::HEAD_MAP_HEIGHT],
+        });
+        request.answers[0].tree_slot = 1;
+        let value: serde_json::Value =
+            serde_json::from_str(&request.body().expect("body")).expect("json");
+        assert_eq!(value["keyEscrow"], true);
+        assert_eq!(value["keyRegistryRoot"], field_hex(&[14u8; 32]));
+        assert_eq!(value["addressTreeId"], field_hex(&tree_id_field(3)));
+        let slots = value["treeSlots"].as_array().expect("slots");
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[1]["id"], field_hex(&tree_id_field(9)));
+        assert_eq!(slots[1]["utxoRoot"], field_hex(&[12u8; 32]));
+        assert_eq!(slots[1]["nullifierRoot"], field_hex(&[13u8; 32]));
+        let key = &value["outputs"][0]["key"];
+        assert_eq!(key["ctHash"], field_hex(&[16u8; 32]));
+        assert_eq!(key["index"], 5);
+        assert_eq!(
+            key["path"].as_array().expect("path").len(),
+            custom_ring_interface::HEAD_MAP_HEIGHT
+        );
+        assert!(value["outputs"][1].get("key").is_none());
+        assert_eq!(value["answers"][0]["treeSlot"], 1);
+        assert_eq!(value["answers"][1]["treeSlot"], 0);
     }
 }

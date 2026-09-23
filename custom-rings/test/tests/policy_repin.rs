@@ -24,7 +24,7 @@ use zolana_transaction::Utxo;
 const RING_RPC: &str = "http://127.0.0.1:1";
 
 const FORBID_BLOCK_TOML: &str = r#"[policy]
-entries_tree = "$TREE"
+address_tree = "$TREE"
 
 [[policy.rules]]
 subject = "output-owner"
@@ -32,7 +32,7 @@ forbid = "block"
 "#;
 
 const APPROVAL_OR_UNBLOCKED_TOML: &str = r#"[policy]
-entries_tree = "$TREE"
+address_tree = "$TREE"
 
 [[policy.rules]]
 subject = "output-owner"
@@ -40,7 +40,7 @@ any = [{ require = "approval" }, { forbid = "block" }]
 "#;
 
 const CURATED_BLOCK_TOML: &str = r#"[policy]
-entries_tree = "$TREE"
+address_tree = "$TREE"
 
 [policy.sources.localnet]
 block = "$CURATOR"
@@ -82,7 +82,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     //    the pinned hash.
     project.write_list(ListWrite {
         env,
-        entries_tree: env.tree,
+        address_tree: env.tree,
         list_id: ListId::Block,
         member: ListMember::Owner(blocked),
         state: EntryState::Active,
@@ -134,7 +134,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     egress.to(blocked, &notes[0]).expect_refusal()?;
     project.write_list(ListWrite {
         env,
-        entries_tree: env.tree,
+        address_tree: env.tree,
         list_id: ListId::Approval,
         member: ListMember::Owner(blocked),
         state: EntryState::Active,
@@ -242,7 +242,7 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Resu
     egress.to(recipient, &notes[0]).expect_refusal()?;
     project.write_list(ListWrite {
         env,
-        entries_tree: env.tree,
+        address_tree: env.tree,
         list_id: ListId::Approval,
         member: ListMember::Owner(recipient),
         state: EntryState::Active,
@@ -253,7 +253,7 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Resu
     //    refuses again.
     project.write_list(ListWrite {
         env,
-        entries_tree: env.tree,
+        address_tree: env.tree,
         list_id: ListId::Approval,
         member: ListMember::Owner(recipient),
         state: EntryState::Cleared,

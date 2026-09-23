@@ -20,7 +20,7 @@ const RECIPIENT_TAG: [u8; 32] = [0xa1; 32];
 const SENDER_TAG: [u8; 32] = [0xb2; 32];
 const BLOCKED_TAG: [u8; 32] = [0xc3; 32];
 const ASSET_MINT: [u8; 32] = [0xd4; 32];
-/// The entries tree id the Go fixture hashes under.
+/// The address tree id the Go fixture hashes under.
 const TREE_ID: u16 = 7;
 /// The mint's `hash_bytes`, the value a UTXO carries as its asset field.
 const ASSET_MEMBERS: &[[u8; 32]] = &[[
@@ -366,8 +366,8 @@ fn policy_account_bytes_match_the_typescript_vector() {
     let config = PolicyConfig {
         discriminator: POLICY_CONFIG,
         policy_hash: PER_ASSET_RULES.hash(&sources).expect("policy hash"),
-        entries_tree: Address::new_from_array([0x22; 32]),
-        entries_tree_id: 7u16.to_le_bytes(),
+        address_tree: Address::new_from_array([0x22; 32]),
+        address_tree_id: 7u16.to_le_bytes(),
         namespace_bump: 254,
         bump: 253,
         namespace_owner_hash: owner().owner_hash,
@@ -405,34 +405,41 @@ fn the_public_input_chain_extends_the_audit_chain() {
     let mut revocation_targets = [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS];
     revocation_targets[0] = field(0x42);
     revocation_targets[1] = [0x11; 32];
+    let slots = [zolana_interface::tree_slot::TreeSlot::new(
+        TREE_ID, [6u8; 32], [7u8; 32],
+    )];
     let policy = CustomRingPolicyPublicInput {
         audit,
         policy_hash: &hex32(POLICY_HASH),
-        state_root: &[6u8; 32],
-        nullifier_root: &[7u8; 32],
-        entries_tree_id: TREE_ID,
+        tree_slots: &slots,
+        address_tree_id: TREE_ID,
         ring_id: &[8u8; 32],
         namespace_owner_hash: &[9u8; 32],
         window_index: 3,
         approval_required: true,
+        key_registry_root: None,
+        revocation_tree_indexes: &[0; zolana_ring_policy::ANSWER_SLOTS],
         revocation_targets: &revocation_targets,
     };
     let mut expected = elements.to_vec();
     expected.extend_from_slice(&[
         hex32(POLICY_HASH),
-        [6u8; 32],
-        [7u8; 32],
+        zolana_interface::tree_slot::populated_tree_slots_hash_chain(&slots).expect("slots"),
         zolana_interface::tree_slot::tree_id_field(TREE_ID),
         [8u8; 32],
         [9u8; 32],
         field(3),
         field(1),
+        [0u8; 32],
+        [0u8; 32],
+        [0u8; 32],
     ]);
     expected.extend_from_slice(&revocation_targets);
     let chain = zolana_hasher::hash_chain::create_hash_chain_from_slice(&expected).expect("chain");
     assert_eq!(policy.hash().expect("policy input"), chain);
 }
 
+/// Go `TestNonzeroRevocationTailVector` with escrow on, fact 1 reads tree slot 2.
 #[test]
 fn nonzero_revocation_tail_matches_go_and_typescript() {
     let mut elements = vec![hex32(
@@ -441,19 +448,21 @@ fn nonzero_revocation_tail_matches_go_and_typescript() {
     elements.extend_from_slice(&[
         [0x2a; 32],
         [6; 32],
-        [7; 32],
         zolana_interface::tree_slot::tree_id_field(9),
         [8; 32],
         [10; 32],
         field(3),
         field(1),
+        field(1),
+        [0x0b; 32],
+        field(2 << 3),
         field(0x42),
         [0x11; 32],
     ]);
     elements.extend_from_slice(&[[0; 32]; zolana_ring_policy::ANSWER_SLOTS - 2]);
     assert_eq!(
         zolana_hasher::hash_chain::create_hash_chain_from_slice(&elements).expect("chain"),
-        hex32("15f667068a6366740e0cf6565708977d75a885347a08ccd47c6bd204d8096456")
+        hex32("0fea02bf7a8cfb1a2b99d9d69f90008e278e9d6fb56e94a253fafba9880fe31e")
     );
 }
 
@@ -461,15 +470,26 @@ fn nonzero_revocation_tail_matches_go_and_typescript() {
 /// place it there.
 #[test]
 fn the_policy_transact_carries_the_policy_config() {
-    use custom_ring_sdk::CustomRing;
+    use custom_ring_sdk::{CustomRing, PolicyReads, PolicyTreeContext};
     let ring = CustomRing::new(solana_address::Address::new_from_array([3u8; 32]));
     let instruction = custom_ring_sdk::CustomRingTransact {
         cosigner: None,
         ring,
         payer: solana_address::Address::new_from_array([1u8; 32]),
-        input_tree: solana_address::Address::new_from_array([2u8; 32]),
+        input_trees: vec![solana_address::Address::new_from_array([2u8; 32])],
         output_tree: solana_address::Address::new_from_array([2u8; 32]),
-        entries_tree: Some(solana_address::Address::new_from_array([4u8; 32])),
+        policy: Some(PolicyReads {
+            trees: vec![PolicyTreeContext {
+                tree: solana_address::Address::new_from_array([4u8; 32]),
+                context: zolana_interface::instruction::instruction_data::transact::TreeContext {
+                    utxo_tree_root_index: 0,
+                    nullifier_tree_root_index: 0,
+                },
+            }],
+            escrow: custom_ring_sdk::EscrowBinding::Off,
+            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
+            revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
+        }),
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: custom_ring_sdk::CustomRingProof {
@@ -482,10 +502,7 @@ fn the_policy_transact_carries_the_policy_config() {
             commitment_pok: [0; 32],
         },
         transact: transact_payload(),
-        state_root_index: 0,
-        nullifier_root_index: 0,
         approval_required: false,
-        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
     }
     .instruction()
     .expect("build the policy transact");

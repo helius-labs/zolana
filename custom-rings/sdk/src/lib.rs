@@ -6,6 +6,7 @@
 mod authority;
 mod budget;
 mod delegate;
+mod escrow;
 mod instructions;
 mod key_registry;
 mod prepared_authority;
@@ -19,9 +20,9 @@ mod velocity;
 mod witness;
 
 pub use custom_ring_interface::{
-    tag, CoSignScope, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
-    PolicyTableIxData, ReaderIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT, CONFIG_PDA_SEED,
-    CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
+    tag, CoSignScope, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, KeyEscrow,
+    PolicyConfig, PolicyTableIxData, ReaderIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT,
+    CONFIG_PDA_SEED, CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
     CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     DELEGATE_PDA_SEED, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
@@ -43,12 +44,13 @@ pub use zolana_ring_policy::RuleTableError;
 pub use crate::{
     authority::{AuthoritySeal, RingAuthorityDraft, RingAuthorityMove},
     delegate::{DelegateOutput, DelegateTransfer, DelegateTransferInput, ProvenDelegateTransfer},
+    escrow::RegistryKeyOpening,
     instructions::{
         cosigner::{ClearCoSigner, CoSignThreshold, SetCoSigner},
         create_config::{CreateConfig, CreateConfigError},
         create_key_registry_root::CreateKeyRegistryRoot,
-        delegate::{CustomRingDelegateTransact, DelegateInstructionError, SetDelegate},
-        deposit::{Deposit, SetDepositAudit},
+        delegate::{CustomRingDelegateTransact, SetDelegate},
+        deposit::{Deposit, DepositInstructionError, SetDepositAudit},
         deposit_request::RingDepositProofRequest,
         entry::{
             CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
@@ -76,7 +78,8 @@ pub use crate::{
             to_instruction_proof, to_plain_proof, CustomRingBaseProofRequest,
             CustomRingPolicyProofRequest, CustomRingPrivateTxHash, CustomRingProofError,
             CustomRingProofInputError, CustomRingProofParams, CustomRingTransact, EncryptedAudit,
-            PendingCustomRingProof, RingIdentity, SpendRecordProofInput, VelocityProofInput,
+            EscrowBinding, PendingCustomRingProof, PolicyReads, PolicyTreeContext, RingIdentity,
+            SpendRecordProofInput, TransactInstructionError, VelocityProofInput,
         },
     },
     key_registry::{
@@ -86,12 +89,12 @@ pub use crate::{
     shared::{
         client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
         CustomRingConfig, CustomRingDelegate, CustomRingSpendWindow, IndexedMapRoot, PinnedPolicy,
-        PolicyMatchError, ReaderKey, ReaderKeyError,
+        PolicyMatchError, PoolTree, ReaderKey, ReaderKeyError,
     },
     transfer::{
         tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,
-        CustomRingTransferInput, DepositError, DepositProofEnvironment, ProvenTransfer,
-        RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,
+        CustomRingTransferInput, DepositError, DepositProofEnvironment, PreparedRingDeposit,
+        ProvenTransfer, RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,
     },
 };
 
@@ -102,7 +105,8 @@ pub use crate::budget::TRANSACT_COMPUTE_UNIT_LIMIT;
 #[cfg(feature = "solana-rpc")]
 pub use crate::submission::{
     AsyncSubmissionEnvironment, RingMergeOperation, RingOperation, RingSubmission,
-    RingTransferSubmission, SubmissionEnvironment, SubmissionError, SubmissionStatus,
+    RingTransferSubmission, SettledSubmission, SubmissionEnvironment, SubmissionError,
+    SubmissionStatus,
 };
 #[cfg(feature = "solana-rpc")]
 pub use crate::v1::{SendError, TransactSend};

@@ -4,6 +4,7 @@ mod proof;
 
 pub(crate) use discovery::{EntryLookup, LineageLookup, Lineages, SpentSlot};
 pub use discovery::{LiveEntry, ReadEntry};
+pub(crate) use instruction::NamespaceWriteAccounts;
 pub use instruction::{
     CreateEntry, CreatePolicy, EntryError, EntryProofEnvironment, ProvenEntry, UpdateEntry,
 };

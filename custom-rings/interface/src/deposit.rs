@@ -5,7 +5,7 @@ use zolana_hasher::{
     HasherError,
 };
 
-use crate::{pack33_to_2fe, COMPRESSED_P256_KEY_LEN};
+use crate::{pack33_to_2fe, policy_public_input::key_escrow_elements, COMPRESSED_P256_KEY_LEN};
 
 /// Binds a disclosure proof to one ring, destination tree and exact SPP deposit
 /// instruction.
@@ -45,6 +45,8 @@ pub struct DepositPublicInput<'a> {
     pub ciphertexts: &'a [[u8; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]],
     pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
     pub eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
+    /// Present exactly when deposited nullifier keys must be enrolled under it.
+    pub key_registry_root: Option<&'a [u8; 32]>,
 }
 
 impl DepositPublicInput<'_> {
@@ -55,7 +57,7 @@ impl DepositPublicInput<'_> {
         }
         let auditor = pack33_to_2fe(self.auditor_pk);
         let ephemeral = pack33_to_2fe(self.eph_pk);
-        let mut chain = [[0; 32]; 3 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2 + 4];
+        let mut chain = [[0; 32]; 3 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2 + 6];
         chain[0] = right_align(b"CRDP");
         chain[1] = *self.context_hash;
         chain[2] = right_align(&(count as u64).to_be_bytes());
@@ -69,7 +71,13 @@ impl DepositPublicInput<'_> {
             chain[4 + slot * 2] = hash_bytes(ciphertext)?;
         }
         let keys = 3 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2;
-        chain[keys..].copy_from_slice(&[auditor.lo, auditor.hi, ephemeral.lo, ephemeral.hi]);
+        chain[keys..keys + 4].copy_from_slice(&[
+            auditor.lo,
+            auditor.hi,
+            ephemeral.lo,
+            ephemeral.hi,
+        ]);
+        chain[keys + 4..].copy_from_slice(&key_escrow_elements(self.key_registry_root));
         create_hash_chain_from_slice(&chain)
     }
 }

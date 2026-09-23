@@ -10,12 +10,12 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use custom_ring_sdk::{policy_config_table, CustomRing, ReadEntry};
+use custom_ring_sdk::{policy_config_table, CustomRing, PoolTree, ReadEntry};
 use custom_ring_test_validator::{
     cli::{merged, ListMember, ListWrite, RingProject, RingToml},
     policy::{
-        owner_member, policy_config, EntryTarget, EntryWrite, PolicyTransfer, RingNotes, DEPOSIT,
-        RELEASED, TOKEN_BLOCK, TRANSFER_AMOUNT,
+        owner_member, policy_config, EntryTarget, EntryWrite, PolicyTransfer, RingNotes,
+        BLOCK_ONLY, DEPOSIT, RELEASED, TOKEN_BLOCK, TRANSFER_AMOUNT,
     },
     shared::{custom_ring_program_id, setup, RegisterRing, TestEnv, Tier, ACTOR_AIRDROP},
 };
@@ -147,6 +147,79 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
     Ok(())
 }
 
+/// A Block entry moved out of the address tree still answers, the witness
+/// reads its cleared version in the second tree.
+#[test]
+fn an_entry_in_a_second_tree_answers_from_its_own_slot() -> Result<()> {
+    let env = setup()?;
+    let rpc = env.client.rpc();
+    let ring = CustomRing::new(custom_ring_program_id()?);
+    let prover = ProverClient::local();
+    RegisterRing {
+        ring,
+        payer: &env.payer,
+        auditor_pubkey: ViewingKey::new().pubkey(),
+        tier: Tier::policy(&BLOCK_ONLY, env.tree),
+    }
+    .send(rpc)?;
+    let second = env.create_registered_tree()?;
+    let second = PoolTree {
+        address: second,
+        id: env.tree_id(second)?,
+    };
+    let sender = &env.sender.keypair;
+    let recipient = &env.recipient.keypair;
+    let notes = RingNotes {
+        ring,
+        owner: sender,
+        amount: DEPOSIT,
+        count: 2,
+        env: &env,
+    }
+    .deposit()?;
+    let transfer = |note: &Utxo| PolicyTransfer {
+        ring,
+        sender,
+        recipient,
+        note: note.clone(),
+        amount: TRANSFER_AMOUNT,
+        env: &env,
+    };
+
+    let blocked = EntryWrite {
+        ring,
+        target: EntryTarget::Claim {
+            list_id: ListId::Block,
+            member: owner_member(recipient)?,
+        },
+        state: EntryState::Active,
+        fee_payer: &env.payer,
+        env: &env,
+    }
+    .send(&prover)?;
+    transfer(&notes[0]).expect_refusal()?;
+    let cleared = EntryWrite {
+        ring,
+        target: EntryTarget::Successor(blocked),
+        state: EntryState::Cleared,
+        fee_payer: &env.payer,
+        env: &env,
+    }
+    .send_to(&prover, second)?;
+    assert_eq!(cleared.tree_id, second.id);
+    let proven = transfer(&notes[0]).prove(&prover)?;
+    let policy = proven
+        .policy
+        .as_ref()
+        .ok_or_else(|| anyhow!("policy reads"))?;
+    assert!(
+        policy.trees.iter().any(|tree| tree.tree == second.address),
+        "the cleared entry binds the second tree"
+    );
+    transfer(&notes[1]).land(&prover)?;
+    Ok(())
+}
+
 /// The ring rpc `transact` reads back from runs in process.
 #[test]
 fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()> {
@@ -168,7 +241,7 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
     assert!(config.has_policy, "policy tier");
     let policy = policy_config(ring, rpc)?;
     assert_eq!(
-        policy.entries_tree, demo.tree,
+        policy.address_tree, demo.tree,
         "the policy pins the cli's default tree"
     );
     assert_eq!(policy_config_table(&policy)?, RELEASED);
@@ -193,15 +266,14 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
         ));
     };
     assert_eq!(transfer.outputs.len(), 2, "change and recipient");
-    let entries_tree_id = ring
+    let address_tree_id = ring
         .read_policy_config(env.client.rpc())?
         .ok_or_else(|| anyhow!("policy config of {}", ring.program_id()))?
-        .entries_tree_id();
+        .address_tree_id();
     for output in &transfer.outputs {
         assert_eq!(output.ring_program_id, Some(ring.program_id()));
         let live = ReadEntry {
-            entries_tree: demo.tree,
-            entries_tree_id,
+            address_tree_id,
             namespace: ring.namespace_pda(),
             list_id: ListId::Allow,
             member: Member::owner_tag(&output.owner_tag)?,
@@ -220,7 +292,7 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
     let sender = demo.project.demo_sender()?;
     let frozen = |state| ListWrite {
         env: &env,
-        entries_tree: demo.tree,
+        address_tree: demo.tree,
         list_id: ListId::Frozen,
         member: ListMember::Owner(&sender),
         state,
@@ -248,7 +320,7 @@ fn a_blocked_token_refuses_every_transfer() -> Result<()> {
     // 1. `init` pins the asset row at generation 1.
     let policy = policy_config(demo.ring, rpc)?;
     assert_eq!(
-        policy.entries_tree, demo.tree,
+        policy.address_tree, demo.tree,
         "the policy pins the cli's default tree"
     );
     assert_eq!(policy_config_table(&policy)?, TOKEN_BLOCK);
@@ -267,7 +339,7 @@ fn a_blocked_token_refuses_every_transfer() -> Result<()> {
     // 3. SOL on Block refuses the demo until `list clear` releases it.
     let block = |state| ListWrite {
         env: &env,
-        entries_tree: demo.tree,
+        address_tree: demo.tree,
         list_id: ListId::Block,
         member: ListMember::Asset(SOL_MINT),
         state,
@@ -316,7 +388,7 @@ struct DemoRing<'a> {
 impl<'a> DemoRing<'a> {
     fn init(env: &'a TestEnv, policy: &str) -> Result<Self> {
         let ring = CustomRing::new(custom_ring_program_id()?);
-        // Without `entries_tree` the block pins the cli's default tree, the demo
+        // Without `address_tree` the block pins the cli's default tree, the demo
         // deposits there too.
         let tree = env.register_default_tree()?;
         let auditor = ViewingKey::new();

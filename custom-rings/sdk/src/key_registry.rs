@@ -20,11 +20,13 @@ use zolana_indexer_api::{
     GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse, Hash,
     RingMemberProofRequest, SerializablePubkey,
 };
+use zolana_interface::merge_utils::ciphertext_hash;
 use zolana_keypair::{KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{AuditEncryptionError, NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_policy::Member;
 
 use crate::{
+    escrow::RegistryKeyOpening,
     instructions::transact::request::{bytes_to_hex, field_hex, index_hex, json_body, SecretHex},
     to_instruction_proof, AccountReadError, AsyncTransferProofEnvironment, CustomRing,
     CustomRingProofError, IndexedMapRoot, TransferProofEnvironment,
@@ -52,10 +54,22 @@ pub enum KeyRegistrationError {
     InvalidRegisterProof,
     #[error("the key-registry entry is not included under the requested root")]
     InvalidEntryProof,
+    #[error("{owner:?} enrolled no matching nullifier key")]
+    UnregisteredOutputKey { owner: Member },
     #[error(transparent)]
     Proof(#[from] CustomRingProofError),
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
+}
+
+impl KeyRegistrationError {
+    /// Photon trails or passed the root asked for, a fresh chain root settles either.
+    pub fn is_projection_lag(&self) -> bool {
+        matches!(self, Self::Client(error) if matches!(
+            error.as_ref(),
+            ClientError::RingKeyRegistryOutOfSync | ClientError::RingKeyRegistryRootChanged
+        ))
+    }
 }
 
 impl From<ClientError> for KeyRegistrationError {
@@ -318,6 +332,32 @@ impl SealedKeyEntry {
         Ok(nullifier_key)
     }
 
+    pub fn opening(
+        &self,
+        nullifier_pubkey: &[u8; 32],
+    ) -> Result<RegistryKeyOpening, KeyRegistrationError> {
+        let path = self
+            .proof
+            .as_slice()
+            .try_into()
+            .map_err(|_| KeyRegistrationError::InvalidEntryProof)?;
+        // `decode_entry` pinned the path and index, only another key misses the root.
+        self.verify_nullifier_pubkey(nullifier_pubkey)
+            .map_err(|error| match error {
+                KeyRegistrationError::InvalidEntryProof => {
+                    KeyRegistrationError::UnregisteredOutputKey { owner: self.member }
+                }
+                error => error,
+            })?;
+        Ok(RegistryKeyOpening {
+            next: self.next,
+            ct_hash: ciphertext_hash(&self.sealed.ciphertext)
+                .map_err(|_| KeyRegistrationError::Hashing)?,
+            index: self.index,
+            path,
+        })
+    }
+
     /// Verifies membership for a known nullifier public key without the auditor
     /// read key.
     pub fn verify_nullifier_pubkey(
@@ -518,8 +558,13 @@ mod tests {
     use zolana_indexer_api::{Base64String, Context};
     use zolana_keypair::{NullifierKey, ViewingKey};
     use zolana_ring_head_map::{HeadMap, HeadTransfer, Registration};
+    use zolana_ring_policy::ZERO_NULLIFIER_PK;
 
     use super::*;
+    use crate::{
+        escrow::{KeyRegistry, OutputKey},
+        ReadEnvironment,
+    };
 
     struct Fixture {
         ring: CustomRing,
@@ -560,6 +605,7 @@ mod tests {
                 IndexedMapRoot {
                     root: proof_inputs.old_root,
                     next_index: proof_inputs.new_index,
+                    history_index: 0,
                 },
             );
             let response = GetRingKeyRegistryRegisterProofResponse {
@@ -616,6 +662,7 @@ mod tests {
                 IndexedMapRoot {
                     root: self.new_root,
                     next_index: 2,
+                    history_index: 1,
                 },
             );
             let response = GetRingKeyRegistryEntryResponse {
@@ -639,6 +686,7 @@ mod tests {
                 root: IndexedMapRoot {
                     root: self.new_root,
                     next_index: 2,
+                    history_index: 1,
                 },
             }
         }
@@ -789,5 +837,174 @@ mod tests {
             entry.open(&fixture.auditor),
             Err(KeyRegistrationError::InvalidEntryProof)
         ));
+    }
+
+    /// Serves the registry root and the fixture's entry, every other member is unregistered.
+    struct EntryIndexer {
+        ring: CustomRing,
+        entry: (RingMemberProofRequest, GetRingKeyRegistryEntryResponse),
+        calls: std::cell::Cell<usize>,
+        root_reads: std::cell::Cell<usize>,
+        /// Answered in order before the entry.
+        lag: std::cell::RefCell<Vec<ClientError>>,
+    }
+
+    impl Rpc for EntryIndexer {
+        fn get_account(
+            &self,
+            address: Address,
+        ) -> Result<Option<solana_account::Account>, ClientError> {
+            let (expected, bump) =
+                custom_ring_interface::pda::key_registry_root(&self.ring.program_id());
+            assert_eq!(address, expected);
+            self.root_reads.set(self.root_reads.get() + 1);
+            let mut history = [[0; 32]; custom_ring_interface::KEY_REGISTRY_ROOT_HISTORY];
+            history[1] = self.entry.1.root.0;
+            let root = custom_ring_interface::KeyRegistryRoot {
+                discriminator: custom_ring_interface::KEY_REGISTRY_ROOT,
+                root: self.entry.1.root.0,
+                next_index: self.entry.1.next_index.to_le_bytes(),
+                bump,
+                history_cursor: 1,
+                history,
+            };
+            Ok(Some(solana_account::Account {
+                lamports: 1,
+                data: bytemuck::bytes_of(&root).to_vec(),
+                owner: self.ring.program_id(),
+                executable: false,
+                rent_epoch: 0,
+            }))
+        }
+
+        fn get_ring_key_registry_entry(
+            &self,
+            request: RingMemberProofRequest,
+        ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+            self.calls.set(self.calls.get() + 1);
+            if !self.lag.borrow().is_empty() {
+                return Err(self.lag.borrow_mut().remove(0));
+            }
+            if request == self.entry.0 {
+                return Ok(self.entry.1.clone());
+            }
+            Err(ClientError::RingKeyRegistryMemberUnregistered)
+        }
+    }
+
+    impl EntryIndexer {
+        fn env(&self) -> ReadEnvironment<'_, Self, Self> {
+            ReadEnvironment {
+                indexer: self,
+                rpc: self,
+            }
+        }
+    }
+
+    fn escrow(fixture: &mut Fixture) -> (KeyRegistry, EntryIndexer) {
+        let entry = fixture.entry();
+        (
+            KeyRegistry { ring: fixture.ring },
+            EntryIndexer {
+                ring: fixture.ring,
+                entry,
+                calls: std::cell::Cell::new(0),
+                root_reads: std::cell::Cell::new(0),
+                lag: std::cell::RefCell::new(Vec::new()),
+            },
+        )
+    }
+
+    fn output_key(owner: &Member, nullifier_pk: [u8; 32]) -> Option<OutputKey> {
+        Some(OutputKey {
+            owner_pk_hash: *owner.as_bytes(),
+            nullifier_pk,
+        })
+    }
+
+    #[test]
+    fn an_enrolled_output_key_opens_its_registry_leaf_once_per_owner() {
+        let mut fixture = Fixture::new();
+        let (registry, indexer) = escrow(&mut fixture);
+        let key = output_key(&fixture.member, fixture.envelope.nullifier_pk);
+        let escrowed = registry
+            .openings(indexer.env(), &[key, None, key])
+            .expect("enrolled");
+        assert_eq!(escrowed.root, fixture.read().root);
+        let openings = escrowed.keys;
+        assert_eq!(indexer.calls.get(), 1);
+        assert_eq!(openings[1], None);
+        let opening = openings[0].expect("opening");
+        assert_eq!(openings[2], Some(opening));
+        assert_eq!(opening.index, 1);
+        assert_eq!(
+            opening.ct_hash,
+            ciphertext_hash(&fixture.envelope.sealed.ciphertext).unwrap()
+        );
+        let leaf = HeadMapLeaf {
+            member: fixture.member.as_bytes(),
+            next: &opening.next,
+            nullifier: &RegisteredKey {
+                nullifier_pk: &fixture.envelope.nullifier_pk,
+                ciphertext: &fixture.envelope.sealed.ciphertext,
+            }
+            .commitment()
+            .unwrap(),
+        }
+        .hash()
+        .unwrap();
+        assert_eq!(
+            MerklePath {
+                index: opening.index,
+                siblings: &opening.path,
+            }
+            .root_of(leaf)
+            .unwrap(),
+            fixture.new_root
+        );
+    }
+
+    #[test]
+    fn a_zero_key_output_is_refused_before_proving() {
+        let mut fixture = Fixture::new();
+        let (registry, indexer) = escrow(&mut fixture);
+        let stranger = Member::owner_tag(&[4; 32]).unwrap();
+        for owner in [stranger, fixture.member] {
+            assert!(matches!(
+                registry.openings(indexer.env(), &[output_key(&owner, ZERO_NULLIFIER_PK)]),
+                Err(KeyRegistrationError::UnregisteredOutputKey { owner: refused }) if refused == owner
+            ));
+        }
+    }
+
+    #[test]
+    fn an_unregistered_owner_or_another_key_is_refused_before_proving() {
+        let mut fixture = Fixture::new();
+        let (registry, indexer) = escrow(&mut fixture);
+        let stranger = Member::owner_tag(&[4; 32]).unwrap();
+        assert!(matches!(
+            registry.openings(indexer.env(), &[output_key(&stranger, [7; 32])]),
+            Err(KeyRegistrationError::UnregisteredOutputKey { owner }) if owner == stranger
+        ));
+        let other_key = NullifierKey::from_secret([8; 31]).pubkey().unwrap();
+        assert!(matches!(
+            registry.openings(indexer.env(), &[output_key(&fixture.member, other_key)]),
+            Err(KeyRegistrationError::UnregisteredOutputKey { owner }) if owner == fixture.member
+        ));
+    }
+
+    #[test]
+    fn a_lagging_projection_is_asked_again_under_a_fresh_root() {
+        let mut fixture = Fixture::new();
+        let (registry, indexer) = escrow(&mut fixture);
+        indexer.lag.replace(vec![
+            ClientError::RingKeyRegistryRootChanged,
+            ClientError::RingKeyRegistryOutOfSync,
+        ]);
+        let key = output_key(&fixture.member, fixture.envelope.nullifier_pk);
+        let escrowed = registry.openings(indexer.env(), &[key]).expect("caught up");
+        assert!(escrowed.keys[0].is_some());
+        assert_eq!(indexer.calls.get(), 3);
+        assert_eq!(indexer.root_reads.get(), 3);
     }
 }

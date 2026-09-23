@@ -18,7 +18,7 @@ use crate::config::{Base58Address, PerCluster, Target};
 #[serde(deny_unknown_fields)]
 pub struct PolicySpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub entries_tree: Option<Base58Address>,
+    pub address_tree: Option<Base58Address>,
     /// Curator program ids by list name, an absent list reads the ring's own entries.
     #[serde(default, skip_serializing_if = "PerCluster::is_empty")]
     pub sources: PerCluster<Sources>,
@@ -96,7 +96,7 @@ pub enum SubjectName {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompiledPolicy {
     pub rules: RuleTable,
-    pub entries_tree: Address,
+    pub address_tree: Address,
     pub shared_sources: Vec<(ListId, CustomRing)>,
 }
 
@@ -566,8 +566,8 @@ fn merge_assets(
 }
 
 impl PolicySpec {
-    pub fn entries_tree(&self) -> Address {
-        self.entries_tree
+    pub fn address_tree(&self) -> Address {
+        self.address_tree
             .map(|tree| tree.0)
             .unwrap_or_else(|| pda::tree(0))
     }
@@ -624,7 +624,7 @@ impl PolicySpec {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(CompiledPolicy {
             rules,
-            entries_tree: self.entries_tree(),
+            address_tree: self.address_tree(),
             shared_sources,
         })
     }
@@ -803,7 +803,7 @@ mod tests {
     fn rows_without_a_window_cap_each_transfer() {
         let policy = compiled(&format!(
             r#"
-entries_tree = "{CURATOR}"
+address_tree = "{CURATOR}"
 
 [velocity]
 rows = [{{ asset = "{MINT}", cap = 1000 }}]
@@ -818,7 +818,7 @@ rows = [{{ asset = "{MINT}", cap = 1000 }}]
     fn a_window_without_rows_is_refused() {
         let error = compiled(&format!(
             r#"
-entries_tree = "{CURATOR}"
+address_tree = "{CURATOR}"
 
 [velocity]
 window_slots = 100
@@ -850,7 +850,7 @@ rows = []
     fn every_form_parses_and_compiles() {
         let policy = compiled(&format!(
             r#"
-entries_tree = "{CURATOR}"
+address_tree = "{CURATOR}"
 
 [sources.devnet]
 block = "{CURATOR}"
@@ -896,7 +896,7 @@ above = 1000000
                 .expect("member")
                 .as_bytes()]
         );
-        assert_eq!(policy.entries_tree, Address::from_str_const(CURATOR));
+        assert_eq!(policy.address_tree, Address::from_str_const(CURATOR));
         assert_eq!(
             policy.shared_sources,
             vec![(
@@ -912,7 +912,7 @@ above = 1000000
     fn an_empty_table_is_a_legal_policy_with_the_default_tree() {
         let policy = compiled("").expect("empty table");
         assert!(policy.rules.is_empty());
-        assert_eq!(policy.entries_tree, pda::tree(0));
+        assert_eq!(policy.address_tree, pda::tree(0));
         assert!(policy.shared_sources.is_empty());
     }
 

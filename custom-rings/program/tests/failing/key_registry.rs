@@ -1,6 +1,8 @@
 //! Pins key-registry root init and the register-key account checks before the proof.
 
-use custom_ring_interface::{KeyRegistryRoot, HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT};
+use custom_ring_interface::{
+    KeyRegistryRoot, HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
+};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::{InstructionResult, ProgramResult};
 use solana_pubkey::Pubkey;
@@ -25,6 +27,20 @@ fn create_key_registry_root_writes_the_empty_root_at_the_canonical_bump() {
     assert_eq!(written.root, HEAD_MAP_EMPTY_ROOT);
     assert_eq!(written.next_index(), 1);
     assert_eq!(written.bump, key_registry_root_pda().1);
+    assert_eq!(written.history_cursor, 0);
+    assert_eq!(written.root_at(0), Some(HEAD_MAP_EMPTY_ROOT));
+    assert!((1..=KEY_REGISTRY_ROOT_HISTORY as u8).all(|index| written.root_at(index).is_none()));
+}
+
+/// Clients read the fixed fields at these offsets, the history follows them.
+#[test]
+fn the_registry_history_follows_the_fixed_fields() {
+    assert_eq!(KeyRegistryRoot::SIZE, 1067);
+    assert_eq!(core::mem::offset_of!(KeyRegistryRoot, root), 1);
+    assert_eq!(core::mem::offset_of!(KeyRegistryRoot, next_index), 33);
+    assert_eq!(core::mem::offset_of!(KeyRegistryRoot, bump), 41);
+    assert_eq!(core::mem::offset_of!(KeyRegistryRoot, history_cursor), 42);
+    assert_eq!(core::mem::offset_of!(KeyRegistryRoot, history), 43);
 }
 
 #[test]
