@@ -1,18 +1,14 @@
 use std::sync::Arc;
 #[cfg(feature = "ring-projection")]
 use zolana_indexer_api::{
-    method::{
-        GetRingHeadRegisterProof, GetRingHeadTransferProof, GetRingKeyRegistryEntry,
-        GetRingKeyRegistryRegisterProof,
-    },
-    GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
+    method::{GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof, GetRingSpendRecord},
     GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    RingMemberProofRequest,
+    GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecordRequest,
 };
 
 use crate::api::root_index_cache::RootIndexCache;
 #[cfg(feature = "ring-projection")]
-use crate::ring_projection::{head_map, key_registry};
+use crate::ring_projection::{key_registry, spend_record};
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use utoipa::openapi::{RefOr, Schema};
@@ -184,19 +180,11 @@ impl PhotonApi {
     }
 
     #[cfg(feature = "ring-projection")]
-    pub async fn get_ring_head_register_proof(
+    pub async fn get_ring_spend_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadRegisterProofResponse, PhotonApiError> {
-        head_map::register(&self.db_conn, &self.rpc_client, request).await
-    }
-
-    #[cfg(feature = "ring-projection")]
-    pub async fn get_ring_head_transfer_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadTransferProofResponse, PhotonApiError> {
-        head_map::transfer(&self.db_conn, &self.rpc_client, request).await
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, PhotonApiError> {
+        spend_record::lookup(&self.db_conn, &self.rpc_client, request).await
     }
 
     #[cfg(feature = "ring-projection")]
@@ -225,13 +213,11 @@ impl PhotonApi {
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
             #[cfg(feature = "ring-projection")]
-            method_api_spec::<GetRingHeadRegisterProof>(),
-            #[cfg(feature = "ring-projection")]
             method_api_spec::<GetRingKeyRegistryEntry>(),
             #[cfg(feature = "ring-projection")]
             method_api_spec::<GetRingKeyRegistryRegisterProof>(),
             #[cfg(feature = "ring-projection")]
-            method_api_spec::<GetRingHeadTransferProof>(),
+            method_api_spec::<GetRingSpendRecord>(),
         ]
     }
 }

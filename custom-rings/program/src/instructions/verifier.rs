@@ -40,20 +40,6 @@ pub(crate) fn verify_groth16(
     Ok(())
 }
 
-#[inline(never)]
-pub(crate) fn verify_plain_groth16(
-    proof: &PlainGroth16Proof,
-    public_input_hash: [u8; 32],
-    verifying_key: &Groth16Verifyingkey,
-) -> ProgramResult {
-    let Groth16Points { a, b, c } = Groth16Points::decompress(proof)?;
-    let public_inputs = [public_input_hash];
-    let mut verifier =
-        Groth16Verifier::new(&a, &b, &c, &public_inputs, verifying_key).map_err(|_| PROOF_ERR)?;
-    verifier.verify().map_err(|_| PROOF_ERR)?;
-    Ok(())
-}
-
 /// Curve points must decompress before pairing verification.
 struct Groth16Points {
     a: [u8; 64],

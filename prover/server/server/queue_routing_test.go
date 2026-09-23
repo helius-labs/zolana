@@ -27,7 +27,6 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.CustomRingPolicyCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingDelegatePolicyCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingCompressedPolicyCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingCompressedRegisterCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingKeyRegisterCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingDepositCircuitType, "zk_custom_ring_queue"},
 		{common.CircuitType("unknown"), ""},
@@ -76,7 +75,6 @@ func TestCustomRingIsServedOnEveryRail(t *testing.T) {
 		common.CustomRingPolicyCircuitType,
 		common.CustomRingDelegatePolicyCircuitType,
 		common.CustomRingCompressedPolicyCircuitType,
-		common.CustomRingCompressedRegisterCircuitType,
 		common.CustomRingKeyRegisterCircuitType,
 		common.CustomRingDepositCircuitType,
 	} {

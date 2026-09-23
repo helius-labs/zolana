@@ -9,11 +9,11 @@ use crate::{
     error::ClientError,
     rpc::{
         AsyncRpc, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetRingHeadRegisterProofResponse,
-        GetRingHeadTransferProofResponse, GetRingKeyRegistryEntryResponse,
-        GetRingKeyRegistryRegisterProofResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        IndexerRpcConfig, RingHistoryOptions, RingMemberProofRequest,
+        GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+        GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, RingHistoryOptions,
+        RingMemberProofRequest, RingSpendRecordRequest,
     },
 };
 
@@ -270,22 +270,12 @@ impl AsyncRpc for AsyncZolanaIndexer {
         .await
     }
 
-    async fn get_ring_head_register_proof(
+    async fn get_ring_spend_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ClientError> {
         self.api
-            .get_ring_head_register_proof(request)
-            .await
-            .map_err(indexer_error)
-    }
-
-    async fn get_ring_head_transfer_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
-        self.api
-            .get_ring_head_transfer_proof(request)
+            .get_ring_spend_record(request)
             .await
             .map_err(indexer_error)
     }

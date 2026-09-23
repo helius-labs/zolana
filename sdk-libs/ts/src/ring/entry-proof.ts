@@ -324,7 +324,7 @@ export interface RingSpendRegistrationInput {
 export async function proveRingSpendRegistration(
   input: RingSpendRegistrationInput,
   context?: RequestContext,
-): Promise<Readonly<{ record: SpendRecord; proof: RingEntryProof; genesis: Bytes32 }>> {
+): Promise<Readonly<{ record: SpendRecord; proof: RingEntryProof }>> {
   const namespaceAddress = await ringPolicyNamespaceAddress(input.ringProgramId);
   const namespace = RingListNamespace.of(namespaceAddress, input.entriesTreeId);
   const seed = spendSeed(input.member);
@@ -368,7 +368,6 @@ export async function proveRingSpendRegistration(
     const proof = await input.client.proveTransferInputs(transition.inputs, context);
     return Object.freeze({
       record,
-      genesis: hashes.nullifier,
       proof: Object.freeze({
         proof,
         utxoTreeRootIndex: state.rootIndex,

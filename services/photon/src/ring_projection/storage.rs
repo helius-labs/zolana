@@ -7,7 +7,7 @@ use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_indexer_api::Hash;
 
-use super::{head_map::HeadLeaf, key_registry::MemberKey, Leaf, Projection};
+use super::{key_registry::MemberKey, spend_record::SpendUndo, Leaf, Projection};
 use crate::ingester::{
     persist::{persist_leaf_nodes, LeafNode},
     typedefs::block_info::BlockMetadata,
@@ -90,13 +90,13 @@ pub(crate) struct Undo<L> {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct BlockUndo {
-    pub head_map: Vec<Undo<HeadLeaf>>,
+    pub spend_records: Vec<SpendUndo>,
     pub key_registry: Vec<Undo<MemberKey>>,
 }
 
 impl BlockUndo {
     pub fn extend(&mut self, other: Self) {
-        self.head_map.extend(other.head_map);
+        self.spend_records.extend(other.spend_records);
         self.key_registry.extend(other.key_registry);
     }
 }
@@ -299,7 +299,7 @@ pub(crate) async fn rollback(
         vec![i64::try_from(journal.metadata.slot)?.into()],
     ))
     .await?;
-    restore::<super::head_map::HeadMap>(tx, cursor, &journal.undo.head_map).await?;
+    super::spend_record::restore(tx, &journal.undo.spend_records).await?;
     restore::<super::key_registry::KeyRegistry>(tx, cursor, &journal.undo.key_registry).await?;
     // Partial replay must rewind with the block that advanced it.
     for mut candidate in pending(tx).await? {
@@ -578,7 +578,7 @@ fn table<P: Projection>(suffix: &str) -> String {
     format!("{}_{suffix}", P::KIND.table())
 }
 
-fn statement<C: ConnectionTrait>(conn: &C, sql: &str, values: Vec<Value>) -> Statement {
+pub(super) fn statement<C: ConnectionTrait>(conn: &C, sql: &str, values: Vec<Value>) -> Statement {
     Statement::from_sql_and_values(conn.get_database_backend(), sql, values)
 }
 

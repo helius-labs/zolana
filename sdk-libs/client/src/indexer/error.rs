@@ -1,9 +1,7 @@
 use crate::error::ClientError;
 use zolana_indexer_api::error_code::{
-    RING_HEAD_MAP_OUT_OF_SYNC, RING_HEAD_MEMBER_ALREADY_REGISTERED, RING_HEAD_MEMBER_UNREGISTERED,
-    RING_HEAD_ROOT_CHANGED, RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED,
-    RING_KEY_REGISTRY_MEMBER_UNREGISTERED, RING_KEY_REGISTRY_OUT_OF_SYNC,
-    RING_KEY_REGISTRY_ROOT_CHANGED,
+    RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
+    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED, RING_SPEND_RECORD_OUT_OF_SYNC,
 };
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
@@ -33,16 +31,13 @@ pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
         zolana_api::ApiError::JsonRpc {
             code: Some(code), ..
         } => match code {
-            RING_HEAD_MAP_OUT_OF_SYNC => ClientError::RingHeadMapOutOfSync,
-            RING_HEAD_ROOT_CHANGED => ClientError::RingHeadRootChanged,
-            RING_HEAD_MEMBER_UNREGISTERED => ClientError::RingHeadMemberUnregistered,
-            RING_HEAD_MEMBER_ALREADY_REGISTERED => ClientError::RingHeadMemberAlreadyRegistered,
             RING_KEY_REGISTRY_OUT_OF_SYNC => ClientError::RingKeyRegistryOutOfSync,
             RING_KEY_REGISTRY_ROOT_CHANGED => ClientError::RingKeyRegistryRootChanged,
             RING_KEY_REGISTRY_MEMBER_UNREGISTERED => ClientError::RingKeyRegistryMemberUnregistered,
             RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED => {
                 ClientError::RingKeyRegistryMemberAlreadyRegistered
             }
+            RING_SPEND_RECORD_OUT_OF_SYNC => ClientError::RingSpendRecordOutOfSync,
             JSON_RPC_INTERNAL_ERROR => ClientError::IndexerUnavailable(message),
             _ => ClientError::Indexer(message),
         },
@@ -57,16 +52,6 @@ mod tests {
     #[test]
     fn preserves_ring_projection_error_codes() {
         let cases = [
-            (RING_HEAD_MAP_OUT_OF_SYNC, ClientError::RingHeadMapOutOfSync),
-            (RING_HEAD_ROOT_CHANGED, ClientError::RingHeadRootChanged),
-            (
-                RING_HEAD_MEMBER_UNREGISTERED,
-                ClientError::RingHeadMemberUnregistered,
-            ),
-            (
-                RING_HEAD_MEMBER_ALREADY_REGISTERED,
-                ClientError::RingHeadMemberAlreadyRegistered,
-            ),
             (
                 RING_KEY_REGISTRY_OUT_OF_SYNC,
                 ClientError::RingKeyRegistryOutOfSync,
@@ -82,6 +67,10 @@ mod tests {
             (
                 RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED,
                 ClientError::RingKeyRegistryMemberAlreadyRegistered,
+            ),
+            (
+                RING_SPEND_RECORD_OUT_OF_SYNC,
+                ClientError::RingSpendRecordOutOfSync,
             ),
         ];
         for (code, expected) in cases {

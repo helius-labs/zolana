@@ -16,13 +16,7 @@ import { U64_MAX, decodeAddress } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
 import type { SealedMessageInput } from "../transaction/wallet/encrypt-rails.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
-import type {
-  SlotReader,
-  ChainReader,
-  ProofAuthority,
-  RingHeadReader,
-  RingHeadTransferProof,
-} from "../client/ports.js";
+import type { SlotReader, ProofAuthority, RingSpendRecordReader } from "../client/ports.js";
 import { bytesField } from "../client/internal.js";
 import { asField } from "../client/prover/assembly.js";
 import {
@@ -51,7 +45,7 @@ import {
   type SpendRecord,
 } from "./policy.js";
 import { findSpendCountersMessage, openSpendCounters, sealedSpendCounters } from "./counters.js";
-import { readCurrentSpendRecord } from "./head-reader.js";
+import { readCurrentSpendRecord } from "./spend-record-reader.js";
 
 const ZERO_NULLIFIER_SECRET = new Uint8Array(31) as Bytes31;
 
@@ -74,14 +68,11 @@ export interface VelocityFacts {
   readonly live: LiveSpendRecord;
   /** `undefined` for an expired record, the circuit opens only its commitment. */
   readonly counters: SpendCounters | undefined;
-  readonly head: RingHeadTransferProof;
 }
 
 /** Locates the sender's compressed record under the configured entries tree. */
 export interface ReadVelocityFactsInput {
-  readonly client: Pick<RingHeadReader, "getRingHeadTransferProof"> &
-    SlotReader &
-    Pick<ChainReader, "getAccount">;
+  readonly client: RingSpendRecordReader & SlotReader;
   readonly ringProgramId: Address;
   readonly keys: ShieldedKeys;
   readonly namespace: Address;
@@ -92,9 +83,7 @@ export interface ReadVelocityFactsInput {
   readonly sender: Member;
 }
 
-/** Couples the successor counters to the record spend and head transition. */
 export interface VelocityPlan {
-  readonly nextNullifier: Bytes32;
   readonly shape: Shape;
   readonly recordInput: ProofInputUtxo;
   readonly recordOutput: ProofOutputUtxo;
@@ -162,7 +151,7 @@ export async function readVelocityFacts(
 ): Promise<VelocityFacts> {
   const owner = RingListNamespace.of(input.namespace, input.entriesTreeId);
   if (input.windowSlots <= 0n) throw new RingError("RING_VELOCITY_DISABLED");
-  const { head, live } = await readCurrentSpendRecord(input, context);
+  const live = await readCurrentSpendRecord(input, context);
   const slot = await input.client.getSlot(context);
   const windowIndex = slot / input.windowSlots;
   const counters = await recoverCounters(input, live, windowIndex, context);
@@ -175,7 +164,6 @@ export async function readVelocityFacts(
     windowIndex,
     live,
     counters,
-    head,
   });
 }
 
@@ -324,7 +312,6 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
 
   return Object.freeze({
     shape,
-    nextNullifier: nextHashes.nullifier,
     recordInput,
     recordOutput,
     recordMessage: {

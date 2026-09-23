@@ -11,7 +11,6 @@ import {
   headMapRootFromProof,
   headMapZeroBytes,
   verifyHeadMapInsert,
-  verifyHeadMapTransfer,
 } from "../src/ring/head-map.js";
 import { bigIntBytes } from "../src/transaction/internal.js";
 
@@ -57,11 +56,10 @@ describe("ring head map", () => {
     expect(root).toEqual(HEAD_MAP_EMPTY_ROOT);
   });
 
-  it("verifies a first-member insertion and then a transfer", () => {
+  it("verifies a first-member insertion", () => {
     const zeros = headMapZeroBytes();
     const newMember = member(0x1234);
     const genesis = member(0x5e);
-    const successor = member(0x77);
 
     const splicedLow = headMapLeaf({ member: ZERO, next: newMember, nullifier: ZERO });
     const newProof = [splicedLow, ...zeros.slice(1, HEAD_MAP_HEIGHT)];
@@ -79,18 +77,6 @@ describe("ring head map", () => {
       newProof,
     });
     expect(registeredRoot).not.toEqual(HEAD_MAP_EMPTY_ROOT);
-
-    // The member keeps the sentinel's successor pointer, only its nullifier moves.
-    const transferredRoot = verifyHeadMapTransfer({
-      root: registeredRoot,
-      member: newMember,
-      next: HEAD_MAP_FIELD_MAX,
-      spent: genesis,
-      successor,
-      index: 1n,
-      proof: newProof,
-    });
-    expect(transferredRoot).not.toEqual(registeredRoot);
   });
 
   it("rejects a member outside the low element's range", () => {
@@ -135,18 +121,5 @@ describe("ring head map", () => {
     expect(() => verifyHeadMapInsert({ ...insert, lowProof: lowProof.slice(1) })).toThrow(
       "RING_HEAD_MAP_INVALID",
     );
-
-    const transferProof = insert.newProof;
-    expect(() =>
-      verifyHeadMapTransfer({
-        root: member(9),
-        member: member(0x1234),
-        next: HEAD_MAP_FIELD_MAX,
-        spent: member(0x5e),
-        successor: member(0x77),
-        index: 1n,
-        proof: transferProof,
-      }),
-    ).toThrow("RING_HEAD_MAP_INVALID");
   });
 });

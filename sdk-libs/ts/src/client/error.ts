@@ -47,10 +47,6 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
 export type CanonicalClientErrorCode = (typeof CANONICAL_CLIENT_ERROR_CODES)[number];
 
 export interface ClientErrorDetailsMap {
-  readonly CLIENT_HEAD_MAP_OUT_OF_SYNC: MethodDetails;
-  readonly CLIENT_HEAD_ROOT_CHANGED: MethodDetails;
-  readonly CLIENT_HEAD_MEMBER_UNREGISTERED: MethodDetails;
-  readonly CLIENT_HEAD_MEMBER_ALREADY_REGISTERED: MethodDetails;
   readonly CLIENT_KEY_REGISTRY_OUT_OF_SYNC: MethodDetails;
   readonly CLIENT_KEY_REGISTRY_ROOT_CHANGED: MethodDetails;
   readonly CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: MethodDetails;
@@ -208,10 +204,6 @@ export type ClientErrorDetails<Code extends ClientErrorCode = ClientErrorCode> =
   ClientErrorDetailsMap[Code];
 
 export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
-  "CLIENT_HEAD_MAP_OUT_OF_SYNC",
-  "CLIENT_HEAD_ROOT_CHANGED",
-  "CLIENT_HEAD_MEMBER_UNREGISTERED",
-  "CLIENT_HEAD_MEMBER_ALREADY_REGISTERED",
   "CLIENT_KEY_REGISTRY_OUT_OF_SYNC",
   "CLIENT_KEY_REGISTRY_ROOT_CHANGED",
   "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED",
@@ -353,10 +345,6 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },
   CLIENT_INDEXER: { method: "string", retryable: "boolean" },
-  CLIENT_HEAD_MAP_OUT_OF_SYNC: { method: "string" },
-  CLIENT_HEAD_ROOT_CHANGED: { method: "string" },
-  CLIENT_HEAD_MEMBER_UNREGISTERED: { method: "string" },
-  CLIENT_HEAD_MEMBER_ALREADY_REGISTERED: { method: "string" },
   CLIENT_KEY_REGISTRY_OUT_OF_SYNC: { method: "string" },
   CLIENT_KEY_REGISTRY_ROOT_CHANGED: { method: "string" },
   CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: { method: "string" },

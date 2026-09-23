@@ -10,8 +10,8 @@ import {
   encodeRingsByTagsRequest,
   encodeShieldedTransactionsBySignatureRequest,
   encodeRingMemberProofRequest,
-  decodeRingHeadRegisterProof,
-  decodeRingHeadTransferProof,
+  encodeRingMemberRequest,
+  decodeRingSpendRecordResponse,
   decodeRingKeyRegistryEntry,
   decodeRingKeyRegistryRegisterProof,
 } from "../codec.js";
@@ -19,8 +19,7 @@ import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
   GET_MERKLE_PROOFS,
   GET_NON_INCLUSION_PROOFS,
-  GET_RING_HEAD_REGISTER_PROOF,
-  GET_RING_HEAD_TRANSFER_PROOF,
+  GET_RING_SPEND_RECORD,
   GET_RING_KEY_REGISTRY_ENTRY,
   GET_RING_KEY_REGISTRY_REGISTER_PROOF,
   GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
@@ -39,9 +38,9 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
+  GetRingSpendRecordResponse,
   RingMemberProofRequest,
-  RingHeadRegisterProof,
-  RingHeadTransferProof,
+  RingMemberRequest,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
 } from "../types.js";
@@ -52,21 +51,13 @@ export interface MethodDescriptor<Request, Response> {
   decodeResponse(value: unknown): Response;
 }
 
-export const getRingHeadRegisterProofMethod: MethodDescriptor<
-  RingMemberProofRequest,
-  RingHeadRegisterProof
+export const getRingSpendRecordMethod: MethodDescriptor<
+  RingMemberRequest,
+  GetRingSpendRecordResponse
 > = {
-  name: GET_RING_HEAD_REGISTER_PROOF,
-  encodeRequest: encodeRingMemberProofRequest,
-  decodeResponse: decodeRingHeadRegisterProof,
-};
-export const getRingHeadTransferProofMethod: MethodDescriptor<
-  RingMemberProofRequest,
-  RingHeadTransferProof
-> = {
-  name: GET_RING_HEAD_TRANSFER_PROOF,
-  encodeRequest: encodeRingMemberProofRequest,
-  decodeResponse: decodeRingHeadTransferProof,
+  name: GET_RING_SPEND_RECORD,
+  encodeRequest: encodeRingMemberRequest,
+  decodeResponse: decodeRingSpendRecordResponse,
 };
 export const getRingKeyRegistryEntryMethod: MethodDescriptor<
   RingMemberProofRequest,

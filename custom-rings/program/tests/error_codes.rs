@@ -61,13 +61,9 @@ fn error_codes_are_stable() {
         (ApprovalWithoutCoSigner as u32, 8158),
         (VelocityDisabled as u32, 8159),
         (VelocityWindowImmutable as u32, 8164),
-        (InvalidHeadMapRoot as u32, 8165),
-        (StaleHeadMapRoot as u32, 8166),
-        (InvalidHeadMapCursor as u32, 8167),
         (InvalidKeyRegistryRoot as u32, 8168),
         (StaleKeyRegistryRoot as u32, 8169),
         (InvalidKeyRegistryCursor as u32, 8170),
-        (HeadMapRootAlreadyExists as u32, 8171),
         (KeyRegistryRootAlreadyExists as u32, 8172),
         (InvalidDepositAudit as u32, 8173),
         (DepositAuditRequired as u32, 8174),
@@ -79,6 +75,11 @@ fn error_codes_are_stable() {
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
     }
+    let retired = [8165, 8166, 8167, 8171];
+    assert!(
+        table.iter().all(|(got, _)| !retired.contains(got)),
+        "a retired error code was reused"
+    );
 }
 
 /// A new variant fails the build until the match covers it.
@@ -143,13 +144,9 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | ApprovalWithoutCoSigner
         | VelocityDisabled
         | VelocityWindowImmutable
-        | InvalidHeadMapRoot
-        | StaleHeadMapRoot
-        | InvalidHeadMapCursor
         | InvalidKeyRegistryRoot
         | StaleKeyRegistryRoot
         | InvalidKeyRegistryCursor
-        | HeadMapRootAlreadyExists
         | KeyRegistryRootAlreadyExists
         | InvalidDepositAudit
         | DepositAuditRequired

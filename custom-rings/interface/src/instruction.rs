@@ -37,7 +37,6 @@ pub mod tag {
     /// Tag 3 data over the SPP authority rail, signed by the delegate.
     pub const DELEGATE_TRANSACT: u8 = 25;
     pub const REGISTER_SPEND: u8 = 26;
-    pub const CREATE_HEAD_MAP_ROOT: u8 = 27;
     pub const CREATE_KEY_REGISTRY_ROOT: u8 = 29;
     pub const REGISTER_KEY: u8 = 30;
     pub const SET_DEPOSIT_AUDIT: u8 = 31;
@@ -47,13 +46,9 @@ pub mod tag {
 /// Account slot indices the processors and the indexer agree on.
 pub mod accounts {
     pub const REGISTER_SPEND_PAYER: usize = 2;
-    pub const REGISTER_SPEND_HEAD_ROOT: usize = 9;
-    /// Present only on the windowed member rail.
-    pub const TRANSACT_HEAD_ROOT: usize = 6;
     pub const REGISTER_KEY_MEMBER: usize = 0;
     pub const REGISTER_KEY_CONFIG: usize = 1;
     pub const REGISTER_KEY_ROOT: usize = 2;
-    pub const CREATE_HEAD_MAP_ROOT_ROOT: usize = 3;
     pub const CREATE_KEY_REGISTRY_ROOT_ROOT: usize = 3;
 }
 
@@ -65,7 +60,6 @@ pub const SET_PAUSED_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_CO_SIGNER_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_DELEGATE_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -143,7 +137,6 @@ pub struct PlainGroth16Proof {
     pub proof_c: [u8; 32],
 }
 
-/// Exact current root and proven successor for a windowed spend-record update.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct HeadMapTransition {
     pub old_root: [u8; 32],
@@ -162,8 +155,6 @@ pub struct CustomRingTransactIxData {
     pub nullifier_root_index: u16,
     /// Proof-bound approval demand, zero when member amount controls do not apply.
     pub approval_required: u8,
-    /// Required only on the windowed member rail.
-    pub head_transition: Option<HeadMapTransition>,
     /// Canonical target prefix with a zero suffix in the policy public input.
     #[wincode(with = "CompactRevocationTargets")]
     pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
@@ -277,7 +268,6 @@ pub struct PolicyTableIxData {
 
 pub const REGISTER_SPEND_COMPUTE_UNIT_LIMIT: u32 = ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
-/// Atomic SPP genesis record creation and compressed head-map insertion proofs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RegisterSpendIxData {
     /// The SPP output blinding, the proof fails unless it is the derived one.
@@ -286,10 +276,6 @@ pub struct RegisterSpendIxData {
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
     pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
-    pub head_old_root: [u8; 32],
-    pub head_new_root: [u8; 32],
-    pub head_next_index: u64,
-    pub head_proof: PlainGroth16Proof,
 }
 
 /// One BSB22 verify over the audited encryption of a member's nullifier key.

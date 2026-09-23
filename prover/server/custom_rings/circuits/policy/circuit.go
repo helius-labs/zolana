@@ -89,13 +89,13 @@ const (
 )
 
 func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
-	chain, _, _ := c.constrainPolicyRail(api, memberRail)
+	chain, _ := c.constrainPolicyRail(api, memberRail)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }
 
 // The rail is fixed in the compiled circuit, never selected by a witness.
-func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, transactionContext, successorCounters) {
+func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, successorCounters) {
 	// 1. Prove the audit encryption statement.
 	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash:       c.PrivateTxHash,
@@ -141,5 +141,5 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 	for _, fact := range listFacts {
 		chain = append(chain, fact.revocationTarget)
 	}
-	return chain, txContext, counters
+	return chain, counters
 }

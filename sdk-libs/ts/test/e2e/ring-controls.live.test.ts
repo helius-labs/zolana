@@ -26,7 +26,6 @@ import {
   initializeRingConfigInstructions,
   buildRingCreatePolicyTransaction,
   initSppRingConfigInstruction,
-  createRingHeadMapRootInstruction,
   createRingKeyRegistryRootInstruction,
   fetchRingKeyRegistryRoot,
   fetchRingSealedKey,
@@ -34,11 +33,11 @@ import {
   prepareRingKeyRegistration,
   recoverRingMemberNotes,
   createRingDelegateRecoveredSubmission,
+  memberOfIdentity,
   memberOfTag,
   setRingCoSignerInstruction,
   setRingSpendWindowInstruction,
   setRingDelegateInstruction,
-  fetchRingHeadMapRoot,
   fetchRingSpendWindow,
   fetchRingCoSigner,
   fetchRingDepositAudit,
@@ -142,7 +141,7 @@ async function advanceScopedClock(
   }
 }
 
-async function indexedHead<T>(read: () => Promise<T>): Promise<T> {
+async function indexedKeys<T>(read: () => Promise<T>): Promise<T> {
   const deadline = Date.now() + 120_000;
   for (;;) {
     try {
@@ -156,12 +155,7 @@ async function indexedHead<T>(read: () => Promise<T>): Promise<T> {
             : undefined;
       if (
         code === undefined ||
-        ![
-          "CLIENT_HEAD_MAP_OUT_OF_SYNC",
-          "CLIENT_HEAD_ROOT_CHANGED",
-          "CLIENT_KEY_REGISTRY_OUT_OF_SYNC",
-          "CLIENT_KEY_REGISTRY_ROOT_CHANGED",
-        ].includes(code) ||
+        !["CLIENT_KEY_REGISTRY_OUT_OF_SYNC", "CLIENT_KEY_REGISTRY_ROOT_CHANGED"].includes(code) ||
         Date.now() > deadline
       )
         throw cause;
@@ -246,11 +240,6 @@ describe("fresh ring controls", () => {
       );
       await sendInstruction(
         client,
-        await createRingHeadMapRootInstruction({ ringProgramId, payer: authority, authority }),
-        authority,
-      );
-      await sendInstruction(
-        client,
         await createRingKeyRegistryRootInstruction({ ringProgramId, payer: authority, authority }),
         authority,
       );
@@ -325,16 +314,22 @@ describe("fresh ring controls", () => {
         rpcUrl: harness.rpcUrl,
         slot: ((await client.getSlot()) / windowSlots + 1n) * windowSlots,
       });
-      const registration = await indexedHead(() =>
+      const registration = await indexedKeys(() =>
         prepareRingSpendRegistration({ client, ringProgramId, payer: sender.signer }),
       );
       if (registration.kind !== "pending") throw new Error("fresh sender already registered");
       await settle(registration.submission, client, [sender.signer]);
-      const firstRoot = await fetchRingHeadMapRoot(client, ringProgramId);
-      expect(firstRoot.nextIndex).toBe(2n);
+      const senderMember = memberOfIdentity(
+        sender.keypair.shieldedAddress().signingPublicKey.ownerProofInputHash(),
+      );
+      const senderRecord = async () => {
+        const { record } = await client.getRingSpendRecord({ ringProgramId, member: senderMember });
+        if (record === null) throw new Error("spend record missing");
+        return record;
+      };
       expect(
         (
-          await indexedHead(() =>
+          await indexedKeys(() =>
             prepareRingSpendRegistration({ client, ringProgramId, payer: sender.signer }),
           )
         ).kind,
@@ -416,7 +411,7 @@ describe("fresh ring controls", () => {
       } finally {
         depositKey.destroy();
       }
-      const headBeforeMerge = await fetchRingHeadMapRoot(client, ringProgramId);
+      const recordBeforeMerge = await senderRecord();
       await settle(
         await createRingMergeSubmission({
           client,
@@ -440,7 +435,9 @@ describe("fresh ring controls", () => {
           )
           .map((note) => note.utxo.amount),
       ).toEqual([2_000_000_000n]);
-      expect(await fetchRingHeadMapRoot(client, ringProgramId)).toEqual(headBeforeMerge);
+      expect((await senderRecord()).transaction.txSignature).toBe(
+        recordBeforeMerge.transaction.txSignature,
+      );
       const transfer = {
         client,
         ringProgramId,
@@ -451,16 +448,16 @@ describe("fresh ring controls", () => {
         amount: 350_000_000n,
       };
       await settle(
-        await indexedHead(() => createRingTransferSubmission({ ...transfer, amount: 50_000_000n })),
+        await indexedKeys(() => createRingTransferSubmission({ ...transfer, amount: 50_000_000n })),
         client,
         [sender.signer],
       );
       await sync(client, sender);
-      await expect(indexedHead(() => buildRingTransferTransaction(transfer))).rejects.toMatchObject(
+      await expect(indexedKeys(() => buildRingTransferTransaction(transfer))).rejects.toMatchObject(
         { code: "RING_BUILD_TRANSFER", causeCode: "RING_COSIGNER_REQUIRED" },
       );
       await settle(
-        await indexedHead(() => createRingTransferSubmission({ ...transfer, cosigner })),
+        await indexedKeys(() => createRingTransferSubmission({ ...transfer, cosigner })),
         client,
         [sender.signer, cosigner],
       );
@@ -472,17 +469,16 @@ describe("fresh ring controls", () => {
           member: sender.keypair.shieldedAddress(),
           keys: sender.keys,
         });
-      const afterTransfer = await indexedHead(state);
+      const afterTransfer = await indexedKeys(state);
       expect(afterTransfer.counters?.spent[0]).toBe(400_000_000n);
-      if (afterTransfer.head === undefined) throw new Error("head witness missing");
       const audited = auditRingTransaction({
         auditor,
-        transaction: afterTransfer.head.record.transaction,
+        transaction: (await senderRecord()).transaction,
         assets: sender.wallet.registry,
       });
       expect(audited.spendRecords[0]?.counters?.spent[0]).toBe(400_000_000n);
       await settle(
-        await indexedHead(() =>
+        await indexedKeys(() =>
           createRingWithdrawalSubmission({
             client,
             ringProgramId,
@@ -502,7 +498,7 @@ describe("fresh ring controls", () => {
       );
       await sync(client, sender);
       await expect(
-        indexedHead(() =>
+        indexedKeys(() =>
           buildRingTransferTransaction({ ...transfer, amount: 600_000_000n, cosigner }),
         ),
       ).rejects.toMatchObject({
@@ -514,27 +510,26 @@ describe("fresh ring controls", () => {
         [harness.token2022Mint, 200n, 601n],
       ] as const) {
         await settle(
-          await indexedHead(() =>
+          await indexedKeys(() =>
             createRingTransferSubmission({ ...transfer, asset, amount, cosigner }),
           ),
           client,
           [sender.signer, cosigner],
         );
         await sync(client, sender);
-        const charged = await indexedHead(state);
-        if (charged.counters === undefined || charged.head === undefined)
-          throw new Error("charged record missing");
+        const charged = await indexedKeys(state);
+        if (charged.counters === undefined) throw new Error("charged record missing");
         expect(spendCountersSpent(charged.counters, memberOfAsset(asset))).toBe(amount);
         expect(spendCountersSpent(charged.counters, memberOfAsset(SOL_MINT))).toBe(500_000_000n);
         expect(spendCountersSpent(charged.counters, memberOfAsset(harness.mint))).toBe(100n);
         const audit = auditRingTransaction({
           auditor,
-          transaction: charged.head.record.transaction,
+          transaction: (await senderRecord()).transaction,
           assets: sender.wallet.registry,
         });
         expect(audit.spendRecords[0]?.counters).toEqual(charged.counters);
         await expect(
-          indexedHead(() =>
+          indexedKeys(() =>
             buildRingTransferTransaction({ ...transfer, asset, amount: rejected, cosigner }),
           ),
         ).rejects.toMatchObject({
@@ -553,7 +548,7 @@ describe("fresh ring controls", () => {
         }),
         authority,
       );
-      const beforeDelegate = await indexedHead(state);
+      const beforeDelegate = await indexedKeys(state);
       const move = {
         client,
         ringProgramId,
@@ -590,7 +585,7 @@ describe("fresh ring controls", () => {
         client,
         [delegate, cosigner],
       );
-      const afterDelegate = await indexedHead(state);
+      const afterDelegate = await indexedKeys(state);
       expect(afterDelegate.live.nullifier).toEqual(beforeDelegate.live.nullifier);
       expect(afterDelegate.counters).toEqual(beforeDelegate.counters);
       await sync(client, sender);
@@ -615,7 +610,7 @@ describe("fresh ring controls", () => {
       }
       const nullifierKey = sender.keypair.nullifierKey();
       try {
-        const enrolment = await indexedHead(() =>
+        const enrolment = await indexedKeys(() =>
           prepareRingKeyRegistration({
             client,
             ringProgramId,
@@ -628,7 +623,7 @@ describe("fresh ring controls", () => {
         nullifierKey.destroy();
       }
       expect((await fetchRingKeyRegistryRoot(client, ringProgramId)).nextIndex).toBe(2n);
-      const sealed = await indexedHead(() =>
+      const sealed = await indexedKeys(() =>
         fetchRingSealedKey({
           client,
           ringProgramId,
@@ -695,7 +690,7 @@ describe("fresh ring controls", () => {
           ?.assets.find((balance) => balance.mint === SOL_MINT)?.amount,
       ).toBe(1_200_000_000n);
       await settle(
-        await indexedHead(() =>
+        await indexedKeys(() =>
           createRingWithdrawalSubmission({
             client,
             ringProgramId,
@@ -713,7 +708,7 @@ describe("fresh ring controls", () => {
         [sender.signer, authority, cosigner],
       );
       await sync(client, sender);
-      const drained = await indexedHead(state);
+      const drained = await indexedKeys(state);
       if (drained.counters === undefined) throw new Error("drained counters missing");
       expect(spendCountersSpent(drained.counters, memberOfAsset(harness.token2022Mint))).toBe(400n);
       expect(
@@ -728,11 +723,10 @@ describe("fresh ring controls", () => {
           .find((ring) => ring.ringProgramId === ringProgramId)
           ?.assets.find((balance) => balance.mint === SOL_MINT)?.amount ?? 0n;
       const beforeBalances = { sender: solBalance(sender), recipient: solBalance(recipient) };
-      const beforeRoot = await fetchRingHeadMapRoot(client, ringProgramId);
       const oldWindow = (await client.getSlot()) / windowSlots;
       expect(drained.live.record.window).toBe(oldWindow);
       const rolloverAmount = 50_000_000n;
-      const rollover = await indexedHead(() =>
+      const rollover = await indexedKeys(() =>
         createRingTransferSubmission({ ...transfer, amount: rolloverAmount, cosigner }),
       );
       expect((await client.getSlot()) / windowSlots).toBe(oldWindow);
@@ -774,21 +768,16 @@ describe("fresh ring controls", () => {
         undefined,
       ]);
       expect(signedNotes).toEqual([retainedNotes, retainedNotes]);
-      const reset = await indexedHead(state);
-      if (reset.counters === undefined || reset.head === undefined)
-        throw new Error("rollover record missing");
+      const reset = await indexedKeys(state);
+      if (reset.counters === undefined) throw new Error("rollover record missing");
       expect(reset.live.record.version).toBe(drained.live.record.version + 1n);
       expect(reset.live.record.window).toBe(oldWindow + 1n);
       expect(reset.live.txSignature).toBe(settled.signature);
       expect(reset.live.nullifier).not.toEqual(drained.live.nullifier);
-      expect(reset.head.nullifier).toEqual(reset.live.nullifier);
       expect(spendCountersSpent(reset.counters, memberOfAsset(SOL_MINT))).toBe(rolloverAmount);
       expect(spendCountersSpent(reset.counters, memberOfAsset(harness.mint))).toBe(0n);
       expect(spendCountersSpent(reset.counters, memberOfAsset(harness.token2022Mint))).toBe(0n);
-      const afterRoot = await fetchRingHeadMapRoot(client, ringProgramId);
-      expect(afterRoot.root).toEqual(reset.head.root);
-      expect(afterRoot.root).not.toEqual(beforeRoot.root);
-      expect(afterRoot.nextIndex).toBe(beforeRoot.nextIndex);
+      expect((await senderRecord()).transaction.txSignature).toBe(settled.signature);
       await sync(client, sender);
       await sync(client, recipient);
       expect(solBalance(sender)).toBe(beforeBalances.sender - rolloverAmount);

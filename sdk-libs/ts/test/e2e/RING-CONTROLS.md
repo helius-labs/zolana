@@ -2,7 +2,7 @@
 
 Run from `sdk-libs/ts` after `npm ci` and local builds. Use a dedicated local stack
 with current SPP and user-registry programs, the generated localnet snapshots
-(protocol config, tree and SPL asset counter), Photon with compressed-head indexing,
+(protocol config, tree and SPL asset counter), Photon with spend-record indexing,
 and the prover with the SPP and custom-ring keys `proving-keys.lock` pins,
 including the deposit disclosure circuit. V1
 transactions are required. Surfpool needs the explicitly opt-in local fixture

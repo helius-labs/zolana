@@ -18,11 +18,11 @@ use super::{
     transaction::{compile_message, sign_transaction},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, ProveResult, RingHistoryOptions,
-        RingMemberProofRequest, ShieldedTransactionStream,
+        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        ProveResult, RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
+        ShieldedTransactionStream,
     },
 };
 
@@ -212,18 +212,11 @@ pub trait Rpc {
         Err(unsupported("get_non_inclusion_proofs"))
     }
 
-    fn get_ring_head_register_proof(
+    fn get_ring_spend_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
-        Err(unsupported("get_ring_head_register_proof"))
-    }
-
-    fn get_ring_head_transfer_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
-        Err(unsupported("get_ring_head_transfer_proof"))
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ClientError> {
+        Err(unsupported("get_ring_spend_record"))
     }
 
     fn get_ring_key_registry_entry(
@@ -439,18 +432,11 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("get_non_inclusion_proofs"))
     }
 
-    async fn get_ring_head_register_proof(
+    async fn get_ring_spend_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
-        Err(unsupported("get_ring_head_register_proof"))
-    }
-
-    async fn get_ring_head_transfer_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
-        Err(unsupported("get_ring_head_transfer_proof"))
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ClientError> {
+        Err(unsupported("get_ring_spend_record"))
     }
 
     async fn get_ring_key_registry_entry(

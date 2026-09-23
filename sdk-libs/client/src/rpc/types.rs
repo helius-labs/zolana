@@ -4,9 +4,8 @@ use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
 pub use zolana_indexer_api::{
-    GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
     GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    RingMemberProofRequest,
+    GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};

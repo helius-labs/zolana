@@ -47,12 +47,8 @@ pub enum EntryProofError {
     InvalidTree { address: Address },
     #[error("indexer returned no proof for the entry")]
     MissingProof,
-    #[error("the head-map response does not match the requested root, member or record")]
-    InvalidHeadProof,
-    #[error("the ring has no compressed head map")]
-    MissingHeadMap,
-    #[error("head map root account {address} is invalid")]
-    InvalidHeadMapRoot { address: Address },
+    #[error("the indexed spend record is not the requested member's record on the entries tree")]
+    InvalidSpendRecord,
     #[error("the spend of the {list_id:?} entry published no version {version}")]
     BrokenLineage {
         list_id: ListId,
@@ -68,12 +64,6 @@ pub enum EntryProofError {
 impl From<ClientError> for EntryProofError {
     fn from(error: ClientError) -> Self {
         Self::Client(Box::new(error))
-    }
-}
-
-impl EntryProofError {
-    pub(crate) fn is_unregistered(&self) -> bool {
-        matches!(self, Self::Client(error) if matches!(**error, ClientError::RingHeadMemberUnregistered))
     }
 }
 

@@ -281,17 +281,7 @@ impl<'a> CustomRingWitnessInput<'a> {
 }
 
 pub(crate) fn list_entry(error: crate::EntryProofError) -> TransferError {
-    match error {
-        crate::EntryProofError::Client(error)
-            if matches!(
-                *error,
-                zolana_client::ClientError::RingHeadMemberUnregistered
-            ) =>
-        {
-            TransferError::SpendRecordMissing
-        }
-        error => TransferError::ListEntry(Box::new(error)),
-    }
+    TransferError::ListEntry(Box::new(error))
 }
 
 struct Demand {

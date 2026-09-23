@@ -268,9 +268,9 @@ describe("key registry root", () => {
     expect(() =>
       decodeRingKeyRegistryRoot(registryRootData(HEAD_MAP_EMPTY_ROOT, 0n, bump)),
     ).toThrow("RING_KEY_REGISTRY_INVALID");
-    const headMap = new Uint8Array(data);
-    headMap[0] = 8;
-    expect(() => decodeRingKeyRegistryRoot(headMap)).toThrow("RING_KEY_REGISTRY_INVALID");
+    const otherKind = new Uint8Array(data);
+    otherKind[0] = 8;
+    expect(() => decodeRingKeyRegistryRoot(otherKind)).toThrow("RING_KEY_REGISTRY_INVALID");
     await expect(
       fetchRingKeyRegistryRoot({ getAccount: async () => undefined }, RING),
     ).rejects.toMatchObject({ code: "RING_KEY_REGISTRY_MISSING" });

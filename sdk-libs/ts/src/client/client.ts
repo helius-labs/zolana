@@ -54,8 +54,8 @@ import {
   type TreeContext,
   type RingProvingConfig,
   type RingMemberProofRequest,
-  type RingHeadRegisterProof,
-  type RingHeadTransferProof,
+  type RingMemberRequest,
+  type RingSpendRecordLookup,
   type RingKeyRegistryEntry,
   type RingKeyRegistryRegisterProof,
 } from "./ports.js";
@@ -76,7 +76,6 @@ import type {
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
   CustomRingRegisterKeyProofRequest,
-  CustomRingRegisterProofRequest,
   TransferCircuit,
   TransferInputs,
 } from "./prover/types.js";
@@ -530,18 +529,11 @@ export class ZolanaClient
     );
   }
 
-  getRingHeadRegisterProof(
-    request: RingMemberProofRequest,
+  getRingSpendRecord(
+    request: RingMemberRequest,
     context?: RequestContext,
-  ): Promise<RingHeadRegisterProof> {
-    return this.#indexer.getRingHeadRegisterProof(request, context);
-  }
-
-  getRingHeadTransferProof(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingHeadTransferProof> {
-    return this.#indexer.getRingHeadTransferProof(request, context);
+  ): Promise<RingSpendRecordLookup> {
+    return this.#indexer.getRingSpendRecord(request, context);
   }
 
   getRingKeyRegistryEntry(
@@ -728,19 +720,6 @@ export class ZolanaClient
       return compressProof(
         await this.#prover.proveCustomRingCompressedPolicy(inputs, context),
       ).toCustomRingProof();
-    } catch (cause) {
-      throw fromClientCause(cause);
-    }
-  }
-
-  async proveCustomRingRegister(
-    inputs: CustomRingRegisterProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    try {
-      return compressProof(
-        await this.#prover.proveCustomRingRegister(inputs, context),
-      ).toPlainProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }

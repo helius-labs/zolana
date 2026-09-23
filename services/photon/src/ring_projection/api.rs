@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use anyhow::Context as _;
+
 use custom_ring_interface::HEAD_MAP_CAPACITY;
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_pubkey::Pubkey;
@@ -211,20 +213,25 @@ async fn confirm<P: Projection>(
     rpc: &RpcClient,
     snapshot: &Snapshot,
 ) -> Result<ApiContext, PhotonApiError> {
-    let tip = snapshot
-        .tip
-        .as_ref()
-        .ok_or_else(|| out_of_sync::<P>("cursor has no canonical block"))?;
-    let block = rpc
-        .get_block(tip.slot, TransactionDetails::None)
+    let context = canonical_context(rpc, snapshot.tip.as_ref())
         .await
         .map_err(out_of_sync::<P>)?;
-    if block.blockhash != tip.blockhash.to_string() {
-        return Err(out_of_sync::<P>("cursor is on an orphaned block"));
-    }
     check_chain::<P>(rpc, &snapshot.root)
         .await
         .map_err(out_of_sync::<P>)?;
+    Ok(context)
+}
+
+pub(super) async fn canonical_context(
+    rpc: &RpcClient,
+    tip: Option<&BlockMetadata>,
+) -> anyhow::Result<ApiContext> {
+    let tip = tip.context("cursor has no canonical block")?;
+    let block = rpc.get_block(tip.slot, TransactionDetails::None).await?;
+    anyhow::ensure!(
+        block.blockhash == tip.blockhash.to_string(),
+        "cursor is on an orphaned block"
+    );
     Ok(ApiContext {
         slot: tip.slot,
         block_time: tip.block_time,
@@ -239,6 +246,6 @@ fn out_of_sync<P: Projection>(reason: impl Display) -> PhotonApiError {
     .into()
 }
 
-fn internal(error: impl Display) -> PhotonApiError {
+pub(super) fn internal(error: impl Display) -> PhotonApiError {
     PhotonApiError::UnexpectedError(format!("{error:#}"))
 }

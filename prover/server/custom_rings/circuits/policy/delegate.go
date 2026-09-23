@@ -11,7 +11,7 @@ type CustomRingDelegatePolicyCircuit struct {
 }
 
 func (c *CustomRingDelegatePolicyCircuit) Define(api frontend.API) error {
-	chain, _, _ := c.Policy.constrainPolicyRail(api, delegateRail)
+	chain, _ := c.Policy.constrainPolicyRail(api, delegateRail)
 	// The exempt rail still commits the velocity rows.
 	api.AssertIsEqual(c.Policy.PublicInputHash, gadget.HashChain(api, chain))
 	return nil

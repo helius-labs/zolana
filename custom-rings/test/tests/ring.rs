@@ -35,18 +35,18 @@ use custom_ring_sdk::{
     auditor_view_tag, find_counters_message, AsyncTransferProofEnvironment, ClearSpendWindow,
     CoSignScope, CoSignThreshold, CreateConfig, CreateKeyRegistryRoot, CustomRing,
     CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
-    DelegateTransfer, DelegateTransferInput, DepositError, EntryProofError, KeyRegistrationError,
-    LiveSpendRecord, ProvenDelegateTransfer, ProvenTransfer, ReadEnvironment, ReadSealedKey,
-    ReadSpendRecord, RegisterKey, RegisterSpend, RingDeposit, RingDepositReceipt, SealedCounters,
-    SetAuthority, SetCoSigner, SetDelegate, SetPaused, SetSpendWindow, TransactSend, TransferError,
-    TransferProofEnvironment,
+    DelegateTransfer, DelegateTransferInput, DepositError, KeyRegistrationError,
+    ProvenDelegateTransfer, ProvenTransfer, ReadSealedKey, ReadSpendRecord, RegisterKey,
+    RegisterSpend, RingDeposit, RingDepositReceipt, SealedCounters, SetAuthority, SetCoSigner,
+    SetDelegate, SetPaused, SetSpendWindow, TransactSend, TransferError, TransferProofEnvironment,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
     policy::{EMPTY, TRANSFER_CAP, VELOCITY, VELOCITY_CAP, VELOCITY_COSIGN_ABOVE},
     shared::{
-        custom_ring_program_id, prover_url, send, send_expecting_rejection, setup, ExpectRejection,
-        RegisterRing, RejectedTransact, TestEnv, Tier, USDC_ASSET_ID,
+        custom_ring_program_id, prover_url, send, send_expecting_rejection, setup,
+        wait_for_spend_record, ExpectRejection, RegisterRing, RejectedTransact, TestEnv, Tier,
+        USDC_ASSET_ID,
     },
 };
 use solana_address::Address;
@@ -56,7 +56,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zeroize::Zeroizing;
 use zolana_client::{
-    rpc::{GetRingHeadTransferProofResponse, RingMemberProofRequest},
+    rpc::{GetRingSpendRecordResponse, RingSpendRecordRequest},
     AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError, ComputeBudgetConfig,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig, ProverClient, Rpc,
     ShieldedTransaction, SolanaRpc, ZolanaIndexer,
@@ -790,7 +790,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             input_tree: env.tree,
             output_tree: env.tree,
             entries_tree: Some(env.tree),
-            head_map_root: None,
             owner_signers: proven.owner_signers.clone(),
             interface_transfer_accounts: Vec::new(),
             proof: proven.proof,
@@ -799,7 +798,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             nullifier_root_index: 0,
             approval_required: false,
             revocation_targets: proven.revocation_targets,
-            head_transition: None,
         }
         .instruction()?,
     )?;
@@ -2014,7 +2012,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     let sender_address = sender.pubkey();
     let recipient = env.recipient.keypair.shielded_address()?;
     let sol_field = zolana_interface::SOL_ASSET_FIELD;
-    let head_map = || -> Result<_> { ring.read_head_map_root(rpc)?.context("head map") };
 
     let mut notes = Vec::with_capacity(DEPOSITS.len());
     for amount in DEPOSITS {
@@ -2074,26 +2071,13 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             entries_tree_id: 0,
             member,
         }
-        .read_current(ReadEnvironment { indexer, rpc })
+        .read_current(indexer)
     };
 
     // Nothing moves before the sender registers.
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    let unregistered = loop {
-        let error = prove(prepare(notes.clone(), FIRST_SEND)?, None)
-            .err()
-            .context("an unregistered sender reached proving")?;
-        let catching_up = matches!(
-            &error,
-            TransferError::ListEntry(error)
-                if matches!(error.as_ref(), custom_ring_sdk::EntryProofError::Client(error)
-                    if matches!(error.as_ref(), zolana_client::ClientError::RingHeadMapOutOfSync))
-        );
-        if !catching_up || std::time::Instant::now() >= deadline {
-            break error;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    };
+    let unregistered = prove(prepare(notes.clone(), FIRST_SEND)?, None)
+        .err()
+        .context("an unregistered sender reached proving")?;
     assert!(
         matches!(unregistered, TransferError::SpendRecordMissing),
         "an unregistered sender is refused before proving: {unregistered}"
@@ -2114,18 +2098,22 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         registered.record.window, window,
         "registered at the proven window"
     );
-    let registered_head = head_map()?;
-    assert_eq!(
-        registered_head.next_index, 2,
-        "one registered member plus sentinel"
-    );
-    assert_ne!(
-        registered_head.root,
-        custom_ring_interface::HEAD_MAP_EMPTY_ROOT
-    );
 
-    // Another member's registration makes an unchanged sender's head proof stale.
-    let stale = prove(prepare(notes.clone(), FIRST_SEND)?, None)?;
+    // A proof built before another member registers still lands.
+    let prepared = prepare(notes, FIRST_SEND)?;
+    let (change_slot, mut change) = prepared
+        .outputs()
+        .iter()
+        .enumerate()
+        .find(|(_, output)| output.amount == DEPOSITS[0] + DEPOSITS[1] - FIRST_SEND)
+        .map(|(slot, output)| (slot, output.clone()))
+        .ok_or_else(|| anyhow!("change output"))?;
+    change.blinding = output_blinding(&prepared, u32::try_from(change_slot)?)?;
+    let mut proven = prove(prepared, None)?;
+    assert!(
+        !proven.approval_required,
+        "a send at the threshold needs no approval"
+    );
     let other = &env.recipient.keypair;
     let other_registration = RegisterSpend {
         ring,
@@ -2146,14 +2134,10 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
                 entries_tree_id: 0,
                 member: other_member,
             }
-            .read_current(ReadEnvironment { indexer, rpc })
+            .read_current(indexer)
         },
         0,
     )?;
-    let rejection = send_expecting_rejection(rpc, sender, stale.instruction()?)?;
-    Rejection::custom(CustomRingError::StaleHeadMapRoot as u32)
-        .at(0)
-        .assert_client(&rejection);
     assert_eq!(
         read_record()?
             .ok_or_else(|| anyhow!("sender record"))?
@@ -2161,25 +2145,8 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             .version,
         0
     );
-    let head_before_transfer = head_map()?;
-    assert_eq!(head_before_transfer.next_index, 3);
 
-    // Failed SPP verification rolls back the head before a valid send advances both.
-    let prepared = prepare(notes, FIRST_SEND)?;
-    let (change_slot, mut change) = prepared
-        .outputs()
-        .iter()
-        .enumerate()
-        .find(|(_, output)| output.amount == DEPOSITS[0] + DEPOSITS[1] - FIRST_SEND)
-        .map(|(slot, output)| (slot, output.clone()))
-        .ok_or_else(|| anyhow!("change output"))?;
-    change.blinding = output_blinding(&prepared, u32::try_from(change_slot)?)?;
-    let mut proven = prove(prepared, None)?;
-    assert!(
-        !proven.approval_required,
-        "a send at the threshold needs no approval"
-    );
-    let root_before_cpi = fetch_account(rpc, &ring.head_map_root_pda())?;
+    // Failed SPP verification rolls back the tree before a valid send advances the record.
     let tree_before_cpi = fetch_account(rpc, &env.tree)?;
     let valid_c = proven.data.proof.c;
     proven.data.proof.c = proven.data.proof.a;
@@ -2187,7 +2154,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     Rejection::custom(ShieldedPoolError::TransactProofVerificationFailed as u32)
         .at(0)
         .assert_client(&rejection);
-    assert_account_unchanged(rpc, &ring.head_map_root_pda(), &root_before_cpi)?;
     assert_account_unchanged(rpc, &env.tree, &tree_before_cpi)?;
     proven.data.proof.c = valid_c;
     let signature = TransactSend {
@@ -2198,12 +2164,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     .send(rpc)?;
     let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
     let live = wait_for_spend_record(read_record, 1)?;
-    let first_head = head_map()?;
-    assert_ne!(first_head.root, head_before_transfer.root);
-    assert_eq!(
-        first_head.next_index, 3,
-        "transfers do not allocate map leaves"
-    );
     let tx_key = sender.get_transaction_viewing_key(&indexed.nullifiers[0])?;
     let counters = SealedCounters {
         body: &find_counters_message(&indexed.messages, ring.namespace_pda().as_array())?
@@ -2288,9 +2248,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     .send(rpc)?;
     wait_for_indexed_transaction(indexer, auditor_tag, signature);
     let live = wait_for_spend_record(read_record, 2)?;
-    let second_head = head_map()?;
-    assert_ne!(second_head.root, first_head.root);
-    assert_eq!(second_head.next_index, 3);
     assert_eq!(
         live.record.window, window,
         "the same window carries both sends"
@@ -2317,7 +2274,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         Ok(_) => return Err(anyhow!("the capped send was proven")),
     }
 
-    // Delegation exceeds the velocity cap without changing member counters or the head map.
+    // Delegation exceeds the velocity cap without changing member counters.
     let delegate = Keypair::new();
     send(
         rpc,
@@ -2375,7 +2332,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     }
     .send(rpc)?;
     wait_for_indexed_transaction(indexer, auditor_tag, delegate_signature);
-    assert_eq!(head_map()?, second_head);
     assert_eq!(
         read_record()?
             .ok_or_else(|| anyhow!("sender record"))?
@@ -2414,7 +2370,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     Rejection::custom(CustomRingError::ProofVerificationFailed as u32)
         .at(0)
         .assert_client(&rejection);
-    assert_eq!(head_map()?, second_head);
     wait_for_spend_record(read_record, 2)?;
     // 2. An expired record must spend with public fields alone.
     let reset = recover(prepare(vec![third], THIRD_SEND)?)?;
@@ -2427,9 +2382,6 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     wait_for_indexed_transaction(indexer, auditor_tag, signature);
     let reset = wait_for_spend_record(read_record, 3)?;
     assert_eq!(reset.record.window, window + 1);
-    let reset_head = head_map()?;
-    assert_ne!(reset_head.root, second_head.root);
-    assert_eq!(reset_head.next_index, second_head.next_index);
     assert_ne!(reset.nullifier, live.nullifier);
     let audited = AuditLookup {
         ring_program,
@@ -2464,12 +2416,17 @@ struct WithoutSpendCounters<'a> {
 }
 
 impl Rpc for WithoutSpendCounters<'_> {
-    fn get_ring_head_transfer_proof(
+    fn get_ring_spend_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
-        let mut response = self.indexer.get_ring_head_transfer_proof(request)?;
-        let messages = &mut response.record.transaction.messages;
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ClientError> {
+        let mut response = self.indexer.get_ring_spend_record(request)?;
+        let messages = &mut response
+            .record
+            .as_mut()
+            .expect("the sender's record is indexed")
+            .transaction
+            .messages;
         let before = messages.len();
         messages.retain(|message| message.view_tag.0 != self.namespace.to_bytes());
         assert_eq!(messages.len() + 1, before);
@@ -2678,22 +2635,6 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
         Ok(_) => return Err(anyhow!("the capped send was proven")),
     }
     Ok(())
-}
-
-fn wait_for_spend_record(
-    read: impl Fn() -> Result<Option<LiveSpendRecord>, EntryProofError>,
-    version: u64,
-) -> Result<LiveSpendRecord> {
-    Ok(transact::wait_for(
-        format!("spend record v{version}"),
-        || {
-            Ok(match read() {
-                Ok(Some(live)) if live.record.version == version => Probe::Ready(live),
-                Ok(_) => Probe::NotYet,
-                Err(error) => Probe::Retry(error),
-            })
-        },
-    )?)
 }
 
 #[test]

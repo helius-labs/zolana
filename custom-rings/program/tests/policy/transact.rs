@@ -118,7 +118,6 @@ fn body_with_targets(
             state_root_index,
             nullifier_root_index,
             approval_required,
-            head_transition: None,
             revocation_targets,
             transact,
         })

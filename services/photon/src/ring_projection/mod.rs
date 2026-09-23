@@ -1,9 +1,9 @@
 //! A rollback never changes SPP state.
 
 pub(crate) mod api;
-pub(crate) mod head_map;
 pub(crate) mod key_registry;
 mod proof;
+pub(crate) mod spend_record;
 mod storage;
 
 use std::{
@@ -30,6 +30,7 @@ use crate::{
     },
     rpc::{RpcClient, RpcError},
 };
+use spend_record::{SpendRing, SpendStore, SpendUndo};
 use storage::{
     BlockJournal, BlockUndo, LeafWrite, MemberRestore, PendingRing, PredecessorError,
     ProjectionCursor, RingRoot, RingStore, Undo,
@@ -44,26 +45,22 @@ const ACCOUNTS_PER_REQUEST: usize = 100;
 const JOURNAL_RETENTION_SLOTS: u64 = 8_192;
 /// A ring activated after its pending root expired needs a reindex.
 const PENDING_TTL_SLOTS: u64 = 43_200;
-/// The sentinel leaf is the same for both kinds.
 const EMPTY_ROOT: [u8; 32] = custom_ring_interface::HEAD_MAP_EMPTY_ROOT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectionKind {
-    HeadMap,
     KeyRegistry,
 }
 
 impl ProjectionKind {
     pub(crate) fn tree(self) -> RingsTreeKind {
         match self {
-            Self::HeadMap => RingsTreeKind::HeadMap,
             Self::KeyRegistry => RingsTreeKind::KeyRegistry,
         }
     }
 
     fn table(self) -> &'static str {
         match self {
-            Self::HeadMap => "ring_head_map",
             Self::KeyRegistry => "ring_key_registry",
         }
     }
@@ -72,7 +69,6 @@ impl ProjectionKind {
 impl fmt::Display for ProjectionKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::HeadMap => "head map",
             Self::KeyRegistry => "key registry",
         })
     }
@@ -171,8 +167,6 @@ impl Projector {
             return Ok(Progress::Behind);
         }
         // 3. Invalid ring accounts must not serve proofs.
-        self.check_roots::<head_map::HeadMap>(&cursor, target)
-            .await?;
         self.check_roots::<key_registry::KeyRegistry>(&cursor, target)
             .await?;
         cursor.resume(db).await?;
@@ -666,7 +660,7 @@ impl BlockWork<'_> {
             if transaction.error.is_some() {
                 continue;
             }
-            self.project::<head_map::HeadMap>(transaction, &mut undo.head_map)
+            self.project_spend_records(transaction, &mut undo.spend_records)
                 .await?;
             self.project::<key_registry::KeyRegistry>(transaction, &mut undo.key_registry)
                 .await?;
@@ -729,26 +723,85 @@ impl BlockWork<'_> {
         Ok(())
     }
 
+    async fn project_spend_records(
+        &mut self,
+        transaction: &TransactionInfo,
+        undo: &mut Vec<SpendUndo>,
+    ) -> Result<()> {
+        let tx = self.tx;
+        let invocations = Invocations::new(transaction, self.block.metadata.slot);
+        for (position, instruction) in invocations.instructions() {
+            let program = instruction.program_id.to_bytes();
+            let Some(tag) = instruction.data.first().copied() else {
+                continue;
+            };
+            if !self.scope.covers(&program) || !spend_record::TAGS.contains(&tag) {
+                continue;
+            }
+            if matches!(self.scope, Scope::Every)
+                && storage::pending_ring(tx, &program).await?.is_some()
+            {
+                continue;
+            }
+            let store = SpendStore::new(tx, program);
+            // A ring's first registration opens its records.
+            let ring = match store.ring().await? {
+                Some(ring) => ring,
+                None if tag == custom_ring_interface::instruction::tag::REGISTER_SPEND => {
+                    if !self.admit(program).await? {
+                        continue;
+                    }
+                    undo.push(store.open().await?);
+                    SpendRing { fault: None }
+                }
+                None => continue,
+            };
+            if ring.fault.is_some() {
+                continue;
+            }
+            let outcome = async {
+                let invocation = invocations.invocation(position)?;
+                store.advance(&invocation, &mut self.env).await
+            }
+            .await;
+            match outcome {
+                Ok(Some(entry)) => undo.push(entry),
+                Ok(None) => {}
+                Err(ProjectError::Fault(reason)) => undo.push(store.quarantine(reason).await?),
+                Err(ProjectError::Retry(error)) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    /// `false` parks an inactive ring for replay once it activates.
+    async fn admit(&mut self, program: [u8; 32]) -> Result<bool> {
+        if registered_ring(self.env.rpc, &Pubkey::new_from_array(program)).await? {
+            return Ok(true);
+        }
+        if matches!(self.scope, Scope::Ring(_)) {
+            bail!("ring became inactive during replay");
+        }
+        storage::save_pending(
+            self.tx,
+            &PendingRing {
+                program,
+                slot: self.block.metadata.slot,
+                blockhash: self.block.metadata.blockhash.clone(),
+                replayed_tip: None,
+            },
+        )
+        .await?;
+        Ok(false)
+    }
+
     async fn initialize<P: Projection>(
         &mut self,
         store: &RingStore<'_, DatabaseTransaction, P>,
         address: [u8; 32],
     ) -> Result<Option<Undo<P::Leaf>>> {
         let program = Pubkey::new_from_array(store.program());
-        if !registered_ring(self.env.rpc, &program).await? {
-            if matches!(self.scope, Scope::Ring(_)) {
-                bail!("ring became inactive during replay");
-            }
-            storage::save_pending(
-                self.tx,
-                &PendingRing {
-                    program: store.program(),
-                    slot: self.block.metadata.slot,
-                    blockhash: self.block.metadata.blockhash.clone(),
-                    replayed_tip: None,
-                },
-            )
-            .await?;
+        if !self.admit(store.program()).await? {
             return Ok(None);
         }
         if let Some(existing) = store.root().await? {

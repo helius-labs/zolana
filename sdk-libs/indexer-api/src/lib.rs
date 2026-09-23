@@ -18,10 +18,9 @@ pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "getShieldedTransactionsByTa
 pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "getShieldedTransactionsBySignature";
 pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactionsByNullifiers";
 pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
-pub const GET_RING_HEAD_REGISTER_PROOF: &str = "getRingHeadRegisterProof";
 pub const GET_RING_KEY_REGISTRY_ENTRY: &str = "getRingKeyRegistryEntry";
 pub const GET_RING_KEY_REGISTRY_REGISTER_PROOF: &str = "getRingKeyRegistryRegisterProof";
-pub const GET_RING_HEAD_TRANSFER_PROOF: &str = "getRingHeadTransferProof";
+pub const GET_RING_SPEND_RECORD: &str = "getRingSpendRecord";
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 
@@ -30,14 +29,11 @@ const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
 const LIMIT_ERROR: &str = "value must be between 1 and 1000";
 
 pub mod error_code {
-    pub const RING_HEAD_MAP_OUT_OF_SYNC: i64 = -32070;
-    pub const RING_HEAD_ROOT_CHANGED: i64 = -32071;
-    pub const RING_HEAD_MEMBER_UNREGISTERED: i64 = -32072;
-    pub const RING_HEAD_MEMBER_ALREADY_REGISTERED: i64 = -32073;
     pub const RING_KEY_REGISTRY_OUT_OF_SYNC: i64 = -32074;
     pub const RING_KEY_REGISTRY_ROOT_CHANGED: i64 = -32075;
     pub const RING_KEY_REGISTRY_MEMBER_UNREGISTERED: i64 = -32076;
     pub const RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: i64 = -32077;
+    pub const RING_SPEND_RECORD_OUT_OF_SYNC: i64 = -32078;
 }
 
 /// Associates one canonical JSON-RPC method name with its parameter and result types.
@@ -55,10 +51,9 @@ pub mod method {
     pub struct GetShieldedTransactionsBySignature;
     pub struct GetShieldedTransactionsByNullifiers;
     pub struct GetMerkleProofs;
-    pub struct GetRingHeadRegisterProof;
     pub struct GetRingKeyRegistryEntry;
     pub struct GetRingKeyRegistryRegisterProof;
-    pub struct GetRingHeadTransferProof;
+    pub struct GetRingSpendRecord;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
 
@@ -92,12 +87,6 @@ pub mod method {
         type Response = GetMerkleProofsResponse;
     }
 
-    impl RpcMethod for GetRingHeadRegisterProof {
-        const NAME: &'static str = GET_RING_HEAD_REGISTER_PROOF;
-        type Request = RingMemberProofRequest;
-        type Response = GetRingHeadRegisterProofResponse;
-    }
-
     impl RpcMethod for GetRingKeyRegistryEntry {
         const NAME: &'static str = GET_RING_KEY_REGISTRY_ENTRY;
         type Request = RingMemberProofRequest;
@@ -110,10 +99,10 @@ pub mod method {
         type Response = GetRingKeyRegistryRegisterProofResponse;
     }
 
-    impl RpcMethod for GetRingHeadTransferProof {
-        const NAME: &'static str = GET_RING_HEAD_TRANSFER_PROOF;
-        type Request = RingMemberProofRequest;
-        type Response = GetRingHeadTransferProofResponse;
+    impl RpcMethod for GetRingSpendRecord {
+        const NAME: &'static str = GET_RING_SPEND_RECORD;
+        type Request = RingSpendRecordRequest;
+        type Response = GetRingSpendRecordResponse;
     }
 
     impl RpcMethod for GetNonInclusionProofs {
@@ -761,23 +750,6 @@ pub struct RingMemberProofRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetRingHeadRegisterProofResponse {
-    pub context: Context,
-    pub root: Hash,
-    pub next_index: u64,
-    pub member: Hash,
-    pub low_member: Hash,
-    pub low_next: Hash,
-    pub low_nullifier: Hash,
-    pub low_index: u64,
-    pub low_proof: Vec<Hash>,
-    /// Computed after the predecessor update.
-    pub new_proof: Vec<Hash>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetRingKeyRegistryEntryResponse {
     pub context: Context,
     pub root: Hash,
@@ -810,7 +782,15 @@ pub struct GetRingKeyRegistryRegisterProofResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct RingHeadRecord {
+pub struct RingSpendRecordRequest {
+    pub ring_program_id: SerializablePubkey,
+    pub member: Hash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingSpendRecord {
     pub transaction: ShieldedTransaction,
     pub output_index: u16,
 }
@@ -818,16 +798,10 @@ pub struct RingHeadRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetRingHeadTransferProofResponse {
+pub struct GetRingSpendRecordResponse {
     pub context: Context,
-    pub root: Hash,
-    pub next_index: u64,
-    pub member: Hash,
-    pub next: Hash,
-    pub nullifier: Hash,
-    pub index: u64,
-    pub proof: Vec<Hash>,
-    pub record: RingHeadRecord,
+    /// `None` until the member registers.
+    pub record: Option<RingSpendRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

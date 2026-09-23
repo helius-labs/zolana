@@ -7,8 +7,6 @@ pub mod base_verifying_key;
 #[cfg(feature = "verifying-keys")]
 pub mod compressed_policy_verifying_key;
 #[cfg(feature = "verifying-keys")]
-pub mod compressed_register_verifying_key;
-#[cfg(feature = "verifying-keys")]
 pub mod delegate_policy_verifying_key;
 pub mod deposit;
 pub mod deposit_audit;
@@ -29,15 +27,14 @@ pub mod state;
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use deposit::{DepositContext, DepositPublicInput};
 pub use head_map::{
-    CompressedRegisterPublicInput, HeadMapInsert, HeadMapLeaf, HeadMapTransfer, HeadMapVerifyError,
-    MerklePath, HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT,
+    HeadMapInsert, HeadMapLeaf, HeadMapVerifyError, MerklePath, HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT,
 };
 pub use instruction::{
     accounts, tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof,
     CustomRingTransactIxData, HeadMapTransition, PlainGroth16Proof, PolicyTableIxData,
     ReaderIxData, RegisterKeyIxData, RegisterSpendIxData, SetCoSignerIxData, SetPausedIxData,
     SetPolicySourceIxData, SetSpendWindowIxData, SourceSpec, UpdateEntryIxData, VelocityRowIxData,
-    WithdrawalThreshold, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
+    WithdrawalThreshold, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
     CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_COMPUTE_UNIT_LIMIT, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
@@ -52,10 +49,9 @@ pub use instruction::{
 pub use key_registry::{RegisterKeyPublicInput, RegisteredKey};
 pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
 pub use state::{
-    CoSignScope, CoSigner, Delegate, FixedWindow, HeadMapRoot, KeyRegistryRoot, PolicyConfig,
-    ReadAccessRecord, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow,
-    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
-    HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT, HEAD_MAP_ROOT_PDA_SEED, KEY_REGISTRY_ROOT,
+    CoSignScope, CoSigner, Delegate, FixedWindow, KeyRegistryRoot, PolicyConfig, ReadAccessRecord,
+    RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow, CONFIG_PDA_SEED, CO_SIGNER,
+    CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED, HEAD_MAP_EMPTY_ROOT, KEY_REGISTRY_ROOT,
     KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
     POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
     SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,

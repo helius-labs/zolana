@@ -20,11 +20,11 @@ use crate::{
     },
     rpc::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProveResult, RingHistoryOptions,
-        RingMemberProofRequest, ShieldedTransactionStream,
+        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        IndexerRpcConfig, ProveResult, RingHistoryOptions, RingMemberProofRequest,
+        RingSpendRecordRequest, ShieldedTransactionStream,
     },
 };
 
@@ -252,22 +252,11 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         .spend_proofs)
     }
 
-    async fn get_ring_head_register_proof(
+    async fn get_ring_spend_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
-        self.async_indexer
-            .get_ring_head_register_proof(request)
-            .await
-    }
-
-    async fn get_ring_head_transfer_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
-        self.async_indexer
-            .get_ring_head_transfer_proof(request)
-            .await
+        request: RingSpendRecordRequest,
+    ) -> Result<GetRingSpendRecordResponse, ClientError> {
+        self.async_indexer.get_ring_spend_record(request).await
     }
 
     async fn get_ring_key_registry_entry(

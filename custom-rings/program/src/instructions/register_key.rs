@@ -11,7 +11,7 @@ use crate::{
         loader::{load_append_root_mut, load_config},
         verifier::verify_groth16,
     },
-    state::{Advance, RootTransition},
+    state::RootTransition,
 };
 
 #[inline(never)]
@@ -62,7 +62,6 @@ pub fn process_register_key_ix(
     RootTransition {
         expected_root: &ix.registry_old_root,
         new_root: ix.registry_new_root,
-        advance: Advance::Register,
     }
     .apply(&mut *root)
 }

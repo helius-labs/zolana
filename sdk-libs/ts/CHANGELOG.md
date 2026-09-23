@@ -15,8 +15,8 @@ Breaking
 - `ringDepositInstruction` is no longer exported from
   `@heliuslabs/zolana/interface` and requires `hasPolicy`, and it and
   `ringTransactInstruction` add the co-signer, spend window and deposit audit
-  accounts, with `ringTransactInstruction` taking `approvalRequired` and, on a
-  windowed ring, `headTransition` → import it from `@heliuslabs/zolana/ring`,
+  accounts, with `ringTransactInstruction` taking `approvalRequired` → import
+  it from `@heliuslabs/zolana/ring`,
   pass the ring config's policy flag, and rebuild ring transactions with this
   release.
 - `buildRingDepositTransaction` takes a `RingDepositClient` with a deposit
@@ -37,15 +37,15 @@ Breaking
   openings, and `encryptCustomRingTransfer` requires `outputTreeId` → size
   parsers with the constant, pass the salt, openings and destination tree id,
   and run the prover and program of this release.
-- `RingTransferClient` also needs `getSlot`, `getRingHeadTransferProof` and
+- `RingTransferClient` also needs `getSlot`, `getRingSpendRecord` and
   `proveCustomRingCompressedPolicy`, `ProvenRingTransfer` returns
-  `approvalRequired`, `revocationTargets` and `headTransition`, and
+  `approvalRequired` and `revocationTargets`, and
   `PolicyAnswers` requires `revocationTargets` → add the methods to a custom
   client and return the revoked hashes from a custom policy answer provider.
 - Every `Prover` implements `proveCustomRingDeposit`,
   `proveRingAuthorityTransact`, `proveCustomRingDelegatePolicy`,
-  `proveCustomRingCompressedPolicy`, `proveCustomRingRegister` and
-  `proveCustomRingRegisterKey`, and `proveRingTransact` takes a
+  `proveCustomRingCompressedPolicy` and `proveCustomRingRegisterKey`, and
+  `proveRingTransact` takes a
   `RingProvingConfig` → implement each method, put indexer settings under
   `indexer`, and pass `outputTree` when the destination differs from the
   client tree.
@@ -75,13 +75,13 @@ Added
   mint's public deposits and withdrawals per fixed window of slots, and
   `fetchRingSpendWindow` reads the cap.
 - `buildRingSpendRegistrationTransaction` registers a sender's spend record on
-  a windowed ring, `proveCustomRingTransfer` charges each transfer against the
+  a windowed ring, `ZolanaClient.getRingSpendRecord` locates a member's
+  current record, `proveCustomRingTransfer` charges each transfer against the
   ring's private per-window velocity caps and refuses an overspend with
   `RING_VELOCITY_CAP_EXCEEDED`, `readRingVelocityState` reads the sender's
   counters, and `auditRingTransaction` reports them as `AuditedRingSpendRecord`.
-- `createRingHeadMapRootInstruction` and `createRingKeyRegistryRootInstruction`
-  create a ring's spend record map and member key registry, and
-  `buildRingKeyRegistrationTransaction` seals a member's nullifier key to the
+- `createRingKeyRegistryRootInstruction` creates a ring's member key registry,
+  and `buildRingKeyRegistrationTransaction` seals a member's nullifier key to the
   ring auditor, which `fetchRingSealedKey` and `openRingSealedKey` read back.
 - `initializeRingConfigInstructions` takes `depositAudit`,
   `setRingDepositAuditInstruction` toggles it, `buildRingDepositTransaction`
@@ -92,7 +92,7 @@ Added
   eight ring notes of one owner and asset.
 - `createRingTransferSubmission` and its exit, withdrawal, delegate and
   registration counterparts return a `RingTransactionSubmission` that retries a
-  stale root or window failure and keeps the spent notes reserved until the
+  stale key registry root or window failure and keeps the spent notes reserved until the
   broadcast settles, `sendPersisted` saves each signed attempt before
   broadcast, `reconcileRingSubmissions` resolves saved signatures after a
   restart without paying twice, and `savePersistedWallet` saves wallet state on
@@ -104,11 +104,11 @@ Fixed
   a client with a nonzero tree id, each output now commits to the selected
   destination tree.
 - `deployRingProgram` could upgrade a ring to a program that cannot load its
-  `RingPolicyConfig`, and `RingProgramBinary.bytes` handed out its internal
-  buffer, the upgrade is now refused with `RING_POLICY_CONFIG_INCOMPATIBLE`
-  before any transaction is sent and the accessors return copies.
-- `deployRingProgram` aborted when a signature status lookup failed
-  transiently after a failed confirmation, it now retries the deploy step.
+  `RingPolicyConfig` or abort on a transient signature status failure, and
+  `RingProgramBinary.bytes` handed out its internal buffer, the upgrade is now
+  refused with `RING_POLICY_CONFIG_INCOMPATIBLE` before any transaction is
+  sent, a transient failure retries the deploy step, and the accessors return
+  copies.
 
 ## 0.2.0-alpha — 2026-09-21
 
