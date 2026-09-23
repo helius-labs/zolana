@@ -133,8 +133,8 @@ impl Reconstruction<'_> {
             &SuccessorContext {
                 namespace,
                 rail: &rail,
-                entries_tree: policy.entries_tree.to_bytes(),
-                entries_tree_id: policy.entries_tree_id(),
+                entries_tree: policy.address_tree.to_bytes(),
+                entries_tree_id: policy.address_tree_id(),
             },
         )?;
         let nullifier = entry_nullifier(&output.output_context.hash.0, &spend.blinding)

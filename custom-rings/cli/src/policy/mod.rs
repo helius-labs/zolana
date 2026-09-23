@@ -91,10 +91,10 @@ pub fn verify_rows(
     config: &PolicyConfig,
 ) -> Result<(), PolicyCommandError> {
     client_rules_match(&compiled.rules, config).map_err(PolicyCommandError::Drift)?;
-    if config.entries_tree != compiled.entries_tree {
+    if config.address_tree != compiled.entries_tree {
         return Err(PolicyCommandError::TreeDrift {
             toml: compiled.entries_tree,
-            chain: config.entries_tree,
+            chain: config.address_tree,
         });
     }
     Ok(())
@@ -123,7 +123,7 @@ pub fn verify_sources(
 }
 
 pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
-    ui::heading(Icon::Tree, &format!("tree {}", config.entries_tree));
+    ui::heading(Icon::Tree, &format!("tree {}", config.address_tree));
     line(
         "generation",
         format_args!(

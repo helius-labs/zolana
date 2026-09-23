@@ -1,6 +1,7 @@
 use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
+use zolana_interface::instruction::instruction_data::transact::TreeContext;
 use zolana_interface::instruction::{
     RingTransact, TransactInterfaceTransferAccounts, TransactIxData,
 };
@@ -144,11 +145,18 @@ impl CustomRingTransact {
 
         let body = wincode::serialize(&CustomRingTransactIxData {
             proof,
-            state_root_index,
-            nullifier_root_index,
+            policy_trees: entries_tree
+                .iter()
+                .map(|_| TreeContext {
+                    utxo_tree_root_index: state_root_index,
+                    nullifier_tree_root_index: nullifier_root_index,
+                })
+                .collect(),
+            key_registry_root_index: 0,
             approval_required: u8::from(approval_required),
             head_transition,
             revocation_targets,
+            revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

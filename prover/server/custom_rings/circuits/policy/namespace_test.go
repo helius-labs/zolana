@@ -51,7 +51,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	zero := big.NewInt(0)
 	record := s.inputs[len(s.inputs)-1]
 	claim := UtxoWires{
-		Domain: big.NewInt(protocol.AddressDomain), TreeID: big.NewInt(entriesTreeID),
+		Domain: big.NewInt(protocol.AddressDomain), TreeID: big.NewInt(addressTreeID),
 		OwnerPkHash: record.OwnerPkHash, NullifierPk: record.NullifierPk,
 		Asset: zero, Amount: zero, DataHash: zero, RingDataHash: zero, RingProgramID: zero,
 		Blinding: spptest.MustPoseidon(t, 3, []*big.Int{SpendAddressDomain, big.NewInt(0xdead)}),
@@ -60,10 +60,10 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	s.outputs = []UtxoWires{s.outputs[0], s.outputs[len(s.outputs)-1]}
 	s.inputs[0].RingProgramID, s.outputs[0].RingProgramID = s.ringID, s.ringID
 	for i := range s.inputs {
-		s.inputs[i].TreeID = big.NewInt(entriesTreeID)
+		s.inputs[i].TreeID = big.NewInt(addressTreeID)
 	}
 	for i := range s.outputs {
-		s.outputs[i].TreeID = big.NewInt(entriesTreeID)
+		s.outputs[i].TreeID = big.NewInt(addressTreeID)
 	}
 
 	shape := shared.Shape{NInputs: len(s.inputs), NOutputs: len(s.outputs)}
@@ -128,13 +128,9 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.addressChain = spptest.MustHashChain4(t, []*big.Int{zero, nullifiers[1], zero})
-	s.stateRoot, s.nullifierRoot = root, tree.Root()
+	s.trees = []hostTree{{stateRoot: root, nullifierRoot: tree.Root()}}
 	s.updateHashes(t)
-	treeSlots, err := protocol.PadTreeSlots(protocol.TreeSlot{ID: big.NewInt(entriesTreeID), UtxoRoot: root, NullifierRoot: tree.Root()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, slot := range treeSlots {
+	for i, slot := range s.treeSlots(t) {
 		assignment.Public.TreeSlots[i] = shared.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
 	}
 	signers := make([]*big.Int, shape.SignerWidth())
@@ -143,15 +139,15 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	}
 	signers[0], signers[1] = spptest.AsBigInt(s.inputs[0].OwnerPkHash), spptest.AsBigInt(record.OwnerPkHash)
 	assignment.Public.SignerPkHashes = spptest.ToVariables(signers)
-	assignment.Public.OutputTreeID, assignment.Public.PrivateTxHash = big.NewInt(entriesTreeID), s.privateTxHash
+	assignment.Public.OutputTreeID, assignment.Public.PrivateTxHash = big.NewInt(addressTreeID), s.privateTxHash
 	assignment.Public.ExternalDataHash, assignment.Public.RingProgramID = s.externalDataHash, s.ringID
 	assignment.Public.InputFlags, assignment.Private.BlindingSeed = 1, seed
 	for i := range assignment.Public.PublicAssets {
 		assignment.Public.PublicAssets[i], assignment.Public.PublicAmounts[i] = zero, zero
 	}
 	assignment.Public.PublicInputHash, err = protocol.PublicInputHash(protocol.PublicInputs{
-		Nullifiers: nullifiers, OutputUtxoHashes: outputs, TreeSlots: treeSlots,
-		OutputTreeID: big.NewInt(entriesTreeID), PrivateTxHash: s.privateTxHash,
+		Nullifiers: nullifiers, OutputUtxoHashes: outputs, TreeSlots: s.treeSlots(t),
+		OutputTreeID: big.NewInt(addressTreeID), PrivateTxHash: s.privateTxHash,
 		ExternalDataHash: s.externalDataHash, RingProgramID: s.ringID,
 		PublicAssets:   [protocol.NPublicSlots]*big.Int{zero, zero, zero},
 		PublicAmounts:  [protocol.NPublicSlots]*big.Int{zero, zero, zero},
@@ -184,12 +180,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 		secret[i] = byte(spptest.AsBigInt(b).Uint64())
 	}
 	disclosure := spptest.CounterDisclosure{Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent}.Hash(t)
-	elements := append(s.auditChainElements(t),
-		s.policyHash, root, tree.Root(), big.NewInt(entriesTreeID), s.ringID, s.ownOwnerHash,
-		new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval),
-	)
-	elements = append(elements, s.revocationTargets(nil)...)
-	policy.PublicInputHash = spptest.MustHashChain(t, append(elements,
+	policy.PublicInputHash = spptest.MustHashChain(t, append(s.policyChainElements(t, nil),
 		transition.OldRoot, transition.NewRoot, disclosure,
 	))
 	compressed := &CompressedPolicyCircuit{

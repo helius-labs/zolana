@@ -101,7 +101,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         entries_tree_id: subscriber
             .read_policy_config(rpc)?
             .ok_or_else(|| anyhow::anyhow!("policy config of the subscriber"))?
-            .entries_tree_id(),
+            .address_tree_id(),
         list_id: ListId::Block,
         member,
         state: EntryState::Active,

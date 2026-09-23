@@ -13,12 +13,14 @@ use solana_pubkey::Pubkey;
 use zolana_ring_policy::{ListId, ListNamespace, ListSet};
 
 use crate::common::{
-    authority, create_policy_fixture_with, curator_namespace_pda,
-    curator_policy_config_account_with, curator_slot, curator_source_slots, entries_tree,
-    initialized_curator_policy_config_account, initialized_policy_config_account, mixed_sources,
-    namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
+    address_tree, authority, create_policy_fixture_with, curator_namespace_pda,
+    curator_policy_config_account_with, curator_slot, curator_source_slots,
+    initialized_curator_policy_config_account, initialized_other_tree_account,
+    initialized_policy_config_account, mixed_sources, namespace_pda, other_tree, own_source_slots,
+    own_specs, payer, policy_config_account_with, policy_hash_for, register_spend_fixture,
     set_policy_source_fixture, setup_mollusk, specs_with_block_source, stored_policy_config,
-    table_ix_data, EntryFixture, Fixture, ENTRIES_TREE_ID, RELEASED_RULES, WARPED_SLOT,
+    table_ix_data, velocity_policy_config_account, EntryFixture, Fixture, ADDRESS_TREE_ID,
+    RELEASED_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -159,7 +161,7 @@ fn a_legacy_curator_image_is_rejected_exactly() {
 }
 
 #[test]
-fn a_curator_in_a_different_entries_tree_is_rejected_exactly() {
+fn a_curator_in_a_different_address_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let curator = curator_policy_config_account_with(
         Pubkey::new_from_array([55; 32]),
@@ -304,8 +306,8 @@ fn the_layout_pins_every_field_offset() {
     let account = released_config();
     assert_eq!(PolicyConfig::SIZE, 1604);
     assert_eq!(account.data.len(), PolicyConfig::SIZE);
-    assert_eq!(account.data[33..65], entries_tree().to_bytes());
-    assert_eq!(account.data[65..67], ENTRIES_TREE_ID.to_le_bytes());
+    assert_eq!(account.data[33..65], address_tree().to_bytes());
+    assert_eq!(account.data[65..67], ADDRESS_TREE_ID.to_le_bytes());
     assert_eq!(
         account.data[69..101],
         ListNamespace::new(namespace_pda().0.as_array())
@@ -322,15 +324,54 @@ fn the_layout_pins_every_field_offset() {
     assert_eq!(account.data[1596..1604], 0u64.to_le_bytes());
 }
 
-/// Both SPP trees must equal the entries tree, an entry written through another
-/// tree escapes the absence proof the ring relies on.
+fn in_other_tree(mut fixture: Fixture, tree: &str) -> Fixture {
+    fixture.substitute(tree, other_tree());
+    fixture.set_account(tree, initialized_other_tree_account());
+    fixture
+}
+
+/// SPP nullifies a claimed address in the input tree, only the address tree keeps it unique.
 #[test]
-fn a_mutation_tree_apart_from_the_entries_tree_is_rejected_exactly() {
+fn a_claim_outside_the_address_tree_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let create =
+        EntryFixture::new(ListId::Allow, authority()).create(initialized_policy_config_account());
+    in_other_tree(create, "input_tree")
+        .expect_err(&mollusk, custom(CustomRingError::InvalidAddressTree));
+    let register = register_spend_fixture(velocity_policy_config_account(), payer());
+    in_other_tree(register, "input_tree")
+        .expect_err(&mollusk, custom(CustomRingError::InvalidAddressTree));
+}
+
+#[test]
+fn a_claim_writes_its_leaf_into_any_output_tree() {
+    let (mollusk, _) = setup_mollusk();
+    let create =
+        EntryFixture::new(ListId::Allow, authority()).create(initialized_policy_config_account());
+    in_other_tree(create, "output_tree").expect_spp_cpi(&mollusk);
+    let register = register_spend_fixture(velocity_policy_config_account(), payer());
+    in_other_tree(register, "output_tree")
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+/// A replace spends the live leaf wherever it lives.
+#[test]
+fn an_update_across_trees_reaches_the_spp_cpi() {
+    let (mollusk, _) = setup_mollusk();
+    for tree in ["input_tree", "output_tree"] {
+        let update = EntryFixture::new(ListId::Allow, authority())
+            .update(initialized_policy_config_account(), 0);
+        in_other_tree(update, tree).expect_spp_cpi(&mollusk);
+    }
+}
+
+#[test]
+fn a_mutation_tree_that_is_not_an_spp_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     for tree in ["input_tree", "output_tree"] {
         let mut fixture = EntryFixture::new(ListId::Allow, authority())
-            .create(initialized_policy_config_account());
+            .update(initialized_policy_config_account(), 0);
         fixture.substitute(tree, Pubkey::new_from_array([80; 32]));
-        fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
+        fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTrees));
     }
 }

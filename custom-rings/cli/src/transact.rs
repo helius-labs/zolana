@@ -672,7 +672,7 @@ impl RingRules {
 /// A windowed ring spends from its entries tree, every other from tree 0.
 fn transfer_tree(rules: Option<&RingRules>) -> Address {
     match rules {
-        Some(rules) if rules.windowed() => rules.config.entries_tree,
+        Some(rules) if rules.windowed() => rules.config.address_tree,
         _ => pda::tree(0),
     }
 }

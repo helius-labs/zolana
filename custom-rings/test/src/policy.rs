@@ -276,7 +276,7 @@ impl EntryWrite<'_> {
             .ring
             .read_policy_config(rpc)?
             .ok_or_else(|| anyhow!("policy config of {}", self.ring.program_id()))?
-            .entries_tree_id();
+            .address_tree_id();
         let proven = match self.target {
             EntryTarget::Claim { list_id, member } => CreateEntry {
                 ring: self.ring,

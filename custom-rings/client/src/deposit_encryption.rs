@@ -189,6 +189,7 @@ mod tests {
             ciphertexts: &sealed.ciphertexts,
             auditor_pk: auditor.pubkey().as_bytes(),
             eph_pk: sealed.ephemeral_pk.as_bytes(),
+            key_registry_root: None,
         }
         .hash()
         .unwrap();

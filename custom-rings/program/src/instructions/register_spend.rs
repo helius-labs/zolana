@@ -17,7 +17,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::load_append_root_mut,
-        policy_shared::{cpi_spp_namespace_signed, MutationAccounts, NamespaceWrite},
+        policy_shared::{cpi_spp_namespace_signed, MutationAccounts, MutationKind, NamespaceWrite},
         verifier::verify_plain_groth16,
     },
     state::{Advance, RootTransition},
@@ -37,7 +37,7 @@ pub fn process_register_spend_ix(
     check_mut(head_account)?;
     // 1. Require windowed velocity and the current head root before claiming a
     // member record.
-    let parsed = MutationAccounts::validate_and_parse(program_id, mutation)?;
+    let parsed = MutationAccounts::validate_and_parse(program_id, mutation, MutationKind::Claim)?;
     let window = FixedWindow {
         slots: NonZeroU64::new(parsed.window_slots).ok_or(CustomRingError::VelocityDisabled)?,
     };
@@ -54,7 +54,7 @@ pub fn process_register_spend_ix(
         .map_err(|_| CustomRingError::HashingFailed)?;
     let address = parsed
         .owner
-        .spend_address(&member, parsed.entries_tree_id)
+        .spend_address(&member, parsed.trees.address)
         .map_err(|_| CustomRingError::HashingFailed)?;
     let record = SpendRecord {
         member,
@@ -66,7 +66,7 @@ pub fn process_register_spend_ix(
         blinding: ix.blinding,
     };
     let output_hash = record
-        .utxo_hash(&parsed.owner, &address, parsed.entries_tree_id)
+        .utxo_hash(&parsed.owner, &address, parsed.trees.output)
         .map_err(|_| CustomRingError::HashingFailed)?;
     let genesis =
         entry_nullifier(&output_hash, &ix.blinding).map_err(|_| CustomRingError::HashingFailed)?;

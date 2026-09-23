@@ -34,10 +34,7 @@ fn create_config_writes_the_config_account() {
         .map(|(_, account)| account.clone())
         .expect("config account in result");
     assert_eq!(written.owner, program_id());
-    assert_eq!(
-        written.data.len(),
-        core::mem::size_of::<RingProgramConfig>()
-    );
+    assert_eq!(written.data.len(), 69);
     assert_eq!(
         bytemuck::from_bytes::<RingProgramConfig>(&written.data),
         &RingProgramConfig {
@@ -46,6 +43,7 @@ fn create_config_writes_the_config_account() {
             auditor_pubkey: auditor_pubkey(2),
             bump,
             has_policy: 1,
+            key_escrow: 0,
         }
     );
 }
@@ -279,6 +277,7 @@ fn create_config_stores_an_audit_only_tier() {
             auditor_pubkey: auditor_pubkey(2),
             bump,
             has_policy: 0,
+            key_escrow: 0,
         }
     );
 }

@@ -522,7 +522,7 @@ impl<'a> CustomRingTransfer<'a> {
                 identity,
             }),
             VelocityMode::PerWindow { window_slots } => {
-                let entries_tree = pinned.config.entries_tree;
+                let entries_tree = pinned.config.address_tree;
                 if self.input_tree != Some(entries_tree)
                     || self.output_tree.unwrap_or(entries_tree) != entries_tree
                 {
@@ -532,7 +532,7 @@ impl<'a> CustomRingTransfer<'a> {
                     read: ReadSpendRecord {
                         ring: self.ring,
                         entries_tree,
-                        entries_tree_id: pinned.config.entries_tree_id(),
+                        entries_tree_id: pinned.config.address_tree_id(),
                         member: sender_member(&self.sender.address()?)?,
                     },
                     context: VelocityContext {
@@ -541,7 +541,7 @@ impl<'a> CustomRingTransfer<'a> {
                             owner_hash: pinned.config.namespace_owner_hash,
                         },
                         identity,
-                        entries_tree_id: pinned.config.entries_tree_id(),
+                        entries_tree_id: pinned.config.address_tree_id(),
                         window_slots,
                         rows: pinned.table.velocity().to_vec(),
                         sender: self.sender,
@@ -1003,11 +1003,11 @@ impl PolicyTierInput<'_> {
             Some(velocity) => (velocity, None),
             None => {
                 if pinned.table.window_slots() != 0
-                    && self.output_tree_id != pinned.config.entries_tree_id()
+                    && self.output_tree_id != pinned.config.address_tree_id()
                 {
                     return Err(TransferError::TreeIdMismatch {
-                        tree: pinned.config.entries_tree,
-                        expected: pinned.config.entries_tree_id(),
+                        tree: pinned.config.address_tree,
+                        expected: pinned.config.address_tree_id(),
                         found: self.output_tree_id,
                     });
                 }
@@ -1082,7 +1082,7 @@ impl Tier {
     fn policy(config: &PolicyConfig, witness: CustomRingWitness) -> Self {
         Self::Policy {
             policy_hash: config.policy_hash,
-            entries_tree: config.entries_tree,
+            entries_tree: config.address_tree,
             witness: Box::new(witness),
         }
     }
@@ -1609,6 +1609,7 @@ impl RingDeposit<'_> {
                 ciphertexts: &encryption.ciphertexts,
                 auditor_pk: config.auditor_pubkey.as_bytes(),
                 eph_pk: encryption.ephemeral_pk.as_bytes(),
+                key_registry_root: None,
             }
             .hash()
             .map_err(|_| DepositError::Hashing)?;

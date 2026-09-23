@@ -83,7 +83,7 @@ impl RingProject {
         let entries_tree_id = ring
             .read_policy_config(write.env.client.rpc())?
             .ok_or_else(|| anyhow!("policy config of {}", self.program_id))?
-            .entries_tree_id();
+            .address_tree_id();
         let deadline = Instant::now() + INDEXING_TIMEOUT;
         let live = loop {
             let read = ReadEntry {

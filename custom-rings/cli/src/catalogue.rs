@@ -205,7 +205,7 @@ pub fn curator_of(ring: CustomRing, config: &PolicyConfig) -> Curator {
             .into_iter()
             .filter(|list| config.source_for(list.id()) == Some(own))
             .collect(),
-        entries_tree: Base58Address(config.entries_tree),
+        entries_tree: Base58Address(config.address_tree),
     }
 }
 
@@ -225,10 +225,10 @@ impl CuratorCheck {
                 list: self.list,
             });
         }
-        if config.entries_tree != self.entries_tree {
+        if config.address_tree != self.entries_tree {
             return Err(CuratorError::OtherTree {
                 curator,
-                tree: config.entries_tree,
+                tree: config.address_tree,
                 expected: self.entries_tree,
             });
         }
@@ -387,8 +387,8 @@ mod tests {
         let config = PolicyConfig {
             discriminator: POLICY_CONFIG,
             policy_hash: [0u8; 32],
-            entries_tree: TREE,
-            entries_tree_id: [0; 2],
+            address_tree: TREE,
+            address_tree_id: [0; 2],
             namespace_bump: 0,
             namespace_owner_hash: [0u8; 32],
             bump: 0,

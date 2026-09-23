@@ -3,7 +3,7 @@ use core::num::NonZeroU64;
 use custom_ring_interface::{
     CompressedPolicyPublicInput, CustomRingBasePublicInput, CustomRingPolicyPublicInput,
     CustomRingProof, CustomRingTransactIxData, FixedWindow, HeadMapRoot, HeadMapTransition,
-    AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_DISCLOSURE_LEN,
+    KeyEscrow, AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_DISCLOSURE_LEN,
     COMPRESSED_P256_KEY_LEN,
 };
 use pinocchio::{
@@ -19,20 +19,21 @@ use zolana_interface::instruction::{
     },
     tag, CircuitId, MessageData,
 };
-use zolana_interface::{NULLIFIER_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
-use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode, ANSWER_SLOTS};
+use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode};
 
 use crate::{
     error::CustomRingError,
     instructions::{
         cosign::{approval_signer, require_cosigner, CoSignerRequirement},
-        loader::{load_append_root_mut, load_config, load_policy_config, validate_spp_program},
-        policy_shared::{
-            namespace_address, require_entries_trees, RecordNamespace, SpendRecordCarrier,
+        key_escrow::EscrowRoot,
+        loader::{
+            load_append_root_mut, load_config, load_policy_config, load_spp_tree_id,
+            validate_spp_program,
         },
+        policy_shared::{namespace_address, RecordNamespace, SpendRecordCarrier},
+        policy_trees::{PolicyTrees, RevocationTargets},
         public_legs::PublicLegs,
-        roots::load_roots,
-        shared::{cpi_spp_signed, PdaCheck, SppSigners},
+        shared::{cpi_spp_signed, SppSigners},
         verifier::verify_groth16,
     },
     state::{Advance, RootTransition},
@@ -111,11 +112,12 @@ impl TransactRail {
         let decoded = decode_transact(data)?;
         let CustomRingTransactIxData {
             proof,
-            state_root_index,
-            nullifier_root_index,
+            policy_trees,
+            key_registry_root_index,
             approval_required,
             head_transition,
             revocation_targets,
+            revocation_tree_indexes,
             transact,
         } = &*decoded;
         let approval_required = match approval_required {
@@ -126,28 +128,52 @@ impl TransactRail {
         if self == TransactRail::Delegate && !transact.interface_transfers.is_empty() {
             return Err(CustomRingError::DelegatePublicLeg.into());
         }
-
-        // 2. Select the verifier from ring state and pin windowed history to
-        // the current head.
-        let (auditor_pubkey, has_policy) = {
-            let config = load_config(program_id, config_account)?;
-            (config.auditor_pubkey, config.has_policy)
+        let revocations = RevocationTargets {
+            targets: revocation_targets,
+            tree_indexes: revocation_tree_indexes,
         };
-        let policy = if has_policy != 0 {
+
+        // 2. Select the verifier from ring state, read the policy trees and the
+        // escrow registry, and pin windowed history to the current head.
+        let config = *load_config(program_id, config_account)?;
+        let policy = if config.has_policy != 0 {
             let policy_config_account = rest.next_account("policy_config")?;
-            let entries_tree_account = rest.next_account("entries_tree")?;
             let binding = PolicyBinding::load(program_id, policy_config_account)?;
-            Some((binding, entries_tree_account))
+            let trees = PolicyTrees::load(&mut rest, policy_trees)?;
+            let escrow = config.key_escrow();
+            if self == TransactRail::Delegate && escrow != KeyEscrow::Registry {
+                return Err(CustomRingError::InvalidKeyRegistryRoot.into());
+            }
+            let key_registry_root = EscrowRoot {
+                program_id,
+                escrow,
+                index: *key_registry_root_index,
+            }
+            .load(&mut rest)?;
+            Some(PolicyReads {
+                binding,
+                trees,
+                key_registry_root,
+            })
         } else {
+            if self == TransactRail::Delegate {
+                return Err(CustomRingError::DelegateRequiresPolicy.into());
+            }
+            if !policy_trees.is_empty() {
+                return Err(CustomRingError::InvalidPolicyTrees.into());
+            }
+            if *key_registry_root_index != 0 {
+                return Err(CustomRingError::InvalidInstructionData.into());
+            }
             None
         };
         let amount_controls_active = self == TransactRail::Member
             && policy
                 .as_ref()
-                .is_some_and(|(binding, _)| !matches!(binding.velocity, VelocityMode::Off));
+                .is_some_and(|reads| !matches!(reads.binding.velocity, VelocityMode::Off));
         let windowed_policy = policy
             .as_ref()
-            .is_some_and(|(binding, _)| matches!(binding.velocity, VelocityMode::PerWindow { .. }));
+            .is_some_and(|reads| matches!(reads.binding.velocity, VelocityMode::PerWindow { .. }));
         if approval_required && !amount_controls_active {
             return Err(CustomRingError::InvalidInstructionData.into());
         }
@@ -157,8 +183,8 @@ impl TransactRail {
             (TransactRail::Member, Some(transition)) if windowed_policy => {
                 let account = rest.next_mut("head_map_root")?;
                 let root = load_append_root_mut::<HeadMapRoot>(program_id, account)?;
-                let (binding, _) = policy.as_ref().ok_or(CustomRingError::InvalidPolicyRules)?;
-                let namespace = namespace_address(program_id, binding.namespace_bump)?;
+                let reads = policy.as_ref().ok_or(CustomRingError::InvalidPolicyRules)?;
+                let namespace = namespace_address(program_id, reads.binding.namespace_bump)?;
                 let counters_disclosure_hash = CountersDisclosure {
                     namespace: namespace.as_array(),
                     tx_viewing_pk: &transact.tx_viewing_pk,
@@ -178,13 +204,8 @@ impl TransactRail {
             _ => return Err(CustomRingError::InvalidInstructionData.into()),
         };
         match policy.as_ref() {
-            Some((binding, _)) => {
-                validate_revocation_targets(&mut rest, &binding.entries_tree, revocation_targets)?
-            }
-            None if revocation_targets.iter().any(|target| *target != [0u8; 32]) => {
-                return Err(CustomRingError::InvalidInstructionData.into())
-            }
-            None => {}
+            Some(reads) => revocations.verify(&reads.trees, &mut rest)?,
+            None => revocations.require_empty()?,
         }
 
         // 3. Enforce approval and public mint caps against the actual
@@ -235,7 +256,8 @@ impl TransactRail {
             return Err(CustomRingError::UnsupportedOutputScheme.into());
         }
 
-        let view_tag: &[u8; 32] = auditor_pubkey
+        let view_tag: &[u8; 32] = config
+            .auditor_pubkey
             .get(1..COMPRESSED_P256_KEY_LEN)
             .and_then(|tag| tag.try_into().ok())
             .ok_or(CustomRingError::InvalidAuditorPubkey)?;
@@ -248,7 +270,7 @@ impl TransactRail {
         let audit = CustomRingBasePublicInput {
             private_tx_hash: &transact.private_tx_hash,
             tx_viewing_pk: &transact.tx_viewing_pk,
-            auditor_pk: &auditor_pubkey,
+            auditor_pk: &config.auditor_pubkey,
             eph_pk: message.eph_pk,
             ciphertext: message.ciphertext,
             output_hashes: &output_hashes,
@@ -259,39 +281,40 @@ impl TransactRail {
         // 5. Verify policy and record commitments before granting namespace
         // spend authorization.
         let signers = match policy {
-            Some((binding, entries_tree_account)) => {
+            Some(PolicyReads {
+                binding,
+                trees,
+                key_registry_root,
+            }) => {
                 let signers = match &statement {
                     PolicyStatement::Windowed { .. } => {
                         let record_output = transact
                             .outputs
                             .last()
                             .ok_or(CustomRingError::InvalidSpendRecord)?;
+                        let output_tree = spp_accounts
+                            .get(1)
+                            .ok_or(ProgramError::NotEnoughAccountKeys)?;
                         SpendRecordCarrier {
                             output: record_output,
                             messages: &transact.messages,
+                            output_tree_id: load_spp_tree_id(
+                                output_tree,
+                                CustomRingError::InvalidSpendRecord,
+                            )?,
                         }
                         .verify(&RecordNamespace {
                             owner: ListNamespace {
                                 owner_hash: binding.namespace_owner_hash,
                             },
                             address: namespace_address(program_id, binding.namespace_bump)?,
-                            tree_id: binding.entries_tree_id,
+                            address_tree_id: binding.address_tree_id,
                         })?;
-                        binding
-                            .require_transact_trees(spp_accounts, transact.tree_contexts.len())?;
                         SppSigners::RingAuthAndNamespace {
                             bump: binding.namespace_bump,
                         }
                     }
-                    PolicyStatement::Member | PolicyStatement::Delegate => {
-                        if windowed_policy {
-                            let destination = spp_accounts
-                                .get(1..2)
-                                .ok_or(ProgramError::NotEnoughAccountKeys)?;
-                            require_entries_trees(destination, &binding.entries_tree)?;
-                        }
-                        SppSigners::RingAuth
-                    }
+                    PolicyStatement::Member | PolicyStatement::Delegate => SppSigners::RingAuth,
                 };
                 let window_index = match (self, binding.velocity) {
                     (TransactRail::Member, VelocityMode::PerWindow { window_slots }) => {
@@ -305,23 +328,17 @@ impl TransactRail {
                 };
                 let ring_id = ring_id_field(program_id.as_array())
                     .map_err(|_| CustomRingError::HashingFailed)?;
-                // Root reads must release any tree borrow before SPP mutates the same account.
-                let roots = load_roots(
-                    entries_tree_account,
-                    &binding.entries_tree,
-                    *state_root_index,
-                    *nullifier_root_index,
-                )?;
                 let policy_input = CustomRingPolicyPublicInput {
                     audit,
                     policy_hash: &binding.policy_hash,
-                    state_root: &roots.state,
-                    nullifier_root: &roots.nullifier,
-                    entries_tree_id: binding.entries_tree_id,
+                    tree_slots: trees.slots(),
+                    address_tree_id: binding.address_tree_id,
                     ring_id: &ring_id,
                     namespace_owner_hash: &binding.namespace_owner_hash,
                     window_index,
                     approval_required,
+                    key_registry_root: key_registry_root.as_ref(),
+                    revocation_tree_indexes,
                     revocation_targets,
                 };
                 statement.verify_and_advance(proof, policy_input)?;
@@ -347,31 +364,6 @@ impl TransactRail {
         instruction_data.extend_from_slice(&transact_bytes);
         cpi_spp_signed(program_id, spp_accounts, &instruction_data, signers)
     }
-}
-
-fn validate_revocation_targets(
-    accounts: &mut AccountIterator<'_>,
-    entries_tree: &Address,
-    targets: &[[u8; 32]; ANSWER_SLOTS],
-) -> ProgramResult {
-    let spp = Address::from(SHIELDED_POOL_PROGRAM_ID);
-    for target in targets
-        .iter()
-        .filter(|target| target.iter().any(|byte| *byte != 0))
-    {
-        let account = accounts.next_account("revocation_target")?;
-        PdaCheck {
-            program_id: &spp,
-            address: account.address(),
-            seeds: &[NULLIFIER_PDA_SEED, entries_tree.as_array(), target],
-            mismatch: CustomRingError::InvalidRevocationTarget,
-        }
-        .verify()?;
-        if !pinocchio_system::check_id(account.owner()) || account.data_len() != 0 {
-            return Err(CustomRingError::PolicyFactRevoked.into());
-        }
-    }
-    Ok(())
 }
 
 /// Proof variants separating member limits, compressed history and delegate
@@ -446,8 +438,7 @@ fn decode_transact(data: &[u8]) -> Result<Box<CustomRingTransactIxData>, Program
 /// Copied out, no account borrow may live across the SPP CPI.
 struct PolicyBinding {
     policy_hash: [u8; 32],
-    entries_tree: Address,
-    entries_tree_id: u16,
+    address_tree_id: u16,
     namespace_owner_hash: [u8; 32],
     namespace_bump: u8,
     velocity: VelocityMode,
@@ -459,29 +450,18 @@ impl PolicyBinding {
         let policy = load_policy_config(program_id, account)?;
         Ok(Self {
             policy_hash: policy.policy_hash,
-            entries_tree: policy.entries_tree,
-            entries_tree_id: policy.entries_tree_id(),
+            address_tree_id: policy.address_tree_id(),
             namespace_owner_hash: policy.namespace_owner_hash,
             namespace_bump: policy.namespace_bump,
             velocity: policy.rules.velocity_mode(),
         })
     }
+}
 
-    /// The output tree and every input tree of a record transaction.
-    fn require_transact_trees(
-        &self,
-        spp_accounts: &[AccountView],
-        input_trees: usize,
-    ) -> ProgramResult {
-        let output = spp_accounts
-            .get(1..2)
-            .ok_or(ProgramError::NotEnoughAccountKeys)?;
-        let inputs = spp_accounts
-            .get(5..5 + input_trees)
-            .ok_or(ProgramError::NotEnoughAccountKeys)?;
-        require_entries_trees(output, &self.entries_tree)?;
-        require_entries_trees(inputs, &self.entries_tree)
-    }
+struct PolicyReads {
+    binding: PolicyBinding,
+    trees: PolicyTrees,
+    key_registry_root: Option<[u8; 32]>,
 }
 
 /// The auditor message of a transaction: `eph_pk(33) || ciphertext(32)` split out

@@ -273,9 +273,9 @@ impl PreparedCustomRingMerge {
     ) -> Result<(), MergeError> {
         let policy = policy.ok_or(TransferError::MissingPolicyConfig)?;
         let table = policy_config_table(&policy).map_err(TransferError::from)?;
-        if table.window_slots() != 0 && input.output_tree != policy.entries_tree {
+        if table.window_slots() != 0 && input.output_tree != policy.address_tree {
             return Err(TransferError::EntriesTreeRequired {
-                entries_tree: policy.entries_tree,
+                entries_tree: policy.address_tree,
             }
             .into());
         }
@@ -445,7 +445,7 @@ impl CustomRingMergeInstruction {
             output_tree,
             payer,
             cosigner,
-            has_policy,
+            has_policy: _,
             data,
         } = self;
         let mut instruction = MergeRing {
@@ -460,11 +460,7 @@ impl CustomRingMergeInstruction {
         let prefix = RingPrefix {
             ring,
             cosigner,
-            policy: if has_policy {
-                RingPolicy::Config
-            } else {
-                RingPolicy::Off
-            },
+            policy: RingPolicy::Off,
         }
         .metas();
         instruction.accounts.splice(0..0, prefix);

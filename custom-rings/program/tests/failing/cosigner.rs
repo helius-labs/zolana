@@ -16,7 +16,7 @@ use crate::common::{
     merge_fixture, rent_recipient, set_cosigner_data, set_cosigner_fixture, setup_mollusk,
     sol_settlement, spl_settlement, stored, window_slot, Fixture, Slot, SOL, USDC,
 };
-use crate::transact::{auditor_message, bogus_proof, instruction_data, transact};
+use crate::transact::{audit_instruction_data, auditor_message, bogus_proof, transact};
 
 fn stored_cosigner(result: &InstructionResult) -> CoSigner {
     stored(result, cosigner_pda().0)
@@ -225,7 +225,7 @@ fn gated_transact(legs: Vec<InterfaceTransfer>, settlements: Vec<Slot>) -> Fixtu
     content.interface_transfers = legs;
     let mut fixture = audit_transact_fixture(
         audit_only_config_account(authority(), auditor_pubkey(2)),
-        instruction_data(bogus_proof(), content),
+        audit_instruction_data(bogus_proof(), content),
     );
     for slot in settlements {
         fixture.push(slot);

@@ -135,7 +135,7 @@ impl RegisterSpend {
             .map_err(|_| EntryError::Hashing)?;
         let member = Member::owner_tag(self.payer.as_array()).map_err(|_| EntryError::Hashing)?;
         let address = owner
-            .spend_address(&member, policy.entries_tree_id())
+            .spend_address(&member, policy.address_tree_id())
             .map_err(|_| EntryError::Hashing)?;
         let record = SpendRecord {
             member,
@@ -188,14 +188,14 @@ impl RegistrationDraft {
         Ok(NamespaceWrite {
             owner: &self.owner,
             namespace: self.registration.ring.namespace_pda(),
-            entries_tree: self.policy.entries_tree,
-            entries_tree_id: self.policy.entries_tree_id(),
+            entries_tree: self.policy.address_tree,
+            entries_tree_id: self.policy.address_tree_id(),
             payer: self.registration.payer,
             slot: AddressClaim {
                 owner: &self.owner,
                 seed,
                 address: self.address,
-                tree_id: self.policy.entries_tree_id(),
+                tree_id: self.policy.address_tree_id(),
             }
             .slot()?,
             output_data_hash: self
@@ -208,7 +208,7 @@ impl RegistrationDraft {
     fn genesis(&self, blinding: [u8; 32]) -> Result<[u8; 32], EntryError> {
         let hash = self
             .record(blinding)
-            .utxo_hash(&self.owner, &self.address, self.policy.entries_tree_id())
+            .utxo_hash(&self.owner, &self.address, self.policy.address_tree_id())
             .map_err(|_| EntryError::Hashing)?;
         entry_nullifier(&hash, &blinding).map_err(|_| EntryError::Hashing)
     }
@@ -222,7 +222,7 @@ impl RegistrationDraft {
             },
             ring: self.registration.ring,
             payer: self.registration.payer,
-            entries_tree: self.policy.entries_tree,
+            entries_tree: self.policy.address_tree,
             record: self.record(proofs.entry.blinding),
             proof: proofs.entry.proof,
             head_transition: proofs.head_transition,

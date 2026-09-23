@@ -28,6 +28,7 @@ use custom_ring_interface::{CustomRingBasePublicInput, CustomRingProof, PlainGro
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed, ProofInputUtxo};
+use zolana_interface::tree_slot::TreeSlot;
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
 use super::request::CustomRingPrivateTxHash;
@@ -186,13 +187,18 @@ impl PendingCustomRingProof {
                 disclosure: message.disclosure(),
             },
             policy_hash,
-            state_root: &witness.roots.state,
-            nullifier_root: &witness.roots.nullifier,
-            entries_tree_id: witness.entries_tree_id,
+            tree_slots: &[TreeSlot::new(
+                witness.entries_tree_id,
+                witness.roots.state,
+                witness.roots.nullifier,
+            )],
+            address_tree_id: witness.entries_tree_id,
             ring_id: &witness.velocity.ring_id,
             namespace_owner_hash: &witness.velocity.namespace_owner_hash,
             window_index: witness.velocity.window_index,
             approval_required: witness.velocity.approval_required,
+            key_registry_root: None,
+            revocation_tree_indexes: &[0; zolana_ring_policy::ANSWER_SLOTS],
             revocation_targets: &witness.revocation_targets,
         }
         .hash()
@@ -408,13 +414,14 @@ mod tests {
                 disclosure: message.disclosure(),
             },
             policy_hash: &policy_hash,
-            state_root: &state,
-            nullifier_root: &nullifier,
-            entries_tree_id: 0,
+            tree_slots: &[TreeSlot::new(0, state, nullifier)],
+            address_tree_id: 0,
             ring_id: &[10u8; 32],
             namespace_owner_hash: &[11u8; 32],
             window_index: 0,
             approval_required: false,
+            key_registry_root: None,
+            revocation_tree_indexes: &[0; zolana_ring_policy::ANSWER_SLOTS],
             revocation_targets: &[[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS],
         }
         .hash()

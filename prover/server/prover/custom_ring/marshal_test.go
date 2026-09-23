@@ -12,8 +12,10 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
+	"zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 	"zolana/prover/custom_rings/circuits/policy"
+	"zolana/prover/prover/common"
 )
 
 func sampleBaseParams() *BaseParameters {
@@ -50,9 +52,8 @@ func sampleParams() *PolicyParameters {
 		InlineCount:        1,
 		WindowSlots:        216000,
 		VelocityCount:      1,
-		StateRoot:          big.NewInt(0x34),
-		NullifierRoot:      big.NewInt(0x35),
-		EntriesTreeID:      big.NewInt(0x37),
+		AddressTreeID:      big.NewInt(0x37),
+		KeyEscrow:          KeyEscrow{Enabled: true, Root: big.NewInt(0x3d)},
 		RingID:             big.NewInt(0x38),
 		NamespaceOwnerHash: big.NewInt(0x39),
 		WindowIndex:        4,
@@ -66,6 +67,9 @@ func sampleParams() *PolicyParameters {
 	p.Record.NextSalt = big.NewInt(0x3c)
 	p.Record.Assets[0] = big.NewInt(0x61)
 	p.Record.Spent[0] = big.NewInt(500)
+	p.TreeSlots = zeroedTreeSlots()
+	p.TreeSlots[0] = TreeSlot{ID: big.NewInt(0x37), UtxoRoot: big.NewInt(0x34), NullifierRoot: big.NewInt(0x35)}
+	p.TreeSlots[1] = TreeSlot{ID: big.NewInt(0x3e), UtxoRoot: big.NewInt(0x3f), NullifierRoot: big.NewInt(0x41)}
 	for i := range p.Sources {
 		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
 	}
@@ -80,6 +84,10 @@ func sampleParams() *PolicyParameters {
 	}
 	for i := range p.Outputs {
 		p.Outputs[i] = sampleOpening(int64(0x50 + i))
+	}
+	p.Outputs[0].Key = &RegistryKey{Next: big.NewInt(0x5a), CtHash: big.NewInt(0x5b), Index: 3}
+	for i := range p.Outputs[0].Key.Path {
+		p.Outputs[0].Key.Path[i] = big.NewInt(int64(0x100 + i))
 	}
 	for i := range p.RuleEnc {
 		for j := range p.RuleEnc[i] {
@@ -99,7 +107,16 @@ func sampleParams() *PolicyParameters {
 	p.ListFacts[0].ListId = 1
 	p.ListFacts[0].Member = big.NewInt(0x70)
 	p.ListFacts[0].Version = 3
+	p.ListFacts[0].TreeSlot = 1
 	return p
+}
+
+func zeroedTreeSlots() [shared.InputTrees]TreeSlot {
+	var slots [shared.InputTrees]TreeSlot
+	for i := range slots {
+		slots[i] = TreeSlot{ID: big.NewInt(0), UtxoRoot: big.NewInt(0), NullifierRoot: big.NewInt(0)}
+	}
+	return slots
 }
 
 func sampleOpening(seed int64) Opening {
@@ -180,8 +197,14 @@ func TestPolicyParametersJSONRoundTrip(t *testing.T) {
 			t.Fatalf("source slot %d mismatch", i)
 		}
 	}
-	if !got.ListFacts[0].Enabled || got.ListFacts[0].Member.Cmp(p.ListFacts[0].Member) != 0 {
+	if !got.ListFacts[0].Enabled || got.ListFacts[0].Member.Cmp(p.ListFacts[0].Member) != 0 || got.ListFacts[0].TreeSlot != 1 {
 		t.Fatalf("list fact mismatch")
+	}
+	if got.TreeSlots[1].NullifierRoot.Cmp(p.TreeSlots[1].NullifierRoot) != 0 || got.TreeSlots[2].ID.Sign() != 0 {
+		t.Fatalf("tree slots mismatch")
+	}
+	if !got.KeyEscrow.Enabled || got.Outputs[0].Key.Path[39].Cmp(p.Outputs[0].Key.Path[39]) != 0 || got.Outputs[1].Key != nil {
+		t.Fatalf("key escrow mismatch")
 	}
 }
 
@@ -198,8 +221,8 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 		"circuitType", "publicInputHash", "privateTxHash",
 		"txViewingSk", "ephSk", "auditorPk", "salt", "nIn", "nOut", "inputs",
 		"outputs", "addressChain", "externalDataHash", "privateTxBlinding", "sources",
-		"policyLen", "ruleEnc", "inlineAssets", "inlineLimits", "inlineCount", "stateRoot", "entriesTreeId",
-		"nullifierRoot", "answers", "windowSlots", "velocity", "velocityCount", "ringId",
+		"policyLen", "ruleEnc", "inlineAssets", "inlineLimits", "inlineCount", "treeSlots", "addressTreeId",
+		"keyEscrow", "keyRegistryRoot", "answers", "windowSlots", "velocity", "velocityCount", "ringId",
 		"namespaceOwnerHash", "windowIndex", "approvalRequired", "record",
 	}
 	if len(raw) != len(keys) {
@@ -231,6 +254,7 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 		"inlineLimits": policy.NInlineAssets,
 		"answers":      policy.NListFacts,
 		"velocity":     policy.NVelocityAssets,
+		"treeSlots":    2,
 	} {
 		var entries []json.RawMessage
 		if err := json.Unmarshal(raw[key], &entries); err != nil {
@@ -252,6 +276,9 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 	}
 	source := func(m map[string]interface{}, i int) map[string]interface{} {
 		return m["sources"].([]interface{})[i].(map[string]interface{})
+	}
+	slot := func(m map[string]interface{}, key string, i int) map[string]interface{} {
+		return m[key].([]interface{})[i].(map[string]interface{})
 	}
 	tests := map[string]func(map[string]interface{}){
 		"missing circuit type": func(m map[string]interface{}) { delete(m, "circuitType") },
@@ -315,6 +342,28 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 		"short record counters": func(m map[string]interface{}) {
 			record := m["record"].(map[string]interface{})
 			record["spent"] = record["spent"].([]interface{})[:policy.NVelocityAssets-1]
+		},
+		"no tree slots": func(m map[string]interface{}) { m["treeSlots"] = []interface{}{} },
+		"six tree slots": func(m map[string]interface{}) {
+			slots := m["treeSlots"].([]interface{})
+			m["treeSlots"] = append(slots, slots[0], slots[0], slots[0], slots[0])
+		},
+		"tree slot with a zero root": func(m map[string]interface{}) { slot(m, "treeSlots", 1)["utxoRoot"] = zeroScalarHex },
+		"tree slot id above 16 bits": func(m map[string]interface{}) {
+			slot(m, "treeSlots", 1)["id"] = "0x" + strings.Repeat("00", 29) + "010000"
+		},
+		"answer in an unpopulated slot": func(m map[string]interface{}) { listFacts(m)["treeSlot"] = 2 },
+		"registry root with escrow off": func(m map[string]interface{}) { m["keyEscrow"] = false },
+		"key on an input":               func(m map[string]interface{}) { slot(m, "inputs", 0)["key"] = slot(m, "outputs", 0)["key"] },
+		"key index above 40 bits": func(m map[string]interface{}) {
+			slot(m, "outputs", 0)["key"].(map[string]interface{})["index"] = uint64(1) << 40
+		},
+		"short key path": func(m map[string]interface{}) {
+			key := slot(m, "outputs", 0)["key"].(map[string]interface{})
+			key["path"] = key["path"].([]interface{})[:39]
+		},
+		"unescrowed utxo output": func(m map[string]interface{}) {
+			slot(m, "outputs", 1)["domain"] = common.ToHex(big.NewInt(shared.UtxoDomain))
 		},
 		"record counter above 64 bits": func(m map[string]interface{}) {
 			record := m["record"].(map[string]interface{})

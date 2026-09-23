@@ -219,8 +219,8 @@ impl EntryMutation<'_> {
             });
         }
         let live = ReadEntry {
-            entries_tree: config.entries_tree,
-            entries_tree_id: config.entries_tree_id(),
+            entries_tree: config.address_tree,
+            entries_tree_id: config.address_tree_id(),
             namespace: self.ring.namespace_pda(),
             list_id: self.list_id,
             member: self.member,
@@ -230,8 +230,8 @@ impl EntryMutation<'_> {
             None => CreateEntry {
                 ring: self.ring,
                 payer: self.authority.pubkey(),
-                entries_tree: config.entries_tree,
-                entries_tree_id: config.entries_tree_id(),
+                entries_tree: config.address_tree,
+                entries_tree_id: config.address_tree_id(),
                 list_id: self.list_id,
                 member: self.member,
                 state: self.state,
@@ -247,8 +247,8 @@ impl EntryMutation<'_> {
             Some(LiveEntry { entry, .. }) => UpdateEntry {
                 ring: self.ring,
                 payer: self.authority.pubkey(),
-                entries_tree: config.entries_tree,
-                entries_tree_id: config.entries_tree_id(),
+                entries_tree: config.address_tree,
+                entries_tree_id: config.address_tree_id(),
                 spent: entry,
                 state: self.state,
                 content_hash: [0u8; 32],
@@ -325,8 +325,8 @@ impl EntryArg {
             .read_policy_config(&ctx.rpc)?
             .ok_or(ListError::NoPolicy)?;
         let live = ReadEntry {
-            entries_tree: config.entries_tree,
-            entries_tree_id: config.entries_tree_id(),
+            entries_tree: config.address_tree,
+            entries_tree_id: config.address_tree_id(),
             namespace: config
                 .source_for(self.list_id)
                 .unwrap_or_else(|| ctx.ring.namespace_pda()),
@@ -359,7 +359,7 @@ fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result
             CuratorCheck {
                 curator,
                 list: list_id,
-                entries_tree: config.entries_tree,
+                entries_tree: config.address_tree,
             }
             .run(&ctx.rpc)?;
             curator.namespace_pda()

@@ -14,9 +14,8 @@ use mollusk_svm::result::ProgramResult;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 
 use crate::common::{
-    account, deposit_fixture, entries_tree, initialized_policy_config_account,
-    policy_deposit_fixture, ring_auth_pda, setup_mollusk, transfer_cap_policy_config_account,
-    velocity_policy_config_account, Slot,
+    account, auditor_pubkey, authority, deposit_fixture, deposit_fixture_with,
+    escrowed_config_account, initialized_config_account, ring_auth_pda, setup_mollusk, Slot,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -95,31 +94,19 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
     assert_eq!(recorded, expected);
 }
 
+/// Only the address tree is pinned, a windowed ring deposits anywhere.
 #[test]
-fn a_windowed_deposit_off_the_entries_tree_is_rejected_exactly() {
+fn a_policy_deposit_keeps_its_tree_choice() {
     let (mollusk, _) = setup_mollusk();
-    policy_deposit_fixture(velocity_policy_config_account())
-        .expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
+    deposit_fixture_with(initialized_config_account(authority(), auditor_pubkey(2)))
+        .expect_spp_cpi(&mollusk);
 }
 
 #[test]
-fn a_windowed_deposit_into_the_entries_tree_reaches_the_spp_cpi() {
+fn an_escrowed_ring_refuses_the_proofless_deposit() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = policy_deposit_fixture(velocity_policy_config_account());
-    fixture.substitute("tree", entries_tree());
-    fixture.expect_spp_cpi(&mollusk);
-}
-
-#[test]
-fn a_per_transfer_deposit_keeps_its_tree_choice() {
-    let (mollusk, _) = setup_mollusk();
-    policy_deposit_fixture(transfer_cap_policy_config_account()).expect_spp_cpi(&mollusk);
-}
-
-#[test]
-fn an_ordinary_policy_deposit_keeps_its_tree_choice() {
-    let (mollusk, _) = setup_mollusk();
-    policy_deposit_fixture(initialized_policy_config_account()).expect_spp_cpi(&mollusk);
+    deposit_fixture_with(escrowed_config_account())
+        .expect_err(&mollusk, custom(CustomRingError::DepositAuditRequired));
 }
 
 #[test]

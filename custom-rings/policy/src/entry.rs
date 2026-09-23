@@ -171,6 +171,12 @@ impl TryFrom<u8> for EntryState {
     }
 }
 
+/// `Poseidon(0)`, the nullifier public key of the zero secret.
+pub const ZERO_NULLIFIER_PK: [u8; 32] = [
+    0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
+    0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
+];
+
 /// The zero nullifier secret makes every entry nullifier publicly computable,
 /// spending still needs the PDA signature.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,8 +193,7 @@ pub struct Leaf<'a> {
 impl ListNamespace {
     pub fn new(pda: &[u8; 32]) -> Result<Self, HasherError> {
         let owner_pk_field = solana_owner_identity(pda)?;
-        let nullifier_pk = Poseidon::hashv(&[&[0u8; 32]])?;
-        let owner_hash = Poseidon::hashv(&[&owner_pk_field, &nullifier_pk])?;
+        let owner_hash = Poseidon::hashv(&[&owner_pk_field, &ZERO_NULLIFIER_PK])?;
         Ok(Self { owner_hash })
     }
 
@@ -351,6 +356,11 @@ pub fn mutation_private_tx_hash(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_nullifier_pk_is_the_poseidon_of_zero() {
+        assert_eq!(Poseidon::hashv(&[&[0u8; 32]]).unwrap(), ZERO_NULLIFIER_PK);
+    }
 
     fn owner() -> ListNamespace {
         ListNamespace::new(&[11u8; 32]).unwrap()

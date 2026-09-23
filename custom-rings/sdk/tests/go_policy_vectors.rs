@@ -366,8 +366,8 @@ fn policy_account_bytes_match_the_typescript_vector() {
     let config = PolicyConfig {
         discriminator: POLICY_CONFIG,
         policy_hash: PER_ASSET_RULES.hash(&sources).expect("policy hash"),
-        entries_tree: Address::new_from_array([0x22; 32]),
-        entries_tree_id: 7u16.to_le_bytes(),
+        address_tree: Address::new_from_array([0x22; 32]),
+        address_tree_id: 7u16.to_le_bytes(),
         namespace_bump: 254,
         bump: 253,
         namespace_owner_hash: owner().owner_hash,
@@ -405,28 +405,34 @@ fn the_public_input_chain_extends_the_audit_chain() {
     let mut revocation_targets = [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS];
     revocation_targets[0] = field(0x42);
     revocation_targets[1] = [0x11; 32];
+    let slots = [zolana_interface::tree_slot::TreeSlot::new(
+        TREE_ID, [6u8; 32], [7u8; 32],
+    )];
     let policy = CustomRingPolicyPublicInput {
         audit,
         policy_hash: &hex32(POLICY_HASH),
-        state_root: &[6u8; 32],
-        nullifier_root: &[7u8; 32],
-        entries_tree_id: TREE_ID,
+        tree_slots: &slots,
+        address_tree_id: TREE_ID,
         ring_id: &[8u8; 32],
         namespace_owner_hash: &[9u8; 32],
         window_index: 3,
         approval_required: true,
+        key_registry_root: None,
+        revocation_tree_indexes: &[0; zolana_ring_policy::ANSWER_SLOTS],
         revocation_targets: &revocation_targets,
     };
     let mut expected = elements.to_vec();
     expected.extend_from_slice(&[
         hex32(POLICY_HASH),
-        [6u8; 32],
-        [7u8; 32],
+        zolana_interface::tree_slot::populated_tree_slots_hash_chain(&slots).expect("slots"),
         zolana_interface::tree_slot::tree_id_field(TREE_ID),
         [8u8; 32],
         [9u8; 32],
         field(3),
         field(1),
+        [0u8; 32],
+        [0u8; 32],
+        [0u8; 32],
     ]);
     expected.extend_from_slice(&revocation_targets);
     let chain = zolana_hasher::hash_chain::create_hash_chain_from_slice(&expected).expect("chain");

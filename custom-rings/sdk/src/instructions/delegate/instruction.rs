@@ -2,6 +2,7 @@ use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
+use zolana_interface::instruction::instruction_data::transact::TreeContext;
 use zolana_interface::instruction::{RingAuthorityTransact, TransactIxData};
 
 use crate::{
@@ -32,7 +33,9 @@ impl SetDelegate {
             accounts: vec![
                 AccountMeta::new(payer, true),
                 AccountMeta::new_readonly(authority, true),
+                AccountMeta::new(ring.config_pda(), false),
                 AccountMeta::new(ring.delegate_pda(), false),
+                AccountMeta::new_readonly(ring.key_registry_root_pda(), false),
                 AccountMeta::new_readonly(Address::default(), false),
                 AccountMeta::new_readonly(ring.program_id(), false),
                 AccountMeta::new_readonly(ring.program_data_pda(), false),
@@ -111,6 +114,12 @@ impl CustomRingDelegateTransact {
         );
         prefix.insert(4, AccountMeta::new_readonly(delegate, true));
         accounts.extend(prefix);
+        if entries_tree.is_some() {
+            accounts.push(AccountMeta::new_readonly(
+                deployment.key_registry_root_pda(),
+                false,
+            ));
+        }
         if let Some(entries_tree) = entries_tree {
             accounts.extend(
                 revocation_targets
@@ -128,11 +137,18 @@ impl CustomRingDelegateTransact {
 
         let body = wincode::serialize(&CustomRingTransactIxData {
             proof,
-            state_root_index,
-            nullifier_root_index,
+            policy_trees: entries_tree
+                .iter()
+                .map(|_| TreeContext {
+                    utxo_tree_root_index: state_root_index,
+                    nullifier_tree_root_index: nullifier_root_index,
+                })
+                .collect(),
+            key_registry_root_index: 0,
             approval_required: 0,
             head_transition: None,
             revocation_targets,
+            revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

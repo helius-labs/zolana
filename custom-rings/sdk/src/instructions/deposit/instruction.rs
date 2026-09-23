@@ -36,7 +36,7 @@ impl Deposit {
             deposits,
             proof,
             cosigner,
-            has_policy,
+            has_policy: _,
         } = self;
 
         if proof.is_some() && deposits.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {
@@ -57,17 +57,14 @@ impl Deposit {
         if let Some(proof) = proof {
             let mut data = vec![custom_ring_interface::tag::AUDITED_DEPOSIT];
             data.extend(wincode::serialize(&proof).map_err(|_| DepositBuildError::Serialization)?);
+            data.push(0);
             data.extend_from_slice(&instruction.data);
             instruction.data = data;
         }
         let mut prefix = RingPrefix {
             ring,
             cosigner,
-            policy: if has_policy {
-                RingPolicy::Config
-            } else {
-                RingPolicy::Off
-            },
+            policy: RingPolicy::Off,
         }
         .metas();
         prefix.insert(

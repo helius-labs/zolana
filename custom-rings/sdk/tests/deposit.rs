@@ -50,6 +50,7 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
         auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
         has_policy: 0,
+        key_escrow: 0,
     };
     let setting = DepositAudit {
         discriminator: DEPOSIT_AUDIT,

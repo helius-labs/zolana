@@ -125,14 +125,6 @@ func TestCircuitRejectsVelocityTampering(t *testing.T) {
 			},
 		},
 		{
-			name: "the record opened in the money tree",
-			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				return reboundStatement(t, velocityDefault(), func(s *statement) {
-					s.inputs[1].TreeID = big.NewInt(0)
-				})
-			},
-		},
-		{
 			name: "the successor placed inside the ring",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				return reboundStatement(t, velocityDefault(), func(s *statement) {

@@ -596,6 +596,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             auditor_pubkey,
             bump: config_bump,
             has_policy: 1,
+            key_escrow: 0,
         },
         "custom-ring config account"
     );

@@ -87,7 +87,6 @@ impl ClearCoSigner {
 #[derive(Clone, Copy)]
 pub(crate) enum RingPolicy {
     Off,
-    Config,
     Entries(Address),
 }
 
@@ -112,12 +111,6 @@ impl RingPrefix {
         ];
         match self.policy {
             RingPolicy::Off => {}
-            RingPolicy::Config => {
-                metas.push(AccountMeta::new_readonly(
-                    self.ring.policy_config_pda(),
-                    false,
-                ));
-            }
             RingPolicy::Entries(entries_tree) => {
                 metas.push(AccountMeta::new_readonly(
                     self.ring.policy_config_pda(),

@@ -204,8 +204,8 @@ impl RecordQuery<'_> {
         wait_for("current compressed spend record".to_owned(), || {
             let read = ReadSpendRecord {
                 ring: self.ring,
-                entries_tree: self.config.entries_tree,
-                entries_tree_id: self.config.entries_tree_id(),
+                entries_tree: self.config.address_tree,
+                entries_tree_id: self.config.address_tree_id(),
                 member: self.member,
             };
             match read.read_current(env) {

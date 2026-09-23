@@ -18,7 +18,7 @@ use crate::common::{
     spend_window_pda, spl_settlement, stored, window_slot, Fixture, Slot, WindowState, SOL,
     SOL_DEPOSIT_AMOUNT, USDC,
 };
-use crate::transact::{auditor_message, bogus_proof, instruction_data, transact};
+use crate::transact::{audit_instruction_data, auditor_message, bogus_proof, transact};
 
 const WINDOW_SLOTS: u64 = 100;
 
@@ -197,7 +197,7 @@ fn windowed_transact(
     content.interface_transfers = legs;
     let mut fixture = audit_transact_fixture(
         audit_only_config_account(authority(), auditor_pubkey(2)),
-        instruction_data(bogus_proof(), content),
+        audit_instruction_data(bogus_proof(), content),
     );
     fixture.insert_windows(windows);
     for slot in settlements {

@@ -303,6 +303,8 @@ mod tests {
                 next_index: (self.root.next_index + u64::from(self.advance && reads > 0))
                     .to_le_bytes(),
                 bump,
+                history_cursor: 0,
+                history: [[0; 32]; custom_ring_interface::KEY_REGISTRY_ROOT_HISTORY],
             };
             Ok(Some(Account {
                 lamports: 1,

@@ -168,7 +168,7 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
     assert!(config.has_policy, "policy tier");
     let policy = policy_config(ring, rpc)?;
     assert_eq!(
-        policy.entries_tree, demo.tree,
+        policy.address_tree, demo.tree,
         "the policy pins the cli's default tree"
     );
     assert_eq!(policy_config_table(&policy)?, RELEASED);
@@ -196,7 +196,7 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
     let entries_tree_id = ring
         .read_policy_config(env.client.rpc())?
         .ok_or_else(|| anyhow!("policy config of {}", ring.program_id()))?
-        .entries_tree_id();
+        .address_tree_id();
     for output in &transfer.outputs {
         assert_eq!(output.ring_program_id, Some(ring.program_id()));
         let live = ReadEntry {
@@ -248,7 +248,7 @@ fn a_blocked_token_refuses_every_transfer() -> Result<()> {
     // 1. `init` pins the asset row at generation 1.
     let policy = policy_config(demo.ring, rpc)?;
     assert_eq!(
-        policy.entries_tree, demo.tree,
+        policy.address_tree, demo.tree,
         "the policy pins the cli's default tree"
     );
     assert_eq!(policy_config_table(&policy)?, TOKEN_BLOCK);

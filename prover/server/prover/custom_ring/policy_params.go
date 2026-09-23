@@ -35,11 +35,21 @@ type Opening struct {
 	DataHash      *big.Int
 	RingDataHash  *big.Int
 	RingProgramID *big.Int
+	// Outputs only, absent for the zero key or with escrow off.
+	Key *RegistryKey
+}
+
+// TreeSlot is one policy tree the program resolved, all zero when unused.
+type TreeSlot struct {
+	ID            *big.Int
+	UtxoRoot      *big.Int
+	NullifierRoot *big.Int
 }
 
 // ListFact supplies a presence or absence claim for circuit verification.
 type ListFact struct {
 	Enabled      bool
+	TreeSlot     uint8
 	Mode         uint8
 	ListId       uint8
 	State        uint8
@@ -109,29 +119,36 @@ type PolicyParameters struct {
 	Velocity      [policy.NVelocityAssets]VelocityRow
 	VelocityCount uint8
 
-	StateRoot          *big.Int
-	NullifierRoot      *big.Int
-	EntriesTreeID      *big.Int
+	TreeSlots          [shared.InputTrees]TreeSlot
+	AddressTreeID      *big.Int
 	RingID             *big.Int
 	NamespaceOwnerHash *big.Int
 	WindowIndex        uint64
 	ApprovalRequired   bool
+	KeyEscrow          KeyEscrow
 	Record             SpendRecord
 
 	ListFacts [policy.NListFacts]ListFact
 }
 
 type openingJSON struct {
-	Domain        string `json:"domain"`
-	TreeID        string `json:"treeId"`
-	OwnerPkHash   string `json:"ownerPkHash"`
-	NullifierPk   string `json:"nullifierPk"`
-	Asset         string `json:"asset"`
-	Amount        string `json:"amount"`
-	Blinding      string `json:"blinding"`
-	DataHash      string `json:"dataHash"`
-	RingDataHash  string `json:"ringDataHash"`
-	RingProgramID string `json:"ringProgramId"`
+	Domain        string           `json:"domain"`
+	TreeID        string           `json:"treeId"`
+	OwnerPkHash   string           `json:"ownerPkHash"`
+	NullifierPk   string           `json:"nullifierPk"`
+	Asset         string           `json:"asset"`
+	Amount        string           `json:"amount"`
+	Blinding      string           `json:"blinding"`
+	DataHash      string           `json:"dataHash"`
+	RingDataHash  string           `json:"ringDataHash"`
+	RingProgramID string           `json:"ringProgramId"`
+	Key           *registryKeyJSON `json:"key,omitempty"`
+}
+
+type treeSlotJSON struct {
+	ID            string `json:"id"`
+	UtxoRoot      string `json:"utxoRoot"`
+	NullifierRoot string `json:"nullifierRoot"`
 }
 
 type sourceOwnerJSON struct {
@@ -157,6 +174,7 @@ type spendRecordJSON struct {
 
 type listFactJSON struct {
 	Enabled           bool     `json:"enabled"`
+	TreeSlot          uint8    `json:"treeSlot"`
 	Mode              uint8    `json:"mode"`
 	ListId            uint8    `json:"listId"`
 	State             uint8    `json:"state"`
@@ -197,13 +215,14 @@ type policyParametersJSON struct {
 	WindowSlots        uint64            `json:"windowSlots"`
 	Velocity           []velocityRowJSON `json:"velocity"`
 	VelocityCount      uint8             `json:"velocityCount"`
-	StateRoot          string            `json:"stateRoot"`
-	NullifierRoot      string            `json:"nullifierRoot"`
-	EntriesTreeID      string            `json:"entriesTreeId"`
+	TreeSlots          []treeSlotJSON    `json:"treeSlots"`
+	AddressTreeID      string            `json:"addressTreeId"`
 	RingID             string            `json:"ringId"`
 	NamespaceOwnerHash string            `json:"namespaceOwnerHash"`
 	WindowIndex        uint64            `json:"windowIndex"`
 	ApprovalRequired   bool              `json:"approvalRequired"`
+	KeyEscrow          bool              `json:"keyEscrow"`
+	KeyRegistryRoot    string            `json:"keyRegistryRoot"`
 	Record             spendRecordJSON   `json:"record"`
 	ListFacts          []listFactJSON    `json:"answers"`
 }
@@ -233,13 +252,14 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 		WindowSlots:        p.WindowSlots,
 		Velocity:           make([]velocityRowJSON, 0, len(p.Velocity)),
 		VelocityCount:      p.VelocityCount,
-		StateRoot:          common.ToHex(p.StateRoot),
-		NullifierRoot:      common.ToHex(p.NullifierRoot),
-		EntriesTreeID:      common.ToHex(p.EntriesTreeID),
+		TreeSlots:          writeTreeSlots(p.TreeSlots[:]),
+		AddressTreeID:      common.ToHex(p.AddressTreeID),
 		RingID:             common.ToHex(p.RingID),
 		NamespaceOwnerHash: common.ToHex(p.NamespaceOwnerHash),
 		WindowIndex:        p.WindowIndex,
 		ApprovalRequired:   p.ApprovalRequired,
+		KeyEscrow:          p.KeyEscrow.Enabled,
+		KeyRegistryRoot:    common.ToHex(p.KeyEscrow.Root),
 		Record: spendRecordJSON{
 			Version:    p.Record.Version,
 			Window:     p.Record.Window,
@@ -359,13 +379,14 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 		}
 		p.Sources[i] = SourceOwner{ListId: src.ListId, OwnerHash: owner}
 	}
-	if p.StateRoot, err = fieldFromHex(raw.StateRoot, "stateRoot"); err != nil {
+	populated, err := readTreeSlots(p.TreeSlots[:], raw.TreeSlots)
+	if err != nil {
 		return err
 	}
-	if p.NullifierRoot, err = fieldFromHex(raw.NullifierRoot, "nullifierRoot"); err != nil {
+	if p.AddressTreeID, err = fieldFromHex(raw.AddressTreeID, "addressTreeId"); err != nil {
 		return err
 	}
-	if p.EntriesTreeID, err = fieldFromHex(raw.EntriesTreeID, "entriesTreeId"); err != nil {
+	if p.KeyEscrow, err = readKeyEscrow(raw.KeyEscrow, raw.KeyRegistryRoot); err != nil {
 		return err
 	}
 	if p.RingID, err = fieldFromHex(raw.RingID, "ringId"); err != nil {
@@ -388,6 +409,20 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	}
 	if err = readOpenings(p.Outputs[:], raw.Outputs, "outputs"); err != nil {
 		return err
+	}
+	for i := range p.Inputs {
+		if p.Inputs[i].Key != nil {
+			return fmt.Errorf("custom-ring: inputs[%d] carries a key", i)
+		}
+	}
+	for i := range p.Outputs[:p.NOut] {
+		output := &p.Outputs[i]
+		if output.Domain.Cmp(big.NewInt(shared.UtxoDomain)) != 0 {
+			continue
+		}
+		if err = p.KeyEscrow.requireEscrowed(output.Key, output.NullifierPk, fmt.Sprintf("outputs[%d]", i)); err != nil {
+			return err
+		}
 	}
 	if len(raw.RuleEnc) != policy.NRules {
 		return fmt.Errorf("custom-ring: ruleEnc holds %d rules, expected %d", len(raw.RuleEnc), policy.NRules)
@@ -429,6 +464,9 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 		if err = readListFact(&p.ListFacts[i], fact); err != nil {
 			return err
 		}
+		if int(fact.TreeSlot) >= populated {
+			return fmt.Errorf("custom-ring: answers[%d] treeSlot %d names no populated tree", i, fact.TreeSlot)
+		}
 	}
 	return nil
 }
@@ -447,14 +485,61 @@ func writeOpenings(src []Opening) []openingJSON {
 			DataHash:      common.ToHex(slot.DataHash),
 			RingDataHash:  common.ToHex(slot.RingDataHash),
 			RingProgramID: common.ToHex(slot.RingProgramID),
+			Key:           writeRegistryKey(slot.Key),
 		}
 	}
 	return out
 }
 
+// Only the populated prefix goes on the wire.
+func writeTreeSlots(src []TreeSlot) []treeSlotJSON {
+	out := make([]treeSlotJSON, 0, len(src))
+	for _, slot := range src {
+		if slot.UtxoRoot.Sign() == 0 {
+			break
+		}
+		out = append(out, treeSlotJSON{
+			ID:            common.ToHex(slot.ID),
+			UtxoRoot:      common.ToHex(slot.UtxoRoot),
+			NullifierRoot: common.ToHex(slot.NullifierRoot),
+		})
+	}
+	return out
+}
+
+// Pads the populated prefix with zero slots, the layout the program hashes.
+func readTreeSlots(dst []TreeSlot, src []treeSlotJSON) (int, error) {
+	if len(src) == 0 || len(src) > len(dst) {
+		return 0, fmt.Errorf("custom-ring: treeSlots holds %d slots, expected 1..%d", len(src), len(dst))
+	}
+	for i := range dst {
+		dst[i] = TreeSlot{ID: big.NewInt(0), UtxoRoot: big.NewInt(0), NullifierRoot: big.NewInt(0)}
+	}
+	for i, slot := range src {
+		var err error
+		if dst[i].ID, err = fieldFromHex(slot.ID, "treeSlots id"); err != nil {
+			return 0, err
+		}
+		if dst[i].ID.BitLen() > 16 {
+			return 0, fmt.Errorf("custom-ring: treeSlots[%d] id exceeds 16 bits", i)
+		}
+		if dst[i].UtxoRoot, err = fieldFromHex(slot.UtxoRoot, "treeSlots utxoRoot"); err != nil {
+			return 0, err
+		}
+		if dst[i].NullifierRoot, err = fieldFromHex(slot.NullifierRoot, "treeSlots nullifierRoot"); err != nil {
+			return 0, err
+		}
+		if dst[i].UtxoRoot.Sign() == 0 || dst[i].NullifierRoot.Sign() == 0 {
+			return 0, fmt.Errorf("custom-ring: treeSlots[%d] has a zero root", i)
+		}
+	}
+	return len(src), nil
+}
+
 func writeListFact(src *ListFact) listFactJSON {
 	return listFactJSON{
 		Enabled:           src.Enabled,
+		TreeSlot:          src.TreeSlot,
 		Mode:              src.Mode,
 		ListId:            src.ListId,
 		State:             src.State,
@@ -508,6 +593,11 @@ func readOpenings(dst []Opening, src []openingJSON, name string) error {
 			}
 			*field.target = value
 		}
+		key, err := readRegistryKey(slot.Key)
+		if err != nil {
+			return err
+		}
+		dst[i].Key = key
 	}
 	return nil
 }
@@ -570,7 +660,7 @@ func readListFact(dst *ListFact, src listFactJSON) error {
 			return fmt.Errorf("custom-ring: answers listId is unset")
 		}
 	}
-	dst.Enabled = src.Enabled
+	dst.Enabled, dst.TreeSlot = src.Enabled, src.TreeSlot
 	dst.Mode, dst.ListId, dst.State, dst.AbsentBranch = src.Mode, src.ListId, src.State, src.AbsentBranch
 	dst.Version, dst.NfPathIndex, dst.StatePathIndex = src.Version, src.NfPathIndex, src.StatePathIndex
 
@@ -624,13 +714,13 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 		ExternalDataHash:   p.ExternalDataHash,
 		PrivateTxBlinding:  p.PrivateTxBlinding,
 		WindowSlots:        p.WindowSlots,
-		StateRoot:          p.StateRoot,
-		NullifierRoot:      p.NullifierRoot,
-		EntriesTreeID:      p.EntriesTreeID,
+		AddressTreeID:      p.AddressTreeID,
 		RingID:             p.RingID,
 		NamespaceOwnerHash: p.NamespaceOwnerHash,
 		WindowIndex:        p.WindowIndex,
 		ApprovalRequired:   boolVar(p.ApprovalRequired),
+		KeyEscrow:          boolVar(p.KeyEscrow.Enabled),
+		KeyRegistryRoot:    p.KeyEscrow.Root,
 		Record: policy.RecordWires{
 			Version:    p.Record.Version,
 			Window:     p.Record.Window,
@@ -667,6 +757,10 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	}
 	for i := range circuit.Outputs {
 		assignOpening(&circuit.Outputs[i], &p.Outputs[i])
+		assignRegistryKey(&circuit.OutputKeys[i], p.Outputs[i].Key)
+	}
+	for i, slot := range p.TreeSlots {
+		circuit.TreeSlots[i] = shared.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
 	}
 	assignOneHot(circuit.InputCountSelected[:], int(p.NIn)-1)
 	assignOneHot(circuit.OutputCountSelected[:], int(p.NOut)-1)
@@ -725,6 +819,7 @@ func assignRule(dst *policy.RuleWires, encoded [ruleEncLen]byte) {
 
 func assignListFact(dst *policy.ListFactWires, src *ListFact) {
 	dst.Enabled = boolVar(src.Enabled)
+	dst.TreeSlot = src.TreeSlot
 	dst.Mode = src.Mode
 	dst.ListId = src.ListId
 	dst.Member = src.Member

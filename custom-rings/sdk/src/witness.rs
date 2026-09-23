@@ -79,7 +79,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         indexer: &I,
         rpc: &R,
     ) -> Result<CustomRingWitness, TransferError> {
-        let tree = self.policy_config.entries_tree;
+        let tree = self.policy_config.address_tree;
         let plan = self.plan()?;
         let lineages = plan.lineages().fetch(indexer).map_err(list_entry)?;
         let resolved = plan.resolve(lineages)?;
@@ -94,7 +94,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         indexer: &I,
         rpc: &R,
     ) -> Result<CustomRingWitness, TransferError> {
-        let tree = self.policy_config.entries_tree;
+        let tree = self.policy_config.address_tree;
         let plan = self.plan()?;
         let lineages = plan
             .lineages()
@@ -139,7 +139,7 @@ impl<'a> CustomRingWitnessInput<'a> {
                             },
                             list_id,
                             member,
-                            tree_id: self.policy_config.entries_tree_id(),
+                            tree_id: self.policy_config.address_tree_id(),
                         };
                         let index = lookups
                             .iter()
@@ -314,7 +314,7 @@ struct WitnessPlan<'a> {
 impl<'a> WitnessPlan<'a> {
     fn lineages(&self) -> Lineages<'_, EntryLookup> {
         Lineages {
-            entries_tree: self.input.policy_config.entries_tree,
+            entries_tree: self.input.policy_config.address_tree,
             lookups: &self.lookups,
         }
     }
@@ -421,7 +421,7 @@ struct ResolvedWitness<'a> {
 impl ResolvedWitness<'_> {
     fn queries(&self) -> EntryQueries {
         EntryQueries {
-            tree: self.input.policy_config.entries_tree,
+            tree: self.input.policy_config.address_tree,
             states: self
                 .answers
                 .iter()
@@ -493,7 +493,7 @@ impl ResolvedWitness<'_> {
         let table = &input.policy_config.rules;
         Ok(CustomRingWitness {
             roots,
-            entries_tree_id: input.policy_config.entries_tree_id(),
+            entries_tree_id: input.policy_config.address_tree_id(),
             sources: *self.sources.slots(),
             inputs,
             outputs,
@@ -766,8 +766,8 @@ mod tests {
         PolicyConfig {
             discriminator: POLICY_CONFIG,
             policy_hash: [0; 32],
-            entries_tree: tree(),
-            entries_tree_id: [0; 2],
+            address_tree: tree(),
+            address_tree_id: [0; 2],
             namespace_bump: 0,
             namespace_owner_hash: [0u8; 32],
             bump: 0,

@@ -30,6 +30,7 @@ type UtxoWires struct {
 // utxoView supplies transaction subjects for evaluation when live.
 type utxoView struct {
 	ownerPkHash frontend.Variable
+	nullifierPk frontend.Variable
 	asset       frontend.Variable
 	amount      frontend.Variable
 	// Poseidon(ownerPkHash, nullifierPk), the owner the leaf commits to.
@@ -37,6 +38,8 @@ type utxoView struct {
 	ringProgramID frontend.Variable
 	// Selected, whatever the domain.
 	active frontend.Variable
+	// Selected in the UTXO domain.
+	utxo frontend.Variable
 	// The final selected slot when windowed accounting requires a record.
 	record frontend.Variable
 	// Only selected UTXO slots outside the record can create policy obligations.
@@ -155,15 +158,18 @@ func (w UtxoWires) checkSlot(
 	}, w.TreeID)
 
 	// 3. Mark selected UTXOs outside the record for rule evaluation.
+	utxo := api.Mul(active, isUtxo)
 	return api.Select(isUtxo, hash, frontend.Variable(0)), utxoView{
 		ownerPkHash:   w.OwnerPkHash,
+		nullifierPk:   w.NullifierPk,
 		asset:         w.Asset,
 		amount:        w.Amount,
 		owner:         owner,
 		ringProgramID: w.RingProgramID,
 		active:        active,
+		utxo:          utxo,
 		record:        record,
-		live:          api.Mul(active, isUtxo, api.Sub(1, record)),
+		live:          api.Mul(utxo, api.Sub(1, record)),
 		hash:          hash,
 		blinding:      w.Blinding,
 	}

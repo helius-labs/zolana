@@ -6,7 +6,7 @@ use wincode::{
     len::{FixIntLen, SeqLen},
     ReadError, ReadResult, SchemaRead, SchemaWrite, WriteResult,
 };
-use zolana_interface::instruction::TransactIxData;
+use zolana_interface::instruction::{instruction_data::transact::TreeContext, TransactIxData};
 use zolana_ring_policy::{VelocityRow, ANSWER_SLOTS};
 
 use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
@@ -152,14 +152,14 @@ pub struct HeadMapTransition {
 
 /// Wire format of tag 3, the ring's own proof followed by the SPP content this
 /// ring forwards verbatim.
-///
-/// The root indices name the tree history entries a policy statement binds. An
-/// audit-only ring carries them unread, one encoding serves both tiers.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CustomRingTransactIxData {
     pub proof: CustomRingProof,
-    pub state_root_index: u16,
-    pub nullifier_root_index: u16,
+    /// One per policy tree account in order, empty on an audit-only ring.
+    #[wincode(with = "containers::Vec<TreeContext, FixIntLen<u8>>")]
+    pub policy_trees: Vec<TreeContext>,
+    /// Zero unless the ring escrows nullifier keys.
+    pub key_registry_root_index: u8,
     /// Proof-bound approval demand, zero when member amount controls do not apply.
     pub approval_required: u8,
     /// Required only on the windowed member rail.
@@ -167,6 +167,8 @@ pub struct CustomRingTransactIxData {
     /// Canonical target prefix with a zero suffix in the policy public input.
     #[wincode(with = "CompactRevocationTargets")]
     pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
+    /// Per fact slot, the policy tree its revocation target lives in, zero for an empty slot.
+    pub revocation_tree_indexes: [u8; ANSWER_SLOTS],
     pub transact: TransactIxData,
 }
 

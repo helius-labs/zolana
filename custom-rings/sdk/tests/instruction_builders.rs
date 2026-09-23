@@ -553,15 +553,12 @@ fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
         &audited.data[1..1 + CustomRingProof::SIZE],
         wincode::serialize(&sample_proof()).unwrap()
     );
-    assert_eq!(&audited.data[1 + CustomRingProof::SIZE..], legacy.data);
+    assert_eq!(audited.data[1 + CustomRingProof::SIZE], 0);
+    assert_eq!(&audited.data[2 + CustomRingProof::SIZE..], legacy.data);
     assert_eq!(audited.accounts, legacy.accounts);
     assert_eq!(
         audited.accounts[3],
         AccountMeta::new_readonly(ring().deposit_audit_pda(), false)
-    );
-    assert_eq!(
-        audited.accounts[4],
-        AccountMeta::new_readonly(ring().policy_config_pda(), false)
     );
     assert!(build(Some(sample_proof()), 8).is_ok());
     assert!(build(Some(sample_proof()), 9).is_err());
@@ -787,10 +784,16 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         decoded,
         CustomRingTransactIxData {
             proof,
-            state_root_index: 0,
-            nullifier_root_index: 0,
+            policy_trees: vec![
+                zolana_interface::instruction::instruction_data::transact::TreeContext {
+                    utxo_tree_root_index: 0,
+                    nullifier_tree_root_index: 0,
+                }
+            ],
+            key_registry_root_index: 0,
             approval_required: 0,
             revocation_targets,
+            revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
             head_transition: None,
             transact,
         }
@@ -1318,7 +1321,9 @@ fn set_delegate_runs_under_the_upgrade_authority() {
         vec![
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new(ring().config_pda(), false),
             AccountMeta::new(ring().delegate_pda(), false),
+            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),
@@ -1369,11 +1374,11 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
             AccountMeta::new_readonly(delegate, true),
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(entries_tree(), false),
-            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
         ]
     );
     assert_eq!(
-        instruction.accounts.get(12).expect("ring_config meta"),
+        instruction.accounts.get(13).expect("ring_config meta"),
         &AccountMeta::new_readonly(ring().ring_auth_pda(), false)
     );
     let (ix_tag, _) = split_tag(&instruction);

@@ -67,12 +67,12 @@ func TestListFactRequiresStrictNullifierInterval(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s.nullifierRoot = root
+			s.trees[0].nullifierRoot = root
 			c := s.assignment(t, nil)
 			fact.NullifierLowValue = low
 			fact.NullifierNextValue = next
 			c.ListFacts[0] = fact
-			c.PublicInputHash = s.publicInputHashForTargets(t, s.revocationTargets([]int{allowedActive}))
+			c.PublicInputHash = s.publicInputHashFor(t, []int{allowedActive})
 			if tt.passes {
 				solve(t, testConstraintSystem(t), c)
 			} else {
