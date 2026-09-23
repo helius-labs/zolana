@@ -14,7 +14,7 @@ mod tests {
     use zolana_transaction::serialization::ring_deposit::RingDepositPlaintext;
 
     #[test]
-    fn recipient_opens_legacy_and_auditor_wrapped_ciphertexts() {
+    fn recipient_opens_plain_and_auditor_wrapped_ciphertexts() {
         let recipient = ViewingKey::new();
         let plaintext = RingDepositPlaintext {
             blinding: [7; 32],

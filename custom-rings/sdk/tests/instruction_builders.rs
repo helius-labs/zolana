@@ -570,7 +570,7 @@ fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
         }
         .instruction()
     };
-    let legacy = build(None, 1).unwrap();
+    let plain = build(None, 1).unwrap();
     let audited = build(Some(sample_proof()), 1).unwrap();
     assert_eq!(audited.data[0], tag::AUDITED_DEPOSIT);
     assert_eq!(
@@ -578,8 +578,8 @@ fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
         wincode::serialize(&sample_proof()).unwrap()
     );
     assert_eq!(audited.data[1 + CustomRingProof::SIZE], 0);
-    assert_eq!(&audited.data[2 + CustomRingProof::SIZE..], legacy.data);
-    assert_eq!(audited.accounts, legacy.accounts);
+    assert_eq!(&audited.data[2 + CustomRingProof::SIZE..], plain.data);
+    assert_eq!(audited.accounts, plain.accounts);
     assert_eq!(
         audited.accounts[3],
         AccountMeta::new_readonly(ring().deposit_audit_pda(), false)
