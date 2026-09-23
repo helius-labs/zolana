@@ -14,7 +14,7 @@ use swap_program::{
     verifying_keys::take_verifiable_encryption::VERIFYINGKEY,
 };
 use swap_prover::{
-    CircuitId, OrderProof, OrderTermsProofInput, TakeVerifiableEncryptionProofInputs,
+    CircuitId, OrderProof, OrderTermsProofInput, TakeVerifiableEncryptionProofInputs, PROVER,
     TAKE_MODE_VERIFIABLE,
 };
 use swap_sdk::{
@@ -33,14 +33,15 @@ mod shared;
 use shared::order_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../build/gnark/take_verifiable_encryption")
+    PROVER.keys_dir(CircuitId::TakeVerifiableEncryption)
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        swap_prover::setup(CircuitId::TakeVerifiableEncryption, &dir).expect("setup failed");
+        PROVER
+            .setup(CircuitId::TakeVerifiableEncryption, &dir)
+            .expect("setup failed");
     }
 }
 

@@ -25,6 +25,8 @@ members = [
     "custom-rings/sdk",
     "custom-rings/test",
     "sdk-libs/client",
+    "sdk-libs/gnark-prover",
+    "sdk-libs/gnark-prover/build-helper",
     "sdk-libs/event",
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
@@ -90,6 +92,8 @@ zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
+zolana-gnark-prover = { path = "sdk-libs/gnark-prover", version = "0.1.0" }
+zolana-gnark-prover-build = { path = "sdk-libs/gnark-prover/build-helper", version = "0.1.0" }
 custom-ring-interface = { path = "custom-rings/interface", version = "0.1.0" }
 zolana-ring-client = { path = "custom-rings/client", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
@@ -183,7 +187,6 @@ async-trait = "0.1.82"
 arrayvec = "0.7"
 base64 = "0.22.1"
 bb8 = "0.8.6"
-bindgen = "0.70"
 bincode = { version = "2.0.1", features = ["serde"] }
 bitvec = { version = "1.0.1", default-features = false }
 bs58 = "0.5.1"

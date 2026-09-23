@@ -1,13 +1,9 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
+use zolana_gnark_prover::{decimal, utxo_witness_entries, WitnessMap};
 
-use crate::{
-    bytes_to_decimal_string, ffi,
-    proof::{negate_and_compress_proof_with_commitment, OrderProof, ProofError},
-    utxo::utxo_witness_entries,
-    CircuitId, OrderTermsProofInput,
-};
+use crate::{CircuitId, OrderProof, OrderTermsProofInput, PROVER};
 
 pub const TAKE_ENC_KDF_DOMAIN: u64 = 0x5357_4150_5441_4b45;
 
@@ -26,7 +22,7 @@ pub struct TakeVerifiableEncryptionProofInputs {
 }
 
 impl TakeVerifiableEncryptionProofInputs {
-    fn witness(&self) -> ffi::WitnessMap {
+    fn witness(&self) -> WitnessMap {
         let scalars: [(&str, [u8; 32]); 5] = [
             ("Public_PublicInputHash", self.public_input_hash),
             ("Public_PrivateTxHash", self.private_tx_hash),
@@ -36,7 +32,7 @@ impl TakeVerifiableEncryptionProofInputs {
         ];
         let mut map = HashMap::new();
         for (key, value) in scalars.iter() {
-            map.insert(key.to_string(), vec![bytes_to_decimal_string(value)]);
+            map.insert(key.to_string(), vec![decimal(value)]);
         }
         for (key, value) in self
             .order
@@ -58,11 +54,11 @@ impl TakeVerifiableEncryptionProofInputs {
         map
     }
 
-    pub fn prove(&self) -> Result<OrderProof, ProofError> {
-        negate_and_compress_proof_with_commitment(&ffi::prove(
-            CircuitId::TakeVerifiableEncryption,
-            &self.witness(),
-        )?)
+    pub fn prove(&self) -> zolana_gnark_prover::Result<OrderProof> {
+        Ok(PROVER
+            .prove(CircuitId::TakeVerifiableEncryption, &self.witness())?
+            .compress()?
+            .into())
     }
 }
 
@@ -70,11 +66,10 @@ impl TakeVerifiableEncryptionProofInputs {
 mod tests {
     use std::collections::HashSet;
 
+    use zolana_gnark_prover::expected_utxo_witness_keys;
+
     use super::*;
-    use crate::{
-        order_terms::expected_order_terms_witness_keys, utxo::expected_utxo_witness_keys,
-        TAKE_MODE_VERIFIABLE,
-    };
+    use crate::{order_terms::expected_order_terms_witness_keys, TAKE_MODE_VERIFIABLE};
 
     fn sample() -> TakeVerifiableEncryptionProofInputs {
         TakeVerifiableEncryptionProofInputs {

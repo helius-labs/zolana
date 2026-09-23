@@ -1,13 +1,9 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
+use zolana_gnark_prover::{decimal, utxo_witness_entries, WitnessMap};
 
-use crate::{
-    bytes_to_decimal_string, ffi,
-    proof::{negate_and_compress_proof, OrderProof, ProofError},
-    utxo::utxo_witness_entries,
-    CircuitId, OrderTermsProofInput,
-};
+use crate::{CircuitId, OrderProof, OrderTermsProofInput, PROVER};
 
 #[derive(Debug, Clone)]
 pub struct MakeProofInputs {
@@ -21,7 +17,7 @@ pub struct MakeProofInputs {
 }
 
 impl MakeProofInputs {
-    fn witness(&self) -> ffi::WitnessMap {
+    fn witness(&self) -> WitnessMap {
         let scalars: [(&str, [u8; 32]); 4] = [
             ("PrivateTxHash", self.private_tx_hash),
             ("SourceInputHash", self.source_input_hash),
@@ -30,7 +26,7 @@ impl MakeProofInputs {
         ];
         let mut map = HashMap::new();
         for (key, value) in scalars.iter() {
-            map.insert(key.to_string(), vec![bytes_to_decimal_string(value)]);
+            map.insert(key.to_string(), vec![decimal(value)]);
         }
         for (key, value) in self
             .order
@@ -44,8 +40,11 @@ impl MakeProofInputs {
         map
     }
 
-    pub fn prove(&self) -> Result<OrderProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::Make, &self.witness())?)
+    pub fn prove(&self) -> zolana_gnark_prover::Result<OrderProof> {
+        Ok(PROVER
+            .prove(CircuitId::Make, &self.witness())?
+            .compress()?
+            .into())
     }
 }
 
@@ -53,11 +52,10 @@ impl MakeProofInputs {
 mod tests {
     use std::collections::HashSet;
 
+    use zolana_gnark_prover::expected_utxo_witness_keys;
+
     use super::*;
-    use crate::{
-        order_terms::expected_order_terms_witness_keys, utxo::expected_utxo_witness_keys,
-        TAKE_MODE_DERIVED,
-    };
+    use crate::{order_terms::expected_order_terms_witness_keys, TAKE_MODE_DERIVED};
 
     fn sample() -> MakeProofInputs {
         MakeProofInputs {

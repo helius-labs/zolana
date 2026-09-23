@@ -11,7 +11,7 @@ use swap_program::{
     },
     verifying_keys::make::VERIFYINGKEY,
 };
-use swap_prover::{CircuitId, MakeProofInputs, OrderTermsProofInput, TAKE_MODE_DERIVED};
+use swap_prover::{CircuitId, MakeProofInputs, OrderTermsProofInput, PROVER, TAKE_MODE_DERIVED};
 use swap_sdk::state::DataHash;
 use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::hash_bytes;
@@ -22,13 +22,13 @@ mod shared;
 use shared::order_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/make")
+    PROVER.keys_dir(CircuitId::Make)
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        swap_prover::setup(CircuitId::Make, &dir).expect("setup failed");
+        PROVER.setup(CircuitId::Make, &dir).expect("setup failed");
     }
 }
 

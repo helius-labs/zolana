@@ -1,13 +1,9 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
+use zolana_gnark_prover::{decimal, utxo_witness_entries, WitnessMap};
 
-use crate::{
-    bytes_to_decimal_string, ffi,
-    proof::{negate_and_compress_proof, ProofError, TimelockProof},
-    utxo::utxo_witness_entries,
-    CircuitId, EscrowTermsProofInput,
-};
+use crate::{CircuitId, EscrowTermsProofInput, TimelockProof, PROVER};
 
 #[derive(Debug, Clone)]
 pub struct WithdrawProofInputs {
@@ -23,7 +19,7 @@ pub struct WithdrawProofInputs {
 }
 
 impl WithdrawProofInputs {
-    fn witness(&self) -> ffi::WitnessMap {
+    fn witness(&self) -> WitnessMap {
         let scalars: [(&str, [u8; 32]); 6] = [
             ("Public_PublicInputHash", self.public_input_hash),
             ("Public_PrivateTxHash", self.private_tx_hash),
@@ -34,7 +30,7 @@ impl WithdrawProofInputs {
         ];
         let mut map = HashMap::new();
         for (key, value) in scalars.iter() {
-            map.insert(key.to_string(), vec![bytes_to_decimal_string(value)]);
+            map.insert(key.to_string(), vec![decimal(value)]);
         }
         for (key, value) in self
             .terms
@@ -48,8 +44,11 @@ impl WithdrawProofInputs {
         map
     }
 
-    pub fn prove(&self) -> Result<TimelockProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::Withdraw, &self.witness())?)
+    pub fn prove(&self) -> zolana_gnark_prover::Result<TimelockProof> {
+        Ok(PROVER
+            .prove(CircuitId::Withdraw, &self.witness())?
+            .compress()?
+            .into())
     }
 }
 
@@ -57,10 +56,10 @@ impl WithdrawProofInputs {
 mod tests {
     use std::collections::HashSet;
 
+    use zolana_gnark_prover::expected_utxo_witness_keys;
+
     use super::*;
-    use crate::{
-        escrow_terms::expected_escrow_terms_witness_keys, utxo::expected_utxo_witness_keys,
-    };
+    use crate::escrow_terms::expected_escrow_terms_witness_keys;
 
     fn sample() -> WithdrawProofInputs {
         WithdrawProofInputs {

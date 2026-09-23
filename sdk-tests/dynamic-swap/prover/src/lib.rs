@@ -1,17 +1,27 @@
 pub mod escrow_open;
 pub mod escrow_settle;
-pub mod ffi;
 pub mod proof;
-mod utxo;
-
-use num_bigint::BigUint;
 
 pub use escrow_open::EscrowOpenProofInputs;
 pub use escrow_settle::EscrowSettleProofInputs;
-pub use ffi::{preload, prove, setup, CircuitId, WitnessMap};
-pub use proof::{OrderProof, ProofError};
+pub use proof::OrderProof;
 pub use zolana_client::ProofInputUtxo;
 
-pub fn bytes_to_decimal_string(bytes: &[u8; 32]) -> String {
-    BigUint::from_bytes_be(bytes).to_string()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CircuitId {
+    EscrowOpen,
+    EscrowSettle,
 }
+
+impl zolana_gnark_prover::Circuit for CircuitId {
+    const ALL: &'static [Self] = &[Self::EscrowOpen, Self::EscrowSettle];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::EscrowOpen => "escrow_open",
+            Self::EscrowSettle => "escrow_settle",
+        }
+    }
+}
+
+pub static PROVER: zolana_gnark_prover::Prover<CircuitId> = zolana_gnark_prover::prover!();

@@ -11,7 +11,7 @@ use timelock_escrow_program::{
     },
     verifying_keys::escrow::VERIFYINGKEY,
 };
-use timelock_escrow_prover::{CircuitId, EscrowProofInputs, EscrowTermsProofInput};
+use timelock_escrow_prover::{CircuitId, EscrowProofInputs, EscrowTermsProofInput, PROVER};
 use timelock_escrow_sdk::state::DataHash;
 use zolana_client::ProofInputUtxo;
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
@@ -20,13 +20,13 @@ mod shared;
 use shared::escrow_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/escrow")
+    PROVER.keys_dir(CircuitId::Escrow)
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        timelock_escrow_prover::setup(CircuitId::Escrow, &dir).expect("setup failed");
+        PROVER.setup(CircuitId::Escrow, &dir).expect("setup failed");
     }
 }
 

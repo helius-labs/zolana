@@ -1,12 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{
-    bytes_to_decimal_string,
-    ffi::{self, CircuitId},
-    proof::{negate_and_compress_proof, OrderProof, ProofError},
-    utxo::utxo_witness_entries,
-    ProofInputUtxo,
-};
+use zolana_gnark_prover::{decimal, utxo_witness_entries, WitnessMap};
+
+use crate::{CircuitId, OrderProof, ProofInputUtxo, PROVER};
 
 /// Proof inputs for the `escrow_settle` circuit -- the single circuit `settle`
 /// uses for both outcomes (settle and price-refund). Exact 2-in (order,
@@ -50,19 +46,19 @@ pub struct EscrowSettleProofInputs {
 }
 
 impl EscrowSettleProofInputs {
-    fn witness(&self) -> ffi::WitnessMap {
+    fn witness(&self) -> WitnessMap {
         let mut map = HashMap::new();
         map.insert(
             "Public_PublicInputHash".to_string(),
-            vec![bytes_to_decimal_string(&self.public_input_hash)],
+            vec![decimal(&self.public_input_hash)],
         );
         map.insert(
             "Public_PrivateTxHash".to_string(),
-            vec![bytes_to_decimal_string(&self.private_tx_hash)],
+            vec![decimal(&self.private_tx_hash)],
         );
         map.insert(
             "Public_FirstNullifier".to_string(),
-            vec![bytes_to_decimal_string(&self.first_nullifier)],
+            vec![decimal(&self.first_nullifier)],
         );
         map.insert(
             "Public_ExecutionPrice".to_string(),
@@ -70,21 +66,21 @@ impl EscrowSettleProofInputs {
         );
         map.insert(
             "Public_OrderInHash".to_string(),
-            vec![bytes_to_decimal_string(&self.order_in_hash)],
+            vec![decimal(&self.order_in_hash)],
         );
         map.insert(
             "Public_ReservationInHash".to_string(),
-            vec![bytes_to_decimal_string(&self.reservation_in_hash)],
+            vec![decimal(&self.reservation_in_hash)],
         );
         map.insert(
             "Public_AuthorityOwnerHash".to_string(),
-            vec![bytes_to_decimal_string(&self.authority_owner_hash)],
+            vec![decimal(&self.authority_owner_hash)],
         );
         // Private witness (bound to the order UTXO's DataHash, pinned by the public
         // OrderInHash), so its key carries no `Public_` prefix.
         map.insert(
             "RecipientOwnerHash".to_string(),
-            vec![bytes_to_decimal_string(&self.recipient_owner_hash)],
+            vec![decimal(&self.recipient_owner_hash)],
         );
         map.insert("MaxPrice".to_string(), vec![self.max_price.to_string()]);
         map.insert("CreatedAt".to_string(), vec![self.created_at.to_string()]);
@@ -94,11 +90,11 @@ impl EscrowSettleProofInputs {
         );
         map.insert(
             "ExternalDataHash".to_string(),
-            vec![bytes_to_decimal_string(&self.external_data_hash)],
+            vec![decimal(&self.external_data_hash)],
         );
         map.insert(
             "PrivateTxBlinding".to_string(),
-            vec![bytes_to_decimal_string(&self.private_tx_blinding)],
+            vec![decimal(&self.private_tx_blinding)],
         );
         for (key, value) in utxo_witness_entries(&self.order_in, "OrderIn")
             .into_iter()
@@ -112,8 +108,11 @@ impl EscrowSettleProofInputs {
         map
     }
 
-    pub fn prove(&self) -> Result<OrderProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::EscrowSettle, &self.witness())?)
+    pub fn prove(&self) -> zolana_gnark_prover::Result<OrderProof> {
+        Ok(PROVER
+            .prove(CircuitId::EscrowSettle, &self.witness())?
+            .compress()?
+            .into())
     }
 }
 
@@ -122,7 +121,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::utxo::expected_utxo_witness_keys;
+    use zolana_gnark_prover::expected_utxo_witness_keys;
 
     fn sample() -> EscrowSettleProofInputs {
         EscrowSettleProofInputs {

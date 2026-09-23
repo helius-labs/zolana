@@ -1,13 +1,9 @@
 use std::collections::HashMap;
 
 use zolana_client::ProofInputUtxo;
+use zolana_gnark_prover::{decimal, utxo_witness_entries, WitnessMap};
 
-use crate::{
-    bytes_to_decimal_string, ffi,
-    proof::{negate_and_compress_proof, OrderProof, ProofError},
-    utxo::utxo_witness_entries,
-    CircuitId, OrderTermsProofInput,
-};
+use crate::{CircuitId, OrderProof, OrderTermsProofInput, PROVER};
 
 #[derive(Debug, Clone)]
 pub struct CancelProofInputs {
@@ -23,7 +19,7 @@ pub struct CancelProofInputs {
 }
 
 impl CancelProofInputs {
-    fn witness(&self) -> ffi::WitnessMap {
+    fn witness(&self) -> WitnessMap {
         let scalars: [(&str, [u8; 32]); 6] = [
             ("Public_PublicInputHash", self.public_input_hash),
             ("Public_PrivateTxHash", self.private_tx_hash),
@@ -34,7 +30,7 @@ impl CancelProofInputs {
         ];
         let mut map = HashMap::new();
         for (key, value) in scalars.iter() {
-            map.insert(key.to_string(), vec![bytes_to_decimal_string(value)]);
+            map.insert(key.to_string(), vec![decimal(value)]);
         }
         for (key, value) in self
             .order
@@ -48,8 +44,11 @@ impl CancelProofInputs {
         map
     }
 
-    pub fn prove(&self) -> Result<OrderProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::Cancel, &self.witness())?)
+    pub fn prove(&self) -> zolana_gnark_prover::Result<OrderProof> {
+        Ok(PROVER
+            .prove(CircuitId::Cancel, &self.witness())?
+            .compress()?
+            .into())
     }
 }
 
@@ -57,11 +56,10 @@ impl CancelProofInputs {
 mod tests {
     use std::collections::HashSet;
 
+    use zolana_gnark_prover::expected_utxo_witness_keys;
+
     use super::*;
-    use crate::{
-        order_terms::expected_order_terms_witness_keys, utxo::expected_utxo_witness_keys,
-        TAKE_MODE_DERIVED,
-    };
+    use crate::{order_terms::expected_order_terms_witness_keys, TAKE_MODE_DERIVED};
 
     fn sample() -> CancelProofInputs {
         CancelProofInputs {

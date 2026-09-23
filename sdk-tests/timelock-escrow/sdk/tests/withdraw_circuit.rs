@@ -11,7 +11,7 @@ use timelock_escrow_program::{
     },
     verifying_keys::withdraw::VERIFYINGKEY,
 };
-use timelock_escrow_prover::{CircuitId, EscrowTermsProofInput, WithdrawProofInputs};
+use timelock_escrow_prover::{CircuitId, EscrowTermsProofInput, WithdrawProofInputs, PROVER};
 use timelock_escrow_sdk::state::DataHash;
 use zolana_client::ProofInputUtxo;
 use zolana_keypair::hash::poseidon;
@@ -21,13 +21,15 @@ mod shared;
 use shared::escrow_utxo_owner_hash;
 
 fn build_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/withdraw")
+    PROVER.keys_dir(CircuitId::Withdraw)
 }
 
 fn ensure_keys() {
     let dir = build_dir();
     if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        timelock_escrow_prover::setup(CircuitId::Withdraw, &dir).expect("setup failed");
+        PROVER
+            .setup(CircuitId::Withdraw, &dir)
+            .expect("setup failed");
     }
 }
 
