@@ -21,6 +21,20 @@ fn error_codes_are_stable() {
         (PairMismatch as u32, 9015),
         (InvalidPrice as u32, 9016),
         (RentRecipientMismatch as u32, 9017),
+        (InvalidNullifierPubkey as u32, 9018),
+        (MaxPriceExceeded as u32, 9019),
+        (InvalidEncryptionPubkey as u32, 9020),
+        (InvalidExpiry as u32, 9021),
+        (InsufficientLiquidity as u32, 9022),
+        (InvalidMaxOrderSize as u32, 9023),
+        (AssetMismatch as u32, 9024),
+        (InvalidDepositEntry as u32, 9025),
+        (InterfaceTransferMismatch as u32, 9026),
+        (InvalidWithdrawalAmount as u32, 9027),
+        (InvalidPriceTolerance as u32, 9028),
+        (InvalidMinOrderAmount as u32, 9029),
+        (PublicPriceFloorOutOfRange as u32, 9030),
+        (PriceBelowTolerance as u32, 9031),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

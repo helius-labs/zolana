@@ -91,21 +91,34 @@ impl SppProofInputs {
             .nullifier())
     }
 
+    /// Unique non-payer Ed25519 and PDA owners the proof binds as signers: the
+    /// input owners in first-input order, then the owners of data-bearing
+    /// outputs. The circuit requires a data-bearing output's owner to have
+    /// signed, so a program PDA that owns such an output without spending an
+    /// input takes an owner-signer slot too; the owning program flips its
+    /// account to signer via CPI.
     pub fn owner_signer_pubkeys(&self) -> Result<Vec<Address>, TransactionError> {
-        let mut signers = Vec::new();
-        let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
-        for input_utxo in self
+        let input_owners = self
             .input_utxos
             .iter()
             .filter(|input_utxo| !input_utxo.is_dummy())
-        {
-            let address = match input_utxo.utxo.owner.curve()? {
+            .map(|input_utxo| &input_utxo.utxo.owner);
+        let data_output_owners = self
+            .output_utxos
+            .iter()
+            .filter(|output| output.data_hash.is_some_and(|hash| hash != [0u8; 32]))
+            .filter_map(|output| output.owner_address.as_ref())
+            .map(|address| &address.signing_pubkey);
+        let mut signers = Vec::new();
+        let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
+        for owner in input_owners.chain(data_output_owners) {
+            let address = match owner.curve()? {
                 Curve::P256 => continue,
                 Curve::Ed25519 | Curve::Pda => {
-                    Address::new_from_array(input_utxo.utxo.owner.confidential_view_tag()?)
+                    Address::new_from_array(owner.confidential_view_tag()?)
                 }
             };
-            let hash = input_utxo.utxo.owner.owner_proof_input_hash()?;
+            let hash = owner.owner_proof_input_hash()?;
             if address == self.payer || signer_hashes.contains(&hash) {
                 continue;
             }

@@ -6,35 +6,31 @@ use zolana_interface::{
 };
 use zolana_program::instruction::nullifier_pda_accounts;
 
-use crate::{err, escrow_authority_pda, tag, CreateEscrowIxData, EscrowOpenProof};
+use crate::{err, escrow_authority_pda, tag, CreateEscrowIxData, Groth16ProofBytes};
 
-/// Both `authority` (the pair's maker, funding the reservation and paying for
-/// the escrow account) and `owner` (authorizing the source UTXO spend) must
-/// sign. The program signs for the escrow-authority-owned funding UTXO.
+/// The taker signs alone: it authorizes spending its source UTXO (as the
+/// transact CPI's payer) and pays the escrow account rent. The program signs
+/// for the escrow-authority-owned order output; the maker is not involved.
 pub struct CreateEscrow {
-    pub authority: Pubkey,
-    pub owner: Pubkey,
+    pub taker: Pubkey,
     pub pair: Pubkey,
     pub escrow: Pubkey,
     pub tree: Pubkey,
-    pub proof: EscrowOpenProof,
-    /// The slot the proof commits to -- see `CreateEscrowIxData`'s doc
-    /// comment. Must match whatever value `EscrowOpenProofInputParams::created_at`
-    /// used to build the proof.
-    pub created_at: u64,
+    pub proof: Groth16ProofBytes,
+    /// Public lower edge of the pair-configured symmetric price window.
+    pub public_price_floor: u64,
     pub transact: TransactIxData,
 }
 
 impl CreateEscrow {
     pub fn instruction(self) -> Result<Instruction> {
         let CreateEscrow {
-            authority,
-            owner,
+            taker,
             pair,
             escrow,
             tree,
             proof,
-            created_at,
+            public_price_floor,
             transact,
         } = self;
 
@@ -44,7 +40,7 @@ impl CreateEscrow {
         );
         let ix_data = CreateEscrowIxData {
             proof,
-            created_at,
+            public_price_floor,
             transact,
         };
         let serialized = wincode::serialize(&ix_data).map_err(err)?;
@@ -53,22 +49,21 @@ impl CreateEscrow {
         instruction_data.extend_from_slice(&serialized);
 
         let mut accounts = vec![
-            AccountMeta::new(authority, true),
-            AccountMeta::new_readonly(owner, true),
-            AccountMeta::new_readonly(pair, false),
+            AccountMeta::new(taker, true),
+            AccountMeta::new(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            // Forwarded SPP `transact` CPI tail: payer, output tree, SPP,
-            // System Program, input tree, one nullifier PDA per input, the source
-            // owner, then escrow authority.
-            AccountMeta::new(authority, true),
+            // Forwarded SPP `transact` CPI tail: payer (the taker, whose outer
+            // signature authorizes the source input), output tree, SPP, System
+            // Program, input tree, one nullifier PDA per input, then the escrow
+            // authority (the single owner-signer, flipped by the program's CPI).
+            AccountMeta::new(taker, true),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new(tree, false),
         ];
         accounts.extend(nullifier_pdas);
-        accounts.push(AccountMeta::new_readonly(owner, true));
         accounts.push(AccountMeta::new_readonly(
             escrow_authority_pda(&pair),
             false,
