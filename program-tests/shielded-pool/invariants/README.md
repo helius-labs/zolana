@@ -92,7 +92,7 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
-- Critical (funds/double-spend/authority takeover): 107
+- Critical (funds/double-spend/authority takeover): 106
 - High: 108
 - Medium: 76
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)

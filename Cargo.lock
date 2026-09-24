@@ -1511,7 +1511,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
- "num-bigint 0.4.8",
  "solana-address 2.6.1",
  "solana-keypair",
  "solana-pubkey 4.2.1",
