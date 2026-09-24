@@ -93,13 +93,26 @@ pub(crate) enum VksCommand {
         name = "list",
         about = "List each embedded verifying key's proving-key sha256 and setup kind"
     )]
-    List(VksSourceOptions),
+    List(VksListOptions),
 
     #[command(
         name = "check",
-        about = "Fail unless the program embeds exactly the shielded-pool verifying keys, each a production setup of this build's proving keys"
+        about = "Fail if the program embeds no verifying keys or any insecure test setup; --expect or --shielded-pool also pin the keys it must embed"
     )]
     Check(VksCheckOptions),
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct VksListOptions {
+    #[command(flatten)]
+    pub(crate) source: VksSourceOptions,
+
+    #[arg(
+        long = "expect",
+        value_name = "MANIFEST",
+        help = "Name keys from a sha256sum-style manifest of proving keys (*pk.bin or *.key lines)"
+    )]
+    pub(crate) expect: Option<std::path::PathBuf>,
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
@@ -130,8 +143,22 @@ pub(crate) struct VksCheckOptions {
     pub(crate) source: VksSourceOptions,
 
     #[arg(
+        long = "shielded-pool",
+        help = "Also require exactly this build's shielded-pool verifying keys (implied when reading the shielded-pool program by id without --expect)"
+    )]
+    pub(crate) shielded_pool: bool,
+
+    #[arg(
+        long = "expect",
+        value_name = "MANIFEST",
+        conflicts_with = "shielded_pool",
+        help = "Also require every proving key a sha256sum-style manifest lists (*pk.bin or *.key lines), such as an example's keys CHECKSUM"
+    )]
+    pub(crate) expect: Option<std::path::PathBuf>,
+
+    #[arg(
         long = "prover-url",
-        help = "Also check this prover's proving keys against the same verifying keys"
+        help = "Also check this prover's proving keys against the same verifying keys (shielded-pool only)"
     )]
     pub(crate) prover_url: Option<String>,
 }

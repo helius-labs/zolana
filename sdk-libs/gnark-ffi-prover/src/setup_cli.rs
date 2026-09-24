@@ -1,8 +1,9 @@
 //! The key setup binary every prover crate ships:
 //! `<bin> <circuit> <build-dir> [--rust-vk <path>] [--insecure-test-keys]`.
 //! It generates fresh keys into `<build-dir>` and emits the program's Rust
-//! verifying key source from the new `vk.bin`. `--insecure-test-keys` sets up
-//! from a fixed public seed ([`Prover::setup_insecure_test_keys`]).
+//! verifying key source from the new `vk.bin`, a production setup
+//! (`SetupKind::Production`). `--insecure-test-keys` sets up from a fixed public
+//! seed ([`Prover::setup_insecure_test_keys`]) and emits an insecure test setup.
 
 use std::{path::PathBuf, process::ExitCode};
 
@@ -98,6 +99,10 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
         );
         prover.setup_insecure_test_keys(circuit, &build_dir)
     } else {
+        eprintln!(
+            "note: a single-party setup is only as trustworthy as the machine that ran it; \
+             anyone who learns its randomness can forge proofs"
+        );
         prover.setup(circuit, &build_dir)
     };
     setup.map_err(|e| format!("setup failed: {e}"))?;
@@ -111,16 +116,22 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or("rust-vk path has no UTF-8 file name")?;
-    // Every key this CLI sets up backs an example program nobody vouches for,
-    // so its verifying key is an insecure test setup: the generated file only
-    // compiles with the program's `insecure-test-setup` feature and pins the
-    // sha256 of the `pk.bin` written next to `vk.bin`.
+    // A fixed-seed key is an insecure test setup: its generated file only
+    // compiles with the program's `insecure-test-setup` feature. A key from
+    // fresh system randomness is a production setup of whoever ran it, so a
+    // deployment can drop that feature and `zolana vks check` accepts it. Both
+    // pin the sha256 of the `pk.bin` written next to `vk.bin`.
+    let setup_kind = if insecure_test_keys {
+        groth16_solana::vk::setup::SetupKind::InsecureTest
+    } else {
+        groth16_solana::vk::setup::SetupKind::Production
+    };
     groth16_solana::vk::gnark::generate_bsb22_vk_file(
         &vk_bin,
         out_dir,
         out_filename,
         "VERIFYINGKEY",
-        groth16_solana::vk::setup::SetupKind::InsecureTest,
+        setup_kind,
         groth16_solana::vk::setup::ProvingKeySource::File(&build_dir.join("pk.bin")),
     )
     .map_err(|e| format!("failed to emit Rust verifying key source: {e:?}"))?;
