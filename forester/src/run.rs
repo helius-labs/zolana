@@ -182,6 +182,12 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         .ok_or_else(|| anyhow!("--settings (forester smart-account) is required to submit"))?;
     let member = config.signer()?;
     let prover = ProverClient::new(prover_url);
+    // A prover on another proving-key set would burn a batch proof that the
+    // program's verifying key then rejects; refuse it before draining.
+    let keys = prover
+        .check_proving_keys()
+        .map_err(|e| anyhow!("prover proving keys do not match this build: {e}"))?;
+    tracing::info!(prefix = %keys.prefix, "prover proving keys match the verifying keys");
 
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 

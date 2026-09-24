@@ -68,7 +68,12 @@ import {
   type SolanaRpcSubscriptions,
 } from "./kit.js";
 import { assemble, checkedProverInputs } from "./prover/assembly.js";
-import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
+import {
+  ProverClient,
+  type AsyncPollConfig,
+  type ProverHealth,
+  type ProvingKeyReport,
+} from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import type {
@@ -775,6 +780,15 @@ export class ZolanaClient
   async proverHealth(context?: RequestContext): Promise<ProverHealth> {
     try {
       return await this.#prover.health(context);
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  /** See `ProverClient.checkProvingKeys`: run it before the first proof. */
+  async checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
+    try {
+      return await this.#prover.checkProvingKeys(context);
     } catch (cause) {
       throw fromClientCause(cause);
     }

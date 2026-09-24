@@ -157,7 +157,7 @@ func Prove(ps *common.RingProofSystem, request Request) (*common.Proof, error) {
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}
-	return &common.Proof{Proof: proof}, nil
+	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }
 
 func (p *PolicyParameters) assignment() (frontend.Circuit, error) {

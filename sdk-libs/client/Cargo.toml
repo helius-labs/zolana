@@ -38,6 +38,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 solana-bn254 = { workspace = true }
 groth16-solana = { workspace = true }
+# The address-append verifying keys pin the proving keys batch proofs are
+# checked against.
+zolana-tree = { workspace = true, features = ["verify"] }
 futures = { workspace = true }
 async-trait = { workspace = true }
 bs58 = { workspace = true, optional = true }
@@ -68,6 +71,10 @@ wincode = { workspace = true }
 
 [[test]]
 name = "rpc"
+
+# Hermetic: the prover proving-key startup check.
+[[test]]
+name = "proving_keys"
 
 [[test]]
 name = "transaction_size"

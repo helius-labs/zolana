@@ -17,7 +17,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
     input_utxos_from_nullifiers,
-    prover::{Delivery, ProveRequest},
+    prover::{Delivery, ExpectedProvingKey, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
     Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, ProverClient, RingTransferProofResult,
     RingTransferProver, Rpc, SettlementAccountValidation, SpendProof, TransferInputUtxo,
@@ -1266,6 +1266,13 @@ impl ProveRequest for TierRequest {
         }
     }
 
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        match self {
+            Self::Base(request) => request.proving_key(),
+            Self::Policy(request) => request.proving_key(),
+        }
+    }
+
     fn delivery(&self) -> Delivery {
         match self {
             Self::Base(request) => request.delivery(),
@@ -1292,6 +1299,23 @@ impl ProveRequest for PolicyRequest {
                 },
             }),
         }
+    }
+
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        use custom_ring_interface::{
+            compressed_policy_verifying_key, delegate_policy_verifying_key,
+        };
+        Ok(match &self.kind {
+            PolicyProofKind::Ordinary => return self.request.proving_key(),
+            PolicyProofKind::Delegate => ExpectedProvingKey {
+                name: "custom_ring_delegate_policy.key".to_string(),
+                sha256: delegate_policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+            },
+            PolicyProofKind::Compressed(_) => ExpectedProvingKey {
+                name: "custom_ring_compressed_policy.key".to_string(),
+                sha256: compressed_policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+            },
+        })
     }
 
     fn delivery(&self) -> Delivery {

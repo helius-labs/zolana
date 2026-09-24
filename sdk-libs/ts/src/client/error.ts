@@ -27,6 +27,9 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_FIELD_TOO_LONG",
   "CLIENT_PROVER_SERVER",
   "CLIENT_PROOF_PARSE",
+  "CLIENT_PROVING_KEY_MISMATCH",
+  "CLIENT_PROVING_KEY_MISSING",
+  "CLIENT_PROVER_PROVING_KEYS_MISMATCH",
   "CLIENT_MISSING_INPUT_MERKLE_PROOF",
   "CLIENT_INCOMPLETE_INPUT_PROOFS",
   "CLIENT_STATE_PROOF_LEAF_MISMATCH",
@@ -74,6 +77,16 @@ export interface ClientErrorDetailsMap {
     reason?: string;
   }>;
   readonly CLIENT_PROOF_PARSE: Readonly<{ path?: string; reason?: string }>;
+  /** The prover proved with another proving key than the verifying key pins. */
+  readonly CLIENT_PROVING_KEY_MISMATCH: Readonly<{
+    keyName: string;
+    expectedSha256: string;
+    reportedSha256: string;
+  }>;
+  /** The prover did not report which proving key it used. */
+  readonly CLIENT_PROVING_KEY_MISSING: Readonly<{ keyName: string }>;
+  /** `/proving-keys` pins other digests than the verifying keys; comma-separated names. */
+  readonly CLIENT_PROVER_PROVING_KEYS_MISMATCH: Readonly<{ keyNames: string }>;
   readonly CLIENT_MISSING_INPUT_MERKLE_PROOF: IndexDetails;
   readonly CLIENT_INCOMPLETE_INPUT_PROOFS: Readonly<{
     expected: number;
@@ -339,6 +352,13 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_FIELD_TOO_LONG: { field: "string", actual: "number", maximum: "number" },
   CLIENT_PROVER_SERVER: { method: "string", status: "number", reason: "string" },
   CLIENT_PROOF_PARSE: { path: "string", reason: "string" },
+  CLIENT_PROVING_KEY_MISMATCH: {
+    keyName: "string",
+    expectedSha256: "string",
+    reportedSha256: "string",
+  },
+  CLIENT_PROVING_KEY_MISSING: { keyName: "string" },
+  CLIENT_PROVER_PROVING_KEYS_MISMATCH: { keyNames: "string" },
   CLIENT_MISSING_INPUT_MERKLE_PROOF: { index: "number" },
   CLIENT_INCOMPLETE_INPUT_PROOFS: { expected: "number", state: "number", nullifier: "number" },
   CLIENT_STATE_PROOF_LEAF_MISMATCH: { index: "number" },

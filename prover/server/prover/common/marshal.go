@@ -2,7 +2,9 @@ package common
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +37,9 @@ type ProofJSON struct {
 	Krs                [2]string    `json:"krs"`
 	ProofCommitment    []string     `json:"proofCommitment,omitempty"`
 	ProofCommitmentPok []string     `json:"proofCommitmentPok,omitempty"`
+	// ProvingKeySha256 is 64 lowercase hex digits, omitted when the proof
+	// system was not loaded from a key file.
+	ProvingKeySha256 string `json:"provingKeySha256,omitempty"`
 }
 
 func (p *Proof) MarshalJSON() ([]byte, error) {
@@ -73,6 +78,9 @@ func (p *Proof) MarshalJSON() ([]byte, error) {
 				ToHex(new(big.Int).SetBytes(pok[32:])),
 			}
 		}
+	}
+	if p.ProvingKeySha256 != ([32]byte{}) {
+		proofJson.ProvingKeySha256 = hex.EncodeToString(p.ProvingKeySha256[:])
 	}
 
 	return json.Marshal(proofJson)
@@ -154,6 +162,16 @@ func (p *Proof) UnmarshalJSON(data []byte) error {
 	p.Proof = groth16.NewProof(ecc.BN254)
 	if _, err := p.Proof.ReadFrom(bytes.NewReader(proofBytes)); err != nil {
 		return err
+	}
+	// Copied back so a proof stored in and reread from the Redis queue keeps
+	// the key digest.
+	p.ProvingKeySha256 = [32]byte{}
+	if proofJson.ProvingKeySha256 != "" {
+		digest, err := hex.DecodeString(proofJson.ProvingKeySha256)
+		if err != nil || len(digest) != len(p.ProvingKeySha256) {
+			return fmt.Errorf("provingKeySha256 must be 64 hex digits")
+		}
+		copy(p.ProvingKeySha256[:], digest)
 	}
 	return nil
 }
@@ -285,33 +303,51 @@ func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	return total, err
 }
 
+// readKeyFile deserializes the key file at path through read and hashes every
+// byte on the way, so the reported digest is of the bytes actually loaded, for
+// lockfile and local keys alike. Bytes the deserializer leaves unread are hashed
+// too: the digest always covers the whole file, as proving-keys.lock does. For a
+// pinned key this is a second hash on top of EnsureProvingKey's lockfile check,
+// paid once per key per process.
+func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, error) {
+	var digest [32]byte
+	file, err := os.Open(path)
+	if err != nil {
+		return digest, err
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	reader := io.TeeReader(file, hasher)
+	if _, err := read(reader); err != nil {
+		return digest, err
+	}
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+		return digest, err
+	}
+	copy(digest[:], hasher.Sum(nil))
+	return digest, nil
+}
+
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(path)
 	if circuitType, ok := ringCircuitOfKeyFile(filepath.Base(lowerPath)); ok {
 		ps := &RingProofSystem{
 			CircuitType: circuitType,
 		}
-		file, err := os.Open(path)
+		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
 		if err != nil {
 			return nil, err
 		}
-		defer file.Close()
-
-		if _, err = ps.UnsafeReadFrom(file); err != nil {
-			return nil, err
-		}
+		ps.ProvingKeySha256 = digest
 		return ps, nil
 	} else if strings.Contains(lowerPath, "transfer") {
 		ps := new(TransferProofSystem)
-		file, err := os.Open(path)
+		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
 		if err != nil {
 			return nil, err
 		}
-		defer file.Close()
-
-		if _, err = ps.UnsafeReadFrom(file); err != nil {
-			return nil, err
-		}
+		ps.ProvingKeySha256 = digest
 		// Transfer variants are resolved from canonical key filenames. The
 		// RequiresP256 header is retained as a consistency check for P256 keys.
 		ring := strings.Contains(strings.ToLower(path), "ring")
@@ -337,15 +373,11 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		// (merge_8_1.key) carries no "transfer" substring, so it needs its own
 		// branch or it would fall through to the unrecognized-file error.
 		ps := new(TransferProofSystem)
-		file, err := os.Open(path)
+		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
 		if err != nil {
 			return nil, err
 		}
-		defer file.Close()
-
-		if _, err = ps.UnsafeReadFrom(file); err != nil {
-			return nil, err
-		}
+		ps.ProvingKeySha256 = digest
 		// merge_ring_8_1.key is the policy-ring variant; the default merge file is
 		// merge_8_1.key.
 		if strings.Contains(strings.ToLower(path), "ring") {
@@ -357,16 +389,11 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 	} else if strings.Contains(strings.ToLower(path), "address-append") {
 		ps := new(BatchProofSystem)
 		ps.CircuitType = BatchAddressAppendCircuitType
-		file, err := os.Open(path)
+		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
 		if err != nil {
 			return nil, err
 		}
-		defer file.Close()
-
-		_, err = ps.UnsafeReadFrom(file)
-		if err != nil {
-			return nil, err
-		}
+		ps.ProvingKeySha256 = digest
 		return ps, nil
 	} else {
 		return nil, fmt.Errorf("unrecognized proving key file: %s", path)

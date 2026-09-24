@@ -233,6 +233,24 @@ pub enum ClientError {
     #[error("prover process error: {0}")]
     Prover(String),
 
+    #[error(
+        "prover used proving key {key} with sha256 {reported}, the verifying key pins {expected}"
+    )]
+    ProvingKeyMismatch {
+        key: String,
+        expected: String,
+        reported: String,
+    },
+
+    #[error("prover did not report the proving key sha256 for {key}")]
+    MissingProvingKeySha256 { key: String },
+
+    #[error("prover proving keys differ from the verifying keys: {}", mismatches.join("; "))]
+    ProverProvingKeysMismatch { mismatches: Vec<String> },
+
+    #[error("no committed verifying key for address append at tree height {tree_height}, batch size {batch_size}")]
+    UnsupportedAddressAppendShape { tree_height: u32, batch_size: u32 },
+
     #[error("missing input merkle proof for input {index}")]
     MissingInputMerkleProof { index: usize },
 

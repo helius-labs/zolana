@@ -485,17 +485,63 @@ together with the vkeys in ONE PR.
 ### Regenerate Rust verifying keys (`program-libs/interface/src/verifying_keys/`)
 
 ```bash
-prover/server/scripts/regenerate_all_vkeys.sh
+# keys_dir: absolute, or relative to prover/server (default proving-keys)
+prover/server/scripts/regenerate_all_vkeys.sh [keys_dir]
 ```
 
 Pipeline: `light-prover export-vk` writes the gnark `WriteRawTo` (uncompressed)
-vk binary, then `cargo run -p xtask -- bsb22-vk <vk_bin> <out_dir> <filename>`
-calls `groth16_solana::gnark_vk_parser::generate_bsb22_vk_file` to emit a
+vk binary, then `cargo run -p xtask -- bsb22-vk <vk_bin> <proving_key> <out_dir> <filename> [--insecure-test-setup]`
+calls `groth16_solana::vk::gnark::generate_bsb22_vk_file` to emit a
 `pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit, and `mod.rs` is
 regenerated. The codegen lives in the `xtask` crate, which depends on the
-`groth16-solana` fork (`../groth16-solana`, `features = ["bsb22"]`).
+`groth16-solana` fork pinned by git rev in the root `Cargo.toml`.
 `zolana-interface` depends on the same fork only to compile the committed
 `verifying_keys/*.rs` constants.
+
+Next to each `VERIFYINGKEY` the generator writes `VERIFYINGKEY_PROVING_KEY_SHA256`
+(sha256 of the `.key` file, the value `proving-keys.lock` pins),
+`VERIFYINGKEY_INSECURE_TEST_SETUP`, and an exported `VERIFYINGKEY_SETUP_TXT`
+marker that stays in the program `.so`. Protocol vks (interface, tree,
+custom-rings) are `SetupKind::Production`. The sdk-tests example vks come from
+the shared setup CLI (`sdk-libs/gnark-ffi-prover`, `just regen-*-keys`), which
+always emits `SetupKind::InsecureTest`: a `compile_error!` unless the crate
+enables its `insecure-test-setup` feature (on by default in those example
+programs only). Each crate exposes `PROVING_KEY_SHA256S` (key file name -> sha256), and
+`vk_proving_key_lock` tests pin every entry to `proving-keys.lock`.
+
+A vk regen that does not rotate keys exports from the keys the lockfile pins.
+Use the pinned keys, not whatever sits in `prover/server/proving-keys`: diff
+every local key against the lockfile first, and point the scripts at a
+directory of pinned keys when they differ. A correct regen only appends
+metadata; `vk_fingerprint` must pass without a re-pin.
+
+### Proving key checks (deployed program <-> clients <-> prover)
+
+The same sha256 is checked at every hop, so a prover or a deployment on another
+key set fails before a transaction is built instead of on-chain:
+
+- Every proof the prover returns carries `provingKeySha256`, the digest of the
+  bytes it loaded. The Rust `ProverClient` (`ExpectedProvingKey`) and the TS
+  `ProverClient` reject a mismatch or a missing field (fail closed): deploy the
+  prover before clients.
+- `GET /proving-keys` (auth-exempt) lists every key with `expectedSha256`
+  (lockfile), `loadedSha256` (`null` until loaded), and `available`.
+  `ProverClient::check_proving_keys` / TS `checkProvingKeys` compare it at
+  startup; `spawn_prover`, the forester, and `zolana dev prover start` run it.
+  The Rust startup check covers the interface and nullifier-tree keys; the
+  custom-ring keys are checked per proof by the custom-rings SDK (the TS table
+  covers every lockfile key).
+- `zolana vks list|check [--so <path> | --program-id <id>] [--prover-url <url>]`
+  reads the markers from a local build or a deployed program's ProgramData.
+  `check` validates the shielded-pool key set: it fails on an insecure test
+  setup, an unknown digest, or a missing key. Every program that links
+  `zolana-interface` with default features embeds all interface markers (the
+  markers are exported statics), used or not.
+  `tools/deploy-devnet.sh` runs it on the local build before deploying
+  shielded-pool and on the deployed program after.
+- The TS SDK keeps its own table (`sdk-libs/ts/src/interface/proving-keys.ts`),
+  pinned to the lockfile by `test/proving-keys.test.ts`; a key rotation updates
+  it in the same PR.
 
 ### BSB22 commitments (the two rails differ on purpose)
 

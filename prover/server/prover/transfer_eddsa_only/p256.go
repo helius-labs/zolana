@@ -333,5 +333,5 @@ func ProveP256Transfer(ps *common.TransferProofSystem, params *P256TransferParam
 	if err != nil {
 		return nil, fmt.Errorf("error proving P256 transfer: %w", err)
 	}
-	return &common.Proof{Proof: proof}, nil
+	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

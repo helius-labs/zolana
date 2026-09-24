@@ -41,7 +41,7 @@ pub(crate) fn start_prover_service(
     // the race, reuse its prover rather than stopping it.
     if http_get_ok(prover_port, "/health") {
         println!("Prover already running on port {prover_port}");
-        return Ok(());
+        return check_prover_keys(prover_port);
     }
     stop_port(prover_port);
     stop_port(metrics_port);
@@ -80,11 +80,29 @@ pub(crate) fn start_prover_service(
     // spawn, so ours exits; its prover serves both environments.
     if ready.is_err() && http_get_ok(prover_port, "/health") {
         println!("Prover already running on port {prover_port}");
-        return Ok(());
+        return check_prover_keys(prover_port);
     }
     ready.with_context(|| format!("prover on port {prover_port} did not become ready"))?;
+    // Stop a prover that fails the check rather than leave it on the port for
+    // the next caller to reuse.
+    if let Err(error) = check_prover_keys(prover_port) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
     println!("Prover started successfully");
     std::mem::forget(child);
+    Ok(())
+}
+
+/// A stale prebuilt prover binary, or a running prover from another build,
+/// pins a different proving-key set than this build's verifying keys; its
+/// proofs would fail on-chain.
+fn check_prover_keys(prover_port: u16) -> Result<()> {
+    let keys = zolana_client::ProverClient::new(format!("http://127.0.0.1:{prover_port}"))
+        .check_proving_keys()
+        .with_context(|| format!("prover on port {prover_port} failed the proving key check"))?;
+    println!("Prover proving keys match ({})", keys.prefix);
     Ok(())
 }
 

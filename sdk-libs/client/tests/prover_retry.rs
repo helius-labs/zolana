@@ -9,7 +9,7 @@ use std::{
 use serde_json::{json, Value};
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{AsyncProverClient, Delivery, ProveRequest, ProverClient},
+    prover::{AsyncProverClient, Delivery, ExpectedProvingKey, ProveRequest, ProverClient},
     ClientError,
 };
 
@@ -20,6 +20,13 @@ impl ProveRequest for InResponseRequest {
         Ok(Zeroizing::new("{}".to_string()))
     }
 
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        Ok(ExpectedProvingKey {
+            name: "test.key".to_string(),
+            sha256: [7u8; 32],
+        })
+    }
+
     fn delivery(&self) -> Delivery {
         Delivery::InResponse
     }
@@ -27,8 +34,12 @@ impl ProveRequest for InResponseRequest {
 
 fn shed_then_proof() -> Vec<(u16, Value)> {
     let zero = "0x0";
-    let proof =
-        json!({ "ar": [zero, zero], "bs": [[zero, zero], [zero, zero]], "krs": [zero, zero] });
+    let proof = json!({
+        "ar": [zero, zero],
+        "bs": [[zero, zero], [zero, zero]],
+        "krs": [zero, zero],
+        "provingKeySha256": "07".repeat(32),
+    });
     vec![
         (429, json!({ "code": "prover_busy" })),
         (429, json!({ "code": "prover_busy" })),

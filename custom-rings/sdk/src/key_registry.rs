@@ -12,7 +12,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{Delivery, ProveRequest},
+    prover::{Delivery, ExpectedProvingKey, ProveRequest},
     AsyncRpc, ClientError, Rpc,
 };
 use zolana_hasher::primitives::right_align;
@@ -559,6 +559,14 @@ impl ProveRequest for RegisterKeyProofRequest {
             low_index: &self.low_index,
             low_proof: &self.low_proof,
             new_proof: &self.new_proof,
+        })
+    }
+
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        Ok(ExpectedProvingKey {
+            name: "custom_ring_register_key.key".to_string(),
+            sha256:
+                custom_ring_interface::register_key_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
         })
     }
 

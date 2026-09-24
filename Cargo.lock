@@ -1996,6 +1996,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "groth16-solana",
+ "serde_json",
  "solana-address 2.6.1",
  "wincode",
  "zolana-hasher",
@@ -3063,7 +3064,7 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 [[package]]
 name = "groth16-solana"
 version = "0.2.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208#43fee1a67e91c0df7bb4edad5ba87ae4602aa208"
+source = "git+https://github.com/Lightprotocol/groth16-solana?rev=70a93803e5f55b8425301d506c625169ef557c9d#70a93803e5f55b8425301d506c625169ef557c9d"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -11037,13 +11038,16 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "groth16-solana",
  "hex",
  "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
+ "solana-loader-v3-interface 8.0.1",
  "solana-pubkey 4.2.1",
  "solana-signature",
  "solana-signer",
@@ -11102,6 +11106,7 @@ dependencies = [
  "zolana-merkle-tree",
  "zolana-program",
  "zolana-transaction",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -11505,6 +11510,7 @@ dependencies = [
  "num-traits",
  "pinocchio 0.11.2",
  "rand 0.8.8",
+ "serde_json",
  "solana-msg",
  "thiserror 2.0.20",
  "wincode",
