@@ -1,5 +1,6 @@
 mod cache;
 mod client;
+mod endpoint;
 pub mod field;
 mod inputs;
 mod json;
@@ -18,6 +19,7 @@ pub use client::{
     spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, Delivery,
     ProveRequest, ProverClient, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
 };
+pub use endpoint::redact_api_key;
 pub use inputs::{
     BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
     TransferOutput, TransferP256Inputs, TreeSlotFields,
