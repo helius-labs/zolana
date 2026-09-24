@@ -6,6 +6,7 @@ mod close_nullifier_pdas;
 mod create_asset_counter;
 mod create_associated_token_account;
 mod create_spl_interface;
+#[cfg(feature = "protocol")]
 mod create_tree;
 mod deposit;
 mod merge_ring;
@@ -26,6 +27,7 @@ pub use close_nullifier_pdas::CloseNullifierPdas;
 pub use create_asset_counter::CreateAssetCounter;
 pub use create_associated_token_account::CreateAssociatedTokenAccount;
 pub use create_spl_interface::CreateSplInterface;
+#[cfg(feature = "protocol")]
 pub use create_tree::CreateTree;
 pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
 pub use merge_ring::MergeRing;
