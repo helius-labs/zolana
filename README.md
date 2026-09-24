@@ -110,7 +110,7 @@ Install the `zolana` binary straight from the repository (builds from source, so
 it pulls the workspace's git dependencies; not published to crates.io):
 
 ```bash
-cargo install --git https://github.com/helius-labs/zolana --tag v0.1.0-alpha zolana-cli
+cargo install --git https://github.com/helius-labs/zolana --tag v0.3.0-alpha zolana-cli
 ```
 
 `zolana dev start` then fetches a version-pinned, pre-initialized localnet
