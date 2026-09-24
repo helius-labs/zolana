@@ -14,8 +14,16 @@ name = "zolana_program"
 # administration, tree creation, ring activation, and the forester's nullifier
 # tree maintenance. Off by default so programs and wallets never compile them.
 protocol = []
+# The shielded pool's transact instruction as a signed CPI from a pinocchio
+# program.
+cpi = ["dep:pinocchio"]
+# Compressed accounts for pinocchio programs: program state kept as SPP UTXOs,
+# the tree and nullifier PDA checks of a read, and their transact CPI.
+compression = ["cpi", "dep:borsh"]
 
 [dependencies]
+borsh = { workspace = true, optional = true }
+pinocchio = { workspace = true, features = ["cpi"], optional = true }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
@@ -29,6 +37,10 @@ zolana-tree = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 serde_json = { workspace = true }
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+zolana-client = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

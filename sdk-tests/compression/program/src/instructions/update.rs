@@ -1,35 +1,24 @@
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_interface::{
-    instruction::{
-        instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof, TreeContext,
-        },
-        tag::TRANSACT,
-    },
-    N_PUBLIC_SLOTS,
+use zolana_interface::instruction::instruction_data::transact::TransactProof;
+use zolana_program::compression::{
+    CompressedAccount, CompressedAccountMeta, PdaOwner, SppTransactCpi,
 };
-use zolana_program::{TransactExternalData, TransactInputs};
 
 use crate::{
-    error::CompressionError,
-    instructions::shared::{cpi_spp_transact_signed, private_tx_hash, tree_id, TransitionAccounts},
-    state::{nullifier, output_blinding, private_tx_blinding, AccountState, PdaOwner},
+    error::{compressed_account_error, CompressionError},
+    instructions::shared::{invoke_signed_by_pda, tree_id, TransitionAccounts},
+    state::AccountState,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct UpdateIxData {
     pub old_value: u64,
     pub version: u64,
-    /// Blinding of the UTXO being spent. It derives from the first nullifier of
-    /// the transition that created it, which this transaction does not see, so
-    /// the client supplies it. A wrong value yields a UTXO hash and nullifier
-    /// the pool cannot find in its trees, so it needs no check here.
-    pub old_blinding: [u8; 32],
     pub new_value: u64,
-    pub nullifier_tree_root_index: u16,
-    pub utxo_tree_root_index: u16,
+    /// The current UTXO's address, blinding and root indexes.
+    pub meta: CompressedAccountMeta,
     pub proof: TransactProof,
 }
 
@@ -39,81 +28,33 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let UpdateIxData {
         old_value,
         version,
-        old_blinding,
         new_value,
-        nullifier_tree_root_index,
-        utxo_tree_root_index,
+        meta,
         proof,
     } = wincode::deserialize_exact(data).map_err(|_| CompressionError::InvalidInstructionData)?;
 
     let parsed = TransitionAccounts::validate_and_parse(accounts)?;
     let input_tree_id = tree_id(parsed.input_tree)?;
-    let output_tree_id = tree_id(parsed.output_tree)?;
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
 
-    let pda_bytes = pda.to_bytes();
-    let owner = PdaOwner::new(&pda_bytes)?;
-    let address = owner.address(input_tree_id)?;
+    let owner = PdaOwner::new(&pda).map_err(compressed_account_error)?;
     let new_version = version
         .checked_add(1)
         .ok_or(CompressionError::InvalidInstructionData)?;
-    let old_state = AccountState {
-        address,
-        authority: authority.to_bytes(),
-        value: old_value,
-        version,
-        blinding: old_blinding,
-    };
-    let old_hash = old_state.utxo_hash(&owner.owner_hash, input_tree_id)?;
-    let nullifier_hash = nullifier(&old_hash, &old_blinding)?;
-    // The spent UTXO's nullifier is this transaction's first nullifier, and the
-    // new version is its blinding seed; both derivations are recomputed
-    // here rather than read from instruction data.
-    let state = AccountState {
-        address,
-        authority: authority.to_bytes(),
-        value: new_value,
-        version: new_version,
-        blinding: output_blinding(&nullifier_hash, new_version)?,
-    };
-    let output_hash = state.utxo_hash(&owner.owner_hash, output_tree_id)?;
-    let payload = state.to_output_data()?;
-
-    let external = TransactExternalData::single_output(TransactOutput {
-        utxo_hash: output_hash,
-        owner_tag: OwnerTag::Inline(pda_bytes),
-        data: Some(payload),
-    });
-    let external_data_hash = external
-        .hash(TRANSACT, &[], &[pda_bytes])
-        .map_err(|_| CompressionError::HashingFailed)?;
-
-    let private_tx = private_tx_hash(
-        old_hash,
-        output_hash,
-        [0u8; 32],
-        &external_data_hash,
-        &private_tx_blinding(&nullifier_hash, new_version)?,
-    )?;
-
-    let transact = external.into_ix_data(
-        private_tx,
-        CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
-        proof,
-        TransactInputs {
-            inputs: vec![InputUtxo {
-                nullifier_hash,
-                tree_index: 0,
-            }],
-            tree_contexts: vec![TreeContext {
-                utxo_tree_root_index,
-                nullifier_tree_root_index,
-            }],
+    let mut account = CompressedAccount::new_mut(
+        &owner,
+        &meta,
+        AccountState {
+            authority: authority.to_bytes(),
+            value: old_value,
+            version,
+            ..AccountState::default()
         },
-    );
-    let transact_bytes = transact
-        .serialize()
-        .map_err(|_| CompressionError::SerializationFailed)?;
-    cpi_spp_transact_signed(&authority, &pda, bump, accounts, &transact_bytes)
+        input_tree_id,
+    )?;
+    account.value = new_value;
+    account.version = new_version;
+    let cpi = SppTransactCpi::new(proof).with_compressed_account(account)?;
+    invoke_signed_by_pda(accounts, &authority, &pda, bump, cpi)
 }
