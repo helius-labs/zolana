@@ -15,7 +15,10 @@ use solana_address::Address;
 use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_loader_v4_interface::state::LoaderV4State;
 use solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4};
-use zolana_client::{prover::known_proving_keys, ProverClient, Rpc, SolanaRpc};
+use zolana_client::{
+    prover::{known_proving_keys, redact_api_key},
+    ProverClient, Rpc, SolanaRpc,
+};
 use zolana_interface::PROGRAM_ID_PUBKEY;
 
 use crate::{
@@ -102,11 +105,12 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
     if let Some(prover_url) = opts.prover_url {
         // The markers matched the same verifying keys, so a matching prover
         // proves with exactly the keys the program verifies against.
-        let report = ProverClient::new(prover_url.clone())
+        let shown = redact_api_key(&prover_url);
+        let report = ProverClient::new(prover_url)
             .check_proving_keys()
-            .with_context(|| format!("prover {prover_url} failed the proving key check"))?;
+            .with_context(|| format!("prover {shown} failed the proving key check"))?;
         println!(
-            "ok: prover {prover_url} ({}) serves the same proving keys",
+            "ok: prover {shown} ({}) serves the same proving keys",
             report.prefix
         );
     }

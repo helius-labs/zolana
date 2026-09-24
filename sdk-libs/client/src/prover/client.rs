@@ -8,13 +8,14 @@ use std::{
 };
 
 use reqwest::redirect::Policy;
-use reqwest::StatusCode;
+use reqwest::{StatusCode, Url};
 use tokio::time::sleep as async_sleep;
 use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,
     prover::{
+        endpoint::{scrub, ProverEndpoint},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
             to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
@@ -195,7 +196,7 @@ fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
 
 /// Blocking client for the transfer proving endpoints of the prover server.
 pub struct ProverClient {
-    server_address: String,
+    endpoint: ProverEndpoint,
     http: reqwest::blocking::Client,
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
@@ -204,7 +205,7 @@ pub struct ProverClient {
 
 /// Async client for the transfer proving endpoints of the prover server.
 pub struct AsyncProverClient {
-    server_address: String,
+    endpoint: ProverEndpoint,
     http: reqwest::Client,
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
@@ -230,7 +231,7 @@ impl ProverClient {
 
     pub fn new(server_address: String) -> Self {
         Self {
-            server_address,
+            endpoint: ProverEndpoint::parse(&server_address),
             http: build_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
@@ -338,17 +339,19 @@ impl ProverClient {
     /// proving-key sha256 each committed verifying key pins, so a prover on
     /// another key set fails before the first proof instead of on-chain.
     pub fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVING_KEYS_PATH);
+        let url = self.endpoint.url(PROVING_KEYS_PATH)?;
         let response = self
             .http
-            .get(&url)
+            .get(url)
             .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
             .send()
-            .map_err(|e| ClientError::ProverServer(format!("proving keys request failed: {e}")))?;
+            .map_err(|e| {
+                ClientError::ProverServer(format!("proving keys request failed: {}", scrub(e)))
+            })?;
         let status = response.status();
-        let text = response
-            .text()
-            .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
+        let text = response.text().map_err(|e| {
+            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
+        })?;
         prover_keys_from_response(status, &text)?.check()
     }
 
@@ -357,7 +360,7 @@ impl ProverClient {
     /// caller can act on a shed request.
     fn post(
         &self,
-        url: &str,
+        url: &Url,
         body: &str,
         delivery: Delivery,
     ) -> Result<(StatusCode, String), ClientError> {
@@ -366,7 +369,7 @@ impl ProverClient {
             attempt += 1;
             let mut request = self
                 .http
-                .post(url)
+                .post(url.clone())
                 .header("Content-Type", "application/json");
             if delivery == Delivery::InResponse {
                 request = request.header("X-Sync", "true");
@@ -387,15 +390,16 @@ impl ProverClient {
                 }
                 Err(e) => {
                     return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {e}"
+                        "request failed after {attempt} attempt(s): {}",
+                        scrub(e)
                     )));
                 }
             }
         };
         let status = response.status();
-        let text = response
-            .text()
-            .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
+        let text = response.text().map_err(|e| {
+            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
+        })?;
         Ok((status, text))
     }
 
@@ -405,7 +409,7 @@ impl ProverClient {
         delivery: Delivery,
         key: &ExpectedProvingKey,
     ) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        let url = self.endpoint.url(PROVE_PATH)?;
         crate::prover::timing::note(0, "prover_request_bytes", body.as_ref().len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
@@ -443,7 +447,7 @@ impl ProverClient {
 
     /// Poll the async job status endpoint until the queued proof completes.
     fn poll_async(&self, job_id: &str, key: &ExpectedProvingKey) -> Result<Proof, ClientError> {
-        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
+        let url = self.endpoint.status_url(job_id)?;
         // The configured interval caps the backoff rather than setting it. This
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
         // every proof: a 270ms proof measured 3.3s end to end, essentially all
@@ -473,7 +477,7 @@ impl ProverClient {
         loop {
             let response = match self
                 .http
-                .get(&url)
+                .get(url.clone())
                 .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
                 .send()
             {
@@ -488,7 +492,7 @@ impl ProverClient {
             if status.is_client_error() {
                 let text = match response.text() {
                     Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {e}"),
+                    Err(e) => format!("failed to read status body: {}", scrub(e)),
                 };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
@@ -634,7 +638,7 @@ impl AsyncProverClient {
 
     pub fn new(server_address: String) -> Self {
         Self {
-            server_address,
+            endpoint: ProverEndpoint::parse(&server_address),
             http: build_async_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
@@ -737,19 +741,20 @@ impl AsyncProverClient {
 
     /// Async counterpart of [`ProverClient::check_proving_keys`].
     pub async fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVING_KEYS_PATH);
+        let url = self.endpoint.url(PROVING_KEYS_PATH)?;
         let response = self
             .http
-            .get(&url)
+            .get(url)
             .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
             .send()
             .await
-            .map_err(|e| ClientError::ProverServer(format!("proving keys request failed: {e}")))?;
+            .map_err(|e| {
+                ClientError::ProverServer(format!("proving keys request failed: {}", scrub(e)))
+            })?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
+        let text = response.text().await.map_err(|e| {
+            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
+        })?;
         prover_keys_from_response(status, &text)?.check()
     }
 
@@ -759,7 +764,7 @@ impl AsyncProverClient {
         delivery: Delivery,
         key: &ExpectedProvingKey,
     ) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        let url = self.endpoint.url(PROVE_PATH)?;
         let mut delivery = delivery;
         let (status, text) = loop {
             let (status, text) = self.post(&url, body.as_ref(), delivery).await?;
@@ -787,7 +792,7 @@ impl AsyncProverClient {
 
     async fn post(
         &self,
-        url: &str,
+        url: &Url,
         body: &str,
         delivery: Delivery,
     ) -> Result<(StatusCode, String), ClientError> {
@@ -796,7 +801,7 @@ impl AsyncProverClient {
             attempt += 1;
             let mut request = self
                 .http
-                .post(url)
+                .post(url.clone())
                 .header("Content-Type", "application/json");
             if delivery == Delivery::InResponse {
                 request = request.header("X-Sync", "true");
@@ -812,7 +817,10 @@ impl AsyncProverClient {
                 Ok(response) => {
                     let status = response.status();
                     let text = response.text().await.map_err(|e| {
-                        ClientError::ProverServer(format!("failed to read response body: {e}"))
+                        ClientError::ProverServer(format!(
+                            "failed to read response body: {}",
+                            scrub(e)
+                        ))
                     })?;
                     return Ok((status, text));
                 }
@@ -821,7 +829,8 @@ impl AsyncProverClient {
                 }
                 Err(e) => {
                     return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {e}"
+                        "request failed after {attempt} attempt(s): {}",
+                        scrub(e)
                     )));
                 }
             }
@@ -833,7 +842,7 @@ impl AsyncProverClient {
         job_id: &str,
         key: &ExpectedProvingKey,
     ) -> Result<Proof, ClientError> {
-        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
+        let url = self.endpoint.status_url(job_id)?;
         let poll_cap_ms = self
             .async_poll
             .poll_interval_secs
@@ -845,7 +854,7 @@ impl AsyncProverClient {
         loop {
             let response = match self
                 .http
-                .get(&url)
+                .get(url.clone())
                 .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
                 .send()
                 .await
@@ -861,7 +870,7 @@ impl AsyncProverClient {
             if status.is_client_error() {
                 let text = match response.text().await {
                     Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {e}"),
+                    Err(e) => format!("failed to read status body: {}", scrub(e)),
                 };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
@@ -1041,13 +1050,11 @@ pub fn spawn_prover_with_artifacts(
 fn health_check(retries: usize, timeout_secs: u64) -> bool {
     let client = build_http_client(None).expect("failed to build HTTP client");
     let timeout = Duration::from_secs(timeout_secs);
-    let address = server_address();
+    let Ok(url) = ProverEndpoint::parse(&server_address()).url(HEALTH_CHECK) else {
+        return false;
+    };
     for attempt in 0..retries {
-        let ok = client
-            .get(format!("{}{}", address, HEALTH_CHECK))
-            .timeout(timeout)
-            .send()
-            .is_ok();
+        let ok = client.get(url.clone()).timeout(timeout).send().is_ok();
         if ok {
             return true;
         }

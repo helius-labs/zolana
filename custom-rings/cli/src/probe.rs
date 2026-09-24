@@ -6,6 +6,7 @@ use std::{
 };
 
 use thiserror::Error;
+use zolana_client::prover::redact_api_key;
 
 use crate::config::{redact_url, RingConfig};
 
@@ -34,7 +35,7 @@ pub fn run_devnet(config: &RingConfig) -> Result<(), ProbeError> {
         ("prover", &urls.prover, "/health"),
     ] {
         let url = service_url(base, path);
-        print!("probing {service:<8} {url} ... ");
+        print!("probing {service:<8} {} ... ", redact_api_key(&url));
         let _ = io::stdout().flush();
         match check(&http, &url) {
             Ok(()) => println!("ready"),
@@ -42,7 +43,7 @@ pub fn run_devnet(config: &RingConfig) -> Result<(), ProbeError> {
                 println!("not ready");
                 return Err(ProbeError::NotReady {
                     service,
-                    url,
+                    url: redact_api_key(&url),
                     source,
                 });
             }
@@ -82,8 +83,17 @@ pub fn check(http: &reqwest::blocking::Client, url: &str) -> Result<(), reqwest:
     Ok(())
 }
 
+/// `path` goes before the query, so a gateway URL's `api-key` stays on it.
 pub fn service_url(base: &str, path: &str) -> String {
-    format!("{}{path}", base.trim_end_matches('/'))
+    let Ok(mut url) = reqwest::Url::parse(base) else {
+        return format!("{}{path}", base.trim_end_matches('/'));
+    };
+    if let Ok(mut segments) = url.path_segments_mut() {
+        segments
+            .pop_if_empty()
+            .extend(path.split('/').filter(|segment| !segment.is_empty()));
+    }
+    url.into()
 }
 
 fn next_steps(config: &RingConfig) {
@@ -116,6 +126,14 @@ mod tests {
         assert_eq!(
             service_url("https://prover.example.com/", "/health"),
             "https://prover.example.com/health"
+        );
+    }
+
+    #[test]
+    fn service_urls_keep_a_gateway_key_after_the_path() {
+        assert_eq!(
+            service_url("https://gateway.invalid/v1/zolana?api-key=k", "/health"),
+            "https://gateway.invalid/v1/zolana/health?api-key=k"
         );
     }
 }
