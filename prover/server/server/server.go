@@ -583,6 +583,28 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 	}, redisQueue, keyManager)
 }
 
+// gatewayPrefix is the path namespace the Helius gateway exposes this service
+// under. Gatekeeper forwards the request path verbatim -- heimdall-proxy's
+// HttpRestOrigin replaces the origin path with the incoming one and has no
+// prefix rewriting -- so a REST service reached through /v1/zolana/* has to
+// answer on that path itself. ts-services/lana-api does the same thing with a
+// two-path controller.
+//
+// photon needs none of this and is not a precedent for skipping it: it is
+// JSON-RPC, dispatches on the body's method, and therefore answers on any path
+// at all. The prover is the only half of the pair that dispatches on the path,
+// which is why only the prover has to care.
+const gatewayPrefix = "/v1/zolana"
+
+// handleBoth registers h under its own path and under the gateway prefix, so
+// one handler serves a direct caller on the ALB and a gateway caller alike.
+// Only the proving surface is published this way; /health and /queue/* are the
+// operational surface and stay off the public prefix.
+func handleBoth(mux *http.ServeMux, path string, h http.Handler) {
+	mux.Handle(path, h)
+	mux.Handle(gatewayPrefix+path, h)
+}
+
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	apiKey := getAPIKeyFromEnv()
 	if apiKey != "" {
@@ -598,7 +620,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 
 	proverMux := http.NewServeMux()
 
-	proverMux.Handle("/prove", proveHandler{
+	handleBoth(proverMux, "/prove", proveHandler{
 		keyManager:  keyManager,
 		redisQueue:  redisQueue,
 		enableQueue: config.Queue != nil && config.Queue.Enabled,
@@ -610,7 +632,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	})
 
 	if redisQueue != nil {
-		proverMux.Handle("/prove/status", proofStatusHandler{redisQueue: redisQueue})
+		handleBoth(proverMux, "/prove/status", proofStatusHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/stats", queueStatsHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/health", queueHealthHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/cleanup", queueCleanupHandler{redisQueue: redisQueue})
