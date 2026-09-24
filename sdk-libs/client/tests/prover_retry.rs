@@ -9,7 +9,7 @@ use std::{
 use serde_json::{json, Value};
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{AsyncProverClient, Delivery, ProveRequest, ProverClient},
+    prover::{AsyncProverClient, Delivery, ProofRoute, ProveRequest, Prover, ProverClient},
     ClientError,
 };
 
@@ -18,6 +18,10 @@ struct InResponseRequest;
 impl ProveRequest for InResponseRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         Ok(Zeroizing::new("{}".to_string()))
+    }
+
+    fn route(&self) -> ProofRoute {
+        ProofRoute::Spp
     }
 
     fn delivery(&self) -> Delivery {
@@ -99,7 +103,7 @@ fn a_proof_shed_by_a_prover_without_a_queue_is_retried() {
         .expect("a busy prover should be retried, not failed");
     assert_eq!(
         server.join().expect("mock prover thread"),
-        ["/prove", "/prove", "/prove"]
+        ["/prove/spp", "/prove/spp", "/prove/spp"]
     );
 }
 
@@ -112,6 +116,6 @@ async fn async_client_retries_a_proof_shed_by_a_prover_without_a_queue() {
         .expect("a busy prover should be retried, not failed");
     assert_eq!(
         server.join().expect("mock prover thread"),
-        ["/prove", "/prove", "/prove"]
+        ["/prove/spp", "/prove/spp", "/prove/spp"]
     );
 }

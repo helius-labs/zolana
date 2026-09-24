@@ -267,12 +267,16 @@ type EnhancedConfig struct {
 	ProverAddress  string
 	MetricsAddress string
 	Queue          *QueueConfig
+	// Routes this deployment serves; empty serves every route.
+	Routes []ProofRoute
 }
 
 type proveHandler struct {
 	keyManager  *common.LazyKeyManager
 	redisQueue  *RedisQueue
 	enableQueue bool
+	// The routes whose circuits this path accepts.
+	routes []ProofRoute
 	// Bounds proving done inside a request. Shared across requests, so it must
 	// be the same instance for every one of them.
 	admission *syncAdmission
@@ -384,6 +388,10 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		malformedBodyError(err).send(w)
 		return
 	}
+	if rejected := admitCircuit(handler.routes, proofRequestMeta.CircuitType, r.URL.Path); rejected != nil {
+		rejected.send(w)
+		return
+	}
 
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
@@ -448,9 +456,9 @@ func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitT
 		return false
 	}
 
-	// A circuit is queueable iff it has a dedicated queue. address-append is heavy
-	// and must go async; transfer/merge circuits now share zk_transfer_queue so a
-	// shared prover doesn't get stampeded by concurrent synchronous transfers.
+	// A circuit is queueable iff its route has a queue, which every route does.
+	// address-append is heavy and must go async; the others queue so a shared
+	// prover isn't stampeded by concurrent synchronous proofs.
 	return GetQueueNameForCircuit(circuitType) != ""
 }
 
@@ -472,8 +480,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":       stats,
-		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats["zk_custom_ring_queue"],
-		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_custom_ring_processing_queue"],
+		"totalPending": sumQueues(stats, routeQueues()),
+		"totalActive":  sumQueues(stats, routeProcessingQueues()),
 		"totalFailed":  stats["zk_failed_queue"],
 		"timestamp":    time.Now().Unix(),
 	}
@@ -580,6 +588,7 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 		Queue: &QueueConfig{
 			Enabled: redisQueue != nil,
 		},
+		Routes: config.Routes,
 	}, redisQueue, keyManager)
 }
 
@@ -605,6 +614,35 @@ func handleBoth(mux *http.ServeMux, path string, h http.Handler) {
 	mux.Handle(gatewayPrefix+path, h)
 }
 
+// registerProofRoutes publishes the prove path of each route in routes, and
+// its status path when the server has a queue. A route not served is not
+// registered, so the gateway gets a 404 rather than a pool it did not size.
+//
+// Every path shares prove's admission, so the in-request proving bound holds
+// per instance rather than per route.
+func registerProofRoutes(mux *http.ServeMux, routes []ProofRoute, prove proveHandler) {
+	for _, route := range routes {
+		routeHandler := prove
+		routeHandler.routes = []ProofRoute{route}
+		handleBoth(mux, route.Path(), routeHandler)
+	}
+	// The pre-route paths, which the gateway still forwards. They accept every
+	// route this deployment serves; remove them once the gateway routes the
+	// per-route paths and published clients have moved to them.
+	legacy := prove
+	legacy.routes = routes
+	handleBoth(mux, "/prove", legacy)
+
+	if prove.redisQueue == nil {
+		return
+	}
+	status := proofStatusHandler{redisQueue: prove.redisQueue}
+	for _, route := range routes {
+		handleBoth(mux, route.StatusPath(), status)
+	}
+	handleBoth(mux, "/prove/status", status)
+}
+
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	apiKey := getAPIKeyFromEnv()
 	if apiKey != "" {
@@ -618,9 +656,15 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	metricsJob := spawnServerJob(metricsServer, "metrics server")
 	logging.Logger().Info().Str("addr", config.MetricsAddress).Msg("metrics server started")
 
+	routes := config.Routes
+	if len(routes) == 0 {
+		routes = AllProofRoutes
+	}
+	logging.Logger().Info().Interface("routes", routes).Msg("Serving proof routes")
+
 	proverMux := http.NewServeMux()
 
-	handleBoth(proverMux, "/prove", proveHandler{
+	registerProofRoutes(proverMux, routes, proveHandler{
 		keyManager:  keyManager,
 		redisQueue:  redisQueue,
 		enableQueue: config.Queue != nil && config.Queue.Enabled,
@@ -628,11 +672,11 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	})
 
 	proverMux.Handle("/health", healthHandler{
-		circuits: servedCircuits(),
+		routes:   routes,
+		circuits: servedCircuits(routes),
 	})
 
 	if redisQueue != nil {
-		handleBoth(proverMux, "/prove/status", proofStatusHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/stats", queueStatsHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/health", queueHealthHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/cleanup", queueCleanupHandler{redisQueue: redisQueue})
@@ -652,6 +696,12 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			proofRequestMeta, err := common.ParseProofRequestMeta(buf)
 			if err != nil {
 				malformedBodyError(err).send(w)
+				return
+			}
+			// No worker here drains the queue of a route this deployment does
+			// not serve, so the job would wait on another pool, or forever.
+			if rejected := admitCircuit(routes, proofRequestMeta.CircuitType, r.URL.Path); rejected != nil {
+				rejected.send(w)
 				return
 			}
 
@@ -837,6 +887,8 @@ func (error *Error) send(w http.ResponseWriter) {
 type Config struct {
 	ProverAddress  string
 	MetricsAddress string
+	// Routes this deployment serves; empty serves every route.
+	Routes []ProofRoute
 }
 
 func spawnServerJob(server *http.Server, label string) RunningJob {
@@ -858,23 +910,8 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 }
 
 type healthHandler struct {
+	routes   []ProofRoute
 	circuits []common.CircuitType
-}
-
-func servedCircuits() []common.CircuitType {
-	circuits := []common.CircuitType{
-		common.BatchAddressAppendCircuitType,
-		common.TransferConfidentialCircuitType,
-		common.TransferRingCircuitType,
-		common.TransferP256RingCircuitType,
-		common.TransferRingAuthorityCircuitType,
-		common.MergeCircuitType,
-		common.MergeRingCircuitType,
-	}
-	for _, ring := range customring.RingCircuits {
-		circuits = append(circuits, ring.Type)
-	}
-	return circuits
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
@@ -976,6 +1013,8 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 	}
 
 	estimatedTime := handler.getEstimatedTime(meta.CircuitType)
+	// Admission already resolved the route, so this cannot miss.
+	route, _ := RouteForCircuit(meta.CircuitType)
 
 	response := map[string]interface{}{
 		"jobId":         jobID,
@@ -983,7 +1022,7 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		"circuitType":   string(meta.CircuitType),
 		"queue":         queueName,
 		"estimatedTime": estimatedTime,
-		"statusUrl":     fmt.Sprintf("/prove/status?jobId=%s", jobID),
+		"statusUrl":     fmt.Sprintf("%s?jobId=%s", route.StatusPath(), jobID),
 		"message":       fmt.Sprintf("Proof generation queued for %s circuit. Use statusUrl to check progress.", meta.CircuitType),
 	}
 
@@ -1119,22 +1158,11 @@ func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) boo
 }
 
 func GetQueueNameForCircuit(circuitType common.CircuitType) string {
-	if circuitType.IsRing() {
-		return "zk_custom_ring_queue"
-	}
-	switch circuitType {
-	case common.BatchAddressAppendCircuitType:
-		return "zk_address_append_queue"
-	case common.TransferConfidentialCircuitType,
-		common.TransferRingCircuitType,
-		common.TransferP256RingCircuitType,
-		common.TransferRingAuthorityCircuitType,
-		common.MergeCircuitType,
-		common.MergeRingCircuitType:
-		return "zk_transfer_queue"
-	default:
+	route, ok := RouteForCircuit(circuitType)
+	if !ok {
 		return ""
 	}
+	return route.Queue()
 }
 
 func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) string {
@@ -1349,7 +1377,11 @@ func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logging.Logger().Info().Msg("received health check request")
-	responseBytes, err := json.Marshal(map[string]interface{}{"status": "ok", "circuits": handler.circuits})
+	responseBytes, err := json.Marshal(map[string]interface{}{
+		"status":   "ok",
+		"routes":   handler.routes,
+		"circuits": handler.circuits,
+	})
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("error marshaling response")
 		w.WriteHeader(http.StatusInternalServerError)

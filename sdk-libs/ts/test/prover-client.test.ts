@@ -542,7 +542,7 @@ describe("prover request routing", () => {
     expect(bodies).toMatchObject([{ circuitType: "merge" }]);
     expect(deliveries).toEqual(["true"]);
     expect(redirects).toEqual(["error"]);
-    expect(urls[0]?.pathname).toBe("/zolana/prove");
+    expect(urls[0]?.pathname).toBe("/zolana/prove/merge");
     expect(urls[0]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });
@@ -550,9 +550,11 @@ describe("prover request routing", () => {
   it("encodes the custom-ring request byte for byte like Rust `CustomRingPolicyProofRequest::body`", async () => {
     const raw: string[] = [];
     const deliveries: (string | null)[] = [];
-    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+    const paths: string[] = [];
+    const fetch = vi.fn(async (input: URL | string, init?: RequestInit) => {
       raw.push(String(init?.body));
       deliveries.push(new Headers(init?.headers).get("X-Sync"));
+      paths.push(new URL(String(input)).pathname);
       return new Response(JSON.stringify(STANDARD_PROOF), {
         headers: { "content-type": "application/json" },
       });
@@ -565,6 +567,7 @@ describe("prover request routing", () => {
 
     expect(raw[0]).toBe(JSON.stringify(EXPECTED_RING_BODY));
     expect(deliveries).toEqual([null]);
+    expect(paths).toEqual(["/prove/custom-ring"]);
     const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
     // The sorted key set of Rust `the_request_matches_the_server_wire_format`.
     expect(Object.keys(body).sort()).toEqual([
@@ -935,7 +938,10 @@ describe("prover request routing", () => {
 
     await prover.prove(INPUTS);
 
-    expect(urls.map((url) => url.pathname)).toEqual(["/zolana/prove", "/zolana/prove/status"]);
+    expect(urls.map((url) => url.pathname)).toEqual([
+      "/zolana/prove/spp",
+      "/zolana/prove/spp/status",
+    ]);
     expect(urls[1]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
     expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");

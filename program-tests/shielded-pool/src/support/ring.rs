@@ -6,7 +6,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::field::be, ProofCompressed, ProverClient, TransferOutput, TransferP256Inputs,
+    prover::field::be, ProofCompressed, Prover, ProverClient, TransferOutput, TransferP256Inputs,
     TreeSlotFields,
 };
 use zolana_hasher::{

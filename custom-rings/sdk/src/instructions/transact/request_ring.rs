@@ -6,7 +6,7 @@ use p256::elliptic_curve::sec1::ToEncodedPoint;
 use serde::Serialize;
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{Delivery, ProveRequest},
+    prover::{Delivery, ProofRoute, ProveRequest},
     ClientError, ProofInputUtxo,
 };
 use zolana_interface::tree_slot::{tree_id_field, TreeSlot};
@@ -253,6 +253,10 @@ impl ProveRequest for CustomRingBaseProofRequest {
             .map_err(|_| ClientError::Prover("base request serialization failed".to_string()))
     }
 
+    fn route(&self) -> ProofRoute {
+        ProofRoute::CustomRing
+    }
+
     fn delivery(&self) -> Delivery {
         Delivery::Queued
     }
@@ -328,6 +332,10 @@ impl CustomRingPolicyProofRequest {
 impl ProveRequest for CustomRingPolicyProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         json_body(&self.json()?)
+    }
+
+    fn route(&self) -> ProofRoute {
+        ProofRoute::CustomRing
     }
 
     fn delivery(&self) -> Delivery {

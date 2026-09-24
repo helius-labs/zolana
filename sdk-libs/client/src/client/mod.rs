@@ -11,12 +11,14 @@ mod nonblocking;
 mod transaction;
 mod validation;
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::{
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
-    prover::{AsyncProverClient, ProverClient},
+    prover::{
+        AsyncProverClient, Delivery, Proof, ProofRoute, Prover, ProverClient, TransferInputs,
+    },
     rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
 };
 
@@ -46,6 +48,9 @@ pub struct ZolanaClient<R> {
     rpc: R,
     indexer: OnceLock<ZolanaIndexer>,
     prover: OnceLock<ProverClient>,
+    /// Set by [`Self::with_prover`]; replaces both prover clients so no proof
+    /// request reaches a prover server.
+    custom_prover: Option<Arc<dyn Prover>>,
     blocking_indexer_url: Option<String>,
     blocking_prover_url: Option<String>,
     async_indexer: AsyncZolanaIndexer,
@@ -67,6 +72,7 @@ impl<R> ZolanaClient<R> {
             rpc,
             indexer: OnceLock::from(indexer),
             prover: OnceLock::from(prover),
+            custom_prover: None,
             blocking_indexer_url: None,
             blocking_prover_url: None,
             async_indexer,
@@ -111,6 +117,7 @@ impl<R> ZolanaClient<R> {
             rpc,
             indexer: OnceLock::new(),
             prover: OnceLock::new(),
+            custom_prover: None,
             blocking_indexer_url: Some(indexer_url.clone()),
             blocking_prover_url: Some(prover_url.clone()),
             async_indexer: AsyncZolanaIndexer::new(indexer_url),
@@ -119,6 +126,15 @@ impl<R> ZolanaClient<R> {
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
         }
+    }
+
+    /// Prove with `prover` instead of the prover server, for example on the
+    /// device. Every proving method uses it, blocking and async alike, so the
+    /// witness never leaves the process. The async methods run it on Tokio's
+    /// blocking pool.
+    pub fn with_prover(mut self, prover: impl Prover + 'static) -> Self {
+        self.custom_prover = Some(Arc::new(prover));
+        self
     }
 
     pub fn with_compute_unit_limit(mut self, cu_limit: u32) -> Self {
@@ -168,7 +184,10 @@ impl<R> ZolanaClient<R> {
         })
     }
 
-    fn blocking_prover(&self) -> &ProverClient {
+    fn blocking_prover(&self) -> &dyn Prover {
+        if let Some(prover) = &self.custom_prover {
+            return prover.as_ref();
+        }
         self.prover.get_or_init(|| {
             ProverClient::new(
                 self.blocking_prover_url
@@ -176,5 +195,19 @@ impl<R> ZolanaClient<R> {
                     .expect("blocking prover URL is set when the client is deferred"),
             )
         })
+    }
+
+    /// The async counterpart of [`Self::blocking_prover`]'s transfer proof.
+    async fn prove_transfer_async(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        let Some(prover) = &self.custom_prover else {
+            return self.async_prover.prove_transfer(inputs).await;
+        };
+        let prover = Arc::clone(prover);
+        let body = crate::prover::json::to_json(inputs)?;
+        tokio::task::spawn_blocking(move || {
+            prover.prove_body(&body, ProofRoute::Spp, Delivery::InResponse)
+        })
+        .await
+        .map_err(|error| ClientError::Prover(format!("prover task failed: {error}")))?
     }
 }

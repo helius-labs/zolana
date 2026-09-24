@@ -499,16 +499,8 @@ func (rq *RedisQueue) dequeueLowestBatchIndex(queueName string) (*ProofJob, erro
 func (rq *RedisQueue) GetQueueStats() (map[string]int64, error) {
 	stats := make(map[string]int64)
 
-	queues := []string{
-		"zk_address_append_queue",
-		"zk_address_append_processing_queue",
-		"zk_transfer_queue",
-		"zk_transfer_processing_queue",
-		"zk_custom_ring_queue",
-		"zk_custom_ring_processing_queue",
-		"zk_failed_queue",
-		"zk_results_queue",
-	}
+	queues := append(routeQueues(), routeProcessingQueues()...)
+	queues = append(queues, "zk_failed_queue", "zk_results_queue")
 
 	for _, queue := range queues {
 		length, err := rq.Client.LLen(rq.Ctx, queue).Result()
@@ -548,8 +540,8 @@ func (rq *RedisQueue) GetQueueHealth() (map[string]interface{}, error) {
 	health["queueLengths"] = stats
 	health["timestamp"] = time.Now().Unix()
 
-	health["totalPending"] = stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats["zk_custom_ring_queue"]
-	health["totalProcessing"] = stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_custom_ring_processing_queue"]
+	health["totalPending"] = sumQueues(stats, routeQueues())
+	health["totalProcessing"] = sumQueues(stats, routeProcessingQueues())
 	health["totalFailed"] = stats["zk_failed_queue"]
 	health["totalResults"] = stats["zk_results_queue"]
 
@@ -570,15 +562,10 @@ func (rq *RedisQueue) GetQueueHealth() (map[string]interface{}, error) {
 
 func (rq *RedisQueue) countStuckJobs() int64 {
 	stuckTimeout := time.Now().Add(-2 * time.Minute)
-	processingQueues := []string{
-		"zk_address_append_processing_queue",
-		"zk_transfer_processing_queue",
-		"zk_custom_ring_processing_queue",
-	}
 
 	var totalStuck int64
 
-	for _, queueName := range processingQueues {
+	for _, queueName := range routeProcessingQueues() {
 		items, err := rq.Client.LRange(rq.Ctx, queueName, 0, -1).Result()
 		if err != nil {
 			continue
@@ -727,16 +714,9 @@ func (rq *RedisQueue) CleanupOldResults() error {
 func (rq *RedisQueue) CleanupOldRequests() error {
 	cutoffTime := time.Now().Add(-30 * time.Minute)
 
-	// Queues to clean up old requests from
-	queuesToClean := []string{
-		"zk_address_append_queue",
-		"zk_transfer_queue",
-		"zk_custom_ring_queue",
-	}
-
 	totalRemoved := int64(0)
 
-	for _, queueName := range queuesToClean {
+	for _, queueName := range routeQueues() {
 		// Clean main queue
 		removed, err := rq.cleanupOldRequestsFromQueue(queueName, cutoffTime)
 		if err != nil {
@@ -832,15 +812,9 @@ func (rq *RedisQueue) CleanupStuckProcessingJobs() error {
 	// (proof generation can take 3-4 minutes under load)
 	processingTimeout := time.Now().Add(-10 * time.Minute)
 
-	processingQueues := []string{
-		"zk_address_append_processing_queue",
-		"zk_transfer_processing_queue",
-		"zk_custom_ring_processing_queue",
-	}
-
 	totalFailed := int64(0)
 
-	for _, queueName := range processingQueues {
+	for _, queueName := range routeProcessingQueues() {
 		failed, err := rq.failStuckJobsFromQueue(queueName, processingTimeout)
 		if err != nil {
 			logging.Logger().Error().

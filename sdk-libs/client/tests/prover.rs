@@ -3,7 +3,7 @@
 //! once it has built a rail-specific proof result.
 
 use zolana_client::{
-    spawn_prover, verify_confidential_transfer_proof, ProverClient, TransferProofResult,
+    spawn_prover, verify_confidential_transfer_proof, Prover, ProverClient, TransferProofResult,
 };
 
 pub(crate) fn start_prover() {

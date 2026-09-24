@@ -458,8 +458,13 @@ func runCli() {
 					&cli.StringFlag{Name: "metrics-address", Usage: "address for the metrics server", Value: "0.0.0.0:9998", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
-						Name:  "circuit",
-						Usage: "Specify enabled circuits including custom-ring-base and custom-ring-policy",
+						Name:  "route",
+						Usage: "Proof routes to serve, each at /prove/<route> with its own queue worker: spp, merge, custom-ring, forester (default: all)",
+					},
+					&cli.StringSliceFlag{
+						Name:   "circuit",
+						Usage:  "Deprecated, use --route: serves the routes of the named circuits",
+						Hidden: true,
 					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
@@ -499,6 +504,16 @@ func runCli() {
 				Action: func(context *cli.Context) error {
 					if context.Bool("json-logging") {
 						logging.SetJSONOutput()
+					}
+
+					routes, err := startRoutes(context.StringSlice("route"), context.StringSlice("circuit"))
+					if err != nil {
+						return err
+					}
+					if len(context.StringSlice("circuit")) > 0 {
+						logging.Logger().Warn().
+							Interface("routes", routes).
+							Msg("--circuit is deprecated; pass --route instead")
 					}
 
 					var keysDirPath = context.String("keys-dir")
@@ -601,34 +616,12 @@ func runCli() {
 
 						logging.Logger().Info().Msg("Starting queue workers")
 
-						enabledCircuits := context.StringSlice("circuit")
-						enabledCircuitsMap := make(map[string]bool)
-						for _, c := range enabledCircuits {
-							enabledCircuitsMap[c] = true
-						}
-
-						startAll := len(enabledCircuits) == 0
 						var workersStarted []string
-
-						if startAll || enabledCircuitsMap["address-append"] || enabledCircuitsMap["address-append-test"] {
-							addressAppendWorker := server.NewAddressAppendQueueWorker(redisQueue, keyManager)
-							workers = append(workers, addressAppendWorker)
-							go addressAppendWorker.Start()
-							workersStarted = append(workersStarted, "address-append")
-						}
-
-						if startAll || enabledCircuitsMap["transfer"] || enableServer {
-							transferWorker := server.NewTransferQueueWorker(redisQueue, keyManager)
-							workers = append(workers, transferWorker)
-							go transferWorker.Start()
-							workersStarted = append(workersStarted, "transfer")
-						}
-
-						if startAll || ringCircuitEnabled(enabledCircuits) {
-							customRingWorker := server.NewCustomRingQueueWorker(redisQueue, keyManager)
-							workers = append(workers, customRingWorker)
-							go customRingWorker.Start()
-							workersStarted = append(workersStarted, "custom-ring")
+						for _, route := range routes {
+							worker := server.NewQueueWorker(route, redisQueue, keyManager)
+							workers = append(workers, worker)
+							go worker.Start()
+							workersStarted = append(workersStarted, string(route))
 						}
 
 						logging.Logger().Info().
@@ -640,6 +633,7 @@ func runCli() {
 						config := server.Config{
 							ProverAddress:  context.String("prover-address"),
 							MetricsAddress: context.String("metrics-address"),
+							Routes:         routes,
 						}
 
 						if redisQueue != nil {
@@ -1109,11 +1103,41 @@ func ringConvertCommand(ring customring.RingCircuit) *cli.Command {
 	}
 }
 
-func ringCircuitEnabled(circuits []string) bool {
-	for _, circuit := range circuits {
-		if common.CircuitType(circuit).IsRing() {
-			return true
-		}
+// startRoutes resolves the routes `start` serves.
+//
+// --circuit predates routes. It stays, hidden, because a deployment module
+// shared by environments pinned to different images passes one flag line to
+// all of them, and an image that rejected the flag would not start. It serves
+// the routes of the named circuits.
+func startRoutes(routeNames, circuitNames []string) ([]server.ProofRoute, error) {
+	if len(circuitNames) == 0 {
+		return server.ParseProofRoutes(routeNames)
 	}
-	return false
+	if len(routeNames) > 0 {
+		return nil, fmt.Errorf("--route and --circuit cannot be combined; use --route")
+	}
+	names := make([]string, 0, len(circuitNames))
+	for _, circuit := range circuitNames {
+		route, err := circuitFlagRoute(circuit)
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, string(route))
+	}
+	return server.ParseProofRoutes(names)
+}
+
+// circuitFlagRoute maps a --circuit value to its route, including the two
+// names --circuit accepted that are not circuit types.
+func circuitFlagRoute(name string) (server.ProofRoute, error) {
+	switch name {
+	case "address-append-test":
+		return server.ForesterRoute, nil
+	case "transfer":
+		return server.SppRoute, nil
+	}
+	if route, ok := server.RouteForCircuit(common.CircuitType(name)); ok {
+		return route, nil
+	}
+	return "", fmt.Errorf("unknown --circuit %q; use --route", name)
 }

@@ -30,8 +30,9 @@ This part explains the existing cli commands.
    Flags:  
    1. tree-depth *n* - Depth of the mock merkle tree  
    2. compressedAccounts *n* - Number of COMPRESSED_ACCOUNTs
-3. start - starts a api server with /prove and /metrics endpoints  
+3. start - starts an api server with a /prove/<route> endpoint per proof route (spp, merge, custom-ring, forester) and a /metrics endpoint  
    Flags:
+   1. Optional: route *name* - Proof route to serve, repeatable; serves every route when omitted
    1. config: Config file, which may contain the following fields:
    1. keys *[string]* - String array of keys file paths  
    2. keys-file *file path* - Proving system file, can be used instead of config       

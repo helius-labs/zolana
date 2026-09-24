@@ -27,7 +27,7 @@ var instance server.RunningJob
 var serverStopped bool
 
 func proveEndpoint() string {
-	return "http://" + ProverAddress + "/prove"
+	return "http://" + ProverAddress + server.ForesterRoute.Path()
 }
 
 func StartServer(isLightweight bool) {

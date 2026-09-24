@@ -12,7 +12,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{Delivery, ProveRequest},
+    prover::{Delivery, ProofRoute, ProveRequest, Prover},
     AsyncRpc, ClientError, Rpc,
 };
 use zolana_hasher::primitives::right_align;
@@ -560,6 +560,10 @@ impl ProveRequest for RegisterKeyProofRequest {
             low_proof: &self.low_proof,
             new_proof: &self.new_proof,
         })
+    }
+
+    fn route(&self) -> ProofRoute {
+        ProofRoute::CustomRing
     }
 
     fn delivery(&self) -> Delivery {

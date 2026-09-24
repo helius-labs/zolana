@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
-use zolana_client::{MergeProver, ProverClient};
+use zolana_client::{MergeProver, Prover, ProverClient};
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
 };

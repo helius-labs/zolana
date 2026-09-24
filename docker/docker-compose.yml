@@ -184,8 +184,8 @@ services:
       - 0.0.0.0:3001
       - --metrics-address
       - 0.0.0.0:9998
-      - --circuit
-      - address-append
+      - --route
+      - forester
       - --redis-url
       - redis://forester-redis:6379
     ports:

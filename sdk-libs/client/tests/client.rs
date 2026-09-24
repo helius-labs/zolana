@@ -21,8 +21,8 @@ use zolana_client::{
     client::{SignedPrivateTransaction, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
-        transact::assemble, witness::WitnessReader, AsyncProverClient, ProofCompressed,
-        ProverClient, TransferInput, TransferInputs,
+        transact::assemble, witness::WitnessReader, AsyncProverClient, Delivery, Proof,
+        ProofCompressed, ProofRoute, Prover, ProverClient, TransferInput, TransferInputs,
     },
     rpc::{
         compile_message, sign_transaction, AsyncRpc, IndexerPollConfig, IndexerRpcConfig, Rpc,
@@ -312,6 +312,103 @@ fn submit_validation_binds_fee_payer() {
         Err(ClientError::Rpc(message)) if message == "test authority reached"
     ));
     assert_eq!(server.requests().len(), 2);
+}
+
+/// Records every request body and route and refuses to prove, so a test can
+/// see what a custom backend was handed without a prover server.
+#[derive(Clone, Default)]
+struct RecordingProver {
+    requests: Arc<Mutex<Vec<(String, ProofRoute)>>>,
+}
+
+impl Prover for RecordingProver {
+    fn prove_body(
+        &self,
+        body: &str,
+        route: ProofRoute,
+        _delivery: Delivery,
+    ) -> Result<Proof, ClientError> {
+        self.requests
+            .lock()
+            .unwrap()
+            .push((body.to_string(), route));
+        Err(ClientError::Prover("recording prover".into()))
+    }
+}
+
+/// A signed 1-in transfer and an indexer that answers its two witness fetches.
+fn with_prover_fixture() -> (ShieldedKeypair, SignedPrivateTransaction, MockIndexerServer) {
+    let payer = Keypair::new();
+    let sender = ShieldedKeypair::from_keypair(&payer).expect("sender");
+    let funded = funded_utxo(&sender, 10);
+    let tree = pda::tree(funded.tree_id);
+    let server = MockIndexerServer::respond_by_path(vec![
+        ("/getMerkleProofs", merkle_response(tree, funded.utxo_hash)),
+        (
+            "/getNonInclusionProofs",
+            nullifier_response(tree, funded.nullifier),
+        ),
+    ]);
+    let signed = SignedPrivateTransaction {
+        transaction: ConfidentialTransaction::new(vec![funded], payer.pubkey())
+            .expect("transaction")
+            .encrypt(&sender)
+            .expect("encrypt"),
+        settlement_transfers: Vec::new(),
+    };
+    (sender, signed, server)
+}
+
+fn assert_recorded_one_completed_transfer(prover: &RecordingProver) {
+    let requests = prover.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let (body, route) = &requests[0];
+    // A server backend would post it to the transfer route's path.
+    assert_eq!(*route, ProofRoute::Spp);
+    let request: Value = serde_json::from_str(body).expect("request JSON");
+    assert_eq!(request["circuitType"], "transfer-confidential");
+    // The authority completed the witness before the backend saw it.
+    assert_ne!(request["inputs"][0]["nullifierSecret"], "0x0");
+}
+
+// Both prover URLs below are unroutable: reaching either would fail with a
+// server error rather than the recording prover's refusal.
+
+#[test]
+fn with_prover_replaces_the_prover_server_when_blocking() {
+    let (sender, signed, server) = with_prover_fixture();
+    let prover = RecordingProver::default();
+    let client = ZolanaClient::new(
+        MockSubmitRpc::new(Signature::default()),
+        ZolanaIndexer::new(server.url()),
+        ProverClient::new("http://unused.invalid".to_string()),
+        AsyncZolanaIndexer::new(server.url()),
+        AsyncProverClient::new("http://unused.invalid".to_string()),
+    )
+    .with_prover(prover.clone());
+
+    let result = client.finish_submission_unsigned_sync(&signed, signed.transaction.payer, &sender);
+    assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
+    assert_recorded_one_completed_transfer(&prover);
+}
+
+#[tokio::test]
+async fn with_prover_replaces_the_prover_server_when_async() {
+    let (sender, signed, server) = with_prover_fixture();
+    let prover = RecordingProver::default();
+    let client = ZolanaClient::from_urls(
+        MockSubmitRpc::new(Signature::default()),
+        server.url(),
+        "http://127.0.0.1:1",
+    )
+    .expect("loopback urls")
+    .with_prover(prover.clone());
+
+    let result = client
+        .finish_submission_unsigned(&signed, signed.transaction.payer, Hash::default(), &sender)
+        .await;
+    assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
+    assert_recorded_one_completed_transfer(&prover);
 }
 
 #[test]

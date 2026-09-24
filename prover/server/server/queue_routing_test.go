@@ -9,8 +9,8 @@ import (
 	"zolana/prover/prover/common"
 )
 
-// Transfer/merge circuits share zk_transfer_queue; address-append keeps its own;
-// everything else is not queued (empty name).
+// Each route queues on its own list; an unknown circuit is not queued (empty
+// name).
 func TestGetQueueNameForCircuit(t *testing.T) {
 	cases := []struct {
 		circuit common.CircuitType
@@ -21,8 +21,8 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.TransferRingCircuitType, "zk_transfer_queue"},
 		{common.TransferP256RingCircuitType, "zk_transfer_queue"},
 		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
-		{common.MergeCircuitType, "zk_transfer_queue"},
-		{common.MergeRingCircuitType, "zk_transfer_queue"},
+		{common.MergeCircuitType, "zk_merge_queue"},
+		{common.MergeRingCircuitType, "zk_merge_queue"},
 		{common.CustomRingBaseCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingPolicyCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingDelegatePolicyCircuitType, "zk_custom_ring_queue"},
@@ -44,6 +44,21 @@ func TestCustomRingWorkerRejectsOtherCircuits(t *testing.T) {
 
 	if _, err := worker.generateProof(job); err == nil {
 		t.Fatal("custom ring worker accepted a transfer proof")
+	}
+}
+
+func TestWorkersAcceptOnlyTheirRoutesCircuits(t *testing.T) {
+	for _, route := range AllProofRoutes {
+		worker := &BaseQueueWorker{queueName: route.Queue()}
+		for _, circuit := range allCircuits() {
+			own, _ := RouteForCircuit(circuit)
+			// Merges queued on the spp queue by a prover from before the
+			// merge route must still be proved during a rolling deploy.
+			want := own == route || (route == SppRoute && own == MergeRoute)
+			if got := worker.acceptsCircuit(circuit); got != want {
+				t.Errorf("%s worker accepts %s = %v, want %v", route, circuit, got, want)
+			}
+		}
 	}
 }
 
@@ -86,7 +101,7 @@ func TestCustomRingIsServedOnEveryRail(t *testing.T) {
 			t.Fatalf("%s skipped the queue the server has", want)
 		}
 		found := false
-		for _, circuit := range servedCircuits() {
+		for _, circuit := range servedCircuits(AllProofRoutes) {
 			if circuit == want {
 				found = true
 				break

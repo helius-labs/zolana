@@ -33,8 +33,8 @@ const (
 	// Proving keys can be 10-20GB depending on which circuits are loaded
 	MemoryReserveGB = 20
 
-	// NumQueueWorkers is the number of queue workers (update, append, address-append)
-	NumQueueWorkers = 3
+	// NumQueueWorkers is the number of queue workers, one per proof route
+	NumQueueWorkers = 4
 
 	// MinConcurrencyPerWorker is the minimum concurrency per worker
 	MinConcurrencyPerWorker = 1
@@ -88,6 +88,18 @@ func getTransferMaxConcurrency() int {
 			logging.Logger().Info().
 				Int("max_concurrency", concurrency).
 				Msg("Using TRANSFER_WORKER_CONCURRENCY")
+			return concurrency
+		}
+	}
+	return getMaxConcurrency()
+}
+
+func getMergeMaxConcurrency() int {
+	if val := os.Getenv("MERGE_WORKER_CONCURRENCY"); val != "" {
+		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
+			logging.Logger().Info().
+				Int("max_concurrency", concurrency).
+				Msg("Using MERGE_WORKER_CONCURRENCY")
 			return concurrency
 		}
 	}
@@ -164,32 +176,49 @@ type CustomRingQueueWorker struct {
 	*BaseQueueWorker
 }
 
+// NewQueueWorker returns the worker that drains route's queue.
+func NewQueueWorker(route ProofRoute, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) QueueWorker {
+	switch route {
+	case SppRoute:
+		return NewTransferQueueWorker(redisQueue, keyManager)
+	case MergeRoute:
+		return NewMergeQueueWorker(redisQueue, keyManager)
+	case CustomRingRoute:
+		return NewCustomRingQueueWorker(redisQueue, keyManager)
+	case ForesterRoute:
+		return NewAddressAppendQueueWorker(redisQueue, keyManager)
+	default:
+		panic(fmt.Sprintf("no queue worker for proof route %q", route))
+	}
+}
+
+func newRouteQueueWorker(
+	route ProofRoute,
+	redisQueue *RedisQueue,
+	keyManager *common.LazyKeyManager,
+	maxConcurrency int,
+) *BaseQueueWorker {
+	return &BaseQueueWorker{
+		queue:               redisQueue,
+		keyManager:          keyManager,
+		stopChan:            make(chan struct{}),
+		queueName:           route.Queue(),
+		processingQueueName: route.ProcessingQueue(),
+		maxConcurrency:      maxConcurrency,
+		semaphore:           make(chan struct{}, maxConcurrency),
+	}
+}
+
 func NewAddressAppendQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *AddressAppendQueueWorker {
-	maxConcurrency := getMaxConcurrency()
 	return &AddressAppendQueueWorker{
-		BaseQueueWorker: &BaseQueueWorker{
-			queue:               redisQueue,
-			keyManager:          keyManager,
-			stopChan:            make(chan struct{}),
-			queueName:           "zk_address_append_queue",
-			processingQueueName: "zk_address_append_processing_queue",
-			maxConcurrency:      maxConcurrency,
-			semaphore:           make(chan struct{}, maxConcurrency),
-		},
+		BaseQueueWorker: newRouteQueueWorker(ForesterRoute, redisQueue, keyManager, getMaxConcurrency()),
 	}
 }
 
 func NewCustomRingQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *CustomRingQueueWorker {
-	maxConcurrency := getCustomRingMaxConcurrency()
-	return &CustomRingQueueWorker{BaseQueueWorker: &BaseQueueWorker{
-		queue:               redisQueue,
-		keyManager:          keyManager,
-		stopChan:            make(chan struct{}),
-		queueName:           "zk_custom_ring_queue",
-		processingQueueName: "zk_custom_ring_processing_queue",
-		maxConcurrency:      maxConcurrency,
-		semaphore:           make(chan struct{}, maxConcurrency),
-	}}
+	return &CustomRingQueueWorker{
+		BaseQueueWorker: newRouteQueueWorker(CustomRingRoute, redisQueue, keyManager, getCustomRingMaxConcurrency()),
+	}
 }
 
 func (w *BaseQueueWorker) Start() {
@@ -264,11 +293,13 @@ func (w *BaseQueueWorker) processJobs() {
 		queueWaitTime := jobAge.Seconds()
 		circuitType := "unknown"
 		switch w.queueName {
-		case "zk_address_append_queue":
+		case ForesterRoute.Queue():
 			circuitType = "address-append"
-		case "zk_transfer_queue":
+		case SppRoute.Queue():
 			circuitType = "transfer"
-		case "zk_custom_ring_queue":
+		case MergeRoute.Queue():
+			circuitType = "merge"
+		case CustomRingRoute.Queue():
 			circuitType = "custom-ring"
 		}
 		QueueWaitTime.WithLabelValues(circuitType).Observe(queueWaitTime)
@@ -574,7 +605,7 @@ func (w *CustomRingQueueWorker) Stop() {
 	w.BaseQueueWorker.Stop()
 }
 
-// TransferQueueWorker drains the transfer/merge proof queue. Transfers are
+// TransferQueueWorker drains the spp route's transfer queue. Transfers are
 // synchronous-fast individually but flood a shared prover under concurrency; the
 // queue bounds in-flight proofs so many clients can submit without stampeding.
 type TransferQueueWorker struct {
@@ -582,17 +613,8 @@ type TransferQueueWorker struct {
 }
 
 func NewTransferQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *TransferQueueWorker {
-	maxConcurrency := getTransferMaxConcurrency()
 	return &TransferQueueWorker{
-		BaseQueueWorker: &BaseQueueWorker{
-			queue:               redisQueue,
-			keyManager:          keyManager,
-			stopChan:            make(chan struct{}),
-			queueName:           "zk_transfer_queue",
-			processingQueueName: "zk_transfer_processing_queue",
-			maxConcurrency:      maxConcurrency,
-			semaphore:           make(chan struct{}, maxConcurrency),
-		},
+		BaseQueueWorker: newRouteQueueWorker(SppRoute, redisQueue, keyManager, getTransferMaxConcurrency()),
 	}
 }
 
@@ -604,6 +626,45 @@ func (w *TransferQueueWorker) Stop() {
 	w.BaseQueueWorker.Stop()
 }
 
+// MergeQueueWorker drains the merge route's queue. A 36-input merge holds a
+// permit several times longer than a transfer, so merges queue apart from
+// transfers instead of occupying the permits transfers wait on.
+type MergeQueueWorker struct {
+	*BaseQueueWorker
+}
+
+func NewMergeQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *MergeQueueWorker {
+	return &MergeQueueWorker{
+		BaseQueueWorker: newRouteQueueWorker(MergeRoute, redisQueue, keyManager, getMergeMaxConcurrency()),
+	}
+}
+
+func (w *MergeQueueWorker) Start() {
+	w.BaseQueueWorker.Start()
+}
+
+func (w *MergeQueueWorker) Stop() {
+	w.BaseQueueWorker.Stop()
+}
+
+// acceptsCircuit reports whether this worker proves circuit: the circuits of
+// the route whose queue it drains, and merges on the spp queue.
+//
+// Provers from before the merge route queued merges on zk_transfer_queue.
+// During a rolling deploy old tasks keep doing so, and a failed job's input
+// hash replays the failure on resubmission, so rejecting them would fail
+// every merge in flight. Drop the exception once no such prover can run.
+func (w *BaseQueueWorker) acceptsCircuit(circuit common.CircuitType) bool {
+	route, ok := RouteForCircuit(circuit)
+	if !ok {
+		return false
+	}
+	if route.Queue() == w.queueName {
+		return true
+	}
+	return route == MergeRoute && w.queueName == SppRoute.Queue()
+}
+
 // generateProof generates a proof for the given job and returns it.
 // Result storage is handled by the caller to include timing information.
 func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
@@ -611,7 +672,7 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse proof request: %w", err)
 	}
-	if GetQueueNameForCircuit(proofRequestMeta.CircuitType) != w.queueName {
+	if !w.acceptsCircuit(proofRequestMeta.CircuitType) {
 		return nil, fmt.Errorf("circuit %s cannot run on %s", proofRequestMeta.CircuitType, w.queueName)
 	}
 
@@ -764,7 +825,7 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(item string) {
 var errCustomRingProof = errors.New("custom ring proof failed")
 
 func (w *BaseQueueWorker) redactProofError(err error) error {
-	if w.queueName == "zk_custom_ring_queue" {
+	if w.queueName == CustomRingRoute.Queue() {
 		return errCustomRingProof
 	}
 	return err

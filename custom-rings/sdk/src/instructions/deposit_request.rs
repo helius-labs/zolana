@@ -7,7 +7,10 @@ use super::transact::{
     request::{json_body, SecretHex},
 };
 use crate::escrow::RegistryKeyOpening;
-use zolana_client::{prover::ProveRequest, ClientError};
+use zolana_client::{
+    prover::{ProofRoute, ProveRequest},
+    ClientError,
+};
 
 pub struct RingDepositProofRequest<'a> {
     pub public_input_hash: &'a [u8; 32],
@@ -75,6 +78,10 @@ impl ProveRequest for RingDepositProofRequest<'_> {
             ));
         }
         json_body(self)
+    }
+
+    fn route(&self) -> ProofRoute {
+        ProofRoute::CustomRing
     }
 }
 

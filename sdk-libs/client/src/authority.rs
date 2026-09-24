@@ -14,7 +14,7 @@ use crate::{
     error::ClientError,
     prover::{
         field::{be, right_align_slice},
-        Proof, ProverClient, TransferInput, TransferInputs,
+        Proof, Prover, TransferInput, TransferInputs,
     },
 };
 
@@ -43,7 +43,7 @@ pub trait ProofAuthority: Send + Sync {
     /// Complete the witness and prove it.
     fn prove_transfer(
         &self,
-        prover: &ProverClient,
+        prover: &dyn Prover,
         inputs: &mut TransferInputs,
     ) -> Result<Proof, ClientError> {
         self.complete_inputs(&mut inputs.inputs)?;

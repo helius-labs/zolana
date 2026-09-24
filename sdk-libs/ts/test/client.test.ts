@@ -193,7 +193,7 @@ async function serviceRequestUrls(
         { headers: { "content-type": "application/json" } },
       );
     }
-    if (path.endsWith("/prove")) {
+    if (path.endsWith("/prove/spp")) {
       return new Response(JSON.stringify(STANDARD_PROOF), {
         headers: { "content-type": "application/json" },
       });
@@ -305,7 +305,7 @@ describe("ZolanaClient", () => {
       overrides: {},
       expected: [
         "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-        "https://rpc.example.com/zolana/prove",
+        "https://rpc.example.com/zolana/prove/spp",
       ],
     },
     {
@@ -313,7 +313,7 @@ describe("ZolanaClient", () => {
       overrides: { indexerUrl: INDEXER_URL },
       expected: [
         "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
-        "https://rpc.example.com/zolana/prove",
+        "https://rpc.example.com/zolana/prove/spp",
       ],
     },
     {
@@ -321,7 +321,7 @@ describe("ZolanaClient", () => {
       overrides: { proverUrl: PROVER_URL },
       expected: [
         "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-        "https://prover.example.com/api/prove",
+        "https://prover.example.com/api/prove/spp",
       ],
     },
     {
@@ -329,7 +329,7 @@ describe("ZolanaClient", () => {
       overrides: { indexerUrl: INDEXER_URL, proverUrl: PROVER_URL },
       expected: [
         "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
-        "https://prover.example.com/api/prove",
+        "https://prover.example.com/api/prove/spp",
       ],
     },
   ] satisfies readonly Readonly<{
@@ -345,7 +345,7 @@ describe("ZolanaClient", () => {
       serviceRequestUrls(RPC_URL, { indexerUrl: undefined, proverUrl: undefined }),
     ).resolves.toEqual([
       "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
-      "https://rpc.example.com/zolana/prove",
+      "https://rpc.example.com/zolana/prove/spp",
     ]);
   });
 
@@ -355,7 +355,7 @@ describe("ZolanaClient", () => {
 
     await expect(serviceRequestUrls(rpcUrl)).resolves.toEqual([
       "https://gateway.example.com/base/getShieldedTransactionsByNullifiers?cluster=devnet",
-      "https://gateway.example.com/base/prove?cluster=devnet",
+      "https://gateway.example.com/base/prove/spp?cluster=devnet",
     ]);
     expect(rpcUrl.href).toBe(original);
   });
@@ -649,7 +649,7 @@ describe("ZolanaClient", () => {
     const proof = await keys.prove(proverInputs);
 
     expect(Object.keys(proof).sort()).toEqual(["a", "b", "c"]);
-    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:3001/prove");
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:3001/prove/spp");
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
       circuitType: "transfer-confidential",
       publicInputHash: `0x${proverInputs.payload.publicInputHash.toString(16)}`,

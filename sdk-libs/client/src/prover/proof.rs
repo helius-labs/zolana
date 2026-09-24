@@ -192,6 +192,16 @@ fn hex_to_be_32(hex_str: &str) -> [u8; 32] {
     result
 }
 
+impl Proof {
+    /// Parse the gnark proof JSON a Zolana prover emits, for a
+    /// [`Prover`](crate::Prover) backend that proves in process rather than
+    /// receiving the proof from a server.
+    pub fn from_gnark_json(json: &str) -> Result<Self, ClientError> {
+        proof_from_gnark_json(json)
+            .ok_or_else(|| ClientError::ProofParse("invalid gnark proof JSON".to_string()))
+    }
+}
+
 /// Parse a gnark proof JSON (`{ar, bs, krs, proofCommitment?, proofCommitmentPok?}`)
 /// into an uncompressed [`Proof`] with `proof_a` negated. The commitment is `Some`
 /// only when both commitment fields are present (P256 rail).
@@ -242,6 +252,32 @@ mod tests {
                 commitment_pok: [5u8; 32],
             }),
         }
+    }
+
+    #[test]
+    fn from_gnark_json_rejects_malformed_proofs() {
+        let point = r#"["0x1","0x2"]"#;
+        for json in [
+            "",
+            "{}",
+            &format!(r#"{{"ar":{point},"bs":[{point}],"krs":{point}}}"#),
+            &format!(
+                r#"{{"ar":{point},"bs":[{point},{point}],"krs":{point},"proofCommitment":{point}}}"#
+            ),
+        ] {
+            assert!(
+                matches!(
+                    Proof::from_gnark_json(json),
+                    Err(ClientError::ProofParse(_))
+                ),
+                "accepted {json:?}"
+            );
+        }
+        let proof = Proof::from_gnark_json(&format!(
+            r#"{{"ar":{point},"bs":[{point},{point}],"krs":{point}}}"#
+        ))
+        .expect("well-formed proof");
+        assert!(proof.commitment.is_none());
     }
 
     #[test]
