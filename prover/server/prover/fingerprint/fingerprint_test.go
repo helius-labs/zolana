@@ -5,14 +5,15 @@
 //
 // Each representative circuit is compiled and fingerprinted by its constraint
 // and public-variable counts. A change here means the circuit changed; the fix
-// is NOT to blindly update these numbers but to run the full rotation:
+// is NOT to blindly update these numbers but to rotate every key of that
+// circuit:
 //
-//	prover/server/scripts/rotate_proving_keys.sh
+//	prover/server/scripts/keys.py rotate --set <circuit, e.g. merge-ring>
 //
-// which regenerates proving keys, regenerates and commits the Rust verifying
-// keys (interface + tree crates), regenerates proving-keys.lock,
-// and uploads the keys to a new immutable version folder in S3. Only then update
-// the pinned values below (UPDATE_FINGERPRINTS=1 prints the current ones).
+// which regenerates the proving keys and their committed Rust verifying keys,
+// publishes the keys to a new immutable version folder in S3, and only then
+// rewrites proving-keys.lock and the pinned values below. It refuses a
+// rotation that leaves a changed circuit's keys behind.
 package fingerprint
 
 import (
@@ -94,8 +95,8 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 }
 
 // Pinned to the current key set; the version hash is in
-// prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
-// UPDATE_FINGERPRINTS=1 after a full key rotation.
+// prover/server/prover/provingkeys/proving-keys.lock. keys.py rotate rewrites
+// these from UPDATE_FINGERPRINTS=1 output.
 var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_3":     {constraints: 54912, public: 2},
 	"transfer_ring_2_3":             {constraints: 55017, public: 2},
@@ -137,8 +138,8 @@ func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
 			t.Errorf(
 				"circuit %s changed (constraints %d->%d, public %d->%d).\n"+
 					"Circuit changes require a key rotation: run "+
-					"prover/server/scripts/rotate_proving_keys.sh <new-tag>, then "+
-					"update expectedFingerprints (UPDATE_FINGERPRINTS=1 prints the values).",
+					"prover/server/scripts/keys.py rotate for every key of this circuit, "+
+					"which also updates expectedFingerprints.",
 				name, want.constraints, have.constraints, want.public, have.public,
 			)
 		}

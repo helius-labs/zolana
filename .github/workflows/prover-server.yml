@@ -63,3 +63,15 @@ jobs:
           path: target/verifying-keys-smoke/keys
           key: verifying-keys-smoke-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just xtask-create-verifying-keys-smoke
+
+  proving-keys:
+    name: prover-server / proving-keys lockfile
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      # Offline: lockfile schema and prefix hash, the derived key table, VK
+      # module lists, fingerprint families, plus the keys.py unit tests.
+      - run: just check-spp-keys
