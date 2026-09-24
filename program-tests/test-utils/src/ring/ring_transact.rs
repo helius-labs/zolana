@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos_from_nullifiers, ProofAuthority, ProofCompressed, ProverClient,
+    input_utxos_from_nullifiers, ProofAuthority, ProofCompressed, Prover, ProverClient,
     RingTransferP256Prover, RingTransferProver, Shape, TransferInputUtxo,
 };
 use zolana_interface::{

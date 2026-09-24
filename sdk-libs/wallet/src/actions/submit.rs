@@ -18,7 +18,7 @@ use zolana_client::{
     error::ClientError,
     prover::{merge::MergeProver, ProofCompressed, ProverClient},
     rpc::{ComputeBudgetConfig, Rpc},
-    SpendProof,
+    Prover, SpendProof,
 };
 
 use crate::user_registry::fetch_user_record_checked;

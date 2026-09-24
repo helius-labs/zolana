@@ -19,9 +19,9 @@ use zolana_client::{
     input_utxos_from_nullifiers,
     prover::{Delivery, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
-    Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, ProverClient, RingTransferProofResult,
-    RingTransferProver, Rpc, SettlementAccountValidation, SpendProof, TransferInputUtxo,
-    TransferInputs,
+    Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, Prover, ProverClient,
+    RingTransferProofResult, RingTransferProver, Rpc, SettlementAccountValidation, SpendProof,
+    TransferInputUtxo, TransferInputs,
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{

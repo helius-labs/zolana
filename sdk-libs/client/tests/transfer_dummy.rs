@@ -27,8 +27,8 @@ mod output_blindings;
 use rand::RngCore;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    spawn_prover, verify_confidential_transfer_proof, ProverClient, PublicTransfers, Rpc, Shape,
-    TransferInputUtxo, TransferProver,
+    spawn_prover, verify_confidential_transfer_proof, Prover, ProverClient, PublicTransfers, Rpc,
+    Shape, TransferInputUtxo, TransferProver,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};

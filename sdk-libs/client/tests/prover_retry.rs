@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use zeroize::Zeroizing;
 use zolana_client::{
     prover::{AsyncProverClient, Delivery, ProveRequest, ProverClient},
-    ClientError,
+    ClientError, Prover,
 };
 
 struct InResponseRequest;

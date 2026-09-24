@@ -13,7 +13,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
     prover::{Delivery, ProveRequest},
-    AsyncRpc, ClientError, Rpc,
+    AsyncRpc, ClientError, Prover, Rpc,
 };
 use zolana_hasher::primitives::right_align;
 use zolana_indexer_api::{

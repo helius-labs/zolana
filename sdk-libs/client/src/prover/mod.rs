@@ -1,7 +1,8 @@
+mod backend;
 mod client;
 pub mod field;
 mod inputs;
-mod json;
+pub(crate) mod json;
 pub mod merge;
 mod proof;
 pub mod ring_authority;
@@ -12,6 +13,7 @@ mod verify;
 #[cfg(feature = "indexer-api")]
 pub mod witness;
 
+pub use backend::Prover;
 pub use client::{
     spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, Delivery,
     ProveRequest, ProverClient, PROVE_PATH, SERVER_ADDRESS,

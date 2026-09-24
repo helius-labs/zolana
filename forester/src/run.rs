@@ -39,7 +39,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
-use zolana_client::{BatchAddressAppendInputs, ProofCompressed, ProverClient};
+use zolana_client::{BatchAddressAppendInputs, ProofCompressed, Prover, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;

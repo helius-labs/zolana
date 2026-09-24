@@ -6,8 +6,8 @@ use futures::future::try_join;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
-    AsyncRpc, Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, RingAuthorityProofResult,
-    RingAuthorityProver, Rpc, TransferInputs,
+    AsyncRpc, Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, Prover,
+    RingAuthorityProofResult, RingAuthorityProver, Rpc, TransferInputs,
 };
 use zolana_interface::{
     instruction::{CircuitId, TransactIxData, TransactProof},

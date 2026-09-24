@@ -3,7 +3,7 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    ProverClient, PublicTransfers, RingAuthorityProver, Rpc, Shape, TransferInputUtxo,
+    Prover, ProverClient, PublicTransfers, RingAuthorityProver, Rpc, Shape, TransferInputUtxo,
 };
 use zolana_interface::{
     instruction::{
