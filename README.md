@@ -56,7 +56,7 @@ Dependency updates retain the Solana/SBF compatibility constraints in
 `Cargo.toml`. All Go prover modules use gnark 0.16.3 and gnark-crypto 0.21.0.
 Circuit-changing upgrades require rotating the proving keys, embedded Rust
 verifying keys, key checksums, and circuit fingerprints together. The core
-rotation workflow is `prover/server/scripts/rotate_proving_keys.sh`. The
+rotation workflow is `prover/server/scripts/keys.py rotate`. The
 example programs use insecure deterministic test keys, UNSAFE for production:
 `regen-swap-keys`, `regen-dynamic-swap-keys`, and `regen-escrow-keys` rewrite
 their verifying keys and checksums, and nothing is published.

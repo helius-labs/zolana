@@ -736,10 +736,10 @@ ensure-dynamic-swap-keys: (_ensure-example-keys "sdk-tests/dynamic-swap" "dynami
 
 regen-dynamic-swap-keys: (_regen-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "escrow_open escrow_settle")
 
-# Rotate ring proving keys with their verifying keys and lock entries,
-# then repin the circuit fingerprints and run release-custom-rings.
+# Then publish them as a GitHub release and run release-custom-rings.
+# Rotate the ring proving keys with their verifying keys, fingerprints and lock entries.
 regen-custom-ring-keys:
-    prover/server/scripts/generate_keys_custom_ring.sh prover/server/proving-keys
+    python3 -B prover/server/scripts/keys.py rotate --set custom-ring --no-publish --keys-dir prover/server/proving-keys
 
 # Profile the confidential swap create/fill/cancel instructions and record proving
 # times. The bench builds the shielded-pool tree account directly and replays one
@@ -1388,64 +1388,35 @@ build-localnet-archives dir="target/nextest-archives":
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
     cargo nextest archive -p rfq-test --test rfq --archive-file {{dir}}/rfq-test.tar.zst
 
-# Regenerate all proving keys (transfer, merge, custom ring, and batch
-# address-append), the committed verifying keys in both crates, and
-# proving-keys.lock. groth16 setup is non-deterministic, so the
-# nullifier-tree vkeys are regenerated with the keys -- commit both
-# together. Mirrors prover/server/scripts/rotate_proving_keys.sh minus the fingerprint refresh
-# and the S3 upload (publish-spp-keys).
-build-spp-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    keys_dir="$(cd "$(dirname "{{spp-keys-dir}}")" && pwd)/$(basename "{{spp-keys-dir}}")"
-    prover/server/scripts/generate_keys_transfer.sh "$keys_dir"
-    prover/server/scripts/generate_keys_merge.sh "$keys_dir"
-    prover/server/scripts/generate_keys_custom_ring.sh "$keys_dir"
-    # The generate_* scripts leave the light-prover binary in prover/server.
-    for spec in 10 250; do
-        prover/server/light-prover setup \
-            --circuit address-append \
-            --address-append-tree-height 40 \
-            --address-append-batch-size "$spec" \
-            --output "$keys_dir/batch_address-append_40_${spec}.key" \
-            --output-vkey "$keys_dir/batch_address-append_40_${spec}.vkey"
-    done
-    prover/server/scripts/regenerate_all_vkeys.sh "$keys_dir"
-    tmp_dir="$(mktemp -d)"
-    trap 'rm -rf "$tmp_dir"' EXIT
-    for spec in 10 250; do
-        stem="batch_address-append_40_${spec}"
-        module="batch_address_append_40_${spec}"
-        prover/server/light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
-        cargo run -q -p xtask -- bsb22-vk \
-            "$tmp_dir/${stem}.vkbin" \
-            "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
-            "${module}.rs"
-    done
-    source prover/server/scripts/ring_keys.sh
-    release_flags=()
-    for key in "${ring_keys[@]}"; do
-        release_flags+=(--release "$key")
-    done
-    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" "${release_flags[@]}"
+# Proving keys. prover/server/scripts/keys.py is the one tool that regenerates
+# them together with their committed verifying keys, the circuit fingerprints
+# and proving-keys.lock, and publishes them to a new immutable object-store
+# folder. See "Distribute proving keys via S3 + CloudFront" in CLAUDE.md.
 
-# Upload the local proving keys to their immutable S3 version folder; the prefix
-# (proving-keys/<version-hash>) comes from the committed lockfile. The two
-# custom-ring keys are skipped: the lockfile marks them `source: release`, so they
-# are pinned there but served from their own GitHub release, never from the object
-# store. Needs the aws CLI with bucket write access. Full rotation (regen keys +
-# vkeys + lock + upload) is prover/server/scripts/rotate_proving_keys.sh.
-publish-spp-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
-    prefix="$(python3 -c "import json; print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
-    source prover/server/scripts/ring_keys.sh
-    sync_excludes=()
-    for key in "${ring_keys[@]}"; do
-        sync_excludes+=(--exclude "$key")
-    done
-    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key' "${sync_excludes[@]}"
+# Offline: the lockfile, its prefix and everything derived from it agree. CI runs this.
+check-spp-keys:
+    python3 -B prover/server/scripts/keys.py check
+    python3 -B -m unittest discover -s prover/server/scripts -p 'test_*.py'
+
+# Read-only: every pinned key is served at its pinned size (`--full` hashes them).
+verify-spp-keys *args:
+    python3 -B prover/server/scripts/keys.py verify {{args}}
+
+# Publishes to S3 (aws CLI + bucket write access) unless `--no-publish` is given.
+# Rotate keys, e.g. `just rotate-spp-keys --set transfer` or `--key merge_8_1`.
+rotate-spp-keys *args:
+    python3 -B prover/server/scripts/keys.py rotate --keys-dir "{{spp-keys-dir}}" {{args}}
+
+# `just publish-spp-keys <dir>` publishes the staged rotation later.
+# Regenerate every key, VK, fingerprint and the lockfile locally, no upload.
+build-spp-keys:
+    python3 -B prover/server/scripts/keys.py rotate --set all --no-publish --keys-dir "{{spp-keys-dir}}"
+
+# Copies unchanged keys inside S3, uploads the rest, verifies the new folder,
+# then updates the repository. `--dry-run` plans from public reads only.
+# Publish a staged rotation directory (printed by rotate).
+publish-spp-keys dir *args:
+    python3 -B prover/server/scripts/keys.py publish "{{dir}}" --keys-dir "{{spp-keys-dir}}" {{args}}
 
 build-ring-photon:
     cargo build --locked -p photon-indexer --bin photon --features ring-projection --target-dir target
