@@ -520,6 +520,7 @@ func TestQueueNameForCircuitType(t *testing.T) {
 	}{
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
 		{common.TransferConfidentialCircuitType, "zk_transfer_queue"},
+		{common.MergeCircuitType, "zk_merge_queue"},
 	}
 
 	for _, test := range tests {
@@ -904,6 +905,53 @@ func TestFailedJobStatusDetails(t *testing.T) {
 	}
 }
 
+// /queue/add enqueues straight onto a route's queue, which only a pool
+// serving that route drains, so it must refuse the circuits of routes the pool
+// does not serve instead of stranding them.
+func TestQueueAddRefusesUnservedRoutes(t *testing.T) {
+	redisURL := redisURLForTest(t)
+	rq := setupRedisQueueAt(t, redisURL)
+	defer teardownRedisQueue(t, rq)
+
+	config := &server.EnhancedConfig{
+		ProverAddress:  "localhost:8083",
+		MetricsAddress: "localhost:9996",
+		Queue:          &server.QueueConfig{RedisURL: redisURL, Enabled: true},
+		Routes:         []server.ProofRoute{server.ForesterRoute},
+	}
+	keyManager := common.NewLazyKeyManager(t.TempDir(), common.DefaultDownloadConfig())
+	serverJob := server.RunEnhanced(config, rq, keyManager)
+	defer serverJob.RequestStop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	add := func(body string) int {
+		t.Helper()
+		resp, err := http.Post("http://"+config.ProverAddress+"/queue/add", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /queue/add: %v", err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if status := add(`{"circuitType":"transfer-confidential"}`); status != http.StatusBadRequest {
+		t.Fatalf("unserved route's circuit: got %d, want 400", status)
+	}
+	if status := add(`{"circuitType":"address-append","treeHeight":40}`); status != http.StatusAccepted {
+		t.Fatalf("served route's circuit: got %d, want 202", status)
+	}
+
+	stats, err := rq.GetQueueStats()
+	if err != nil {
+		t.Fatalf("queue stats: %v", err)
+	}
+	if stats[server.SppRoute.Queue()] != 0 || stats[server.ForesterRoute.Queue()] != 1 {
+		t.Fatalf("queued %d spp and %d forester jobs, want 0 and 1",
+			stats[server.SppRoute.Queue()], stats[server.ForesterRoute.Queue()])
+	}
+}
+
 func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 	redisURL := redisURLForTest(t)
 	rq := setupRedisQueueAt(t, redisURL)
@@ -945,7 +993,7 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		t.Fatalf("Failed to mark job failed: %v", err)
 	}
 
-	statusURL := fmt.Sprintf("http://%s/prove/status?jobId=%s", config.ProverAddress, jobID)
+	statusURL := fmt.Sprintf("http://%s%s?jobId=%s", config.ProverAddress, server.MergeRoute.StatusPath(), jobID)
 	resp, err := http.Get(statusURL)
 	if err != nil {
 		t.Fatalf("Failed to make HTTP request: %v", err)

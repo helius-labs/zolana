@@ -75,14 +75,19 @@ const REQUEST_TIMEOUT_MS = 600_000;
  * hammering the prover while a genuinely long proof runs.
  */
 const INITIAL_POLL_INTERVAL_MS = 25;
-const PROVE_PATH = "/prove";
 const HEALTH_PATH = "/health";
 const UNCOMPRESSED_P256_LENGTH = 65;
 type Delivery = "inResponse" | "queued";
+/**
+ * The prover path a request is sent to, `/prove/<route>`, mirroring the Rust
+ * client's `ProofRoute`. A gateway routes and meters on the path alone, and the
+ * prover rejects a circuit sent to another route's path.
+ */
+type ProofRoute = "spp" | "merge" | "custom-ring";
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
-/// returns a job handle instead of a proof, and the client polls
-/// `/prove/status` until it completes.
+/// returns a job handle instead of a proof, and the client polls the route's
+/// status path until it completes.
 export interface AsyncPollConfig {
   /**
    * Ceiling for the gap between status polls. Polling starts at 25ms and
@@ -106,6 +111,8 @@ export interface ProverHealth {
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
+  /** `#url`'s path without a trailing slash, the prefix of every endpoint. */
+  readonly #basePath: string;
   readonly #asyncPoll: AsyncPollConfig;
 
   constructor(
@@ -122,7 +129,6 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
-    url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     try {
       this.#fetch = checkedFetch(input.fetch);
     } catch (error) {
@@ -130,16 +136,23 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
     this.#url = url;
+    this.#basePath = url.pathname.replace(/\/+$/u, "");
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(proverRequest(inputs, completeSecret)), "inResponse", context);
+    return this.#send(
+      JSON.stringify(proverRequest(inputs, completeSecret)),
+      "spp",
+      "inResponse",
+      context,
+    );
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     return this.#send(
       JSON.stringify(mergeProverRequest(inputs, completeSecret)),
+      "merge",
       "inResponse",
       context,
     );
@@ -149,7 +162,12 @@ export class ProverClient {
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingPolicyProofRequest(inputs)), "queued", context);
+    return this.#send(
+      JSON.stringify(customRingPolicyProofRequest(inputs)),
+      "custom-ring",
+      "queued",
+      context,
+    );
   }
 
   async proveCustomRingCompressedPolicy(
@@ -158,6 +176,7 @@ export class ProverClient {
   ): Promise<Proof> {
     return this.#send(
       JSON.stringify(customRingCompressedPolicyProofRequest(inputs)),
+      "custom-ring",
       "queued",
       context,
     );
@@ -167,14 +186,24 @@ export class ProverClient {
     inputs: CustomRingRegisterKeyProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingRegisterKeyProofRequest(inputs)), "queued", context);
+    return this.#send(
+      JSON.stringify(customRingRegisterKeyProofRequest(inputs)),
+      "custom-ring",
+      "queued",
+      context,
+    );
   }
 
   async proveCustomRingDeposit(
     inputs: CustomRingDepositProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingDepositProofRequest(inputs)), "queued", context);
+    return this.#send(
+      JSON.stringify(customRingDepositProofRequest(inputs)),
+      "custom-ring",
+      "queued",
+      context,
+    );
   }
 
   async proveCustomRingDelegatePolicy(
@@ -188,6 +217,7 @@ export class ProverClient {
         circuitType: "custom-ring-delegate-policy",
         policy: customRingPolicyProofRequest(inputs),
       }),
+      "custom-ring",
       "queued",
       context,
     );
@@ -197,13 +227,17 @@ export class ProverClient {
     inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingBaseProofRequest(inputs)), "queued", context);
+    return this.#send(
+      JSON.stringify(customRingBaseProofRequest(inputs)),
+      "custom-ring",
+      "queued",
+      context,
+    );
   }
 
   /** The circuits the server serves. */
   async health(context?: RequestContext): Promise<ProverHealth> {
-    const url = new URL(this.#url);
-    url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);
+    const url = this.#endpoint(HEALTH_PATH);
     const request = composeSignal(context, "health");
     try {
       let response: Response;
@@ -236,7 +270,20 @@ export class ProverClient {
     }
   }
 
-  async #send(body: string, delivery: Delivery, context?: RequestContext): Promise<Proof> {
+  /** The service URL, query included, with `path` appended to its path. */
+  #endpoint(path: string): URL {
+    const url = new URL(this.#url);
+    url.pathname = `${this.#basePath}${path}`;
+    return url;
+  }
+
+  async #send(
+    body: string,
+    route: ProofRoute,
+    delivery: Delivery,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    const url = this.#endpoint(`/prove/${route}`);
     const signal = composeSignal(context, "prove");
     try {
       deliveryAttempt: for (;;) {
@@ -249,7 +296,7 @@ export class ProverClient {
           try {
             let response: Response;
             try {
-              response = await this.#fetch(this.#url, {
+              response = await this.#fetch(url, {
                 method: "POST",
                 headers: {
                   "content-type": "application/json",
@@ -296,7 +343,7 @@ export class ProverClient {
               typeof value["jobId"] === "string" &&
               value["proof"] === undefined
             ) {
-              return await this.#poll(value["jobId"], signal);
+              return await this.#poll(value["jobId"], route, signal);
             }
             return parseProof(value);
           } finally {
@@ -315,12 +362,13 @@ export class ProverClient {
   /// Mirrors `poll_async`: request the status, then wait between attempts, with
   /// the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final, a 5xx or a
   /// transport failure is transient, and every other status has its body read.
-  async #poll(jobId: string, signal: ComposedSignal): Promise<Proof> {
+  async #poll(jobId: string, route: ProofRoute, signal: ComposedSignal): Promise<Proof> {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
     }
-    const url = new URL(this.#url);
-    url.pathname = url.pathname.replace(/\/prove$/u, "/prove/status");
+    // Each route has its own status path, so the gateway sends the poll to the
+    // pool holding the job.
+    const url = this.#endpoint(`/prove/${route}/status`);
     url.searchParams.set("jobId", jobId);
     const intervalCap = Math.max(INITIAL_POLL_INTERVAL_MS, this.#asyncPoll.pollIntervalCapMs);
     let interval = INITIAL_POLL_INTERVAL_MS;

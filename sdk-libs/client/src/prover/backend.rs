@@ -5,7 +5,7 @@ use crate::{
     authority::ProofAuthority,
     error::ClientError,
     prover::{
-        client::{Delivery, ProveRequest},
+        client::{Delivery, ProofRoute, ProveRequest},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
             to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
@@ -17,7 +17,7 @@ use crate::{
     rpc::NonInclusionProof,
 };
 
-/// Turns `/prove` request bodies into proofs.
+/// Turns prover request bodies into proofs.
 ///
 /// [`ProverClient`](crate::ProverClient) sends each body to a prover server.
 /// Implement [`Self::prove_body`] to prove somewhere else instead, such as in
@@ -31,45 +31,71 @@ use crate::{
 pub trait Prover: Send + Sync {
     /// Prove one serialized request, returning the uncompressed negated proof.
     ///
-    /// `delivery` tells a server backend whether to wait for the proof or queue
-    /// it. A backend that proves in process ignores it.
-    fn prove_body(&self, body: &str, delivery: Delivery) -> Result<Proof, ClientError>;
+    /// `route` and `delivery` tell a server backend which path to send the
+    /// body to and whether to wait for the proof or queue it. A backend that
+    /// proves in process ignores both; the body names its circuit.
+    fn prove_body(
+        &self,
+        body: &str,
+        route: ProofRoute,
+        delivery: Delivery,
+    ) -> Result<Proof, ClientError>;
 
     /// Prove a request body built by a downstream crate.
     fn prove(&self, request: &dyn ProveRequest) -> Result<Proof, ClientError> {
-        self.prove_body(&request.body()?, request.delivery())
+        self.prove_body(&request.body()?, request.route(), request.delivery())
     }
 
     /// Prove a Solana-only (eddsa) transfer. Call
     /// [`ProofCompressed::try_from`](crate::ProofCompressed) for the wire format.
     fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.prove_body(&to_json(inputs)?, Delivery::InResponse)
+        self.prove_body(&to_json(inputs)?, ProofRoute::Spp, Delivery::InResponse)
     }
 
     /// Prove an 8-in/1-out merge.
     fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.prove_body(&to_json_merge(inputs), Delivery::InResponse)
+        self.prove_body(
+            &to_json_merge(inputs),
+            ProofRoute::Merge,
+            Delivery::InResponse,
+        )
     }
 
     /// Prove a ring-authority transfer (anonymous, no signature). Reuses the
     /// Solana-only [`TransferInputs`] witness.
     fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.prove_body(&to_json_ring_authority(inputs)?, Delivery::InResponse)
+        self.prove_body(
+            &to_json_ring_authority(inputs)?,
+            ProofRoute::Spp,
+            Delivery::InResponse,
+        )
     }
 
     /// Prove a policy-ring merge (`merge-ring`).
     fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.prove_body(&to_json_merge_ring(inputs), Delivery::InResponse)
+        self.prove_body(
+            &to_json_merge_ring(inputs),
+            ProofRoute::Merge,
+            Delivery::InResponse,
+        )
     }
 
     /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
     fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.prove_body(&to_json_ring(inputs)?, Delivery::InResponse)
+        self.prove_body(
+            &to_json_ring(inputs)?,
+            ProofRoute::Spp,
+            Delivery::InResponse,
+        )
     }
 
     /// Prove a custom-ring P256 transfer.
     fn prove_transfer_p256_ring(&self, inputs: &TransferP256Inputs) -> Result<Proof, ClientError> {
-        self.prove_body(&to_json_p256_ring(inputs)?, Delivery::InResponse)
+        self.prove_body(
+            &to_json_p256_ring(inputs)?,
+            ProofRoute::Spp,
+            Delivery::InResponse,
+        )
     }
 
     /// Prove a nullifier-tree batch address-append update. Call
@@ -79,7 +105,11 @@ pub trait Prover: Send + Sync {
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.prove_body(&to_json_batch_address_append(inputs), Delivery::Queued)
+        self.prove_body(
+            &to_json_batch_address_append(inputs),
+            ProofRoute::Forester,
+            Delivery::Queued,
+        )
     }
 
     /// Assemble `proof_inputs` against the supplied Merkle and non-inclusion

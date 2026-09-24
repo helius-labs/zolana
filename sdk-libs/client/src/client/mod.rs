@@ -16,7 +16,9 @@ use std::sync::{Arc, OnceLock};
 use crate::{
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
-    prover::{AsyncProverClient, Delivery, Proof, Prover, ProverClient, TransferInputs},
+    prover::{
+        AsyncProverClient, Delivery, Proof, ProofRoute, Prover, ProverClient, TransferInputs,
+    },
     rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
 };
 
@@ -202,8 +204,10 @@ impl<R> ZolanaClient<R> {
         };
         let prover = Arc::clone(prover);
         let body = crate::prover::json::to_json(inputs)?;
-        tokio::task::spawn_blocking(move || prover.prove_body(&body, Delivery::InResponse))
-            .await
-            .map_err(|error| ClientError::Prover(format!("prover task failed: {error}")))?
+        tokio::task::spawn_blocking(move || {
+            prover.prove_body(&body, ProofRoute::Spp, Delivery::InResponse)
+        })
+        .await
+        .map_err(|error| ClientError::Prover(format!("prover task failed: {error}")))?
     }
 }

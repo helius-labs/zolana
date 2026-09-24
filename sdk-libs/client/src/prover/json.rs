@@ -938,4 +938,142 @@ mod merge_tests {
             serde_json::json!([["0x12", "0x13"], ["0x14", "0x15"]])
         );
     }
+
+    /// Every typed [`Prover`](crate::Prover) method must send its body to the
+    /// route of the circuit the body names: the prover rejects a circuit sent
+    /// to another route's path.
+    #[test]
+    fn typed_prover_methods_route_by_the_body_circuit() {
+        use std::sync::Mutex;
+
+        use crate::prover::{
+            backend::Prover,
+            client::{Delivery, ProofRoute},
+            proof::Proof,
+        };
+
+        #[derive(Default)]
+        struct Recording(Mutex<Vec<(String, ProofRoute)>>);
+
+        impl Prover for Recording {
+            fn prove_body(
+                &self,
+                body: &str,
+                route: ProofRoute,
+                _delivery: Delivery,
+            ) -> Result<Proof, ClientError> {
+                self.0.lock().unwrap().push((body.to_string(), route));
+                Err(ClientError::Prover("recording".into()))
+            }
+        }
+
+        // Mirrors RouteForCircuit in prover/server/server/routes.go.
+        fn route_of(circuit: &str) -> ProofRoute {
+            match circuit {
+                "transfer-confidential"
+                | "transfer-ring"
+                | "transfer-ring-authority"
+                | "transfer-p256-ring" => ProofRoute::Spp,
+                "merge" | "merge-ring" => ProofRoute::Merge,
+                "address-append" => ProofRoute::Forester,
+                other => panic!("no route for {other}"),
+            }
+        }
+
+        let output = TransferOutput {
+            utxo: sample_utxo(),
+            is_dummy: BigUint::ZERO,
+            hash: BigUint::from(0xABCu32),
+            owner_pk_hash: BigUint::ZERO,
+            nullifier_pk: BigUint::ZERO,
+        };
+        let transfer = TransferInputs {
+            inputs: vec![sample_input()],
+            outputs: vec![output.clone()],
+            tree_slots: sample_tree_slots(),
+            output_tree_id: BigUint::from(3u8),
+            blinding_seed: BigUint::from(10u8),
+            external_data_hash: BigUint::from(6u8),
+            private_tx_hash: BigUint::from(7u8),
+            public_assets: core::array::from_fn(|_| BigUint::ZERO),
+            public_amounts: core::array::from_fn(|_| BigUint::ZERO),
+            ring_program_id: BigUint::from(0x55u8),
+            signer_pk_hashes: vec![BigUint::from(8u8)],
+            input_flags: BigUint::from(1u8),
+            published_output_owner_pk_hashes: Vec::new(),
+            public_input_hash: BigUint::from(9u8),
+        };
+        let p256 = TransferP256Inputs {
+            inputs: vec![sample_input()],
+            outputs: Vec::new(),
+            tree_slots: sample_tree_slots(),
+            output_tree_id: BigUint::from(3u8),
+            blinding_seed: BigUint::from(15u8),
+            external_data_hash: BigUint::from(1u8),
+            private_tx_hash: BigUint::from(2u8),
+            p256_pub_x: BigUint::from(3u8),
+            p256_pub_y: BigUint::from(4u8),
+            p256_sig_r: BigUint::from(5u8),
+            p256_sig_s: BigUint::from(6u8),
+            p256_message_hash_low: BigUint::from(7u8),
+            p256_message_hash_high: BigUint::from(8u8),
+            default_p256_owner_pk_hash: BigUint::from(13u8),
+            public_assets: core::array::from_fn(|_| BigUint::ZERO),
+            public_amounts: core::array::from_fn(|_| BigUint::ZERO),
+            ring_program_id: BigUint::from(9u8),
+            signer_pk_hashes: vec![BigUint::from(10u8), BigUint::from(12u8)],
+            input_flags: BigUint::from(1u8),
+            published_output_owner_pk_hashes: vec![BigUint::from(14u8)],
+            public_input_hash: BigUint::from(11u8),
+        };
+        let merge = MergeInputs {
+            inputs: vec![sample_input(); 8],
+            output,
+            tree_slots: sample_tree_slots(),
+            output_tree_id: BigUint::from(3u8),
+            owner_pk_hash: BigUint::ZERO,
+            user_nullifier_pk: BigUint::from(3u8),
+            user_nullifier_secret: BigUint::from(4u8),
+            external_data_hash: BigUint::from(6u8),
+            private_tx_hash: BigUint::from(7u8),
+            allow_dummy_inputs: BigUint::from(1u8),
+            public_input_hash: BigUint::from(8u8),
+            output_ring_data_hash: BigUint::ZERO,
+            ring_program_id: BigUint::ZERO,
+        };
+        let batch = BatchAddressAppendInputs {
+            public_input_hash: BigUint::from(1u8),
+            old_root: BigUint::from(2u8),
+            new_root: BigUint::from(3u8),
+            hashchain_hash: BigUint::from(4u8),
+            start_index: 5,
+            low_element_values: Vec::new(),
+            low_element_indices: Vec::new(),
+            low_element_next_values: Vec::new(),
+            new_element_values: Vec::new(),
+            low_element_proofs: Vec::new(),
+            new_element_proofs: Vec::new(),
+            tree_height: 40,
+            batch_size: 0,
+        };
+
+        let prover = Recording::default();
+        // Each call is refused by the recording backend after it has seen the
+        // body, which is all this test needs.
+        let _ = prover.prove_transfer(&transfer);
+        let _ = prover.prove_transfer_ring(&transfer);
+        let _ = prover.prove_ring_authority(&transfer);
+        let _ = prover.prove_transfer_p256_ring(&p256);
+        let _ = prover.prove_merge(&merge);
+        let _ = prover.prove_merge_ring(&merge);
+        let _ = prover.prove_batch_address_append(&batch);
+
+        let recorded = prover.0.into_inner().unwrap();
+        assert_eq!(recorded.len(), 7, "every typed method reached the backend");
+        for (body, route) in &recorded {
+            let value: serde_json::Value = serde_json::from_str(body).expect("request JSON");
+            let circuit = value["circuitType"].as_str().expect("circuitType");
+            assert_eq!(*route, route_of(circuit), "{circuit} sent to {route:?}");
+        }
+    }
 }

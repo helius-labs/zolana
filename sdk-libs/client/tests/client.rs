@@ -22,7 +22,7 @@ use zolana_client::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         transact::assemble, witness::WitnessReader, AsyncProverClient, Delivery, Proof,
-        ProofCompressed, Prover, ProverClient, TransferInput, TransferInputs,
+        ProofCompressed, ProofRoute, Prover, ProverClient, TransferInput, TransferInputs,
     },
     rpc::{
         compile_message, sign_transaction, AsyncRpc, IndexerPollConfig, IndexerRpcConfig, Rpc,
@@ -314,16 +314,24 @@ fn submit_validation_binds_fee_payer() {
     assert_eq!(server.requests().len(), 2);
 }
 
-/// Records every request body and refuses to prove, so a test can see what a
-/// custom backend was handed without a prover server.
+/// Records every request body and route and refuses to prove, so a test can
+/// see what a custom backend was handed without a prover server.
 #[derive(Clone, Default)]
 struct RecordingProver {
-    bodies: Arc<Mutex<Vec<String>>>,
+    requests: Arc<Mutex<Vec<(String, ProofRoute)>>>,
 }
 
 impl Prover for RecordingProver {
-    fn prove_body(&self, body: &str, _delivery: Delivery) -> Result<Proof, ClientError> {
-        self.bodies.lock().unwrap().push(body.to_string());
+    fn prove_body(
+        &self,
+        body: &str,
+        route: ProofRoute,
+        _delivery: Delivery,
+    ) -> Result<Proof, ClientError> {
+        self.requests
+            .lock()
+            .unwrap()
+            .push((body.to_string(), route));
         Err(ClientError::Prover("recording prover".into()))
     }
 }
@@ -352,9 +360,12 @@ fn with_prover_fixture() -> (ShieldedKeypair, SignedPrivateTransaction, MockInde
 }
 
 fn assert_recorded_one_completed_transfer(prover: &RecordingProver) {
-    let bodies = prover.bodies.lock().unwrap();
-    assert_eq!(bodies.len(), 1);
-    let request: Value = serde_json::from_str(&bodies[0]).expect("request JSON");
+    let requests = prover.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let (body, route) = &requests[0];
+    // A server backend would post it to the transfer route's path.
+    assert_eq!(*route, ProofRoute::Spp);
+    let request: Value = serde_json::from_str(body).expect("request JSON");
     assert_eq!(request["circuitType"], "transfer-confidential");
     // The authority completed the witness before the backend saw it.
     assert_ne!(request["inputs"][0]["nullifierSecret"], "0x0");

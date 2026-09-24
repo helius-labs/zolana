@@ -16,7 +16,7 @@ pub mod witness;
 pub use backend::Prover;
 pub use client::{
     spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, Delivery,
-    ProveRequest, ProverClient, PROVE_PATH, SERVER_ADDRESS,
+    ProofRoute, ProveRequest, ProverClient, SERVER_ADDRESS,
 };
 pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,

@@ -17,7 +17,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
     input_utxos_from_nullifiers,
-    prover::{Delivery, ProveRequest},
+    prover::{Delivery, ProofRoute, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
     Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, Prover, ProverClient,
     RingTransferProofResult, RingTransferProver, Rpc, SettlementAccountValidation, SpendProof,
@@ -1266,6 +1266,10 @@ impl ProveRequest for TierRequest {
         }
     }
 
+    fn route(&self) -> ProofRoute {
+        ProofRoute::CustomRing
+    }
+
     fn delivery(&self) -> Delivery {
         match self {
             Self::Base(request) => request.delivery(),
@@ -1292,6 +1296,10 @@ impl ProveRequest for PolicyRequest {
                 },
             }),
         }
+    }
+
+    fn route(&self) -> ProofRoute {
+        ProofRoute::CustomRing
     }
 
     fn delivery(&self) -> Delivery {

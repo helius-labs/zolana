@@ -27,7 +27,6 @@ use crate::{
 
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";
-pub const PROVE_PATH: &str = "/prove";
 
 /// Default prover port, mirrored from the CLI's `DEFAULT_PROVER_PORT`. Used as
 /// the fallback when a custom [`server_address`] has no parseable port.
@@ -79,11 +78,54 @@ pub enum Delivery {
     Queued,
 }
 
-/// A `/prove` body from a downstream crate, sent through the client's retry,
-/// queue-fallback, and poll handling.
+/// The prover path a request is sent to, `/prove/<route>`.
+///
+/// A route groups circuits by caller and cost. It lives in the path because a
+/// gateway routes and meters on the path alone, so each route can go to its own
+/// prover pool at its own price. The prover rejects a body whose circuit belongs
+/// to another route.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProofRoute {
+    /// Transfers: confidential, policy-ring, ring-authority, and P256.
+    Spp,
+    /// Merges and policy-ring merges, at every input count.
+    Merge,
+    /// Custom-ring statements.
+    CustomRing,
+    /// Nullifier-tree batch address append.
+    Forester,
+}
+
+impl ProofRoute {
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Spp => "/prove/spp",
+            Self::Merge => "/prove/merge",
+            Self::CustomRing => "/prove/custom-ring",
+            Self::Forester => "/prove/forester",
+        }
+    }
+
+    /// Where a queued proof on this route is polled. Each route has its own, so
+    /// a gateway sends the poll to the pool holding the job.
+    pub fn status_path(self) -> &'static str {
+        match self {
+            Self::Spp => "/prove/spp/status",
+            Self::Merge => "/prove/merge/status",
+            Self::CustomRing => "/prove/custom-ring/status",
+            Self::Forester => "/prove/forester/status",
+        }
+    }
+}
+
+/// A prover request body from a downstream crate, sent through the client's
+/// retry, queue-fallback, and poll handling.
 pub trait ProveRequest {
     /// `Zeroizing`, a body may carry key material.
     fn body(&self) -> Result<Zeroizing<String>, ClientError>;
+
+    /// The route of the body's circuit.
+    fn route(&self) -> ProofRoute;
 
     /// The queue suits anything heavier than a transfer-shaped proof.
     fn delivery(&self) -> Delivery {
@@ -98,7 +140,7 @@ const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
 // well before this.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
-/// Per-request bound on a `/prove/status` poll.
+/// Per-request bound on a status poll.
 ///
 /// The status endpoint reads one Redis key and returns; it is not the request
 /// that 600s was sized for. Sharing the prove timeout let a single hung poll
@@ -117,7 +159,7 @@ const STATUS_POLL_TIMEOUT_SECS: u64 = 30;
 /// `RetryConfig` (a client-held config with a `Default`).
 #[derive(Clone, Copy, Debug)]
 pub struct AsyncPollConfig {
-    /// Seconds between `/prove/status` polls (floored at 1 so it can't spin).
+    /// Seconds between status polls (floored at 1 so it can't spin).
     pub poll_interval_secs: u64,
     /// Wall-clock seconds to wait for a queued proof before returning a timeout
     /// error.
@@ -265,8 +307,8 @@ impl ProverClient {
         self
     }
 
-    /// One POST to `/prove`, retried for transport failures and for a queued
-    /// request the prover shed. Returns the status alongside the body so the
+    /// One POST to a route's path, retried for transport failures and for a
+    /// queued request the prover shed. Returns the status alongside the body so the
     /// caller can act on a shed request.
     fn post(
         &self,
@@ -312,8 +354,13 @@ impl ProverClient {
         Ok((status, text))
     }
 
-    fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+    fn send(
+        &self,
+        body: impl AsRef<str>,
+        route: ProofRoute,
+        delivery: Delivery,
+    ) -> Result<Proof, ClientError> {
+        let url = format!("{}{}", self.server_address, route.path());
         crate::prover::timing::note(0, "prover_request_bytes", body.as_ref().len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
@@ -343,15 +390,20 @@ impl ProverClient {
         // proof directly (plain gnark JSON or a `{ proof, .. }` envelope).
         if value.get("proof").is_none() {
             if let Some(job_id) = value.get("jobId").and_then(|v| v.as_str()) {
-                return self.poll_async(job_id);
+                return self.poll_async(job_id, route);
             }
         }
         Self::proof_from_value(&value, &text)
     }
 
-    /// Poll the async job status endpoint until the queued proof completes.
-    fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
-        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
+    /// Poll the route's status endpoint until the queued proof completes.
+    fn poll_async(&self, job_id: &str, route: ProofRoute) -> Result<Proof, ClientError> {
+        let url = format!(
+            "{}{}?jobId={}",
+            self.server_address,
+            route.status_path(),
+            job_id
+        );
         // The configured interval caps the backoff rather than setting it. This
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
         // every proof: a 270ms proof measured 3.3s end to end, essentially all
@@ -459,12 +511,17 @@ impl ProverClient {
 impl Prover for ProverClient {
     /// A transfer-shaped request asks for the proof in the response unless
     /// [`ProverClient::with_queued_proofs`] configured the queue instead.
-    fn prove_body(&self, body: &str, delivery: Delivery) -> Result<Proof, ClientError> {
+    fn prove_body(
+        &self,
+        body: &str,
+        route: ProofRoute,
+        delivery: Delivery,
+    ) -> Result<Proof, ClientError> {
         let delivery = match delivery {
             Delivery::InResponse => self.delivery,
             Delivery::Queued => Delivery::Queued,
         };
-        self.send(body, delivery)
+        self.send(body, route, delivery)
     }
 }
 
@@ -574,50 +631,69 @@ impl AsyncProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs)?, self.delivery).await
+        self.send(to_json(inputs)?, ProofRoute::Spp, self.delivery)
+            .await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs), self.delivery).await
+        self.send(to_json_merge(inputs), ProofRoute::Merge, self.delivery)
+            .await
     }
 
     pub async fn prove_ring_authority(
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs)?, self.delivery)
-            .await
+        self.send(
+            to_json_ring_authority(inputs)?,
+            ProofRoute::Spp,
+            self.delivery,
+        )
+        .await
     }
 
     pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs), self.delivery).await
+        self.send(to_json_merge_ring(inputs), ProofRoute::Merge, self.delivery)
+            .await
     }
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs)?, self.delivery).await
+        self.send(to_json_ring(inputs)?, ProofRoute::Spp, self.delivery)
+            .await
     }
 
     pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs)?, self.delivery).await
+        self.send(to_json_p256_ring(inputs)?, ProofRoute::Spp, self.delivery)
+            .await
     }
 
     pub async fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
-        self.send(request.body()?, request.delivery()).await
+        self.send(request.body()?, request.route(), request.delivery())
+            .await
     }
 
     pub async fn prove_batch_address_append(
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs), Delivery::Queued)
-            .await
+        self.send(
+            to_json_batch_address_append(inputs),
+            ProofRoute::Forester,
+            Delivery::Queued,
+        )
+        .await
     }
 
-    async fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+    async fn send(
+        &self,
+        body: impl AsRef<str>,
+        route: ProofRoute,
+        delivery: Delivery,
+    ) -> Result<Proof, ClientError> {
+        let url = format!("{}{}", self.server_address, route.path());
         let mut delivery = delivery;
         let (status, text) = loop {
             let (status, text) = self.post(&url, body.as_ref(), delivery).await?;
@@ -637,7 +713,7 @@ impl AsyncProverClient {
             .map_err(|e| ClientError::ProofParse(format!("invalid response JSON: {e}")))?;
         if value.get("proof").is_none() {
             if let Some(job_id) = value.get("jobId").and_then(|v| v.as_str()) {
-                return self.poll_async(job_id).await;
+                return self.poll_async(job_id, route).await;
             }
         }
         ProverClient::proof_from_value(&value, &text)
@@ -686,8 +762,13 @@ impl AsyncProverClient {
         }
     }
 
-    async fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
-        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
+    async fn poll_async(&self, job_id: &str, route: ProofRoute) -> Result<Proof, ClientError> {
+        let url = format!(
+            "{}{}?jobId={}",
+            self.server_address,
+            route.status_path(),
+            job_id
+        );
         let poll_cap_ms = self
             .async_poll
             .poll_interval_secs
@@ -1007,13 +1088,16 @@ mod tests {
     fn assert_proxy_requests(proxy: MockServer, socks: bool) {
         let requests = proxy.requests();
         if socks {
-            assert_paths(&requests, ["/prove", "/prove/status?jobId=proxy-job"]);
+            assert_paths(
+                &requests,
+                ["/prove/spp", "/prove/spp/status?jobId=proxy-job"],
+            );
         } else {
             assert_paths(
                 &requests,
                 [
-                    "http://prover.invalid:3001/prove",
-                    "http://prover.invalid:3001/prove/status?jobId=proxy-job",
+                    "http://prover.invalid:3001/prove/spp",
+                    "http://prover.invalid:3001/prove/spp/status?jobId=proxy-job",
                 ],
             );
         }
@@ -1030,7 +1114,7 @@ mod tests {
                 .with_proxy(proxy.url())
                 .unwrap();
             client
-                .send("{}", Delivery::Queued)
+                .send("{}", ProofRoute::Spp, Delivery::Queued)
                 .expect("proof through proxy");
             assert_proxy_requests(proxy, socks);
         }
@@ -1047,7 +1131,7 @@ mod tests {
                 .with_proxy(proxy.url())
                 .unwrap();
             client
-                .send("{}", Delivery::Queued)
+                .send("{}", ProofRoute::Spp, Delivery::Queued)
                 .await
                 .expect("proof through proxy");
             assert_proxy_requests(proxy, socks);
@@ -1065,7 +1149,9 @@ mod tests {
         let client = queued_prover_client(direct.url())
             .with_proxy(proxy.url())
             .unwrap();
-        assert!(client.send("{}", Delivery::InResponse).is_err());
+        assert!(client
+            .send("{}", ProofRoute::Spp, Delivery::InResponse)
+            .is_err());
         assert_eq!(proxy.requests().len(), PROVE_MAX_ATTEMPTS);
         assert!(
             direct.requests().is_empty(),
@@ -1084,7 +1170,10 @@ mod tests {
         let client = async_prover_client(direct.url())
             .with_proxy(proxy.url())
             .unwrap();
-        assert!(client.send("{}", Delivery::InResponse).await.is_err());
+        assert!(client
+            .send("{}", ProofRoute::Spp, Delivery::InResponse)
+            .await
+            .is_err());
         assert_eq!(proxy.requests().len(), PROVE_MAX_ATTEMPTS);
         assert!(
             direct.requests().is_empty(),
@@ -1112,7 +1201,7 @@ mod tests {
         );
     }
 
-    /// The prover is queue-backed: `/prove` returns a job handle and the proof
+    /// The prover is queue-backed: a route returns a job handle and the proof
     /// is collected by polling. The gap between polls used to be
     /// `Duration::from_secs(poll_interval.max(1))`, so a proof the server
     /// finished in 270ms was not collected for a further second or more --
@@ -1135,7 +1224,7 @@ mod tests {
         ]);
         let started = std::time::Instant::now();
         queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .expect("queued proof should complete");
         let elapsed = started.elapsed();
 
@@ -1154,6 +1243,10 @@ mod tests {
             fn body(&self) -> Result<Zeroizing<String>, ClientError> {
                 Ok(Zeroizing::new("{}".to_string()))
             }
+
+            fn route(&self) -> ProofRoute {
+                ProofRoute::CustomRing
+            }
         }
 
         let server = MockServer::respond_with(vec![
@@ -1171,7 +1264,15 @@ mod tests {
             .expect("queued proof should complete");
 
         let requests = server.requests();
-        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-custom"]);
+        // Both the submission and the poll follow the request's route, so a
+        // gateway sends them to the same pool.
+        assert_paths(
+            &requests,
+            [
+                "/prove/custom-ring",
+                "/prove/custom-ring/status?jobId=job-custom",
+            ],
+        );
         assert!(
             requests.iter().all(|request| !request.sync_requested),
             "a custom request must not ask for a synchronous answer"
@@ -1210,7 +1311,7 @@ mod tests {
                 json!({
                     "jobId": "job-1",
                     "status": "queued",
-                    "statusUrl": "/prove/status?jobId=job-1",
+                    "statusUrl": "/prove/spp/status?jobId=job-1",
                 }),
             ),
             MockResponse::json(200, json!({ "status": "queued" })),
@@ -1226,16 +1327,16 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .expect("queued proof should complete");
         let requests = server.requests();
 
         assert_paths(
             &requests,
             [
-                "/prove",
-                "/prove/status?jobId=job-1",
-                "/prove/status?jobId=job-1",
+                "/prove/spp",
+                "/prove/spp/status?jobId=job-1",
+                "/prove/spp/status?jobId=job-1",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -1257,11 +1358,14 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-failed"]);
+        assert_paths(
+            &requests,
+            ["/prove/spp", "/prove/spp/status?jobId=job-failed"],
+        );
         let message = err.to_string();
         assert!(message.contains("async proof failed"));
         assert!(message.contains("prover rejected witness"));
@@ -1295,7 +1399,7 @@ mod tests {
 
         let started = Instant::now();
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .expect_err("a deadline measured in wall clock must expire");
         let elapsed = started.elapsed();
 
@@ -1313,7 +1417,7 @@ mod tests {
         // time it spent waiting had not been charged against the deadline.
         assert_paths(
             &server.requests(),
-            ["/prove", "/prove/status?jobId=job-slow-status"],
+            ["/prove/spp", "/prove/spp/status?jobId=job-slow-status"],
         );
     }
 
@@ -1325,16 +1429,16 @@ mod tests {
             MockResponse::json(200, json!({ "status": "processing" })),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .expect_err("slow async proof should time out");
         let requests = server.requests();
 
         assert_paths(
             &requests,
             [
-                "/prove",
-                "/prove/status?jobId=job-slow",
-                "/prove/status?jobId=job-slow",
+                "/prove/spp",
+                "/prove/spp/status?jobId=job-slow",
+                "/prove/spp/status?jobId=job-slow",
             ],
         );
         assert!(err.to_string().contains("async proof timed out after 1s"));
@@ -1347,11 +1451,14 @@ mod tests {
             MockResponse::text(200, "not json"),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-bad-json"]);
+        assert_paths(
+            &requests,
+            ["/prove/spp", "/prove/spp/status?jobId=job-bad-json"],
+        );
         assert!(err.to_string().contains("invalid status JSON"));
     }
 
@@ -1368,11 +1475,14 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?jobId=missing-job"]);
+        assert_paths(
+            &requests,
+            ["/prove/spp", "/prove/spp/status?jobId=missing-job"],
+        );
         let message = err.to_string();
         assert!(message.contains("status 404 Not Found"));
         assert!(message.contains("job_not_found"));
@@ -1395,16 +1505,16 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .expect("transient poll error should be retried");
         let requests = server.requests();
 
         assert_paths(
             &requests,
             [
-                "/prove",
-                "/prove/status?jobId=job-transient",
-                "/prove/status?jobId=job-transient",
+                "/prove/spp",
+                "/prove/spp/status?jobId=job-transient",
+                "/prove/spp/status?jobId=job-transient",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -1427,7 +1537,7 @@ mod tests {
             ),
         ]);
         let proof = async_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .await
             .expect("queued async proof should complete");
         let requests = server.requests();
@@ -1435,9 +1545,9 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
-                "/prove/status?jobId=async-job",
-                "/prove/status?jobId=async-job",
+                "/prove/spp",
+                "/prove/spp/status?jobId=async-job",
+                "/prove/spp/status?jobId=async-job",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -1459,7 +1569,7 @@ mod tests {
             ),
         ]);
         async_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", ProofRoute::Spp, Delivery::Queued)
             .await
             .expect("transient async poll error should be retried");
         let requests = server.requests();
@@ -1467,9 +1577,9 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
-                "/prove/status?jobId=async-transient",
-                "/prove/status?jobId=async-transient",
+                "/prove/spp",
+                "/prove/spp/status?jobId=async-transient",
+                "/prove/spp/status?jobId=async-transient",
             ],
         );
     }
@@ -1483,11 +1593,11 @@ mod tests {
             json!({ "proof": gnark_proof() }),
         )]);
         queued_prover_client(server.url())
-            .send("{}", Delivery::InResponse)
+            .send("{}", ProofRoute::Spp, Delivery::InResponse)
             .expect("a synchronous prover answers with the proof");
 
         let requests = server.requests();
-        assert_paths(&requests, ["/prove"]);
+        assert_paths(&requests, ["/prove/spp"]);
         assert!(
             requests
                 .first()
@@ -1516,14 +1626,18 @@ mod tests {
         ]);
 
         let proof = queued_prover_client(server.url())
-            .send("{}", Delivery::InResponse)
+            .send("{}", ProofRoute::Spp, Delivery::InResponse)
             .expect("a shed proof should be queued, not failed");
         assert_eq!(proof.a, [0u8; 64]);
 
         let requests = server.requests();
         assert_paths(
             &requests,
-            ["/prove", "/prove", "/prove/status?jobId=queued-after-shed"],
+            [
+                "/prove/spp",
+                "/prove/spp",
+                "/prove/spp/status?jobId=queued-after-shed",
+            ],
         );
         assert!(
             requests

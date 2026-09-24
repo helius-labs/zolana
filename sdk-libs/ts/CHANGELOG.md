@@ -70,6 +70,10 @@ Breaking
   nullable `SerializedNoteReservation.expiresAtMs` → upgrade snapshot readers
   before saving and treat `null` as no local expiry, versions 2 and 3 stay
   readable.
+- `ZolanaClient` sends each proof to `/prove/spp`, `/prove/merge` or
+  `/prove/custom-ring` under its `proverUrl` and polls that route's status
+  path → point `proverUrl` at a prover from this release, an earlier prover
+  answers 404.
 
 Added
 
