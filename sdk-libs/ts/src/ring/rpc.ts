@@ -17,7 +17,13 @@ import type {
 import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
 import { SOLANA_OWNER_TAG } from "../hasher/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
-import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
+import {
+  TransportFailure,
+  checkedApiKey,
+  checkedEndpoint,
+  checkedFetch,
+  methodUrl,
+} from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
@@ -368,20 +374,29 @@ export interface RingRpcOptions {
   readonly fetch?: typeof globalThis.fetch;
   /** Even loopback needs it for plain HTTP. */
   readonly allowInsecureHttp?: boolean;
+  /** Sent to a Helius gateway on every call. Refused when the URL already carries a key. */
+  readonly apiKey?: string;
 }
 
+/** Posts each method under its own path, where a gateway routes and meters it. */
 export class RingRpc {
   readonly #url: URL;
+  readonly #apiKey?: string;
   readonly #fetch: typeof globalThis.fetch;
 
   constructor(url: string | URL, options?: RingRpcOptions) {
     try {
-      this.#url = checkedEndpoint(url, {
-        field: "url",
-        ...(options?.allowInsecureHttp === undefined
-          ? {}
-          : { allowInsecureHttp: options.allowInsecureHttp }),
-      });
+      const keyed = checkedApiKey(
+        checkedEndpoint(url, {
+          field: "url",
+          ...(options?.allowInsecureHttp === undefined
+            ? {}
+            : { allowInsecureHttp: options.allowInsecureHttp }),
+        }),
+        options?.apiKey,
+      );
+      this.#url = keyed.endpoint;
+      if (keyed.apiKey !== undefined) this.#apiKey = keyed.apiKey;
       this.#fetch = checkedFetch(options?.fetch);
     } catch (error) {
       if (!(error instanceof TransportFailure)) throw error;
@@ -615,7 +630,7 @@ export class RingRpc {
       return await postJsonRpc(
         {
           fetch: this.#fetch,
-          url: new URL(this.#url.href),
+          url: methodUrl(this.#url, method, this.#apiKey),
           rpcMethod: method,
           params,
           id: 1,
