@@ -126,7 +126,7 @@ program_data_len() {
 # production setup of a proving key this build pins, none missing. See
 # `zolana vks check --help`.
 check_verifying_keys() {
-    cargo run -q -p zolana-cli -- vks check "$@"
+    cargo run -q -p zolana-cli -- vks check --shielded-pool "$@"
 }
 
 program_authority() {

@@ -503,10 +503,12 @@ Next to each `VERIFYINGKEY` the generator writes `VERIFYINGKEY_PROVING_KEY_SHA25
 `VERIFYINGKEY_INSECURE_TEST_SETUP`, and an exported `VERIFYINGKEY_SETUP_TXT`
 marker that stays in the program `.so`. Protocol vks (interface, tree,
 custom-rings) are `SetupKind::Production`. The sdk-tests example vks come from
-the shared setup CLI (`sdk-libs/gnark-ffi-prover`, `just regen-*-keys`), which
-always emits `SetupKind::InsecureTest`: a `compile_error!` unless the crate
-enables its `insecure-test-setup` feature (on by default in those example
-programs only). Each crate exposes `PROVING_KEY_SHA256S` (key file name -> sha256), and
+the shared setup CLI (`sdk-libs/gnark-ffi-prover`, `just regen-*-keys`) run with
+`--insecure-test-keys`, which emits `SetupKind::InsecureTest`: a `compile_error!`
+unless the crate enables its `insecure-test-setup` feature (on by default in
+those example programs only). Without that flag the CLI sets up from system
+randomness and emits `SetupKind::Production`, the setup an example deployment
+uses. Each crate exposes `PROVING_KEY_SHA256S` (key file name -> sha256), and
 `vk_proving_key_lock` tests pin every entry to `proving-keys.lock`.
 
 A vk regen that does not rotate keys exports from the keys the lockfile pins.
@@ -531,10 +533,12 @@ key set fails before a transaction is built instead of on-chain:
   The Rust startup check covers the interface and nullifier-tree keys; the
   custom-ring keys are checked per proof by the custom-rings SDK (the TS table
   covers every lockfile key).
-- `zolana vks list|check [--so <path> | --program-id <id>] [--prover-url <url>]`
-  reads the markers from a local build or a deployed program's ProgramData.
-  `check` validates the shielded-pool key set: it fails on an insecure test
-  setup, an unknown digest, or a missing key. Every program that links
+- `zolana vks list|check [--so <path> | --program-id <id>] [--shielded-pool] [--prover-url <url>]`
+  reads the markers from any local build or deployed program's ProgramData.
+  `check` fails on a binary without markers or with an insecure test setup.
+  `--shielded-pool`, implied when reading the shielded-pool program id and
+  required by `--prover-url`, also validates the shielded-pool key set: it
+  fails on an unknown digest or a missing key. Every program that links
   `zolana-interface` with default features embeds all interface markers (the
   markers are exported statics), used or not.
   `tools/deploy-devnet.sh` runs it on the local build before deploying
