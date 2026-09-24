@@ -1,6 +1,6 @@
 use zolana_interface::instruction::{
     DepositAssetKind, DepositEntry, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
-    RingDepositEntry, RingDepositIxData, RingDepositIxDataRef, UtxoData,
+    RingDepositEntry, RingDepositIxData, RingDepositIxDataRef,
 };
 
 fn entry(seed: u8) -> DepositEntry {
@@ -9,11 +9,6 @@ fn entry(seed: u8) -> DepositEntry {
         view_tag: [seed; 32],
         owner: [seed.wrapping_add(1); 32],
         amount: u64::from(seed) + 1,
-        utxo_data: Some(UtxoData {
-            data_hash: [seed.wrapping_add(3); 32],
-            nullifier_pk: [seed.wrapping_add(5); 32],
-            data: vec![seed, seed.wrapping_add(1)],
-        }),
         memo: Some(vec![seed.wrapping_add(2), seed.wrapping_add(3)]),
     }
 }
@@ -43,14 +38,7 @@ fn deposit_ref_borrows_variable_payloads() {
     assert_eq!(actual.view_tag, &expected.view_tag);
     assert_eq!(actual.owner, &expected.owner);
     assert_eq!(actual.amount, expected.amount);
-
-    let actual_utxo = actual.utxo_data.unwrap();
-    let expected_utxo = expected.utxo_data.as_ref().unwrap();
-    assert_eq!(actual_utxo.data_hash, &expected_utxo.data_hash);
-    assert_eq!(actual_utxo.nullifier_pk, &expected_utxo.nullifier_pk);
-    assert_eq!(actual_utxo.data, expected_utxo.data);
     assert_eq!(actual.memo.unwrap(), expected.memo.as_deref().unwrap());
-    assert!(aliases(&bytes, actual_utxo.data));
     assert!(aliases(&bytes, actual.memo.unwrap()));
     assert!(aliases(&bytes, actual.owner));
 }
@@ -66,7 +54,6 @@ fn ring_deposit_ref_borrows_ring_payload() {
             view_tag: [9; 32],
             owner_utxo_hash: [10; 32],
             amount: 12,
-            data_hash: Some([13; 32]),
             ring_data_hash: [10; 32],
             encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [8; 33],
@@ -107,23 +94,4 @@ fn deposit_ref_rejects_trailing_bytes() {
     bytes.push(0xff);
 
     assert!(DepositIxDataRef::from_bytes(&bytes).is_err());
-}
-
-#[test]
-fn deposit_owner_authorization_matches_shared_wire_vector() {
-    let data = DepositIxData {
-        assets: vec![DepositAssetKind::Sol],
-        deposits: vec![entry(7)],
-    };
-    let vector: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../test-vectors/deposit_owner_authorization.json"
-    ))
-    .expect("shared vector");
-    let encoded: String = data
-        .serialize()
-        .expect("serialize")
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    assert_eq!(encoded, vector["wireHex"].as_str().expect("wire hex"));
 }

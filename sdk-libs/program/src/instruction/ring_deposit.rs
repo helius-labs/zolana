@@ -16,7 +16,6 @@ pub struct RingAssetDeposit {
     pub view_tag: [u8; 32],
     pub owner_utxo_hash: [u8; 32],
     pub amount: u64,
-    pub data_hash: Option<[u8; 32]>,
     pub ring_data_hash: [u8; 32],
     pub encrypted: EncryptedRingDepositData,
 }
@@ -65,7 +64,6 @@ impl RingDeposit {
                     view_tag: entry.view_tag,
                     owner_utxo_hash: entry.owner_utxo_hash,
                     amount: entry.amount,
-                    data_hash: entry.data_hash,
                     ring_data_hash: entry.ring_data_hash,
                     encrypted: entry.encrypted,
                 })
@@ -114,7 +112,6 @@ mod tests {
             view_tag: [seed; 32],
             owner_utxo_hash: [seed.wrapping_add(1); 32],
             amount: u64::from(seed),
-            data_hash: None,
             ring_data_hash: [seed.wrapping_add(10); 32],
             encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [seed.wrapping_add(2); 33],

@@ -1,5 +1,5 @@
 use crate::instructions::shared::caused_by;
-use light_array_map::{pubkey_eq, ArrayMap};
+use light_array_map::ArrayMap;
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -30,9 +30,10 @@ use crate::instructions::{
     shared::check_field_element,
 };
 
+#[derive(Clone, Copy)]
 enum ProcessingEntry<'a> {
-    Default(&'a DepositEntryRef<'a>),
-    Ring(&'a RingDepositEntryRef<'a>),
+    Default(DepositEntryRef<'a>),
+    Ring(RingDepositEntryRef<'a>),
 }
 
 fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -> ProgramResult {
@@ -41,12 +42,6 @@ fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -
     match entry {
         ProcessingEntry::Default(entry) => {
             check_field_element(entry.owner, "deposit owner", index, error)?;
-            if let Some(utxo_data) = &entry.utxo_data {
-                check_field_element(utxo_data.data_hash, "deposit data hash", index, error)?;
-                if pubkey_eq(utxo_data.data_hash, &[0; 32]) {
-                    return Err(ShieldedPoolError::ZeroDepositDataHash.into());
-                }
-            }
         }
         ProcessingEntry::Ring(entry) => {
             check_field_element(
@@ -55,9 +50,6 @@ fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -
                 index,
                 error,
             )?;
-            if let Some(data_hash) = entry.data_hash {
-                check_field_element(data_hash, "ring deposit data hash", index, error)?;
-            }
             check_field_element(
                 entry.ring_data_hash,
                 "ring deposit ring data hash",
@@ -76,7 +68,7 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
     process_deposit_internal::<false>(
         accounts,
         &data.assets,
-        data.deposits.iter().map(ProcessingEntry::Default),
+        data.deposits.into_iter().map(ProcessingEntry::Default),
     )
 }
 
@@ -86,35 +78,22 @@ pub fn process_ring_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
     process_deposit_internal::<true>(
         accounts,
         &data.assets,
-        data.deposits.iter().map(ProcessingEntry::Ring),
+        data.deposits.into_iter().map(ProcessingEntry::Ring),
     )
 }
 
 fn process_deposit_internal<'a, const HAS_RING: bool>(
     accounts: &mut [AccountView],
     assets: &[DepositAssetKind],
-    entries: impl ExactSizeIterator<Item = ProcessingEntry<'a>> + Clone,
+    entries: impl ExactSizeIterator<Item = ProcessingEntry<'a>>,
 ) -> ProgramResult {
     let entry_count = entries.len();
     if entry_count == 0 {
         return Err(ShieldedPoolError::EmptyDepositBatch.into());
     }
 
-    // Reject malformed entry fields before owner authorization hashes or cache lookups.
-    for (entry_index, entry) in entries.clone().enumerate() {
-        check_entry_field_elements(entry_index, &entry)?;
-    }
-
-    let owner_authorizations = entries.clone().filter_map(|entry| match entry {
-        ProcessingEntry::Default(entry) => entry.utxo_data.as_ref().map(|data| (entry.owner, data)),
-        ProcessingEntry::Ring(_) => None,
-    });
-    let (parsed, ring_program_id) = DepositAccounts::validate_and_parse::<HAS_RING>(
-        &crate::ID,
-        accounts,
-        assets,
-        owner_authorizations,
-    )?;
+    let (parsed, ring_program_id) =
+        DepositAccounts::validate_and_parse::<HAS_RING>(&crate::ID, accounts, assets)?;
 
     let zero = [0u8; 32];
     let ring_program_id_field = match &ring_program_id {
@@ -142,7 +121,8 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     let mut utxo_hashes = Vec::with_capacity(entry_count);
 
     for (entry_index, processing_entry) in entries.enumerate() {
-        let (asset_index, amount) = match &processing_entry {
+        check_entry_field_elements(entry_index, &processing_entry)?;
+        let (asset_index, amount) = match processing_entry {
             ProcessingEntry::Default(entry) => (entry.asset_index, entry.amount),
             ProcessingEntry::Ring(entry) => (entry.asset_index, entry.amount),
         };
@@ -166,30 +146,26 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             ))?
         };
 
-        let (data_hash, ring_hash, owner_utxo_hash) = match &processing_entry {
+        let (ring_hash, owner_utxo_hash) = match processing_entry {
             ProcessingEntry::Default(entry) => {
-                let data_hash = entry
-                    .utxo_data
-                    .as_ref()
-                    .map_or(&zero, |utxo| utxo.data_hash);
                 let owner_utxo_hash =
                     Poseidon::hashv(&[entry.owner.as_slice(), blinding.as_slice()]).map_err(
                         caused_by(ShieldedPoolError::TransactProofVerificationFailed),
                     )?;
-                (data_hash, zero_ring_hash, owner_utxo_hash)
+                (zero_ring_hash, owner_utxo_hash)
             }
             ProcessingEntry::Ring(entry) => (
-                entry.data_hash.unwrap_or(&zero),
                 hash_with_program_id(entry.ring_data_hash, &ring_program_id_field)?,
                 *entry.owner_utxo_hash,
             ),
         };
+        // Deposits carry no application data, so the data hash is always zero.
         let utxo_hash = Poseidon::hashv(&[
             UTXO_DOMAIN_FIELD.as_slice(),
             tree_id.as_slice(),
             group.asset_field.as_slice(),
             field_from_u64(amount).as_slice(),
-            data_hash.as_slice(),
+            zero.as_slice(),
             ring_hash.as_slice(),
             owner_utxo_hash.as_slice(),
         ])
@@ -213,7 +189,7 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             utxo_hash,
             asset: group.asset,
         };
-        outputs.push(match &processing_entry {
+        outputs.push(match processing_entry {
             ProcessingEntry::Default(entry) => proofless_output_utxo(entry, &blinding, output_ctx),
             ProcessingEntry::Ring(entry) => encrypted_ring_output_utxo(
                 entry,

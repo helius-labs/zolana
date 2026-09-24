@@ -48,7 +48,6 @@ impl RingHarness {
             view_tag: keypair.recipient_bootstrap_view_tag(),
             owner: keypair.owner_hash()?,
             amount,
-            utxo_data: None,
             memo: None,
         })
     }
@@ -93,7 +92,6 @@ impl RingHarness {
             view_tag: keypair.recipient_bootstrap_view_tag(),
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: RingDepositPlaintext {
                 blinding,
@@ -360,7 +358,6 @@ impl RingHarness {
                 view_tag: [0u8; 32],
                 owner_utxo_hash: owner_utxo_hash(&[3u8; 32], &test_blinding(4))?,
                 amount: 1_000_000,
-                data_hash: None,
                 ring_data_hash: [0u8; 32],
                 encrypted: EncryptedRingDepositData {
                     tx_viewing_pk: [0u8; 33],

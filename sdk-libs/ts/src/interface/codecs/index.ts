@@ -88,18 +88,6 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
       .bytes(deposit.viewTag, 32, "deposit.viewTag")
       .bytes(deposit.recipientOwnerHash, 32, "deposit.recipientOwnerHash")
       .u64(deposit.amount, "deposit.amount")
-      .option(deposit.utxoData, (output, data) => {
-        if (
-          data.dataHash instanceof Uint8Array &&
-          data.dataHash.length === 32 &&
-          data.dataHash.every((byte) => byte === 0)
-        ) {
-          fail("INTERFACE_CODEC", { name: "deposit.utxoData.dataHash", reason: "zero_hash" });
-        }
-        output.bytes(data.dataHash, 32, "deposit.utxoData.dataHash");
-        output.bytes(data.nullifierPk, 32, "deposit.utxoData.nullifierPk");
-        byteVector(output, data.data, "deposit.utxoData.data");
-      })
       .option(deposit.memo, (output, memo) => {
         byteVector(output, memo, "deposit.memo");
       });
@@ -126,9 +114,6 @@ function writeRingDepositData(writer: Writer, value: RingDepositInstructionData)
       .bytes(deposit.viewTag, 32, "deposit.viewTag")
       .bytes(deposit.ownerUtxoHash, 32, "deposit.ownerUtxoHash")
       .u64(deposit.amount, "deposit.amount")
-      .option(deposit.dataHash, (output, hash) => {
-        output.bytes(hash, 32, "deposit.dataHash");
-      })
       .bytes(deposit.ringDataHash, 32, "deposit.ringDataHash")
       .bytes(deposit.encrypted.txViewingPublicKey, 33, "deposit.encrypted.txViewingPublicKey")
       .bytes(deposit.encrypted.salt, 16, "deposit.encrypted.salt");

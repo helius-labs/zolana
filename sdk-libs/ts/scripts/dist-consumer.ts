@@ -161,7 +161,3 @@ export {
   createRingMergeSubmission,
   customRingDepositPayload,
 } from "@heliuslabs/zolana/ring";
-
-export type { AssetDeposit, DepositData, UtxoData } from "@heliuslabs/zolana/interface";
-export { depositInstruction } from "@heliuslabs/zolana/interface";
-export { getDepositInstructionAsync } from "@heliuslabs/zolana/instructions";

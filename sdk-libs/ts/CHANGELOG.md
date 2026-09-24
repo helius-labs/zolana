@@ -88,12 +88,9 @@ Breaking
   reprove pending merges and transfers with the program and prover of this
   release, set the five fields on a hand-built `TransferInputs`, and handle
   the new variants in exhaustive switches.
-- `UtxoData` requires a nonzero `dataHash` and `nullifierPk`,
-  `AssetDeposit.utxoData` is a builder-only `DepositData` holding the
-  required `signingPk` and the wire `data`, `depositInstruction` requires
-  that owner to sign, and `ShieldedPoolError` adds `ZeroDepositDataHash` at
-  7078 for a present zero-hash record → omit `utxoData` for no application
-  data, or supply the nullifier key and sign with the owner.
+- `UtxoData`, `DepositEntry.utxoData` and `RingDepositEntry.dataHash` are
+  removed, so a deposit output never carries application data → attach data
+  to a UTXO through a proven transaction instead.
 
 Added
 

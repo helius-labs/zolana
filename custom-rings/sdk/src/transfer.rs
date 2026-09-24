@@ -1557,7 +1557,6 @@ impl RingDeposit<'_> {
             view_tag: self.recipient.recipient_bootstrap_view_tag(),
             owner_utxo_hash: owner_utxo_hash(&owner_hash, &blinding)?,
             amount: self.amount,
-            data_hash: None,
             ring_data_hash: NO_RING_DATA_HASH,
             encrypted: RingDepositPlaintext {
                 blinding,

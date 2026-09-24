@@ -193,7 +193,6 @@ impl Deposit<'_> {
             view_tag,
             owner,
             amount: self.amount,
-            utxo_data: None,
             memo: None,
         };
         let ix = DepositInstruction {

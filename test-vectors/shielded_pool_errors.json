@@ -75,6 +75,5 @@
   "CacheNotExpired": 7074,
   "CacheExpiryNotInFuture": 7075,
   "CacheWriteAuthorityMismatch": 7076,
-  "CacheRentRecipientMismatch": 7077,
-  "ZeroDepositDataHash": 7078
+  "CacheRentRecipientMismatch": 7077
 }

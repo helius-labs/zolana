@@ -59,7 +59,6 @@ fn sol_deposit_entry() -> RingAssetDeposit {
         view_tag: [31; 32],
         owner_utxo_hash: [32; 32],
         amount: 7_000_000,
-        data_hash: None,
         ring_data_hash: [33; 32],
         encrypted: EncryptedRingDepositData {
             tx_viewing_pk: [3; 33],
@@ -551,7 +550,6 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
                 view_tag: entry.view_tag,
                 owner_utxo_hash: entry.owner_utxo_hash,
                 amount: entry.amount,
-                data_hash: entry.data_hash,
                 ring_data_hash: entry.ring_data_hash,
                 encrypted: entry.encrypted,
             }],

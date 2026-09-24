@@ -2903,7 +2903,6 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         view_tag: [0; 32],
         owner_utxo_hash: [1; 32],
         amount: 1,
-        data_hash: None,
         ring_data_hash: [0; 32],
         encrypted: EncryptedRingDepositData {
             tx_viewing_pk: [2; 33],
@@ -3325,7 +3324,6 @@ impl<'a> DefaultRingDeposit<'a> {
                 view_tag,
                 owner: address.owner_hash()?,
                 amount: self.amount,
-                utxo_data: None,
                 memo: None,
             }],
         }

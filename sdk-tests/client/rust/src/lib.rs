@@ -277,7 +277,6 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
                     view_tag,
                     owner,
                     amount,
-                    utxo_data: None,
                     memo: None,
                 })
                 .collect(),

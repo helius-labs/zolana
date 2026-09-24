@@ -173,7 +173,6 @@ impl ZolanaProgramTest {
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)
                 .expect("test owner and blinding are field elements"),
             amount: lamports,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [0u8; 33],
@@ -194,7 +193,6 @@ impl ZolanaProgramTest {
             view_tag,
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount: lamports,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: RingDepositPlaintext {
                 blinding,
@@ -223,7 +221,6 @@ impl ZolanaProgramTest {
             view_tag,
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: RingDepositPlaintext {
                 blinding,

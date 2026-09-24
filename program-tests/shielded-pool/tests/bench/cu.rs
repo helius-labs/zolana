@@ -17,15 +17,14 @@ use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::Poseidon;
 use zolana_interface::state::cache::empty_cached_input_fields;
 use zolana_interface::{
-    instruction::{instruction_data::transact::InterfaceTransfer, TransactIxData, UtxoData},
+    instruction::{instruction_data::transact::InterfaceTransfer, TransactIxData},
     state::{nullifier_tree_params, tree_account_size, tree_working_capital_lamports},
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program::instruction::{
-    AssetDeposit, Deposit, DepositData, Transact, TransactInterfaceTransferAccounts,
-    TransactSolTransferAccounts,
+    Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{instructions::transact::PrivateTxHash, Mint, SOL_MINT};
@@ -223,17 +222,9 @@ fn bench_cu_deposit() {
         "pause tree",
         &mut bench,
     );
-    for with_data in [false, true] {
-        bench_deposit_sol(&mollusk, &program_id, &mut bench, with_data);
-        bench_deposit_sol_batch(&mollusk, &program_id, &mut bench, with_data);
-        bench_deposit_spl(
-            &mollusk,
-            &program_id,
-            &token_program_account,
-            &mut bench,
-            with_data,
-        );
-    }
+    bench_deposit_sol(&mollusk, &program_id, &mut bench);
+    bench_deposit_sol_batch(&mollusk, &program_id, &mut bench);
+    bench_deposit_spl(&mollusk, &program_id, &token_program_account, &mut bench);
     for (n_inputs, n_outputs) in [
         (1, 1),
         (1, 2),
@@ -412,32 +403,7 @@ fn nullifier_spend_accounts(
     accounts
 }
 
-/// Nonzero application data owned by the depositor, using the same payload
-/// for SOL, SPL, and batch measurements.
-fn attach_deposit_data(data: &mut AssetDeposit, depositor: &Keypair) {
-    let signing_pk = depositor.pubkey().to_bytes();
-    let nullifier_pk = NullifierKey::from_secret([9; 31])
-        .pubkey()
-        .expect("nullifier pk");
-    data.owner = owner_hash(&PublicKey::from_ed25519(&signing_pk), &nullifier_pk)
-        .expect("deposit owner hash");
-    data.view_tag = signing_pk;
-    data.utxo_data = Some(DepositData {
-        signing_pk: depositor.pubkey(),
-        data: UtxoData {
-            data_hash: [1; 32],
-            nullifier_pk,
-            data: vec![1, 2, 3],
-        },
-    });
-}
-
-fn bench_deposit_sol(
-    mollusk: &Mollusk,
-    program_id: &Pubkey,
-    bench: &mut CuBenchmark,
-    with_data: bool,
-) {
+fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
     let (mut pt, _authority, tree, _tree_id) = bench_setup();
     let depositor = Keypair::new();
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
@@ -447,11 +413,8 @@ fn bench_deposit_sol(
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let mut data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
+    let data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
         .expect("wallet deposit data");
-    if with_data {
-        attach_deposit_data(&mut data, &depositor);
-    }
 
     let ix = Deposit {
         tree,
@@ -471,25 +434,13 @@ fn bench_deposit_sol(
         !entries.is_empty(),
         "no profiling entries for 'deposit sol'; build the profiling .so with --features profile-program"
     );
-    bench.add_from_entries(
-        if with_data {
-            "deposit sol with data"
-        } else {
-            "deposit sol"
-        },
-        entries,
-    );
+    bench.add_from_entries("deposit sol", entries);
 }
 
 /// Three SOL outputs in one instruction. Compare against `deposit sol` (one
 /// output) for the marginal cost of a batch entry: the batch appends once and
 /// settles once regardless of entry count.
-fn bench_deposit_sol_batch(
-    mollusk: &Mollusk,
-    program_id: &Pubkey,
-    bench: &mut CuBenchmark,
-    with_data: bool,
-) {
+fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
     let (mut pt, _authority, tree, _tree_id) = bench_setup();
     let depositor = Keypair::new();
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
@@ -501,12 +452,8 @@ fn bench_deposit_sol_batch(
         .expect("shielded address");
     let deposits = (0..3)
         .map(|_| {
-            let mut data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
-                .expect("wallet deposit data");
-            if with_data {
-                attach_deposit_data(&mut data, &depositor);
-            }
-            data
+            ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
+                .expect("wallet deposit data")
         })
         .collect();
 
@@ -528,14 +475,7 @@ fn bench_deposit_sol_batch(
         !entries.is_empty(),
         "no profiling entries for the batch bench; build the profiling .so with --features profile-program"
     );
-    bench.add_from_entries(
-        if with_data {
-            "deposit sol batch 3 with data"
-        } else {
-            "deposit sol batch 3"
-        },
-        entries,
-    );
+    bench.add_from_entries("deposit sol batch 3", entries);
 }
 
 fn bench_deposit_spl(
@@ -543,7 +483,6 @@ fn bench_deposit_spl(
     program_id: &Pubkey,
     token_program_account: &(Pubkey, Account),
     bench: &mut CuBenchmark,
-    with_data: bool,
 ) {
     let (mut pt, authority, tree, _tree_id) = bench_setup();
 
@@ -565,11 +504,8 @@ fn bench_deposit_spl(
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let mut data = ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &mint, &user_token)
+    let data = ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &mint, &user_token)
         .expect("wallet deposit data");
-    if with_data {
-        attach_deposit_data(&mut data, &depositor);
-    }
 
     let ix = Deposit {
         tree,
@@ -589,14 +525,7 @@ fn bench_deposit_spl(
         !entries.is_empty(),
         "no profiling entries for 'deposit spl'; build the profiling .so with --features profile-program"
     );
-    bench.add_from_entries(
-        if with_data {
-            "deposit spl with data"
-        } else {
-            "deposit spl"
-        },
-        entries,
-    );
+    bench.add_from_entries("deposit spl", entries);
 }
 
 // Every confidential EdDSA circuit shape, spending nothing (all-dummy inputs)

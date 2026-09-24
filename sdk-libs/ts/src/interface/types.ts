@@ -22,13 +22,6 @@ export interface DepositInstructionData {
   readonly deposits: readonly DepositEntry[];
 }
 
-export interface UtxoData {
-  /** Must be nonzero; omit utxoData to omit application data. */
-  readonly dataHash: Bytes32;
-  readonly nullifierPk: Bytes32;
-  readonly data: Uint8Array;
-}
-
 export type DepositAssetKind =
   | Readonly<{ kind: "sol" }>
   | Readonly<{ kind: "spl"; splInterfaceBump: number }>;
@@ -38,7 +31,6 @@ export interface DepositEntry {
   readonly viewTag: Bytes32;
   readonly recipientOwnerHash: Bytes32;
   readonly amount: bigint;
-  readonly utxoData?: UtxoData;
   readonly memo?: Uint8Array;
 }
 
@@ -64,15 +56,8 @@ export const DepositAsset = Object.freeze({
   },
 });
 
-/** Builder-only data authorization. Only data is serialized in the entry. */
-export interface DepositData {
-  readonly signingPk: Address;
-  readonly data: UtxoData;
-}
-
-export interface AssetDeposit extends Omit<DepositEntry, "assetIndex" | "utxoData"> {
+export interface AssetDeposit extends Omit<DepositEntry, "assetIndex"> {
   readonly asset: DepositAsset;
-  readonly utxoData?: DepositData;
 }
 
 export interface EncryptedRingDepositData {
@@ -87,7 +72,6 @@ export interface RingDepositEntry {
   readonly viewTag: Bytes32;
   readonly ownerUtxoHash: Bytes32;
   readonly amount: bigint;
-  readonly dataHash?: Bytes32;
   readonly ringDataHash: Bytes32;
   readonly encrypted: EncryptedRingDepositData;
 }
