@@ -33,14 +33,15 @@ import {
 import { postJsonRpc } from "../services/jsonrpc.js";
 import {
   TransportFailure,
+  checkedApiKey,
   checkedEndpoint,
   checkedFetch,
+  methodUrl,
   type TransportFailureKind,
 } from "../services/transport.js";
 
 const REQUEST_ID = "test-account";
 const MAX_BODY_BYTES = 1024 * 1024;
-const MAX_API_KEY_LENGTH = 4096;
 
 type JsonObject = Record<string, unknown>;
 
@@ -158,9 +159,7 @@ export class ZolanaApi {
       throw schemaError("API_INVALID_REQUEST", descriptor.name, error);
     }
 
-    const url = new URL(this.#baseUrl.href);
-    url.pathname = `${url.pathname.replace(/\/+$/u, "")}/${descriptor.name}`;
-    if (this.#apiKey !== undefined) url.searchParams.set("api-key", this.#apiKey);
+    const url = methodUrl(this.#baseUrl, descriptor.name, this.#apiKey);
 
     let result: unknown;
     try {
@@ -252,41 +251,19 @@ function parseConfig(config: unknown): {
     });
   }
 
-  const queryKeys = url.searchParams.getAll("api-key");
-  if (queryKeys.length > 1) {
-    throw new ApiError("API_INVALID_CONFIG", "API URL contains duplicate API keys", {
-      details: { field: "apiKey" },
-    });
+  let keyed: Readonly<{ endpoint: URL; apiKey?: string }>;
+  try {
+    keyed = checkedApiKey(url, config["apiKey"]);
+  } catch (error) {
+    if (!(error instanceof TransportFailure)) throw error;
+    throw new ApiError("API_INVALID_CONFIG", error.message, { details: error.facts });
   }
-  const configuredApiKey = config["apiKey"];
-  if (configuredApiKey !== undefined && typeof configuredApiKey !== "string") {
-    throw new ApiError("API_INVALID_CONFIG", "API key is invalid", {
-      details: { field: "apiKey" },
-    });
-  }
-  if (configuredApiKey !== undefined && queryKeys.length !== 0) {
-    throw new ApiError("API_INVALID_CONFIG", "API key must have one source", {
-      details: { field: "apiKey" },
-    });
-  }
-  const apiKey = configuredApiKey ?? queryKeys[0];
-  if (queryKeys.length === 1) url.searchParams.delete("api-key");
-  validateApiKey(apiKey);
 
   return {
-    ...(apiKey === undefined ? {} : { apiKey }),
+    ...(keyed.apiKey === undefined ? {} : { apiKey: keyed.apiKey }),
     fetch: fetchImplementation,
-    url,
+    url: keyed.endpoint,
   };
-}
-
-function validateApiKey(apiKey: string | undefined): void {
-  if (apiKey === undefined) return;
-  if (apiKey.length === 0 || apiKey.length > MAX_API_KEY_LENGTH || hasControlCharacter(apiKey)) {
-    throw new ApiError("API_INVALID_CONFIG", "API key is invalid", {
-      details: { field: "apiKey" },
-    });
-  }
 }
 
 function schemaError(
@@ -314,14 +291,6 @@ function schemaError(
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function hasControlCharacter(value: string): boolean {
-  for (const character of value) {
-    const code = character.charCodeAt(0);
-    if (code <= 31 || code === 127) return true;
-  }
-  return false;
 }
 
 function safeSchemaPath(path: string): string | undefined {
