@@ -4,9 +4,9 @@ use light_program_profiler::profile;
 use pinocchio::{
     cpi::{Seed, Signer},
     error::ProgramError,
-    Address,
 };
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
+use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_program::cpi::{SppTransactAccounts, TransactAccountsError};
 
@@ -27,24 +27,59 @@ pub fn check_after_window(now: i64, unlock_unix_ts: u64) -> ProgramResult {
     }
 }
 
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-#[inline(never)]
-#[profile]
-pub fn cpi_spp_transact_signed(
-    spp_accounts: &[AccountView],
-    transact_bytes: &[u8],
-) -> ProgramResult {
-    let (escrow_authority, bump) =
-        Address::find_program_address(&[crate::ESCROW_AUTHORITY_PDA_SEED], &crate::ID);
-    let signer_pdas = [&escrow_authority];
-    let spp =
-        SppTransactAccounts::new(spp_accounts, &signer_pdas).map_err(transact_accounts_error)?;
-    let bump = [bump];
-    let seeds = [
-        Seed::from(crate::ESCROW_AUTHORITY_PDA_SEED),
-        Seed::from(&bump),
-    ];
-    spp.invoke::<16>(transact_bytes, &[Signer::from(&seeds)])
+pub struct EscrowAuthority {
+    address: Address,
+    #[cfg(any(target_os = "solana", target_arch = "bpf"))]
+    bump: u8,
+}
+
+impl EscrowAuthority {
+    #[cfg(any(target_os = "solana", target_arch = "bpf"))]
+    pub fn find() -> Self {
+        let (address, bump) =
+            Address::find_program_address(&[crate::ESCROW_AUTHORITY_PDA_SEED], &crate::ID);
+        Self { address, bump }
+    }
+
+    #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+    pub fn find() -> Self {
+        unimplemented!("EscrowAuthority::find requires Solana runtime syscalls")
+    }
+
+    pub fn address(&self) -> &Address {
+        &self.address
+    }
+
+    #[cfg(any(target_os = "solana", target_arch = "bpf"))]
+    #[inline(never)]
+    #[profile]
+    pub fn invoke_transact(
+        &self,
+        spp_accounts: &[AccountView],
+        transact: &TransactIxData,
+    ) -> ProgramResult {
+        let transact_bytes = transact
+            .serialize()
+            .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
+        let signer_pdas = [&self.address];
+        let spp = SppTransactAccounts::new(spp_accounts, &signer_pdas)
+            .map_err(transact_accounts_error)?;
+        let bump = [self.bump];
+        let seeds = [
+            Seed::from(crate::ESCROW_AUTHORITY_PDA_SEED),
+            Seed::from(&bump),
+        ];
+        spp.invoke::<16>(&transact_bytes, &[Signer::from(&seeds)])
+    }
+
+    #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+    pub fn invoke_transact(
+        &self,
+        _spp_accounts: &[AccountView],
+        _transact: &TransactIxData,
+    ) -> ProgramResult {
+        unimplemented!("EscrowAuthority::invoke_transact requires Solana runtime syscalls")
+    }
 }
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
@@ -58,13 +93,4 @@ fn transact_accounts_error(error: TransactAccountsError) -> ProgramError {
         }
         TransactAccountsError::NotEnoughAccounts => ProgramError::NotEnoughAccountKeys,
     }
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-#[inline(never)]
-pub fn cpi_spp_transact_signed(
-    _spp_accounts: &[AccountView],
-    _transact_bytes: &[u8],
-) -> ProgramResult {
-    unimplemented!("cpi_spp_transact_signed requires Solana runtime syscalls")
 }

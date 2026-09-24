@@ -1,52 +1,52 @@
 package escrow
 
 import (
-	"circuits/escrowterms"
-
 	"github.com/consensys/gnark/frontend"
 
+	"circuits/escrowterms"
+	"circuits/zkprogram"
 	"zolana/gnarksdk"
 )
 
+const (
+	NInputs    = 2
+	NOutputs   = 2
+	SlotSource = 0
+	SlotChange = 0
+	SlotEscrow = 1
+)
+
 type Circuit struct {
-	PrivateTxHash frontend.Variable `gnark:",public"`
+	Public PublicInputs
 
-	Terms escrowterms.EscrowTerms
-
-	EscrowUtxo gnarksdk.Utxo
-	Change     gnarksdk.Utxo
-
-	SourceInputHash   frontend.Variable
-	ExternalDataHash  frontend.Variable
-	PrivateTxBlinding frontend.Variable
+	Tx     zkprogram.Transaction
+	Source zkprogram.ProgramUtxo[escrowterms.Funding]
+	Terms  escrowterms.EscrowTerms
+	Amount frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
-	escrowOutputUtxoHash := c.checkEscrowOutputUtxo(api)
-	changeOutputUtxoHash := c.checkChangeOutputUtxo(api)
+	api.AssertIsDifferent(c.Amount, 0)
+	api.AssertIsEqual(c.Source.State.OwnerHash, c.Terms.OwnerHash)
+	asset := c.Source.Utxo.Asset
 
-	privateTxHash := gnarksdk.PrivateTxHash(
-		api,
-		[]frontend.Variable{c.SourceInputHash, 0},
-		[]frontend.Variable{changeOutputUtxoHash, escrowOutputUtxoHash},
-		c.ExternalDataHash,
-		c.PrivateTxBlinding,
-	)
-	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)
+	slots := c.Tx.Slots(NInputs, NOutputs)
+	slots.Input(SlotSource, c.Source.Hash(api))
+	slots.Create(api, SlotEscrow, zkprogram.ProgramOutput(api, c.Public.EscrowOwnerHash, c.Terms, asset, c.Amount))
+	slots.Create(api, SlotChange, zkprogram.Payment(c.Terms.OwnerHash, asset, api.Sub(c.Source.Utxo.Amount, c.Amount)))
+	api.AssertIsEqual(slots.PrivateTxHash(api), c.Public.PrivateTxHash)
+
+	c.Public.Check(api)
 	return nil
 }
 
-func (c *Circuit) checkEscrowOutputUtxo(api frontend.API) frontend.Variable {
-	c.EscrowUtxo.AssertDefaultRing(api)
-	api.AssertIsEqual(c.EscrowUtxo.DataHash, c.Terms.DataHash(api))
-	api.AssertIsDifferent(c.EscrowUtxo.Amount, 0)
-	return c.EscrowUtxo.Hash(api)
+type PublicInputs struct {
+	PublicInputHash frontend.Variable `gnark:",public"`
+
+	PrivateTxHash   frontend.Variable
+	EscrowOwnerHash frontend.Variable
 }
 
-func (c *Circuit) checkChangeOutputUtxo(api frontend.API) frontend.Variable {
-	c.Change.AssertDefaultRing(api)
-	api.AssertIsEqual(c.Change.DataHash, 0)
-	api.AssertIsEqual(c.Change.Asset, c.EscrowUtxo.Asset)
-	api.AssertIsEqual(c.Change.Owner, c.Terms.OwnerHash)
-	return c.Change.Hash(api)
+func (p PublicInputs) Check(api frontend.API) {
+	api.AssertIsEqual(p.PublicInputHash, gnarksdk.Poseidon(api, p.PrivateTxHash, p.EscrowOwnerHash))
 }

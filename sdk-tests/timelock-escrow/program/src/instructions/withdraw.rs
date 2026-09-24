@@ -2,21 +2,37 @@ use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
-    AccountView, ProgramResult,
+    AccountView, Address, ProgramResult,
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::TimelockEscrowError,
     instructions::{
-        shared::{check_after_window, cpi_spp_transact_signed, u64_right_align},
+        shared::{check_after_window, u64_right_align, EscrowAuthority},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
+    spp::ProvenTransact,
 };
+
+pub mod slot {
+    pub const ESCROW: usize = 0;
+    pub const SOURCE_OUTPUT: usize = 0;
+}
+
+pub const N_INPUTS: usize = 1;
+pub const N_OUTPUTS: usize = 1;
+
+pub type WithdrawTransact = ProvenTransact<N_INPUTS, N_OUTPUTS>;
+
+pub fn owner_tags(creator: &Address) -> [[u8; 32]; N_OUTPUTS] {
+    let mut owner_tags = [[0u8; 32]; N_OUTPUTS];
+    owner_tags[slot::SOURCE_OUTPUT] = creator.to_bytes();
+    owner_tags
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct WithdrawProof {
@@ -28,14 +44,8 @@ pub struct WithdrawProof {
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct WithdrawIxData {
     pub proof: WithdrawProof,
-    /// The committed escrow `unlock` timestamp the withdraw proof reveals as a
-    /// public input. Separate from `transact.expiry_unix_ts` (the SPP relayer
-    /// deadline): withdraw requires `now > unlock`, which is necessarily in the
-    /// past, whereas SPP rejects a `transact` whose `expiry_unix_ts` is in the
-    /// past. The escrow's committed terms hash includes `unlock`; the proof
-    /// recomputes it.
     pub unlock_timestamp: u64,
-    pub transact: TransactIxData,
+    pub transact: WithdrawTransact,
 }
 
 pub struct WithdrawPublicInput<'a> {
@@ -60,13 +70,9 @@ impl WithdrawPublicInput<'_> {
 pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("caller")?;
-    // The creator signs the withdraw; the withdraw proof recomputes the
-    // escrow's committed owner_hash from this pubkey (owner_pk_field), so only
-    // the creator can withdraw and the creator knows the refund blinding it
-    // chose. The identity is tagged as a Solana key, like the owner hash the
-    // escrow terms commit.
-    let owner_pk_field = solana_owner_identity(iter.next_signer("creator")?.address().as_array())
-        .map_err(TimelockEscrowError::from)?;
+    let creator = *iter.next_signer("creator")?.address();
+    let owner_pk_field =
+        solana_owner_identity(creator.as_array()).map_err(TimelockEscrowError::from)?;
 
     let WithdrawIxData {
         proof,
@@ -94,9 +100,8 @@ pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
         &crate::verifying_keys::withdraw::VERIFYINGKEY,
     )?;
 
-    let transact_bytes = transact
-        .serialize()
-        .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
+    let authority = EscrowAuthority::find();
+    let transact = transact.into_ix_data(owner_tags(&creator));
     let spp_accounts = iter.remaining()?;
-    cpi_spp_transact_signed(spp_accounts, &transact_bytes)
+    authority.invoke_transact(spp_accounts, &transact)
 }

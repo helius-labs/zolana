@@ -1,48 +1,47 @@
-use std::collections::HashMap;
+use crate::{
+    proof_inputs::{proof_input_map, ProofInputWriter, ProofInputs},
+    zk_program::{ProgramUtxoProofInputs, TransactionProofInputs},
+    CircuitId, EscrowTermsProofInput, FundingProofInput, TimelockProof, PROVER,
+};
 
-use zolana_client::ProofInputUtxo;
-use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EscrowPublicProofInputs {
+    pub public_input_hash: [u8; 32],
+    pub private_tx_hash: [u8; 32],
+    pub escrow_owner_hash: [u8; 32],
+}
 
-use crate::{CircuitId, EscrowTermsProofInput, TimelockProof, PROVER};
+impl ProofInputs for EscrowPublicProofInputs {
+    fn write(&self, writer: &mut ProofInputWriter<'_>) {
+        writer.field("PublicInputHash", &self.public_input_hash);
+        writer.field("PrivateTxHash", &self.private_tx_hash);
+        writer.field("EscrowOwnerHash", &self.escrow_owner_hash);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct EscrowProofInputs {
-    pub private_tx_hash: [u8; 32],
+    pub public: EscrowPublicProofInputs,
+    pub tx: TransactionProofInputs,
+    pub source: ProgramUtxoProofInputs<FundingProofInput>,
     pub terms: EscrowTermsProofInput,
-    pub escrow_utxo: ProofInputUtxo,
-    pub change: ProofInputUtxo,
-    pub source_input_hash: [u8; 32],
-    pub external_data_hash: [u8; 32],
-    pub private_tx_blinding: [u8; 32],
+    pub amount: u64,
+}
+
+impl ProofInputs for EscrowProofInputs {
+    fn write(&self, writer: &mut ProofInputWriter<'_>) {
+        writer.nested("Public", &self.public);
+        writer.nested("Tx", &self.tx);
+        writer.nested("Source", &self.source);
+        writer.nested("Terms", &self.terms);
+        writer.u64("Amount", self.amount);
+    }
 }
 
 impl EscrowProofInputs {
-    fn witness(&self) -> ProofInputMap {
-        let scalars: [(&str, [u8; 32]); 4] = [
-            ("PrivateTxHash", self.private_tx_hash),
-            ("SourceInputHash", self.source_input_hash),
-            ("ExternalDataHash", self.external_data_hash),
-            ("PrivateTxBlinding", self.private_tx_blinding),
-        ];
-        let mut map = HashMap::new();
-        for (key, value) in scalars.iter() {
-            map.insert(key.to_string(), vec![decimal(value)]);
-        }
-        for (key, value) in self
-            .terms
-            .witness_entries("Terms")
-            .into_iter()
-            .chain(utxo_proof_inputs(&self.escrow_utxo, "EscrowUtxo"))
-            .chain(utxo_proof_inputs(&self.change, "Change"))
-        {
-            map.insert(key, value);
-        }
-        map
-    }
-
     pub fn prove(&self) -> zolana_gnark_ffi_prover::Result<TimelockProof> {
         Ok(PROVER
-            .prove(CircuitId::Escrow, &self.witness())?
+            .prove(CircuitId::Escrow, &proof_input_map(self))?
             .compress()?
             .into())
     }
@@ -50,43 +49,57 @@ impl EscrowProofInputs {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::BTreeSet;
 
+    use zolana_client::ProofInputUtxo;
     use zolana_gnark_ffi_prover::utxo_proof_input_keys;
 
     use super::*;
-    use crate::escrow_terms::expected_escrow_terms_witness_keys;
-
-    fn sample() -> EscrowProofInputs {
-        EscrowProofInputs {
-            private_tx_hash: [1; 32],
-            terms: EscrowTermsProofInput {
-                owner_hash: [2; 32],
-                unlock: 42,
-            },
-            escrow_utxo: ProofInputUtxo::default(),
-            change: ProofInputUtxo::default(),
-            source_input_hash: [3; 32],
-            external_data_hash: [4; 32],
-            private_tx_blinding: [5; 32],
-        }
-    }
+    use crate::escrow_terms::expected_escrow_terms_keys;
 
     #[test]
-    fn witness_key_set_matches_circuit_fields() {
-        let witness = sample().witness();
-        let keys: HashSet<String> = witness.keys().cloned().collect();
+    fn proof_input_keys_match_circuit_fields() {
+        let inputs = EscrowProofInputs {
+            public: EscrowPublicProofInputs {
+                public_input_hash: [1; 32],
+                private_tx_hash: [2; 32],
+                escrow_owner_hash: [3; 32],
+            },
+            tx: TransactionProofInputs {
+                external_data_hash: [4; 32],
+                first_nullifier: [5; 32],
+                blinding_seed: [6; 32],
+                output_tree_id: 7,
+            },
+            source: ProgramUtxoProofInputs {
+                utxo: ProofInputUtxo::default(),
+                state: FundingProofInput {
+                    owner_hash: [10; 32],
+                },
+            },
+            terms: EscrowTermsProofInput {
+                owner_hash: [8; 32],
+                unlock: 42,
+            },
+            amount: 9,
+        };
+        let keys: BTreeSet<String> = proof_input_map(&inputs).keys().cloned().collect();
 
-        let mut expected: Vec<String> = vec![
-            "PrivateTxHash".to_string(),
-            "SourceInputHash".to_string(),
-            "ExternalDataHash".to_string(),
-            "PrivateTxBlinding".to_string(),
-        ];
-        expected.extend(expected_escrow_terms_witness_keys("Terms"));
-        expected.extend(utxo_proof_input_keys("EscrowUtxo"));
-        expected.extend(utxo_proof_input_keys("Change"));
+        let mut expected: BTreeSet<String> = [
+            "Public_PublicInputHash".to_string(),
+            "Public_PrivateTxHash".to_string(),
+            "Public_EscrowOwnerHash".to_string(),
+            "Tx_ExternalDataHash".to_string(),
+            "Tx_FirstNullifier".to_string(),
+            "Tx_BlindingSeed".to_string(),
+            "Tx_OutputTreeID".to_string(),
+            "Amount".to_string(),
+        ]
+        .into();
+        expected.extend(utxo_proof_input_keys("Source_Utxo"));
+        expected.insert("Source_State_OwnerHash".to_string());
+        expected.extend(expected_escrow_terms_keys("Terms"));
 
-        assert_eq!(keys, expected.into_iter().collect::<HashSet<String>>());
+        assert_eq!(keys, expected);
     }
 }

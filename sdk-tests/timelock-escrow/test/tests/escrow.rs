@@ -1,137 +1,54 @@
-use zolana_test_utils::utxo::{
-    encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
-};
-use zolana_transaction::utxo::SppProofInputUtxo;
 mod shared;
 
 use anyhow::{anyhow, Result};
 use shared::{
     send, setup, TestEnv, LOCK_AMOUNT, SHIELD_AMOUNT, SPP_RELAYER_DEADLINE, UNLOCK_TIMESTAMP,
 };
+use timelock_escrow_program::instructions::withdraw::slot;
 use timelock_escrow_sdk::{
     instructions::{
-        escrow::{Escrow, EscrowProofInputParams, SppTxHashes},
+        escrow::{Escrow, EscrowProofInputParams},
         withdraw::{Withdraw, WithdrawProofInputParams},
     },
     prover::EscrowProverClient,
-    shared::input_sum,
-    state::{EscrowTerms, EscrowUtxo},
+    zk_program::ProgramOwner,
 };
 use zolana_client::Rpc;
-use zolana_keypair::random_blinding;
-use zolana_transaction::{
-    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
-    Data, Utxo, SOL_ASSET_ID, SOL_MINT,
-};
+use zolana_test_utils::test_validator_asserts::wait_for_merkle_proof;
+use zolana_transaction::{Data, Mint, Utxo, SOL_ASSET_ID, SOL_MINT};
 use zolana_wallet::sync_wallet;
 
-// Timelock escrow lock-then-withdraw on the shielded pool, driven against a
-// real localnet (validator + Photon indexer + prover) that `setup()` starts.
-//
-// Flow:
-//   1. Fund (in setup): creator shields 0.5 SOL to the escrow authority.
-//   2. Escrow: the program spends that 0.5 SOL UTXO -> escrow UTXO 0.3 SOL (owned
-//      by the escrow-authority PDA, committed unlock timestamp already in
-//      the past) + change 0.2 SOL (back to the creator). ZK escrow proof, v0
-//      tx via ALT.
-//   3. Withdraw: creator (still holding the escrow UTXO hash locally --
-//      no discovery needed) spends the escrow UTXO -> source output 0.3 SOL
-//      back to itself. ZK withdraw proof, v0 tx.
-//   4. Assert the creator's synced confidential balance after each step, and
-//      that the withdraw output is indexed.
-//
-// Net: creator 0.5 SOL -> 0.2 SOL change + 0.3 SOL returned via withdraw.
 #[test]
 fn escrow_then_withdraw() -> Result<()> {
     let TestEnv {
         localnet,
         mut creator,
-        creator_input,
+        funding,
+        funding_leaf_index,
     } = setup(4)?;
-
-    let terms = EscrowTerms {
-        creator: creator.keypair.shielded_address()?,
-        unlock_timestamp: UNLOCK_TIMESTAMP,
-    };
-    let mut escrow_utxo = EscrowUtxo {
-        terms,
-        blinding: random_blinding(),
-        asset: zolana_transaction::Mint::SOL,
-        amount: LOCK_AMOUNT,
-    };
-
-    // escrow: lock `escrow_utxo` -- spend the creator's own shielded balance,
-    // append the escrow UTXO (owned by the escrow-authority PDA) plus a
-    // change output back to the creator.
     let creator_address = creator.keypair.shielded_address()?;
-    let escrow_output_utxo = escrow_utxo.output_utxo()?;
 
-    let input_utxos = vec![creator_input, SppProofInputUtxo::dummy(localnet.tree_id)?];
-
-    let escrow_utxo_asset = escrow_output_utxo.asset;
-    let leftover =
-        input_sum(&input_utxos, &escrow_utxo_asset.asset) - i128::from(escrow_output_utxo.amount);
-    let change_amount = u64::try_from(leftover)
-        .map_err(|_| anyhow!("insufficient shielded balance: {leftover}"))?;
-    let change = SppProofOutputUtxo::new(escrow_utxo_asset, change_amount, creator_address)?;
-    let mut transaction_outputs = vec![change, escrow_output_utxo];
-    let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
-    let [change, escrow_output_utxo]: [_; 2] = transaction_outputs
-        .try_into()
-        .map_err(|_| anyhow!("escrow transaction must have two outputs"))?;
-    escrow_utxo.blinding = escrow_output_utxo.blinding;
-    let change_blinding = change.blinding;
-
-    let transaction_viewing_key = get_transaction_viewing_key(&creator.keypair, &input_utxos)
-        .map_err(|e| anyhow!("escrow transaction viewing key: {e:?}"))?;
-    let encoded = encrypt_transaction_data(
-        &[change.clone(), escrow_output_utxo],
-        &transaction_viewing_key,
-        localnet.tree_id,
-    )
-    .map_err(|e| anyhow!("encode escrow slots: {e:?}"))?;
-
-    let external_data = ExternalData::new(
-        *transaction_viewing_key.pubkey().as_bytes(),
-        encoded.salt,
-        encoded.outputs,
-        encoded.resolved_owner_tags,
-        vec![],
-    );
-    let spp_proof_inputs = SppProofInputs {
-        input_utxos,
-        output_utxos: encoded.output_utxos,
-        external_data,
-        payer: creator_address.solana_address()?,
-        blinding_seed,
+    let escrow = EscrowProofInputParams {
+        creator: creator_address,
+        funding,
+        funding_leaf_index,
+        amount: LOCK_AMOUNT,
+        unlock_timestamp: UNLOCK_TIMESTAMP,
         output_tree_id: localnet.tree_id,
-        cache_accounts: Default::default(),
-    };
-
-    let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
+    }
+    .build(&creator.keypair)?;
     let spp_proof = localnet
         .client
         .indexer()
-        .prove_transact(
-            spp_proof_inputs,
-            &zolana_keypair::NullifierKey::from_secret([0; 31]),
-        )
+        .prove_transact(escrow.spp_proof_inputs(), &ProgramOwner::nullifier_key())
         .map_err(|e| anyhow!("escrow transact proof: {e:?}"))?;
-
-    let escrow_proof_inputs = EscrowProofInputParams {
-        escrow_utxo: escrow_utxo.clone(),
-        change,
-        spp_tx_hashes,
-    };
-    let escrow_proof = EscrowProverClient::new()
-        .prove_escrow(&escrow_proof_inputs.to_proof_inputs()?)
-        .map_err(|e| anyhow!("escrow proof: {e:?}"))?;
-
+    let escrow_proof = EscrowProverClient::new().prove_escrow(&escrow.to_proof_inputs()?)?;
+    let escrow_utxo = escrow.escrow_utxo().clone();
+    let change_blinding = escrow.change()?.blinding;
     let escrow_ix = Escrow {
-        payer: creator_address.solana_address()?,
-        tree: localnet.tree,
-        escrow_proof: escrow_proof.into(),
+        transaction: escrow,
         spp_proof,
+        escrow_proof: escrow_proof.into(),
     }
     .instruction()?;
 
@@ -141,11 +58,6 @@ fn escrow_then_withdraw() -> Result<()> {
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm escrow indexed: {e:?}"))?;
 
-    // Assert the creator's confidential balance dropped to the change amount:
-    // the original 0.5 SOL note is spent, replaced by the 0.2 SOL change note.
-    // The escrow UTXO is owned by the escrow-authority PDA and tagged for
-    // discovery using the PDA's own signing pubkey, so it never surfaces in
-    // the creator's own wallet sync.
     sync_wallet(
         &mut creator.wallet,
         &creator.keypair,
@@ -157,8 +69,8 @@ fn escrow_then_withdraw() -> Result<()> {
         .map_err(|e| anyhow!("creator balance after escrow: {e:?}"))?;
     let expected_change_utxo = Utxo {
         owner: creator_address.signing_pubkey,
-        asset: zolana_transaction::Mint::SOL,
-        amount: change_amount,
+        asset: Mint::SOL,
+        amount: SHIELD_AMOUNT - LOCK_AMOUNT,
         blinding: change_blinding,
         ring_program_id: None,
         data: Data::default(),
@@ -182,87 +94,31 @@ fn escrow_then_withdraw() -> Result<()> {
         )
     );
 
-    // withdraw: after `unlock_timestamp`, spend the escrow UTXO back to the
-    // creator.
-    let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
-
-    let escrow_hash = escrow_utxo.output_utxo()?.hash(localnet.tree_id)?;
-    let escrow_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
+    let escrow_state = wait_for_merkle_proof(
         localnet.client.indexer(),
         localnet.tree,
-        escrow_hash,
+        escrow_utxo.hash()?,
     );
-    let escrow_input_utxo = escrow_utxo
-        .to_input_utxo(localnet.tree_id, escrow_state.leaf_index)
-        .map_err(|e| anyhow!("escrow input_utxo: {e:?}"))?;
-    let input_utxos = vec![escrow_input_utxo];
-    let blinding_seed =
-        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))?;
-    let source_output_blinding = source_output.blinding;
-    let source_output_hash = source_output
-        .hash(localnet.tree_id)
-        .map_err(|e| anyhow!("source output hash: {e:?}"))?;
-
-    let transaction_viewing_key = get_transaction_viewing_key(&creator.keypair, &input_utxos)
-        .map_err(|e| anyhow!("withdraw transaction viewing key: {e:?}"))?;
-    let encoded = encrypt_transaction_data(
-        std::slice::from_ref(&source_output),
-        &transaction_viewing_key,
-        localnet.tree_id,
-    )
-    .map_err(|e| anyhow!("encode withdraw slots: {e:?}"))?;
-
-    let mut external_data = ExternalData::new(
-        *transaction_viewing_key.pubkey().as_bytes(),
-        encoded.salt,
-        encoded.outputs,
-        encoded.resolved_owner_tags,
-        vec![],
-    );
-    external_data.expiry_unix_ts = SPP_RELAYER_DEADLINE;
-    let withdraw_spp_proof_inputs = SppProofInputs {
-        input_utxos,
-        output_utxos: encoded.output_utxos,
-        external_data,
+    let withdraw = WithdrawProofInputParams {
+        escrow_utxo,
+        escrow_leaf_index: escrow_state.leaf_index,
         payer: creator_address.solana_address()?,
-        blinding_seed,
+        expiry_unix_ts: SPP_RELAYER_DEADLINE,
         output_tree_id: localnet.tree_id,
-        cache_accounts: Default::default(),
-    };
-
-    let withdraw_proof_inputs = WithdrawProofInputParams {
-        escrow_utxo: escrow_utxo.clone(),
-        source_output,
-        external_data_hash: withdraw_spp_proof_inputs
-            .external_data
-            .hash()
-            .map_err(|e| anyhow!("withdraw external data hash: {e:?}"))?,
-        private_tx_blinding: withdraw_spp_proof_inputs
-            .private_tx_blinding()
-            .map_err(|e| anyhow!("withdraw private tx blinding: {e:?}"))?,
-        input_tree_id: localnet.tree_id,
-        output_tree_id: localnet.tree_id,
-    };
-
+    }
+    .build(&creator.keypair)?;
     let spp_proof = localnet
         .client
         .indexer()
-        .prove_transact(
-            withdraw_spp_proof_inputs,
-            &zolana_keypair::NullifierKey::from_secret([0; 31]),
-        )
+        .prove_transact(withdraw.spp_proof_inputs(), &ProgramOwner::nullifier_key())
         .map_err(|e| anyhow!("withdraw transact proof: {e:?}"))?;
-    let withdraw_proof = EscrowProverClient::new()
-        .prove_withdraw(&withdraw_proof_inputs.to_proof_inputs()?)
-        .map_err(|e| anyhow!("withdraw proof: {e:?}"))?;
-
+    let withdraw_proof = EscrowProverClient::new().prove_withdraw(&withdraw.to_proof_inputs()?)?;
+    let source_output_blinding = withdraw.source_output()?.blinding;
+    let source_output_hash = *withdraw.transaction().output_hash(slot::SOURCE_OUTPUT)?;
     let withdraw_ix = Withdraw {
-        creator: creator_address.solana_address()?,
-        payer: creator_address.solana_address()?,
-        tree: localnet.tree,
-        withdraw_proof: withdraw_proof.into(),
-        unlock_timestamp: UNLOCK_TIMESTAMP,
+        transaction: withdraw,
         spp_proof,
+        withdraw_proof: withdraw_proof.into(),
     }
     .instruction()?;
 
@@ -272,11 +128,6 @@ fn escrow_then_withdraw() -> Result<()> {
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm withdraw indexed: {e:?}"))?;
 
-    // Assert the withdrawn output landed in the creator's confidential
-    // balance: the change note plus the returned escrow amount sum back to
-    // the original shielded deposit. Withdraw only spends the PDA-owned
-    // escrow UTXO, so both notes stay as distinct entries: the change note
-    // from the first sync, the source output from the second.
     sync_wallet(
         &mut creator.wallet,
         &creator.keypair,
@@ -288,7 +139,7 @@ fn escrow_then_withdraw() -> Result<()> {
         .map_err(|e| anyhow!("creator balance after withdraw: {e:?}"))?;
     let expected_source_output_utxo = Utxo {
         owner: creator_address.signing_pubkey,
-        asset: zolana_transaction::Mint::SOL,
+        asset: Mint::SOL,
         amount: LOCK_AMOUNT,
         blinding: source_output_blinding,
         ring_program_id: None,
