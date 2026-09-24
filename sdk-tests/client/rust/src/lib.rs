@@ -1,14 +1,17 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{spawn_prover, ComputeBudgetConfig, Rpc, SolanaRpc};
+use zolana_client::{
+    spawn_prover, ComputeBudgetConfig, IndexerRpcConfig, Rpc, SolanaRpc, ZolanaIndexer,
+};
 use zolana_interface::{
+    pda,
     state::{default_tree_fees, nullifier_tree_params},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::instruction::CreateProtocolConfig;
+use zolana_program::instruction::{AssetDeposit, CreateProtocolConfig, Deposit, DepositAsset};
 use zolana_program_test::{
     create_tree_instructions,
     localnet::{LocalnetValidator, UpgradeableProgram},
@@ -18,6 +21,14 @@ use zolana_test_utils::{
     localnet::env_localnet_ports,
     smart_account::{self, StandardSigners},
 };
+use zolana_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
+use zolana_user_registry_interface::{
+    instruction::{register, set_merging_enabled, RegisterData},
+    user_record_pda,
+};
+
+pub mod cached_merge;
+pub mod merge;
 
 pub struct SetupContext {
     pub rpc_url: String,
@@ -183,4 +194,140 @@ fn new_wallet(rpc: &mut SolanaRpc) -> Result<ShieldedKeypair> {
     let keypair = ShieldedKeypair::from_keypair(&solana_keypair)?;
     rpc.airdrop(&solana_keypair.pubkey(), 10_000_000_000)?;
     Ok(keypair)
+}
+
+/// Deposits are batched only to stay inside the 4 KB transaction v1 limit.
+const DEPOSITS_PER_TRANSACTION: usize = 12;
+
+/// What the merge examples start from, on top of [`setup`]: a sender
+/// registered for merging, a rent sponsor for the cache account, and a private
+/// balance already split across many UTXOs.
+pub struct MergeScenario {
+    pub rpc_url: String,
+    pub indexer_url: String,
+    pub prover_url: String,
+    pub tree: Pubkey,
+    pub tree_id: u16,
+    pub sender: ShieldedKeypair,
+    pub recipient: ShieldedKeypair,
+    /// Funds the cache account, is its write authority, and sends the merge.
+    /// The sender signs no merge: its record opted into merging.
+    pub rent_sponsor: Keypair,
+    /// The sender's spendable UTXOs, one per deposit.
+    pub utxos: Vec<WalletUtxo>,
+}
+
+/// Registers the sender, opts the record into merging, funds a rent sponsor,
+/// and splits `utxo_count * amount` lamports of the sender's private balance
+/// into `utxo_count` UTXOs.
+pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScenario> {
+    let SetupContext {
+        rpc_url,
+        indexer_url,
+        prover_url,
+        tree_id,
+        sender,
+        recipient_address: _,
+    } = setup()?;
+    let tree = pda::tree(tree_id);
+
+    let mut rpc = SolanaRpc::new(rpc_url.clone());
+    // The recipient is kept as a keypair here, not just an address, so the
+    // example can decrypt what it received.
+    let recipient = new_wallet(&mut rpc)?;
+    // The sponsor pays for the merge as well as the cache rent: the nullifier
+    // PDAs and the forester fee come out of this balance.
+    let rent_sponsor = Keypair::new();
+    rpc.airdrop(&rent_sponsor.pubkey(), 2_000_000_000)?;
+
+    // `merge_transact` reads the registry record for the owner's signing and
+    // nullifier keys, and rejects an owner that has not opted into merging.
+    let user_record = user_record_pda(&sender.pubkey()).0;
+    rpc.create_and_send_transaction(
+        &[
+            register(
+                user_record,
+                sender.pubkey(),
+                sender.pubkey(),
+                RegisterData {
+                    owner_p256: None,
+                    nullifier_pubkey: sender.nullifier_key.pubkey()?,
+                    viewing_pubkey: *sender.viewing_pubkey().as_bytes(),
+                },
+            ),
+            set_merging_enabled(user_record, sender.pubkey(), true),
+        ],
+        sender.pubkey(),
+        &[&sender],
+        ComputeBudgetConfig::for_instruction_count(2),
+    )?;
+
+    let shielded_address = sender.shielded_address()?;
+    let view_tag = shielded_address.confidential_view_tag()?;
+    let owner = shielded_address.owner_hash()?;
+    let mut slot = 0;
+    for batch in (0..utxo_count).step_by(DEPOSITS_PER_TRANSACTION) {
+        let count = DEPOSITS_PER_TRANSACTION.min(utxo_count - batch);
+        let deposit_ix = Deposit {
+            tree,
+            depositor: sender.pubkey(),
+            deposits: (0..count)
+                .map(|_| AssetDeposit {
+                    asset: DepositAsset::Sol,
+                    view_tag,
+                    owner,
+                    amount,
+                    utxo_data: None,
+                    memo: None,
+                })
+                .collect(),
+        }
+        .instruction()?;
+        let signature = rpc.create_and_send_transaction(
+            &[deposit_ix],
+            sender.pubkey(),
+            &[&sender],
+            ComputeBudgetConfig::new(1_400_000),
+        )?;
+        slot = rpc
+            .get_signature_statuses(vec![signature])?
+            .first()
+            .and_then(|status| status.as_ref())
+            .map(|status| status.slot)
+            .ok_or_else(|| anyhow!("deposit {signature} has no confirmed slot"))?;
+    }
+
+    let indexer = ZolanaIndexer::new(&indexer_url);
+    let response = indexer.get_shielded_transactions_by_tags(
+        vec![view_tag],
+        None,
+        Some(50),
+        Some(IndexerRpcConfig::at_slot(slot)),
+    )?;
+    let balances = decrypt_spendable(&sender, &response.transactions, &AssetRegistry::default())
+        .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
+        .balances;
+    let utxos = balances
+        .get_balance(SOL_MINT)
+        .ok_or_else(|| anyhow!("sender has no SOL balance"))?
+        .utxos
+        .clone();
+    if utxos.len() != utxo_count {
+        return Err(anyhow!(
+            "expected {utxo_count} deposited utxos, indexer returned {}",
+            utxos.len()
+        ));
+    }
+
+    Ok(MergeScenario {
+        rpc_url,
+        indexer_url,
+        prover_url,
+        tree,
+        tree_id,
+        sender,
+        recipient,
+        rent_sponsor,
+        utxos,
+    })
 }

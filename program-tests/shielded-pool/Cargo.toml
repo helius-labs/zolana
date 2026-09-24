@@ -200,6 +200,16 @@ name = "merge_functional"
 path = "tests/merge/functional.rs"
 required-features = ["proofs"]
 
+[[test]]
+name = "cache_functional"
+path = "tests/cache/functional.rs"
+required-features = ["proofs"]
+
+[[test]]
+name = "cache_queued"
+path = "tests/cache/queued.rs"
+required-features = ["proofs"]
+
 # --- Mollusk mutation coverage ---
 
 [[test]]
@@ -294,3 +304,7 @@ path = "tests/dispatch/validation.rs"
 [[test]]
 name = "verifying_keys_setup_markers"
 path = "tests/verifying_keys/setup_markers.rs"
+
+[[test]]
+name = "cache_contract"
+path = "tests/cache/contract.rs"

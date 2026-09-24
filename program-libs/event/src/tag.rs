@@ -40,6 +40,9 @@ pub const RING_TRANSACT: u8 = 19;
 pub const RING_MERGE_TRANSACT: u8 = 20;
 pub const RING_AUTHORITY_TRANSACT: u8 = 21;
 
+pub const CREATE_CACHE: u8 = 22;
+pub const CLOSE_CACHE: u8 = 23;
+
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -66,6 +69,8 @@ pub enum InstructionTag {
     RingTransact = RING_TRANSACT,
     RingMergeTransact = RING_MERGE_TRANSACT,
     RingAuthorityTransact = RING_AUTHORITY_TRANSACT,
+    CreateCache = CREATE_CACHE,
+    CloseCache = CLOSE_CACHE,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -95,6 +100,8 @@ impl TryFrom<u8> for InstructionTag {
             RING_TRANSACT => Ok(Self::RingTransact),
             RING_MERGE_TRANSACT => Ok(Self::RingMergeTransact),
             RING_AUTHORITY_TRANSACT => Ok(Self::RingAuthorityTransact),
+            CREATE_CACHE => Ok(Self::CreateCache),
+            CLOSE_CACHE => Ok(Self::CloseCache),
             _ => Err(()),
         }
     }

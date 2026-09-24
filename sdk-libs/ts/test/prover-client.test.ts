@@ -68,6 +68,11 @@ const INPUTS: ProverInputs = {
     signerPublicKeyHashes: [asField(0n)],
     inputFlags: asField(1n),
     publishedOutputOwnerPublicKeyHashes: [],
+    cacheTreeId: asField(0n),
+    cacheReadHashChain: asField(0n),
+    cacheReadHashes: [],
+    cacheIsCached: [],
+    cacheReadIndex: [],
     publicInputHash: asField(0n),
   },
 };
@@ -855,6 +860,11 @@ describe("prover request routing", () => {
         "signerPkHashes",
         "inputFlags",
         "publishedOutputOwnerPkHashes",
+        "cacheTreeId",
+        "cacheReadHashChain",
+        "cacheReadHashes",
+        "cacheIsCached",
+        "cacheReadIndex",
         "publicInputHash",
       ].sort(),
     );

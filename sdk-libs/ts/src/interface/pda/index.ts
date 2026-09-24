@@ -9,7 +9,7 @@ import {
   type ReadonlyUint8Array,
 } from "@solana/kit";
 
-import { copyBytes, encodeBase58, fail, sha256, unsigned } from "../internal.js";
+import { copyBytes, encodeBase58, fail, sha256, unsigned, unsignedBigint } from "../internal.js";
 import {
   SHIELDED_POOL_CPI_AUTHORITY,
   SHIELDED_POOL_PROGRAM_ID,
@@ -70,6 +70,22 @@ export async function nullifierPda(
 
 export async function nullifierPdaAddress(tree: Address, nullifier: Uint8Array): Promise<Address> {
   return (await nullifierPda(tree, nullifier))[0];
+}
+
+export async function cachePda(
+  rentSponsor: Address,
+  nonce: bigint,
+): Promise<ProgramDerivedAddress> {
+  const seed = new Uint8Array(8);
+  new DataView(seed.buffer).setBigUint64(0, unsignedBigint(nonce, (1n << 64n) - 1n, "nonce"), true);
+  return getProgramDerivedAddress({
+    programAddress: SHIELDED_POOL_PROGRAM_ID,
+    seeds: [encoder.encode("cache"), addressEncoder.encode(rentSponsor), seed],
+  });
+}
+
+export async function cacheAddress(rentSponsor: Address, nonce: bigint): Promise<Address> {
+  return (await cachePda(rentSponsor, nonce))[0];
 }
 
 /**

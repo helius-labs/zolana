@@ -135,6 +135,16 @@ export interface TransactProof {
   readonly c: Bytes32;
 }
 
+export interface CacheWrite {
+  readonly output: number;
+  readonly slot: number;
+}
+
+export interface CacheAccess {
+  readonly readBitmap: bigint;
+  readonly writeSlots: readonly CacheWrite[];
+}
+
 export type CircuitId =
   | Readonly<{
       kind: "confidentialEddsa";
@@ -153,6 +163,20 @@ export type CircuitId =
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
+    }>
+  | Readonly<{
+      kind: "confidentialEddsaCached";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      cacheAccess: CacheAccess;
+    }>
+  | Readonly<{
+      kind: "ringEddsaCached";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      cacheAccess: CacheAccess;
     }>;
 
 export type InterfaceTransfer =
@@ -278,4 +302,21 @@ export interface MergeTransactInstructionData {
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndex: number;
   readonly nullifierTreeRootIndex: number;
+  readonly cacheSlot?: number;
+}
+
+export interface CreateCacheData {
+  readonly writeAuthority: Address;
+  readonly nonce: bigint;
+  readonly treeId: number;
+  readonly expiresAt: bigint;
+}
+
+export interface CacheAccount {
+  readonly bump: number;
+  readonly treeId: number;
+  readonly expiresAt: bigint;
+  readonly rentSponsor: Address;
+  readonly writeAuthority: Address;
+  readonly utxoHashes: readonly Bytes32[];
 }

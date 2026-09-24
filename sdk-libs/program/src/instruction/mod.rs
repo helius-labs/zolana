@@ -1,5 +1,6 @@
 #[cfg(feature = "protocol")]
 mod batch_update_nullifier_tree;
+mod cache;
 #[cfg(feature = "protocol")]
 mod close_nullifier_pdas;
 #[cfg(feature = "protocol")]
@@ -21,6 +22,7 @@ mod transact;
 
 #[cfg(feature = "protocol")]
 pub use batch_update_nullifier_tree::BatchUpdateNullifierTree;
+pub use cache::{CloseCache, CreateCache};
 #[cfg(feature = "protocol")]
 pub use close_nullifier_pdas::CloseNullifierPdas;
 #[cfg(feature = "protocol")]
@@ -31,7 +33,7 @@ pub use create_spl_interface::CreateSplInterface;
 pub use create_tree::CreateTree;
 pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
 pub use merge_ring::MergeRing;
-pub use merge_transact::MergeTransact;
+pub use merge_transact::{CacheWriteAccounts, MergeTransact};
 #[cfg(feature = "protocol")]
 pub use protocol_config::{
     ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,

@@ -184,6 +184,7 @@ fn consolidation_shape_rejects_an_owner_signer_run_past_its_slots() {
     let mut accounts = consolidation_accounts(slots);
     let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix)
         .expect("a run filling every owner signer slot parses");
+    assert!(parsed.cache.is_none());
     assert_eq!(parsed.owner_signers.len(), slots);
     assert_eq!(parsed.nullifier_pdas.len(), 36);
 

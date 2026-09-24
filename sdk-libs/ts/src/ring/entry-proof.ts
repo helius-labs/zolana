@@ -4,6 +4,8 @@ import {
   NULLIFIER_TREE_HEIGHT,
   STATE_TREE_HEIGHT,
   asField,
+  cacheProverFields,
+  emptyCachedInputs,
   signerIdentity,
   transferPublicInputHash,
   treeSlotFields,
@@ -270,6 +272,7 @@ function dataTransitionInputs(
     nullifierRoot: input.absence.root,
   });
   const treeSlots = inputTreeSlots([inputTree]);
+  const cachedInputs = emptyCachedInputs(1);
   const publicInputHash = transferPublicInputHash({
     nullifiers: [bytesToBigInt(slot.nullifier)],
     outputHashes: [bytesToBigInt(hashes.utxoHash)],
@@ -282,6 +285,7 @@ function dataTransitionInputs(
     signerPublicKeyHashes: [payerHash, namespaceHash],
     inputFlags: inputFlags(true, [0]),
     publishedOutputOwnerPublicKeyHashes: [namespaceHash],
+    ...cachedInputs,
   });
   const transferInput: TransferInput = Object.freeze({
     circuit: slot.circuit,
@@ -322,6 +326,7 @@ function dataTransitionInputs(
     signerPublicKeyHashes: Object.freeze([asField(payerHash), asField(namespaceHash)]),
     inputFlags: asField(inputFlags(true, [0])),
     publishedOutputOwnerPublicKeyHashes: Object.freeze([asField(namespaceHash)]),
+    ...cacheProverFields(cachedInputs),
     publicInputHash: asField(publicInputHash),
   });
   return Object.freeze({ inputs, privateTxBlinding: txBlinding });

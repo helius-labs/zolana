@@ -5,7 +5,7 @@ use solana_address::Address;
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
 use zolana_keypair::{hash::sha256, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, SppProofInputs},
+    instructions::transact::{CacheAccounts, PrivateTxHash, SppProofInputs},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
         program_id_proof_input_hash, ring_program_id_proof_input_hash, SppProofInputUtxo,
@@ -32,6 +32,7 @@ fn output() -> SppProofOutputUtxo {
         owner_address: Some(keypair(7).shielded_address().unwrap()),
         owner_tag: Some([8; 32]),
         data: Data::default(),
+        cache_slot: None,
     }
 }
 fn as_utxo(output: &SppProofOutputUtxo) -> Utxo {
@@ -68,7 +69,66 @@ fn proof() -> SppProofInputs {
         output_tree_id: 0,
         external_data: ExternalData::new([2; 33], [3; 16], vec![], vec![], vec![]),
         payer: address(9),
+        cache_accounts: Default::default(),
     }
+}
+
+#[test]
+fn cache_slots_leave_commitments_alone_and_route_cached_inputs_to_nullifier_proofs() {
+    let spend = SppProofInputUtxo::from(wallet_utxo(&keypair(7), Mint::SOL, 10, 0, 1));
+    let cached = SppProofInputUtxo::from(wallet_utxo(&keypair(7), Mint::SOL, 11, 0, 2))
+        .with_cache_slot(35)
+        .unwrap();
+    let uncached = SppProofInputUtxo::from(wallet_utxo(&keypair(7), Mint::SOL, 11, 0, 2));
+    assert_eq!(cached.cache_slot, Some(35));
+    assert_eq!(
+        (cached.hash(), cached.nullifier()),
+        (uncached.hash(), uncached.nullifier())
+    );
+    assert!(matches!(
+        spend.clone().with_cache_slot(36),
+        Err(TransactionError::CacheSlotOutOfRange { slot: 36 })
+    ));
+    let padding = SppProofInputUtxo::dummy(0).unwrap();
+    assert!(matches!(
+        padding.clone().with_cache_slot(0),
+        Err(TransactionError::CachedDummyInput)
+    ));
+
+    let written = output().with_cache_slot(3).unwrap();
+    assert_eq!(written.cache_slot, Some(3));
+    assert_eq!(written.hash(0).unwrap(), output().hash(0).unwrap());
+    assert!(matches!(
+        output().with_cache_slot(36),
+        Err(TransactionError::CacheSlotOutOfRange { slot: 36 })
+    ));
+    assert!(matches!(
+        SppProofOutputUtxo::default().with_cache_slot(0),
+        Err(TransactionError::CachedDummyOutput)
+    ));
+
+    let mut tx = proof()
+        .with_read_cache(address(1))
+        .with_write_cache(address(2));
+    assert_eq!(
+        tx.cache_accounts,
+        CacheAccounts {
+            read: Some(address(1)),
+            write: Some(address(2)),
+        }
+    );
+    tx.input_utxos = vec![spend.clone(), cached.clone(), padding.clone()];
+    assert_eq!(
+        tx.dummy_nullifiers(),
+        vec![cached.nullifier(), padding.nullifier()]
+    );
+    let commitments: Vec<_> = tx
+        .input_utxo_hashes()
+        .unwrap()
+        .into_iter()
+        .map(SppProofInputUtxo::hash)
+        .collect();
+    assert_eq!(commitments, vec![spend.hash()]);
 }
 
 #[test]

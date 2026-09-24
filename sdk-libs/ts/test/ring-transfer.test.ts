@@ -471,6 +471,19 @@ describe("delegate policy rail", () => {
     expect(finalized?.inputUtxos.filter((input) => !input.isDummy())).toHaveLength(1);
     expect(finalized?.outputs.filter((output) => !output.isDummy())).toHaveLength(2);
     expect(finalized?.externalData.messages).toHaveLength(1);
+    if (finalized === undefined) throw new Error("authority proof inputs were not captured");
+    const authorityRefusal = (inputs: SppProofInputs): unknown => {
+      try {
+        assemble(inputs, [], [], { kind: "ringAuthority", ring: RING });
+      } catch (error) {
+        return (error as { code?: unknown }).code;
+      }
+      return undefined;
+    };
+    expect(authorityRefusal(finalized)).not.toBe("CLIENT_INVALID_PROOF_INPUTS");
+    expect(authorityRefusal(finalized.withReadCache(actor(40).address.solanaAddress()))).toBe(
+      "CLIENT_INVALID_PROOF_INPUTS",
+    );
     expect(proved.ownerSigners).toEqual([]);
     expect(proved.window).toBeUndefined();
     expect(proved.approvalRequired).toBe(false);

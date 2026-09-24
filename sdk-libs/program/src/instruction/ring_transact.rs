@@ -7,7 +7,7 @@ use zolana_interface::{
 };
 
 use super::transact::{
-    append_interface_transfer_accounts, transact_nullifier_pda_accounts,
+    append_cache_accounts, append_interface_transfer_accounts, transact_nullifier_pda_accounts,
     TransactInterfaceTransferAccounts,
 };
 
@@ -41,6 +41,43 @@ impl RingTransact {
     /// is SPP and the `ring_auth` PDA is passed as a signer.
     pub fn cpi_instruction(&self) -> Instruction {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
+    }
+
+    pub fn cpi_instruction_with_caches(
+        &self,
+        read_cache: Option<Pubkey>,
+        write_cache: Option<(Pubkey, Pubkey)>,
+    ) -> Instruction {
+        let mut instruction = self.cpi_instruction();
+        append_cache_accounts(&mut instruction.accounts, read_cache, write_cache);
+        instruction
+    }
+
+    pub fn instruction_with_cache_read(&self, cache: Pubkey) -> Instruction {
+        let mut instruction = self.instruction();
+        append_cache_accounts(&mut instruction.accounts, Some(cache), None);
+        instruction
+    }
+
+    pub fn instruction_with_cache_write(&self, cache: Pubkey, writer: Pubkey) -> Instruction {
+        let mut instruction = self.instruction();
+        append_cache_accounts(&mut instruction.accounts, None, Some((cache, writer)));
+        instruction
+    }
+
+    pub fn instruction_with_caches(
+        &self,
+        read_cache: Pubkey,
+        write_cache: Pubkey,
+        writer: Pubkey,
+    ) -> Instruction {
+        let mut instruction = self.instruction();
+        append_cache_accounts(
+            &mut instruction.accounts,
+            Some(read_cache),
+            Some((write_cache, writer)),
+        );
+        instruction
     }
 
     fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
@@ -86,5 +123,91 @@ impl RingTransact {
             accounts,
             data: instruction_data,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_interface::instruction::instruction_data::transact::{
+        CircuitId, TransactProof, TreeContext,
+    };
+
+    fn builder() -> RingTransact {
+        RingTransact {
+            payer: Pubkey::new_unique(),
+            input_trees: vec![Pubkey::new_unique()],
+            output_tree: Pubkey::new_unique(),
+            ring_program_id: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
+            data: TransactIxData {
+                proof: TransactProof::zeroed(),
+                expiry_unix_ts: u64::MAX,
+                private_tx_hash: [0u8; 32],
+                circuit: CircuitId::RingEddsa(0, 0, 3),
+                tx_viewing_pk: [0u8; 33],
+                salt: [0u8; 16],
+                inputs: Vec::new(),
+                interface_transfers: Vec::new(),
+                data_hash: None,
+                ring_data_hash: None,
+                outputs: Vec::new(),
+                messages: Vec::new(),
+                tree_contexts: vec![TreeContext {
+                    utxo_tree_root_index: 0,
+                    nullifier_tree_root_index: 0,
+                }],
+            },
+        }
+    }
+
+    #[test]
+    fn cache_write_targets_the_ring_program_with_writable_cache_then_writer() {
+        let builder = builder();
+        let cache = Pubkey::new_unique();
+        let writer = Pubkey::new_unique();
+        let ix = builder.instruction_with_cache_write(cache, writer);
+        let mut expected = builder.instruction().accounts;
+        expected.push(AccountMeta::new(cache, false));
+        expected.push(AccountMeta::new_readonly(writer, true));
+        assert_eq!(ix.program_id, builder.ring_program_id);
+        assert_eq!(ix.accounts, expected);
+    }
+
+    #[test]
+    fn cache_read_targets_the_ring_program_with_read_only_cache() {
+        let builder = builder();
+        let cache = Pubkey::new_unique();
+        let ix = builder.instruction_with_cache_read(cache);
+        let mut expected = builder.instruction().accounts;
+        expected.push(AccountMeta::new_readonly(cache, false));
+        assert_eq!(ix.program_id, builder.ring_program_id);
+        assert_eq!(ix.accounts, expected);
+    }
+
+    #[test]
+    fn caches_forward_through_the_ring_program_and_its_cpi() {
+        let builder = builder();
+        let read_cache = Pubkey::new_unique();
+        let write_cache = Pubkey::new_unique();
+        let writer = Pubkey::new_unique();
+        let tail = [
+            AccountMeta::new_readonly(read_cache, false),
+            AccountMeta::new(write_cache, false),
+            AccountMeta::new_readonly(writer, true),
+        ];
+        let ix = builder.instruction_with_caches(read_cache, write_cache, writer);
+        let mut expected = builder.instruction().accounts;
+        expected.extend(tail.clone());
+        assert_eq!(ix.program_id, builder.ring_program_id);
+        assert_eq!(ix.accounts, expected);
+
+        let cpi =
+            builder.cpi_instruction_with_caches(Some(read_cache), Some((write_cache, writer)));
+        let mut expected = builder.cpi_instruction().accounts;
+        expected.extend(tail);
+        assert_eq!(cpi.program_id, PROGRAM_ID_PUBKEY);
+        assert_eq!(cpi.accounts, expected);
     }
 }

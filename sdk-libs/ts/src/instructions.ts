@@ -1,6 +1,9 @@
 export {
+  TransactCacheAccounts,
+  closeCacheInstruction as getCloseCacheInstruction,
   createAssetCounterInstruction as getCreateAssetCounterInstructionAsync,
   createAssociatedTokenAccountInstruction as getCreateAssociatedTokenAccountInstructionAsync,
+  createCacheInstruction as getCreateCacheInstructionAsync,
   createProtocolConfigInstruction as getCreateProtocolConfigInstructionAsync,
   createSplInterfaceInstruction as getCreateSplInterfaceInstructionAsync,
   createTreeInstructions as getCreateTreeInstructionsAsync,
@@ -12,6 +15,7 @@ export {
   setTreeFeesInstruction as getSetTreeFeesInstructionAsync,
   transactInstruction as getTransactInstructionAsync,
   updateProtocolConfigInstruction as getUpdateProtocolConfigInstructionAsync,
+  type CacheWriteAccounts,
   type ProtocolConfigUpdate,
   type SignerAccount,
 } from "./interface/instructions/index.js";
@@ -19,6 +23,8 @@ export {
   DepositAsset,
   TransactWithdrawal,
   type AssetDeposit,
+  type CacheAccess,
+  type CreateCacheData,
   type DepositInstructionData,
   type DepositSplAccounts,
   type MergeTransactInstructionData,

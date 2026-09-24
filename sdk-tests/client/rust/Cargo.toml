@@ -10,6 +10,8 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+bytemuck = { workspace = true }
+solana-address = { workspace = true }
 solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
@@ -26,3 +28,11 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 [[example]]
 name = "deposit_transfer_withdraw"
 path = "deposit_transfer_withdraw.rs"
+
+[[example]]
+name = "merge_transfer"
+path = "merge_transfer.rs"
+
+[[example]]
+name = "optimized_merge_transfer"
+path = "optimized_merge_transfer.rs"

@@ -189,6 +189,49 @@ impl Transact {
             data: instruction_data,
         }
     }
+
+    pub fn instruction_with_cache_read(&self, cache: Pubkey) -> Instruction {
+        let mut instruction = self.instruction();
+        append_cache_accounts(&mut instruction.accounts, Some(cache), None);
+        instruction
+    }
+
+    pub fn instruction_with_cache_write(&self, cache: Pubkey, writer: Pubkey) -> Instruction {
+        let mut instruction = self.instruction();
+        append_cache_accounts(&mut instruction.accounts, None, Some((cache, writer)));
+        instruction
+    }
+
+    pub fn instruction_with_caches(
+        &self,
+        read_cache: Pubkey,
+        write_cache: Pubkey,
+        writer: Pubkey,
+    ) -> Instruction {
+        let mut instruction = self.instruction();
+        append_cache_accounts(
+            &mut instruction.accounts,
+            Some(read_cache),
+            Some((write_cache, writer)),
+        );
+        instruction
+    }
+}
+
+pub(super) fn append_cache_accounts(
+    accounts: &mut Vec<AccountMeta>,
+    read_cache: Option<Pubkey>,
+    write_cache: Option<(Pubkey, Pubkey)>,
+) {
+    if let Some(read_cache) = read_cache {
+        accounts.push(AccountMeta::new_readonly(read_cache, false));
+    }
+    if let Some((write_cache, writer)) = write_cache {
+        accounts.extend([
+            AccountMeta::new(write_cache, false),
+            AccountMeta::new_readonly(writer, true),
+        ]);
+    }
 }
 
 #[cfg(test)]
@@ -466,5 +509,60 @@ mod tests {
             }]),
         }
         .instruction();
+    }
+
+    fn builder_without_transfers() -> Transact {
+        Transact {
+            payer: Pubkey::new_unique(),
+            input_trees: vec![Pubkey::new_unique()],
+            output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
+            data: empty_data(Vec::new()),
+        }
+    }
+
+    #[test]
+    fn cache_write_appends_writable_cache_then_signing_writer() {
+        let builder = builder_without_transfers();
+        let cache = Pubkey::new_unique();
+        let writer = Pubkey::new_unique();
+        let mut expected = builder.instruction().accounts;
+        expected.push(AccountMeta::new(cache, false));
+        expected.push(AccountMeta::new_readonly(writer, true));
+        assert_eq!(
+            builder.instruction_with_cache_write(cache, writer).accounts,
+            expected
+        );
+    }
+
+    #[test]
+    fn cache_read_appends_read_only_cache() {
+        let builder = builder_without_transfers();
+        let cache = Pubkey::new_unique();
+        let mut expected = builder.instruction().accounts;
+        expected.push(AccountMeta::new_readonly(cache, false));
+        assert_eq!(
+            builder.instruction_with_cache_read(cache).accounts,
+            expected
+        );
+    }
+
+    #[test]
+    fn caches_append_read_cache_then_write_cache_then_writer() {
+        let builder = builder_without_transfers();
+        let read_cache = Pubkey::new_unique();
+        let write_cache = Pubkey::new_unique();
+        let writer = Pubkey::new_unique();
+        let mut expected = builder.instruction().accounts;
+        expected.push(AccountMeta::new_readonly(read_cache, false));
+        expected.push(AccountMeta::new(write_cache, false));
+        expected.push(AccountMeta::new_readonly(writer, true));
+        assert_eq!(
+            builder
+                .instruction_with_caches(read_cache, write_cache, writer)
+                .accounts,
+            expected
+        );
     }
 }

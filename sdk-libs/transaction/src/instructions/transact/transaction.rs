@@ -11,6 +11,12 @@ use crate::{
     utxo::{derive_private_tx_blinding, SppProofInputUtxo},
 };
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CacheAccounts {
+    pub read: Option<Address>,
+    pub write: Option<Address>,
+}
+
 #[derive(Clone)]
 pub struct SppProofInputs {
     pub input_utxos: Vec<SppProofInputUtxo>,
@@ -19,12 +25,25 @@ pub struct SppProofInputs {
     pub output_tree_id: u16,
     pub external_data: ExternalData,
     pub payer: Address,
+    pub cache_accounts: CacheAccounts,
 }
 
 impl SppProofInputs {
     #[must_use]
     pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Self {
         self.output_tree_id = output_tree_id;
+        self
+    }
+
+    #[must_use]
+    pub fn with_read_cache(mut self, cache: Address) -> Self {
+        self.cache_accounts.read = Some(cache);
+        self
+    }
+
+    #[must_use]
+    pub fn with_write_cache(mut self, cache: Address) -> Self {
+        self.cache_accounts.write = Some(cache);
         self
     }
 

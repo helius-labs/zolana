@@ -1042,6 +1042,11 @@ function proverRequest(inputs: ProverInputs, secret: SecretEncoder): ProverReque
     signerPkHashes: payload.signerPublicKeyHashes.map(hex),
     inputFlags: hex(payload.inputFlags),
     publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
+    cacheTreeId: hex(payload.cacheTreeId),
+    cacheReadHashChain: hex(payload.cacheReadHashChain),
+    cacheReadHashes: payload.cacheReadHashes.map(hex),
+    cacheIsCached: payload.cacheIsCached.map(hex),
+    cacheReadIndex: payload.cacheReadIndex.map(hex),
     publicInputHash: hex(payload.publicInputHash),
   });
 }

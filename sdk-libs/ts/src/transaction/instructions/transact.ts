@@ -568,6 +568,11 @@ export function singleInputTreeId(inputs: readonly ProofInputUtxo[]): TreeId {
   return first;
 }
 
+export interface CacheAccounts {
+  readonly read?: Address;
+  readonly write?: Address;
+}
+
 export class SppProofInputs {
   readonly payer: Address;
   readonly inputUtxos: readonly ProofInputUtxo[];
@@ -580,6 +585,7 @@ export class SppProofInputs {
   readonly blindingSeed: Bytes32;
   /** The tree the outputs are appended to. */
   readonly outputTreeId: TreeId;
+  readonly cacheAccounts: CacheAccounts;
   constructor(
     input: Readonly<{
       payer: Address;
@@ -588,6 +594,7 @@ export class SppProofInputs {
       externalData: ExternalData;
       blindingSeed: Bytes32;
       outputTreeId: TreeId;
+      cacheAccounts?: CacheAccounts;
     }>,
   ) {
     this.payer = input.payer;
@@ -604,7 +611,32 @@ export class SppProofInputs {
     this.externalData = input.externalData;
     this.blindingSeed = checked<Bytes32>(input.blindingSeed, 32, "blinding seed");
     this.outputTreeId = checkedTreeId(input.outputTreeId);
+    const { read, write } = input.cacheAccounts ?? {};
+    this.cacheAccounts = Object.freeze({
+      ...(read === undefined ? {} : { read }),
+      ...(write === undefined ? {} : { write }),
+    });
     this.checkShape();
+  }
+
+  withReadCache(cache: Address): SppProofInputs {
+    return this.#withCacheAccounts({ ...this.cacheAccounts, read: cache });
+  }
+
+  withWriteCache(cache: Address): SppProofInputs {
+    return this.#withCacheAccounts({ ...this.cacheAccounts, write: cache });
+  }
+
+  #withCacheAccounts(cacheAccounts: CacheAccounts): SppProofInputs {
+    return new SppProofInputs({
+      payer: this.payer,
+      inputUtxos: this.inputUtxos,
+      outputs: this.outputs,
+      externalData: this.externalData,
+      blindingSeed: this.blindingSeed,
+      outputTreeId: this.outputTreeId,
+      cacheAccounts,
+    });
   }
 
   checkShape(): Shape {
@@ -640,12 +672,14 @@ export class SppProofInputs {
   }
 
   inputUtxoHashes(): readonly Bytes32[] {
-    return this.inputUtxos.filter((input) => !input.isDummy()).map((input) => input.hash());
+    return this.inputUtxos
+      .filter((input) => !input.isDummy() && input.cacheSlot === undefined)
+      .map((input) => input.hash());
   }
 
   inputContexts(): readonly InputUtxoContext[] {
     return this.inputUtxos
-      .filter((input) => !input.isDummy())
+      .filter((input) => !input.isDummy() && input.cacheSlot === undefined)
       .map((input, index) =>
         Object.freeze({
           index,
@@ -657,7 +691,7 @@ export class SppProofInputs {
 
   dummyNullifiers(): readonly Bytes32[] {
     return this.inputUtxos
-      .filter((input) => input.isDummy())
+      .filter((input) => input.isDummy() || input.cacheSlot !== undefined)
       .map((input) => new Uint8Array(input.nullifier()) as Bytes32);
   }
 

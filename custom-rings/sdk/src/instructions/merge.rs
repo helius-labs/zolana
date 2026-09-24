@@ -161,6 +161,7 @@ impl PreparedCustomRingMerge {
             nullifier_key,
             proofs,
             dummy_nullifier_proofs,
+            cache: None,
         }
     }
 
@@ -418,6 +419,7 @@ impl CustomRingMergeInstruction {
             payer,
             data: data.merge,
             output_ring_data_hash: data.output_ring_data_hash,
+            cache: None,
         }
         .instruction();
         let prefix = RingPrefix { ring, cosigner }.metas();
@@ -475,6 +477,7 @@ mod tests {
         let data = MergeRingIxData {
             output_ring_data_hash: [7; 32],
             merge: zolana_interface::instruction::MergeTransactIxData {
+                cache_slot: None,
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [0; 32],

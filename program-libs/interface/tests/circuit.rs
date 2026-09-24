@@ -1,6 +1,11 @@
 use zolana_interface::{
-    verifying_keys::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData},
+    verifying_keys::{Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode, RingP256ProofData},
     N_PUBLIC_SLOTS,
+};
+
+const CACHE: CacheAccess = CacheAccess {
+    read_bitmap: 1,
+    write_slots: CacheAccess::NO_WRITES,
 };
 
 const PUBLIC_ASSET_SLOTS: u8 = N_PUBLIC_SLOTS as u8;
@@ -15,6 +20,58 @@ const P256_PROOF_DATA: RingP256ProofData = RingP256ProofData {
 
 #[test]
 fn accessors_and_behavior_match_variants() {
+    let cached = CircuitId::ConfidentialEddsaCached(2, 3, 3, CACHE);
+    assert_eq!(cached.shape(), (2, 3, 3));
+    assert!(cached.is_confidential());
+    assert!(!cached.is_ring());
+    assert!(cached.requires_input_signatures());
+    assert_eq!(cached.output_owner_mode(), OutputOwnerMode::All);
+    assert_eq!(cached.cache_access(), Some(CACHE));
+
+    let ring_cached = CircuitId::RingEddsaCached(2, 3, 3, CACHE);
+    assert!(ring_cached.is_ring());
+    assert!(!ring_cached.is_p256());
+    assert_eq!(ring_cached.cache_access(), Some(CACHE));
+    assert_eq!(
+        ring_cached.output_owner_mode(),
+        OutputOwnerMode::ConfidentialMarked
+    );
+
+    let p256_cached = CircuitId::RingP256Cached(2, 3, 3, P256_PROOF_DATA, CACHE);
+    assert!(p256_cached.is_ring());
+    assert!(p256_cached.is_p256());
+    assert_eq!(p256_cached.cache_access(), Some(CACHE));
+    assert_eq!(p256_cached.bsb22_commitment(), Some(&COMMITMENT));
+    assert_eq!(
+        p256_cached.output_owner_mode(),
+        OutputOwnerMode::ConfidentialMarked
+    );
+
+    // A cached selector is its rail plus a selection, and nothing else.
+    for (rail, twin) in [
+        (
+            CircuitId::ConfidentialEddsa(2, 3, 3),
+            CircuitId::ConfidentialEddsaCached(2, 3, 3, CACHE),
+        ),
+        (
+            CircuitId::RingEddsa(2, 3, 3),
+            CircuitId::RingEddsaCached(2, 3, 3, CACHE),
+        ),
+        (
+            CircuitId::RingP256(2, 3, 3, P256_PROOF_DATA),
+            CircuitId::RingP256Cached(2, 3, 3, P256_PROOF_DATA, CACHE),
+        ),
+    ] {
+        assert_eq!(twin.uncached(), rail);
+        assert_eq!(twin.shape(), rail.shape());
+        assert_eq!(twin.output_owner_mode(), rail.output_owner_mode());
+        assert_eq!(twin.is_supported(), rail.is_supported());
+        assert_eq!(twin.is_ring(), rail.is_ring());
+        assert_eq!(twin.is_p256(), rail.is_p256());
+        assert_eq!(twin.is_confidential(), rail.is_confidential());
+        assert!(rail.cache_access().is_none());
+    }
+    assert!(CircuitId::RingAuthority(2, 2, 3).cache_access().is_none());
     let confidential = CircuitId::ConfidentialEddsa(2, 3, 3);
     assert_eq!(confidential.shape(), (2, 3, 3));
     assert!(confidential.is_confidential());
@@ -87,11 +144,27 @@ fn every_supported_shape_resolves_exactly_one_key() {
     for (n_inputs, n_outputs) in transfer_shapes {
         for circuit in [
             CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
             CircuitId::RingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::RingEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
             CircuitId::RingP256(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, P256_PROOF_DATA),
+            CircuitId::RingP256Cached(
+                n_inputs,
+                n_outputs,
+                PUBLIC_ASSET_SLOTS,
+                P256_PROOF_DATA,
+                CACHE,
+            ),
         ] {
             assert!(circuit.is_supported());
             assert!(circuit.verifying_key().is_some());
+            // The cache publishes values, not a circuit: a cached spend resolves
+            // its rail's own key, so no cached key is generated into this crate.
+            let rail = circuit.uncached();
+            assert!(core::ptr::eq(
+                circuit.verifying_key().expect("cached key"),
+                rail.verifying_key().expect("rail key"),
+            ));
         }
     }
     for n in 1..=4 {

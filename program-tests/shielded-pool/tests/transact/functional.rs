@@ -34,11 +34,16 @@ use zolana_hasher::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{CircuitId, InterfaceTransfer, OwnerTag, TransactIxData},
+        instruction_data::transact::{
+            CircuitId, InterfaceTransfer, OwnerTag, TransactIxData, NO_UTXO_ROOT,
+        },
         tag,
     },
     shape::Shape,
-    state::{discriminator::RING_CONFIG, read_tree_id, RingConfig, TreeFeeSchedule},
+    state::{
+        cache::empty_cached_input_fields, discriminator::RING_CONFIG, read_tree_id, RingConfig,
+        TreeFeeSchedule,
+    },
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     verifying_keys::RingP256ProofData,
     INPUT_TREES, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -255,6 +260,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");
@@ -520,6 +526,10 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
         chain.push(create_hash_chain_4_from_slice(&published_owners).expect("output owner chain"));
+        // The ring rail publishes a cache selection; this spend uses no cache.
+        chain.extend_from_slice(
+            &empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
+        );
     }
     let public_input_hash = create_hash_chain_4_from_slice(&chain).expect("ring public input hash");
 
@@ -835,6 +845,36 @@ fn transact_rejects_tampered_public_amount() {
     env.rpc
         .last_transaction_trace()
         .expect("tampered amount transaction trace")
+        .assert_rolled_back_except(&[payer]);
+}
+
+#[test]
+fn transact_rejects_an_uncached_spend_that_names_no_utxo_root() {
+    let mut env = proof_env();
+    let payer = env.rpc.payer.pubkey();
+    let tree = env.tree;
+    let mut data = build_valid_transact_ix(&mut env);
+    for context in &mut data.tree_contexts {
+        context.utxo_tree_root_index = NO_UTXO_ROOT;
+    }
+    let ix = Transact {
+        payer,
+        input_trees: vec![tree],
+        output_tree: tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data,
+    }
+    .instruction();
+
+    let error = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("an uncached spend must prove against a state root");
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
+    env.rpc
+        .last_transaction_trace()
+        .expect("sentinel transaction trace")
         .assert_rolled_back_except(&[payer]);
 }
 
@@ -1826,6 +1866,7 @@ fn build_two_tree_transact_ix(
         input_flags: &input_flags,
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

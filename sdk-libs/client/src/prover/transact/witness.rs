@@ -3,7 +3,7 @@ use zolana_interface::{
     pda, N_PUBLIC_SLOTS,
 };
 use zolana_transaction::{
-    instructions::transact::{inputs_require_p256, SppProofInputs},
+    instructions::transact::{inputs_require_p256, CacheAccounts, SppProofInputs},
     utxo::SppProofInputUtxo,
 };
 
@@ -86,7 +86,10 @@ pub fn attach_input_proofs(
     proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<Vec<TransferInputUtxo>, ClientError> {
-    let real_count = inputs.iter().filter(|input| !input.is_dummy()).count();
+    let real_count = inputs
+        .iter()
+        .filter(|input| !input.is_dummy() && input.cache_slot.is_none())
+        .count();
     let dummy_count = inputs.len() - real_count;
     if proofs.len() != real_count || dummy_nullifier_proofs.len() != dummy_count {
         return Err(ClientError::InputProofCountMismatch {
@@ -100,7 +103,7 @@ pub fn attach_input_proofs(
     let mut real_index = 0;
     let mut dummy_index = 0;
     for input_utxo in inputs {
-        let (proof, nullifier_proof) = if input_utxo.is_dummy() {
+        let (proof, nullifier_proof) = if input_utxo.is_dummy() || input_utxo.cache_slot.is_some() {
             let nullifier_proof = Some(
                 dummy_nullifier_proofs
                     .get(dummy_index)
@@ -140,6 +143,7 @@ pub struct AssembledTransfer {
     /// account per context entry in that order, and `pda::tree` of these is the
     /// only place that list can come from.
     pub input_tree_ids: Vec<u16>,
+    pub cache_accounts: CacheAccounts,
     ix: TransactIxData,
 }
 
@@ -245,12 +249,7 @@ pub fn assemble_with_dummy_policy(
         .map(zolana_transaction::instructions::transact::SettlementTransfer::interface_transfer)
         .collect();
 
-    let circuit_id = CircuitId::ConfidentialEddsa(
-        shape.n_inputs() as u8,
-        shape.n_outputs() as u8,
-        N_PUBLIC_SLOTS as u8,
-    );
-
+    let cache_accounts = proof_inputs.cache_accounts;
     let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
     let public_transfers = proof_inputs.public_transfers()?;
     let result = TransferProver {
@@ -267,8 +266,16 @@ pub fn assemble_with_dummy_policy(
         signer_pk_hashes,
         allow_dummy_inputs,
         shape,
+        cache_accounts,
     }
     .build()?;
+    let (n_inputs, n_outputs) = (shape.n_inputs() as u8, shape.n_outputs() as u8);
+    let circuit_id = match result.cache_access {
+        Some(access) => {
+            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
+        }
+        None => CircuitId::ConfidentialEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
+    };
     let prover_inputs = result.inputs;
     let public_input_hash = result.public_input_hash;
     let nullifiers = result.nullifiers;
@@ -303,6 +310,7 @@ pub fn assemble_with_dummy_policy(
         prover_inputs,
         public_input_hash,
         input_tree_ids: result.tree_ids,
+        cache_accounts,
         ix,
     })
 }
@@ -369,6 +377,43 @@ mod tests {
     }
 
     #[test]
+    fn cached_inputs_take_dummy_nullifier_proofs_in_slot_order() {
+        let owner = ShieldedKeypair::from_keypair(zolana_keypair::SigningKey::from_ed25519_bytes(
+            &[3u8; 32],
+        ))
+        .expect("eddsa keypair");
+        let cached: SppProofInputUtxo = wallet_input(
+            Utxo {
+                owner: owner.signing_pubkey(),
+                asset: zolana_transaction::Mint::SOL,
+                amount: 1,
+                blinding: [1u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &owner.nullifier_key,
+            0,
+        )
+        .into();
+        let inputs = vec![
+            SppProofInputUtxo::dummy(0).expect("dummy input"),
+            cached.with_cache_slot(4).expect("cached input"),
+        ];
+        let proofs = [dummy_nullifier_proof(1), dummy_nullifier_proof(2)];
+
+        let input_utxos = attach_input_proofs(inputs, &[], &proofs).expect("attach proofs");
+
+        assert!(input_utxos
+            .iter()
+            .all(|input_utxo| input_utxo.proof.is_none()));
+        let attached: Vec<_> = input_utxos
+            .iter()
+            .map(|input_utxo| input_utxo.nullifier_proof.clone())
+            .collect();
+        assert_eq!(attached, proofs.map(Some).to_vec());
+    }
+
+    #[test]
     fn default_transact_rejects_p256_owned_inputs() {
         let keypair = ShieldedKeypair::new_p256().expect("P256 keypair");
         let input = wallet_input(
@@ -396,6 +441,7 @@ mod tests {
             payer: Address::default(),
             blinding_seed: [7; 32],
             output_tree_id: 0,
+            cache_accounts: Default::default(),
         };
 
         assert!(matches!(
@@ -423,6 +469,7 @@ mod tests {
             payer: Address::default(),
             blinding_seed: [7; 32],
             output_tree_id: 0,
+            cache_accounts: Default::default(),
         };
         let transfers = proof_inputs.public_transfers().unwrap();
         assert_eq!(transfers.assets[0], asset_field(&mint).unwrap());

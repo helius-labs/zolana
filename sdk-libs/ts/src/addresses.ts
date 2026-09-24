@@ -1,5 +1,6 @@
 export {
   associatedTokenAddress as getAssociatedTokenAddress,
+  cacheAddress as getCacheAddress,
   nullifierPdaAddress as getNullifierPdaAddress,
   protocolConfigAddress as getProtocolConfigAddress,
   shieldedPoolCpiAuthorityAddress as getShieldedPoolCpiAuthorityAddress,

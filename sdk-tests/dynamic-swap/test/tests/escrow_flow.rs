@@ -142,6 +142,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 payer: user_solana.pubkey(),
                 blinding_seed,
                 output_tree_id: env.localnet.tree_id,
+                cache_accounts: Default::default(),
             };
             let split_transact = env
                 .localnet
@@ -359,6 +360,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 payer: authority_solana.pubkey(),
                 blinding_seed,
                 output_tree_id: env.localnet.tree_id,
+                cache_accounts: Default::default(),
             };
             let transact = env
                 .localnet
@@ -674,6 +676,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             payer: authority_solana.pubkey(),
             blinding_seed,
             output_tree_id: env.localnet.tree_id,
+            cache_accounts: Default::default(),
         };
         let transact = env
             .localnet

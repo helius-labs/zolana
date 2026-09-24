@@ -34,7 +34,12 @@ type publicInputHashVector struct {
 	InputFlags          string           `json:"input_flags"`
 	SignerPkHashes      []string         `json:"signer_pk_hashes"`
 	OutputOwnerPkHashes []string         `json:"output_owner_pk_hashes"`
-	PublicInputHash     string           `json:"public_input_hash"`
+	// The cache selection every owner-signed rail publishes. This vector pins
+	// the empty selection an ordinary spend carries: no tree and the chain over
+	// one empty entry per input.
+	CacheTreeID        string `json:"cache_tree_id"`
+	CacheReadHashChain string `json:"cache_read_hash_chain"`
+	PublicInputHash    string `json:"public_input_hash"`
 }
 
 func TestPublicInputHashKnownAnswerVector(t *testing.T) {
@@ -51,6 +56,9 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 	}
 
 	if os.Getenv("UPDATE_VECTORS") == "1" {
+		selection := cacheSelectionFromVector(t, vector)
+		vector.CacheTreeID = "0x" + parse.FieldHex(selection[0])
+		vector.CacheReadHashChain = "0x" + parse.FieldHex(selection[1])
 		vector.PublicInputHash = "0x" + parse.FieldHex(got)
 		writePublicInputHashVector(t, vector)
 		t.Skip("rewrote the public input hash vector; rerun without UPDATE_VECTORS")
@@ -123,6 +131,7 @@ func TestPublicInputHashInsertsPreimageAfterPrivateTxHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	fields = append(fields, inputs.RingProgramID, signerChain, inputs.InputFlags)
+	fields = append(fields, inputs.PreimageTail...)
 	want := mustHashChain4(t, fields)
 	if got.Cmp(want) != 0 {
 		t.Fatalf("inserted preimage mismatch:\ngot  0x%s\nwant 0x%s", parse.FieldHex(got), parse.FieldHex(want))
@@ -177,12 +186,21 @@ func inputsFromVector(t *testing.T, vector publicInputHashVector) PublicInputs {
 		InputFlags:          parseField(t, vector.InputFlags),
 		SignerPkHashes:      parseFields(t, vector.SignerPkHashes),
 		OutputOwnerPkHashes: parseFields(t, vector.OutputOwnerPkHashes),
+		PreimageTail:        cacheSelectionFromVector(t, vector),
 	}
 	for i := 0; i < NPublicSlots; i++ {
 		inputs.PublicAssets[i] = parseField(t, vector.PublicAssets[i])
 		inputs.PublicAmounts[i] = parseField(t, vector.PublicAmounts[i])
 	}
 	return inputs
+}
+
+func cacheSelectionFromVector(t *testing.T, vector publicInputHashVector) []*big.Int {
+	t.Helper()
+	return []*big.Int{
+		parseField(t, vector.CacheTreeID),
+		parseField(t, vector.CacheReadHashChain),
+	}
 }
 
 func parseTreeSlots(t *testing.T, slots []treeSlotVector) []TreeSlot {

@@ -42,6 +42,7 @@ fn merge_nullifiers() -> Vec<[u8; 32]> {
 
 fn merge_data() -> MergeTransactIxData {
     MergeTransactIxData {
+        cache_slot: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0u8; 32],
@@ -168,6 +169,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         payer,
         user_record,
         data: merge_data.clone(),
+        cache: None,
     }
     .instruction();
     let mut expected_merge = vec![
@@ -188,6 +190,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         payer,
         data: merge_data,
         output_ring_data_hash: [0u8; 32],
+        cache: None,
     }
     .cpi_instruction();
     let mut expected_merge_ring = vec![

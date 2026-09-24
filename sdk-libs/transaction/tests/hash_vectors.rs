@@ -226,6 +226,7 @@ fn real_input(
         ring_data_hash: None,
         tree_id,
         leaf_index: 0,
+        cache_slot: None,
     }
 }
 
@@ -420,6 +421,7 @@ fn build(
             vec![],
         ),
         payer,
+        cache_accounts: Default::default(),
     };
     assert_eq!(proof_inputs.check_shape().expect("fixture shape"), shape);
     let first_nullifier = proof_inputs.first_nullifier().expect("first nullifier");

@@ -15,9 +15,11 @@ import {
 } from "../../interface/tree-slot.js";
 import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
 
-import type { ProofReader } from "../ports.js";
+import { CACHE_CAPACITY } from "../../interface/state.js";
+import type { MergeCacheTarget, ProofReader } from "../ports.js";
 import { ClientError, fromClientCause } from "../error.js";
 import {
+  addressBytes,
   bigintToBytes,
   bytesField,
   bytesToBigInt,
@@ -49,6 +51,7 @@ export interface MergeAssembly {
   /// re-derive it.
   readonly externalDataHash: Bytes32;
   readonly eddsaOwner: boolean;
+  readonly cacheSlot?: number;
   instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData;
 }
 
@@ -57,9 +60,11 @@ export async function assembleMerge(
   indexer: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">,
   tree: Address,
   context?: RequestContext,
+  cache?: MergeCacheTarget,
 ): Promise<MergeAssembly> {
   try {
     validatePreparedMerge(prepared);
+    const target = cache === undefined ? undefined : checkedMergeCacheTarget(cache);
     const dummyNullifiers = prepared.dummyNullifiers();
     const [proofs, dummyResponse] = await Promise.all([
       indexer.getInputMerkleProofs(prepared.inputUtxoHashes(), undefined, context),
@@ -67,7 +72,7 @@ export async function assembleMerge(
         ? Promise.resolve(undefined)
         : indexer.getNonInclusionProofs(tree, dummyNullifiers, undefined, context),
     ]);
-    return assembleMergeUnchecked(prepared, proofs, dummyResponse?.proofs ?? [], tree);
+    return assembleMergeUnchecked(prepared, proofs, dummyResponse?.proofs ?? [], tree, target);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -78,12 +83,31 @@ export function assembleMergeWithProofs(
   proofs: readonly SpendProof[],
   tree: Address,
   dummyNullifierProofs: readonly NonInclusionProof[] = [],
+  cache?: MergeCacheTarget,
 ): MergeAssembly {
   try {
-    return assembleMergeUnchecked(prepared, proofs, dummyNullifierProofs, tree);
+    return assembleMergeUnchecked(
+      prepared,
+      proofs,
+      dummyNullifierProofs,
+      tree,
+      cache === undefined ? undefined : checkedMergeCacheTarget(cache),
+    );
   } catch (cause) {
     throw fromClientCause(cause);
   }
+}
+
+function checkedMergeCacheTarget(cache: MergeCacheTarget): MergeCacheTarget {
+  const candidate: unknown = cache;
+  if (typeof candidate !== "object" || candidate === null) {
+    throw new ClientError("CLIENT_INVALID_CACHE_ACCESS", { details: { field: "cache" } });
+  }
+  addressBytes(cache.address);
+  if (!Number.isSafeInteger(cache.slot) || cache.slot < 0 || cache.slot >= CACHE_CAPACITY) {
+    throw new ClientError("CLIENT_INVALID_CACHE_ACCESS", { details: { field: "slot" } });
+  }
+  return Object.freeze({ address: cache.address, slot: cache.slot });
 }
 
 /** The one tree slot a merge opens against, and the root positions its instruction references. */
@@ -98,6 +122,7 @@ function assembleMergeUnchecked(
   proofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[],
   tree: Address,
+  cache: MergeCacheTarget | undefined,
 ): MergeAssembly {
   validatePreparedMerge(prepared);
   // The submit tree must be the tree the inputs are hashed under, or the proof
@@ -234,6 +259,7 @@ function assembleMergeUnchecked(
         : InstructionTag.ringMergeTransact,
     expiryUnixTs: prepared.expiryUnixTs,
     outputUtxoHash: outputHash,
+    ...(cache === undefined ? {} : { cache }),
   });
   // Merge has no blinding seed: the owner's nullifier secret takes its place
   // in the private transaction blinding, so a reader holding the secret
@@ -267,7 +293,10 @@ function assembleMergeUnchecked(
       bytesToBigInt(externalDataHash),
       1n,
       ...(prepared.output.ringProgramId === undefined
-        ? [ownerPublicKeyHash]
+        ? [
+            ownerPublicKeyHash,
+            bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
+          ]
         : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)]),
     ]),
   ) as Bytes32;
@@ -303,6 +332,7 @@ function assembleMergeUnchecked(
       ),
       utxoTreeRootIndex,
       nullifierTreeRootIndex,
+      ...(cache === undefined ? {} : { cacheSlot: cache.slot }),
     });
   return Object.freeze({
     proverInputs,
@@ -320,6 +350,7 @@ function assembleMergeUnchecked(
     publicInputHash,
     externalDataHash,
     eddsaOwner,
+    ...(cache === undefined ? {} : { cacheSlot: cache.slot }),
     instructionData,
   });
 }

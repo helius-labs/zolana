@@ -101,7 +101,7 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
 /// byte inside the set dispatches to its processor.
 #[test]
 fn every_first_byte_dispatches_or_is_rejected_exactly() {
-    const KNOWN_TAGS: [u8; 22] = [
+    const KNOWN_TAGS: [u8; 24] = [
         tag::CREATE_PROTOCOL_CONFIG,
         tag::UPDATE_PROTOCOL_CONFIG,
         tag::CREATE_TREE,
@@ -124,6 +124,8 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
         tag::RING_TRANSACT,
         tag::RING_MERGE_TRANSACT,
         tag::RING_AUTHORITY_TRANSACT,
+        tag::CREATE_CACHE,
+        tag::CLOSE_CACHE,
     ];
     assert_eq!(KNOWN_TAGS, core::array::from_fn(|tag| tag as u8));
     let transact_payload =

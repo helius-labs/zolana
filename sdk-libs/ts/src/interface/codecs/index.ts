@@ -1,6 +1,9 @@
 import type {
   Address,
   Bytes32,
+  CacheAccount,
+  CircuitId,
+  CreateCacheData,
   DepositInstructionData,
   InputUtxo,
   MergeTransactInstructionData,
@@ -19,9 +22,12 @@ import type {
   TreeFees,
   TreeHeadRoots,
 } from "../types.js";
+import { validCacheAccess } from "../cache.js";
 import { MERGE_INPUT_COUNT } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
+  CACHE_ACCOUNT_SIZE,
+  CACHE_CAPACITY,
   NULLIFIER_ROOT_HISTORY_CURSOR_OFFSET,
   NULLIFIER_ROOT_HISTORY_OFFSET,
   NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
@@ -39,10 +45,12 @@ import {
 import {
   Reader,
   Writer,
+  addressBytes,
   copyBytes,
   encodeBase58,
   fail,
   sha256,
+  unsigned,
   unsignedBigint,
 } from "../internal.js";
 
@@ -204,13 +212,43 @@ function writeOwnerTag(writer: Writer, value: OwnerTag): void {
   }
 }
 
-function writeCircuit(writer: Writer, value: TransactInstructionData["circuit"]): void {
-  const tag = value.kind === "confidentialEddsa" ? 0 : value.kind === "ringEddsa" ? 1 : 2;
+function circuitTag(value: CircuitId): number {
+  switch (value.kind) {
+    case "confidentialEddsa":
+      return 0;
+    case "ringEddsa":
+      return 1;
+    case "ringAuthority":
+      return 2;
+    case "confidentialEddsaCached":
+      return 4;
+    case "ringEddsaCached":
+      return 5;
+    default:
+      return fail("INTERFACE_CODEC", { name: "circuit.kind" });
+  }
+}
+
+function writeCircuit(writer: Writer, value: CircuitId): void {
   writer
-    .u16(tag, "circuit.kind")
+    .u16(circuitTag(value), "circuit.kind")
     .u8(value.inputs, "circuit.inputs")
     .u8(value.outputs, "circuit.outputs")
     .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
+  if (value.kind !== "confidentialEddsaCached" && value.kind !== "ringEddsaCached") return;
+  if (!validCacheAccess(value.cacheAccess, value.inputs, value.outputs)) {
+    fail("INTERFACE_INVALID_SHAPE", {
+      name: "circuit.cacheAccess",
+      inputs: value.inputs,
+      outputs: value.outputs,
+    });
+  }
+  writer.u64(value.cacheAccess.readBitmap, "circuit.cacheAccess.readBitmap");
+  value.cacheAccess.writeSlots.forEach((entry, index) => {
+    writer
+      .u8(entry.output, `circuit.cacheAccess.writeSlots[${String(index)}].output`)
+      .u8(entry.slot, `circuit.cacheAccess.writeSlots[${String(index)}].slot`);
+  });
 }
 
 function writeInterfaceTransfer(
@@ -293,13 +331,16 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
   for (const nullifier of value.nullifiers) writer.bytes(nullifier, 32, "nullifier");
   writer
     .u16(value.utxoTreeRootIndex, "utxoTreeRootIndex")
-    .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex");
+    .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex")
+    .option(value.cacheSlot, (output, slot) => {
+      output.u8(unsigned(slot, CACHE_CAPACITY - 1, "cacheSlot"), "cacheSlot");
+    });
 }
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, 526);
+  return encoded(value, writeMergeData, value.cacheSlot === undefined ? 527 : 528);
 }
 
 export function mergeExternalDataHash(
@@ -307,6 +348,7 @@ export function mergeExternalDataHash(
     instructionTag: number;
     expiryUnixTs: bigint;
     outputUtxoHash: Bytes32;
+    cache?: Readonly<{ address: Address; slot: number }>;
   }>,
 ): Bytes32 {
   const expiry = unsignedBigint(input.expiryUnixTs, (1n << 64n) - 1n, "expiryUnixTs");
@@ -317,10 +359,29 @@ export function mergeExternalDataHash(
         Number((expiry >> BigInt((7 - index) * 8)) & 255n),
       ),
     )
-    .bytes(input.outputUtxoHash, 32, "outputUtxoHash");
+    .bytes(input.outputUtxoHash, 32, "outputUtxoHash")
+    .option(input.cache, (output, cache) => {
+      output
+        .bytes(addressBytes(cache.address, "cache.address"), 32, "cache.address")
+        .u8(cache.slot, "cache.slot");
+    });
   const digest = sha256(writer.finish());
   digest[0] = 0;
   return digest as Bytes32;
+}
+
+export function encodeCreateCacheData(value: CreateCacheData): Uint8Array {
+  return encoded(
+    value,
+    (writer, input) => {
+      writer
+        .bytes(addressBytes(input.writeAuthority, "writeAuthority"), 32, "writeAuthority")
+        .u64(input.nonce, "nonce")
+        .u16(input.treeId, "treeId")
+        .i64(input.expiresAt, "expiresAt");
+    },
+    50,
+  );
 }
 
 function decodeAccount<T>(
@@ -464,6 +525,24 @@ export function decodeSplAssetRegistryAccount(bytes: Uint8Array): SplAssetRegist
     reader.bytes(7, "reserved");
     return { mint: readAddress(reader, "mint"), assetId: reader.u64("assetId") };
   });
+}
+
+export function decodeCacheAccount(bytes: Uint8Array): CacheAccount {
+  return decodeAccount(bytes, CACHE_ACCOUNT_SIZE, StateDiscriminator.cache, (reader) =>
+    Object.freeze({
+      bump: reader.u8("bump"),
+      treeId: reader.u16("treeId"),
+      expiresAt: reader.i64("expiresAt"),
+      rentSponsor: readAddress(reader, "rentSponsor"),
+      writeAuthority: readAddress(reader, "writeAuthority"),
+      utxoHashes: Object.freeze(
+        Array.from(
+          { length: CACHE_CAPACITY },
+          (_, slot) => reader.bytes(32, `utxoHashes[${String(slot)}]`) as Bytes32,
+        ),
+      ),
+    }),
+  );
 }
 
 export function decodeRingConfigAccount(bytes: Uint8Array): RingConfigAccount {

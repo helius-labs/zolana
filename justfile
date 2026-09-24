@@ -312,7 +312,7 @@ check-custom-ring-keys: build-prover-server
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
 # not run twice per PR.
 test-program-proofs-programs-only: build-programs build-prover-server build-cli
-    cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_settlement --test mixed_interface_transfers --test merge_functional --test-threads 1
+    cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_settlement --test mixed_interface_transfers --test merge_functional --test cache_functional --test cache_queued --test-threads 1
 
 # Groth16-backed program and client matrices, separated from fast state tests.
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
@@ -375,6 +375,10 @@ test-ts-e2e: (_test-ts-live "test:ts:e2e")
 
 # Public TypeScript SDK example against a fresh validator, Photon, and prover.
 test-ts-example: (_test-ts-live "test:ts:example")
+
+# Optimized merge and transfer TypeScript SDK example on the same stack.
+test-ts-example-optimized-merge-transfer:
+    ZOLANA_TS_EXAMPLE=optimized-merge-transfer {{just_executable()}} _test-ts-live test:ts:example
 
 _test-ts-live test-script: build-programs build-prover-server build-cli ensure-custom-ring-live-keys
     #!/usr/bin/env bash
@@ -1246,6 +1250,52 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo run -p client-example --example deposit_transfer_withdraw
+
+# Sequential merge + transfer SDK example
+# (sdk-tests/client/rust/merge_transfer.rs). The baseline the cached example
+# improves on: merge, wait for the merged output to be indexed, fetch its
+# Merkle proof, then prove and send the transfer. Same stack as
+# test-client-example.
+test-client-example-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tools/ci/xtask.sh program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      {{stop-localnet-backends}}
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo run -p client-example --example merge_transfer
+
+# Optimized merge + transfer SDK example
+# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 36 UTXOs in
+# one merge that writes its output commitment into a cache PDA, and spends that
+# commitment from the cache, so the transfer proof is generated concurrently
+# with the merge proof instead of waiting for the merged output to be indexed.
+# Same stack as test-client-example; needs the merge_36_1 proving key, which the
+# prover lazy-loads on the first request.
+test-client-example-optimized-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tools/ci/xtask.sh program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      {{stop-localnet-backends}}
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo run -p client-example --example optimized_merge_transfer
 
 # Dynamic-swap example lifecycle tests
 # (sdk-tests/dynamic-swap/test/tests/{pair,negative,escrow_flow,escrow_refund}.rs),

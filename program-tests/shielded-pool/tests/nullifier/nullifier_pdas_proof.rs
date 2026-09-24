@@ -1,4 +1,5 @@
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
+use zolana_interface::state::cache::empty_cached_input_fields;
 
 use num_bigint::BigUint;
 use solana_account::Account;
@@ -172,6 +173,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(2).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

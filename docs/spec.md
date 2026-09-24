@@ -254,7 +254,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Vanilla Groth16 proof `a(32) || b(128) || c(32)`: `a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point. |
 | `TransactProof` | struct | A 192-byte vanilla Groth16 proof (`a`, `b`, `c`): `a` and `c` compressed G1 (32 bytes each), `b` the raw big-endian G2 point (128 bytes). |
-| `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `RingEddsa`, or `RingAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Unknown values are rejected at deserialization. |
+| `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `RingEddsa`, `RingP256`, or `RingAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Owner-signed families have `*Cached` twins that add `CacheAccess { input_bitmap: u64, write_bitmap: u64 }` and use the family's key. Unknown values are rejected at deserialization. |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
@@ -998,7 +998,8 @@ The single public signal is `public_input_hash = HashChain4(fields)`. The table
 lists `fields` in preimage order; variant-only fields are omitted for other
 variants. `HashChain` folds left to right one element per Poseidon call;
 `RightHashChain` folds right to left; `HashChain4` folds left to right three
-elements per call:
+elements per call; `RightHashChain4` folds right to left three elements per
+call, seeded with the last element:
 
 <a id="hash-chain-4"></a>
 ```
@@ -1036,6 +1037,7 @@ input could be zero-padded to look like a fixed-length one.
 | signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)`, payer first, then first-occurrence-deduplicated owner signers, zero-padded to [`signer_width`](#signer-width). `RingAuthority` uses only the payer (width 1). |
 | `input_flags` | the dummy-input policy and every input's tree slot index, packed into one field element; see [input_flags](#input-flags) |
 | published output owner hash chain (owner-signed variants) | `HashChain4` over per-output tagged Solana identities. `ConfidentialEddsa` includes every resolved owner tag. `RingEddsa` and `RingP256` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
+| cache selection (owner-signed variants) | `input_bitmap`, the cache's raw `u16` `tree_id`, and `RightHashChain4` over the selected slots' UTXO hashes, `0` at unselected inputs. Without a cache the bitmap and tree id are `0` and the chain is over `n_inputs` zeros. Selected inputs skip UTXO inclusion. `RingAuthority` omits these fields. |
 
 A `RingP256` proof spending a policy-ring P256 UTXO must keep the shared identity
 private: it cannot also spend a default-ring P256 UTXO or publish an output owner
@@ -1056,7 +1058,8 @@ transact. The circuit retains all five slots. The remaining slots are zero and
 still hash as `Poseidon(0, 0, 0)`, so the unused suffix of the chain can be precomputed. Each
 input privately selects one slot for hashing, inclusion, and non-inclusion;
 either selected root being zero is rejected, which is also what rejects an index
-past the populated slots.
+past the populated slots. A tree context whose inputs are all cache-selected
+uses `utxo_tree_root_index = 0` and a zero UTXO root.
 
 The private selection alone does not bind SPP's routing: an input proven against
 one tree's roots but queued into another tree's nullifier queue would leave the
@@ -1149,6 +1152,10 @@ verifies.
 Proof-slot aggregation does not alter this preimage: all ordered settlement
 legs remain present, including legs in an asset group whose net movement is zero.
 Thus different recipients or funding accounts cannot cancel out of
+`external_data_hash`.
+
+A transact that writes a cache uses `Sha256BE("cache_write" ||
+external_data_hash || cache_address || u64_le(write_bitmap))` as its
 `external_data_hash`.
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
@@ -1320,7 +1327,7 @@ The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `
 
 **Public Inputs**
 
-The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 8 (default merge) or 9 (policy-ring merge) elements below: a shared 7-element prefix followed by the variant tail, hashed as a single chain, never as a prefix hash extended by the tail (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
+The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 9 elements below: a shared 7-element prefix followed by the two-element variant tail. The prefix ends on a complete HashChain4 group, so extending its hash with the tail is equivalent to hashing the full chain (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
 
 | Element | Source |
 | --- | --- |
@@ -1331,7 +1338,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | derived by SPP from `input_tree` as in [Input slots](#input-slots); when false every slot must be real |
-| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)` | registry signing identity: `owner` when `eddsa_owner` is true, otherwise `owner_p256`; must equal the witnessed `owner_pk_hash` |
+| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry signing identity (`owner` when `eddsa_owner` is true, otherwise `owner_p256`) and registered nullifier public key; must equal the witnessed signing identity and nullifier key |
 | variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id` | `ring_program_id` comes from the signing `ring_config` account; `output_ring_data_hash` is the ring data the calling ring program selected. The circuit asserts it against the output UTXO's `ring_data_hash`. |
 
 **Private Inputs (per input slot)**
@@ -1371,7 +1378,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Input/output ring fields | for `merge_transact`: real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`: `ring_program_id != 0`, every real input shares it with the CPI caller, and the output's `ring_data_hash` equals the instruction's `output_ring_data_hash`. |
 | Deterministic output | the output blinding is `merge_output_blinding(nullifier_secret, first_nullifier)`; the recomputed output hash, with `output_tree_id`, equals the public `output_utxo_hash`, with `owner = userOwnerHash` and `data_hash = 0`. |
 | Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
-| Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, so the proof verifies only against the registry-record owner identity SPP folds in. |
+| Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, and the witnessed nullifier public key is included in the public-input hash, so the proof verifies only against both keys from the registry record. |
 
 **Circuit shape**
 
@@ -1549,7 +1556,8 @@ prefix positions do not depend on the number of trees or inputs. The
 **owner-signer run** follows: the ed25519 owners of the spent inputs in
 first-occurrence order, each read-only and signing (the payer already occupies
 signer slot 0, so an owner equal to the payer does not repeat). Public
-settlement groups come last, in `interface_transfers` order. A SOL group is
+settlement groups follow, in `interface_transfers` order; a cached `CircuitId`
+appends the cache and, when writing, its writer. A SOL group is
 `(sol_interface, recipient)`. An SPL deposit group is `(mint, spl_interface,
 token_authority, user_token_account, token_program)`, where `token_authority`
 MUST sign; an SPL withdrawal group is `(cpi_authority, mint, spl_interface,
@@ -1576,6 +1584,8 @@ aggregate into one proof slot.
 | .. | nullifier_pdas | x |   | one per `inputs[i]`, in order: `[b"nullifier", tree, nullifier_hash]` where `tree` is the input's selected tree, System-owned and empty; an initialized PDA means the nullifier is already pending (`NullifierAlreadyQueued`) |
 | .. | owner_signers |   | x | first-occurrence ed25519 input owners (read-only), at most `MAX_SIGNERS - 1` |
 | .. | public-leg groups |   |   | one group per `u8`-counted entry in `interface_transfers`, in order, using the layouts above |
+| .. | cache | when writing |   | cached `CircuitId` only |
+| .. | cache_writer |   | x | when writing; the cache's `write_authority` |
 
 **Instruction data**
 
@@ -1735,10 +1745,10 @@ tree also used for outputs, no extra owner signers, and no public legs:
 | Transact 36 in 2 out | 1616 | 3055 | 40 |
 | Ring transact EdDSA 36 in 2 out | 1616 | 3120 | 42 |
 | Ring transact P256 36 in 2 out | 1713 | 3217 | 42 |
-| Merge 8 in 1 out, direct | 527 | 1171 | 14 |
-| Merge 8 in 1 out, execute_sync | 561 | 1207 | 16 |
-| Merge 36 in 1 out, direct | 1423 | 2991 | 42 |
-| Merge 36 in 1 out, execute_sync | 1485 | 3055 | 44 |
+| Merge 8 in 1 out, direct | 528 | 1172 | 14 |
+| Merge 8 in 1 out, execute_sync | 562 | 1208 | 16 |
+| Merge 36 in 1 out, direct | 1424 | 2992 | 42 |
+| Merge 36 in 1 out, execute_sync | 1486 | 3056 | 44 |
 
 v1 imposes a second ceiling that the byte count does not show: a message may
 name at most **64 account addresses**, and a transact adds one nullifier PDA per
@@ -1764,6 +1774,7 @@ choose a smaller proof shape, use fewer legs, or split the operation.
 11. Settle every original leg independently using its full `u64` amount: `is_deposit = true` moves SOL/SPL from the public account into custody, while `false` moves value from custody to the named public account. Aggregation affects proof inputs only; account resolution, settlement, the external-data hash, and event movements retain leg order.
 12. Emit a [`TransactEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
 13. An output with nonzero `data_hash` must be owned by a transaction participant (see the UTXO data [check](#spp-proof---solana-privacy-zk-proof)). Spending an input with `utxo_data` uses the normal owner-signed path; SPP enforces no program ownership.
+14. Cached `CircuitId`: `input_bitmap` bits lie below `n_inputs`, `write_bitmap` is zero or sets one bit per output below 36, and not both are zero (`InvalidCacheBitmap`). Before any write, selected inputs read nonzero slots (`CacheSlotEmpty`) of a cache on their tree (`CacheTreeMismatch`); a fully cached tree context uses root index 0 (`InvalidCacheRootIndex`). A write requires the `write_authority` signer (`CacheWriteAuthorityMismatch`) and an unexpired cache (`CacheExpired`) on `output_tree` (`CacheTreeMismatch`), and stores the outputs in ascending bit order after the proof.
 
 **Event**
 
@@ -1807,7 +1818,7 @@ GeneralEvent {
     movements: instruction_data
         .interface_transfers
         .iter()
-        .zip(settlement_groups) // the last accounts, one group per leg
+        .zip(settlement_groups) // one group per leg, before any cache accounts
         .map(|(leg, group)| Movement {
             is_deposit: leg.is_deposit(),
             amount: leg.amount(),
@@ -1819,12 +1830,12 @@ GeneralEvent {
 
 `input_trees` carries one entry per declared `tree_contexts` entry, in the same
 order, each with the queue sequence number its first input took;
-`first_output_leaf_index` comes from `output_tree`. The settlement groups are the last accounts of the instruction,
-in leg order, sized per leg kind (SOL: `sol_interface`, `recipient`; SPL
+`first_output_leaf_index` comes from `output_tree`. The settlement groups are in
+leg order, sized per leg kind (SOL: `sol_interface`, `recipient`; SPL
 deposit: `mint`, `spl_interface`, `token_authority`, `user_token_account`,
 `token_program`; SPL withdrawal: `cpi_authority`, `mint`, `spl_interface`,
 `user_token_account`, `token_program`), so an indexer locates them from the end
-of the account list. `is_deposit` is the public-amount direction proven by the
+of the account list, past any cache accounts. `is_deposit` is the public-amount direction proven by the
 proof (`true` for a deposit).
 
 ### `deposit`
@@ -2180,10 +2191,12 @@ the instruction and must use a fresh blinding per output.
 | 1 | input_tree | x |   | supplies historical roots and receives the input nullifiers |
 | 2 | output_tree | x |   | receives the merged output commitment; may equal `input_tree` |
 | 3 | payer |   | x | fee payer; any account may run the merge |
-| 4 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and hashes the record's signing identity `owner_proof_input_hash(user_signing_pk)` into the public inputs (rail-selected by `eddsa_owner`) |
+| 4 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and hashes the record's signing identity `owner_proof_input_hash(user_signing_pk)` (rail-selected by `eddsa_owner`) and its `nullifier_pk` into the public inputs |
 | 5 | system_program |   |   | canonical System Program |
 | 6 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 | .. | nullifier_pdas | x |   | eight, one per `nullifiers[i]` in order, as in [`transact`](#transact) |
+| .. | cache | x |   | when `cache_slot` is set |
+| .. | cache_writer |   | x | when `cache_slot` is set; the cache's `write_authority` |
 
 **Instruction data**
 
@@ -2212,8 +2225,14 @@ struct MergeTransactIxData {
     utxo_tree_root_index: u16,
     /// Index into `input_tree`'s nullifier-tree root cache, shared by every input.
     nullifier_tree_root_index: u16,
+    /// Cache slot for the merged output.
+    cache_slot: Option<u8>,
 }
 ```
+
+`external_data_hash := Sha256BE(u8(spp_instruction_discriminator) ||
+u64_be(expiry_unix_ts) || output_utxo_hash || u8(cache_slot.is_some()) ||
+cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 
 **Checks**
 
@@ -2221,18 +2240,19 @@ struct MergeTransactIxData {
 2. `utxo_tree_root_index` and `nullifier_tree_root_index` reference non-stale roots in `input_tree`; the one pair serves every input, since SPP merges from a single `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
 3. Both tree accounts permit their respective writes.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
-5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof).
+5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity and its `nullifier_pk` into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof).
 6. The 192-byte vanilla Groth16 proof verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The output carries no ciphertext: its blinding is `merge_output_blinding(nullifiers[0])` under the owner's nullifier secret, so the owner reconstructs it on sync without decryption.
 9. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = user_record.signing_view_tag`.
+10. With `cache_slot`, the merge requires the `write_authority` signer (`CacheWriteAuthorityMismatch`), an unexpired cache (`CacheExpired`) on `output_tree` (`CacheTreeMismatch`) and `cache_slot < 36` (`InvalidCacheSlot`); the output overwrites the slot after the proof.
 
 **Event**
 
 An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: [] }`, `first_output_leaf_index = event.output_leaf_index`, zeroed `tx_viewing_pk` and `salt`, empty `messages` and `movements`.
 
-Serialized body: `270 + 32·N` bytes (`192`-byte proof, one root-index pair, no ciphertext).
-With discriminator, `N = 8`: `527 B`; with `~206 B` transaction overhead: `~733 B`.
+Serialized body: `271 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
+With discriminator, `N = 8`: `528 B`; with `~206 B` transaction overhead: `~734 B`.
 
 ### `merge_ring`
 
@@ -2253,6 +2273,7 @@ There is no ciphertext; the ring program selects the output `ring_data_hash`, th
 | 5 | system_program |   |   | canonical System Program |
 | 6 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 | .. | nullifier_pdas | x |   | eight, one per `nullifiers[i]` in order, as in [`merge_transact`](#merge_transact) |
+| .. | cache, cache_writer |   |   | as in [`merge_transact`](#merge_transact) |
 
 **Instruction data**
 
@@ -2657,10 +2678,11 @@ struct Record {
     /// The wallet's ECDH viewing pubkey (see [ViewingKey](#viewingkey)).
     viewing_pk: P256Pubkey,
     /// Opt-in for [`merge_transact`](#merge_transact); default `false`. When `true`,
-    /// any caller may run the merge for this owner. SPP binds the merge to the
+    /// any caller may run the merge for this owner. SPP hashes the
     /// rail-selected signing `owner_proof_input_hash` (`owner_p256`, or
-    /// `owner` when `eddsa_owner` is set), so the proof verifies only for
-    /// the owner's registered key.
+    /// `owner` when `eddsa_owner` is set) and `nullifier_pk` into the merge
+    /// public inputs, so the proof verifies only for the owner's registered
+    /// keys.
     merging_enabled: bool,
 }
 ```
@@ -2917,3 +2939,60 @@ The ring program and transaction accounts are public.
 4. Withdrawal - Public: EdDSA sender or relayer, amount, asset, recipient. Private: relayed P256 sender, shielded balance.
 5. Default to ring - Public: default-ring sender. Private: ring recipient, amount, asset.
 6. Ring to default - Public: EdDSA sender or relayer, default-ring recipient. Private: relayed P256 sender, amount, asset.
+
+
+**UTXO Cache accounts:**
+
+1. Scenario, a user has hundreds of UTXOs and wants to spend her complete balance in a single transfer.
+2. Problem, we can spend at most 36 UTXOs in a single transaction, therefore need to send multiple merge transactions and a transfer with the merged UTXOs. If we do that in sequence it will be slow.
+3. We can perform up to 36 merges in parallel, with GPU proving we should be able to perform up to 36 merges in 1-2 seconds.
+4. A naive implementation needs to wait for the indexer and prover once all merge transactions are confirmed because the UTXOs need to be inserted into the tree and concurrent traffic makes the root unpredictable.
+5. Idea, we know the merged UTXOs before their proofs are computed, thus if we can compute a proof without a dependency on the utxo merkle tree we can compute the transfer proof in parallel with the merge proofs. If we cache merge output utxos in a SPP pda and prove inclusion by existence in the cache we do not need to wait for the indexer and can send the transfer instruction as soon as the cache pda is filled.
+
+**Optimized Merge flow:**
+1. detect too many UTXOs
+2. Proof Input
+  1. build merge proof inputs (up to 36)
+  2. build tranfer proof inputs (uses new merge output utxos)
+3. Proof generation (merge and transfer proof)
+4. Subscribe to cache pda account change
+5. Send merge transactions concurrently (not blocked by transfer proof)
+  1. idempotent cache account creation
+  2. specifies into which cache account slot UTXO is inserted
+6. Send transfer transaction (once 3 and 5 are finished)
+
+**Cache Pda:**
+1. has rent sponsor
+2. has lifetime, once lifetime expired anyone can close it, rent returns to the rent sponsor and the cache accepts no further writes
+3. Stores up to MAX INPUT UTXOs utxo hashes
+4. Has an immutable write authority that must sign every write and alone decides which UTXO hashes the slots hold. The cache binds no owner: spending never trusts a slot, since the proof authorizes every cached input.
+5. locks in a tree ID, cache is associated with a tree account in which the UTXOs will be nullified in
+6. Verified merges and transact outputs can populate or overwrite cache slots
+
+**Create Cache PDA:**
+1. domain separated by rent sponsor and u64 nonce
+2. rent sponsor needs to sign
+
+**Merge with Cache:**
+1. in addition to regular merge
+2. insert value into cache account in specified slot
+3. The writer may overwrite any slot
+4. cache tree ID and merge output tree ID match
+5. An explicit signer immediately after the cache must match its immutable `write_authority`, independently of the payer and rent sponsor. `cache_slot: Option<u8>` selects the single written slot, and `None` disables writing.
+
+**Transact with Cache:**
+1. We skip inclusion proofs in zk proof for elements that are read from cache
+2. nullification is unchanged
+3. cached `CircuitId` twins reuse their rail's verifying key
+4. `CacheAccess { input_bitmap, write_bitmap }` lives in the cached circuit selector. One cache supplies all reads and writes. Reads use original contents before writes and require no writer signature. A zero `input_bitmap` publishes the same cache selection as a spend without a cache, so a write-only selector needs no special encoding.
+5. Set write bits select slots in ascending order for all outputs. The writer signs immediately after the writable cache; the bitmap and cache address are bound through external data. Writes retain the output-tree binding.
+6. Cached inputs and writes are supported on every owner-signed rail.
+7. A writer may replace spent or unspent commitments. Nullifiers enforce spending; evicted unspent UTXOs retain their normal tree path.
+8. Plan dependent UTXOs and cache contents locally, compute proofs concurrently against a retained nullifier root, then submit transactions in dependency order before transaction expiry.
+
+
+
+**Close Cache PDA:**
+1. Write authority can close before expiry
+2. Anyone can close after time expired
+3. Rent is always returned to the rent sponsor

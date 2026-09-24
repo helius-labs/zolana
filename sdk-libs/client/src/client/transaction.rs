@@ -91,6 +91,9 @@ impl<R: Rpc> ZolanaClient<R> {
         R: Sync,
     {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
+        if signed.transaction.cache_accounts.write.is_some() {
+            return Err(ClientError::CacheWriteNeedsWriter);
+        }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         // The overlap this used to hand-roll lives in the reader now, which
@@ -134,6 +137,9 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         authority: &dyn ProofAuthority,
     ) -> Result<VersionedMessage, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
+        if signed.transaction.cache_accounts.write.is_some() {
+            return Err(ClientError::CacheWriteNeedsWriter);
+        }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         let witnesses = AsyncWitnessReader::input_witnesses(
@@ -173,6 +179,7 @@ struct TransactTrees {
     /// in that order, which is the order the builder pairs them up in.
     input_tree_ids: Vec<u16>,
     output_tree_id: u16,
+    read_cache: Option<Pubkey>,
 }
 
 /// Read both from the transaction itself: assembly declared the input trees in
@@ -183,6 +190,7 @@ fn transact_trees(assembled: &AssembledTransfer, transaction: &SppProofInputs) -
     TransactTrees {
         input_tree_ids: assembled.input_tree_ids.clone(),
         output_tree_id: transaction.output_tree_id,
+        read_cache: assembled.cache_accounts.read,
     }
 }
 
@@ -200,7 +208,7 @@ fn build_unsigned_message(
         accounts: &settlement_transfers,
     }
     .validate()?;
-    let transact_ix = Transact {
+    let transact = Transact {
         payer: fee_payer,
         input_trees: trees
             .input_tree_ids
@@ -212,8 +220,11 @@ fn build_unsigned_message(
         owner_signers,
         interface_transfer_accounts: settlement_transfers,
         data: transact_data,
-    }
-    .instruction();
+    };
+    let transact_ix = match trees.read_cache {
+        Some(cache) => transact.instruction_with_cache_read(cache),
+        None => transact.instruction(),
+    };
     // The transact is the only instruction: a v1 message states its compute
     // ceiling and its priority fee in the header, so nothing rides along to
     // set them.

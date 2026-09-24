@@ -21,6 +21,10 @@ use zolana_interface::{
 
 use super::{
     account::{RingTransactAccounts, TransactAccounts},
+    cache::{
+        bind_cache_write, bind_cached_inputs, check_cache_output_tree, validate_cache_selection,
+        write_cached_outputs, TransactCache,
+    },
     event::{build_transact_event, resolve_outputs},
     interface_transfer::settle_interface_transfers,
     tree::{apply_input_trees, apply_output_tree},
@@ -59,38 +63,41 @@ pub fn process_transact_ix(
     let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
     let mut owner_hashes = Box::new(OwnerHashCache::new());
     // 5. Check accounts.
-    let mut transact_accounts = match ix.circuit {
-        CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
-        CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
-            let (transact_accounts, ring_program_id) =
-                RingTransactAccounts::validate_and_parse(accounts, &ix, ix.circuit.is_authority())?;
-            proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
-            transact_accounts
-        }
+    let mut transact_accounts = if ix.circuit.is_ring() {
+        let (transact_accounts, ring_program_id) =
+            RingTransactAccounts::validate_and_parse(accounts, &ix, ix.circuit.is_authority())?;
+        proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
+        transact_accounts
+    } else {
+        TransactAccounts::validate_and_parse(accounts, &ix)?
     };
-    // 6. Hash all signers before output owners: cache hits deduplicate signers.
+    // 6. Load the cache once, checking its writer and expiry before the proof.
+    let cache = TransactCache::load(transact_accounts.cache.take(), clock.unix_timestamp)?;
+    // 7. Hash all signers before output owners: cache hits deduplicate signers.
     proof_inputs.fill_owner_signer_hashes(
         transact_accounts.payer,
         transact_accounts.owner_signers,
         &mut owner_hashes,
     )?;
-    // 7. Derive the circuit-specific fixed-width output-owner commitment.
+    // 8. Derive the circuit-specific fixed-width output-owner commitment.
     proof_inputs.fill_output_owner_pk_hashes(
         ix.circuit.output_owner_mode(),
         &resolved_outputs,
         &mut owner_hashes,
     )?;
 
-    // 8. Process sol and spl transfers.
+    // 9. Process sol and spl transfers.
     proof_inputs.assign_public_amounts_and_assets(
         &ix.interface_transfers,
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 9. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
+    // 10. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
     let input_tree_sequences = apply_input_trees(&mut transact_accounts, &ix, &mut proof_inputs)?;
-    // 10. Append new utxo hashes.
+    bind_cached_inputs(cache.as_ref(), &ix, &mut proof_inputs)?;
+    // 11. Append new utxo hashes.
     let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
+    check_cache_output_tree(cache.as_ref(), tree_write.output_tree_id)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
     let tag = [instruction as u8];
@@ -101,10 +108,13 @@ pub fn process_transact_ix(
         &transact_accounts.settlements,
         &resolved_outputs,
     )?;
+    let external_data_hash = bind_cache_write(cache.as_ref(), &ix, external_data_hash)?;
     proof_inputs.assign_external_data_hash(external_data_hash);
     proof_inputs.ensure_complete()?;
 
     TransactProof::new(&ix, &proof_inputs).verify()?;
+
+    write_cached_outputs(cache, &ix)?;
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
@@ -143,18 +153,18 @@ pub fn hash_external_data<'a>(
 /// 3. Circuit variant exists with in out public params is supported.
 /// 4. Nullifiers, output utxo hashes, and the private tx hash are canonical
 ///    field elements.
+/// 5. A cached selector reads a subset of the declared inputs, writes no slot
+///    or one slot per output, and does at least one of the two.
 pub fn validate_circuit_type(
     ix: &TransactIxDataRef<'_>,
     instruction_tag: InstructionTag,
 ) -> ProgramResult {
     // 1. Circuit is allowed for the instruction type.
+    let circuit = ix.circuit.uncached();
     let circuit_matches = match instruction_tag {
-        InstructionTag::Transact => matches!(ix.circuit, CircuitId::ConfidentialEddsa(..)),
+        InstructionTag::Transact => matches!(circuit, CircuitId::ConfidentialEddsa(..)),
         InstructionTag::RingTransact => {
-            matches!(
-                ix.circuit,
-                CircuitId::RingEddsa(..) | CircuitId::RingP256(..)
-            )
+            matches!(circuit, CircuitId::RingEddsa(..) | CircuitId::RingP256(..))
         }
         InstructionTag::RingAuthorityTransact => ix.circuit.is_authority(),
         _ => false,
@@ -185,5 +195,6 @@ pub fn validate_circuit_type(
         "private tx hash",
         None,
         ShieldedPoolError::NonCanonicalPrivateTxHash,
-    )
+    )?;
+    validate_cache_selection(ix)
 }

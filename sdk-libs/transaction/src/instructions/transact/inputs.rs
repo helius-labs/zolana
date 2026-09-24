@@ -137,7 +137,7 @@ impl SppProofInputs {
     pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
         self.input_utxos
             .iter()
-            .filter(|input_utxo| input_utxo.is_dummy())
+            .filter(|input_utxo| input_utxo.is_dummy() || input_utxo.cache_slot.is_some())
             .map(|input_utxo| input_utxo.nullifier())
             .collect()
     }
@@ -147,7 +147,7 @@ impl SppProofInputs {
         Ok(self
             .input_utxos
             .iter()
-            .filter(|input_utxo| !input_utxo.is_dummy())
+            .filter(|input_utxo| !input_utxo.is_dummy() && input_utxo.cache_slot.is_none())
             .collect())
     }
 }

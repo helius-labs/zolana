@@ -2,8 +2,9 @@ pub mod instruction_data;
 #[cfg(feature = "borsh")]
 use borsh::BorshSerialize;
 pub use instruction_data::{
-    deposit_blinding, fetch_tag, validate_input_tree_contexts, validate_interface_transfers,
-    CircuitId, CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind, DepositEntry,
+    deposit_blinding, fetch_tag, settlement_accounts, validate_input_tree_contexts,
+    validate_interface_transfers, CacheAccess, CacheWrite, CircuitId, CreateCacheData,
+    CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind, DepositEntry,
     DepositEntryRef, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
     EncryptedRingDepositDataRef, ExternalDataPreimage, InputUtxo, InterfaceTransfer,
     MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef, MergeTransactIxData,

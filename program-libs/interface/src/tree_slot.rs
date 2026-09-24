@@ -31,8 +31,8 @@ pub struct TreeSlot {
 }
 
 impl TreeSlot {
-    /// An unused slot. The circuit rejects selecting it because both roots are
-    /// zero.
+    /// An unused slot. The circuit rejects selecting it because its nullifier
+    /// root is zero.
     pub const ZERO: Self = Self {
         id: [0u8; 32],
         utxo_root: [0u8; 32],

@@ -113,6 +113,15 @@ pub enum TransactionError {
     #[error("output slots are already padded to the shape")]
     OutputUtxosAlreadyPadded,
 
+    #[error("cache slot {slot} is out of range, a cache holds slots 0..36")]
+    CacheSlotOutOfRange { slot: u8 },
+
+    #[error("a padding input cannot be read from a cache")]
+    CachedDummyInput,
+
+    #[error("a padding output cannot be written to a cache")]
+    CachedDummyOutput,
+
     #[error("inputs span {got} trees, a proof resolves roots for at most {max}")]
     TooManyInputTrees { got: usize, max: usize },
 

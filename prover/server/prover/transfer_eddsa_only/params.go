@@ -91,10 +91,20 @@ type TransferParameters struct {
 	InputFlags                   *big.Int
 	PublishedOutputOwnerPkHashes []*big.Int
 
+	Cache CacheSelectionParams
+
 	// Variant selects the Solana-only instantiation: confidential default-ring,
 	// confidential custom-ring, or ring-authority (anonymous, input owners
 	// private, no signature).
 	Variant Variant
 
 	PublicInputHash *big.Int
+}
+
+type CacheSelectionParams struct {
+	TreeID        *big.Int
+	ReadHashChain *big.Int
+	ReadHashes    []*big.Int
+	IsCached      []*big.Int
+	ReadIndex     []*big.Int
 }

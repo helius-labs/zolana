@@ -293,7 +293,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-28: error codes are stable**
   - Kind: state
   - Affects: all instructions
-  - Statement: every `ShieldedPoolError` discriminant equals its documented code in the consecutive range 7000..7065 (66 variants), pinned one-by-one with a compiler-exhaustive variant match, a continuity assertion, and a shared Rust/TypeScript fixture.
+  - Statement: every `ShieldedPoolError` discriminant equals its documented code in the consecutive range 7000..7077 (78 variants), pinned one-by-one with a compiler-exhaustive variant match, a continuity assertion, and a shared Rust/TypeScript fixture.
   - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
   - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
