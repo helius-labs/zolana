@@ -1,3 +1,4 @@
+use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -76,7 +77,7 @@ impl ZolanaProgramTest {
     pub fn burn_ring_config_owner(
         &mut self,
         authority: &Keypair,
-        ring_config: &Pubkey,
+        ring_config: &Address,
     ) -> Result<(), ProgramTestError> {
         let ix = UpdateRingConfigOwner {
             authority: authority.pubkey(),

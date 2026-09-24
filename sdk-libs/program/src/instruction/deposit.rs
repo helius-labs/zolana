@@ -1,4 +1,5 @@
 use alloc::{vec, vec::Vec};
+use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use thiserror::Error;
@@ -40,7 +41,7 @@ impl DepositAsset {
 /// Only `data` is serialized; `signing_pk` supplies the signer account meta.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DepositData {
-    pub signing_pk: Pubkey,
+    pub signing_pk: Address,
     pub data: UtxoData,
 }
 
