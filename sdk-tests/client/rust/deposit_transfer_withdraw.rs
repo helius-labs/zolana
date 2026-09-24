@@ -94,7 +94,6 @@ fn main() -> Result<()> {
                 view_tag: sender_shielded_address.confidential_view_tag()?,
                 owner: sender_shielded_address.owner_hash()?,
                 amount: DEPOSIT_AMOUNT,
-                utxo_data: None,
                 memo: None,
             }],
         }

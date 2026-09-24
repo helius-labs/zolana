@@ -55,7 +55,6 @@ impl Deposit {
                 view_tag,
                 owner,
                 amount: request.amount,
-                utxo_data: None,
                 memo: request.memo,
             },
             asset: request.asset,
@@ -253,7 +252,6 @@ mod tests {
             view_tag: [1u8; 32],
             owner: [2u8; 32],
             amount: 1_000,
-            utxo_data: None,
             memo: Some(b"thanks".to_vec()),
         };
 

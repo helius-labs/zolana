@@ -326,7 +326,6 @@ export async function depositInstruction(
           viewTag: deposit.viewTag,
           recipientOwnerHash: deposit.recipientOwnerHash,
           amount: deposit.amount,
-          ...(deposit.utxoData === undefined ? {} : { utxoData: deposit.utxoData }),
           ...(deposit.memo === undefined ? {} : { memo: deposit.memo }),
         })),
       }),

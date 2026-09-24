@@ -52,7 +52,7 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
             owner_utxo_hash: data.owner_utxo_hash,
             asset: expected_asset.to_bytes(),
             amount: expected_amount,
-            data_hash: data.data_hash,
+            data_hash: None,
             ring_program_id: expected_ring_program_id,
             ring_data_hash: data.ring_data_hash,
             encrypted: zolana_event::EncryptedRingDepositData {

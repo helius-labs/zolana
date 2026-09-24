@@ -94,7 +94,6 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
             view_tag: attacker_address.confidential_view_tag()?,
             owner: attacker_address.owner_hash()?,
             amount: POISON_AMOUNT,
-            utxo_data: None,
             memo: None,
         }],
     }

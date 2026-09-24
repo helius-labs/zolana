@@ -22,11 +22,6 @@ export interface DepositInstructionData {
   readonly deposits: readonly DepositEntry[];
 }
 
-export interface UtxoData {
-  readonly dataHash: Bytes32;
-  readonly data: Uint8Array;
-}
-
 export type DepositAssetKind =
   | Readonly<{ kind: "sol" }>
   | Readonly<{ kind: "spl"; splInterfaceBump: number }>;
@@ -36,7 +31,6 @@ export interface DepositEntry {
   readonly viewTag: Bytes32;
   readonly recipientOwnerHash: Bytes32;
   readonly amount: bigint;
-  readonly utxoData?: UtxoData;
   readonly memo?: Uint8Array;
 }
 
@@ -78,7 +72,6 @@ export interface RingDepositEntry {
   readonly viewTag: Bytes32;
   readonly ownerUtxoHash: Bytes32;
   readonly amount: bigint;
-  readonly dataHash?: Bytes32;
   readonly ringDataHash: Bytes32;
   readonly encrypted: EncryptedRingDepositData;
 }

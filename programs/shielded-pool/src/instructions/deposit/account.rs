@@ -74,8 +74,7 @@ impl<'a> DepositAccounts<'a> {
         // PDA) first. It must sign, be unpaused, and pass owner/discriminator
         // validation -- the create-time derivation already bound it to its
         // program -- and its stored `program_id` becomes the UTXO's
-        // `ring_program_id`. The plain `deposit` has no ring; its program data is
-        // authorized by the depositor signer.
+        // `ring_program_id`. The plain `deposit` has no ring.
         let ring_program_id = if HAS_RING {
             let account = iter.next_signer("ring_config")?;
             let config = load_active_ring_config(account)?;

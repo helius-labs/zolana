@@ -280,14 +280,11 @@ Status of the audit findings against the current (post-PR164) tree:
   `root_history_retains_a_root_for_500_slots`, plus the SBF-backed
   `program-tests/shielded-pool/tests/deposit/functional.rs`
   `deposits_advance_history_once_per_updated_slot_without_gap_entries`.
-- F-11 deposit `data_hash` unverified: DESIGN-ACCEPTED. `docs/spec.md` (UTXO
-  Hash) documents `data_hash` as "committed into `utxo_hash` unchecked": the
-  hashing scheme is application-defined, so the program cannot recompute it,
-  and the deposit event publishes both `data_hash` and `data` for consumers to
-  verify. Deposit is authorized by the payer (or the ring config), so a
-  mismatch is self-inflicted; the deposit path
-  (`programs/shielded-pool/src/instructions/deposit/processor.rs:104-124`)
-  still folds the supplied `data_hash` into the UTXO hash as specified.
+- F-11 deposit `data_hash` unverified: RESOLVED. `deposit` and `ring_deposit`
+  instruction data carry no data hash, so every proofless leaf commits
+  `data_hash = 0` (INV-DEPOSIT-12). SPP cannot check an owner signature without
+  a proof, so a UTXO with application data only comes from a proven
+  transaction, whose circuit requires the owner to sign.
 
 Post-audit note: an attempted removal of `OutputDataEncoding::VerifiablyEncrypted`
 (dead after PR164's ciphertext-free merge) was **reverted** — the variant is

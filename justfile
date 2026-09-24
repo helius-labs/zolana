@@ -141,6 +141,12 @@ test-swap-program: build-programs
 test-custom-ring: ensure-custom-ring-live-keys
     cd prover/server && go test ./prover/custom_ring -count=1
 
+# Regenerate custom-rings/program/tests/fixtures/deposit-audit/{2,8}.bin with
+# proofs from the pinned deposit key. Run it when the SPP ring deposit layout
+# or the deposit proving key changes.
+dump-deposit-audit-fixtures: ensure-custom-ring-live-keys build-cli
+    cargo test -p custom-ring-sdk --features proofs --test deposit_audit_fixtures -- --ignored --nocapture
+
 # === Custom rings ===
 
 # Create a ring directory, ring.toml and the program keypair.

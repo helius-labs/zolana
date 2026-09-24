@@ -3,9 +3,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_interface::{
-    instruction::{
-        tag, DepositAssetKind, DepositEntry, DepositIxData, UtxoData, MAX_DEPOSIT_ASSETS,
-    },
+    instruction::{tag, DepositAssetKind, DepositEntry, DepositIxData, MAX_DEPOSIT_ASSETS},
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -43,7 +41,6 @@ pub struct AssetDeposit {
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],
     pub amount: u64,
-    pub utxo_data: Option<UtxoData>,
     pub memo: Option<Vec<u8>>,
 }
 
@@ -214,7 +211,6 @@ impl AssetDeposit {
             view_tag: self.view_tag,
             owner: self.owner,
             amount: self.amount,
-            utxo_data: self.utxo_data,
             memo: self.memo,
         }
     }
@@ -270,7 +266,6 @@ mod tests {
             view_tag: [seed; 32],
             owner: [seed; 32],
             amount: u64::from(seed),
-            utxo_data: None,
             memo: None,
         }
     }

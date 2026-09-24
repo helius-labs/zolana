@@ -9,16 +9,6 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 type DepositRefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
 
-/// Application data committed into the deposited UTXO's `data_hash`. The deposit
-/// is authorized by the payer (non-ring) or the `RingConfig` account (ring); the
-/// UTXO is not program-owned.
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct UtxoData {
-    pub data_hash: [u8; 32],
-    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub data: Vec<u8>,
-}
-
 /// Maximum number of distinct assets (settlement groups) per `deposit` batch.
 pub const MAX_DEPOSIT_ASSETS: usize = 5;
 
@@ -52,7 +42,9 @@ pub enum DepositAssetKind {
     },
 }
 
-/// One output of a batched public deposit (see [`DepositIxData`]).
+/// One output of a batched public deposit (see [`DepositIxData`]). Deposits
+/// carry no application data: SPP cannot verify an owner signature without a
+/// proof, so a data-bearing UTXO must come from a proven transaction.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct DepositEntry {
     /// Index into [`DepositIxData::assets`]. Selects the asset this entry
@@ -66,10 +58,6 @@ pub struct DepositEntry {
     pub owner: [u8; 32],
     /// Deposited amount of the asset selected by `asset_index`.
     pub amount: u64,
-    /// Application data committed into the UTXO's `data_hash`, authorized by the
-    /// payer; `None` for a plain user deposit. Policy-ring deposits use
-    /// [`RingDepositIxData`].
-    pub utxo_data: Option<UtxoData>,
     /// Optional free-form memo emitted in the clear with the proofless output.
     /// Not committed into any hash, so it is informational only.
     #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
@@ -104,13 +92,6 @@ impl DepositIxData {
     }
 }
 
-/// Borrowed view of [`UtxoData`]. The payload aliases the instruction buffer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct UtxoDataRef<'a> {
-    pub data_hash: &'a [u8; 32],
-    pub data: &'a [u8],
-}
-
 /// Borrowed view of [`DepositEntry`]. Variable-size data aliases the
 /// instruction buffer rather than allocating per entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
@@ -119,7 +100,6 @@ pub struct DepositEntryRef<'a> {
     pub view_tag: &'a [u8; 32],
     pub owner: &'a [u8; 32],
     pub amount: u64,
-    pub utxo_data: Option<UtxoDataRef<'a>>,
     pub memo: Option<&'a [u8]>,
 }
 
@@ -136,8 +116,6 @@ pub struct RingDepositEntry {
     pub owner_utxo_hash: [u8; 32],
     /// Deposited amount of the asset selected by `asset_index`.
     pub amount: u64,
-    /// Hash of the encrypted application-data preimage, when present.
-    pub data_hash: Option<[u8; 32]>,
     /// Ring-defined data committed into `ring_hash`. The ring's `program_id` is
     /// NOT in instruction data: it is read from the `RingConfig` account (the
     /// signing `ring_auth` PDA) the ring forwards.
@@ -175,7 +153,6 @@ pub struct RingDepositEntryRef<'a> {
     pub view_tag: &'a [u8; 32],
     pub owner_utxo_hash: &'a [u8; 32],
     pub amount: u64,
-    pub data_hash: Option<&'a [u8; 32]>,
     pub ring_data_hash: &'a [u8; 32],
     pub encrypted: EncryptedRingDepositDataRef<'a>,
 }

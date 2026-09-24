@@ -42,9 +42,6 @@ fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -
     match entry {
         ProcessingEntry::Default(entry) => {
             check_field_element(entry.owner, "deposit owner", index, error)?;
-            if let Some(utxo_data) = entry.utxo_data {
-                check_field_element(utxo_data.data_hash, "deposit data hash", index, error)?;
-            }
         }
         ProcessingEntry::Ring(entry) => {
             check_field_element(
@@ -53,9 +50,6 @@ fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -
                 index,
                 error,
             )?;
-            if let Some(data_hash) = entry.data_hash {
-                check_field_element(data_hash, "ring deposit data hash", index, error)?;
-            }
             check_field_element(
                 entry.ring_data_hash,
                 "ring deposit ring data hash",
@@ -152,27 +146,26 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             ))?
         };
 
-        let (data_hash, ring_hash, owner_utxo_hash) = match processing_entry {
+        let (ring_hash, owner_utxo_hash) = match processing_entry {
             ProcessingEntry::Default(entry) => {
-                let data_hash = entry.utxo_data.map_or(&zero, |utxo| utxo.data_hash);
                 let owner_utxo_hash =
                     Poseidon::hashv(&[entry.owner.as_slice(), blinding.as_slice()]).map_err(
                         caused_by(ShieldedPoolError::TransactProofVerificationFailed),
                     )?;
-                (data_hash, zero_ring_hash, owner_utxo_hash)
+                (zero_ring_hash, owner_utxo_hash)
             }
             ProcessingEntry::Ring(entry) => (
-                entry.data_hash.unwrap_or(&zero),
                 hash_with_program_id(entry.ring_data_hash, &ring_program_id_field)?,
                 *entry.owner_utxo_hash,
             ),
         };
+        // Deposits carry no application data, so the data hash is always zero.
         let utxo_hash = Poseidon::hashv(&[
             UTXO_DOMAIN_FIELD.as_slice(),
             tree_id.as_slice(),
             group.asset_field.as_slice(),
             field_from_u64(amount).as_slice(),
-            data_hash.as_slice(),
+            zero.as_slice(),
             ring_hash.as_slice(),
             owner_utxo_hash.as_slice(),
         ])

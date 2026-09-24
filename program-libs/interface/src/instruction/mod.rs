@@ -11,8 +11,8 @@ pub use instruction_data::{
     MergeTransactIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData,
     ResolvedOutput, RingDepositEntry, RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef,
     SetRingActivationData, TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef,
-    TransactProof, TreeContext, UpdateProtocolConfigData, UpdateRingConfigData, UtxoData,
-    UtxoDataRef, DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
+    TransactProof, TreeContext, UpdateProtocolConfigData, UpdateRingConfigData,
+    DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
 };
 #[cfg(feature = "tree")]
 pub use instruction_data::{

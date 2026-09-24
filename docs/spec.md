@@ -1525,7 +1525,7 @@ operations, and tags 18–21 are maintenance and administration.
 | create_spl_interface | Tag 6; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_ring_config | Tag 7; permissionless. Creates the ring's `ring_config`; signers and initial activation state follow [Ring Accounts](#ring-accounts). |
 | update_ring_config | Tag 8; sets `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused or inactive. |
-| update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
+| update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority is read only from its account and co-signs, except `Address::default()`, which burns the authority and cannot sign. |
 | emit_event | Tag 10; no-op; instruction data is `[EventKind, borsh(body)]` (see [General Event](#general-event)); SPP self-CPI only. |
 | deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
@@ -1848,26 +1848,18 @@ One instruction is a batch: it carries a list of entries, each appending one out
 
 **Accounts**
 
-Settlement groups follow `payer` in the order `assets` declares them: a `Sol` group reads two accounts, an `Spl` group four. The instruction data declares the layout, so the program never infers it from the account count.
+Settlement groups follow `tree`, `payer`, and the SPP program account in the order `assets` declares them.
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | UTXO tree |
-| 2 | payer |   | x | depositor; signer authorizes any attached `utxo_data` |
-| .. | settlement groups |   |   | per `assets` entry: `Sol` = (`system_program`, `sol_interface`); `Spl` = (`token_program`, `user_spl_token_account`, `spl_token_interface`, `spl_asset_registry`) |
-| n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
+| 2 | payer | x | x | depositor |
+| 3 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
+| .. | settlement groups |   |   | per `assets` entry: `Sol` = (`system_program`, `sol_interface`); `Spl` = (`token_program`, `mint`, `user_token`, `spl_interface`) |
 
 **Instruction data**
 
 ```rust
-/// Application data committed into the deposited UTXO's `data_hash`;
-/// authorized by the `payer` signer.
-struct UtxoData {
-    data_hash: [u8; 32],
-    /// Preimage of `data_hash`.
-    data: Vec<u8>,
-}
-
 struct DepositIxData {
     /// Settlement groups in account order; `DepositEntry::asset_index` indexes
     /// this. At most MAX_DEPOSIT_ASSETS (5) entries, pairwise-distinct assets.
@@ -1893,21 +1885,15 @@ struct DepositEntry {
     owner: [u8; 32],
     /// Deposited amount of the asset `asset_index` selects.
     amount: u64,
-    /// Data hash; authorized by the `payer` signer.
-    data_hash: Option<[u8; 32]>,
-    /// Preimage of `data_hash`.
-    utxo_data: Option<Vec<u8>>,
 }
 ```
 
-The settlement accounts follow `tree_account` and `payer`. SOL rail:
-`system_program`, `sol_interface` (writable, the canonical
-`[b"sol_interface", [0]]` PDA), `user_sol` (writable, must equal `payer`), and
-the SPP program account. SPL rail: `user_token` (writable, its token owner must
-equal `payer`), `vault` (writable, the canonical `[b"spl_asset_vault", mint]`
-PDA owned by the SPP CPI authority), the mint's `Asset registry`, the token
-program, and the SPP program account. The rail is selected by the account
-count; surplus accounts are rejected.
+A deposit carries no application data. SPP cannot check the owner's signature on
+this rail, and a UTXO with a nonzero `data_hash` must be owned by a signer (see
+the [SPP Proof](#spp-proof---solana-privacy-zk-proof) UTXO data check), so such a UTXO comes from a proven
+[`transact`](#transact).
+
+SOL deposits transfer from the payer to the canonical SOL interface PDA. SPL deposits transfer from the payer's token account to the canonical per-mint SPL interface PDA. The asset descriptors determine the account layout; surplus accounts are rejected.
 
 <a id="blinding-derivation"></a>
 **Blinding.** `blinding` is not in the instruction data. The program derives it
@@ -1931,11 +1917,10 @@ the transaction executes.
 2. `deposits` is non-empty and `assets` holds 1..=`MAX_DEPOSIT_ASSETS` entries.
 3. Read the accounts each `assets` entry names, validating each group as its kind requires. Two groups must not name the same asset: that would split one asset's settlement across two transfers and let an entry pick either.
 4. Every `asset_index` is within `assets`, and every declared asset is named by at least one entry; an unfunded group would otherwise pass validation without settling.
-5. `data_hash` and `utxo_data` are either both set or both absent; when set, the `payer` signer authorizes them. SPP commits the hash unchecked.
-6. Per entry, derive its `blinding` from the tree and the leaf index the entry appends at (see [Blinding](#blinding-derivation)), compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `tree_id` is `output_tree`'s id, `asset` from the entry's settlement group (the mint pubkey, SOL: `Address::default()`) and `amount` from the entry, `data_hash` from instruction data or `0`, `ring_program_id` is `0`, `ring_data_hash` is `0`. Append each hash to the UTXO tree in entry order.
-7. Sum each asset's entry amounts; the sum must not overflow.
-8. Transfer each asset's total once: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-9. Emit one [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, carrying every output.
+5. Per entry, derive its `blinding` from the tree and the leaf index the entry appends at (see [Blinding](#blinding-derivation)), compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `tree_id` is `output_tree`'s id, `asset` from the entry's settlement group (the mint pubkey, SOL: `Address::default()`) and `amount` from the entry, `data_hash` is `0`, `ring_program_id` is `0`, `ring_data_hash` is `0`. Append each hash to the UTXO tree in entry order.
+6. Sum each asset's entry amounts; the sum must not overflow.
+7. Transfer each asset's total once: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
+8. Emit one [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, carrying every output.
 
 **Event**
 
@@ -1984,11 +1969,9 @@ GeneralEvent {
 }
 ```
 
-`data_hash` and `utxo_data` are set when the payer attaches them,
-else `None`. `ring_program_id`, `ring_data_hash`, and `ring_data` are set only by
-[`ring_deposit`](#ring_deposit). SPP does not interpret
-`utxo_data`; it copies the hash and preimage from instruction data into the event
-unchecked.
+`data_hash` and `utxo_data` are always `None`: deposits carry no application
+data. `ring_program_id`, `ring_data_hash`, and `ring_data` are set only by
+[`ring_deposit`](#ring_deposit).
 
 
 ### General Event
@@ -2098,7 +2081,7 @@ struct ProoflessOutput {
     asset: [u8; 32],
     /// Deposited amount.
     amount: u64,
-    /// Set when the payer attaches data.
+    /// Always `None`: deposits carry no application data.
     data_hash: Option<[u8; 32]>,
     utxo_data: Option<Vec<u8>>,
     /// `ring_*` set only by [`ring_deposit`](#ring_deposit).
@@ -2127,7 +2110,7 @@ struct Movement {
 deposit without a proof that creates UTXOs owned by the calling ring program.
 The ring program CPIs into SPP with its [`ring_config`](#ring-accounts) signer.
 Every output carries the program's `ring_program_id` (read from `ring_config`)
-and its own policy/UTXO data. As with `deposit`, entries may share settlement
+and its own policy data. As with `deposit`, entries may share settlement
 groups and may span at most `MAX_DEPOSIT_ASSETS` assets.
 
 **Accounts**
@@ -2170,13 +2153,13 @@ the instruction and must use a fresh blinding per output.
 3. The `ring_config` account must sign and be unpaused; SPP loads it by owner + discriminator
    (see [Ring Accounts](#ring-accounts)).
 4. Per entry, compute the [UTXO hash](#utxo-hash) from its selected asset,
-   amount, owner, blinding, UTXO data hash, its own `ring_data_hash`, and
+   amount, owner, blinding, a zero data hash, its own `ring_data_hash`, and
    `ring_config.program_id`.
 5. Append every hash to the UTXO tree in one batch.
 6. Sum and settle each asset once, as in `deposit`.
 7. Emit one [`GeneralEvent`](#general-event) carrying every output in entry order,
    including each output's `ring_program_id`, `ring_data_hash`, `ring_data`,
-   UTXO data, and memo.
+   and memo.
 
 ### `merge_transact`
 

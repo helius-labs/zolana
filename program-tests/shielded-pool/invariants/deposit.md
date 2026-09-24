@@ -7,7 +7,7 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's `DepositIxData`/`RingDepositIx
 previously carried an `Option<u64>` public-amount pair; `docs/spec.md` now matches the
 code. The instruction data is batched: `assets: Vec<DepositAssetKind>` declares the
 settlement groups (and their account layout) and `deposits: Vec<DepositEntry>` carries
-the entries (`view_tag`/`owner`/`blinding`/`amount: u64`/`utxo_data: Option<UtxoData>`/`memo`),
+the entries (`view_tag`/`owner`/`blinding`/`amount: u64`/`memo`),
 each selecting its asset by `asset_index` into `assets`.
 
 ## Deposit
@@ -20,7 +20,7 @@ each selecting its asset by `asset_index` into `assets`.
   - Statement: `deposit` returns Err whenever the second account (index 1, `depositor`) is not a signer; the signer check is `iter.next_signer("depositor")` inside `DepositAccounts::validate_and_parse`.
   - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:69` (`fn validate_and_parse`)
   - Error: `ProgramError::MissingRequiredSignature`
-  - Severity: Critical (authorizes `utxo_data` and funds)
+  - Severity: Critical (authorizes funds)
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-DEPOSIT-02: fewer than 3 accounts is rejected**
@@ -180,9 +180,9 @@ each selecting its asset by `asset_index` into `assets`.
 ### Success Postconditions
 
 - [x] **INV-DEPOSIT-12: the appended leaf commits the deposit exactly**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `sol_deposit_with_utxo_data_commits_the_data_hash`
+  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer` (the litesvm oracle recomputes the leaf)
   - Kind: postcondition
-  - Statement: after a successful `deposit`, one leaf per batch entry is appended to the UTXO tree whose value is `Poseidon(field(UTXO_DOMAIN=3), pk_field(asset), field(amount), data_hash, ring_hash, Poseidon(owner, blinding))` with `asset = [0;32]` on the SOL rail and the registry mint on the SPL rail, `data_hash` from `utxo_data` or `[0;32]`, `ring_hash = Poseidon(ring_data_hash, pk_field(ring_program_id))` as the 5th element, and the 31-byte `blinding` left-padded with one zero byte. (The batch-level append/settlement postconditions are INV-DEPOSIT-25.)
+  - Statement: after a successful `deposit`, one leaf per batch entry is appended to the UTXO tree whose value is `Poseidon(field(UTXO_DOMAIN=3), pk_field(asset), field(amount), data_hash, ring_hash, Poseidon(owner, blinding))` with `asset = [0;32]` on the SOL rail and the registry mint on the SPL rail, `data_hash = [0;32]` (deposit instruction data has no application-data field, so a data-bearing UTXO only comes from a proof whose circuit requires the owner signature), `ring_hash = Poseidon(ring_data_hash, pk_field(ring_program_id))` as the 5th element, and the 31-byte `blinding` left-padded with one zero byte. (The batch-level append/settlement postconditions are INV-DEPOSIT-25.)
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:104-124` (`fn process_deposit_internal`)
   - Severity: Critical (note integrity)
   - Suggested test: positive with recomputed hash; harness: mollusk unit + `cargo test -p` reference vector
@@ -215,7 +215,7 @@ each selecting its asset by `asset_index` into `assets`.
 - [x] **INV-DEPOSIT-16: successful deposit emits exactly one Deposit GeneralEvent with a proofless output per entry**
   - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer`, `sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw`
   - Kind: postcondition
-  - Statement: after a successful `deposit` batch, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` has zero inputs, one output per batch entry carrying `view_tag`, the computed `utxo_hash`, and a `ProoflessOutput` payload with the cleartext `owner`, `blinding`, `asset`, `amount`, optional `data_hash`/`utxo_data`/`memo`, and whose `spl_transfers` carries one `SplTransfer { is_deposit: true, amount, asset: None-for-SOL / Some(mint)-for-SPL }` per funded asset group (pushed even for a zero total).
+  - Statement: after a successful `deposit` batch, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` has zero inputs, one output per batch entry carrying `view_tag`, the computed `utxo_hash`, and a `ProoflessOutput` payload with the cleartext `owner`, `blinding`, `asset`, `amount`, `data_hash`/`utxo_data` always `None`, optional `memo`, and whose `spl_transfers` carries one `SplTransfer { is_deposit: true, amount, asset: None-for-SOL / Some(mint)-for-SPL }` per funded asset group (pushed even for a zero total).
   - Location: `programs/shielded-pool/src/instructions/deposit/event.rs:16-46, 55-67` (`fn proofless_output_utxo`, `fn emit_deposit_event`)
   - Severity: Medium (wallet discovery)
   - Suggested test: positive; harness: litesvm

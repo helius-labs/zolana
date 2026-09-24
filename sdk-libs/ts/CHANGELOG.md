@@ -88,6 +88,9 @@ Breaking
   reprove pending merges and transfers with the program and prover of this
   release, set the five fields on a hand-built `TransferInputs`, and handle
   the new variants in exhaustive switches.
+- `UtxoData`, `DepositEntry.utxoData` and `RingDepositEntry.dataHash` are
+  removed, so a deposit output never carries application data → attach data
+  to a UTXO through a proven transaction instead.
 
 Added
 

@@ -1651,7 +1651,6 @@ pub fn ring_deposit_data(assets: Vec<DepositAssetKind>, amount: u64) -> Vec<u8> 
             view_tag: [0; 32],
             owner_utxo_hash: [1; 32],
             amount,
-            data_hash: None,
             ring_data_hash: [2; 32],
             encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [3; 33],

@@ -20,8 +20,8 @@ pub use create_tree::CreateTreeData;
 pub use deposit::{
     deposit_blinding, DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData,
     DepositIxDataRef, EncryptedRingDepositData, EncryptedRingDepositDataRef, RingDepositEntry,
-    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, UtxoData, UtxoDataRef,
-    DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
+    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, DEPOSIT_BLINDING_DOMAIN,
+    MAX_DEPOSIT_ASSETS,
 };
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{

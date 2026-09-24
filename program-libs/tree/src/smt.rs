@@ -13,6 +13,7 @@ pub const ROOT_OFFSET: usize = 8;
 
 pub const ROOT_HISTORY_CAPACITY: usize = 500;
 
+const _: () = assert!(ROOT_HISTORY_CAPACITY > 0);
 const _: () = assert!(ROOT_HISTORY_CAPACITY <= u16::MAX as usize);
 
 #[repr(C)]
@@ -184,9 +185,6 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
 
     fn push_root(&mut self, root: [u8; 32], slot: u64, is_first_update: bool) {
         let capacity = self.root_history.len();
-        if capacity == 0 {
-            return;
-        }
         let cursor = usize::from(self.current_root_index());
         if !is_first_update && slot == self.last_update_slot {
             if let Some(history_slot) = self.root_history.get_mut(cursor) {
