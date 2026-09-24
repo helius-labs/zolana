@@ -1270,9 +1270,20 @@ func (handler proveHandler) customRingProof(buf []byte, circuitType common.Circu
 	}
 	proof, err := customring.Prove(ps, request)
 	if err != nil {
-		return nil, provingError(errors.New("custom ring proof failed"))
+		return nil, customRingProvingError(circuitType, err)
 	}
 	return proof, nil
+}
+
+// customRingProvingError logs the cause of a failed custom-ring proof and
+// returns the redacted error the client sees. The cause can carry private
+// inputs, so it goes to the server log and never into the response.
+func customRingProvingError(circuitType common.CircuitType, err error) *Error {
+	logging.Logger().Error().
+		Err(err).
+		Str("circuit_type", string(circuitType)).
+		Msg("Custom ring proof failed")
+	return provingError(errCustomRingProof)
 }
 
 func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, *Error) {

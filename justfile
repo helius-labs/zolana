@@ -1543,9 +1543,10 @@ prover-server-test:
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
     go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
-    # The `server` package's handler tests need redis, the queue-routing and
-    # timeout unit tests do not.
-    go test ./server/ -run '^(TestGetQueueNameForCircuit|TestSyncProofTimeout)$'
+    # The `server` package's handler tests need redis. The queue-routing and
+    # timeout unit tests do not, and the custom-ring failure-logging tests bring
+    # their own in-process miniredis.
+    go test ./server/ -run '^(TestGetQueueNameForCircuit|TestSyncProofTimeout|TestCustomRingQueueFailureLogsCauseAndRedactsResponse|TestNonCustomRingQueueFailureStaysUnredacted|TestSyncCustomRingProvingErrorLogsCauseAndRedactsResponse)$'
 
 [private]
 xtask-create-verifying-keys:
