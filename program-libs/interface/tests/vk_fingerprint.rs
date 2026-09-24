@@ -1,6 +1,6 @@
 //! Pins a single SHA-256 fingerprint over every committed Groth16 verifying
 //! key the shielded-pool program embeds. The keys are generated artifacts
-//! (`prover/server/scripts/regenerate_all_vkeys.sh`); a regeneration rewrites
+//! (`prover/server/scripts/keys.py`); a regeneration rewrites
 //! 26 opaque constant files that are effectively unreviewable by diff. This
 //! test turns any VK change into an explicit one-line re-pin: if it fails,
 //! confirm the rotation was intentional (new proving keys uploaded, lockfile
