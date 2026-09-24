@@ -407,7 +407,7 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
     - account size must match the account struct size exactly
 6. Recovery and owner encryption keys
     - the owner needs to sign to add or remove encryption keys other than auditor keys
-7. all signer checks must be in the processor not nested inside of other functions
+7. signer checks belong in the processor or in its account validation function (e.g. `<Ix>Accounts::validate_and_parse`), not nested inside other functions
 8. closing accounts
     - every account close instruction must have a dedicated rent_recipient
 
