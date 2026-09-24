@@ -5,7 +5,7 @@ use zolana_hasher::{
     primitives::solana_owner_identity,
 };
 use zolana_interface::{
-    instruction::instruction_data::transact::{InputUtxo, TreeContext},
+    instruction::instruction_data::transact::{InputUtxo, TreeContext, NO_UTXO_ROOT},
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, MAX_INPUT_TREES,
 };
@@ -44,9 +44,9 @@ use crate::{
 #[derive(Clone)]
 pub struct TransferInputUtxo {
     pub utxo: SppProofInputUtxo,
-    /// `Some` for a real input, `None` for a padding (dummy) slot. A dummy has
-    /// no state proof of its own; it takes the tree slot of the tree whose raw
-    /// id its `tree_id` names.
+    /// `Some` for a real input, `None` for a padding (dummy) slot or a cached
+    /// input (`utxo.cache_slot`). Neither has a state proof of its own; each
+    /// takes the tree slot of the tree whose raw id its `tree_id` names.
     pub proof: Option<SpendProof>,
     /// Padding slots only: the fetched non-inclusion proof for the dummy's own
     /// nullifier. The circuit checks non-inclusion for every slot, dummies
@@ -156,8 +156,7 @@ pub(crate) enum OwnerMode {
 /// every input names, and the caller derives the account where SPP needs one.
 struct InputTree {
     tree_id: u16,
-    utxo_root: [u8; 32],
-    utxo_root_index: u16,
+    utxo_root: Option<([u8; 32], u16)>,
     nullifier_root: [u8; 32],
     nullifier_root_index: u16,
 }
@@ -201,7 +200,8 @@ impl InputTrees {
     fn tree_slots(&self) -> [TreeSlot; INPUT_TREES] {
         let mut slots = [TreeSlot::ZERO; INPUT_TREES];
         for (slot, tree) in slots.iter_mut().zip(self.trees.iter()) {
-            *slot = TreeSlot::new(tree.tree_id, tree.utxo_root, tree.nullifier_root);
+            let utxo_root = tree.utxo_root.map_or([0u8; 32], |(root, _)| root);
+            *slot = TreeSlot::new(tree.tree_id, utxo_root, tree.nullifier_root);
         }
         slots
     }
@@ -210,7 +210,9 @@ impl InputTrees {
         self.trees
             .iter()
             .map(|tree| TreeContext {
-                utxo_tree_root_index: tree.utxo_root_index,
+                utxo_tree_root_index: tree
+                    .utxo_root
+                    .map_or(NO_UTXO_ROOT, |(_, root_index)| root_index),
                 nullifier_tree_root_index: tree.nullifier_root_index,
             })
             .collect()
@@ -227,17 +229,25 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
     let mut trees: Vec<InputTree> = Vec::with_capacity(1);
 
     for input_utxo in input_utxos {
-        let Some(proof) = &input_utxo.proof else {
-            continue;
+        let (utxo_root, nullifier_proof) = match (&input_utxo.proof, &input_utxo.nullifier_proof) {
+            (Some(proof), _) => (
+                Some((proof.state.root, proof.state.root_index)),
+                &proof.nullifier,
+            ),
+            (None, Some(nullifier_proof)) if input_utxo.utxo.cache_slot.is_some() => {
+                (None, nullifier_proof)
+            }
+            _ => continue,
         };
         let tree_id = input_utxo.utxo.tree_id;
-        let nullifier_proof = &proof.nullifier;
-        match trees.iter().find(|tree| tree.tree_id == tree_id) {
+        match trees.iter_mut().find(|tree| tree.tree_id == tree_id) {
             Some(tree) => {
-                if (tree.utxo_root, tree.utxo_root_index)
-                    != (proof.state.root, proof.state.root_index)
-                {
-                    return Err(ClientError::InputTreeRootMismatch);
+                match (tree.utxo_root, utxo_root) {
+                    (Some(known), Some(root)) if known != root => {
+                        return Err(ClientError::InputTreeRootMismatch);
+                    }
+                    (None, Some(root)) => tree.utxo_root = Some(root),
+                    _ => {}
                 }
                 if (tree.nullifier_root, tree.nullifier_root_index)
                     != (nullifier_proof.root, nullifier_proof.root_index)
@@ -248,8 +258,7 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
             None => {
                 trees.push(InputTree {
                     tree_id,
-                    utxo_root: proof.state.root,
-                    utxo_root_index: proof.state.root_index,
+                    utxo_root,
                     nullifier_root: nullifier_proof.root,
                     nullifier_root_index: nullifier_proof.root_index,
                 });
@@ -271,7 +280,7 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
     let trees = InputTrees { trees };
 
     for input_utxo in input_utxos {
-        if input_utxo.proof.is_some() {
+        if !input_utxo.utxo.is_dummy() {
             continue;
         }
         let tree_index = trees
@@ -305,6 +314,11 @@ pub(crate) fn assemble_inputs(
     owner_mode: &OwnerMode,
 ) -> Result<AssembledInputs, ClientError> {
     for (index, input) in input_utxos.iter().enumerate() {
+        if input.utxo.cache_slot.is_some()
+            && matches!(owner_mode, OwnerMode::Merge | OwnerMode::RingAuthority)
+        {
+            return Err(ClientError::CachedInputUnsupported { index });
+        }
         input.validate(index)?;
     }
     let trees = resolve_input_trees(input_utxos)?;
@@ -345,10 +359,20 @@ pub(crate) fn assemble_inputs(
             nullifiers.push(input_utxo.utxo.nullifier);
             continue;
         }
-        let proof = input_utxo
-            .proof
-            .as_ref()
-            .ok_or(ClientError::MissingInputMerkleProof { index })?;
+        let (state_path_elements, state_path_index, nf) =
+            match (&input_utxo.proof, &input_utxo.nullifier_proof) {
+                (Some(proof), _) => (
+                    proof.state.path.iter().map(be).collect(),
+                    BigUint::from(proof.state.leaf_index),
+                    &proof.nullifier,
+                ),
+                (None, Some(nullifier_proof)) if input_utxo.utxo.cache_slot.is_some() => (
+                    vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+                    BigUint::ZERO,
+                    nullifier_proof,
+                ),
+                _ => return Err(ClientError::MissingInputMerkleProof { index }),
+            };
 
         let utxo_inputs = ProofInputUtxo::try_from(&input_utxo.utxo)?;
         // Both arrive computed on the input UTXO. Recomputing them would give a
@@ -372,14 +396,11 @@ pub(crate) fn assemble_inputs(
             (_, false) => input_utxo.utxo.utxo.owner.owner_proof_input_hash()?,
         };
 
-        let state = &proof.state;
-        let nf = &proof.nullifier;
-
         inputs.push(TransferInput {
             utxo: utxo_inputs,
             is_dummy: BigUint::ZERO,
-            state_path_elements: state.path.iter().map(be).collect(),
-            state_path_index: BigUint::from(state.leaf_index),
+            state_path_elements,
+            state_path_index,
             nullifier_low_value: be(&nf.low_element),
             nullifier_next_value: be(&nf.high_element),
             nullifier_low_path_elements: nf.path.iter().map(be).collect(),
@@ -511,6 +532,11 @@ pub struct PublicInputs<'a> {
     /// Appended by owner-signed rails. The default rail publishes every slot;
     /// custom-ring rails publish only confidential-encryption-marked slots.
     pub output_owner_pk_hashes: Option<&'a [[u8; 32]]>,
+    /// The cache selection published right after the output owners, by exactly
+    /// the rails that publish them. A spend that draws no input from a cache
+    /// carries the empty selection rather than omitting it, so the preimage
+    /// length never depends on whether a cache was used.
+    pub cached_inputs: [[u8; 32]; 2],
 }
 
 impl PublicInputs<'_> {
@@ -541,6 +567,7 @@ impl PublicInputs<'_> {
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             elements.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
+            elements.extend(self.cached_inputs);
         }
         Ok(create_hash_chain_4_from_slice(&elements)?)
     }
@@ -578,6 +605,9 @@ impl TransferInputUtxo {
             );
         }
         if input.is_dummy() {
+            if input.cache_slot.is_some() {
+                return Err(ClientError::CachedDummyInput { index });
+            }
             if self.proof.is_some() {
                 return Err(ClientError::UnexpectedInputProof { index });
             }
@@ -585,6 +615,15 @@ impl TransferInputUtxo {
                 .nullifier_proof
                 .as_ref()
                 .ok_or(ClientError::MissingDummyNullifierProof { index })?;
+            validate_nullifier_proof(proof, input, index)
+        } else if input.cache_slot.is_some() {
+            if self.proof.is_some() {
+                return Err(ClientError::UnexpectedInputProof { index });
+            }
+            let proof = self
+                .nullifier_proof
+                .as_ref()
+                .ok_or(ClientError::MissingCachedNullifierProof { index })?;
             validate_nullifier_proof(proof, input, index)
         } else {
             if self.nullifier_proof.is_some() {
@@ -621,7 +660,7 @@ pub(crate) fn assemble_transaction(
     outputs: &[SppProofOutputUtxo],
     blinding_seed: &[u8; 32],
     output_tree_id: u16,
-    external_data: &ExternalData,
+    external_data_hash: &[u8; 32],
     owner_mode: &OwnerMode,
     allow_dummy_inputs: bool,
 ) -> Result<AssembledTransaction, ClientError> {
@@ -649,13 +688,12 @@ pub(crate) fn assemble_transaction(
         }
     }
     let outputs = assemble_outputs(outputs, output_tree_id)?;
-    let external_data_hash = external_data.hash()?;
     let blinding = derive_private_tx_blinding(first_nullifier, blinding_seed)?;
-    let private_tx_hash = private_tx_hash(&inputs, &outputs, &external_data_hash, &blinding)?;
+    let private_tx_hash = private_tx_hash(&inputs, &outputs, external_data_hash, &blinding)?;
     Ok(AssembledTransaction {
         inputs,
         outputs,
-        external_data_hash,
+        external_data_hash: *external_data_hash,
         private_tx_hash,
         input_flags,
     })
@@ -694,13 +732,22 @@ mod tests {
     use zolana_transaction::{utxo::SppProofInputUtxo, Data, Utxo};
 
     use crate::rpc::{MerkleContext, MerkleProof, NULLIFIER_TREE_HEIGHT};
+    use solana_address::Address;
     use zolana_event::{
         OutputDataEncoding, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
         RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
     };
-    use zolana_interface::instruction::{OwnerTag, TransactOutput};
+    use zolana_interface::{
+        instruction::{OwnerTag, TransactOutput},
+        state::cache::{
+            bind_cache_write, cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY,
+        },
+        verifying_keys::{CacheAccess, CacheWrite},
+    };
+    use zolana_transaction::instructions::transact::CacheAccounts;
 
     use super::*;
+    use crate::prover::{cache::CacheSelection, CacheReadInputs};
 
     fn keypair(seed: u8) -> ShieldedKeypair {
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))
@@ -808,6 +855,360 @@ mod tests {
     /// A padding slot under tree id 0.
     fn dummy(nullifier_proof: Option<(u8, u16)>) -> TransferInputUtxo {
         dummy_in(0, nullifier_proof)
+    }
+
+    fn cached_in(seed: u8, tree_id: u16, slot: u8, nullifier_root: u8) -> TransferInputUtxo {
+        let TransferInputUtxo { utxo, proof, .. } =
+            input_utxo_in(seed, tree_id, 0x11, 3, nullifier_root);
+        TransferInputUtxo {
+            utxo: utxo.with_cache_slot(slot).unwrap(),
+            proof: None,
+            nullifier_proof: proof.map(|proof| proof.nullifier),
+        }
+    }
+
+    fn output(seed: u8) -> SppProofOutputUtxo {
+        SppProofOutputUtxo::new(
+            zolana_transaction::Mint::SOL,
+            1,
+            keypair(seed).shielded_address().unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn cached_output(seed: u8, slot: u8) -> SppProofOutputUtxo {
+        output(seed).with_cache_slot(slot).unwrap()
+    }
+
+    fn external_data() -> ExternalData {
+        ExternalData {
+            instruction_discriminator: 0,
+            expiry_unix_ts: 0,
+            interface_transfers: Vec::new(),
+            data_hash: None,
+            ring_data_hash: None,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            outputs: Vec::new(),
+            resolved_owner_tags: Vec::new(),
+            messages: Vec::new(),
+        }
+    }
+
+    const READ_CACHE: Address = Address::new_from_array([7u8; 32]);
+    const WRITE_CACHE: Address = Address::new_from_array([8u8; 32]);
+
+    fn reading() -> CacheAccounts {
+        CacheAccounts {
+            read: Some(READ_CACHE),
+            write: None,
+        }
+    }
+
+    fn writing() -> CacheAccounts {
+        CacheAccounts {
+            read: None,
+            write: Some(WRITE_CACHE),
+        }
+    }
+
+    fn derive(
+        inputs: &[TransferInputUtxo],
+        outputs: &[SppProofOutputUtxo],
+        accounts: CacheAccounts,
+    ) -> Result<CacheSelection, ClientError> {
+        CacheSelection::derive(inputs, outputs, accounts, &external_data())
+    }
+
+    #[test]
+    fn a_tree_read_only_from_a_cache_publishes_no_utxo_root() {
+        let input_utxos = [cached_in(1, 0, 4, 0x33), dummy(Some((0x33, 7)))];
+
+        let assembled =
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+
+        assert_eq!(
+            assembled.tree_contexts,
+            vec![TreeContext {
+                utxo_tree_root_index: NO_UTXO_ROOT,
+                nullifier_tree_root_index: 7,
+            }]
+        );
+        assert_eq!(
+            assembled.tree_slots.first(),
+            Some(&TreeSlot::new(0, [0u8; 32], [0x33; 32]))
+        );
+        let cached = assembled.inputs.first().expect("cached input");
+        assert_eq!(cached.is_dummy, BigUint::ZERO);
+        assert!(cached
+            .state_path_elements
+            .iter()
+            .all(|element| *element == BigUint::ZERO));
+        assert_eq!(
+            assembled.input_hashes.first(),
+            input_utxos.first().map(|input| &input.utxo.utxo_hash)
+        );
+    }
+
+    #[test]
+    fn a_tree_mixing_cached_and_real_inputs_publishes_the_real_root() {
+        for input_utxos in [
+            [cached_in(1, 0, 4, 0x33), input_utxo(2, 0x12, 3, 0x33)],
+            [input_utxo(2, 0x12, 3, 0x33), cached_in(1, 0, 4, 0x33)],
+        ] {
+            let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
+                .expect("assemble inputs");
+
+            assert_eq!(
+                assembled.tree_contexts,
+                vec![TreeContext {
+                    utxo_tree_root_index: 3,
+                    nullifier_tree_root_index: 7,
+                }]
+            );
+            assert_eq!(
+                assembled.tree_slots.first(),
+                Some(&TreeSlot::new(0, [0x12; 32], [0x33; 32]))
+            );
+        }
+    }
+
+    #[test]
+    fn each_tree_decides_on_its_own_utxo_root() {
+        let input_utxos = [input_utxo_in(1, 0, 0x11, 3, 0x33), cached_in(2, 1, 0, 0x34)];
+
+        let assembled =
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+
+        assert_eq!(
+            assembled.tree_contexts,
+            vec![
+                TreeContext {
+                    utxo_tree_root_index: 3,
+                    nullifier_tree_root_index: 7,
+                },
+                TreeContext {
+                    utxo_tree_root_index: NO_UTXO_ROOT,
+                    nullifier_tree_root_index: 7,
+                },
+            ]
+        );
+        assert_eq!(assembled.input_tree_indexes, vec![0, 1]);
+    }
+
+    #[test]
+    fn a_cached_input_carries_a_nullifier_proof_and_no_spend_proof() {
+        let mut missing = cached_in(1, 0, 4, 0x33);
+        missing.nullifier_proof = None;
+        assert!(matches!(
+            assemble_inputs(&[missing], &OwnerMode::ConfidentialEddsa),
+            Err(ClientError::MissingCachedNullifierProof { index: 0 })
+        ));
+
+        let mut spent = cached_in(1, 0, 4, 0x33);
+        spent.proof = input_utxo(1, 0x11, 3, 0x33).proof;
+        assert!(matches!(
+            assemble_inputs(&[spent], &OwnerMode::ConfidentialEddsa),
+            Err(ClientError::UnexpectedInputProof { index: 0 })
+        ));
+    }
+
+    #[test]
+    fn a_cached_input_shares_its_trees_nullifier_root() {
+        let input_utxos = [input_utxo(1, 0x11, 3, 0x33), cached_in(2, 0, 4, 0x34)];
+
+        assert!(matches!(
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            Err(ClientError::NullifierRootMismatch)
+        ));
+    }
+
+    #[test]
+    fn padding_cannot_be_read_from_a_cache() {
+        let mut padding = dummy(Some((0x33, 7)));
+        padding.utxo.cache_slot = Some(1);
+
+        assert!(matches!(
+            assemble_inputs(
+                &[input_utxo(1, 0x11, 3, 0x33), padding],
+                &OwnerMode::ConfidentialEddsa
+            ),
+            Err(ClientError::CachedDummyInput { index: 1 })
+        ));
+    }
+
+    #[test]
+    fn merge_and_ring_authority_proofs_read_no_cache() {
+        for owner_mode in [OwnerMode::Merge, OwnerMode::RingAuthority] {
+            assert!(matches!(
+                assemble_inputs(
+                    &[input_utxo(1, 0x11, 3, 0x33), cached_in(2, 0, 4, 0x33)],
+                    &owner_mode
+                ),
+                Err(ClientError::CachedInputUnsupported { index: 1 })
+            ));
+        }
+    }
+
+    #[test]
+    fn cache_reads_list_slots_in_order_and_rank_each_input() {
+        let inputs = [
+            cached_in(1, 0, 30, 0x33),
+            dummy(Some((0x33, 7))),
+            cached_in(2, 0, 4, 0x33),
+            dummy(Some((0x33, 7))),
+        ];
+
+        let selection = derive(&inputs, &[], reading()).expect("cache selection");
+
+        let access = selection.access.expect("cache access");
+        assert_eq!(access.read_bitmap, 1 << 30 | 1 << 4);
+        assert_eq!(access.write_slots, CacheAccess::NO_WRITES);
+        let hash = |position: usize| inputs.get(position).expect("input").utxo.utxo_hash;
+        let mut slots = [[0u8; 32]; CACHE_CAPACITY];
+        for (slot, position) in [(4, 2), (30, 0)] {
+            *slots.get_mut(slot).expect("slot") = hash(position);
+        }
+        assert_eq!(
+            selection.public_fields,
+            cached_input_fields(access.read_bitmap, 0, &slots, inputs.len()).unwrap()
+        );
+        assert_eq!(
+            selection.proof_inputs.read_hashes,
+            vec![be(&hash(2)), be(&hash(0)), BigUint::ZERO, BigUint::ZERO]
+        );
+        assert_eq!(
+            selection.proof_inputs.is_cached,
+            vec![true, false, true, false]
+        );
+        assert_eq!(selection.proof_inputs.read_index, vec![1, 0, 0, 0]);
+        assert_eq!(
+            selection.external_data_hash,
+            external_data().hash().unwrap()
+        );
+    }
+
+    #[test]
+    fn a_transaction_without_a_cache_publishes_the_empty_selection() {
+        let inputs = [input_utxo(1, 0x11, 3, 0x33), dummy(Some((0x33, 7)))];
+
+        let selection =
+            derive(&inputs, &[output(3)], CacheAccounts::default()).expect("cache selection");
+
+        let empty = empty_cached_input_fields(inputs.len()).unwrap();
+        assert!(selection.access.is_none());
+        assert_eq!(selection.public_fields, empty);
+        assert_eq!(selection.proof_inputs, CacheReadInputs::uncached(empty));
+        assert_eq!(
+            selection.external_data_hash,
+            external_data().hash().unwrap()
+        );
+    }
+
+    #[test]
+    fn cache_reads_are_checked_input_by_input() {
+        let mut beyond = cached_in(1, 0, 4, 0x33);
+        beyond.utxo.cache_slot = Some(36);
+        assert!(matches!(
+            derive(&[beyond], &[], reading()),
+            Err(ClientError::CacheReadSlotOutOfRange { index: 0, slot: 36 })
+        ));
+        assert!(matches!(
+            derive(
+                &[cached_in(1, 0, 2, 0x33), cached_in(2, 0, 2, 0x33)],
+                &[],
+                reading()
+            ),
+            Err(ClientError::DuplicateCacheReadSlot { index: 1, slot: 2 })
+        ));
+        assert!(matches!(
+            derive(
+                &[cached_in(1, 0, 2, 0x33), cached_in(2, 1, 3, 0x33)],
+                &[],
+                reading()
+            ),
+            Err(ClientError::CacheReadTreeMismatch {
+                index: 1,
+                tree_id: 1,
+                cache_tree_id: 0
+            })
+        ));
+        assert!(matches!(
+            derive(&[cached_in(1, 0, 2, 0x33)], &[], CacheAccounts::default()),
+            Err(ClientError::CachedInputWithoutReadCache { index: 0 })
+        ));
+        assert!(matches!(
+            derive(&[input_utxo(1, 0x11, 3, 0x33)], &[], reading()),
+            Err(ClientError::UnusedReadCache)
+        ));
+    }
+
+    #[test]
+    fn cache_writes_follow_output_order_and_bind_the_write_cache() {
+        let outputs = [cached_output(1, 30), output(2), cached_output(3, 2)];
+
+        let selection =
+            derive(&[input_utxo(4, 0x11, 3, 0x33)], &outputs, writing()).expect("cache selection");
+
+        let mut expected = CacheAccess::NO_WRITES;
+        for (entry, write) in expected.iter_mut().zip([
+            CacheWrite {
+                output: 0,
+                slot: 30,
+            },
+            CacheWrite { output: 2, slot: 2 },
+        ]) {
+            *entry = write;
+        }
+        let access = selection.access.expect("cache access");
+        assert_eq!(access.read_bitmap, 0);
+        assert_eq!(access.write_slots, expected);
+        let unbound = external_data().hash().unwrap();
+        assert_eq!(
+            selection.external_data_hash,
+            bind_cache_write(unbound, Some((&WRITE_CACHE.to_bytes(), &expected))).unwrap()
+        );
+        assert_ne!(selection.external_data_hash, unbound);
+    }
+
+    #[test]
+    fn cache_writes_are_checked_output_by_output() {
+        let inputs = [input_utxo(4, 0x11, 3, 0x33)];
+        let mut beyond = output(1);
+        beyond.cache_slot = Some(36);
+        assert!(matches!(
+            derive(&inputs, &[beyond], writing()),
+            Err(ClientError::CacheWriteSlotOutOfRange { index: 0, slot: 36 })
+        ));
+        assert!(matches!(
+            derive(
+                &inputs,
+                &[cached_output(1, 5), cached_output(2, 5)],
+                writing()
+            ),
+            Err(ClientError::DuplicateCacheWriteSlot { index: 1, slot: 5 })
+        ));
+        let nine: Vec<_> = (0..9).map(|slot| cached_output(slot + 1, slot)).collect();
+        assert!(matches!(
+            derive(&inputs, &nine, writing()),
+            Err(ClientError::TooManyCacheWrites { index: 8, max: 8 })
+        ));
+        assert!(matches!(
+            derive(&inputs, &[cached_output(1, 5)], CacheAccounts::default()),
+            Err(ClientError::CachedOutputWithoutWriteCache { index: 0 })
+        ));
+        let padding = SppProofOutputUtxo {
+            cache_slot: Some(1),
+            ..SppProofOutputUtxo::default()
+        };
+        assert!(matches!(
+            derive(&inputs, &[padding], writing()),
+            Err(ClientError::CachedDummyOutput { index: 0 })
+        ));
+        assert!(matches!(
+            derive(&inputs, &[output(1)], writing()),
+            Err(ClientError::UnusedWriteCache)
+        ));
     }
 
     #[test]

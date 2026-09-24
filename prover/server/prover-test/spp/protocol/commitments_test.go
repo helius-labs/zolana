@@ -428,46 +428,119 @@ func TestHashChain4RejectsInvalidFieldElements(t *testing.T) {
 	}
 }
 
-func TestHashChain4SharedKnownAnswerVectors(t *testing.T) {
-	type vector struct {
-		Name   string   `json:"name"`
-		Inputs []string `json:"inputs"`
-		Output string   `json:"output"`
-	}
-	type file struct {
-		Vectors []vector `json:"vectors"`
-	}
+type chainVector struct {
+	Name   string   `json:"name"`
+	Inputs []string `json:"inputs"`
+	Output string   `json:"output"`
+}
+
+// readChainVectors loads one of the shared cross-language fold vector files
+// from test-vectors/. Rust produces them and Go, the circuits and TypeScript
+// all check against the same bytes.
+func readChainVectors(t *testing.T, name string) []chainVector {
+	t.Helper()
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("locate commitments_test.go")
 	}
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../test-vectors/hash_chain_4.json"))
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../test-vectors/", name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var vectors file
-	if err := json.Unmarshal(raw, &vectors); err != nil {
+	var file struct {
+		Vectors []chainVector `json:"vectors"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
 		t.Fatal(err)
 	}
-	if len(vectors.Vectors) == 0 {
-		t.Fatal("no vectors")
+	if len(file.Vectors) == 0 {
+		t.Fatalf("%s has no vectors", name)
 	}
-	for _, vector := range vectors.Vectors {
-		inputs := make([]*big.Int, len(vector.Inputs))
-		for i, input := range vector.Inputs {
-			value, ok := new(big.Int).SetString(input, 16)
-			if !ok {
-				t.Fatalf("%s input %d is not hex", vector.Name, i)
-			}
-			inputs[i] = value
-		}
-		expected, ok := new(big.Int).SetString(vector.Output, 16)
+	return file.Vectors
+}
+
+func chainVectorValues(t *testing.T, vector chainVector) ([]*big.Int, *big.Int) {
+	t.Helper()
+	inputs := make([]*big.Int, len(vector.Inputs))
+	for i, input := range vector.Inputs {
+		value, ok := new(big.Int).SetString(input, 16)
 		if !ok {
-			t.Fatalf("%s output is not hex", vector.Name)
+			t.Fatalf("%s input %d is not hex", vector.Name, i)
 		}
+		inputs[i] = value
+	}
+	expected, ok := new(big.Int).SetString(vector.Output, 16)
+	if !ok {
+		t.Fatalf("%s output is not hex", vector.Name)
+	}
+	return inputs, expected
+}
+
+func TestHashChain4SharedKnownAnswerVectors(t *testing.T) {
+	for _, vector := range readChainVectors(t, "hash_chain_4.json") {
+		inputs, expected := chainVectorValues(t, vector)
 		got := mustHashChain4(t, inputs)
 		if got.Cmp(expected) != 0 {
 			t.Fatalf("%s = %064x, want %064x", vector.Name, got, expected)
 		}
+	}
+}
+
+func TestRightHashChain4SharedKnownAnswerVectors(t *testing.T) {
+	for _, vector := range readChainVectors(t, "right_hash_chain_4.json") {
+		inputs, expected := chainVectorValues(t, vector)
+		got, err := RightHashChain4(inputs)
+		if err != nil {
+			t.Fatalf("%s: %v", vector.Name, err)
+		}
+		if got.Cmp(expected) != 0 {
+			t.Fatalf("%s = %064x, want %064x", vector.Name, got, expected)
+		}
+	}
+}
+
+// The two folds are the same primitive read in opposite directions, so pin
+// where they coincide: nothing to fold, and the single full call both spell
+// Poseidon(e0, e1, e2, e3). Everywhere else the padding sits at the other end.
+func TestRightHashChain4PartsFromHashChain4ExceptAtFourElements(t *testing.T) {
+	for length := 0; length <= 10; length++ {
+		inputs := make([]*big.Int, length)
+		for i := range inputs {
+			inputs[i] = fe(int64(i + 1))
+		}
+		right, err := RightHashChain4(inputs)
+		if err != nil {
+			t.Fatalf("length %d: %v", length, err)
+		}
+		left := mustHashChain4(t, inputs)
+		same := right.Cmp(left) == 0
+		wantSame := length == 0 || length == 1 || length == 4
+		if same != wantSame {
+			t.Fatalf("length %d: folds equal = %v, want %v", length, same, wantSame)
+		}
+	}
+}
+
+// An all-zero suffix folds to a value of its length alone, which is what lets
+// SPP seed the fold from a constant. Z(k) covers the last 1 + 3k elements.
+func TestRightHashChain4ZeroSuffixIsAConstantOfItsLength(t *testing.T) {
+	zeroSuffix := func(k int) *big.Int {
+		inputs := make([]*big.Int, 1+3*k)
+		for i := range inputs {
+			inputs[i] = new(big.Int)
+		}
+		value, err := RightHashChain4(inputs)
+		if err != nil {
+			t.Fatalf("Z(%d): %v", k, err)
+		}
+		return value
+	}
+	z := new(big.Int)
+	for k := 1; k <= 12; k++ {
+		next := mustPoseidon(t, 5, []*big.Int{new(big.Int), new(big.Int), new(big.Int), z})
+		if got := zeroSuffix(k); got.Cmp(next) != 0 {
+			t.Fatalf("Z(%d) = %064x, want %064x", k, got, next)
+		}
+		z = next
 	}
 }

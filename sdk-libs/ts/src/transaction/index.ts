@@ -35,6 +35,7 @@ export {
   slotOrdinal,
 } from "./instructions/index.js";
 export type {
+  CacheAccounts,
   ChangeLayout,
   EncryptedTransaction,
   ExternalData,

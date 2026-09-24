@@ -137,6 +137,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             payer: maker_address.solana_address()?,
             blinding_seed,
             output_tree_id: localnet.tree_id,
+            cache_accounts: Default::default(),
         };
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
@@ -275,6 +276,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             payer: taker_address.solana_address()?,
             blinding_seed,
             output_tree_id: localnet.tree_id,
+            cache_accounts: Default::default(),
         };
 
         let take_proof_inputs = TakeVerifiableEncryptionProofInputParams {

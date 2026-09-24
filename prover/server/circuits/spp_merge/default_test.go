@@ -119,6 +119,49 @@ func TestMergeCircuitProvesEddsaOwner(t *testing.T) {
 	}
 }
 
+// A sender can fund the same signer under a different nullifier key. Such a
+// witness must not verify against the recipient's registered nullifier key.
+func TestMergePublicInputHashBindsRegisteredNullifierKey(t *testing.T) {
+	f := buildMergeFixture(t, mergeFixtureOptions{})
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("baseline witness does not solve: %v", err)
+	}
+	original := f.userNullifierPk
+	f.userNullifierPk = big.NewInt(42)
+	refreshDefaultPublicInputHash(t, f)
+	f.userNullifierPk = original
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("accepted a public input hash computed from another registered nullifier key")
+	}
+}
+
+// A dummy input proves nothing against the state tree, so only the explicit
+// root check keeps it off a slot that publishes no UTXO root. Slot 1 repeats
+// slot 0's id and nullifier root, which leaves the dummy's hash and its
+// nullifier proof untouched: the UTXO root is the only difference between the
+// witness that solves and the one that must not.
+func TestMergeCircuitRejectsSlotWithoutStateRoot(t *testing.T) {
+	for _, zeroRoot := range []bool{false, true} {
+		t.Run(fmt.Sprintf("zero_root_%t", zeroRoot), func(t *testing.T) {
+			f := buildMergeFixture(t, mergeFixtureOptions{})
+			slot0 := f.public.TreeSlots[0]
+			f.public.TreeSlots[1] = slot0
+			if zeroRoot {
+				f.public.TreeSlots[1].UtxoRoot = big.NewInt(0)
+			}
+			f.inputs[defaultFixtureInputs-1].TreeSlot = big.NewInt(1)
+			refreshDefaultPublicInputHash(t, f)
+			err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField())
+			if zeroRoot && err == nil {
+				t.Fatal("accepted a dummy input on a slot without a state root")
+			}
+			if !zeroRoot && err != nil {
+				t.Fatalf("baseline witness does not solve: %v", err)
+			}
+		})
+	}
+}
+
 func TestMergeCircuitRejectsDummyInputsWhenPolicyDisabled(t *testing.T) {
 	assignment := buildDefaultWitness(t, mergeFixtureOptions{
 		allowDummyInputs: big.NewInt(0),

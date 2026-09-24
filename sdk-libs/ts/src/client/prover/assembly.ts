@@ -3,10 +3,20 @@ import { getAddressDecoder } from "@solana/kit";
 import type {
   Address,
   Bytes32,
+  CacheAccess,
+  CacheWrite,
   CircuitId,
   TransactInstructionData,
   TransactProof,
 } from "../../interface/types.js";
+import {
+  bindCacheWrite,
+  cachedInputFields,
+  emptyCachedInputFields,
+  NO_CACHE_WRITES,
+  type CachedInputFields,
+} from "../../interface/cache.js";
+import { CACHE_CAPACITY } from "../../interface/state.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
   RING_AUTHORITY_MAX_WIDTH,
@@ -17,6 +27,7 @@ import {
 import { treeAddress } from "../../interface/pda/index.js";
 import {
   MAX_INPUT_TREES,
+  NO_UTXO_ROOT,
   inputTreeSlots,
   treeIdField,
   treeSlotsHashChain,
@@ -98,7 +109,7 @@ interface CircuitPlan {
   readonly ring: Address | undefined;
   readonly authority: boolean;
   readonly prover: ProverInputs["circuit"];
-  readonly data: CircuitId["kind"];
+  readonly data: "confidentialEddsa" | "ringEddsa" | "ringAuthority";
   readonly signerSlots: number;
   readonly owners: "every" | "confidentialMarked" | "none";
 }
@@ -168,7 +179,13 @@ function assembleUnchecked(
       proofInputs.inputUtxos.some(
         (input) => !input.isDummy() && input.utxo.ringProgramId !== plan.ring,
       ) ||
-      proofInputs.outputs.some((output) => !output.isDummy() && output.ringProgramId !== plan.ring))
+      proofInputs.outputs.some(
+        (output) => !output.isDummy() && output.ringProgramId !== plan.ring,
+      ) ||
+      proofInputs.cacheAccounts.read !== undefined ||
+      proofInputs.cacheAccounts.write !== undefined ||
+      proofInputs.inputUtxos.some((input) => input.cacheSlot !== undefined) ||
+      proofInputs.outputs.some((output) => output.cacheSlot !== undefined))
   ) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -176,6 +193,7 @@ function assembleUnchecked(
   if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
   const outputTreeId = proofInputs.outputTreeId;
   validateOutputBlindings(proofInputs);
+  const cache = checkedTransferCache(proofInputs);
 
   const { transferInputs, inputHashes, nullifiers, inputTrees, treeIndexes } = assembleSlots(
     proofInputs,
@@ -192,7 +210,10 @@ function assembleUnchecked(
     output.isDummy() ? 0n : (outputHashes[index] as bigint),
   );
   const outputOwnerFields = publishedOwnerFields(plan, transferOutputs, proofInputs.externalData);
-  const externalDataHash = bytesField(proofInputs.externalData.hash(), "external data hash");
+  const externalDataHash = bytesField(
+    bindCacheWrite(proofInputs.externalData.hash(), cacheWriteDestination(cache)),
+    "external data hash",
+  );
   const privateTxHash = poseidon([
     hashChain4(inputHashes),
     hashChain4(privateOutputHashes),
@@ -220,6 +241,7 @@ function assembleUnchecked(
   const ringProgramId = plan.ring === undefined ? 0n : hashBytesBigInt(addressBytes(plan.ring));
   const treeSlots = inputTreeSlots(inputTrees.map((tree) => tree.slot));
   const outputTreeIdField = bytesToBigInt(treeIdField(outputTreeId));
+  const cachedInputs = selectedCachedInputs(cache, proofInputs.inputUtxos);
   const publicInputHash = transferPublicInputHash({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHashes,
@@ -232,6 +254,7 @@ function assembleUnchecked(
     signerPublicKeyHashes,
     inputFlags: flags,
     publishedOutputOwnerPublicKeyHashes: outputOwnerFields,
+    ...cachedInputs,
   });
   const common: TransferInputs = Object.freeze({
     inputs: Object.freeze(transferInputs),
@@ -247,6 +270,7 @@ function assembleUnchecked(
     signerPublicKeyHashes: Object.freeze(signerPublicKeyHashes.map(asField)),
     inputFlags: asField(flags),
     publishedOutputOwnerPublicKeyHashes: Object.freeze((outputOwnerFields ?? []).map(asField)),
+    ...cacheProverFields(cachedInputs),
     publicInputHash: asField(publicInputHash),
   });
   const proverInputs: ProverInputs = Object.freeze({ circuit: plan.prover, payload: common });
@@ -258,12 +282,12 @@ function assembleUnchecked(
   const instructionData: TransactInstructionData = Object.freeze({
     expiryUnixTs: proofInputs.externalData.expiryUnixTs,
     privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
-    circuit: Object.freeze({
-      kind: plan.data,
-      inputs: proofInputs.inputUtxos.length,
-      outputs: proofInputs.outputs.length,
-      publicAssetSlots: 3,
-    }),
+    circuit: transferCircuit(
+      plan,
+      cache,
+      proofInputs.inputUtxos.length,
+      proofInputs.outputs.length,
+    ),
     txViewingPk: proofInputs.externalData.txViewingPublicKey.toBytes(),
     salt: new Uint8Array(proofInputs.externalData.salt) as never,
     proof: ZERO_PROOF,
@@ -379,6 +403,118 @@ function publishedOwnerFields(
   }
 }
 
+export interface CheckedTransferCache {
+  readonly read: Readonly<{ address: Address; treeId: number }> | undefined;
+  readonly write: Address | undefined;
+  readonly access: CacheAccess;
+}
+
+export function checkedTransferCache(
+  proofInputs: SppProofInputs,
+): CheckedTransferCache | undefined {
+  const { read, write } = proofInputs.cacheAccounts;
+  if (read !== undefined) addressBytes(read);
+  if (write !== undefined) addressBytes(write);
+  let readBitmap = 0n;
+  let cacheTreeId: number | undefined;
+  proofInputs.inputUtxos.forEach((input, index) => {
+    const slot = input.cacheSlot;
+    if (slot === undefined) return;
+    if (read === undefined) {
+      throw new ClientError("CLIENT_CACHED_INPUT_WITHOUT_READ_CACHE", { details: { index } });
+    }
+    if (((readBitmap >> BigInt(slot)) & 1n) === 1n) {
+      throw new ClientError("CLIENT_DUPLICATE_CACHE_READ_SLOT", { details: { index, slot } });
+    }
+    cacheTreeId ??= input.treeId;
+    if (input.treeId !== cacheTreeId) {
+      throw new ClientError("CLIENT_CACHE_READ_TREE_MISMATCH", {
+        details: { index, treeId: input.treeId, cacheTreeId },
+      });
+    }
+    readBitmap |= 1n << BigInt(slot);
+  });
+  if (read !== undefined && cacheTreeId === undefined) {
+    throw new ClientError("CLIENT_UNUSED_READ_CACHE");
+  }
+  const writes: CacheWrite[] = [];
+  proofInputs.outputs.forEach((output, index) => {
+    const slot = output.cacheSlot;
+    if (slot === undefined) return;
+    if (write === undefined) {
+      throw new ClientError("CLIENT_CACHED_OUTPUT_WITHOUT_WRITE_CACHE", { details: { index } });
+    }
+    if (output.isDummy()) {
+      throw new ClientError("CLIENT_CACHED_DUMMY_OUTPUT", { details: { index } });
+    }
+    if (!Number.isInteger(slot)) {
+      throw new ClientError("CLIENT_INVALID_CACHE_ACCESS", {
+        details: { field: "cacheSlot", index },
+      });
+    }
+    if (slot < 0 || slot >= CACHE_CAPACITY) {
+      throw new ClientError("CLIENT_CACHE_WRITE_SLOT_OUT_OF_RANGE", { details: { index, slot } });
+    }
+    if (writes.some((entry) => entry.slot === slot)) {
+      throw new ClientError("CLIENT_DUPLICATE_CACHE_WRITE_SLOT", { details: { index, slot } });
+    }
+    writes.push(Object.freeze({ output: index, slot }));
+  });
+  if (write !== undefined && writes.length === 0) {
+    throw new ClientError("CLIENT_UNUSED_WRITE_CACHE");
+  }
+  if (read === undefined && write === undefined) return undefined;
+  return Object.freeze({
+    read:
+      read === undefined || cacheTreeId === undefined
+        ? undefined
+        : Object.freeze({ address: read, treeId: cacheTreeId }),
+    write,
+    access: Object.freeze({
+      readBitmap,
+      writeSlots: Object.freeze([...writes, ...NO_CACHE_WRITES.slice(writes.length)]),
+    }),
+  });
+}
+
+function cacheWriteDestination(
+  cache: CheckedTransferCache | undefined,
+): Readonly<{ cache: Address; writeSlots: readonly CacheWrite[] }> | undefined {
+  if (cache?.write === undefined) return undefined;
+  return Object.freeze({ cache: cache.write, writeSlots: cache.access.writeSlots });
+}
+
+function transferCircuit(
+  plan: CircuitPlan,
+  cache: CheckedTransferCache | undefined,
+  inputs: number,
+  outputs: number,
+): CircuitId {
+  if (cache === undefined) {
+    return Object.freeze({ kind: plan.data, inputs, outputs, publicAssetSlots: 3 });
+  }
+  switch (plan.data) {
+    case "confidentialEddsa":
+      return Object.freeze({
+        kind: "confidentialEddsaCached",
+        inputs,
+        outputs,
+        publicAssetSlots: 3,
+        cacheAccess: cache.access,
+      });
+    case "ringEddsa":
+      return Object.freeze({
+        kind: "ringEddsaCached",
+        inputs,
+        outputs,
+        publicAssetSlots: 3,
+        cacheAccess: cache.access,
+      });
+    case "ringAuthority":
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+}
+
 /**
  * Mirrors Rust `confidential_marked_output_owner_pk_hashes`, the ring rails
  * publish an owner hash only for a `Confidential` scheme output, a
@@ -436,10 +572,13 @@ export interface AssembledSlots {
  * Inputs are grouped by tree: each tree owns one contiguous run, so an input's
  * tree index never decreases and the program can queue every run's nullifiers
  * as consecutive numbers under its own tree. A tree is opened by a real spend,
- * whose state and nullifier proofs fix the slot's roots; every later input of
- * that run must open against the same roots and root positions, since the
- * proof publishes one slot per tree and the instruction one root position pair
- * per tree. A dummy carries no state proof, so it rides the run it sits in.
+ * whose nullifier proof fixes the slot's nullifier root; the first uncached
+ * real spend of the run fixes its state root, and every later input of that
+ * run must open against the same roots and root positions, since the proof
+ * publishes one slot per tree and the instruction one root position pair per
+ * tree. A run the cache supplies entirely publishes a zero state root at root
+ * position `NO_UTXO_ROOT`. A dummy or cached input carries no state proof, so it
+ * rides the run it sits in, and takes the next dummy non-inclusion proof.
  * `ownerField` is the caller's rail: it is the one thing Rust's `OwnerMode`
  * varies, and every rail shares the rest of this loop.
  */
@@ -453,7 +592,7 @@ export function assembleSlots(
   const inputHashes: bigint[] = [];
   const nullifiers: Bytes32[] = [];
   const inputOwnerFields: bigint[] = [];
-  const inputTrees: InputTree[] = [];
+  const runs: InputTreeRun[] = [];
   const treeIndexes: number[] = [];
   let proofIndex = 0;
   let dummyProofIndex = 0;
@@ -466,11 +605,11 @@ export function assembleSlots(
     }
     const treeId = input.treeId;
     const expectedTree = treeAddress(treeId);
-    const openTree = inputTrees.at(-1);
-    const openIndex = inputTrees.length - 1;
+    const openRun = runs.at(-1);
+    const openIndex = runs.length - 1;
     if (input.isDummy()) {
-      if (openTree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
-      if (treeId !== openTree.treeId) {
+      if (openRun === undefined) throw new ClientError("CLIENT_NO_INPUTS");
+      if (treeId !== openRun.treeId) {
         throw new ClientError("CLIENT_INPUTS_NOT_GROUPED_BY_TREE", { details: { index } });
       }
       const proof = dummyNullifierProofs[dummyProofIndex++];
@@ -479,8 +618,8 @@ export function assembleSlots(
           details: { index },
         });
       }
-      validateDummyNullifierProof(input, proof, index);
-      checkNullifierRoot(openTree, proof, expectedTree, index);
+      validateNullifierProof(input, proof, index);
+      checkNullifierRoot(openRun, proof, expectedTree, index);
       const converted = createDummyTransferInput(input, proof, input.nullifier(), openIndex);
       transferInputs.push(converted);
       inputHashes.push(0n);
@@ -489,79 +628,216 @@ export function assembleSlots(
       treeIndexes.push(openIndex);
       continue;
     }
-    const proof = spendProofs[proofIndex++];
-    if (!proof) {
-      throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
-        details: { index: proofIndex - 1 },
-      });
-    }
-    validateSpendProof(input, proof, proofIndex - 1);
     let treeIndex: number;
-    if (openTree !== undefined && openTree.treeId === treeId) {
-      treeIndex = openIndex;
-      if (
-        proof.state.merkleContext.tree !== expectedTree ||
-        !equal(proof.state.root, openTree.slot.utxoRoot) ||
-        proof.state.rootIndex !== openTree.utxoRootIndex
-      ) {
-        throw new ClientError("CLIENT_INPUT_TREE_ROOT_MISMATCH", { details: { index } });
+    let converted: TransferInput;
+    let owner: bigint;
+    if (input.cacheSlot !== undefined) {
+      const proof = dummyNullifierProofs[dummyProofIndex++];
+      if (!proof) {
+        throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", { details: { index } });
       }
-      checkNullifierRoot(openTree, proof.nullifier, expectedTree, index);
+      validateNullifierProof(input, proof, index);
+      if (openRun !== undefined && openRun.treeId === treeId) {
+        treeIndex = openIndex;
+        checkNullifierRoot(openRun, proof, expectedTree, index);
+      } else {
+        checkNewRun(runs, treeId, index);
+        if (proof.merkleContext.tree !== expectedTree) {
+          throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
+        }
+        runs.push({
+          treeId,
+          nullifierRoot: new Uint8Array(proof.root) as Bytes32,
+          nullifierRootIndex: proof.rootIndex,
+          state: undefined,
+        });
+        treeIndex = runs.length - 1;
+      }
+      owner = ownerField(input, index);
+      converted = createCachedInput(input, proof, owner, treeIndex);
     } else {
-      // A tree whose run already closed cannot be reopened: its nullifiers
-      // would no longer be consecutive.
-      if (inputTrees.some((tree) => tree.treeId === treeId)) {
-        throw new ClientError("CLIENT_INPUTS_NOT_GROUPED_BY_TREE", { details: { index } });
-      }
-      if (inputTrees.length === MAX_INPUT_TREES) {
-        throw new ClientError("CLIENT_TOO_MANY_INPUT_TREES", {
-          details: { got: inputTrees.length + 1, max: MAX_INPUT_TREES },
+      const proof = spendProofs[proofIndex++];
+      if (!proof) {
+        throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
+          details: { index: proofIndex - 1 },
         });
       }
-      // The real spend that opens a tree anchors it; both of its proofs must
-      // name that tree.
-      if (
-        proof.state.merkleContext.tree !== expectedTree ||
-        proof.nullifier.merkleContext.tree !== expectedTree
-      ) {
-        throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
-      }
-      inputTrees.push(
-        Object.freeze({
+      validateSpendProof(input, proof, proofIndex - 1);
+      if (openRun !== undefined && openRun.treeId === treeId) {
+        treeIndex = openIndex;
+        if (openRun.state === undefined) {
+          if (proof.state.merkleContext.tree !== expectedTree) {
+            throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
+          }
+          openRun.state = Object.freeze({
+            root: new Uint8Array(proof.state.root) as Bytes32,
+            index: proof.state.rootIndex,
+          });
+        } else if (
+          proof.state.merkleContext.tree !== expectedTree ||
+          !equal(proof.state.root, openRun.state.root) ||
+          proof.state.rootIndex !== openRun.state.index
+        ) {
+          throw new ClientError("CLIENT_INPUT_TREE_ROOT_MISMATCH", { details: { index } });
+        }
+        checkNullifierRoot(openRun, proof.nullifier, expectedTree, index);
+      } else {
+        checkNewRun(runs, treeId, index);
+        // The real spend that opens a tree anchors it; both of its proofs must
+        // name that tree.
+        if (
+          proof.state.merkleContext.tree !== expectedTree ||
+          proof.nullifier.merkleContext.tree !== expectedTree
+        ) {
+          throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
+        }
+        runs.push({
           treeId,
-          slot: Object.freeze({
-            id: treeId,
-            utxoRoot: new Uint8Array(proof.state.root) as Bytes32,
-            nullifierRoot: new Uint8Array(proof.nullifier.root) as Bytes32,
-          }),
-          utxoRootIndex: proof.state.rootIndex,
+          nullifierRoot: new Uint8Array(proof.nullifier.root) as Bytes32,
           nullifierRootIndex: proof.nullifier.rootIndex,
-        }),
-      );
-      treeIndex = inputTrees.length - 1;
+          state: Object.freeze({
+            root: new Uint8Array(proof.state.root) as Bytes32,
+            index: proof.state.rootIndex,
+          }),
+        });
+        treeIndex = runs.length - 1;
+      }
+      owner = ownerField(input, index);
+      converted = createRealInput(input, proof, owner, treeIndex);
     }
-    const owner = ownerField(input, index);
-    const converted = createRealInput(input, proof, owner, treeIndex);
     transferInputs.push(converted);
     inputHashes.push(bytesToBigInt(input.hash()));
     nullifiers.push(new Uint8Array(input.nullifier()) as Bytes32);
     inputOwnerFields.push(owner);
     treeIndexes.push(treeIndex);
   }
-  if (inputTrees.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
+  if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
   return Object.freeze({
     transferInputs: Object.freeze(transferInputs),
     inputHashes: Object.freeze(inputHashes),
     nullifiers: Object.freeze(nullifiers),
     inputOwnerFields: Object.freeze(inputOwnerFields),
-    inputTrees: Object.freeze(inputTrees),
+    inputTrees: Object.freeze(runs.map(inputTreeOf)),
     treeIndexes: Object.freeze(treeIndexes),
+  });
+}
+
+interface InputTreeRun {
+  readonly treeId: TreeId;
+  readonly nullifierRoot: Bytes32;
+  readonly nullifierRootIndex: number;
+  state: Readonly<{ root: Bytes32; index: number }> | undefined;
+}
+
+function checkNewRun(runs: readonly InputTreeRun[], treeId: TreeId, index: number): void {
+  // A tree whose run already closed cannot be reopened: its nullifiers
+  // would no longer be consecutive.
+  if (runs.some((run) => run.treeId === treeId)) {
+    throw new ClientError("CLIENT_INPUTS_NOT_GROUPED_BY_TREE", { details: { index } });
+  }
+  if (runs.length === MAX_INPUT_TREES) {
+    throw new ClientError("CLIENT_TOO_MANY_INPUT_TREES", {
+      details: { got: runs.length + 1, max: MAX_INPUT_TREES },
+    });
+  }
+}
+
+function inputTreeOf(run: InputTreeRun): InputTree {
+  const state = run.state ?? { root: new Uint8Array(32) as Bytes32, index: NO_UTXO_ROOT };
+  return Object.freeze({
+    treeId: run.treeId,
+    slot: Object.freeze({
+      id: run.treeId,
+      utxoRoot: state.root,
+      nullifierRoot: run.nullifierRoot,
+    }),
+    utxoRootIndex: state.index,
+    nullifierRootIndex: run.nullifierRootIndex,
+  });
+}
+
+export interface CachedInputs {
+  readonly cacheTreeId: bigint;
+  readonly cacheReadHashChain: bigint;
+  readonly cacheReadHashes: readonly bigint[];
+  readonly cacheIsCached: readonly bigint[];
+  readonly cacheReadIndex: readonly bigint[];
+}
+
+export function emptyCachedInputs(inputCount: number): CachedInputs {
+  const [treeId, chain] = emptyCachedInputFields(inputCount);
+  return Object.freeze({
+    cacheTreeId: bytesToBigInt(treeId),
+    cacheReadHashChain: bytesToBigInt(chain),
+    cacheReadHashes: Object.freeze([]),
+    cacheIsCached: Object.freeze([]),
+    cacheReadIndex: Object.freeze([]),
+  });
+}
+
+function selectedCachedInputs(
+  cache: CheckedTransferCache | undefined,
+  inputs: readonly ProofInputUtxo[],
+): CachedInputs {
+  if (cache?.read === undefined) return emptyCachedInputs(inputs.length);
+  const { readBitmap } = cache.access;
+  const slots: Uint8Array[] = Array.from({ length: CACHE_CAPACITY }, () => new Uint8Array(32));
+  inputs.forEach((input) => {
+    if (input.cacheSlot !== undefined) slots[input.cacheSlot] = input.hash();
+  });
+  const fields: CachedInputFields = cachedInputFields(
+    readBitmap,
+    cache.read.treeId,
+    slots,
+    inputs.length,
+  );
+  const [treeId, chain] = fields;
+  const ordered = slots.flatMap((hash, slot) =>
+    ((readBitmap >> BigInt(slot)) & 1n) === 1n ? [bytesToBigInt(hash)] : [],
+  );
+  const readHashes = [
+    ...ordered,
+    ...Array.from({ length: inputs.length - ordered.length }, () => 0n),
+  ];
+  const rank = (slot: number): bigint => {
+    let below = 0n;
+    for (let other = 0; other < slot; other++) {
+      below += (readBitmap >> BigInt(other)) & 1n;
+    }
+    return below;
+  };
+  return Object.freeze({
+    cacheTreeId: bytesToBigInt(treeId),
+    cacheReadHashChain: bytesToBigInt(chain),
+    cacheReadHashes: Object.freeze(readHashes),
+    cacheIsCached: Object.freeze(inputs.map((input) => (input.cacheSlot === undefined ? 0n : 1n))),
+    cacheReadIndex: Object.freeze(
+      inputs.map((input) => (input.cacheSlot === undefined ? 0n : rank(input.cacheSlot))),
+    ),
+  });
+}
+
+export function cacheProverFields(cachedInputs: CachedInputs): Readonly<{
+  cacheTreeId: Field;
+  cacheReadHashChain: Field;
+  cacheReadHashes: readonly Field[];
+  cacheIsCached: readonly Field[];
+  cacheReadIndex: readonly Field[];
+}> {
+  return Object.freeze({
+    cacheTreeId: asField(cachedInputs.cacheTreeId),
+    cacheReadHashChain: asField(cachedInputs.cacheReadHashChain),
+    cacheReadHashes: Object.freeze(cachedInputs.cacheReadHashes.map(asField)),
+    cacheIsCached: Object.freeze(cachedInputs.cacheIsCached.map(asField)),
+    cacheReadIndex: Object.freeze(cachedInputs.cacheReadIndex.map(asField)),
   });
 }
 
 /**
  * Mirrors Rust `PublicInputs::hash`: the nullifier, output, owner and outer
  * chains fold three elements per call, the signer chain folds from the right.
+ * The cache selection closes the preimage, appended by the same rails that
+ * append the output-owner chain.
  */
 export function transferPublicInputHash(
   input: Readonly<{
@@ -576,9 +852,10 @@ export function transferPublicInputHash(
     signerPublicKeyHashes: readonly bigint[];
     /** The packed dummy policy and per-input tree indexes, `inputFlags`. */
     inputFlags: bigint;
-    /** `undefined` folds no owner list. */
+    /** `undefined` folds no owner list, and then no cache selection either. */
     publishedOutputOwnerPublicKeyHashes: readonly bigint[] | undefined;
-  }>,
+  }> &
+    CachedInputs,
 ): bigint {
   return hashChain4([
     hashChain4(input.nullifiers),
@@ -593,20 +870,24 @@ export function transferPublicInputHash(
     input.inputFlags,
     ...(input.publishedOutputOwnerPublicKeyHashes === undefined
       ? []
-      : [hashChain4(input.publishedOutputOwnerPublicKeyHashes)]),
+      : [
+          hashChain4(input.publishedOutputOwnerPublicKeyHashes),
+          input.cacheTreeId,
+          input.cacheReadHashChain,
+        ]),
   ]);
 }
 
 function checkNullifierRoot(
-  inputTree: InputTree,
+  run: Readonly<{ nullifierRoot: Bytes32; nullifierRootIndex: number }>,
   proof: NonInclusionProof,
   expectedTree: Address,
   index: number,
 ): void {
   if (
     proof.merkleContext.tree !== expectedTree ||
-    !equal(proof.root, inputTree.slot.nullifierRoot) ||
-    proof.rootIndex !== inputTree.nullifierRootIndex
+    !equal(proof.root, run.nullifierRoot) ||
+    proof.rootIndex !== run.nullifierRootIndex
   ) {
     throw new ClientError("CLIENT_NULLIFIER_ROOT_MISMATCH", { details: { index } });
   }
@@ -630,19 +911,51 @@ export function createRealInput(
   ownerPublicKeyHash: bigint,
   treeSlot: number = INPUT_TREE_SLOT,
 ): TransferInput {
+  return spendInput(
+    input,
+    proof.state.path.map((item) => asField(bytesField(item, "state path element"))),
+    proof.state.leafIndex,
+    proof.nullifier,
+    ownerPublicKeyHash,
+    treeSlot,
+  );
+}
+
+function createCachedInput(
+  input: ProofInputUtxo,
+  proof: NonInclusionProof,
+  ownerPublicKeyHash: bigint,
+  treeSlot: number,
+): TransferInput {
+  return spendInput(
+    input,
+    Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n)),
+    0n,
+    proof,
+    ownerPublicKeyHash,
+    treeSlot,
+  );
+}
+
+function spendInput(
+  input: ProofInputUtxo,
+  statePathElements: readonly Field[],
+  statePathIndex: bigint,
+  nullifierProof: NonInclusionProof,
+  ownerPublicKeyHash: bigint,
+  treeSlot: number,
+): TransferInput {
   return Object.freeze({
     circuit: inputCircuitUtxo(input),
     isDummy: asField(0n),
-    statePathElements: Object.freeze(
-      proof.state.path.map((item) => asField(bytesField(item, "state path element"))),
-    ),
-    statePathIndex: asField(proof.state.leafIndex),
-    nullifierLowValue: asField(bytesField(proof.nullifier.lowElement, "low element")),
-    nullifierNextValue: asField(bytesField(proof.nullifier.highElement, "high element")),
+    statePathElements: Object.freeze(statePathElements),
+    statePathIndex: asField(statePathIndex),
+    nullifierLowValue: asField(bytesField(nullifierProof.lowElement, "low element")),
+    nullifierNextValue: asField(bytesField(nullifierProof.highElement, "high element")),
     nullifierLowPathElements: Object.freeze(
-      proof.nullifier.path.map((item) => asField(bytesField(item, "nullifier path element"))),
+      nullifierProof.path.map((item) => asField(bytesField(item, "nullifier path element"))),
     ),
-    nullifierLowPathIndex: asField(proof.nullifier.lowElementIndex),
+    nullifierLowPathIndex: asField(nullifierProof.lowElementIndex),
     treeSlot: asField(BigInt(treeSlot)),
     nullifier: asField(bytesField(input.nullifier(), "nullifier")),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
@@ -894,7 +1207,7 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
   }
 }
 
-function validateDummyNullifierProof(
+function validateNullifierProof(
   input: ProofInputUtxo,
   proof: NonInclusionProof,
   index: number,

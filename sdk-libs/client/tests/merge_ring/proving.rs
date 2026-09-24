@@ -96,6 +96,7 @@ impl MergeRingHarness {
             nullifier_key: sender.nullifier_key.clone(),
             proofs,
             dummy_nullifier_proofs,
+            cache: None,
         }
         .build()
         .expect("build merge-ring proof");

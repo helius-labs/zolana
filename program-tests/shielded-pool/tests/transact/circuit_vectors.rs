@@ -28,6 +28,7 @@ use zolana_interface::{
         TransactProof as ProofData, TreeContext,
     },
     merge_utils::owner_proof_input_hash_compressed,
+    state::cache::empty_cached_input_fields,
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
@@ -127,6 +128,9 @@ struct GoAssembly<'a> {
     signer_pk_hashes: &'a [[u8; 32]],
     input_flags: [u8; 32],
     output_owner_pk_hashes: Option<&'a [[u8; 32]]>,
+    /// The cache selection published alongside the output owners; `None` only
+    /// for ring authority, which binds neither.
+    cached_inputs: Option<[[u8; 32]; 2]>,
 }
 
 impl GoAssembly<'_> {
@@ -155,6 +159,11 @@ impl GoAssembly<'_> {
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             fields.push(
                 create_hash_chain_4_from_slice(output_owner_pk_hashes).expect("output owner chain"),
+            );
+            fields.extend_from_slice(
+                &self
+                    .cached_inputs
+                    .expect("owner-signed rails bind a cache selection"),
             );
         }
         create_hash_chain_4_from_slice(&fields).expect("public input hash chain")
@@ -187,6 +196,10 @@ pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
         signer_pk_hashes: &signer_pk_hashes,
         input_flags: fe_at(&vector, "input_flags"),
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),
+        cached_inputs: Some([
+            fe_at(&vector, "cache_tree_id"),
+            fe_at(&vector, "cache_read_hash_chain"),
+        ]),
     }
     .hash();
     assert_eq!(assembled, fe_at(&vector, "public_input_hash"));
@@ -326,6 +339,12 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
                     .get(..usize::from(circuit.num_outputs()))
                     .expect("output owners"),
             ),
+            // These selectors carry no cache, so the rail publishes the empty
+            // selection rather than omitting it.
+            cached_inputs: binds_output_owners.then(|| {
+                empty_cached_input_fields(usize::from(circuit.num_inputs()))
+                    .expect("empty cache selection")
+            }),
         };
         assert_eq!(
             proof.public_input_hash().expect("assembly"),

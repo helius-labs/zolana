@@ -59,7 +59,16 @@ type TransferParametersJSON struct {
 	SignerPkHashes               []string                    `json:"signerPkHashes"`
 	InputFlags                   string                      `json:"inputFlags"`
 	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
-	PublicInputHash              string                      `json:"publicInputHash"`
+	CacheSelectionJSON
+	PublicInputHash string `json:"publicInputHash"`
+}
+
+type CacheSelectionJSON struct {
+	CacheTreeID        string   `json:"cacheTreeId"`
+	CacheReadHashChain string   `json:"cacheReadHashChain"`
+	CacheReadHashes    []string `json:"cacheReadHashes"`
+	CacheIsCached      []string `json:"cacheIsCached"`
+	CacheReadIndex     []string `json:"cacheReadIndex"`
 }
 
 func (p *TransferParameters) MarshalJSON() ([]byte, error) {
@@ -91,6 +100,7 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		SignerPkHashes:               common.FeHexSlice(p.SignerPkHashes),
 		InputFlags:                   common.FeHex(p.InputFlags),
 		PublishedOutputOwnerPkHashes: common.FeHexSlice(p.PublishedOutputOwnerPkHashes),
+		CacheSelectionJSON:           p.Cache.toJSON(),
 		PublicInputHash:              common.FeHex(p.PublicInputHash),
 	}
 
@@ -181,6 +191,9 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PublishedOutputOwnerPkHashes, err = common.FeFromHexSlice(params.PublishedOutputOwnerPkHashes); err != nil {
 		return err
 	}
+	if p.Cache, err = cacheSelectionFromJSON(params.CacheSelectionJSON); err != nil {
+		return err
+	}
 	if p.PublicInputHash, err = common.FeFromHex(params.PublicInputHash); err != nil {
 		return err
 	}
@@ -251,6 +264,37 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	}
 
 	return nil
+}
+
+func (c CacheSelectionParams) toJSON() CacheSelectionJSON {
+	return CacheSelectionJSON{
+		CacheTreeID:        common.FeHex(c.TreeID),
+		CacheReadHashChain: common.FeHex(c.ReadHashChain),
+		CacheReadHashes:    common.FeHexSlice(c.ReadHashes),
+		CacheIsCached:      common.FeHexSlice(c.IsCached),
+		CacheReadIndex:     common.FeHexSlice(c.ReadIndex),
+	}
+}
+
+func cacheSelectionFromJSON(j CacheSelectionJSON) (CacheSelectionParams, error) {
+	var c CacheSelectionParams
+	var err error
+	if c.TreeID, err = common.FeFromHex(j.CacheTreeID); err != nil {
+		return c, err
+	}
+	if c.ReadHashChain, err = common.FeFromHex(j.CacheReadHashChain); err != nil {
+		return c, err
+	}
+	if c.ReadHashes, err = common.FeFromHexSlice(j.CacheReadHashes); err != nil {
+		return c, err
+	}
+	if c.IsCached, err = common.FeFromHexSlice(j.CacheIsCached); err != nil {
+		return c, err
+	}
+	if c.ReadIndex, err = common.FeFromHexSlice(j.CacheReadIndex); err != nil {
+		return c, err
+	}
+	return c, nil
 }
 
 func utxoParamsToJSON(u UtxoParams) UtxoParamsJSON {

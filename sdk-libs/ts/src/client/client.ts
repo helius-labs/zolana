@@ -44,6 +44,7 @@ import {
   type IndexerReader,
   type KitRpcAccess,
   type MergeAssembler,
+  type MergeCacheTarget,
   type ProofAuthority,
   type ProofReader,
   type ProofService,
@@ -67,7 +68,7 @@ import {
   type SolanaRpc,
   type SolanaRpcSubscriptions,
 } from "./kit.js";
-import { assemble, checkedProverInputs } from "./prover/assembly.js";
+import { assemble, checkedProverInputs, checkedTransferCache } from "./prover/assembly.js";
 import {
   ProverClient,
   type AsyncPollConfig,
@@ -621,8 +622,12 @@ export class ZolanaClient
   ): Promise<Readonly<{ proofs: SpendProof[]; dummyProofs: NonInclusionProof[] }>> {
     const commitments = proofInputs.inputContexts();
     const dummyNullifiers = proofInputs.dummyNullifiers();
-    const realTrees = proofInputs.inputUtxos.filter((input) => !input.isDummy());
-    const dummyTrees = proofInputs.inputUtxos.filter((input) => input.isDummy());
+    const realTrees = proofInputs.inputUtxos.filter(
+      (input) => !input.isDummy() && input.cacheSlot === undefined,
+    );
+    const dummyTrees = proofInputs.inputUtxos.filter(
+      (input) => input.isDummy() || input.cacheSlot !== undefined,
+    );
     const at = (inputs: readonly ProofInputUtxo[], treeId: number): number[] =>
       inputs.flatMap((input, index) => (input.treeId === treeId ? [index] : []));
     const spends = new Map<number, SpendProof>();
@@ -923,6 +928,7 @@ export class ZolanaClient
       });
     }
     try {
+      checkedTransferCache(proofInputs);
       const { proofs, dummyProofs } = await this.#inputProofs(proofInputs, config, context);
       const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
@@ -940,6 +946,7 @@ export class ZolanaClient
       prepared: PreparedMerge;
       keys: ProofAuthority;
       indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+      cache?: MergeCacheTarget;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
@@ -953,6 +960,7 @@ export class ZolanaClient
       input.indexer ?? this,
       this.tree,
       context,
+      input.cache,
     );
     const compressed = compressProof(await input.keys.proveMerge(assembled.proverInputs, context));
     return Object.freeze({

@@ -20,6 +20,8 @@ import { TREE_CREATION_STEP_COUNT, defaultTreeFees } from "../state.js";
 import {
   type Address,
   type AssetDeposit,
+  type CircuitId,
+  type CreateCacheData,
   type DepositAsset,
   type InputUtxo,
   type MergeTransactInstructionData,
@@ -29,8 +31,10 @@ import {
   type TransactWithdrawal,
   type TreeFeeSchedule,
 } from "../types.js";
+import { writesCache } from "../cache.js";
 import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
+  cacheAddress,
   nullifierPdaAddress,
   protocolConfigAddress,
   ringSpendWindowAddress,
@@ -42,6 +46,7 @@ import {
   treeAddress,
 } from "../pda/index.js";
 import {
+  encodeCreateCacheData,
   encodeCreateTreeData,
   encodeDepositInstructionData,
   encodeMergeTransactInstructionData,
@@ -55,6 +60,33 @@ export type { MergeTransactInstructionData } from "../types.js";
 type Meta = NonNullable<Instruction["accounts"]>[number];
 
 export type SignerAccount = Address | TransactionSigner;
+
+export interface CacheWriteAccounts {
+  readonly cache: Address;
+  readonly writer: SignerAccount;
+}
+
+export interface TransactCacheAccounts {
+  readonly readCache?: Address;
+  readonly writeCache?: CacheWriteAccounts;
+}
+
+export const TransactCacheAccounts = Object.freeze({
+  read(cache: Address): TransactCacheAccounts {
+    return Object.freeze({ readCache: cache });
+  },
+  write(input: CacheWriteAccounts): TransactCacheAccounts {
+    return Object.freeze({
+      writeCache: Object.freeze({ cache: input.cache, writer: input.writer }),
+    });
+  },
+  readAndWrite(readCache: Address, write: CacheWriteAccounts): TransactCacheAccounts {
+    return Object.freeze({
+      readCache,
+      writeCache: Object.freeze({ cache: write.cache, writer: write.writer }),
+    });
+  },
+});
 
 export function signerAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
@@ -363,6 +395,40 @@ function validateSingleInputTree(
   }
 }
 
+function cacheWriteAccountMetas(accounts: CacheWriteAccounts): Meta[] {
+  return [meta(accounts.cache, false, true), meta(accounts.writer, true, false)];
+}
+
+function cacheAccountMetas(cache: TransactCacheAccounts | undefined): Meta[] {
+  if (cache === undefined) return [];
+  return [
+    ...(cache.readCache === undefined ? [] : [meta(cache.readCache, false, false)]),
+    ...(cache.writeCache === undefined ? [] : cacheWriteAccountMetas(cache.writeCache)),
+  ];
+}
+
+function cacheRoles(reads: boolean, writes: boolean): string {
+  return reads ? (writes ? "readAndWrite" : "read") : writes ? "write" : "none";
+}
+
+export function checkTransactCacheAccounts(
+  circuit: CircuitId,
+  cache: TransactCacheAccounts | undefined,
+): void {
+  const access =
+    circuit.kind === "confidentialEddsaCached" || circuit.kind === "ringEddsaCached"
+      ? circuit.cacheAccess
+      : undefined;
+  const expected = cacheRoles(
+    access !== undefined && access.readBitmap !== 0n,
+    access !== undefined && writesCache(access),
+  );
+  const actual = cacheRoles(cache?.readCache !== undefined, cache?.writeCache !== undefined);
+  if (actual !== expected) {
+    fail("INTERFACE_INVALID_SHAPE", { name: "cache", expected, actual });
+  }
+}
+
 async function transactAccounts(
   payer: SignerAccount,
   inputTree: Address,
@@ -370,6 +436,7 @@ async function transactAccounts(
   inputs: readonly InputUtxo[],
   treeContexts: readonly TreeContext[],
   withdrawal?: TransactWithdrawal,
+  cache?: TransactCacheAccounts,
 ): Promise<Meta[]> {
   validateSingleInputTree(inputs, treeContexts);
   const accounts = [
@@ -383,7 +450,7 @@ async function transactAccounts(
       inputs.map((input) => input.nullifierHash),
     )),
   ];
-  accounts.push(...settlementAccounts(withdrawal));
+  accounts.push(...settlementAccounts(withdrawal), ...cacheAccountMetas(cache));
   return accounts;
 }
 
@@ -393,9 +460,11 @@ export async function transactInstruction(
     inputTree: Address;
     outputTree: Address;
     withdrawal?: TransactWithdrawal;
+    cache?: TransactCacheAccounts;
     data: TransactInstructionData;
   }>,
 ): Promise<Instruction> {
+  checkTransactCacheAccounts(input.data.circuit, input.cache);
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
     await transactAccounts(
@@ -405,6 +474,7 @@ export async function transactInstruction(
       input.data.inputs,
       input.data.treeContexts,
       input.withdrawal,
+      input.cache,
     ),
   );
 }
@@ -426,6 +496,7 @@ export async function ringTransactAccounts(
     treeContexts: readonly TreeContext[];
     ownerSigners?: readonly SignerAccount[];
     withdrawal?: TransactWithdrawal;
+    cache?: TransactCacheAccounts;
   }>,
 ): Promise<readonly Meta[]> {
   if (
@@ -456,6 +527,7 @@ export async function ringTransactAccounts(
     ...nullifierPdas.map((pda) => meta(pda, false, true)),
     ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
     ...settlementAccounts(input.withdrawal),
+    ...cacheAccountMetas(input.cache),
   ];
 }
 
@@ -607,9 +679,17 @@ export async function mergeTransactInstruction(
     outputTree: Address;
     payer: SignerAccount;
     userRecord: Address;
+    cache?: CacheWriteAccounts;
     data: MergeTransactInstructionData;
   }>,
 ): Promise<Instruction> {
+  if ((input.cache === undefined) !== (input.data.cacheSlot === undefined)) {
+    fail("INTERFACE_INVALID_SHAPE", {
+      name: "cache",
+      expected: input.data.cacheSlot === undefined ? "none" : "write",
+      actual: input.cache === undefined ? "none" : "write",
+    });
+  }
   return instruction(
     tagged(InstructionTag.mergeTransact, encodeMergeTransactInstructionData(input.data)),
     [
@@ -620,6 +700,28 @@ export async function mergeTransactInstruction(
       meta(SYSTEM_PROGRAM, false, false),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
       ...(await nullifierPdaAccounts(input.inputTree, input.data.nullifiers)),
+      ...(input.cache === undefined ? [] : cacheWriteAccountMetas(input.cache)),
     ],
   );
+}
+
+export async function createCacheInstruction(
+  input: Readonly<{ payer: SignerAccount; data: CreateCacheData }>,
+): Promise<Instruction> {
+  const data = tagged(InstructionTag.createCache, encodeCreateCacheData(input.data));
+  return instruction(data, [
+    meta(input.payer, true, true),
+    meta(await cacheAddress(signerAddress(input.payer), input.data.nonce), false, true),
+    meta(SYSTEM_PROGRAM, false, false),
+  ]);
+}
+
+export function closeCacheInstruction(
+  input: Readonly<{ cache: Address; rentRecipient: Address; writer?: SignerAccount }>,
+): Instruction {
+  return instruction(Uint8Array.of(InstructionTag.closeCache), [
+    meta(input.cache, false, true),
+    meta(input.rentRecipient, false, true),
+    ...(input.writer === undefined ? [] : [meta(input.writer, true, false)]),
+  ]);
 }

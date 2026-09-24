@@ -3,7 +3,7 @@ use zolana_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_interface::tree_slot::tree_id_field;
+use zolana_interface::{state::cache::CACHE_CAPACITY, tree_slot::tree_id_field};
 use zolana_keypair::{random_blinding, shielded::ShieldedAddress};
 
 use super::{dummy_utxo_hash, owner_utxo_hash, program_id_proof_input_hash, Blinding, UTXO_DOMAIN};
@@ -34,6 +34,7 @@ pub struct SppProofOutputUtxo {
     pub owner_address: Option<ShieldedAddress>,
     pub owner_tag: Option<[u8; 32]>,
     pub data: Data,
+    pub cache_slot: Option<u8>,
 }
 
 impl SppProofOutputUtxo {
@@ -66,6 +67,17 @@ impl SppProofOutputUtxo {
     pub fn with_ring_program_id(mut self, ring_program_id: Address) -> Self {
         self.ring_program_id = Some(ring_program_id);
         self
+    }
+
+    pub fn with_cache_slot(mut self, slot: u8) -> Result<Self, TransactionError> {
+        if usize::from(slot) >= CACHE_CAPACITY {
+            return Err(TransactionError::CacheSlotOutOfRange { slot });
+        }
+        if self.is_dummy() {
+            return Err(TransactionError::CachedDummyOutput);
+        }
+        self.cache_slot = Some(slot);
+        Ok(self)
     }
 
     /// Bind an output to policy-ring state when only its commitment hash belongs

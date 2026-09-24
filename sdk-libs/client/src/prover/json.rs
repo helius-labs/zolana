@@ -5,8 +5,8 @@ use serde::Serialize;
 use crate::{
     error::ClientError,
     prover::inputs::{
-        BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-        TransferP256Inputs, TreeSlotFields,
+        BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
+        TransferOutput, TransferP256Inputs, TreeSlotFields,
     },
 };
 
@@ -125,6 +125,8 @@ pub(crate) struct TransferInputsJson {
     pub input_flags: String,
     #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
+    #[serde(flatten)]
+    pub cache: CacheReadsJson,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -177,8 +179,42 @@ pub(crate) struct TransferP256InputsJson {
     pub input_flags: String,
     #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
+    #[serde(flatten)]
+    pub cache: CacheReadsJson,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CacheReadsJson {
+    #[serde(rename = "cacheTreeId")]
+    pub tree_id: String,
+    #[serde(rename = "cacheReadHashChain")]
+    pub read_hash_chain: String,
+    #[serde(rename = "cacheReadHashes")]
+    pub read_hashes: Vec<String>,
+    #[serde(rename = "cacheIsCached")]
+    pub is_cached: Vec<String>,
+    #[serde(rename = "cacheReadIndex")]
+    pub read_index: Vec<String>,
+}
+
+fn cache_reads_to_json(cache: &CacheReadInputs) -> CacheReadsJson {
+    CacheReadsJson {
+        tree_id: big_uint_to_string(&cache.tree_id),
+        read_hash_chain: big_uint_to_string(&cache.read_hash_chain),
+        read_hashes: cache.read_hashes.iter().map(big_uint_to_string).collect(),
+        is_cached: cache
+            .is_cached
+            .iter()
+            .map(|cached| big_uint_to_string(&BigUint::from(u8::from(*cached))))
+            .collect(),
+        read_index: cache
+            .read_index
+            .iter()
+            .map(|index| big_uint_to_string(&BigUint::from(*index)))
+            .collect(),
+    }
 }
 
 fn utxo_to_json(utxo: &ProofInputUtxo) -> UtxoParamsJson {
@@ -512,6 +548,7 @@ fn transfer_inputs_json(
             .iter()
             .map(big_uint_to_string)
             .collect(),
+        cache: cache_reads_to_json(&inputs.cache),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     Ok(serde_json::to_string(&json).expect("JSON serialization failed for valid struct"))
@@ -577,6 +614,7 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> Result<String, C
             .iter()
             .map(big_uint_to_string)
             .collect(),
+        cache: cache_reads_to_json(&inputs.cache),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     Ok(serde_json::to_string(&json).expect("JSON serialization failed for valid struct"))
@@ -688,6 +726,10 @@ mod merge_tests {
             signer_pk_hashes: vec![BigUint::from(10u8), BigUint::from(12u8)],
             input_flags: BigUint::from(1u8),
             published_output_owner_pk_hashes: vec![BigUint::from(14u8)],
+            cache: CacheReadInputs {
+                read_hash_chain: BigUint::from(21u8),
+                ..CacheReadInputs::default()
+            },
             public_input_hash: BigUint::from(11u8),
         };
 
@@ -818,6 +860,7 @@ mod merge_tests {
             signer_pk_hashes: vec![BigUint::from(8u8)],
             input_flags: BigUint::from(1u8),
             published_output_owner_pk_hashes: Vec::new(),
+            cache: CacheReadInputs::default(),
             public_input_hash: BigUint::from(9u8),
         };
 
@@ -884,6 +927,7 @@ mod merge_tests {
             signer_pk_hashes: Vec::new(),
             input_flags: BigUint::ZERO,
             published_output_owner_pk_hashes: Vec::new(),
+            cache: CacheReadInputs::default(),
             public_input_hash: BigUint::ZERO,
         };
 

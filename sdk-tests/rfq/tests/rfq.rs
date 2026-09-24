@@ -75,6 +75,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
         payer: maker_address.solana_address()?,
         blinding_seed,
         output_tree_id: localnet.tree_id,
+        cache_accounts: Default::default(),
     };
 
     let data = localnet

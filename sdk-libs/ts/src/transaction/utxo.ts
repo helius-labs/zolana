@@ -2,6 +2,7 @@ import { address } from "@solana/kit";
 
 import type { Address, Bytes32 } from "../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
+import { CACHE_CAPACITY } from "../interface/state.js";
 import { DEFAULT_TREE_ID, treeIdField } from "../interface/tree-slot.js";
 import { randomBlinding } from "../keypair/bytes.js";
 import { zeroKeyNullifier, type NullifierKey } from "../keypair/nullifier-key.js";
@@ -271,6 +272,7 @@ export class ProofInputUtxo {
   readonly treeId: TreeId;
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
+  readonly cacheSlot?: number;
 
   constructor(
     input: Readonly<{
@@ -280,6 +282,7 @@ export class ProofInputUtxo {
       treeId?: TreeId;
       dataHash?: Bytes32;
       ringDataHash?: Bytes32;
+      cacheSlot?: number;
     }>,
   ) {
     if (!(input.utxo instanceof Utxo)) {
@@ -310,6 +313,10 @@ export class ProofInputUtxo {
       this.ringDataHash = ringDataHash;
     }
     this.checkCanonicalDummy();
+    if (input.cacheSlot !== undefined) {
+      this.cacheSlot = checkedCacheSlot(input.cacheSlot);
+      if (this.isDummy()) throw new TransactionError("TRANSACTION_CACHED_DUMMY_INPUT");
+    }
   }
 
   /** Derives the nullifier locally; the key never leaves this call. */
@@ -379,6 +386,18 @@ export class ProofInputUtxo {
     return this.utxo.owner.isZero();
   }
 
+  withCacheSlot(slot: number): ProofInputUtxo {
+    return new ProofInputUtxo({
+      utxo: this.utxo,
+      nullifierPublicKey: this.nullifierPublicKey,
+      nullifier: this.#nullifier,
+      treeId: this.treeId,
+      ...(this.dataHash === undefined ? {} : { dataHash: this.dataHash }),
+      ...(this.ringDataHash === undefined ? {} : { ringDataHash: this.ringDataHash }),
+      cacheSlot: slot,
+    });
+  }
+
   /**
    * A zero owner is not a parseable key, so a zero-owner input can only stand
    * for an unused slot. Every other field must be zero as well: the circuit
@@ -426,6 +445,13 @@ export class ProofInputUtxo {
   nullifier(): Bytes32 {
     return copy(this.#nullifier);
   }
+}
+
+function checkedCacheSlot(slot: number): number {
+  if (!Number.isInteger(slot) || slot < 0 || slot >= CACHE_CAPACITY) {
+    throw new TransactionError("TRANSACTION_CACHE_SLOT_OUT_OF_RANGE", { slot });
+  }
+  return slot;
 }
 
 /** A dummy slot's nullifier: the zero-key derivation over its tree-bound commitment. */
@@ -477,6 +503,7 @@ export interface ProofOutputUtxo {
   readonly dataHash?: Bytes32;
   readonly ownerTag?: Bytes32;
   readonly data: Data;
+  readonly cacheSlot?: number;
   ownerHash(): Bytes32;
   /** The commitment of this output in `outputTreeId`, the tree it is appended to. */
   hash(outputTreeId: TreeId): Bytes32;
@@ -489,6 +516,7 @@ export interface ProofOutputUtxo {
   withMemo(memo: Uint8Array): ProofOutputUtxo;
   /** Binds the UTXO to a ring, only that ring's transact can spend it. */
   withRingProgramId(ringProgramId: Address): ProofOutputUtxo;
+  withCacheSlot(slot: number): ProofOutputUtxo;
 }
 
 export interface ProofOutputInit {
@@ -501,6 +529,7 @@ export interface ProofOutputInit {
   readonly dataHash?: Bytes32;
   readonly ownerTag?: Bytes32;
   readonly data?: Data;
+  readonly cacheSlot?: number;
 }
 
 const DATA_RECORD_ORDER: Readonly<Record<DataRecord["kind"], number>> = Object.freeze({
@@ -521,6 +550,12 @@ function withDataRecord(data: Data, record: DataRecord): Data {
 export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
   const blinding = checked<Bytes32>(input.blinding ?? randomBlinding(), 32, "output blinding");
   const amount = checkU64(input.amount, "output amount");
+  if (input.cacheSlot !== undefined) {
+    checkedCacheSlot(input.cacheSlot);
+    if (input.ownerAddress === undefined) {
+      throw new TransactionError("TRANSACTION_CACHED_DUMMY_OUTPUT");
+    }
+  }
   const data = new Data((input.data ?? new Data()).records());
   const { ringDataHash: suppliedRingDataHash, ...rest } = input;
   const ringDataHash = normalizeRingDataHash(suppliedRingDataHash);
@@ -572,6 +607,9 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
     },
     withRingProgramId(ringProgramId: Address): ProofOutputUtxo {
       return createProofOutput({ ...init, ringProgramId });
+    },
+    withCacheSlot(slot: number): ProofOutputUtxo {
+      return createProofOutput({ ...init, cacheSlot: slot });
     },
   });
 }

@@ -153,6 +153,7 @@ impl LifecycleHarness {
             nullifier_key: keypair.nullifier_key.clone(),
             proofs,
             dummy_nullifier_proofs,
+            cache: None,
         }
         .build()?;
 
@@ -172,6 +173,7 @@ impl LifecycleHarness {
             payer: self.merge_vault,
             user_record,
             data,
+            cache: None,
         }
         .instruction();
         let sync_ix = execute_sync_ix(

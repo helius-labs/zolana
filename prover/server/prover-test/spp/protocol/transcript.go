@@ -89,6 +89,43 @@ func RightHashChain(inputs []*big.Int) (*big.Int, error) {
 	return h, nil
 }
 
+// RightHashChain4 mirrors gadget.RightHashChain4: h = inputs[len-1], then,
+// walking the preceding elements backwards in groups of up to three that keep
+// their order, h = Poseidon(g[0], g[1] or 0, g[2] or 0, h). The short group is
+// the leftmost one and its elements stay left-aligned, so an all-zero suffix
+// folds to a constant of its length alone. The cached-commitment chain uses
+// this direction; only chains whose length the compiled circuit fixes may use
+// it.
+func RightHashChain4(inputs []*big.Int) (*big.Int, error) {
+	if len(inputs) == 0 {
+		return new(big.Int), nil
+	}
+	for i, input := range inputs {
+		if err := validateFieldElement(fmt.Sprintf("input[%d]", i), input); err != nil {
+			return nil, fmt.Errorf("spp: right hash chain 4: %w", err)
+		}
+	}
+
+	h := new(big.Int).Set(inputs[len(inputs)-1])
+	for end := len(inputs) - 1; end > 0; {
+		start := end - 3
+		if start < 0 {
+			start = 0
+		}
+		group := []*big.Int{new(big.Int), new(big.Int), new(big.Int), h}
+		for j := start; j < end; j++ {
+			group[j-start] = inputs[j]
+		}
+		next, err := poseidon.Hash(group)
+		if err != nil {
+			return nil, fmt.Errorf("spp: right hash chain 4 step %d: %w", start, err)
+		}
+		h = next
+		end = start
+	}
+	return h, nil
+}
+
 // PrivateTxHash mirrors PrivateTxHashGadget. addressNullifiers is the address
 // category (the nullifier, i.e. the compressed address, of every address slot;
 // 0 for real spends and padding); it has the same length as inputUtxoHashes.

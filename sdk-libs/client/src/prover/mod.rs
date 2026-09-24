@@ -1,3 +1,4 @@
+mod cache;
 mod client;
 pub mod field;
 mod inputs;
@@ -18,10 +19,10 @@ pub use client::{
     ProveRequest, ProverClient, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
 };
 pub use inputs::{
-    BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs, TreeSlotFields,
+    BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
+    TransferOutput, TransferP256Inputs, TreeSlotFields,
 };
-pub use merge::{MergeProofResult, MergeProver};
+pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use proving_key::{
     known_proving_keys, ExpectedProvingKey, ProverKeyStatus, ProverKeys, ProvingKeyCheck,

@@ -185,6 +185,20 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_TREE_ID_MISMATCH: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
   readonly CLIENT_INVALID_MERGE_SHAPE: Readonly<{ expected: number; actual: number }>;
+  readonly CLIENT_INVALID_CACHE_ACCESS: Readonly<{ field: string; index?: number }>;
+  readonly CLIENT_DUPLICATE_CACHE_READ_SLOT: Readonly<{ index: number; slot: number }>;
+  readonly CLIENT_CACHE_READ_TREE_MISMATCH: Readonly<{
+    index: number;
+    treeId: number;
+    cacheTreeId: number;
+  }>;
+  readonly CLIENT_CACHED_INPUT_WITHOUT_READ_CACHE: Readonly<{ index: number }>;
+  readonly CLIENT_UNUSED_READ_CACHE: NoDetails;
+  readonly CLIENT_CACHE_WRITE_SLOT_OUT_OF_RANGE: Readonly<{ index: number; slot: number }>;
+  readonly CLIENT_DUPLICATE_CACHE_WRITE_SLOT: Readonly<{ index: number; slot: number }>;
+  readonly CLIENT_CACHED_OUTPUT_WITHOUT_WRITE_CACHE: Readonly<{ index: number }>;
+  readonly CLIENT_CACHED_DUMMY_OUTPUT: Readonly<{ index: number }>;
+  readonly CLIENT_UNUSED_WRITE_CACHE: NoDetails;
   readonly CLIENT_PROVER_INPUT: NoDetails;
   readonly CLIENT_MISSING_NULLIFIER_SECRET: NoDetails;
   readonly CLIENT_INVALID_PROOF_AUTHORITY: NoDetails;
@@ -255,6 +269,16 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_TREE_ID_MISMATCH",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_INVALID_MERGE_SHAPE",
+  "CLIENT_INVALID_CACHE_ACCESS",
+  "CLIENT_DUPLICATE_CACHE_READ_SLOT",
+  "CLIENT_CACHE_READ_TREE_MISMATCH",
+  "CLIENT_CACHED_INPUT_WITHOUT_READ_CACHE",
+  "CLIENT_UNUSED_READ_CACHE",
+  "CLIENT_CACHE_WRITE_SLOT_OUT_OF_RANGE",
+  "CLIENT_DUPLICATE_CACHE_WRITE_SLOT",
+  "CLIENT_CACHED_OUTPUT_WITHOUT_WRITE_CACHE",
+  "CLIENT_CACHED_DUMMY_OUTPUT",
+  "CLIENT_UNUSED_WRITE_CACHE",
   "CLIENT_PROVER_INPUT",
   "CLIENT_MISSING_NULLIFIER_SECRET",
   "CLIENT_INVALID_PROOF_AUTHORITY",
@@ -329,6 +353,8 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_PROVER_RESPONSE_TOO_LARGE",
   "CLIENT_PROVER_TEXT",
   "CLIENT_PROVER_JSON",
+  "CLIENT_UNUSED_READ_CACHE",
+  "CLIENT_UNUSED_WRITE_CACHE",
   "CLIENT_UNEXPECTED",
 ]);
 
@@ -401,6 +427,14 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_OUTPUT_BLINDING_MISMATCH: { index: "number" },
   CLIENT_TREE_ID_MISMATCH: { expected: "number", actual: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
+  CLIENT_INVALID_CACHE_ACCESS: { field: "string", index: "number" },
+  CLIENT_DUPLICATE_CACHE_READ_SLOT: { index: "number", slot: "number" },
+  CLIENT_CACHE_READ_TREE_MISMATCH: { index: "number", treeId: "number", cacheTreeId: "number" },
+  CLIENT_CACHED_INPUT_WITHOUT_READ_CACHE: { index: "number" },
+  CLIENT_CACHE_WRITE_SLOT_OUT_OF_RANGE: { index: "number", slot: "number" },
+  CLIENT_DUPLICATE_CACHE_WRITE_SLOT: { index: "number", slot: "number" },
+  CLIENT_CACHED_OUTPUT_WITHOUT_WRITE_CACHE: { index: "number" },
+  CLIENT_CACHED_DUMMY_OUTPUT: { index: "number" },
   CLIENT_PROVER_REQUEST: { method: "string", attempts: "number" },
   CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number", reason: "string" },
   CLIENT_PROVER_JOB: { method: "string" },
@@ -427,6 +461,14 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_INVALID_BASE58: [],
   CLIENT_ABORTED: [],
   CLIENT_INVALID_POLL_CONFIG: ["field"],
+  CLIENT_INVALID_CACHE_ACCESS: ["field"],
+  CLIENT_DUPLICATE_CACHE_READ_SLOT: ["index", "slot"],
+  CLIENT_CACHE_READ_TREE_MISMATCH: ["index", "treeId", "cacheTreeId"],
+  CLIENT_CACHED_INPUT_WITHOUT_READ_CACHE: ["index"],
+  CLIENT_CACHE_WRITE_SLOT_OUT_OF_RANGE: ["index", "slot"],
+  CLIENT_DUPLICATE_CACHE_WRITE_SLOT: ["index", "slot"],
+  CLIENT_CACHED_OUTPUT_WITHOUT_WRITE_CACHE: ["index"],
+  CLIENT_CACHED_DUMMY_OUTPUT: ["index"],
   CLIENT_PROVER_HTTP: ["method"],
   CLIENT_INVALID_RPC_RESPONSE: [],
 };

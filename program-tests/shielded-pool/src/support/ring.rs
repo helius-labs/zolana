@@ -19,7 +19,7 @@ use zolana_interface::{
         tag,
     },
     shape::Shape,
-    state::{discriminator::RING_CONFIG, RingConfig},
+    state::{cache::empty_cached_input_fields, discriminator::RING_CONFIG, RingConfig},
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain},
     verifying_keys::RingP256ProofData,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -262,6 +262,10 @@ impl RealRingTransact {
             create_hash_chain_4_from_slice(&published_output_owner_pk_hashes)
                 .expect("output owner chain"),
         );
+        // This helper spends from the state tree, so both ring rails publish the
+        // empty cache selection rather than omitting it.
+        let cached_inputs = empty_cached_input_fields(n_inputs).expect("cache selection");
+        chain.extend_from_slice(&cached_inputs);
         let public_input_hash =
             create_hash_chain_4_from_slice(&chain).expect("ring public input hash");
 
@@ -338,6 +342,7 @@ impl RealRingTransact {
                         .iter()
                         .map(be)
                         .collect(),
+                    cache: zolana_client::CacheReadInputs::uncached(cached_inputs),
                     public_input_hash: be(&public_input_hash),
                 };
                 let proof = ProverClient::local()

@@ -219,7 +219,8 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		FirstNullifier:  frontend.Variable(0),
 	}
 	for i := range t.Inputs {
-		tree := transaction.SelectTreeSlot(api, t.Inputs[i].TreeSlot, t.Public.TreeSlots)
+		tree := transaction.SelectTreeSlot(api, t.Inputs[i].TreeSlot, t.Public.TreeSlots, false)
+		api.AssertIsDifferent(tree.UtxoRoot, 0)
 		inputHashes[i], nullifiers[i] = constrainInput(api, t.Inputs[i], ctx, tree, i)
 		ctx.FirstNullifier = nullifiers[0]
 	}

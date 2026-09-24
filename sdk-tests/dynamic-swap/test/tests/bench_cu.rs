@@ -685,6 +685,7 @@ fn bench_create_escrow(
         payer: authority_solana.pubkey(),
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
+        cache_accounts: Default::default(),
     };
 
     let commitments = spp_proof_inputs
@@ -966,6 +967,7 @@ fn bench_settle(
         payer: authority_solana.pubkey(),
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
+        cache_accounts: Default::default(),
     };
 
     let commitments = spp_proof_inputs

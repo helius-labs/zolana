@@ -11,7 +11,7 @@ use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput
 use zolana_event_parser::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::instruction_data::transact::{InterfaceTransfer, TransactIxData},
-    state::{default_tree_fees, nullifier_tree_params},
+    state::{cache::empty_cached_input_fields, default_tree_fees, nullifier_tree_params},
     tree_slot::TreeSlot,
     INPUT_TREES,
 };
@@ -402,6 +402,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
         input_flags: &input_flags,
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(nullifiers.len())?,
     }
     .hash()?;
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {

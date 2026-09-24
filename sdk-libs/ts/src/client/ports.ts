@@ -235,6 +235,11 @@ export interface RingProvingConfig {
   readonly outputTree?: TreeContext;
 }
 
+export interface MergeCacheTarget {
+  readonly address: Address;
+  readonly slot: number;
+}
+
 export interface Prover {
   proveCustomRingDeposit(
     inputs: CustomRingDepositProofRequest,
@@ -405,6 +410,7 @@ export interface MergeAssembler {
       prepared: PreparedMerge;
       keys: ProofAuthority;
       indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+      cache?: MergeCacheTarget;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge>;

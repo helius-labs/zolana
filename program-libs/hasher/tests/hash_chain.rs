@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use zolana_hasher::{
     hash_chain::{
         create_hash_chain_4, create_hash_chain_4_from_slice, create_hash_chain_from_slice,
-        create_hash_chain_from_slice_ref, create_two_inputs_hash_chain,
+        create_hash_chain_from_slice_ref, create_right_hash_chain_4_from_seed,
+        create_right_hash_chain_4_from_slice, create_two_inputs_hash_chain,
     },
     Hasher, HasherError, Poseidon,
 };
@@ -18,6 +19,15 @@ use zolana_hasher::{
 /// cargo test -p zolana-hasher --test hash_chain print_hash_chain_4_vectors -- --ignored --nocapture
 /// ```
 const HASH_CHAIN_4_VECTORS_JSON: &str = include_str!("../../../test-vectors/hash_chain_4.json");
+
+/// The same arrangement for the right fold, which the cached UTXO hash chain
+/// publishes. Regenerate with:
+///
+/// ```bash
+/// cargo test -p zolana-hasher --test hash_chain print_right_hash_chain_4_vectors -- --ignored --nocapture
+/// ```
+const RIGHT_HASH_CHAIN_4_VECTORS_JSON: &str =
+    include_str!("../../../test-vectors/right_hash_chain_4.json");
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct HashChain4Vectors {
@@ -76,6 +86,106 @@ fn compute_hash_chain_4_vectors() -> HashChain4Vectors {
 fn committed_hash_chain_4_vectors_match() {
     let committed: HashChain4Vectors = serde_json::from_str(HASH_CHAIN_4_VECTORS_JSON).unwrap();
     assert_eq!(committed, compute_hash_chain_4_vectors());
+}
+
+fn right_hash_chain_4_vector(name: &str, inputs: &[[u8; 32]]) -> HashChain4Vector {
+    HashChain4Vector {
+        name: name.to_string(),
+        inputs: inputs.iter().map(hex::encode).collect(),
+        output: hex::encode(create_right_hash_chain_4_from_slice(inputs).unwrap()),
+    }
+}
+
+/// Lengths on both sides of every group boundary, plus the two shapes the
+/// cache chain actually publishes: a populated prefix followed by zeros, and
+/// the all-zero vector a spend that draws on no cache publishes.
+fn compute_right_hash_chain_4_vectors() -> HashChain4Vectors {
+    let zero = [0u8; 32];
+    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 36]
+        .iter()
+        .map(|&len| {
+            let inputs: Vec<[u8; 32]> = (1..=len).map(field).collect();
+            right_hash_chain_4_vector(&format!("len_{len}"), &inputs)
+        })
+        .collect();
+    vectors.push(right_hash_chain_4_vector(
+        "zero_element_in_the_middle",
+        &[field(1), zero, field(3), field(4), field(5)],
+    ));
+    let mut trailing = vec![zero; 8];
+    for (index, slot) in trailing.iter_mut().take(2).enumerate() {
+        *slot = field(index as u32 + 1);
+    }
+    vectors.push(right_hash_chain_4_vector("trailing_zeros_8", &trailing));
+    let mut wide = vec![zero; 36];
+    for (index, slot) in wide.iter_mut().take(5).enumerate() {
+        *slot = field(index as u32 + 1);
+    }
+    vectors.push(right_hash_chain_4_vector("trailing_zeros_36", &wide));
+    vectors.push(right_hash_chain_4_vector("all_zero_36", &[zero; 36]));
+    HashChain4Vectors {
+        description: "Known-answer vectors for right_hash_chain_4, the right-folding 4-input \
+                      Poseidon chain over 32-byte big-endian BN254 field elements: L == 0 -> 0, \
+                      L == 1 -> e[0], otherwise h = e[L - 1] and, walking the preceding elements \
+                      from the right in groups of up to 3 that keep their order, \
+                      h = Poseidon(g[0], g[1] or 0, g[2] or 0, h). The short group is the \
+                      leftmost one and its elements stay left-aligned, so an all-zero suffix \
+                      folds to a constant of its length alone. The len_<L> entries fold \
+                      e[i] = i + 1; zero_element_in_the_middle shows a zero element is \
+                      positional and distinct from padding; the trailing_zeros_<L> and \
+                      all_zero_36 entries are the shapes the cache chain publishes. Produced by \
+                      program-libs/hasher/tests/hash_chain.rs print_right_hash_chain_4_vectors."
+            .to_string(),
+        vectors,
+    }
+}
+
+#[test]
+fn committed_right_hash_chain_4_vectors_match() {
+    let committed: HashChain4Vectors =
+        serde_json::from_str(RIGHT_HASH_CHAIN_4_VECTORS_JSON).unwrap();
+    assert_eq!(committed, compute_right_hash_chain_4_vectors());
+}
+
+/// Every committed entry is a known-answer test for both entry points: the
+/// seeded one must agree with the slice one, since the on-chain skip path
+/// reaches the same digest through the seed.
+#[test]
+fn right_hash_chain_4_matches_every_committed_vector() {
+    let committed: HashChain4Vectors =
+        serde_json::from_str(RIGHT_HASH_CHAIN_4_VECTORS_JSON).unwrap();
+    assert_eq!(committed.vectors.len(), 17);
+    for vector in &committed.vectors {
+        let inputs: Vec<[u8; 32]> = vector
+            .inputs
+            .iter()
+            .map(|input| hex::decode(input).unwrap().try_into().unwrap())
+            .collect();
+        let expected: [u8; 32] = hex::decode(&vector.output).unwrap().try_into().unwrap();
+        assert_eq!(
+            create_right_hash_chain_4_from_slice(&inputs).unwrap(),
+            expected,
+            "vector {}",
+            vector.name
+        );
+        if let Some((last, prefix)) = inputs.split_last() {
+            assert_eq!(
+                create_right_hash_chain_4_from_seed(prefix, *last).unwrap(),
+                expected,
+                "vector {} via seed",
+                vector.name
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "regenerates test-vectors/right_hash_chain_4.json; run with --nocapture and commit the output"]
+fn print_right_hash_chain_4_vectors() {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&compute_right_hash_chain_4_vectors()).unwrap()
+    );
 }
 
 /// Every committed entry is a known-answer test for all entry points; the
@@ -380,4 +490,177 @@ fn slice_ref_matches_the_slice_variant_and_the_kat() {
 
     assert_eq!(via_ref, create_hash_chain_from_slice(&inputs).unwrap());
     assert_eq!(via_ref, hard_coded_expected_hash);
+}
+
+/// The merge public-input hash is assembled in two steps on chain
+/// (`merge/verify.rs`): the seven shared elements fold into a prefix, then the
+/// rail's tail continues from it. The circuits fold all of them flat, so the
+/// two must agree. Seven is `1 + 3 + 3`, so the prefix ends on a complete
+/// group. Both rails add a two-element tail: the default merge the signing
+/// identity and nullifier key, the policy-ring merge the output ring data hash
+/// and ring program id. Every tail that fits one more group is covered.
+#[test]
+fn a_seven_element_prefix_folds_like_a_flat_chain_for_every_merge_tail() {
+    let elements: [[u8; 32]; 10] =
+        core::array::from_fn(|index| [u8::try_from(index + 1).expect("index fits a byte"); 32]);
+
+    for tail_len in 1..=3usize {
+        let all = elements
+            .get(..7 + tail_len)
+            .expect("merge element count within the fixture");
+        let prefix = all.get(..7).expect("prefix within the fixture");
+        let tail = all.get(7..).expect("tail within the fixture");
+
+        let mut continued = Vec::with_capacity(1 + tail.len());
+        continued.push(create_hash_chain_4_from_slice(prefix).unwrap());
+        continued.extend_from_slice(tail);
+
+        assert_eq!(
+            create_hash_chain_4_from_slice(&continued).unwrap(),
+            create_hash_chain_4_from_slice(all).unwrap(),
+            "tail length {tail_len}"
+        );
+    }
+}
+
+/// A reference right fold written straight from the convention, so the
+/// optimized implementation is checked against a second, independent one
+/// rather than against itself.
+fn reference_right_hash_chain_4(inputs: &[[u8; 32]]) -> [u8; 32] {
+    let zero = [0u8; 32];
+    let Some((last, prefix)) = inputs.split_last() else {
+        return zero;
+    };
+    let mut hash = *last;
+    let mut end = prefix.len();
+    while end > 0 {
+        let start = end.saturating_sub(3);
+        let mut group = [zero; 3];
+        let elements = prefix.get(start..end).expect("group is inside the prefix");
+        for (slot, element) in group.iter_mut().zip(elements.iter()) {
+            *slot = *element;
+        }
+        let [g0, g1, g2] = &group;
+        hash = Poseidon::hashv(&[g0, g1, g2, &hash]).unwrap();
+        end = start;
+    }
+    hash
+}
+
+/// The two worked examples of the convention.
+#[test]
+fn right_hash_chain_4_folds_the_documented_examples() {
+    let zero = [0u8; 32];
+    let [a, b, c, d, f]: [[u8; 32]; 5] = core::array::from_fn(|index| field(index as u32 + 1));
+
+    assert_eq!(
+        create_right_hash_chain_4_from_slice(&[a, b, c, d]).unwrap(),
+        Poseidon::hashv(&[&a, &b, &c, &d]).unwrap(),
+        "four elements fold in one call, like the left chain"
+    );
+    assert_eq!(
+        create_right_hash_chain_4_from_slice(&[a, b, c, d, f]).unwrap(),
+        Poseidon::hashv(&[
+            &a,
+            &zero,
+            &zero,
+            &Poseidon::hashv(&[&b, &c, &d, &f]).unwrap()
+        ])
+        .unwrap(),
+        "the short group is leftmost and its element stays left-aligned"
+    );
+    assert_eq!(
+        create_right_hash_chain_4_from_slice(&[a, b]).unwrap(),
+        Poseidon::hashv(&[&a, &zero, &zero, &b]).unwrap()
+    );
+    assert_eq!(
+        create_right_hash_chain_4_from_slice(&[a, b, c]).unwrap(),
+        Poseidon::hashv(&[&a, &b, &zero, &c]).unwrap()
+    );
+}
+
+/// The degenerate lengths match the left chain and the binary chain.
+#[test]
+fn right_hash_chain_4_returns_zero_and_the_lone_element_unhashed() {
+    assert_eq!(
+        create_right_hash_chain_4_from_slice(&[]).unwrap(),
+        [0u8; 32]
+    );
+    assert_eq!(
+        create_right_hash_chain_4_from_slice(&[field(9)]).unwrap(),
+        field(9)
+    );
+}
+
+/// Every length up to the widest shape agrees with the reference fold, and the
+/// seeded entry point agrees with the slice one when seeded with the chain's
+/// own last element.
+#[test]
+fn right_hash_chain_4_matches_the_reference_for_every_length() {
+    for length in 0..=36u32 {
+        let inputs: Vec<[u8; 32]> = (1..=length).map(field).collect();
+        let folded = create_right_hash_chain_4_from_slice(&inputs).unwrap();
+        assert_eq!(
+            folded,
+            reference_right_hash_chain_4(&inputs),
+            "length {length}"
+        );
+        if let Some((last, prefix)) = inputs.split_last() {
+            assert_eq!(
+                create_right_hash_chain_4_from_seed(prefix, *last).unwrap(),
+                folded,
+                "length {length} via seed"
+            );
+        }
+    }
+}
+
+/// Dropping a whole group of trailing zeros and seeding with that group's own
+/// fold is the same chain: this is the identity the on-chain skip relies on.
+#[test]
+fn seeding_with_a_folded_zero_suffix_skips_its_groups() {
+    let zero = [0u8; 32];
+    for populated in 0..=8usize {
+        let mut inputs = vec![zero; 16];
+        for (index, slot) in inputs.iter_mut().take(populated).enumerate() {
+            *slot = field(index as u32 + 1);
+        }
+        // Z(k) over the last 1 + 3k elements, folded the long way.
+        for skipped in 0..=5usize {
+            let suffix_len = 1 + 3 * skipped;
+            let (head, suffix) = inputs
+                .len()
+                .checked_sub(suffix_len)
+                .and_then(|split| inputs.split_at_checked(split))
+                .expect("the zero suffix fits the vector");
+            if suffix.iter().any(|element| element != &zero) {
+                continue;
+            }
+            let seed = create_right_hash_chain_4_from_slice(suffix).unwrap();
+            assert_eq!(
+                create_right_hash_chain_4_from_seed(head, seed).unwrap(),
+                create_right_hash_chain_4_from_slice(&inputs).unwrap(),
+                "populated {populated}, skipped {skipped}"
+            );
+        }
+    }
+}
+
+/// Pin exactly where the right and left chains agree and where they part. They
+/// coincide only where the convention forces them to: nothing to fold (0, 1)
+/// and the single full call that both spell `Poseidon(e0, e1, e2, e3)` (4). At
+/// every other length the padding sits at a different end and the digests
+/// differ, so a chain built with the left fold does not verify.
+#[test]
+fn the_right_fold_agrees_with_the_left_fold_only_at_zero_one_and_four() {
+    for length in 0..=16u32 {
+        let inputs: Vec<[u8; 32]> = (1..=length).map(field).collect();
+        let right = create_right_hash_chain_4_from_slice(&inputs).unwrap();
+        let left = create_hash_chain_4_from_slice(&inputs).unwrap();
+        if matches!(length, 0 | 1 | 4) {
+            assert_eq!(right, left, "length {length}");
+        } else {
+            assert_ne!(right, left, "length {length}");
+        }
+    }
 }

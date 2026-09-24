@@ -17,6 +17,7 @@ use zolana_transaction::{
 use crate::{
     error::ClientError,
     prover::{
+        cache::CacheSelection,
         field::be,
         transact::assembly::{
             assemble_transaction, confidential_marked_output_owner_pk_hashes, validate_shape,
@@ -71,6 +72,12 @@ impl RingTransferP256Prover {
             });
         }
 
+        let cache = CacheSelection::derive(
+            &self.inputs,
+            &self.outputs,
+            Default::default(),
+            &self.external_data,
+        )?;
         let AssembledTransaction {
             inputs: assembled_inputs,
             outputs: assembled_outputs,
@@ -82,7 +89,7 @@ impl RingTransferP256Prover {
             &self.outputs,
             &self.blinding_seed,
             self.output_tree_id,
-            &self.external_data,
+            &cache.external_data_hash,
             &OwnerMode::RingP256,
             self.allow_dummy_inputs,
         )?;
@@ -132,6 +139,7 @@ impl RingTransferP256Prover {
             input_flags: &input_flags,
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&published_output_owner_pk_hashes),
+            cached_inputs: cache.public_fields,
         }
         .hash_with_after_private_tx(&[message_proof_input_hash, default_p256_owner_pk_hash])?;
 
@@ -159,6 +167,7 @@ impl RingTransferP256Prover {
                 .iter()
                 .map(be)
                 .collect(),
+            cache: cache.proof_inputs,
             public_input_hash: be(&public_input),
         };
 

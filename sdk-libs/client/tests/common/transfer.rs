@@ -39,5 +39,6 @@ pub fn transfer_prover(
         signer_pk_hashes,
         allow_dummy_inputs: true,
         shape,
+        cache_accounts: Default::default(),
     }
 }

@@ -16,7 +16,7 @@ tree = ["dep:zolana-tree"]
 [dependencies]
 arrayvec = { workspace = true }
 borsh = { workspace = true, optional = true }
-bytemuck = { workspace = true }
+bytemuck = { workspace = true, features = ["min_const_generics"] }
 solana-address = { workspace = true, features = ["bytemuck"] }
 solana-pubkey = { workspace = true }
 groth16-solana = { workspace = true, optional = true }

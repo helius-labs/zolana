@@ -69,7 +69,7 @@ func (c *CustomRingPolicyCircuit) checkListFacts(api frontend.API, rangeChecker 
 		slot := api.Mul(fact.Enabled, fact.TreeSlot)
 		context := listFactContext{
 			ownerHash:     resolveSourceOwner(api, c.Sources, fact),
-			tree:          shared.SelectTreeSlot(api, slot, c.TreeSlots[:]),
+			tree:          shared.SelectTreeSlot(api, slot, c.TreeSlots[:], true),
 			addressTreeID: c.AddressTreeID,
 		}
 

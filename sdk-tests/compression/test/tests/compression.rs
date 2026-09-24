@@ -166,6 +166,7 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
             payer: attacker.pubkey(),
             blinding_seed,
             output_tree_id: DEFAULT_TREE_ID,
+            cache_accounts: Default::default(),
         },
         None,
         &attacker,

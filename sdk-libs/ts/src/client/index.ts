@@ -8,6 +8,7 @@ export type {
   IndexerReader,
   KitRpcAccess,
   MergeAssembler,
+  MergeCacheTarget,
   ProofAuthority,
   ProofReader,
   ProofService,

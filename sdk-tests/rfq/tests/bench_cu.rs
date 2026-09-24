@@ -443,6 +443,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         payer: payer_address,
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
+        cache_accounts: Default::default(),
     };
 
     let commitments = spp_proof_inputs

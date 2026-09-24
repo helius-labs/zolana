@@ -173,6 +173,7 @@ impl ConfidentialTransaction {
             output_tree_id: self.output_tree_id,
             external_data,
             payer: self.payer,
+            cache_accounts: Default::default(),
         })
     }
 

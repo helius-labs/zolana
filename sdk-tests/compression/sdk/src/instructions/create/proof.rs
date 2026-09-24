@@ -9,6 +9,7 @@ use zolana_client::{
 };
 use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{
+    state::cache::empty_cached_input_fields,
     tree_slot::{pack_input_flags, tree_id_field, TreeSlot},
     ADDRESS_DOMAIN, INPUT_TREES,
 };
@@ -134,6 +135,8 @@ impl CreateProofInputParams {
         if let Some(slot) = tree_slots.first_mut() {
             *slot = TreeSlot::new(tree_id, self.utxo_root, self.non_inclusion.root);
         }
+        // One input, spending no cache: the rail still publishes a selection.
+        let cached_inputs = empty_cached_input_fields(1)?;
         let public_hash = PublicInputs {
             nullifiers: &[address_nullifier],
             output_hashes: &[output_hash],
@@ -146,6 +149,7 @@ impl CreateProofInputParams {
             input_flags: &input_flags,
             signer_pk_hashes: &signer_hashes,
             output_owner_pk_hashes: Some(&output_owner_hashes),
+            cached_inputs,
         }
         .hash()?;
         let transfer_inputs = TransferInputs {
@@ -161,6 +165,7 @@ impl CreateProofInputParams {
             ring_program_id: BigUint::ZERO,
             signer_pk_hashes: signer_hashes.iter().map(be).collect(),
             input_flags: be(&input_flags),
+            cache: zolana_client::CacheReadInputs::uncached(cached_inputs),
             published_output_owner_pk_hashes: output_owner_hashes.iter().map(be).collect(),
             public_input_hash: be(&public_hash),
         };

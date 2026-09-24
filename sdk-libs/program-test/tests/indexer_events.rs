@@ -81,6 +81,29 @@ fn test_indexer_transact_leaf_indices_must_be_contiguous() {
 }
 
 #[test]
+fn proved_transaction_with_a_deposit_leg_keeps_encrypted_outputs() {
+    let mut indexer = TestIndexer::new();
+    let mut event = sample_transact_event();
+    event.spl_transfers.push(zolana_event::SplTransfer {
+        is_deposit: true,
+        amount: 100,
+        asset: None,
+    });
+    indexer
+        .record_state_change(&event)
+        .expect("a deposit leg does not imply a proofless output");
+    assert_eq!(indexer.utxos().len(), event.outputs.len());
+    for (indexed, output) in indexer.utxos().iter().zip(&event.outputs) {
+        assert_eq!(indexed.utxo_hash, output.utxo_hash);
+        match &indexed.payload {
+            zolana_program_test::IndexedPayload::Encrypted(data) => assert_eq!(data, &output.data),
+            _ => panic!("proved deposit output was misclassified"),
+        }
+    }
+    assert!(indexer.is_nullifier_spent(&event.inputs.first().expect("input").nullifier));
+}
+
+#[test]
 fn test_indexer_interleaves_outputs_in_two_trees() {
     let mut indexer = TestIndexer::new();
     let first_tree = Address::new_from_array([0x66; 32]);

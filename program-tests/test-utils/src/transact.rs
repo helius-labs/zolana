@@ -12,8 +12,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     prover::field::{be, right_align_slice},
-    spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs,
-    PublicTransfers, TransferInput, TransferInputs, TransferOutput, TreeSlotFields,
+    spawn_prover, CacheReadInputs, Proof, ProofCompressed, ProofInputUtxo, ProverClient,
+    PublicInputs, PublicTransfers, TransferInput, TransferInputs, TransferOutput, TreeSlotFields,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
@@ -28,9 +28,12 @@ use zolana_interface::{
     },
     pda,
     shape::Shape,
-    state::read_tree_id,
+    state::{
+        cache::{cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY},
+        read_tree_id,
+    },
     tree_slot::{pack_input_flags, TreeSlot},
-    verifying_keys::transfer_confidential_2_3,
+    verifying_keys::{transfer_confidential_2_3, CacheAccess, CacheWrite, MAX_CACHE_WRITES},
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
 use zolana_keypair::{
@@ -467,6 +470,11 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         .iter()
         .map(|output| output.owner_pk_hash.clone())
         .collect();
+    // Every helper here spends from the state tree, so the rail publishes the
+    // empty cache selection; a cached spend builds its own.
+    let cache = zolana_client::CacheReadInputs::uncached(
+        empty_cached_input_fields(args.inputs.len()).expect("cache selection"),
+    );
     TransferInputs {
         tree_slots: TreeSlotFields::encode_all(&args.tree_slots),
         output_tree_id: BigUint::from(args.output_tree_id),
@@ -481,6 +489,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         signer_pk_hashes,
         input_flags: be(&input_flags),
         published_output_owner_pk_hashes,
+        cache,
         public_input_hash: be(&args.public_input_hash),
     }
 }
@@ -652,6 +661,130 @@ pub fn dummy_input_with_proof(
         // See `dummy_input`: a padding slot's secret is zero and public.
         nullifier_secret: Some(be(&zero)),
     })
+}
+
+/// A real spend the cache proves the existence of, so the state tree does not:
+/// its state path is absent and its commitment must sit in the cache slot the
+/// selector's bitmap picks for this input's position.
+pub struct CachedSpend {
+    pub input: TransferInput,
+    pub nullifier: [u8; 32],
+    /// The UTXO hash a merge wrote into the cache, hashed under `tree_id`.
+    pub commitment: [u8; 32],
+}
+
+/// Build one cached spend of a zero-amount SOL UTXO owned by `owner`.
+///
+/// The UTXO is never appended to the state tree: that is the point of the
+/// cache, so the input carries an all-zero state path and its tree group must
+/// publish no UTXO root. The nullifier proof is unchanged -- the cache replaces
+/// inclusion, never authority.
+pub fn cached_spend_input(
+    owner: PublicKey,
+    nullifier_key: &NullifierKey,
+    blinding: &[u8; 31],
+    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+    tree_id: u16,
+) -> Result<CachedSpend> {
+    let zero = [0u8; 32];
+    let nullifier_pk = nullifier_key.pubkey()?;
+    let utxo = Utxo {
+        owner,
+        asset: zolana_transaction::Mint::SOL,
+        amount: 0,
+        blinding: expand_blinding(blinding),
+        ring_program_id: None,
+        data: Default::default(),
+    };
+    let owner_field = owner_hash(&owner, &nullifier_pk)?;
+    // Hash the same projection the input carries, so the commitment seated in
+    // the cache is by construction the one the circuit derives for this input.
+    let commitment = ProofInputUtxo::new(
+        owner_field,
+        &utxo.asset.asset,
+        utxo.amount,
+        &utxo.blinding,
+        tree_id,
+    )?
+    .with_ring(zero, &utxo.ring_program_id)?
+    .hash()?;
+    let nullifier = nullifier_key.nullifier(&commitment, &utxo.blinding)?;
+    let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
+    let input = transfer_input(TransferInputArgs {
+        utxo: &utxo,
+        owner_field: &owner_field,
+        state_path: &vec![zero; STATE_TREE_HEIGHT],
+        state_path_index: 0,
+        non_inclusion: &non_inclusion,
+        tree_id,
+        nullifier: &nullifier,
+        owner_pk_hash: &owner.owner_proof_input_hash()?,
+        nullifier_key,
+    })?;
+    Ok(CachedSpend {
+        input,
+        nullifier,
+        commitment,
+    })
+}
+
+pub struct CacheReadSelection {
+    pub read_bitmap: u64,
+    pub public_fields: [[u8; 32]; 2],
+    pub proof_inputs: CacheReadInputs,
+}
+
+pub fn cache_read_selection(
+    tree_id: u16,
+    reads: &[Option<(u8, [u8; 32])>],
+) -> Result<CacheReadSelection> {
+    let mut slots = [[0u8; 32]; CACHE_CAPACITY];
+    let mut read_bitmap = 0u64;
+    for (slot, hash) in reads.iter().flatten() {
+        *slots
+            .get_mut(usize::from(*slot))
+            .context("cache slot out of range")? = *hash;
+        read_bitmap |= 1 << slot;
+    }
+    let public_fields = cached_input_fields(read_bitmap, tree_id, &slots, reads.len())?;
+    let mut read_hashes: Vec<BigUint> = slots
+        .iter()
+        .enumerate()
+        .filter(|(slot, _)| read_bitmap >> slot & 1 == 1)
+        .map(|(_, hash)| BigUint::from_bytes_be(hash))
+        .collect();
+    read_hashes.resize(reads.len(), BigUint::ZERO);
+    let [tree_field, chain] = public_fields;
+    Ok(CacheReadSelection {
+        read_bitmap,
+        public_fields,
+        proof_inputs: CacheReadInputs {
+            tree_id: BigUint::from_bytes_be(&tree_field),
+            read_hash_chain: BigUint::from_bytes_be(&chain),
+            read_hashes,
+            is_cached: reads.iter().map(Option::is_some).collect(),
+            read_index: reads
+                .iter()
+                .map(|read| {
+                    read.map_or(0, |(slot, _)| {
+                        (read_bitmap & ((1u64 << slot) - 1)).count_ones() as usize
+                    })
+                })
+                .collect(),
+        },
+    })
+}
+
+pub fn cache_write_slots(writes: &[CacheWrite]) -> Result<[CacheWrite; MAX_CACHE_WRITES]> {
+    anyhow::ensure!(
+        writes.len() <= MAX_CACHE_WRITES,
+        "a transact writes at most {MAX_CACHE_WRITES} cache slots"
+    );
+    let mut write_slots = CacheAccess::NO_WRITES;
+    for (entry, write) in write_slots.iter_mut().zip(writes) {
+        *entry = *write;
+    }
+    Ok(write_slots)
 }
 
 pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon, usize>> {
@@ -886,6 +1019,8 @@ pub fn build_spl_withdrawal(
     let signer_hashes = [payer_hash, zero, zero];
     let (public_slot_assets, public_slot_amounts) =
         spl_public_slots(public_spl_field, &mint_bytes).expect("public SPL slots");
+    // Two inputs, spending no cache: the rail still publishes a selection.
+    let cached_inputs = empty_cached_input_fields(2).expect("cache selection");
     let public_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
         output_hashes: &output_hashes,
@@ -901,6 +1036,7 @@ pub fn build_spl_withdrawal(
         input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_hashes),
+        cached_inputs,
     }
     .hash()
     .expect("public input hash");
