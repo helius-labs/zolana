@@ -56,6 +56,61 @@ fn prover_port(server_address: &str) -> u16 {
         .unwrap_or(DEFAULT_PROVER_PORT)
 }
 
+/// A prover base URL, with a Helius gateway `api-key` split off it.
+///
+/// A gateway prover URL is `https://<host>/v1/zolana?api-key=<key>`. A request
+/// path has to go before the query, so appending `/prove` to the whole string
+/// sent `...?api-key=<key>/prove`: the gateway read the key as `<key>/prove`
+/// and answered every proof with 401. The key is parsed the same way the
+/// indexer client in `zolana-api` parses it, so one gateway URL configures both.
+#[derive(Clone)]
+struct ProverEndpoint {
+    base: String,
+    api_key: Option<String>,
+}
+
+impl ProverEndpoint {
+    fn parse(url: &str) -> Self {
+        let api_key = url.split_once('?').and_then(|(base, query)| {
+            query
+                .split('&')
+                .find_map(|parameter| parameter.strip_prefix("api-key="))
+                .map(|key| (base, key))
+        });
+        match api_key {
+            Some((base, key)) => Self {
+                base: base.to_string(),
+                api_key: Some(key.to_string()),
+            },
+            None => Self {
+                base: url.to_string(),
+                api_key: None,
+            },
+        }
+    }
+
+    /// `path` may carry its own query, as `/prove/status?jobId=..` does.
+    fn url(&self, path: &str) -> String {
+        let mut url = format!("{}{}", self.base.trim_end_matches('/'), path);
+        if let Some(key) = &self.api_key {
+            url.push(if path.contains('?') { '&' } else { '?' });
+            url.push_str("api-key=");
+            url.push_str(key);
+        }
+        url
+    }
+
+    /// reqwest puts the request URL in its error text, and prover errors end up
+    /// in CLI output and service logs. Drop the URL when it carries a key.
+    fn scrub(&self, error: reqwest::Error) -> reqwest::Error {
+        if self.api_key.is_some() {
+            error.without_url()
+        } else {
+            error
+        }
+    }
+}
+
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 
@@ -195,7 +250,7 @@ fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
 
 /// Blocking client for the transfer proving endpoints of the prover server.
 pub struct ProverClient {
-    server_address: String,
+    endpoint: ProverEndpoint,
     http: reqwest::blocking::Client,
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
@@ -204,7 +259,7 @@ pub struct ProverClient {
 
 /// Async client for the transfer proving endpoints of the prover server.
 pub struct AsyncProverClient {
-    server_address: String,
+    endpoint: ProverEndpoint,
     http: reqwest::Client,
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
@@ -230,7 +285,7 @@ impl ProverClient {
 
     pub fn new(server_address: String) -> Self {
         Self {
-            server_address,
+            endpoint: ProverEndpoint::parse(&server_address),
             http: build_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
@@ -338,17 +393,25 @@ impl ProverClient {
     /// proving-key sha256 each committed verifying key pins, so a prover on
     /// another key set fails before the first proof instead of on-chain.
     pub fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVING_KEYS_PATH);
+        let url = self.endpoint.url(PROVING_KEYS_PATH);
         let response = self
             .http
             .get(&url)
             .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
             .send()
-            .map_err(|e| ClientError::ProverServer(format!("proving keys request failed: {e}")))?;
+            .map_err(|e| {
+                ClientError::ProverServer(format!(
+                    "proving keys request failed: {}",
+                    self.endpoint.scrub(e)
+                ))
+            })?;
         let status = response.status();
-        let text = response
-            .text()
-            .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
+        let text = response.text().map_err(|e| {
+            ClientError::ProverServer(format!(
+                "failed to read response body: {}",
+                self.endpoint.scrub(e)
+            ))
+        })?;
         prover_keys_from_response(status, &text)?.check()
     }
 
@@ -387,15 +450,19 @@ impl ProverClient {
                 }
                 Err(e) => {
                     return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {e}"
+                        "request failed after {attempt} attempt(s): {}",
+                        self.endpoint.scrub(e)
                     )));
                 }
             }
         };
         let status = response.status();
-        let text = response
-            .text()
-            .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
+        let text = response.text().map_err(|e| {
+            ClientError::ProverServer(format!(
+                "failed to read response body: {}",
+                self.endpoint.scrub(e)
+            ))
+        })?;
         Ok((status, text))
     }
 
@@ -405,7 +472,7 @@ impl ProverClient {
         delivery: Delivery,
         key: &ExpectedProvingKey,
     ) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        let url = self.endpoint.url(PROVE_PATH);
         crate::prover::timing::note(0, "prover_request_bytes", body.as_ref().len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
@@ -443,7 +510,9 @@ impl ProverClient {
 
     /// Poll the async job status endpoint until the queued proof completes.
     fn poll_async(&self, job_id: &str, key: &ExpectedProvingKey) -> Result<Proof, ClientError> {
-        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
+        let url = self
+            .endpoint
+            .url(&format!("{PROVE_PATH}/status?jobId={job_id}"));
         // The configured interval caps the backoff rather than setting it. This
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
         // every proof: a 270ms proof measured 3.3s end to end, essentially all
@@ -488,7 +557,7 @@ impl ProverClient {
             if status.is_client_error() {
                 let text = match response.text() {
                     Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {e}"),
+                    Err(e) => format!("failed to read status body: {}", self.endpoint.scrub(e)),
                 };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
@@ -634,7 +703,7 @@ impl AsyncProverClient {
 
     pub fn new(server_address: String) -> Self {
         Self {
-            server_address,
+            endpoint: ProverEndpoint::parse(&server_address),
             http: build_async_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
@@ -737,19 +806,26 @@ impl AsyncProverClient {
 
     /// Async counterpart of [`ProverClient::check_proving_keys`].
     pub async fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVING_KEYS_PATH);
+        let url = self.endpoint.url(PROVING_KEYS_PATH);
         let response = self
             .http
             .get(&url)
             .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
             .send()
             .await
-            .map_err(|e| ClientError::ProverServer(format!("proving keys request failed: {e}")))?;
+            .map_err(|e| {
+                ClientError::ProverServer(format!(
+                    "proving keys request failed: {}",
+                    self.endpoint.scrub(e)
+                ))
+            })?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
+        let text = response.text().await.map_err(|e| {
+            ClientError::ProverServer(format!(
+                "failed to read response body: {}",
+                self.endpoint.scrub(e)
+            ))
+        })?;
         prover_keys_from_response(status, &text)?.check()
     }
 
@@ -759,7 +835,7 @@ impl AsyncProverClient {
         delivery: Delivery,
         key: &ExpectedProvingKey,
     ) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        let url = self.endpoint.url(PROVE_PATH);
         let mut delivery = delivery;
         let (status, text) = loop {
             let (status, text) = self.post(&url, body.as_ref(), delivery).await?;
@@ -812,7 +888,10 @@ impl AsyncProverClient {
                 Ok(response) => {
                     let status = response.status();
                     let text = response.text().await.map_err(|e| {
-                        ClientError::ProverServer(format!("failed to read response body: {e}"))
+                        ClientError::ProverServer(format!(
+                            "failed to read response body: {}",
+                            self.endpoint.scrub(e)
+                        ))
                     })?;
                     return Ok((status, text));
                 }
@@ -821,7 +900,8 @@ impl AsyncProverClient {
                 }
                 Err(e) => {
                     return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {e}"
+                        "request failed after {attempt} attempt(s): {}",
+                        self.endpoint.scrub(e)
                     )));
                 }
             }
@@ -833,7 +913,9 @@ impl AsyncProverClient {
         job_id: &str,
         key: &ExpectedProvingKey,
     ) -> Result<Proof, ClientError> {
-        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
+        let url = self
+            .endpoint
+            .url(&format!("{PROVE_PATH}/status?jobId={job_id}"));
         let poll_cap_ms = self
             .async_poll
             .poll_interval_secs
@@ -861,7 +943,7 @@ impl AsyncProverClient {
             if status.is_client_error() {
                 let text = match response.text().await {
                     Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {e}"),
+                    Err(e) => format!("failed to read status body: {}", self.endpoint.scrub(e)),
                 };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
@@ -1253,6 +1335,94 @@ mod tests {
             direct.requests().is_empty(),
             "witness bypassed failed proxy"
         );
+    }
+
+    #[test]
+    fn gateway_api_key_goes_after_the_request_path() {
+        let plain = ProverEndpoint::parse("http://127.0.0.1:3001");
+        assert_eq!(plain.url(PROVE_PATH), "http://127.0.0.1:3001/prove");
+
+        let gateway = ProverEndpoint::parse("https://gateway.invalid/v1/zolana?api-key=secret");
+        assert_eq!(
+            gateway.url(PROVE_PATH),
+            "https://gateway.invalid/v1/zolana/prove?api-key=secret"
+        );
+        assert_eq!(
+            gateway.url(PROVING_KEYS_PATH),
+            "https://gateway.invalid/v1/zolana/proving-keys?api-key=secret"
+        );
+        assert_eq!(
+            gateway.url(&format!("{PROVE_PATH}/status?jobId=job-1")),
+            "https://gateway.invalid/v1/zolana/prove/status?jobId=job-1&api-key=secret"
+        );
+
+        let trailing_slash = ProverEndpoint::parse("https://gateway.invalid/v1/zolana/?api-key=k");
+        assert_eq!(
+            trailing_slash.url(PROVE_PATH),
+            "https://gateway.invalid/v1/zolana/prove?api-key=k"
+        );
+        let among_others = ProverEndpoint::parse("https://gateway.invalid/v1/zolana?a=1&api-key=k");
+        assert_eq!(among_others.api_key.as_deref(), Some("k"));
+    }
+
+    // The gateway key rode inside the path (`...?api-key=<key>/prove`), and the
+    // gateway answered every proof 401. Both requests of a queued proof have to
+    // carry it: the submission and each status poll.
+    fn gateway_proof_server() -> (MockServer, String) {
+        let server = MockServer::respond_with(proxy_proof_responses());
+        let url = format!("{}/v1/zolana?api-key=test-key", server.url());
+        (server, url)
+    }
+
+    const GATEWAY_PATHS: [&str; 2] = [
+        "/v1/zolana/prove?api-key=test-key",
+        "/v1/zolana/prove/status?jobId=proxy-job&api-key=test-key",
+    ];
+
+    #[test]
+    fn blocking_client_sends_the_gateway_key_with_every_request() {
+        let (server, url) = gateway_proof_server();
+        queued_prover_client(&url)
+            .send("{}", Delivery::Queued, &test_key())
+            .expect("proof through the gateway");
+        assert_paths(&server.requests(), GATEWAY_PATHS);
+    }
+
+    #[tokio::test]
+    async fn async_client_sends_the_gateway_key_with_every_request() {
+        let (server, url) = gateway_proof_server();
+        async_prover_client(&url)
+            .send("{}", Delivery::Queued, &test_key())
+            .await
+            .expect("proof through the gateway");
+        assert_paths(&server.requests(), GATEWAY_PATHS);
+    }
+
+    fn closed_gateway_url() -> String {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .and_then(|listener| listener.local_addr())
+            .expect("a free local port")
+            .port();
+        format!("http://127.0.0.1:{port}/v1/zolana?api-key=secret-key")
+    }
+
+    #[test]
+    fn blocking_transport_errors_leave_the_gateway_key_out() {
+        let error = ProverClient::new(closed_gateway_url())
+            .check_proving_keys()
+            .expect_err("nothing listens on the port")
+            .to_string();
+        assert!(!error.contains("secret-key"), "key leaked: {error}");
+    }
+
+    #[tokio::test]
+    async fn async_transport_errors_leave_the_gateway_key_out() {
+        let error = AsyncProverClient::new(closed_gateway_url())
+            .check_proving_keys()
+            .await
+            .expect_err("nothing listens on the port")
+            .to_string();
+        assert!(!error.contains("secret-key"), "key leaked: {error}");
     }
 
     #[test]
