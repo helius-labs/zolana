@@ -56,6 +56,52 @@ export function checkedEndpoint(value: unknown, policy: EndpointPolicy): URL {
   return url;
 }
 
+const MAX_API_KEY_LENGTH = 4096;
+
+/**
+ * Takes the gateway key from the endpoint query or from `apiKey`, never both, and returns the
+ * endpoint without it so the key rides only on requests, never on a displayed URL.
+ */
+export function checkedApiKey(
+  endpoint: URL,
+  apiKey: unknown,
+): Readonly<{ endpoint: URL; apiKey?: string }> {
+  const invalid = (message: string) => new TransportFailure("config", message, { field: "apiKey" });
+  const queryKeys = endpoint.searchParams.getAll("api-key");
+  if (queryKeys.length > 1) throw invalid("endpoint URL contains duplicate API keys");
+  if (apiKey !== undefined && typeof apiKey !== "string") throw invalid("API key is invalid");
+  if (apiKey !== undefined && queryKeys.length !== 0) {
+    throw invalid("API key must have one source");
+  }
+  const key = apiKey ?? queryKeys[0];
+  if (key === undefined) return { endpoint };
+  if (key.length === 0 || key.length > MAX_API_KEY_LENGTH || hasControlCharacter(key)) {
+    throw invalid("API key is invalid");
+  }
+  const stripped = new URL(endpoint.href);
+  stripped.searchParams.delete("api-key");
+  return { endpoint: stripped, apiKey: key };
+}
+
+/**
+ * A gateway routes and meters by path, so each JSON-RPC method is posted under its own name.
+ * A plain JSON-RPC server dispatches on the body and answers on any path.
+ */
+export function methodUrl(endpoint: URL, method: string, apiKey: string | undefined): URL {
+  const url = new URL(endpoint.href);
+  url.pathname = `${url.pathname.replace(/\/+$/u, "")}/${method}`;
+  if (apiKey !== undefined) url.searchParams.set("api-key", apiKey);
+  return url;
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
 // Browsers refuse `fetch` called with another receiver, so the global stays bound.
 const boundFetch: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init);
 

@@ -1045,6 +1045,103 @@ describe("ring status", () => {
   });
 });
 
+describe("ring rpc gateway", () => {
+  const recording = () => {
+    const calls: { url: URL; method: unknown }[] = [];
+    const fetch = (async (input: URL | string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      calls.push({ url: new URL(String(input)), method: body["method"] });
+      const result =
+        body["method"] === "health"
+          ? { mode: "derived", servicePubkey: addressOf(22) }
+          : { ringProgramId: addressOf(7), state: "uninitialized", servicePubkey: addressOf(22) };
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), JSON_HEADERS);
+    }) as typeof globalThis.fetch;
+    return { calls, fetch };
+  };
+
+  it("posts each method under its own path with the key and the endpoint query", async () => {
+    const { calls, fetch } = recording();
+    const rpc = new RingRpc("https://gateway.example/v1/zolana/ring/?tenant=alpha", {
+      fetch,
+      apiKey: "k+1",
+    });
+
+    await rpc.health();
+    await rpc.ringStatus(addressOf(7));
+
+    expect(calls.map(({ url }) => url.pathname)).toEqual([
+      "/v1/zolana/ring/health",
+      "/v1/zolana/ring/ringStatus",
+    ]);
+    expect(calls.map(({ method }) => method)).toEqual(["health", "ringStatus"]);
+    for (const { url } of calls) {
+      expect(url.searchParams.getAll("api-key")).toEqual(["k+1"]);
+      expect(url.searchParams.get("tenant")).toBe("alpha");
+    }
+    expect(rpc.url).toBe("https://gateway.example/v1/zolana/ring/?tenant=alpha");
+  });
+
+  it("sends a key carried by the URL and keeps it off the reported URL", async () => {
+    const { calls, fetch } = recording();
+    const rpc = new RingRpc("https://gateway.example/v1/zolana/ring?api-key=k", { fetch });
+
+    await rpc.health();
+
+    expect(calls[0]?.url.searchParams.getAll("api-key")).toEqual(["k"]);
+    expect(rpc.url).toBe("https://gateway.example/v1/zolana/ring");
+  });
+
+  it("leaves a caller's URL object carrying the key untouched", async () => {
+    const { calls, fetch } = recording();
+    const endpoint = new URL("https://gateway.example/v1/zolana/ring?api-key=k");
+    const rpc = new RingRpc(endpoint, { fetch });
+
+    await rpc.health();
+
+    expect(endpoint.href).toBe("https://gateway.example/v1/zolana/ring?api-key=k");
+    expect(rpc.url).toBe("https://gateway.example/v1/zolana/ring");
+    expect(calls[0]?.url.href).toBe("https://gateway.example/v1/zolana/ring/health?api-key=k");
+  });
+
+  it.each([
+    ["https://gateway.example?api-key=leak1&api-key=leak2", undefined],
+    ["https://gateway.example?api-key=leak1", "leak2"],
+    ["https://gateway.example", ""],
+    ["https://gateway.example", "leak\nbreak"],
+  ])(
+    "refuses an API key that is duplicated, doubly sourced or malformed (%s, %j)",
+    (url, apiKey) => {
+      const error = (() => {
+        try {
+          new RingRpc(url, apiKey === undefined ? {} : { apiKey });
+        } catch (cause) {
+          return cause;
+        }
+        return undefined;
+      })();
+
+      expect(error).toMatchObject({ code: "RING_RPC_CONFIG", details: { field: "apiKey" } });
+      expect(JSON.stringify(error)).not.toContain("leak");
+    },
+  );
+
+  it("keeps the key out of a transport failure", async () => {
+    const fetch = (async () =>
+      new Response("upstream down", { status: 502 })) as typeof globalThis.fetch;
+
+    const error = await new RingRpc("https://gateway.example", { fetch, apiKey: "secret-key" })
+      .health()
+      .then(
+        () => undefined,
+        (cause: unknown) => cause,
+      );
+
+    expect(error).toMatchObject({ code: "RING_RPC_TRANSPORT" });
+    expect(JSON.stringify(error)).not.toContain("secret-key");
+  });
+});
+
 describe("ring deposits", () => {
   const queue = (results: readonly unknown[]) => {
     const bodies: Record<string, unknown>[] = [];

@@ -628,6 +628,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn server_answers_each_method_on_its_gateway_path() {
+        // Clients post each method under its own path so a gateway can route and
+        // meter it. `/health` is also the GET probe, so a POST there must still
+        // reach the method the body names.
+        let server_port = port();
+        let handle = run_server(
+            hub(source(), Origins::default()),
+            options(server_port, Duration::from_secs(1)),
+        )
+        .await
+        .expect("server");
+        let client = reqwest::Client::new();
+        for path in ["/health", "/v1/zolana/ring/health"] {
+            let response = client
+                .post(format!("http://127.0.0.1:{server_port}{path}"))
+                .json(&serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": HEALTH }))
+                .send()
+                .await
+                .expect("health");
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            let body: serde_json::Value = response.json().await.expect("body");
+            assert_eq!(body["result"]["mode"], "local", "{path}");
+        }
+        handle.stop().expect("stop");
+        handle.stopped().await;
+    }
+
+    #[tokio::test]
     async fn deposit_pages_are_metered_and_serve_one_ring() {
         let module = rpc_module(hub(source(), Origins::default())).expect("module");
 
