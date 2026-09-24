@@ -5,7 +5,7 @@ This builds from source, so it pulls the workspace's git dependencies; the CLI i
 not published to crates.io.
 
 ```bash
-cargo install --git https://github.com/helius-labs/zolana --tag v0.1.0-alpha zolana-cli
+cargo install --git https://github.com/helius-labs/zolana --tag v0.3.0-alpha zolana-cli
 ```
 
 Installing at the release tag keeps the CLI's embedded proving-key/artifact
