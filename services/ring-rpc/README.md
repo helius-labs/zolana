@@ -63,6 +63,8 @@ Photon is an integrity boundary for transaction rows, slots, signatures, ciphert
 
 The server accepts loopback binds only, put a TLS proxy in front of it for remote clients. `--insecure-public-bind` lifts that for a test deployment and serves the decrypted audit data over plain HTTP. Keep the proxy request body limit at or below the service limit.
 
+The TypeScript `RingRpc` client posts each method under its own path, such as `/ringStatus`, so a gateway can route and meter by path. The server dispatches on the method in the body and answers on any path, so the proxy must forward every POST path, not only `/`. The path does not select the method: a gateway that bills by path must reject a body that names another method.
+
 `GET /health` reports the service identity. `GET /ready` checks Photon and Solana RPC. In local mode it also checks that the ring config still names the auditor key held here. In derived mode it re-reads the cluster genesis hash and fails when it differs from the one captured at boot, because that hash binds every derived key. A failed probe names the check in the response body.
 
 One request rate window gates every JSON RPC method and `GET /ready`, so nothing reaches an upstream unmetered. `health`, `ringStatus` and `ringDeposits` are unauthenticated and take that gate alone. `createAuditorKey` takes the authentication gate and its concurrency slot, since it verifies a signature and reads the chain. In local mode `ringDeposits` answers for the served ring only, like `ringStatus`. `getDecryptedTransactions` adds a global concurrency slot, one page at a time for each reader, and the read authorization. Key files must have owner access only unless the operator selects the shared file option.

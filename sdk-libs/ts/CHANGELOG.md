@@ -70,6 +70,11 @@ Breaking
   nullable `SerializedNoteReservation.expiresAtMs` → upgrade snapshot readers
   before saving and treat `null` as no local expiry, versions 2 and 3 stay
   readable.
+- `RingRpc` posts each method to its own path under the ring RPC URL, such as
+  `<url>/ringStatus`, and sends `RingRpcOptions.apiKey`, or a key already in
+  the URL, with every call while `RingRpc.url` leaves the key out → let a
+  proxy in front of a self-hosted ring RPC forward every POST path under that
+  URL.
 
 Added
 
