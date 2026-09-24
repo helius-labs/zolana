@@ -533,12 +533,15 @@ key set fails before a transaction is built instead of on-chain:
   The Rust startup check covers the interface and nullifier-tree keys; the
   custom-ring keys are checked per proof by the custom-rings SDK (the TS table
   covers every lockfile key).
-- `zolana vks list|check [--so <path> | --program-id <id>] [--shielded-pool] [--prover-url <url>]`
-  reads the markers from any local build or deployed program's ProgramData.
-  `check` fails on a binary without markers or with an insecure test setup.
-  `--shielded-pool`, implied when reading the shielded-pool program id and
-  required by `--prover-url`, also validates the shielded-pool key set: it
-  fails on an unknown digest or a missing key. Every program that links
+- `zolana vks list|check [--so <path> | --program-id <id>] [--expect <manifest>] [--shielded-pool] [--prover-url <url>]`
+  reads the markers from a local build or any deployed program (upgradeable
+  loader, loader-v4, or the legacy BPF loaders). `check` fails on a binary
+  without markers or with an insecure test setup. `--expect` takes a
+  sha256sum-style manifest (an example's `*-keys.CHECKSUM`) and also fails when
+  a listed proving key (`*pk.bin` / `*.key`) is not embedded; `list` uses it to
+  name keys. `--shielded-pool`, implied when reading the shielded-pool program
+  id without `--expect` and required by `--prover-url`, instead validates the
+  exact shielded-pool key set: it fails on an unknown digest or a missing key. Every program that links
   `zolana-interface` with default features embeds all interface markers (the
   markers are exported statics), used or not.
   `tools/deploy-devnet.sh` runs it on the local build before deploying
