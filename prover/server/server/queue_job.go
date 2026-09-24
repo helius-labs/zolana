@@ -407,7 +407,9 @@ func (w *BaseQueueWorker) processJobs() {
 				}
 				ProofPanicsTotal.WithLabelValues(circuitType).Inc()
 
-				panicErr := w.redactProofError(fmt.Errorf("panic: %v", r))
+				// Logged raw: failureDetails redacts it before it can reach a
+				// client, so this log line is the only place the cause survives.
+				panicErr := fmt.Errorf("panic: %v", r)
 				logging.Logger().Error().
 					Err(panicErr).
 					Str("job_id", job.ID).
@@ -476,7 +478,8 @@ func (w *BaseQueueWorker) processJobs() {
 		proofDuration := time.Since(proofStartTime)
 
 		if err != nil {
-			err = w.redactProofError(err)
+			// Logged raw, as for a panic above: failureDetails does the
+			// redaction for everything a client can read.
 			logging.Logger().Error().
 				Err(err).
 				Str("job_id", job.ID).
