@@ -510,3 +510,43 @@ fn signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies_and_p256
             .unwrap()
     );
 }
+
+#[test]
+fn data_bearing_output_owners_follow_input_owners_as_signers() {
+    let alice = keypair(7);
+    let alice_address =
+        Address::new_from_array(alice.signing_pubkey().confidential_view_tag().unwrap());
+    let pda = address(13);
+    let pda_owner = keypair(21).shielded_address().unwrap();
+    let mut pda_output = output();
+    pda_output.owner_address = Some(zolana_keypair::ShieldedAddress {
+        signing_pubkey: PublicKey::from_pda(&pda),
+        ..pda_owner
+    });
+    let mut dataless_output = pda_output.clone();
+    dataless_output.data_hash = None;
+    let mut zero_data_output = pda_output.clone();
+    zero_data_output.data_hash = Some([0; 32]);
+    let mut alice_data_output = output();
+    alice_data_output.owner_address = Some(alice.shielded_address().unwrap());
+
+    let mut tx = proof();
+    tx.output_utxos = vec![dataless_output.clone(), zero_data_output];
+    assert_eq!(tx.owner_signer_pubkeys().unwrap(), vec![alice_address]);
+
+    tx.output_utxos = vec![
+        pda_output.clone(),
+        alice_data_output,
+        pda_output,
+        dataless_output,
+    ];
+    assert_eq!(tx.owner_signer_pubkeys().unwrap(), vec![alice_address, pda]);
+    let expected: Vec<_> = [address(9), alice_address, pda]
+        .iter()
+        .map(|a| solana_owner_identity(a.as_array()).unwrap())
+        .collect();
+    assert_eq!(tx.signer_pk_hashes(3).unwrap(), expected);
+
+    tx.payer = pda;
+    assert_eq!(tx.owner_signer_pubkeys().unwrap(), vec![alice_address]);
+}
