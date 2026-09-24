@@ -1,13 +1,34 @@
 package protocol
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"math/big"
 
 	"zolana/prover/prover-test/poseidon"
 )
 
+// nodeHash combines two child nodes into their parent.
+type nodeHash func(left, right *big.Int) (*big.Int, error)
+
+// stateNodeHash is sha256(left || right) over 32-byte big-endian encodings with
+// the first digest byte zeroed so the node fits the BN254 scalar field.
 func stateNodeHash(left, right *big.Int) (*big.Int, error) {
+	if err := validateFieldElement("left", left); err != nil {
+		return nil, err
+	}
+	if err := validateFieldElement("right", right); err != nil {
+		return nil, err
+	}
+	var message [64]byte
+	left.FillBytes(message[:32])
+	right.FillBytes(message[32:])
+	digest := sha256.Sum256(message[:])
+	digest[0] = 0
+	return new(big.Int).SetBytes(digest[:]), nil
+}
+
+func nullifierNodeHash(left, right *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("left", left); err != nil {
 		return nil, err
 	}
@@ -18,6 +39,10 @@ func stateNodeHash(left, right *big.Int) (*big.Int, error) {
 }
 
 func MerkleRoot(leaf *big.Int, pathElements []*big.Int, pathIndex uint64) (*big.Int, error) {
+	return merkleRoot(stateNodeHash, leaf, pathElements, pathIndex)
+}
+
+func merkleRoot(hash nodeHash, leaf *big.Int, pathElements []*big.Int, pathIndex uint64) (*big.Int, error) {
 	if len(pathElements) > 64 {
 		return nil, fmt.Errorf("spp: Merkle path height %d exceeds uint64 path index", len(pathElements))
 	}
@@ -35,9 +60,9 @@ func MerkleRoot(leaf *big.Int, pathElements []*big.Int, pathIndex uint64) (*big.
 		bit := (pathIndex >> uint(j)) & 1
 		var err error
 		if bit == 0 {
-			h, err = stateNodeHash(h, pathElements[j])
+			h, err = hash(h, pathElements[j])
 		} else {
-			h, err = stateNodeHash(pathElements[j], h)
+			h, err = hash(pathElements[j], h)
 		}
 		if err != nil {
 			return nil, err
@@ -53,12 +78,12 @@ func pathIndexFitsHeight(pathIndex uint64, height int) bool {
 	return pathIndex < uint64(1)<<uint(height)
 }
 
-func emptyStateNodes(height int) ([]*big.Int, error) {
+func emptyNodes(hash nodeHash, height int) ([]*big.Int, error) {
 	out := make([]*big.Int, height+1)
 	out[0] = new(big.Int)
 	for k := 1; k <= height; k++ {
 		var err error
-		out[k], err = stateNodeHash(out[k-1], out[k-1])
+		out[k], err = hash(out[k-1], out[k-1])
 		if err != nil {
 			return nil, err
 		}
@@ -74,14 +99,14 @@ type StateTreeWitness struct {
 }
 
 func BuildSparseStateTree(entries map[uint64]*big.Int) (*big.Int, map[uint64]StateTreeWitness, error) {
-	return buildSparseBinaryStateTree(entries, StateTreeHeight)
+	return buildSparseBinaryTree(stateNodeHash, entries, StateTreeHeight)
 }
 
-func buildSparseBinaryStateTree(entries map[uint64]*big.Int, height int) (*big.Int, map[uint64]StateTreeWitness, error) {
+func buildSparseBinaryTree(hash nodeHash, entries map[uint64]*big.Int, height int) (*big.Int, map[uint64]StateTreeWitness, error) {
 	if height < 0 {
 		return nil, nil, fmt.Errorf("spp: state tree height is negative")
 	}
-	empty, err := emptyStateNodes(height)
+	empty, err := emptyNodes(hash, height)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -115,7 +140,7 @@ func buildSparseBinaryStateTree(entries map[uint64]*big.Int, height int) (*big.I
 			if !ok {
 				right = empty[level]
 			}
-			nodes[level+1][parentIdx], err = stateNodeHash(left, right)
+			nodes[level+1][parentIdx], err = hash(left, right)
 			if err != nil {
 				return nil, nil, err
 			}

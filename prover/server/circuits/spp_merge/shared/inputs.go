@@ -63,12 +63,7 @@ func constrainInput(
 
 	// Inclusion: utxoHash is a leaf of the state tree at the slot's UTXO root.
 	statePathIndices := api.ToBinary(in.StatePathIndex, transaction.StateTreeHeight)
-	stateRoot := abstractor.Call(api, gadget.MerkleRootGadget{
-		Hash:   utxoHash,
-		Index:  statePathIndices,
-		Path:   in.StatePathElements,
-		Height: transaction.StateTreeHeight,
-	})
+	stateRoot := gadget.Sha256MerkleRoot(api, utxoHash, statePathIndices, in.StatePathElements)
 	assertEqualWhen(api, notDummy, stateRoot, tree.UtxoRoot)
 
 	nullifier := abstractor.Call(api, transaction.NullifierGadget{

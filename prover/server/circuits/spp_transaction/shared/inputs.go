@@ -152,12 +152,7 @@ func (in Input) isUtxoOrAddress(api frontend.API) frontend.Variable {
 
 func (in Input) checkInclusion(api frontend.API, utxoHash, utxoTreeRoot frontend.Variable) frontend.Variable {
 	statePathIndices := api.ToBinary(in.StatePathIndex, StateTreeHeight)
-	stateRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
-		Hash:   utxoHash,
-		Index:  statePathIndices,
-		Path:   in.StatePathElements,
-		Height: StateTreeHeight,
-	})
+	stateRoot := gadgetlib.Sha256MerkleRoot(api, utxoHash, statePathIndices, in.StatePathElements)
 	return api.IsZero(api.Sub(stateRoot, utxoTreeRoot))
 }
 
