@@ -74,3 +74,7 @@ zolana-merkle-tree = { workspace = true }
 [[test]]
 name = "ring_authority_boundary"
 required-features = ["proofs"]
+
+[[test]]
+name = "deposit_audit_fixtures"
+required-features = ["proofs"]
