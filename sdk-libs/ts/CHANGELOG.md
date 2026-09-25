@@ -16,8 +16,13 @@ spend it from there before the tree holds it.
 Breaking
 
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for transfers,
-  merges, caches, ring policy proofs and escrowed deposit audits → configure `PROVER_INDEXER_URL` on
-  the prover or select `proofDataSource: "client"` to keep SDK fetching.
+  merges, caches, ring policy proofs and escrowed deposit audits,
+  `MergeAssembler.proveMerge` no longer takes `indexer`, and `MergeClient` and
+  `PrivateTransactionClient` require `proofDataSource` → configure `PROVER_INDEXER_URL` on
+  the prover or select `proofDataSource: "client"` to keep SDK fetching, add
+  the `proofDataSource` field to custom `MergeClient` and
+  `PrivateTransactionClient` implementations, and drop `indexer` from
+  `proveMerge` calls.
   Remote key holders must implement `IndexedProofAuthority.proveIndexed`.
 - `buildRegistrationTransaction` adds the `payer` account the user-registry
   program now requires for a first registration → rebuild any unsigned
@@ -38,8 +43,9 @@ Breaking
   `RING_ENTRIES_TREE_INVALID` is `RING_POLICY_TREE_INVALID` → rename the
   fields and pass the proven `inputTrees` and `policy` through.
 - `buildRingDepositTransaction` takes a `RingDepositClient` with
-  `proveCustomRingDeposit` and `getRingKeyRegistryEntry` and wraps each
-  recipient ciphertext in an audit capsule → supply both methods and pass
+  `proveCustomRingDeposit`, `getRingKeyRegistryEntry` and `proofDataSource`
+  and wraps each recipient ciphertext in an audit capsule → supply both
+  methods, pass `proofDataSource: "client"` to keep SDK fetching, and pass
   `customRingDepositPayload` as the wallet sync `depositPayloadDecoder`.
 - `RING_POLICY_VERSION` is 7 (was 4), `RingPolicyConfig` and `RuleTable` carry
   `windowSlots` and `velocity`, `ringPolicyHash` covers both, and
@@ -56,18 +62,22 @@ Breaking
   constant, pass the salt, openings and destination tree id, and run the
   prover and program of this release.
 - `RingTransferClient` also needs `getSlot`, `getRingSpendRecord`,
-  `getRingKeyRegistryEntry` and `proveCustomRingCompressedPolicy`,
+  `getRingKeyRegistryEntry`, `proveCustomRingCompressedPolicy` and
+  `proofDataSource`, `PolicyAnswerInput` requires `proofDataSource`,
   `ProvenRingTransfer` returns `approvalRequired`, `PolicyAnswers` requires
   `revocationTargets`, every `Prover` implements `proveCustomRingDeposit`,
   `proveRingAuthorityTransact`, `proveCustomRingDelegatePolicy`,
   `proveCustomRingCompressedPolicy` and `proveCustomRingRegisterKey`, and
   `proveRingTransact` takes a `RingProvingConfig` → implement each method,
-  return the revoked hashes from a custom policy answer provider, put indexer
+  pass `proofDataSource: "client"` to keep SDK fetching, return the revoked
+  hashes from a custom policy answer provider, put indexer
   settings under `indexer`, and pass `outputTree` when the destination differs
   from the client tree.
 - `TransactionOrigin.ringInvoked` takes `eventIndex` between `signature` and
   `ring`, `SignatureType`, `ProverInputs["circuit"]`, `TransactionIntent`,
-  `TransactionErrorCode` and `RingErrorCode` gain variants, and
+  `TransactionErrorCode`, `RingErrorCode` and `ClientErrorCode`, with
+  `CLIENT_PROVER_INDEXER_UNCONFIGURED` and
+  `CLIENT_INDEXER_PROOF_DATA_NOT_READY`, gain variants, and
   `RingErrorCode` drops `RING_ENTRIES_TREE_REQUIRED` → pass the indexed
   event's position and handle `"pda"`, `"transferRingAuthority"`,
   `"ringDelegate"`, `"ringMerge"` and the new codes in exhaustive switches.
@@ -98,7 +108,7 @@ Breaking
 
 Added
 
-- `ZolanaClientConfig.proofDataSource` accepts `"prover"` to fetch transfer and merge proof data on the prover, with `LocalKeys.proveIndexed` or a remote `IndexedProofAuthority` completing the request.
+- `ZolanaClientConfig.proofDataSource` accepts `"prover"` to fetch transfer and merge proof data on the prover, with `LocalKeys.proveIndexed` or a remote `IndexedProofAuthority` completing the request, a prover without an indexer failing with `CLIENT_PROVER_INDEXER_UNCONFIGURED`, and an output owner without an escrowed key failing with `CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED` naming `details.member`, which ring builders report as `RING_UNREGISTERED_OUTPUT_KEY` as with `"client"`, while `buildTransferTransaction`, `buildWithdrawalTransaction`, `buildSplitTransaction` and `buildMergeTransaction` wait out `CLIENT_INDEXER_PROOF_DATA_NOT_READY` up to the retry bound instead of failing.
 - `buildRegistrationTransaction({ payer })` lets a sponsor fund the record's
   rent and pay the transaction fee; the owner still signs and may hold 0 SOL.
 - `setRingCoSignerInstruction` and `clearRingCoSignerInstruction` set and close
@@ -178,6 +188,12 @@ Changed
 Fixed
 
 - `ProverClient` explicitly requests queued delivery after synchronous admission is refused.
+- `CLIENT_INVALID_FIELD` and `CLIENT_INVALID_INTEGER` copied the rejected
+  value, a nullifier secret included, into `details` and the error's JSON,
+  and `ZolanaClient.proveMerge` could throw an error other than
+  `ClientError`, the details and their `ClientErrorDetailsMap` types now name
+  only the field and every `ZolanaClient` proving method throws a
+  `ClientError`.
 - `buildRingTransferTransaction` bound output commitments to the wrong tree on
   a client with a nonzero tree id, each output now commits to the selected
   destination tree.

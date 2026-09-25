@@ -10,7 +10,7 @@ import {
   type TransactionKeyRequest,
 } from "../transaction/wallet/keys.js";
 import { ClientError } from "./error.js";
-import { bytesField, hasProofMethods, poseidon } from "./internal.js";
+import { bytesField, hasIndexedMethod, hasProofMethods, poseidon } from "./internal.js";
 import type {
   ProofAuthority,
   ProofService,
@@ -19,7 +19,7 @@ import type {
   IndexedProofResult,
   PreparedTransferInput,
 } from "./ports.js";
-import { decodeIndexedInputs, indexedAuthority } from "./prover/indexed.js";
+import { decodeIndexedInputs } from "./prover/indexed.js";
 import { asField } from "./prover/assembly.js";
 import type { Field, MergeInputs, ProverInputs } from "./prover/types.js";
 
@@ -98,14 +98,13 @@ export class LocalKeys implements WalletKeys {
     return this.#proofs.proveMerge(complete, context);
   }
 
-  async proveIndexed(
-    request: IndexedProofInputs,
-    context?: RequestContext,
-  ): Promise<IndexedProofResult> {
-    const inputs = decodeIndexedInputs(request);
-    const service = indexedAuthority(this.#proofs);
-    const complete = this.#keys.withNullifierKey((key) => completeIndexedInputs(inputs, key));
-    return service.proveIndexed(complete, context);
+  proveIndexed(request: IndexedProofInputs, context?: RequestContext): Promise<IndexedProofResult> {
+    return proveIndexedWith(
+      this.#proofs,
+      request,
+      (use) => this.#keys.withNullifierKey(use),
+      context,
+    );
   }
 
   destroy(): void {
@@ -136,10 +135,7 @@ export class NullifierKeyProofAuthority implements ProofAuthority {
   }
 
   proveIndexed(request: IndexedProofInputs, context?: RequestContext): Promise<IndexedProofResult> {
-    return indexedAuthority(this.#proofs).proveIndexed(
-      completeIndexedInputs(decodeIndexedInputs(request), this.#key),
-      context,
-    );
+    return proveIndexedWith(this.#proofs, request, (use) => use(this.#key), context);
   }
 
   destroy(): void {
@@ -194,6 +190,24 @@ function checkProofService(proofs: ProofService): ProofService {
     throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofs" } });
   }
   return proofs;
+}
+
+/** The caller's request is decoded before the nullifier secret joins it. */
+async function proveIndexedWith(
+  proofs: ProofService,
+  request: IndexedProofInputs,
+  withKey: (use: (key: NullifierKey) => IndexedProofInputs) => IndexedProofInputs,
+  context: RequestContext | undefined,
+): Promise<IndexedProofResult> {
+  const service: unknown = proofs;
+  if (!hasIndexedMethod(service)) {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofs" } });
+  }
+  const inputs = decodeIndexedInputs(request);
+  return service.proveIndexed(
+    withKey((key) => completeIndexedInputs(inputs, key)),
+    context,
+  );
 }
 
 function completeIndexedInputs(inputs: IndexedProofInputs, key: NullifierKey): IndexedProofInputs {

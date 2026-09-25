@@ -6,52 +6,61 @@ import {
 import { getBase58Decoder } from "@solana/kit";
 import { wireDecoder } from "../../interface/decode.js";
 import { treeAddress } from "../../interface/pda/index.js";
-import { inputTreeSlots, NO_UTXO_ROOT } from "../../interface/tree-slot.js";
+import {
+  inputTreeSlots,
+  treeSlotsHashChain,
+  NO_UTXO_ROOT,
+  type TreeSlot,
+} from "../../interface/tree-slot.js";
 import { selectSppShape } from "../../interface/shape.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
+import { hashChain } from "../../transaction/internal.js";
 import type {
+  IndexedPolicyInputs,
   IndexedProofAuthority,
   IndexedProofInputs,
   IndexedProofResult,
+  IndexedTree,
+  PreparedTransferInput,
   ProofResolution,
 } from "../ports.js";
 import { ClientError } from "../error.js";
-import { BN254_MODULUS, bigintToBytes, bytesField, checkedBytes, field } from "../internal.js";
-import { resolvedPublicInputHash, type InputTree } from "./assembly.js";
+import {
+  BN254_MODULUS,
+  bigintToBytes,
+  bytesField,
+  bytesToBigInt,
+  checkedBytes,
+  hasIndexedMethod,
+} from "../internal.js";
+import { asField, resolvedPublicInputHash, type InputTree } from "./assembly.js";
 import type { CircuitUtxo, TransferOutput, Field, Proof } from "./types.js";
-import type { PreparedTransferInput } from "../ports.js";
-import { asField } from "./assembly.js";
 import { compressProof, parseCheckedProof } from "./proof.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-const decoder = wireDecoder(() => new ClientError("CLIENT_PROOF_PARSE", { details: {} }));
-
-interface UncheckedIndexedAuthority {
-  proveIndexed(inputs: IndexedProofInputs, context?: RequestContext): unknown;
-}
-
-function hasIndexedMethod(value: unknown): value is UncheckedIndexedAuthority {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "proveIndexed" in value &&
-    typeof value.proveIndexed === "function"
-  );
-}
-
-export function indexedAuthority(value: unknown): IndexedProofAuthority {
-  if (!hasIndexedMethod(value)) throw invalid();
-  return {
-    async proveIndexed(inputs, context) {
-      const snapshot = decodeIndexedInputs(inputs);
-      // 2. The key holder receives its own copy of the caller's public statement.
-      const result: unknown = await value.proveIndexed(decodeIndexedInputs(snapshot), context);
-      return decodeAuthorityResult(result, snapshot);
-    },
-  };
-}
-
+const unparsable = (): ClientError => new ClientError("CLIENT_PROOF_PARSE", { details: {} });
 const requestDecoder = wireDecoder(invalid);
+const resultDecoder = wireDecoder(unparsable);
+
+export function checkIndexedAuthority(value: unknown): asserts value is IndexedProofAuthority {
+  if (!hasIndexedMethod(value)) throw new ClientError("CLIENT_INVALID_PROOF_AUTHORITY");
+}
+
+/** Proves through a key holder the client does not trust, the result bound to `inputs`. */
+export async function proveThroughAuthority(
+  authority: unknown,
+  inputs: IndexedProofInputs,
+  context?: RequestContext,
+): Promise<Readonly<{ proof: Proof; trees: readonly InputTree[] }>> {
+  checkIndexedAuthority(authority);
+  // The key holder edits only its own copy, never the statement checked below.
+  const result: unknown = await authority.proveIndexed(decodeIndexedInputs(inputs), context);
+  const decoded = resultDecoder.record(result, "result");
+  return Object.freeze({
+    proof: authorityProof(decoded["proof"]),
+    trees: resolvedTrees(inputs, checkedResolution(decoded["resolution"], authorityField)),
+  });
+}
 
 export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
   const request = requestDecoder.record(value, "request");
@@ -76,23 +85,16 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     privateTxHash: field("privateTxHash"),
     ringProgramId: field("ringProgramId"),
   };
-  const minContextSlot = request["minContextSlot"];
-  if (
-    minContextSlot !== undefined &&
-    (typeof minContextSlot !== "bigint" ||
-      minContextSlot < 0n ||
-      minContextSlot > BigInt(Number.MAX_SAFE_INTEGER))
-  )
-    throw invalid();
+  const minContextSlot = checkedContextSlot(request["minContextSlot"]);
   const envelope = {
     trees: requestDecoder.list(request["trees"], "trees").map((value) => {
       const tree = requestDecoder.record(value, "tree");
-      return { tree: requestDecoder.address(tree["tree"], "tree"), id: requestU16(tree["id"]) };
+      return { tree: requestDecoder.address(tree["tree"], "tree"), id: u16(tree["id"], invalid) };
     }),
     lookups: requestDecoder.list(request["lookups"], "lookups").map((value) => {
       const lookup = requestDecoder.record(value, "lookup");
       return {
-        treeSlot: requestU16(lookup["treeSlot"]),
+        treeSlot: u16(lookup["treeSlot"], invalid),
         commitment:
           lookup["commitment"] === null
             ? null
@@ -138,8 +140,116 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
             publishedOutputOwnerPublicKeyHashes: fields("publishedOutputOwnerPublicKeyHashes"),
           },
         };
-  indexedRequestEnvelope(result, {});
+  checkStatement(result);
   return result;
+}
+
+/** The `/prove/indexed` body for a request `decodeIndexedInputs` returned. */
+export function indexedRequestEnvelope(
+  inputs: IndexedProofInputs,
+  prepared: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  return {
+    circuitType: prepared["circuitType"],
+    prepared,
+    trees: inputs.trees.map(({ tree, id }) => ({ tree, id })),
+    inputs: inputs.lookups.map(({ treeSlot, commitment }) => ({
+      treeSlot,
+      commitment: commitment === null ? null : getBase58Decoder().decode(commitment),
+    })),
+    publicInputs: inputs.publicInputs.map((value) => `0x${value.toString(16)}`),
+    ...contextSlotJson(inputs.minContextSlot),
+  };
+}
+
+export function parseIndexedResponse(value: unknown, key: ExpectedProvingKey): IndexedProofResult {
+  const proof = parseCheckedProof(value, key);
+  const envelope = resultDecoder.record(value, "proof");
+  const body = Object.hasOwn(envelope, "proof")
+    ? resultDecoder.record(envelope["proof"], "proof")
+    : envelope;
+  return Object.freeze({ proof, resolution: checkedResolution(body["resolution"], wireField) });
+}
+
+/** A tree carries a state root exactly when an input opens a commitment in it. */
+export function resolvedTrees(
+  inputs: IndexedProofInputs,
+  resolution: ProofResolution,
+): readonly InputTree[] {
+  bindResolution(resolution, inputs.trees, (slots) =>
+    resolvedPublicInputHash(inputs.publicInputs, inputTreeSlots(slots)),
+  );
+  return Object.freeze(
+    resolution.trees.map((tree, index) => {
+      const opensState = opensAt(inputs.lookups, index, "commitment");
+      if (
+        opensState === (tree.utxoRootIndex === NO_UTXO_ROOT) ||
+        (!opensState && bytesToBigInt(tree.utxoRoot) !== 0n)
+      )
+        throw unparsable();
+      return Object.freeze({
+        treeId: tree.id,
+        slot: Object.freeze({
+          id: tree.id,
+          utxoRoot: tree.utxoRoot,
+          nullifierRoot: tree.nullifierRoot,
+        }),
+        utxoRootIndex: tree.utxoRootIndex,
+        nullifierRootIndex: tree.nullifierRootIndex,
+      });
+    }),
+  );
+}
+
+/** A tree without a state or nullifier lookup keeps the root and position the client sent for it. */
+export function checkPolicyResolution(
+  inputs: IndexedPolicyInputs,
+  resolution: ProofResolution,
+): void {
+  bindResolution(resolution, inputs.trees, (slots) =>
+    bytesToBigInt(
+      hashChain([
+        ...inputs.publicInputs.slice(0, 1),
+        treeSlotsHashChain(inputTreeSlots(slots)),
+        ...inputs.publicInputs.slice(1),
+      ]),
+    ),
+  );
+  resolution.trees.forEach((tree, index) => {
+    const sent = inputs.trees[index];
+    if (
+      sent === undefined ||
+      tree.utxoRootIndex >= STATE_ROOT_HISTORY_CAPACITY ||
+      (!opensAt(inputs.lookups, index, "commitment") &&
+        (bytesToBigInt(tree.utxoRoot) !== bytesToBigInt(sent.utxoRoot) ||
+          tree.utxoRootIndex !== sent.utxoRootIndex)) ||
+      (!opensAt(inputs.lookups, index, "nullifier") &&
+        (bytesToBigInt(tree.nullifierRoot) !== bytesToBigInt(sent.nullifierRoot) ||
+          tree.nullifierRootIndex !== sent.nullifierRootIndex))
+    )
+      throw unparsable();
+  });
+}
+
+/** A deposit resolves no tree, its statement is the hash the request carries. */
+export function checkDepositResolution(
+  publicInputHash: Bytes32,
+  resolution: ProofResolution,
+): void {
+  bindResolution(resolution, [], () => bytesToBigInt(publicInputHash));
+}
+
+export function contextSlotJson(slot: unknown): Readonly<{ minContextSlot?: number }> {
+  const checked = checkedContextSlot(slot);
+  return checked === undefined ? {} : { minContextSlot: Number(checked) };
+}
+
+/** A slot the prover's JSON number carries exactly. */
+export function checkedContextSlot(slot: unknown): bigint | undefined {
+  if (slot === undefined) return undefined;
+  if (typeof slot !== "bigint" || slot < 0n || slot > BigInt(Number.MAX_SAFE_INTEGER))
+    throw invalid();
+  return slot;
 }
 
 function decodePreparedInput(value: unknown): PreparedTransferInput {
@@ -196,62 +306,8 @@ function requestField(value: unknown): Field {
   return asField(value);
 }
 
-function requestU16(value: unknown): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 0xffff)
-    throw invalid();
-  return value;
-}
-
-function decodeAuthorityResult(value: unknown, inputs: IndexedProofInputs): IndexedProofResult {
-  const result = decoder.record(value, "result");
-  const rawProof = decoder.record(result["proof"], "proof");
-  if ((rawProof["commitment"] === undefined) !== (rawProof["commitmentPok"] === undefined))
-    throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-  const proof: Proof = {
-    a: checkedBytes(rawProof["a"], 64, "proof.a"),
-    b: checkedBytes(rawProof["b"], 128, "proof.b"),
-    c: checkedBytes(rawProof["c"], 64, "proof.c"),
-    ...(rawProof["commitment"] === undefined
-      ? {}
-      : { commitment: checkedBytes(rawProof["commitment"], 64, "proof.commitment") }),
-    ...(rawProof["commitmentPok"] === undefined
-      ? {}
-      : { commitmentPok: checkedBytes(rawProof["commitmentPok"], 64, "proof.commitmentPok") }),
-  };
-  compressProof(proof);
-  const raw = decoder.record(result["resolution"], "resolution");
-  const resolution = {
-    publicInputHash: checkedBytes(raw["publicInputHash"], 32, "public input hash"),
-    trees: decoder.list(raw["trees"], "trees").map((value) => {
-      const tree = decoder.record(value, "tree");
-      return {
-        tree: decoder.address(tree["tree"], "tree"),
-        id: u16(tree["id"]),
-        utxoRoot: checkedBytes(tree["utxoRoot"], 32, "utxo root"),
-        nullifierRoot: checkedBytes(tree["nullifierRoot"], 32, "nullifier root"),
-        utxoRootIndex: stateRootIndex(tree["utxoRootIndex"]),
-        nullifierRootIndex: rootIndex(
-          tree["nullifierRootIndex"],
-          NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
-        ),
-      };
-    }),
-  };
-  validateResolution(inputs, resolution);
-  return { proof, resolution };
-}
-
-export function indexedRequestEnvelope(
-  inputs: IndexedProofInputs,
-  prepared: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  if (
-    inputs.circuit !== "transfer" &&
-    inputs.circuit !== "transferRing" &&
-    inputs.circuit !== "transferRingAuthority" &&
-    inputs.circuit !== "merge"
-  )
-    throw invalid();
+/** Rejects a request the prover would refuse or resolve against other trees. */
+function checkStatement(inputs: IndexedProofInputs): void {
   if (
     inputs.trees.length < 1 ||
     inputs.trees.length > 2 ||
@@ -275,20 +331,16 @@ export function indexedRequestEnvelope(
     )
       throw invalid();
   }
-  const trees = inputs.trees.map((tree, index) => {
+  inputs.trees.forEach((tree, index) => {
     if (
-      !Number.isInteger(tree.id) ||
-      tree.id < 0 ||
-      tree.id > 0xffff ||
       tree.tree !== treeAddress(tree.id) ||
       inputs.trees.slice(0, index).some((previous) => previous.id === tree.id)
     )
       throw invalid();
-    return { tree: tree.tree, id: tree.id };
   });
   const used = new Set<number>();
   let previous = -1;
-  const lookups = inputs.lookups.map((lookup, index) => {
+  inputs.lookups.forEach((lookup, index) => {
     const input = inputs.payload.inputs[index];
     const cached = inputs.circuit === "merge" ? 0n : (inputs.payload.cacheIsCached[index] ?? 0n);
     if (
@@ -298,161 +350,118 @@ export function indexedRequestEnvelope(
       throw invalid();
     if (
       input === undefined ||
-      !Number.isInteger(lookup.treeSlot) ||
       lookup.treeSlot < previous ||
-      lookup.treeSlot < 0 ||
-      lookup.treeSlot >= trees.length ||
+      lookup.treeSlot >= inputs.trees.length ||
       BigInt(lookup.treeSlot) !== input.treeSlot ||
       (input.isDummy !== 0n && input.isDummy !== 1n) ||
       (lookup.commitment === null) !== (input.isDummy === 1n || cached === 1n)
     )
       throw invalid();
     if (lookup.treeSlot !== previous && input.isDummy === 1n) throw invalid();
-    if (
-      "statePathElements" in input ||
-      "treeSlots" in inputs.payload ||
-      "publicInputHash" in inputs.payload
-    )
-      throw invalid();
+    if (lookup.commitment !== null) bytesField(lookup.commitment, "commitment");
     previous = lookup.treeSlot;
     used.add(lookup.treeSlot);
-    const commitment =
-      lookup.commitment === null ? null : checkedBytes(lookup.commitment, 32, "commitment");
-    if (commitment !== null) bytesField(commitment, "commitment");
-    return {
-      treeSlot: lookup.treeSlot,
-      commitment: commitment === null ? null : getBase58Decoder().decode(commitment),
-    };
   });
-  if (used.size !== trees.length) throw invalid();
-  const slot = inputs.minContextSlot;
+  if (used.size !== inputs.trees.length) throw invalid();
+}
+
+/** The requested trees in order, their slots reproducing the statement the caller authorized. */
+function bindResolution(
+  resolution: ProofResolution,
+  requested: readonly IndexedTree[],
+  statement: (slots: readonly TreeSlot[]) => bigint,
+): void {
   if (
-    slot !== undefined &&
-    (typeof slot !== "bigint" || slot < 0n || slot > BigInt(Number.MAX_SAFE_INTEGER))
+    resolution.trees.length !== requested.length ||
+    resolution.trees.some(
+      (tree, index) => tree.tree !== requested[index]?.tree || tree.id !== requested[index]?.id,
+    )
   )
-    throw invalid();
-  return {
-    circuitType: prepared["circuitType"],
-    prepared,
-    trees,
-    inputs: lookups,
-    publicInputs: inputs.publicInputs.map(
-      (value) => `0x${field(value, "public input").toString(16)}`,
-    ),
-    ...(slot === undefined ? {} : { minContextSlot: Number(slot) }),
-  };
+    throw unparsable();
+  const slots = resolution.trees.map(({ id, utxoRoot, nullifierRoot }) => ({
+    id,
+    utxoRoot,
+    nullifierRoot,
+  }));
+  if (statement(slots) !== bytesToBigInt(resolution.publicInputHash)) throw unparsable();
 }
 
-export function parseIndexedResult(
-  value: unknown,
-  inputs: IndexedProofInputs,
-  key: ExpectedProvingKey,
-): IndexedProofResult {
-  const parsedProof = parseCheckedProof(value, key);
-  const resolution = parseProofResolution(value, inputs.trees);
-  validateResolution(inputs, resolution);
-  return Object.freeze({ proof: parsedProof, resolution });
-}
-
-export function parseProofResolution(
-  value: unknown,
-  requestedTrees: readonly Readonly<{
-    tree: import("../../interface/types.js").Address;
-    id: number;
-  }>[],
-): ProofResolution {
-  const envelope = decoder.record(value, "proof");
-  const proof = Object.hasOwn(envelope, "proof")
-    ? decoder.record(envelope["proof"], "proof")
-    : envelope;
-  const raw = decoder.record(proof["resolution"], "resolution");
-  const trees = decoder.list(raw["trees"], "trees").map((value, index) => {
-    const tree = decoder.record(value, "tree");
-    const requested = requestedTrees[index];
-    const id = u16(tree["id"]);
-    const address = decoder.address(tree["tree"], "tree");
-    if (requested === undefined || id !== requested.id || address !== requested.tree)
-      throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
+function checkedResolution(value: unknown, root: (value: unknown) => Bytes32): ProofResolution {
+  const raw = resultDecoder.record(value, "resolution");
+  const trees = resultDecoder.list(raw["trees"], "trees").map((value) => {
+    const tree = resultDecoder.record(value, "tree");
     return Object.freeze({
-      tree: address,
-      id,
-      utxoRoot: fieldBytes(tree["utxoRoot"]),
-      nullifierRoot: fieldBytes(tree["nullifierRoot"]),
-      utxoRootIndex: stateRootIndex(tree["utxoRootIndex"]),
+      tree: resultDecoder.address(tree["tree"], "tree"),
+      id: u16(tree["id"], unparsable),
+      utxoRoot: root(tree["utxoRoot"]),
+      nullifierRoot: root(tree["nullifierRoot"]),
+      utxoRootIndex:
+        tree["utxoRootIndex"] === NO_UTXO_ROOT
+          ? NO_UTXO_ROOT
+          : rootIndex(tree["utxoRootIndex"], STATE_ROOT_HISTORY_CAPACITY),
       nullifierRootIndex: rootIndex(
         tree["nullifierRootIndex"],
         NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
       ),
     });
   });
-  const resolution = Object.freeze({
+  return Object.freeze({
     trees: Object.freeze(trees),
-    publicInputHash: fieldBytes(raw["publicInputHash"]),
+    publicInputHash: root(raw["publicInputHash"]),
   });
-  if (trees.length !== requestedTrees.length)
-    throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-  return resolution;
 }
 
-export function validateResolution(
-  inputs: IndexedProofInputs,
-  resolution: ProofResolution,
-): readonly InputTree[] {
-  if (resolution.trees.length !== inputs.trees.length)
-    throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-  const trees = resolution.trees.map((tree, index) => {
-    const requested = inputs.trees[index];
-    if (requested === undefined || tree.id !== requested.id || tree.tree !== requested.tree)
-      throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-    const needsState = inputs.lookups.some(
-      (lookup) => lookup.treeSlot === index && lookup.commitment !== null,
-    );
-    if (
-      needsState === (tree.utxoRootIndex === NO_UTXO_ROOT) ||
-      (!needsState && bytesField(tree.utxoRoot, "utxo root") !== 0n)
-    )
-      throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-    return Object.freeze({
-      treeId: tree.id,
-      slot: {
-        id: tree.id,
-        utxoRoot: checkedBytes(tree.utxoRoot, 32, "utxo root"),
-        nullifierRoot: checkedBytes(tree.nullifierRoot, 32, "nullifier root"),
-      },
-      utxoRootIndex: stateRootIndex(tree.utxoRootIndex),
-      nullifierRootIndex: rootIndex(tree.nullifierRootIndex, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY),
-    });
-  });
-  // 1. Returned roots must reproduce the public statement authorized by the caller.
-  const expected = resolvedPublicInputHash(
-    inputs.publicInputs,
-    inputTreeSlots(trees.map((tree) => tree.slot)),
-  );
-  if (expected !== bytesField(resolution.publicInputHash, "public input hash"))
-    throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-  return trees;
+function authorityProof(value: unknown): Proof {
+  const raw = resultDecoder.record(value, "proof");
+  if ((raw["commitment"] === undefined) !== (raw["commitmentPok"] === undefined))
+    throw unparsable();
+  const proof: Proof = {
+    a: checkedBytes(raw["a"], 64, "proof.a"),
+    b: checkedBytes(raw["b"], 128, "proof.b"),
+    c: checkedBytes(raw["c"], 64, "proof.c"),
+    ...(raw["commitment"] === undefined
+      ? {}
+      : { commitment: checkedBytes(raw["commitment"], 64, "proof.commitment") }),
+    ...(raw["commitmentPok"] === undefined
+      ? {}
+      : { commitmentPok: checkedBytes(raw["commitmentPok"], 64, "proof.commitmentPok") }),
+  };
+  compressProof(proof);
+  return proof;
 }
 
-function u16(value: unknown): number {
+function wireField(value: unknown): Bytes32 {
+  if (typeof value !== "string" || !/^0x[0-9a-f]{1,64}$/u.test(value)) throw unparsable();
+  return canonicalField(BigInt(value));
+}
+
+function authorityField(value: unknown): Bytes32 {
+  if (!(value instanceof Uint8Array) || value.length !== 32) throw unparsable();
+  return canonicalField(bytesToBigInt(value));
+}
+
+/** A value at or above the modulus aliases a smaller field element. */
+function canonicalField(value: bigint): Bytes32 {
+  if (value >= BN254_MODULUS) throw unparsable();
+  return checkedBytes(bigintToBytes(value, "root"), 32, "root");
+}
+
+function u16(value: unknown, fail: () => ClientError): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 0xffff)
-    throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
+    throw fail();
   return value;
 }
 
-function fieldBytes(value: unknown): Bytes32 {
-  if (typeof value !== "string" || !/^0x[0-9a-f]{1,64}$/u.test(value))
-    throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-  const integer = BigInt(value);
-  if (integer >= BN254_MODULUS) throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-  return checkedBytes(bigintToBytes(integer), 32, "field");
+function opensAt<Kind extends "commitment" | "nullifier">(
+  lookups: readonly Readonly<Record<Kind, Uint8Array | null> & { treeSlot: number }>[],
+  index: number,
+  kind: Kind,
+): boolean {
+  return lookups.some((lookup) => lookup.treeSlot === index && lookup[kind] !== null);
 }
 
 function rootIndex(value: unknown, capacity: number): number {
-  const index = u16(value);
-  if (index >= capacity) throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
+  const index = u16(value, unparsable);
+  if (index >= capacity) throw unparsable();
   return index;
-}
-
-function stateRootIndex(value: unknown): number {
-  return value === NO_UTXO_ROOT ? NO_UTXO_ROOT : rootIndex(value, STATE_ROOT_HISTORY_CAPACITY);
 }

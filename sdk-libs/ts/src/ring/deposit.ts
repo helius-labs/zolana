@@ -1,5 +1,4 @@
-import { ClientError } from "../client/error.js";
-import { withProofDataRetry } from "./projection.js";
+import { withProofDataRetry } from "../client/retry.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { DepositClient } from "../wallet/deposit.js";
@@ -23,7 +22,7 @@ import { resolveShieldedRecipient } from "../wallet/registry.js";
 import { fetchRingCoSigner, fetchRingDepositAudit, fetchRingProgramConfig } from "./config.js";
 import { DEPOSIT_DEMAND, checkRingCoSigner } from "./cosign.js";
 import { RingError, wrapRingError } from "./error.js";
-import { openRingEscrowedKeys } from "./key-escrow.js";
+import { openRingEscrowedKeys, unregisteredOutputKey } from "./key-escrow.js";
 import {
   ringDepositContextHash,
   ringDepositPublicInputHash,
@@ -118,7 +117,7 @@ async function buildRingDepositOnce(
           client: input.client,
           ringProgramId: input.ringProgramId,
           owners: [owner],
-          proofDataSource: input.client.proofDataSource ?? "client",
+          proofDataSource: input.client.proofDataSource,
         },
         context,
       )
@@ -205,18 +204,22 @@ async function buildRingDepositOnce(
       let proof: Uint8Array;
       if (escrow !== undefined && input.client.proofDataSource === "prover") {
         if (input.client.proveIndexedRingDeposit === undefined || escrow.nextIndex === undefined)
-          throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-        proof = await input.client.proveIndexedRingDeposit(
-          {
-            deposit: proofInputs,
-            registry: {
-              ringProgramId: input.ringProgramId,
-              root: escrow.root,
-              nextIndex: escrow.nextIndex,
+          throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
+        try {
+          proof = await input.client.proveIndexedRingDeposit(
+            {
+              deposit: proofInputs,
+              registry: {
+                ringProgramId: input.ringProgramId,
+                root: escrow.root,
+                nextIndex: escrow.nextIndex,
+              },
             },
-          },
-          context,
-        );
+            context,
+          );
+        } catch (cause) {
+          throw unregisteredOutputKey(cause, [owner]);
+        }
       } else {
         proof = await input.client.proveCustomRingDeposit(proofInputs, context);
       }

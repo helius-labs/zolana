@@ -1,4 +1,5 @@
 import { isClientError } from "../client/error.js";
+import type { ProofDataSource } from "../client/ports.js";
 import type { CustomRingOpening, CustomRingRegistryKey } from "../client/prover/types.js";
 import { hashBytes } from "../hasher/index.js";
 import { UTXO_DOMAIN } from "../interface/program.js";
@@ -11,7 +12,8 @@ import { fetchRingKeyRegistryRoot } from "./config.js";
 import { RingError } from "./error.js";
 import { readSealedKey, registersKey, type RingSealedKeyClient } from "./key-registry.js";
 import { memberOfIdentity } from "./policy.js";
-import { KEY_REGISTRY_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
+import { waitForProjection } from "../client/retry.js";
+import { KEY_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
 
 export interface RingKeyOwner {
   readonly ownerPkHash: Bytes32;
@@ -46,11 +48,11 @@ export async function openRingEscrowedKeys(
     ringProgramId: Address;
     /** `undefined` for a slot the circuit does not check or a namespace-owned record. */
     owners: readonly (RingKeyOwner | undefined)[];
-    proofDataSource?: "client" | "prover";
+    proofDataSource: ProofDataSource;
   }>,
   context?: RequestContext,
 ): Promise<RingEscrowedKeys> {
-  return waitForRingProjection(
+  return waitForProjection(
     async (attemptContext) => {
       const registry = await fetchRingKeyRegistryRoot(
         input.client,
@@ -98,25 +100,47 @@ async function openKey(
   context: RequestContext,
 ): Promise<CustomRingRegistryKey> {
   const member = memberOfIdentity(input.owner.ownerPkHash);
-  const unregistered = (cause?: unknown): RingError =>
-    new RingError("RING_UNREGISTERED_OUTPUT_KEY", {
-      details: { owner: bytesKey(input.owner.ownerPkHash) },
-      ...(cause === undefined ? {} : { cause }),
-    });
+  const owner = bytesKey(input.owner.ownerPkHash);
   let entry;
   try {
     entry = await readSealedKey({ ...input, member }, context);
   } catch (cause) {
     if (isClientError(cause) && cause.code === "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED") {
-      throw unregistered(cause);
+      throw refusedOwner(owner, cause);
     }
     throw cause;
   }
-  if (!registersKey(entry, input.owner.nullifierPk)) throw unregistered();
+  if (!registersKey(entry, input.owner.nullifierPk)) throw refusedOwner(owner);
   return Object.freeze({
     next: entry.next,
     ctHash: hashBytes(entry.sealed.ciphertext) as Bytes32,
     index: entry.index,
     path: entry.proof,
+  });
+}
+
+/** Rust `UnregisteredOutputKey` when the prover refuses one of `owners`, any other cause unchanged. */
+export function unregisteredOutputKey(
+  cause: unknown,
+  owners: readonly (RingKeyOwner | undefined)[],
+): unknown {
+  const member =
+    isClientError(cause) &&
+    cause.code === "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED" &&
+    cause.details !== undefined &&
+    "member" in cause.details
+      ? cause.details.member
+      : undefined;
+  const refused = owners.find(
+    (owner) => owner !== undefined && bytesKey(owner.ownerPkHash) === member,
+  );
+  return refused === undefined ? cause : refusedOwner(bytesKey(refused.ownerPkHash), cause);
+}
+
+/** `owner` is the hex owner hash, equal to its registry member. */
+function refusedOwner(owner: string, cause?: unknown): RingError {
+  return new RingError("RING_UNREGISTERED_OUTPUT_KEY", {
+    details: { owner },
+    ...(cause === undefined ? {} : { cause }),
   });
 }

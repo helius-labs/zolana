@@ -6,18 +6,14 @@ import type {
   PreparedTransferInput,
   PreparedMergeInputs,
 } from "../ports.js";
+import { indexedPolicyEnvelope, indexedDepositEnvelope, snapshotPolicyInputs } from "./policy.js";
 import {
-  indexedPolicyEnvelope,
-  indexedDepositEnvelope,
-  snapshotPolicyInputs,
-  validatePolicyResolution,
-} from "./policy.js";
-import { equal } from "../../transaction/internal.js";
-import {
+  checkDepositResolution,
+  checkPolicyResolution,
   decodeIndexedInputs,
-  parseProofResolution,
   indexedRequestEnvelope,
-  parseIndexedResult,
+  parseIndexedResponse,
+  resolvedTrees,
 } from "./indexed.js";
 import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../../interface/key-registry.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
@@ -106,10 +102,12 @@ const REQUEST_TIMEOUT_MS = 600_000;
  */
 const INITIAL_POLL_INTERVAL_MS = 25;
 const PROVE_PATH = "/prove";
+const INDEXED_PATH = "/indexed";
 const HEALTH_PATH = "/health";
 const PROVING_KEYS_PATH = "/proving-keys";
 const UNCOMPRESSED_P256_LENGTH = 65;
 type Delivery = "inResponse" | "queued";
+type Route = "sync" | "queued" | "indexed";
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
 /// returns a job handle instead of a proof, and the client polls
@@ -154,6 +152,7 @@ export interface ProvingKeyReport {
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
+  readonly #indexedUrl: URL;
   readonly #asyncPoll: AsyncPollConfig;
 
   constructor(
@@ -178,6 +177,8 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
     this.#url = url;
+    this.#indexedUrl = new URL(url);
+    this.#indexedUrl.pathname += INDEXED_PATH;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
   }
 
@@ -188,13 +189,13 @@ export class ProverClient {
       nInputs: inputs.payload.inputs.length,
       nOutputs: inputs.payload.outputs.length,
     });
-    return parseCheckedProof(await this.#send(body, "inResponse", context), key);
+    return parseCheckedProof(await this.#send(body, "sync", context), key);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
     const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
-    return parseCheckedProof(await this.#send(body, "inResponse", context), key);
+    return parseCheckedProof(await this.#send(body, "sync", context), key);
   }
 
   async proveIndexed(
@@ -215,14 +216,10 @@ export class ProverClient {
             nOutputs: inputs.payload.outputs.length,
           },
     );
-    const body = indexedRequestEnvelope(inputs, prepared);
-    const url = new URL(this.#url);
-    url.pathname += "/indexed";
-    return parseIndexedResult(
-      await this.#send(JSON.stringify(body), "inResponse", context, url),
-      inputs,
-      key,
-    );
+    const body = JSON.stringify(indexedRequestEnvelope(inputs, prepared));
+    const result = parseIndexedResponse(await this.#send(body, "indexed", context), key);
+    resolvedTrees(inputs, result.resolution);
+    return result;
   }
 
   async proveIndexedPolicy(
@@ -232,13 +229,12 @@ export class ProverClient {
     const inputs = snapshotPolicyInputs(request);
     const body = indexedPolicyEnvelope(inputs, customRingPolicyProofRequest(inputs.policy));
     const key = provingKeyFor({ circuit: inputs.circuit });
-    const url = new URL(this.#url);
-    url.pathname += "/indexed";
-    const result = await this.#send(JSON.stringify(body), "inResponse", context, url);
-    const proof = parseCheckedProof(result, key);
-    const resolution = parseProofResolution(result, inputs.trees);
-    validatePolicyResolution(inputs, resolution);
-    return Object.freeze({ proof, resolution });
+    const result = parseIndexedResponse(
+      await this.#send(JSON.stringify(body), "indexed", context),
+      key,
+    );
+    checkPolicyResolution(inputs, result.resolution);
+    return result;
   }
 
   async proveCustomRingPolicy(
@@ -256,13 +252,12 @@ export class ProverClient {
   ): Promise<Proof> {
     const publicInputHash = checkedBytes(inputs.deposit.publicInputHash, 32, "public input hash");
     const body = indexedDepositEnvelope(inputs, customRingDepositProofRequest(inputs.deposit));
-    const url = new URL(this.#url);
-    url.pathname += "/indexed";
-    const result = await this.#send(JSON.stringify(body), "inResponse", context, url);
-    const resolution = parseProofResolution(result, []);
-    if (!equal(publicInputHash, resolution.publicInputHash))
-      throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
-    return parseCheckedProof(result, provingKeyFor({ circuit: "custom-ring-deposit" }));
+    const result = parseIndexedResponse(
+      await this.#send(JSON.stringify(body), "indexed", context),
+      provingKeyFor({ circuit: "custom-ring-deposit" }),
+    );
+    checkDepositResolution(publicInputHash, result.resolution);
+    return result.proof;
   }
 
   async proveCustomRingCompressedPolicy(
@@ -388,12 +383,9 @@ export class ProverClient {
     }
   }
 
-  async #send(
-    body: string,
-    delivery: Delivery,
-    context?: RequestContext,
-    url = this.#url,
-  ): Promise<unknown> {
+  async #send(body: string, route: Route, context?: RequestContext): Promise<unknown> {
+    const url = route === "indexed" ? this.#indexedUrl : this.#url;
+    let delivery: Delivery = route === "queued" ? "queued" : "inResponse";
     const signal = composeSignal(context, "prove");
     try {
       deliveryAttempt: for (;;) {
@@ -431,17 +423,13 @@ export class ProverClient {
             }
             // Rust fails fast on any non-success status; only a transport failure retries.
             if (!response.ok) {
-              if (url !== this.#url) {
-                const failure: unknown = await decodeResponse(response);
-                if (isObject(failure) && failure["code"] === "indexer_not_ready")
-                  throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
-              }
+              if (route === "indexed") throw await indexedHttpFailure(response, attempt);
               throw new ClientError("CLIENT_PROVER_HTTP", {
                 details: {
                   method: "prove",
                   status: response.status,
                   attempts: attempt,
-                  ...(url === this.#url ? await proverReason(response) : {}),
+                  ...(await proverReason(response)),
                 },
               });
             }
@@ -458,11 +446,7 @@ export class ProverClient {
               typeof value["jobId"] === "string" &&
               value["proof"] === undefined
             ) {
-              return await this.#poll(
-                value["jobId"],
-                signal,
-                url === this.#url ? "serverText" : "code",
-              );
+              return await this.#poll(value["jobId"], signal, route);
             }
             return value;
           } finally {
@@ -481,11 +465,7 @@ export class ProverClient {
   /// Mirrors `poll_async`: request the status, then wait between attempts, with
   /// the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final, a 5xx or a
   /// transport failure is transient, and every other status has its body read.
-  async #poll(
-    jobId: string,
-    signal: ComposedSignal,
-    failureDetail: "serverText" | "code",
-  ): Promise<unknown> {
+  async #poll(jobId: string, signal: ComposedSignal, route: Route): Promise<unknown> {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
     }
@@ -534,7 +514,7 @@ export class ProverClient {
             details: {
               method: "proveStatus",
               status: response.status,
-              ...(failureDetail === "serverText" ? await proverReason(response) : {}),
+              ...(route === "indexed" ? {} : await proverReason(response)),
             },
           });
         }
@@ -555,11 +535,12 @@ export class ProverClient {
         }
         const status = isObject(value) ? value["status"] : undefined;
         if (status === "failed") {
-          if (isObject(value) && value["error"] === "indexer proof data not ready")
-            throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
-          throw new ClientError("CLIENT_PROVER_SERVER", {
-            details: { method: "proveStatus", status: "failed" },
-          });
+          throw (
+            (route === "indexed" ? indexedFailure(value) : undefined) ??
+            new ClientError("CLIENT_PROVER_SERVER", {
+              details: { method: "proveStatus", status: "failed" },
+            })
+          );
         }
         if (status === "completed") {
           // Rust unwraps the envelope on the key's presence, not on its type:
@@ -585,33 +566,33 @@ type ProverKeyStatus = Readonly<{
   available: boolean;
 }>;
 
-const invalidProverKeys = (): ClientError => new ClientError("CLIENT_PROVER_JSON");
-const proverKeysDecoder = wireDecoder(invalidProverKeys);
+const invalidProverJson = (): ClientError => new ClientError("CLIENT_PROVER_JSON");
+const proverJsonDecoder = wireDecoder(invalidProverJson);
 const SHA256_HEX = /^[0-9a-f]{64}$/u;
 
 /** Strict decode of `GET /proving-keys`: any other shape is an error, not a skipped key. */
 function decodeProverKeys(
   value: unknown,
 ): Readonly<{ prefix: string; keys: readonly ProverKeyStatus[] }> {
-  const body = proverKeysDecoder.record(value, "$");
+  const body = proverJsonDecoder.record(value, "$");
   const digest = (entry: Record<string, unknown>, field: string): string | null => {
     const raw = entry[field];
     if (raw === null) return null;
-    const hex = proverKeysDecoder.string(raw, `$.keys[].${field}`);
-    if (!SHA256_HEX.test(hex)) throw invalidProverKeys();
+    const hex = proverJsonDecoder.string(raw, `$.keys[].${field}`);
+    if (!SHA256_HEX.test(hex)) throw invalidProverJson();
     return hex;
   };
-  const keys = proverKeysDecoder.list(body["keys"], "$.keys").map((raw) => {
-    const entry = proverKeysDecoder.record(raw, "$.keys[]");
+  const keys = proverJsonDecoder.list(body["keys"], "$.keys").map((raw) => {
+    const entry = proverJsonDecoder.record(raw, "$.keys[]");
     return Object.freeze({
-      name: proverKeysDecoder.string(entry["name"], "$.keys[].name"),
+      name: proverJsonDecoder.string(entry["name"], "$.keys[].name"),
       expectedSha256: digest(entry, "expectedSha256"),
       loadedSha256: digest(entry, "loadedSha256"),
-      available: proverKeysDecoder.boolean(entry["available"], "$.keys[].available"),
+      available: proverJsonDecoder.boolean(entry["available"], "$.keys[].available"),
     });
   });
   return Object.freeze({
-    prefix: proverKeysDecoder.string(body["prefix"], "$.prefix"),
+    prefix: proverJsonDecoder.string(body["prefix"], "$.prefix"),
     keys: Object.freeze(keys),
   });
 }
@@ -664,10 +645,11 @@ function provingKeyFor(request: ProvingKeyCircuit): ExpectedProvingKey {
 export type ProverRequestBody = Readonly<Record<string, unknown>>;
 
 /** How a nullifier secret slot is written: the prover client requires it, a holder's transport leaves it open. */
-type SecretEncoder = (secret: Field | undefined) => string | null;
+type SecretEncoder = (secret: Field | undefined, name: string) => string | null;
 
-const completeSecret: SecretEncoder = (secret) => hex(requireSecret(secret));
-const pendingSecret: SecretEncoder = (secret) => (secret === undefined ? null : hex(secret));
+const completeSecret: SecretEncoder = (secret, name) => hex(requireSecret(secret), name);
+const pendingSecret: SecretEncoder = (secret, name) =>
+  secret === undefined ? null : hex(secret, name);
 
 /**
  * The body `ProofService.prove` would post, with `null` in every nullifier
@@ -701,19 +683,19 @@ function mergeProverRequest(
     ...("treeSlots" in inputs
       ? {
           treeSlots: inputs.treeSlots.map(treeSlotJson),
-          publicInputHash: hex(inputs.publicInputHash),
+          publicInputHash: hex(inputs.publicInputHash, "publicInputHash"),
         }
       : {}),
-    outputTreeId: hex(inputs.outputTreeId),
-    asset: hex(inputs.output.circuit.asset),
-    ownerPkHash: hex(inputs.ownerPublicKeyHash),
-    userNullifierPk: hex(inputs.userNullifierPublicKey),
-    userNullifierSecret: secret(inputs.userNullifierSecret),
-    externalDataHash: hex(inputs.externalDataHash),
-    privateTxHash: hex(inputs.privateTxHash),
-    allowDummyInputs: hex(inputs.allowDummyInputs),
-    outputRingDataHash: hex(inputs.outputRingDataHash),
-    ringProgramId: hex(inputs.ringProgramId),
+    outputTreeId: hex(inputs.outputTreeId, "outputTreeId"),
+    asset: hex(inputs.output.circuit.asset, "asset"),
+    ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
+    userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
+    userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),
+    externalDataHash: hex(inputs.externalDataHash, "externalDataHash"),
+    privateTxHash: hex(inputs.privateTxHash, "privateTxHash"),
+    allowDummyInputs: hex(inputs.allowDummyInputs, "allowDummyInputs"),
+    outputRingDataHash: hex(inputs.outputRingDataHash, "outputRingDataHash"),
+    ringProgramId: hex(inputs.ringProgramId, "ringProgramId"),
   });
 }
 
@@ -722,29 +704,29 @@ function mergeInputJson(
 ): Readonly<Record<string, unknown>> {
   const utxo = input.circuit;
   return Object.freeze({
-    domain: hex(utxo.domain),
-    amount: hex(utxo.amount),
-    blinding: hex(utxo.blinding),
-    ringDataHash: hex(utxo.ringDataHash),
+    domain: hex(utxo.domain, "domain"),
+    amount: hex(utxo.amount, "amount"),
+    blinding: hex(utxo.blinding, "blinding"),
+    ringDataHash: hex(utxo.ringDataHash, "ringDataHash"),
     ...pathJson(input),
-    treeSlot: hex(input.treeSlot),
-    nullifier: hex(input.nullifier),
+    treeSlot: hex(input.treeSlot, "treeSlot"),
+    nullifier: hex(input.nullifier, "nullifier"),
   });
 }
 
 function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    ringDataHash: hex(output.circuit.ringDataHash),
-    hash: hex(output.hash),
+    ringDataHash: hex(output.circuit.ringDataHash, "ringDataHash"),
+    hash: hex(output.hash, "hash"),
   });
 }
 
 /** Mirrors Rust `TreeSlotJson`. */
 function treeSlotJson(slot: TreeSlotFields): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    id: hex(slot.id),
-    utxoRoot: hex(slot.utxoRoot),
-    nullifierRoot: hex(slot.nullifierRoot),
+    id: hex(slot.id, "treeSlots id"),
+    utxoRoot: hex(slot.utxoRoot, "treeSlots utxoRoot"),
+    nullifierRoot: hex(slot.nullifierRoot, "treeSlots nullifierRoot"),
   });
 }
 
@@ -1137,24 +1119,27 @@ function proverRequest(
     ...("treeSlots" in payload
       ? {
           treeSlots: payload.treeSlots.map(treeSlotJson),
-          publicInputHash: hex(payload.publicInputHash),
+          publicInputHash: hex(payload.publicInputHash, "publicInputHash"),
         }
       : {}),
-    outputTreeId: hex(payload.outputTreeId),
-    externalDataHash: hex(payload.externalDataHash),
-    privateTxHash: hex(payload.privateTxHash),
-    blindingSeed: hex(payload.blindingSeed),
-    publicAssets: payload.publicAssets.map(hex),
-    publicAmounts: payload.publicAmounts.map(hex),
-    ringProgramId: hex(payload.ringProgramId),
-    signerPkHashes: payload.signerPublicKeyHashes.map(hex),
-    inputFlags: hex(payload.inputFlags),
-    publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
-    cacheTreeId: hex(payload.cacheTreeId),
-    cacheReadHashChain: hex(payload.cacheReadHashChain),
-    cacheReadHashes: payload.cacheReadHashes.map(hex),
-    cacheIsCached: payload.cacheIsCached.map(hex),
-    cacheReadIndex: payload.cacheReadIndex.map(hex),
+    outputTreeId: hex(payload.outputTreeId, "outputTreeId"),
+    externalDataHash: hex(payload.externalDataHash, "externalDataHash"),
+    privateTxHash: hex(payload.privateTxHash, "privateTxHash"),
+    blindingSeed: hex(payload.blindingSeed, "blindingSeed"),
+    publicAssets: hexes(payload.publicAssets, "publicAssets"),
+    publicAmounts: hexes(payload.publicAmounts, "publicAmounts"),
+    ringProgramId: hex(payload.ringProgramId, "ringProgramId"),
+    signerPkHashes: hexes(payload.signerPublicKeyHashes, "signerPkHashes"),
+    inputFlags: hex(payload.inputFlags, "inputFlags"),
+    publishedOutputOwnerPkHashes: hexes(
+      payload.publishedOutputOwnerPublicKeyHashes,
+      "publishedOutputOwnerPkHashes",
+    ),
+    cacheTreeId: hex(payload.cacheTreeId, "cacheTreeId"),
+    cacheReadHashChain: hex(payload.cacheReadHashChain, "cacheReadHashChain"),
+    cacheReadHashes: hexes(payload.cacheReadHashes, "cacheReadHashes"),
+    cacheIsCached: hexes(payload.cacheIsCached, "cacheIsCached"),
+    cacheReadIndex: hexes(payload.cacheReadIndex, "cacheReadIndex"),
   });
 }
 
@@ -1164,34 +1149,34 @@ function inputJson(
 ): Readonly<Record<string, unknown>> {
   return Object.freeze({
     utxo: utxoJson(input),
-    isDummy: hex(input.isDummy),
+    isDummy: hex(input.isDummy, "isDummy"),
     ...pathJson(input),
-    treeSlot: hex(input.treeSlot),
-    nullifier: hex(input.nullifier),
-    ownerPkHash: hex(input.ownerPublicKeyHash),
-    nullifierSecret: secret(input.nullifierSecret),
+    treeSlot: hex(input.treeSlot, "treeSlot"),
+    nullifier: hex(input.nullifier, "nullifier"),
+    ownerPkHash: hex(input.ownerPublicKeyHash, "ownerPkHash"),
+    nullifierSecret: secret(input.nullifierSecret, "nullifierSecret"),
   });
 }
 
 function pathJson(input: TransferInput | PreparedTransferInput): Readonly<Record<string, unknown>> {
   if (!("statePathElements" in input)) return {};
   return {
-    statePathElements: input.statePathElements.map(hex),
-    statePathIndex: hex(input.statePathIndex),
-    nullifierLowValue: hex(input.nullifierLowValue),
-    nullifierNextValue: hex(input.nullifierNextValue),
-    nullifierLowPathElements: input.nullifierLowPathElements.map(hex),
-    nullifierLowPathIndex: hex(input.nullifierLowPathIndex),
+    statePathElements: hexes(input.statePathElements, "statePathElements"),
+    statePathIndex: hex(input.statePathIndex, "statePathIndex"),
+    nullifierLowValue: hex(input.nullifierLowValue, "nullifierLowValue"),
+    nullifierNextValue: hex(input.nullifierNextValue, "nullifierNextValue"),
+    nullifierLowPathElements: hexes(input.nullifierLowPathElements, "nullifierLowPathElements"),
+    nullifierLowPathIndex: hex(input.nullifierLowPathIndex, "nullifierLowPathIndex"),
   };
 }
 
 function outputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   return Object.freeze({
     utxo: utxoJson(output),
-    isDummy: hex(output.isDummy),
-    hash: hex(output.hash),
-    ownerPkHash: hex(output.ownerPublicKeyHash),
-    nullifierPk: hex(output.nullifierPublicKey),
+    isDummy: hex(output.isDummy, "isDummy"),
+    hash: hex(output.hash, "hash"),
+    ownerPkHash: hex(output.ownerPublicKeyHash, "ownerPkHash"),
+    nullifierPk: hex(output.nullifierPublicKey, "nullifierPk"),
   });
 }
 
@@ -1200,14 +1185,14 @@ function utxoJson(
 ): Readonly<Record<string, unknown>> {
   const utxo = value.circuit;
   return Object.freeze({
-    domain: hex(utxo.domain),
-    owner: hex(utxo.owner),
-    asset: hex(utxo.asset),
-    amount: hex(utxo.amount),
-    blinding: hex(utxo.blinding),
-    dataHash: hex(utxo.dataHash),
-    ringDataHash: hex(utxo.ringDataHash),
-    ringProgramId: hex(utxo.ringProgramId),
+    domain: hex(utxo.domain, "domain"),
+    owner: hex(utxo.owner, "owner"),
+    asset: hex(utxo.asset, "asset"),
+    amount: hex(utxo.amount, "amount"),
+    blinding: hex(utxo.blinding, "blinding"),
+    dataHash: hex(utxo.dataHash, "dataHash"),
+    ringDataHash: hex(utxo.ringDataHash, "ringDataHash"),
+    ringProgramId: hex(utxo.ringProgramId, "ringProgramId"),
   });
 }
 
@@ -1217,8 +1202,12 @@ function requireSecret(secret: Field | undefined): Field {
   return secret;
 }
 
-function hex(value: Field): string {
-  return `0x${field(value, "prover field").toString(16)}`;
+function hex(value: Field, name: string): string {
+  return `0x${field(value, name).toString(16)}`;
+}
+
+function hexes(values: readonly Field[], name: string): readonly string[] {
+  return values.map((value) => hex(value, name));
 }
 
 function bytesHex(bytes: Uint8Array): string {
@@ -1249,17 +1238,58 @@ const MAX_REASON_CHARS = 200;
  * key) instead of only its status. Untrusted text; absent when unreadable.
  */
 async function proverReason(response: Response): Promise<Readonly<{ reason?: string }>> {
-  let body: unknown;
-  try {
-    body = await readBoundedJson(response, MAX_REASON_BYTES);
-  } catch {
-    return {};
-  }
+  const body = await errorBody(response);
   if (!isObject(body)) return {};
   const parts = [body["code"], body["message"]].filter(
     (part): part is string => typeof part === "string" && part.length > 0,
   );
   return parts.length === 0 ? {} : { reason: parts.join(": ").slice(0, MAX_REASON_CHARS) };
+}
+
+/** Indexed failures carry caller data in their message, only the `code` is read. */
+async function indexedHttpFailure(response: Response, attempt: number): Promise<ClientError> {
+  // An old prover has no indexed route and answers a bare 404.
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return new ClientError("CLIENT_PROVER_INDEXER_UNCONFIGURED");
+  }
+  return (
+    indexedFailure(await errorBody(response)) ??
+    new ClientError("CLIENT_PROVER_HTTP", {
+      details: { method: "prove", status: response.status, attempts: attempt },
+    })
+  );
+}
+
+function indexedFailure(body: unknown): ClientError | undefined {
+  if (!isObject(body)) return undefined;
+  switch (body["code"]) {
+    case "indexer_not_ready":
+      return new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
+    case "indexer_unconfigured":
+      return new ClientError("CLIENT_PROVER_INDEXER_UNCONFIGURED");
+    case "registry_member_missing":
+      return new ClientError("CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED", {
+        details: { method: "prove", member: registryMember(body["member"]) },
+      });
+    default:
+      return undefined;
+  }
+}
+
+/** Base58 on the wire, hex in details like `RING_UNREGISTERED_OUTPUT_KEY.owner`. */
+function registryMember(value: unknown): string {
+  const member = proverJsonDecoder.base58(value, "$.member");
+  if (member.length !== 32) throw invalidProverJson();
+  return bytesToHex(member);
+}
+
+async function errorBody(response: Response): Promise<unknown> {
+  try {
+    return await readBoundedJson(response, MAX_REASON_BYTES);
+  } catch {
+    return undefined;
+  }
 }
 
 function asyncPollConfig(input: AsyncPollConfig | undefined): AsyncPollConfig {

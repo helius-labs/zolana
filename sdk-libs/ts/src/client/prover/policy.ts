@@ -2,20 +2,15 @@ import { getBase58Decoder } from "@solana/kit";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { wireDecoder } from "../../interface/decode.js";
 import { treeAddress } from "../../interface/pda/index.js";
-import { inputTreeSlots, treeSlotsHashChain } from "../../interface/tree-slot.js";
 import {
   STATE_ROOT_HISTORY_CAPACITY,
   NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
 } from "../../interface/state.js";
-import { hashChain, equal as equalBytes } from "../../transaction/internal.js";
+import { equal as equalBytes } from "../../transaction/internal.js";
 import { ClientError } from "../error.js";
 import { checkedBytes, bytesField } from "../internal.js";
-import type {
-  IndexedPolicyInputs,
-  IndexedDepositInputs,
-  IndexedRegistry,
-  ProofResolution,
-} from "../ports.js";
+import type { IndexedPolicyInputs, IndexedDepositInputs, IndexedRegistry } from "../ports.js";
+import { contextSlotJson } from "./indexed.js";
 import type { Bytes32 } from "../../interface/types.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -38,7 +33,6 @@ export function indexedPolicyEnvelope(
   inputs: IndexedPolicyInputs,
   serialized: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
-  const slot = policyContextSlot(inputs.minContextSlot);
   const compressed = inputs.circuit === "custom-ring-compressed-policy";
   if (
     ![
@@ -121,7 +115,7 @@ export function indexedPolicyEnvelope(
               }),
         };
   return {
-    ...(slot === undefined ? {} : { minContextSlot: Number(slot) }),
+    ...contextSlotJson(inputs.minContextSlot),
     circuitType: inputs.circuit,
     prepared: wrapped,
     trees,
@@ -162,63 +156,13 @@ export function indexedDepositEnvelope(
   inputs: IndexedDepositInputs,
   serialized: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
-  const slot = policyContextSlot(inputs.minContextSlot);
   return {
     circuitType: "custom-ring-deposit",
     prepared: omit(serialized, ["keys"]),
     publicInputs: [hex(inputs.deposit.publicInputHash)],
     registry: registryEnvelope(inputs.registry, inputs.deposit.keyRegistryRoot),
-    ...(slot === undefined ? {} : { minContextSlot: Number(slot) }),
+    ...contextSlotJson(inputs.minContextSlot),
   };
-}
-
-export function policyContextSlot(requested?: bigint, required?: bigint): bigint | undefined {
-  for (const slot of [requested, required]) {
-    if (
-      slot !== undefined &&
-      (typeof slot !== "bigint" || slot < 0n || slot > BigInt(Number.MAX_SAFE_INTEGER))
-    )
-      throw invalid();
-  }
-  if (requested === undefined) return required;
-  return required === undefined || requested > required ? requested : required;
-}
-
-export function validatePolicyResolution(
-  inputs: IndexedPolicyInputs,
-  resolution: ProofResolution,
-): void {
-  if (resolution.trees.length !== inputs.trees.length) throw invalid();
-  const slots = resolution.trees.map((tree, index) => {
-    const expected = inputs.trees[index];
-    const state = inputs.lookups.some(
-      (lookup) => lookup.treeSlot === index && lookup.commitment !== null,
-    );
-    const nullifier = inputs.lookups.some(
-      (lookup) => lookup.treeSlot === index && lookup.nullifier !== null,
-    );
-    if (
-      expected === undefined ||
-      tree.tree !== expected.tree ||
-      tree.id !== expected.id ||
-      tree.utxoRootIndex >= STATE_ROOT_HISTORY_CAPACITY ||
-      (!state &&
-        (!equalBytes(tree.utxoRoot, expected.utxoRoot) ||
-          tree.utxoRootIndex !== expected.utxoRootIndex)) ||
-      (!nullifier &&
-        (!equalBytes(tree.nullifierRoot, expected.nullifierRoot) ||
-          tree.nullifierRootIndex !== expected.nullifierRootIndex))
-    )
-      throw invalid();
-    return { id: tree.id, utxoRoot: tree.utxoRoot, nullifierRoot: tree.nullifierRoot };
-  });
-  // 1. Resolved roots must reproduce the policy statement authorized by the client.
-  const expected = hashChain([
-    inputs.publicInputs[0]!,
-    treeSlotsHashChain(inputTreeSlots(slots)),
-    ...inputs.publicInputs.slice(1),
-  ]);
-  if (!equalBytes(expected, resolution.publicInputHash)) throw invalid();
 }
 
 export function snapshotPolicyInputs(inputs: IndexedPolicyInputs): IndexedPolicyInputs {

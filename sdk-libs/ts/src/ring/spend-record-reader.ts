@@ -9,7 +9,8 @@ import {
   type Member,
   type RingRecordTrees,
 } from "./policy.js";
-import { SPEND_RECORD_PROJECTION_ERRORS, waitForRingProjection } from "./projection.js";
+import { waitForProjection } from "../client/retry.js";
+import { SPEND_RECORD_PROJECTION_ERRORS } from "./projection.js";
 
 export interface ReadCurrentSpendRecordInput extends RingRecordTrees {
   readonly client: RingSpendRecordReader & Pick<ChainReader, "getAccount">;
@@ -23,7 +24,7 @@ export async function findCurrentSpendRecord(
   input: ReadCurrentSpendRecordInput,
   context?: RequestContext,
 ): Promise<LiveSpendRecord | undefined> {
-  return waitForRingProjection(
+  return waitForProjection(
     async (attempt) => {
       const { record } = await input.client.getRingSpendRecord(
         { ringProgramId: input.ringProgramId, member: input.sender },

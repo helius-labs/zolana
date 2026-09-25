@@ -25,7 +25,11 @@ import { buildRingDepositTransaction } from "../src/ring/deposit.js";
 import { sealRingDepositOpenings } from "../src/ring/deposit-audit.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { KEY_REGISTRY_EMPTY_ROOT } from "../src/ring/key-registry-tree.js";
-import { openRingEscrowedKeys, ringEscrowedOwners } from "../src/ring/key-escrow.js";
+import {
+  openRingEscrowedKeys,
+  ringEscrowedOwners,
+  unregisteredOutputKey,
+} from "../src/ring/key-escrow.js";
 import { ZERO_NULLIFIER_PK, memberOfTag, ringNamespaceOwnerHash } from "../src/ring/policy.js";
 import {
   planPolicyTrees,
@@ -126,6 +130,7 @@ describe("escrowed output keys", () => {
     const keys = await openRingEscrowedKeys({
       client: ring.client,
       ringProgramId: RING,
+      proofDataSource: "client",
       owners: [undefined, undefined],
     });
     expect(keys).toEqual({ root: ring.registry.root, rootIndex: 1, keys: [undefined, undefined] });
@@ -139,6 +144,7 @@ describe("escrowed output keys", () => {
         openRingEscrowedKeys({
           client: ring.client,
           ringProgramId: RING,
+          proofDataSource: "client",
           owners: [{ ownerPkHash: ownerOf(keypair).ownerPkHash, nullifierPk: ZERO_NULLIFIER_PK }],
         }),
       ).rejects.toMatchObject({ code: "RING_UNREGISTERED_OUTPUT_KEY" });
@@ -162,7 +168,7 @@ describe("escrowed output keys", () => {
     const opening = (domain: number, owner: { ownerPkHash: Bytes32; nullifierPk: Bytes32 }) => {
       const zero = new Uint8Array(32) as Bytes32;
       return {
-        domain: bigintToBytes(BigInt(domain)) as Bytes32,
+        domain: bigintToBytes(BigInt(domain), "domain") as Bytes32,
         treeId: zero,
         ...owner,
         asset: zero,
@@ -193,6 +199,7 @@ describe("escrowed output keys", () => {
     const { root, rootIndex, keys } = await openRingEscrowedKeys({
       client: ring.client,
       ringProgramId: RING,
+      proofDataSource: "client",
       owners: [owner, owner],
     });
     expect(root).toEqual(ring.registry.root);
@@ -218,6 +225,7 @@ describe("escrowed output keys", () => {
       openRingEscrowedKeys({
         client: ring.client,
         ringProgramId: RING,
+        proofDataSource: "client",
         owners: [ownerOf(ring.member), ownerOf(stranger)],
       }),
     ).rejects.toMatchObject({
@@ -229,6 +237,7 @@ describe("escrowed output keys", () => {
       openRingEscrowedKeys({
         client: ring.client,
         ringProgramId: RING,
+        proofDataSource: "client",
         owners: [
           {
             ownerPkHash: ownerOf(ring.member).ownerPkHash,
@@ -273,6 +282,94 @@ describe("escrowed deposits", () => {
       expect(indexed).toHaveBeenCalledTimes(proofDataSource === "prover" ? 1 : 0);
     },
   );
+
+  it.each(["client", "prover"] as const)(
+    "refuses an unregistered recipient with the same ring error on the %s",
+    async (proofDataSource) => {
+      const ring = await escrowedRing();
+      const stranger = ShieldedKeypair.generate();
+      const owner = Buffer.from(ownerOf(stranger).ownerPkHash).toString("hex");
+      const refused = new ClientError("CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED", {
+        details: { method: "prove", member: owner },
+      });
+      const building = buildRingDepositTransaction({
+        client: {
+          ...depositClient({ getAccount: ring.client.getAccount }),
+          proofDataSource,
+          getRingKeyRegistryEntry: ring.client.getRingKeyRegistryEntry,
+          proveIndexedRingDeposit: vi.fn(async () => {
+            throw refused;
+          }),
+          proveCustomRingDeposit: vi.fn(async () => new Uint8Array(192)),
+        },
+        ringProgramId: RING,
+        feePayer: addressOf(3),
+        recipient: stranger.shieldedAddress(),
+        amount: 1n,
+      });
+      await expect(building).rejects.toMatchObject({
+        code: "RING_BUILD_DEPOSIT",
+        causeCode: "RING_UNREGISTERED_OUTPUT_KEY",
+      });
+      expect(unregisteredOutputKey(refused, [ownerOf(stranger)])).toMatchObject({
+        code: "RING_UNREGISTERED_OUTPUT_KEY",
+        details: { owner },
+      });
+    },
+  );
+
+  it("keeps a refusal of a member the request does not own as the client error", async () => {
+    const ring = await escrowedRing();
+    const refused = new ClientError("CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED", {
+      details: { method: "prove", member: "2a".repeat(32) },
+    });
+    await expect(
+      buildRingDepositTransaction({
+        client: {
+          ...depositClient({ getAccount: ring.client.getAccount }),
+          proofDataSource: "prover",
+          getRingKeyRegistryEntry: ring.client.getRingKeyRegistryEntry,
+          proveIndexedRingDeposit: vi.fn(async () => {
+            throw refused;
+          }),
+          proveCustomRingDeposit: vi.fn(async () => new Uint8Array(192)),
+        },
+        ringProgramId: RING,
+        feePayer: addressOf(3),
+        recipient: ring.member.shieldedAddress(),
+        amount: 1n,
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_BUILD_DEPOSIT",
+      causeCode: "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED",
+    });
+    expect(unregisteredOutputKey(refused, [ownerOf(ring.member), undefined])).toBe(refused);
+  });
+
+  it("passes every other failure through and refuses a client without indexed deposits", async () => {
+    const ring = await escrowedRing();
+    const other = new ClientError("CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED", {
+      details: { method: "getRingKeyRegistryEntry" },
+    });
+    expect(unregisteredOutputKey(other, [ownerOf(ring.member)])).toBe(other);
+    await expect(
+      buildRingDepositTransaction({
+        client: {
+          ...depositClient({ getAccount: ring.client.getAccount }),
+          proofDataSource: "prover",
+          getRingKeyRegistryEntry: ring.client.getRingKeyRegistryEntry,
+          proveCustomRingDeposit: vi.fn(async () => new Uint8Array(192)),
+        },
+        ringProgramId: RING,
+        feePayer: addressOf(3),
+        recipient: ring.member.shieldedAddress(),
+        amount: 1n,
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_BUILD_DEPOSIT",
+      causeCode: "RING_ENTRY_PROOF_INCOMPLETE",
+    });
+  });
   function deposit(ciphertext: Uint8Array) {
     return {
       asset: DepositAsset.sol(),
@@ -326,6 +423,7 @@ describe("escrowed deposits", () => {
         getAccount: async (key) => (key === setting ? undefined : ring.client.getAccount(key)),
       }),
       getRingKeyRegistryEntry: ring.client.getRingKeyRegistryEntry,
+      proofDataSource: "client" as const,
       proveCustomRingDeposit: vi.fn(async (request: CustomRingDepositProofRequest) => {
         requests.push({ ...request, keys: [...request.keys] });
         return new Uint8Array(192);
@@ -457,6 +555,7 @@ describe("policy trees", () => {
     const proven = await provePolicyTrees({
       client: { getAccount, getMerkleProofs, getNonInclusionProofs },
       addressTree: ADDRESS,
+      proofDataSource: "client",
       facts: [
         { holder: OTHER, state: filled(1), absence: filled(2) },
         { absence: filled(3) },

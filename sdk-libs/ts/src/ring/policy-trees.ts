@@ -1,4 +1,4 @@
-import type { ChainReader, ProofReader } from "../client/ports.js";
+import type { ChainReader, ProofDataSource, ProofReader } from "../client/ports.js";
 import {
   RING_ANSWER_SLOTS,
   RING_NULLIFIER_PATH_LENGTH,
@@ -113,7 +113,7 @@ export async function provePolicyTrees(
     client: PolicyTreeClient;
     addressTree: LeafTree;
     facts: readonly PolicyTreeFact[];
-    proofDataSource?: "client" | "prover";
+    proofDataSource: ProofDataSource;
   }>,
   context?: RequestContext,
 ): Promise<ProvenPolicyTrees> {

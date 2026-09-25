@@ -43,6 +43,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INDEXER_TIMEOUT",
   "CLIENT_INDEXER_NOT_CAUGHT_UP",
   "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+  "CLIENT_PROVER_INDEXER_UNCONFIGURED",
   "CLIENT_POLL_TIMED_OUT",
   "CLIENT_PROOF_PATH_LENGTH",
   "CLIENT_PROOF_INPUT_COUNT_MISMATCH",
@@ -52,9 +53,11 @@ export type CanonicalClientErrorCode = (typeof CANONICAL_CLIENT_ERROR_CODES)[num
 
 export interface ClientErrorDetailsMap {
   readonly CLIENT_INDEXER_PROOF_DATA_NOT_READY: NoDetails;
+  readonly CLIENT_PROVER_INDEXER_UNCONFIGURED: NoDetails;
   readonly CLIENT_KEY_REGISTRY_OUT_OF_SYNC: MethodDetails;
   readonly CLIENT_KEY_REGISTRY_ROOT_CHANGED: MethodDetails;
-  readonly CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: MethodDetails;
+  /** Hex `member`, set only by the prover. */
+  readonly CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: Readonly<{ method: string; member?: string }>;
   readonly CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: MethodDetails;
   readonly CLIENT_SPEND_RECORD_OUT_OF_SYNC: MethodDetails;
   readonly CLIENT_KEYPAIR: Readonly<{ code: KeypairErrorCode }>;
@@ -130,13 +133,7 @@ export interface ClientErrorDetailsMap {
 
   readonly CLIENT_INVALID_CONFIG: Readonly<{ field?: string }> | undefined;
   readonly CLIENT_UNEXPECTED: NoDetails;
-  readonly CLIENT_INVALID_INTEGER:
-    | Readonly<{
-        field?: string;
-        value?: string;
-        length?: number;
-      }>
-    | undefined;
+  readonly CLIENT_INVALID_INTEGER: Readonly<{ field?: string; length?: number }> | undefined;
   readonly CLIENT_INVALID_INPUT_CONTEXT: Readonly<{ index?: number }> | undefined;
   readonly CLIENT_INVALID_PROOF_INPUTS: NoDetails;
   readonly CLIENT_INVALID_MERGE: NoDetails;
@@ -149,7 +146,7 @@ export interface ClientErrorDetailsMap {
     expected: number;
     actual: number;
   }>;
-  readonly CLIENT_INVALID_FIELD: Readonly<{ field: string; value: string }>;
+  readonly CLIENT_INVALID_FIELD: Readonly<{ field: string }>;
   readonly CLIENT_INVALID_BASE58:
     | Readonly<{
         field?: string;
@@ -359,6 +356,7 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_UNUSED_WRITE_CACHE",
   "CLIENT_UNEXPECTED",
   "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+  "CLIENT_PROVER_INDEXER_UNCONFIGURED",
 ]);
 
 const OPTIONAL_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
@@ -398,7 +396,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_INDEXER: { method: "string", retryable: "boolean" },
   CLIENT_KEY_REGISTRY_OUT_OF_SYNC: { method: "string" },
   CLIENT_KEY_REGISTRY_ROOT_CHANGED: { method: "string" },
-  CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: { method: "string" },
+  CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: { method: "string", member: "string" },
   CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: { method: "string" },
   CLIENT_SPEND_RECORD_OUT_OF_SYNC: { method: "string" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
@@ -408,10 +406,10 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_PROOF_PATH_LENGTH: { got: "number", expected: "number", index: "number", kind: "string" },
   CLIENT_PROOF_INPUT_COUNT_MISMATCH: { got: "number", expected: "number" },
   CLIENT_INVALID_CONFIG: { field: "string" },
-  CLIENT_INVALID_INTEGER: { field: "string", value: "string", length: "number" },
+  CLIENT_INVALID_INTEGER: { field: "string", length: "number" },
   CLIENT_INVALID_INPUT_CONTEXT: { index: "number" },
   CLIENT_INVALID_LENGTH: { field: "string", expected: "number", actual: "number" },
-  CLIENT_INVALID_FIELD: { field: "string", value: "string" },
+  CLIENT_INVALID_FIELD: { field: "string" },
   CLIENT_INVALID_BASE58: { field: "string", expectedLength: "number", actualLength: "number" },
   CLIENT_INVALID_BASE64: { field: "string" },
   CLIENT_INVALID_CONTEXT: { field: "string", method: "string" },
@@ -458,6 +456,7 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_INDEXER_TIMEOUT: [],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],
   CLIENT_POLL_TIMED_OUT: ["attempts"],
+  CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: ["method"],
   CLIENT_INVALID_CONFIG: [],
   CLIENT_INVALID_INTEGER: [],
   CLIENT_INVALID_INPUT_CONTEXT: [],

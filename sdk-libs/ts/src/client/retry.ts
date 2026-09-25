@@ -1,6 +1,8 @@
 import type { RequestContext } from "../interface/types.js";
 
-import { ClientError, isClientError, type RetryErrorCause } from "./error.js";
+import { ClientError, isClientError, type ClientErrorCode, type RetryErrorCause } from "./error.js";
+import { composeSignal } from "./internal.js";
+import type { ProofDataSource } from "./ports.js";
 
 export type { RetryErrorCause } from "./error.js";
 
@@ -41,6 +43,15 @@ export const DEFAULT_INDEXER_POLL_CONFIG: IndexerPollConfig = Object.freeze({
 export const DEFAULT_INDEXER_RPC_CONFIG: IndexerRpcConfig = Object.freeze({
   poll: DEFAULT_INDEXER_POLL_CONFIG,
 });
+
+// Match the Rust CLI's bounded wait: projection lag must not make a valid
+// transaction fail, and a bad indexer must not hold a caller forever.
+const PROJECTION_TIMEOUT_MS = 120_000;
+const PROJECTION_POLL = createIndexerPollConfig(240, 500n, 500n);
+
+type ProjectionAttempt<T> =
+  | Readonly<{ kind: "ready"; value: T }>
+  | Readonly<{ kind: "retry"; error: ClientError }>;
 
 export function createIndexerPollConfig(
   numRetries: number,
@@ -182,6 +193,70 @@ export function indexerPollTimeout(
   });
 }
 
+export function withProofDataRetry<T>(
+  source: ProofDataSource,
+  prove: (context?: RequestContext) => Promise<T>,
+  context?: RequestContext,
+): Promise<T> {
+  return source === "prover"
+    ? waitForProjection(
+        prove,
+        new Set(["CLIENT_INDEXER_PROOF_DATA_NOT_READY"]),
+        context,
+        undefined,
+        context?.timeoutMs ?? 600_000,
+      )
+    : prove(context);
+}
+
+/** Refetches correlated chain and indexer state while an indexer projection catches up. */
+export async function waitForProjection<T>(
+  read: (context: RequestContext) => Promise<T>,
+  retryable: ReadonlySet<ClientErrorCode>,
+  context?: RequestContext,
+  poll: IndexerPollConfig = PROJECTION_POLL,
+  maxWaitMs: number = PROJECTION_TIMEOUT_MS,
+): Promise<T> {
+  let last: ClientError | undefined;
+  const operation = composeSignal(overallContext(context, maxWaitMs), "waitForProjection");
+  const attemptContext = Object.freeze({ signal: operation.signal });
+  let rejectAborted: ((error: ClientError) => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAborted = reject;
+  });
+  const abort = (): void => rejectAborted?.(new ClientError("CLIENT_ABORTED"));
+  operation.signal.addEventListener("abort", abort, { once: true });
+  try {
+    const result = await pollUntil<ProjectionAttempt<T>>(
+      async () => {
+        try {
+          const value = await Promise.race([read(attemptContext), aborted]);
+          return { kind: "ready", value };
+        } catch (cause) {
+          if (!isClientError(cause) || !retryable.has(cause.code)) throw cause;
+          last = cause;
+          return { kind: "retry", error: cause };
+        }
+      },
+      (attempt) => attempt.kind === "ready",
+      {
+        config: poll,
+        context: attemptContext,
+        retryErrors: false,
+        onTimeout: (config) => last ?? pollTimedOut(config),
+      },
+    );
+    if (result.kind === "retry") throw result.error;
+    return result.value;
+  } catch (cause) {
+    if (operation.timedOut()) throw last ?? pollTimedOut(poll);
+    throw cause;
+  } finally {
+    operation.signal.removeEventListener("abort", abort);
+    operation.cleanup();
+  }
+}
+
 function* pollSchedule(config: IndexerPollConfig): IterableIterator<bigint> {
   yield 0n;
   yield* backoff(config);
@@ -280,4 +355,22 @@ function printableValue(value: unknown): string {
     default:
       return typeof value;
   }
+}
+
+function overallContext(context: RequestContext | undefined, maxWaitMs: number): RequestContext {
+  const requested = context?.timeoutMs;
+  const timeoutMs =
+    requested === undefined || (Number.isSafeInteger(requested) && requested > 0)
+      ? Math.min(requested ?? maxWaitMs, maxWaitMs)
+      : requested;
+  return {
+    ...(context?.signal === undefined ? {} : { signal: context.signal }),
+    timeoutMs,
+  };
+}
+
+function pollTimedOut(config: IndexerPollConfig): ClientError {
+  return new ClientError("CLIENT_POLL_TIMED_OUT", {
+    details: { attempts: attempts(config) },
+  });
 }

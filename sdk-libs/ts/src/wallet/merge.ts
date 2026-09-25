@@ -3,10 +3,11 @@ import { getAddressEncoder } from "@solana/kit";
 import type {
   ChainReader,
   MergeAssembler,
-  ProofReader,
+  ProofDataSourceContext,
   TreeContext,
   WalletKeys,
 } from "../client/ports.js";
+import { withProofDataRetry } from "../client/retry.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
@@ -150,7 +151,7 @@ function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
 export type MergeClient = MergeAssembler &
   TreeContext &
   Pick<ChainReader, "getAccount"> &
-  Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+  ProofDataSourceContext;
 
 export interface MergeTransactionParams {
   readonly client: MergeClient;
@@ -218,12 +219,9 @@ async function proveAndAssembleMerge(
       details: { proofTree: input.client.tree, submitTree: created.tree },
     });
   }
-  const proved = await input.client.proveMerge(
-    {
-      prepared: created.prepared,
-      keys: input.keys,
-      indexer: treeCheckedIndexer(input.client, created.tree),
-    },
+  const proved = await withProofDataRetry(
+    input.client.proofDataSource,
+    (attempt) => input.client.proveMerge({ prepared: created.prepared, keys: input.keys }, attempt),
     context,
   );
   return input.client.assembleAuthorizedMergeTransaction(
@@ -260,39 +258,4 @@ function validateMergeBuild(record: MergeRecord, owner: Address, address: Shield
   if (!equalBytes(record.viewingPublicKey, address.viewingPublicKey.toBytes())) {
     throw new WalletError("WALLET_MERGE_VIEWING_KEY_MISMATCH", { details: { owner } });
   }
-}
-
-function treeCheckedIndexer(
-  indexer: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">,
-  submitTree: Address,
-): Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs"> {
-  return {
-    getInputMerkleProofs: async (commitments, config, context) => {
-      const proofs = await indexer.getInputMerkleProofs(commitments, config, context);
-      for (const proof of proofs) {
-        for (const proofTree of [
-          proof.state.merkleContext.tree,
-          proof.nullifier.merkleContext.tree,
-        ]) {
-          if (proofTree !== submitTree) {
-            throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-              details: { proofTree, submitTree },
-            });
-          }
-        }
-      }
-      return proofs;
-    },
-    getNonInclusionProofs: async (tree, leaves, config, context) => {
-      const response = await indexer.getNonInclusionProofs(tree, leaves, config, context);
-      for (const proof of response.proofs) {
-        if (proof.merkleContext.tree !== submitTree) {
-          throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-            details: { proofTree: proof.merkleContext.tree, submitTree },
-          });
-        }
-      }
-      return response;
-    },
-  };
 }

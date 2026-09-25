@@ -346,9 +346,7 @@ function copyNullifierRequest(request: GetByNullifiersRequest): GetByNullifiersR
 
 function checkedPageLimit(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1 || value > 1000) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", {
-      details: { field: "limit", value: String(value) },
-    });
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "limit" } });
   }
   return value;
 }

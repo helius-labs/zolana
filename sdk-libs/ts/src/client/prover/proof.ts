@@ -104,7 +104,7 @@ export function parseProof(value: unknown): Proof {
   const aRaw = parseG1(proof["ar"], "$.proof.ar");
   const a = new Uint8Array(aRaw);
   const y = bytesToBigInt(a.subarray(32));
-  a.set(bigintToBytes(y === 0n ? 0n : BN254_BASE_MODULUS - y), 32);
+  a.set(bigintToBytes(y === 0n ? 0n : BN254_BASE_MODULUS - y, "$.proof.ar"), 32);
   const b = parseG2(proof["bs"], "$.proof.bs");
   const c = parseG1(proof["krs"], "$.proof.krs");
   if (!present(proof["proofCommitment"]) && !present(proof["proofCommitmentPok"])) {
@@ -154,7 +154,7 @@ function compressG1(point: Bytes64, name: string): Bytes32 {
   const y = bytesToBigInt(point.subarray(32));
   if (x === 0n && y === 0n) return new Uint8Array(32) as Bytes32;
   validateG1(x, y, name);
-  const result = bigintToBytes(x);
+  const result = bigintToBytes(x, name);
   if (isLargest(y)) result[0] = (result[0] ?? 0) | 0x80;
   return result as Bytes32;
 }
@@ -224,8 +224,8 @@ function parseG1(value: unknown, path: string): Bytes64 {
   const y = parseCoordinate(coordinates[1], `${path}[1]`);
   if (x !== 0n || y !== 0n) validateG1(x, y, path);
   const result = new Uint8Array(64);
-  result.set(bigintToBytes(x));
-  result.set(bigintToBytes(y), 32);
+  result.set(bigintToBytes(x, path));
+  result.set(bigintToBytes(y, path), 32);
   return result as Bytes64;
 }
 
@@ -241,7 +241,7 @@ function parseG2(value: unknown, path: string): Bytes128 {
   });
   const result = new Uint8Array(128);
   coordinates.forEach((coordinate, index) => {
-    result.set(bigintToBytes(coordinate), index * 32);
+    result.set(bigintToBytes(coordinate, path), index * 32);
   });
   return result as Bytes128;
 }

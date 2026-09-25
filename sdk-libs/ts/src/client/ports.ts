@@ -274,8 +274,13 @@ export interface IndexedDepositInputs {
   readonly minContextSlot?: bigint;
 }
 
-export interface IndexedDepositClient {
-  readonly proofDataSource?: "client" | "prover";
+export type ProofDataSource = "client" | "prover";
+
+export interface ProofDataSourceContext {
+  readonly proofDataSource: ProofDataSource;
+}
+
+export interface IndexedDepositClient extends ProofDataSourceContext {
   proveIndexedRingDeposit?(
     inputs: IndexedDepositInputs,
     context?: RequestContext,
@@ -296,8 +301,7 @@ export interface IndexedPolicyInputs {
   readonly registry?: IndexedRegistry;
 }
 
-export interface IndexedPolicyClient {
-  readonly proofDataSource?: "client" | "prover";
+export interface IndexedPolicyClient extends ProofDataSourceContext {
   proveIndexedRingPolicy?(
     inputs: IndexedPolicyInputs,
     context?: RequestContext,
@@ -520,7 +524,6 @@ export interface MergeAssembler {
     input: Readonly<{
       prepared: PreparedMerge;
       keys: ProofAuthority;
-      indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
       cache?: MergeCacheTarget;
     }>,
     context?: RequestContext,
@@ -538,4 +541,5 @@ export interface MergeAssembler {
 export type RingMergeClient = TreeContext &
   BlockhashProvider &
   Pick<ChainReader, "getAccount"> &
-  Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+  Pick<MergeAssembler, "proveMerge"> &
+  ProofDataSourceContext;

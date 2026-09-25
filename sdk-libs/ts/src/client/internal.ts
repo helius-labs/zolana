@@ -22,7 +22,7 @@ import type {
 import { INPUT_TREES } from "../interface/tree-slot.js";
 import { hashBytes } from "../hasher/index.js";
 import { treeAddress } from "../interface/pda/index.js";
-import type { TreeContext } from "./ports.js";
+import type { IndexedProofAuthority, TreeContext } from "./ports.js";
 
 import {
   composeSignal as composeTransportSignal,
@@ -107,11 +107,9 @@ export function bytesToBigInt(bytes: Uint8Array): bigint {
   return value;
 }
 
-export function bigintToBytes(value: bigint, length = 32): Uint8Array {
+export function bigintToBytes(value: bigint, name: string, length = 32): Uint8Array {
   if (value < 0n || value >= 1n << BigInt(length * 8)) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", {
-      details: { value: value.toString(), length },
-    });
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: name, length } });
   }
   const result = new Uint8Array(length);
   let remaining = value;
@@ -124,9 +122,7 @@ export function bigintToBytes(value: bigint, length = 32): Uint8Array {
 
 export function field(value: bigint, name: string): bigint {
   if (value < 0n || value >= BN254_MODULUS) {
-    throw new ClientError("CLIENT_INVALID_FIELD", {
-      details: { field: name, value: value.toString() },
-    });
+    throw new ClientError("CLIENT_INVALID_FIELD", { details: { field: name } });
   }
   return value;
 }
@@ -146,7 +142,7 @@ export function poseidon(inputs: readonly bigint[]): bigint {
   }
   inputs.forEach((value, index) => field(value, `poseidon[${String(index)}]`));
   try {
-    return bytesToBigInt(hash(inputs.map((value) => bigintToBytes(value))));
+    return bytesToBigInt(hash(inputs.map((value) => bigintToBytes(value, "poseidon input"))));
   } catch (cause) {
     if (!(cause instanceof HasherFailure)) throw cause;
     throw hasherError(cause.code, cause);
@@ -197,9 +193,7 @@ export function inputFlags(allowDummyInputs: boolean, treeIndexes: readonly numb
   let flags = allowDummyInputs ? 1n : 0n;
   treeIndexes.forEach((treeIndex, index) => {
     if (!Number.isSafeInteger(treeIndex)) {
-      throw new ClientError("CLIENT_INVALID_INTEGER", {
-        details: { field: "treeIndex", value: String(treeIndex) },
-      });
+      throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "treeIndex" } });
     }
     if (treeIndex < 0 || treeIndex >= INPUT_TREES) {
       throw new ClientError("CLIENT_INPUT_TREE_INDEX_RANGE", {
@@ -367,6 +361,15 @@ export function sleep(delayMs: bigint, context?: RequestContext): Promise<void> 
     };
     context?.signal?.addEventListener("abort", abort, { once: true });
   });
+}
+
+/** Whether `candidate` answers indexed requests, callers name the error. */
+export function hasIndexedMethod(candidate: unknown): candidate is IndexedProofAuthority {
+  return (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    typeof Reflect.get(candidate, "proveIndexed") === "function"
+  );
 }
 
 /** Whether `candidate` carries the two proving methods; callers name the error. */

@@ -1,4 +1,4 @@
-import { withProofDataRetry } from "./projection.js";
+import { withProofDataRetry } from "../client/retry.js";
 import { findSpendCountersMessage, spendCountersDisclosureHash } from "./counters.js";
 import type {
   BlockhashProvider,
@@ -104,7 +104,7 @@ import {
   type RingTransactPolicy,
   type RingTransactTrees,
 } from "./instructions.js";
-import { openRingEscrowedKeys, ringEscrowedOwners } from "./key-escrow.js";
+import { openRingEscrowedKeys, ringEscrowedOwners, unregisteredOutputKey } from "./key-escrow.js";
 import {
   chargeRows,
   planVelocity,
@@ -821,7 +821,7 @@ async function proveRingTransferStatement(
             ...(await provePolicyAnswers(
               {
                 client: flow.client,
-                proofDataSource: flow.client.proofDataSource ?? "client",
+                proofDataSource: flow.client.proofDataSource,
                 table: policy.table,
                 config: policy.config,
                 inputs: subjectInputs,
@@ -830,19 +830,23 @@ async function proveRingTransferStatement(
               context,
             )),
           };
+    const escrowOwners =
+      policyRound !== undefined && config.keyEscrow
+        ? ringEscrowedOwners(openings.outputs, policyRound.config.namespaceOwnerHash)
+        : undefined;
     // A ring that escrows keys refuses an unregistered output key before any prover round.
     const escrow =
-      policyRound !== undefined && config.keyEscrow
-        ? await openRingEscrowedKeys(
+      escrowOwners === undefined
+        ? undefined
+        : await openRingEscrowedKeys(
             {
-              proofDataSource: flow.client.proofDataSource ?? "client",
+              proofDataSource: flow.client.proofDataSource,
               client: flow.client,
               ringProgramId: input.ringProgramId,
-              owners: ringEscrowedOwners(openings.outputs, policyRound.config.namespaceOwnerHash),
+              owners: escrowOwners,
             },
             context,
-          )
-        : undefined;
+          );
     // 4. Prove the SPP spend and bind the ring proof to that same transaction.
     const { data } =
       flow.kind === "delegate"
@@ -980,38 +984,42 @@ async function proveRingTransferStatement(
         policyRound.indexedLookups === undefined
       )
         throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
-      indexed = await flow.client.proveIndexedRingPolicy(
-        {
-          circuit:
-            flow.kind === "delegate"
-              ? "custom-ring-delegate-policy"
-              : plan === undefined
-                ? "custom-ring-policy"
-                : "custom-ring-compressed-policy",
-          policy: policyRequest,
-          ...(plan === undefined ? {} : { transactionSalt: encrypted.salt }),
-          lookups: policyRound.indexedLookups,
-          publicInputs: policyIndexedInputs(statement),
-          trees: policyRound.treeSlots.map((slot, index) => ({
-            tree: policyRound.policyTrees[index]!,
-            id: slot.id,
-            utxoRoot: slot.utxoRoot,
-            nullifierRoot: slot.nullifierRoot,
-            utxoRootIndex: policyRound.treeContexts[index]!.utxoTreeRootIndex,
-            nullifierRootIndex: policyRound.treeContexts[index]!.nullifierTreeRootIndex,
-          })),
-          ...(escrow?.nextIndex === undefined
-            ? {}
-            : {
-                registry: {
-                  ringProgramId: input.ringProgramId,
-                  root: escrow.root,
-                  nextIndex: escrow.nextIndex,
-                },
-              }),
-        },
-        context,
-      );
+      try {
+        indexed = await flow.client.proveIndexedRingPolicy(
+          {
+            circuit:
+              flow.kind === "delegate"
+                ? "custom-ring-delegate-policy"
+                : plan === undefined
+                  ? "custom-ring-policy"
+                  : "custom-ring-compressed-policy",
+            policy: policyRequest,
+            ...(plan === undefined ? {} : { transactionSalt: encrypted.salt }),
+            lookups: policyRound.indexedLookups,
+            publicInputs: policyIndexedInputs(statement),
+            trees: policyRound.treeSlots.map((slot, index) => ({
+              tree: policyRound.policyTrees[index]!,
+              id: slot.id,
+              utxoRoot: slot.utxoRoot,
+              nullifierRoot: slot.nullifierRoot,
+              utxoRootIndex: policyRound.treeContexts[index]!.utxoTreeRootIndex,
+              nullifierRootIndex: policyRound.treeContexts[index]!.nullifierTreeRootIndex,
+            })),
+            ...(escrow?.nextIndex === undefined
+              ? {}
+              : {
+                  registry: {
+                    ringProgramId: input.ringProgramId,
+                    root: escrow.root,
+                    nextIndex: escrow.nextIndex,
+                  },
+                }),
+          },
+          context,
+        );
+      } catch (cause) {
+        throw unregisteredOutputKey(cause, escrowOwners ?? []);
+      }
     }
     const proof =
       indexed?.proof ??
@@ -1078,7 +1086,10 @@ function paddedRows(rows: readonly Bytes32[], width: number): readonly Bytes32[]
  * @internal
  */
 export function ringAddressChain(nIn: number): Bytes32 {
-  return bigintToBytes(hashChain4(Array.from({ length: nIn }, () => 0n))) as Bytes32;
+  return bigintToBytes(
+    hashChain4(Array.from({ length: nIn }, () => 0n)),
+    "address chain",
+  ) as Bytes32;
 }
 
 /** Mirrors Rust `RingMembership::validate`. @internal */

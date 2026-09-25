@@ -5,12 +5,17 @@ import { compressProof, parseProof } from "../src/client/prover/proof.js";
 import { ShieldedKeypair, randomBlinding } from "../src/keypair/index.js";
 import { Merge, ProofInputUtxo, SOL_MINT, Utxo } from "../src/transaction/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { decodeIndexedInputs, indexedAuthority } from "../src/client/prover/indexed.js";
+import { decodeIndexedInputs, proveThroughAuthority } from "../src/client/prover/indexed.js";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { wireDecoder } from "../src/interface/decode.js";
 import { inputTreeSlots } from "../src/interface/tree-slot.js";
-import { bigintToBytes, bytesToBigInt, checkedBytes } from "../src/client/internal.js";
+import {
+  BN254_MODULUS,
+  bigintToBytes,
+  bytesToBigInt,
+  checkedBytes,
+} from "../src/client/internal.js";
 import { asField, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
 
 const STANDARD_PROOF = proofFor({ circuitType: "merge", inputs: Array(8) });
@@ -71,12 +76,12 @@ describe("indexed proof transcript", () => {
       return {
         id: Number(decode.integer(tree["id"], "id")),
         utxoRoot: checkedBytes(
-          bigintToBytes(BigInt(decode.string(tree["utxoRoot"], "root"))),
+          bigintToBytes(BigInt(decode.string(tree["utxoRoot"], "root")), "root"),
           32,
           "root",
         ),
         nullifierRoot: checkedBytes(
-          bigintToBytes(BigInt(decode.string(tree["nullifierRoot"], "root"))),
+          bigintToBytes(BigInt(decode.string(tree["nullifierRoot"], "root")), "root"),
           32,
           "root",
         ),
@@ -116,8 +121,8 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
   const resolved = {
     tree,
     id: prepared.inputTreeId,
-    utxoRoot: checkedBytes(bigintToBytes(11n), 32, "root"),
-    nullifierRoot: checkedBytes(bigintToBytes(12n), 32, "root"),
+    utxoRoot: checkedBytes(bigintToBytes(11n, "root"), 32, "root"),
+    nullifierRoot: checkedBytes(bigintToBytes(12n, "root"), 32, "root"),
     utxoRootIndex: 3,
     nullifierRootIndex: 4,
   };
@@ -175,44 +180,93 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     };
     for (const part of ["commitment", "commitmentPok"]) {
       await expect(
-        indexedAuthority({
-          proveIndexed: () => ({
-            ...valid,
-            proof: { ...valid.proof, [part]: checkedBytes(new Uint8Array(64), 64, "point") },
-          }),
-        }).proveIndexed(local.inputs),
+        proveThroughAuthority(
+          {
+            proveIndexed: () => ({
+              ...valid,
+              proof: { ...valid.proof, [part]: checkedBytes(new Uint8Array(64), 64, "point") },
+            }),
+          },
+          local.inputs,
+        ),
       ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
     }
     await expect(
-      indexedAuthority({ proveIndexed: () => undefined }).proveIndexed(local.inputs),
+      proveThroughAuthority({ proveIndexed: () => undefined }, local.inputs),
     ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
     await expect(
-      indexedAuthority({
-        proveIndexed(request: IndexedProofInputs) {
-          const publicInputs = request.publicInputs.map(() => asField(0n));
-          Object.assign(request, { publicInputs });
-          const hash = resolvedPublicInputHash(
-            publicInputs,
-            inputTreeSlots([
-              {
-                id: resolved.id,
-                utxoRoot: resolved.utxoRoot,
-                nullifierRoot: resolved.nullifierRoot,
+      proveThroughAuthority(
+        {
+          proveIndexed(request: IndexedProofInputs) {
+            const publicInputs = request.publicInputs.map(() => asField(0n));
+            Object.assign(request, { publicInputs });
+            const hash = resolvedPublicInputHash(
+              publicInputs,
+              inputTreeSlots([
+                {
+                  id: resolved.id,
+                  utxoRoot: resolved.utxoRoot,
+                  nullifierRoot: resolved.nullifierRoot,
+                },
+              ]),
+            );
+            return {
+              ...valid,
+              resolution: {
+                ...valid.resolution,
+                publicInputHash: checkedBytes(bigintToBytes(hash, "hash"), 32, "hash"),
               },
-            ]),
-          );
-          return {
-            ...valid,
-            resolution: {
-              ...valid.resolution,
-              publicInputHash: checkedBytes(bigintToBytes(hash), 32, "hash"),
-            },
-          };
+            };
+          },
         },
-      }).proveIndexed(local.inputs),
+        local.inputs,
+      ),
     ).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
   } finally {
     keys.destroy();
+    owner.destroy();
+  }
+});
+
+it("refuses a key holder's merge root at the field modulus as unparsable", async () => {
+  const owner = ShieldedKeypair.generate();
+  try {
+    const input = ProofInputUtxo.fromKeypair(
+      new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: randomBlinding(),
+      }),
+      owner,
+    );
+    const prepared = Merge.fromKeypair(owner, [input]).prepare();
+    const modulus = checkedBytes(bigintToBytes(BN254_MODULUS, "root"), 32, "root");
+    const keys = {
+      prove: vi.fn(),
+      proveMerge: vi.fn(),
+      proveIndexed: async () => ({
+        proof: parseProof(STANDARD_PROOF),
+        resolution: {
+          publicInputHash: checkedBytes(bigintToBytes(1n, "hash"), 32, "hash"),
+          trees: [
+            {
+              tree: treeAddress(prepared.inputTreeId),
+              id: prepared.inputTreeId,
+              utxoRoot: modulus,
+              nullifierRoot: modulus,
+              utxoRootIndex: 3,
+              nullifierRootIndex: 4,
+            },
+          ],
+        },
+      }),
+    };
+    const client = new ZolanaClient({ proofDataSource: "prover", fetch: vi.fn() });
+    await expect(client.proveMerge({ prepared, keys })).rejects.toMatchObject({
+      code: "CLIENT_PROOF_PARSE",
+    });
+  } finally {
     owner.destroy();
   }
 });

@@ -2,6 +2,7 @@ import {
   address,
   assertIsFullySignedTransaction,
   generateKeyPairSigner,
+  getAddressEncoder,
   signTransactionWithSigners,
   type Address,
   type Blockhash,
@@ -9,13 +10,23 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { LocalKeys } from "../src/client/keys.js";
+import { ClientError } from "../src/client/error.js";
+import { prepareMerge } from "../src/client/prover/merge.js";
+import { USER_REGISTRY_PROGRAM_ID } from "../src/interface/program.js";
+import { internalUserRecordPda } from "../src/wallet/registry.js";
 import {
   authorizedPrivateTransactionMaterial,
   type AuthorizedPrivateTransaction,
+  type ProofDataSource,
   type ProofService,
 } from "../src/client/ports.js";
 import type { DepositClient, PrivateTransactionClient } from "../src/wallet/index.js";
-import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
+import {
+  SPL_TOKEN_2022_PROGRAM_ID,
+  type Bytes32,
+  type Bytes128,
+  type RequestContext,
+} from "../src/interface/index.js";
 import {
   NullifierKey,
   ShieldedKeypair,
@@ -346,6 +357,130 @@ describe("private transaction construction", () => {
   });
 });
 
+describe("prover indexer lag", () => {
+  /** Builds a transfer or merge whose prover lags `lags` times before it answers. */
+  async function build(
+    kind: "transfer" | "merge",
+    proofDataSource: ProofDataSource,
+    lags: number,
+    context?: RequestContext,
+  ) {
+    const keypair = spendingKeypair();
+    const shielded = keypair.shieldedAddress();
+    const owner = shielded.solanaAddress();
+    const wallet = fundedWallet(keypair, [20n, 30n]);
+    let calls = 0;
+    const answer = async <T>(value: () => T): Promise<T> => {
+      if (calls++ < lags) throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
+      return value();
+    };
+    const keys = localKeys(keypair);
+    try {
+      if (kind === "transfer") {
+        const result = await buildTransferTransaction(
+          {
+            client: privateTransactionClient({
+              proofDataSource,
+              assembleAuthorizedPrivateTransaction: () => answer(() => TRANSACTION),
+            }),
+            wallet,
+            keys,
+            feePayer: owner,
+            recipient: ShieldedKeypair.generate().shieldedAddress(),
+            amount: 25n,
+          },
+          context,
+        ).catch((cause: unknown) => cause);
+        return { result, calls, wallet };
+      }
+      const pda = await internalUserRecordPda(owner);
+      const record = Uint8Array.of(
+        1,
+        ...getAddressEncoder().encode(owner),
+        pda.bump,
+        0,
+        ...shielded.nullifierPublicKey,
+        ...shielded.viewingPublicKey.toBytes(),
+        1,
+      );
+      const result = await buildMergeTransaction(
+        {
+          client: {
+            proofDataSource,
+            tree: TREE,
+            treeId: 0,
+            getAccount: vi.fn(async (key: Address) =>
+              key === pda.address
+                ? { owner: USER_REGISTRY_PROGRAM_ID, data: record, lamports: 1n }
+                : undefined,
+            ),
+            proveMerge: ({ prepared }) =>
+              answer(() => {
+                const complete = prepareMerge(prepared, TREE).finish({
+                  slot: { id: 0, utxoRoot: filled(1), nullifierRoot: filled(2) },
+                  utxoRootIndex: 0,
+                  nullifierRootIndex: 0,
+                });
+                return {
+                  data: complete.instructionData({
+                    a: filled(0),
+                    b: new Uint8Array(128) as Bytes128,
+                    c: filled(0),
+                  }),
+                  outputHash: complete.outputHash,
+                };
+              }),
+            assembleAuthorizedMergeTransaction: vi.fn(async () => TRANSACTION),
+          },
+          wallet,
+          keys,
+          feePayer: owner,
+        },
+        context,
+      ).catch((cause: unknown) => cause);
+      return { result, calls, wallet };
+    } finally {
+      keys.destroy();
+    }
+  }
+
+  const failure = (kind: "transfer" | "merge") => ({
+    code: kind === "transfer" ? "WALLET_BUILD_TRANSFER" : "WALLET_BUILD_MERGE",
+    causeCode: "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+  });
+
+  it.each(["transfer", "merge"] as const)(
+    "retries a %s once the prover's indexer catches up",
+    async (kind) => {
+      const { result, calls } = await build(kind, "prover", 1);
+      expect(result).toBe(TRANSACTION);
+      expect(calls).toBe(2);
+    },
+  );
+
+  it.each(["transfer", "merge"] as const)(
+    "fails a %s at once on the client source and releases its inputs",
+    async (kind) => {
+      const { result, calls, wallet } = await build(kind, "client", 1);
+      expect(result).toMatchObject(failure(kind));
+      expect(calls).toBe(1);
+      expect(wallet._reservationEntries()).toHaveLength(0);
+    },
+  );
+
+  it.each(["transfer", "merge"] as const)(
+    "releases a %s's inputs once the retries run out",
+    async (kind) => {
+      const { result, calls, wallet } = await build(kind, "prover", Infinity, {
+        timeoutMs: 1_000,
+      });
+      expect(result).toMatchObject(failure(kind));
+      expect(calls).toBeGreaterThan(1);
+      expect(wallet._reservationEntries()).toHaveLength(0);
+    },
+  );
+});
+
 describe("keys at the wallet boundary", () => {
   it("refuses a merge whose key holder answers the derivation batch short", async () => {
     const keypair = ShieldedKeypair.generate();
@@ -388,13 +523,12 @@ describe("keys at the wallet boundary", () => {
         throw new Error("malformed derivations must fail before reaching the client");
       });
       const client: MergeClient = {
+        proofDataSource: "client",
         tree: TREE,
         treeId: 0,
         getAccount: unexpected,
         proveMerge: unexpected,
         assembleAuthorizedMergeTransaction: unexpected,
-        getInputMerkleProofs: unexpected,
-        getNonInclusionProofs: unexpected,
       };
       try {
         await expect(
@@ -453,13 +587,12 @@ describe("keys at the wallet boundary", () => {
       throw new Error(`${member} must not be called`);
     };
     const client: MergeClient = {
+      proofDataSource: "client",
       tree: TREE,
       treeId: 0,
       getAccount: vi.fn(async () => undefined),
       proveMerge: never("proveMerge"),
       assembleAuthorizedMergeTransaction: never("assembleAuthorizedMergeTransaction"),
-      getInputMerkleProofs: never("getInputMerkleProofs"),
-      getNonInclusionProofs: never("getNonInclusionProofs"),
     };
 
     await expect(

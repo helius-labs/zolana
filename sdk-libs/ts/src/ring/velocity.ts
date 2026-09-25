@@ -24,7 +24,7 @@ import type {
   RingSpendRecordReader,
 } from "../client/ports.js";
 import { bytesField } from "../client/internal.js";
-import { indexedAuthority, decodeIndexedInputs } from "../client/prover/indexed.js";
+import { checkIndexedAuthority } from "../client/prover/indexed.js";
 import type { PreparedTransferInput } from "../client/ports.js";
 import { asField } from "../client/prover/assembly.js";
 import {
@@ -223,13 +223,13 @@ export function withRecordSlotSecret(
       ),
     proveMerge: (inputs, context) => keys.proveMerge(inputs, context),
     proveIndexed: (request, context) => {
-      const inputs = decodeIndexedInputs(request);
-      return indexedAuthority(keys).proveIndexed(
-        inputs.circuit === "merge"
-          ? inputs
+      checkIndexedAuthority(keys);
+      return keys.proveIndexed(
+        request.circuit === "merge"
+          ? request
           : {
-              ...inputs,
-              payload: { ...inputs.payload, inputs: inputs.payload.inputs.map(complete) },
+              ...request,
+              payload: { ...request.payload, inputs: request.payload.inputs.map(complete) },
             },
         context,
       );

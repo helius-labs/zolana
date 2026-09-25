@@ -1,6 +1,4 @@
 import type { RingMergeClient, WalletKeys } from "../client/ports.js";
-import { assembleMerge } from "../client/prover/merge.js";
-import { compressProof } from "../client/prover/proof.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { selectUtxos } from "../flows/select.js";
@@ -33,6 +31,7 @@ import {
 } from "./submission.js";
 import { ringProofInput, ringSelectionErrors, ringIntentMismatch } from "./transfer.js";
 import { resolveRingOutputTree } from "./trees.js";
+import { withProofDataRetry } from "../client/retry.js";
 
 export interface RingMergeTransactionParams {
   readonly client: RingMergeClient;
@@ -143,11 +142,11 @@ async function buildRingMerge(
       summary: `merge ${String(inputs.length)} inputs in ring ${params.ringProgramId}`,
     });
     checkIntentApproval(approval, intent, ringIntentMismatch);
-    const assembled = await assembleMerge(prepared, params.client, params.client.tree, context);
-    if (!equalBytes(assembled.outputHash, expectedHash)) throw ringIntentMismatch("output");
-    const proof = await params.keys.proveMerge(assembled.proverInputs, context);
-    const compressed = compressProof(proof);
-    const data = assembled.instructionData({ a: compressed.a, b: compressed.b, c: compressed.c });
+    const { data } = await withProofDataRetry(
+      params.client.proofDataSource,
+      (attempt) => params.client.proveMerge({ prepared, keys: params.keys }, attempt),
+      context,
+    );
     if (!equalBytes(data.outputUtxoHash, expectedHash)) throw ringIntentMismatch("output");
     const [instruction, lifetime] = await Promise.all([
       ringMergeInstruction({

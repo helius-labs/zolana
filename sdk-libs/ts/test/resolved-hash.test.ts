@@ -10,8 +10,8 @@ function statement() {
       treeSlots.inputTreeSlots([
         {
           id: 7,
-          utxoRoot: checkedBytes(bigintToBytes(11n), 32, "root"),
-          nullifierRoot: checkedBytes(bigintToBytes(12n), 32, "root"),
+          utxoRoot: checkedBytes(bigintToBytes(11n, "root"), 32, "root"),
+          nullifierRoot: checkedBytes(bigintToBytes(12n, "root"), 32, "root"),
         },
       ]),
     ),
@@ -110,7 +110,7 @@ describe("resolved public statement reuse", () => {
     input.trees[0] = {
       ...first,
       get utxoRoot() {
-        return checkedBytes(bigintToBytes(reads++ === 0 ? 11n : 19n), 32, "root");
+        return checkedBytes(bigintToBytes(reads++ === 0 ? 11n : 19n, "root"), 32, "root");
       },
     };
     expect(resolvedPublicInputHash(input.fields, input.trees)).toBe(expected);

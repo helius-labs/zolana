@@ -338,7 +338,7 @@ function prepareTransferUnchecked(
   });
   const instructionBase: Omit<TransactInstructionData, "treeContexts"> = Object.freeze({
     expiryUnixTs: proofInputs.externalData.expiryUnixTs,
-    privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
+    privateTxHash: bigintToBytes(privateTxHash, "private tx hash") as Bytes32,
     circuit: transferCircuit(
       plan,
       cache,
@@ -435,12 +435,14 @@ function prepareTransferUnchecked(
       // ring statement binds.
       return Object.freeze({
         instructionData,
-        publicInputHash: bigintToBytes(publicInputHash) as Bytes32,
+        publicInputHash: bigintToBytes(publicInputHash, "public input hash") as Bytes32,
         nullifiers: Object.freeze(
           nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
         ),
-        outputHashes: Object.freeze(outputHashes.map((hash) => bigintToBytes(hash) as Bytes32)),
-        privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
+        outputHashes: Object.freeze(
+          outputHashes.map((hash) => bigintToBytes(hash, "output hash") as Bytes32),
+        ),
+        privateTxHash: bigintToBytes(privateTxHash, "private tx hash") as Bytes32,
         rootIndexes,
         roots: Object.freeze({
           stateRoot: firstTree.slot.utxoRoot,
@@ -702,7 +704,7 @@ export function prepareSlots(
       inputs.map((input) => (input.isDummy() ? 0n : bytesToBigInt(input.hash()))),
     ),
     nullifiers: Object.freeze(
-      transferInputs.map((input) => bigintToBytes(input.nullifier) as Bytes32),
+      transferInputs.map((input) => bigintToBytes(input.nullifier, "nullifier") as Bytes32),
     ),
     inputOwnerFields: Object.freeze(transferInputs.map((input) => input.ownerPublicKeyHash)),
     treeIds: Object.freeze(treeIds),
@@ -769,7 +771,7 @@ export function assembleSlots(
       const converted = createDummyTransferInput(input, proof, input.nullifier(), openIndex);
       transferInputs.push(converted);
       inputHashes.push(0n);
-      nullifiers.push(bigintToBytes(converted.nullifier) as Bytes32);
+      nullifiers.push(bigintToBytes(converted.nullifier, "nullifier") as Bytes32);
       inputOwnerFields.push(converted.ownerPublicKeyHash);
       treeIndexes.push(openIndex);
       continue;
@@ -1349,7 +1351,7 @@ function zeroOpening(domain: number): CustomRingOpening {
 }
 
 function openingField(value: bigint): Bytes32 {
-  return bigintToBytes(value) as Bytes32;
+  return bigintToBytes(value, "opening") as Bytes32;
 }
 
 /** Refuses a shape or a path length the prover does not take. */

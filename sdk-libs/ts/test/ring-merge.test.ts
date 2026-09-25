@@ -1,9 +1,9 @@
 import { proofFor } from "./helpers/proofs.js";
 import { address, AccountRole } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
-import { LocalKeys, ZolanaClient } from "../src/client/index.js";
+import { ClientError, LocalKeys, ZolanaClient } from "../src/client/index.js";
 import { initializePoseidon } from "../src/hasher/index.js";
-import { assembleMergeWithProofs } from "../src/client/prover/merge.js";
+import { assembleMergeWithProofs, prepareMerge } from "../src/client/prover/merge.js";
 import { mergeProverRequestBody } from "../src/client/prover/client.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import { treeAddress, ringAuthAddress, ringCoSignerAddress } from "../src/interface/pda/index.js";
@@ -20,6 +20,11 @@ import { Utxo, ProofInputUtxo } from "../src/transaction/utxo.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
 import { ringMergeInstruction } from "../src/ring/instructions.js";
 import { intentHash } from "../src/transaction/wallet/intent.js";
+import { AssetRegistry } from "../src/transaction/asset.js";
+import { Wallet } from "../src/transaction/wallet/state.js";
+import { buildRingMergeTransaction } from "../src/ring/merge.js";
+import type { MergeAssembler } from "../src/client/ports.js";
+import { BLOCKHASH } from "./helpers/clients.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 function field(value: number): Bytes32 {
@@ -155,6 +160,107 @@ describe("ring merge", () => {
       }
     },
   );
+
+  it.each(["spend", "dummy"] as const)(
+    "refuses a %s proof from another tree on the client source",
+    async (kind) => {
+      const inputs = [input(3n), input(5n)];
+      const prepared = merge(inputs, 9).prepare();
+      const foreign = { tree: treeAddress(8), treeType: 0 };
+      const client = new ZolanaClient({ treeId: 7, proofDataSource: "client", fetch: vi.fn() });
+      vi.spyOn(client, "getInputMerkleProofs").mockResolvedValue(
+        inputs.map(spendProof).map((proof, index) =>
+          kind === "spend" && index === 1
+            ? {
+                state: { ...proof.state, merkleContext: foreign },
+                nullifier: { ...proof.nullifier, merkleContext: foreign },
+              }
+            : proof,
+        ),
+      );
+      vi.spyOn(client, "getNonInclusionProofs").mockResolvedValue({
+        context: { blockTime: 1n, slot: 1n },
+        proofs: prepared
+          .dummyNullifiers()
+          .map(nonInclusion)
+          .map((proof, index) =>
+            kind === "dummy" && index === 0 ? { ...proof, merkleContext: foreign } : proof,
+          ),
+      });
+      const keys = LocalKeys.fromKeypair(owner, client.proofService);
+      try {
+        await expect(client.proveMerge({ prepared, keys })).rejects.toMatchObject({
+          code: "CLIENT_MERGE_TREE_MISMATCH",
+          details: { proofTree: treeAddress(8), submitTree: treeAddress(7) },
+        });
+      } finally {
+        keys.destroy();
+      }
+    },
+  );
+
+  it("proves a ring merge through the client and retries a lagging prover indexer", async () => {
+    const wallet = new Wallet({ identity: owner.shieldedAddress(), registry: new AssetRegistry() });
+    wallet._replace({
+      utxos: [3n, 5n].map((amount) => {
+        const proof = input(amount);
+        return {
+          utxo: proof.utxo,
+          outputContext: { hash: proof.hash(), tree: treeAddress(7), leafIndex: 0n },
+          nullifier: proof.nullifier(),
+          spent: false,
+        };
+      }),
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    const answers: ("forged" | "lagging" | "proof")[] = ["forged", "lagging", "proof"];
+    const proveMerge = vi.fn<MergeAssembler["proveMerge"]>(async ({ prepared }) => {
+      const answer = answers.shift();
+      if (answer === "lagging") throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
+      const data = prepareMerge(prepared, treeAddress(7))
+        .finish({
+          slot: { id: 7, utxoRoot: field(1), nullifierRoot: field(2) },
+          utxoRootIndex: 0,
+          nullifierRootIndex: 0,
+        })
+        .instructionData({ a: field(0), b: new Uint8Array(128) as Bytes128, c: field(0) });
+      return {
+        data: answer === "forged" ? { ...data, outputUtxoHash: field(9) } : data,
+        outputHash: data.outputUtxoHash,
+      };
+    });
+    const keys = LocalKeys.fromKeypair(owner, {
+      prove: vi.fn(),
+      proveMerge: vi.fn(),
+    });
+    const build = (proofDataSource: "client" | "prover") =>
+      buildRingMergeTransaction({
+        client: {
+          proofDataSource,
+          tree: treeAddress(7),
+          treeId: 7,
+          getAccount: async () => undefined,
+          getLatestBlockhash: async () => BLOCKHASH,
+          proveMerge,
+        },
+        ringProgramId: RING,
+        wallet,
+        keys,
+        feePayer: owner.shieldedAddress().solanaAddress(),
+      });
+    try {
+      await expect(build("client")).rejects.toMatchObject({
+        code: "RING_BUILD_MERGE",
+        causeCode: "RING_INTENT_MISMATCH",
+      });
+      await expect(build("prover")).resolves.toBeDefined();
+      expect(proveMerge).toHaveBeenCalledTimes(3);
+      expect(Object.keys(proveMerge.mock.calls[2]?.[0] ?? {}).sort()).toEqual(["keys", "prepared"]);
+    } finally {
+      keys.destroy();
+    }
+  });
 
   it.each([2, 8])("preserves owner, asset, value and ring for %s fragmented inputs", (count) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));

@@ -14,6 +14,8 @@ export type {
   MergeAssembler,
   MergeInputs,
   ProofAuthority,
+  ProofDataSource,
+  ProofDataSourceContext,
   IndexedProofAuthority,
   IndexedProofInputs,
   IndexedProofResult,

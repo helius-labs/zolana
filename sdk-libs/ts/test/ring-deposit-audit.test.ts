@@ -510,6 +510,7 @@ describe("deposit audit control", () => {
                 ? ownedAccount(RING, Uint8Array.of(8, Number(required), settingBump))
                 : undefined,
         }),
+        proofDataSource: "client" as const,
         proveCustomRingDeposit,
         getRingKeyRegistryEntry: vi.fn(async () => {
           throw new Error("escrow is off");

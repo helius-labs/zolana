@@ -173,7 +173,9 @@ the SDK instead. Both routes support ring transfers, merges and caches.
 `LocalKeys` supports both modes. A remote key holder must implement
 `IndexedProofAuthority.proveIndexed` for prover fetching. Policy proofs also
 fetch list paths and escrow memberships through the prover. Returned roots
-must reproduce the requested public statement before transaction assembly.
+must reproduce the requested public statement before transaction assembly. A
+prover started without an indexer refuses these requests with
+`CLIENT_PROVER_INDEXER_UNCONFIGURED`.
 
 ## Common transactions
 

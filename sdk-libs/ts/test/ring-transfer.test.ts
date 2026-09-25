@@ -433,6 +433,7 @@ describe("delegate policy rail", () => {
     const client = ringTransferClient({ tree: TREE, getAccount: accounts.getAccount });
     const proved = await proveCustomRingDelegateTransfer({
       client: {
+        proofDataSource: client.proofDataSource,
         tree: client.tree,
         treeId: client.treeId,
         getAccount: client.getAccount,
@@ -1216,7 +1217,9 @@ describe("ring proof folded fields", () => {
   function assertFoldedFields(proofInputs: SppProofInputs, nIn: number): void {
     const externalDataHash = proofInputs.externalData.hash();
     const addressChain = ringAddressChain(nIn);
-    expect(addressChain).toEqual(bigintToBytes(hashChain4(Array.from({ length: nIn }, () => 0n))));
+    expect(addressChain).toEqual(
+      bigintToBytes(hashChain4(Array.from({ length: nIn }, () => 0n)), "address chain"),
+    );
 
     const inputHashes = proofInputs.inputUtxos.map((input) =>
       input.isDummy() ? (new Uint8Array(32) as Bytes32) : input.hash(),
@@ -1234,6 +1237,7 @@ describe("ring proof folded fields", () => {
         bytesToBigInt(externalDataHash),
         bytesToBigInt(blinding),
       ]),
+      "private tx hash",
     );
     expect(reconstructed).toEqual(canonical);
   }
@@ -1252,7 +1256,7 @@ describe("ring proof folded fields", () => {
     assertFoldedFields(proofInputs, 2);
     // hashChain4([0, 0]) == Poseidon(0, 0, 0, 0) != 0.
     expect(ringAddressChain(2)).not.toEqual(new Uint8Array(32));
-    expect(ringAddressChain(2)).toEqual(bigintToBytes(hashChain4([0n, 0n])));
+    expect(ringAddressChain(2)).toEqual(bigintToBytes(hashChain4([0n, 0n]), "address chain"));
   });
 
   it("sends the finalized SPP external hash and address chain to the custom prover", async () => {
@@ -1443,6 +1447,59 @@ describe("ring proof folded fields", () => {
       ]);
     },
   );
+
+  it("names only an output owner the prover finds no escrowed key for", async () => {
+    const { prepared, sender, recipient } = preparedTransfer(4n, [1n]);
+    const accounts = await ringAccounts(
+      ViewingKey.generate(),
+      true,
+      [requireAllow],
+      0n,
+      KEY_REGISTRY_EMPTY_ROOT,
+    );
+    const entries = await allowEntries([sender, recipient, actor(5)]);
+    const owner = Buffer.from(recipient.address.signingPublicKey.ownerProofInputHash()).toString(
+      "hex",
+    );
+    for (const member of [owner, "2a".repeat(32)]) {
+      const reads = entryProofReads({
+        tree: ACTIVE_TREE,
+        spenders: entries.flatMap((entry) => entry.spenders),
+      });
+      const refused = new ClientError("CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED", {
+        details: { method: "prove", member },
+      });
+      const proving = proveCustomRingTransfer({
+        client: ringTransferClient({
+          tree: RING,
+          getAccount: accounts.getAccount,
+          proveRingTransact: async () => ({
+            data: ringInstructionData(scalar(91)),
+            roots: SPP_ROOTS,
+          }),
+          proofDataSource: "prover",
+          proveIndexedRingPolicy: async () => {
+            throw refused;
+          },
+          getShieldedTransactionsByNullifiers: reads.getShieldedTransactionsByNullifiers,
+          getMerkleProofs: reads.getMerkleProofs,
+          getNonInclusionProofs: reads.getNonInclusionProofs,
+        }),
+        ringProgramId: RING,
+        prepared,
+        keys: walletKeys(sender),
+        assets: new AssetRegistry(),
+        tree: RING,
+        outputTree: ACTIVE_TREE,
+      });
+      if (member === owner)
+        await expect(proving).rejects.toMatchObject({
+          code: "RING_UNREGISTERED_OUTPUT_KEY",
+          details: { owner },
+        });
+      else await expect(proving).rejects.toBe(refused);
+    }
+  });
 
   it("refuses a transfer no entry admits before any prover call", async () => {
     const { prepared, sender } = preparedTransfer(4n, [1n]);

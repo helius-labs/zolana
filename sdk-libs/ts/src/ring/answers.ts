@@ -1,4 +1,9 @@
-import type { ChainReader, ProofReader } from "../client/ports.js";
+import type {
+  ChainReader,
+  IndexedPolicyLookup,
+  ProofDataSource,
+  ProofReader,
+} from "../client/ports.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INPUT_SLOTS,
@@ -36,7 +41,7 @@ export type RingPolicyAnswerClient = Pick<ChainReader, "getAccount"> &
   Pick<ProofReader, "getMerkleProofs" | "getNonInclusionProofs">;
 
 export interface PolicyAnswerInput {
-  readonly proofDataSource?: "client" | "prover";
+  readonly proofDataSource: ProofDataSource;
   readonly table: RuleTable;
   readonly config: RingPolicyConfig;
   readonly inputs: readonly ProofInputUtxo[];
@@ -44,7 +49,7 @@ export interface PolicyAnswerInput {
 }
 
 export interface PolicyAnswers {
-  readonly indexedLookups?: readonly import("../client/ports.js").IndexedPolicyLookup[];
+  readonly indexedLookups?: readonly IndexedPolicyLookup[];
   readonly answers: readonly CustomRingRuleAnswer[];
   /** One account per `treeSlots` entry, the policy trees the transact instruction lists. */
   readonly policyTrees: readonly Address[];
@@ -82,12 +87,7 @@ export async function provePolicyAnswers(
       : { absence: fact.address },
   );
   const trees = await provePolicyTrees(
-    {
-      client: input.client,
-      addressTree,
-      facts,
-      ...(input.proofDataSource === undefined ? {} : { proofDataSource: input.proofDataSource }),
-    },
+    { client: input.client, addressTree, facts, proofDataSource: input.proofDataSource },
     context,
   );
   return Object.freeze({

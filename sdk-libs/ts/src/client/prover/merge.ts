@@ -281,7 +281,7 @@ export function prepareMerge(
     commitment === null ? 0n : bytesToBigInt(commitment),
   );
   const nullifiers = inputs.map((input) =>
-    checkedBytes(bigintToBytes(input.nullifier), 32, "nullifier"),
+    checkedBytes(bigintToBytes(input.nullifier, "nullifier"), 32, "nullifier"),
   );
   const output = createOutput(prepared.output, prepared.outputTreeId);
   if (prepared.output.isDummy()) throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
@@ -309,6 +309,7 @@ export function prepareMerge(
       bytesToBigInt(externalDataHash),
       bytesField(privateTxBlinding, "merge private tx blinding"),
     ]),
+    "merge private tx hash",
   ) as Bytes32;
   const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
   const ownerPublicKeyHash = bytesField(
@@ -353,7 +354,10 @@ export function prepareMerge(
     }),
     finish(inputTree: MergeInputTree): Omit<MergeAssembly, "proverInputs"> {
       const publicInputHash = checkedBytes(
-        bigintToBytes(resolvedPublicInputHash(publicInputs, inputTreeSlots([inputTree.slot]))),
+        bigintToBytes(
+          resolvedPublicInputHash(publicInputs, inputTreeSlots([inputTree.slot])),
+          "public input hash",
+        ),
         32,
         "public input hash",
       );
