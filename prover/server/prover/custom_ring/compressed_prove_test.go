@@ -20,7 +20,7 @@ func TestCompressedSuccessorProofVerifies(t *testing.T) {
 	transferSystem := loadRingSystem(t, common.CustomRingCompressedPolicyKeyFile)
 	var decodedTransfer CompressedPolicyParameters
 	roundTripProofParameters(t, compressedProofParameters(t, nil), &decodedTransfer)
-	transferProof, err := Prove(transferSystem, &decodedTransfer)
+	transferProof, err := RingProof{System: transferSystem, Parameters: &decodedTransfer}.Prove()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
 	ps := loadRingSystem(t, common.CustomRingCompressedPolicyKeyFile)
 	var decoded CompressedPolicyParameters
 	roundTripProofParameters(t, transfer, &decoded)
-	proof, err := Prove(ps, &decoded)
+	proof, err := RingProof{System: ps, Parameters: &decoded}.Prove()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,12 +62,12 @@ func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
 		t.Fatal(err)
 	}
 	rejectInstalledProof(t, ps, proof, staleWindow)
-	if _, err := Prove(ps, &decoded); err == nil {
+	if _, err := (RingProof{System: ps, Parameters: &decoded}).Prove(); err == nil {
 		t.Fatal("an expired successor was proven under the predecessor window")
 	}
 
 	live := compressedProofParameters(t, unknownCounters)
-	if _, err := Prove(ps, live); err == nil {
+	if _, err := (RingProof{System: ps, Parameters: live}).Prove(); err == nil {
 		t.Fatal("a live record was proven without its counter opening")
 	}
 }
@@ -84,7 +84,7 @@ func TestDelegateProofVerifiesAboveCommittedWindowCap(t *testing.T) {
 	var decoded DelegatePolicyParameters
 	roundTripProofParameters(t, &params, &decoded)
 	ps := loadRingSystem(t, common.CustomRingDelegatePolicyKeyFile)
-	proof, err := Prove(ps, &decoded)
+	proof, err := RingProof{System: ps, Parameters: &decoded}.Prove()
 	if err != nil {
 		t.Fatal(err)
 	}

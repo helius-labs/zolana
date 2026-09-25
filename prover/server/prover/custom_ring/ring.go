@@ -152,29 +152,11 @@ func DecodeRequest(circuitType common.CircuitType, payload []byte) (Request, err
 	return nil, fmt.Errorf("unknown custom-ring circuit type: %s", circuitType)
 }
 
-func Prove(ps *common.RingProofSystem, request Request) (*common.Proof, error) {
-	return (RingProof{System: ps, Parameters: request}).Prove()
-}
-
 func (request RingProof) Prove() (*common.Proof, error) {
 	ps := request.System
-	finishWitness := request.Timing.Start("witness")
-	defer finishWitness()
-	assignment, err := request.Parameters.assignment()
+	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, request.Parameters.assignment)
 	if err != nil {
 		return nil, err
-	}
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("create witness: %w", err)
-	}
-	finishWitness()
-	finishProve := request.Timing.Start("prove")
-	defer finishProve()
-	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
-	finishProve()
-	if err != nil {
-		return nil, fmt.Errorf("prove: %w", err)
 	}
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

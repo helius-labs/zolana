@@ -74,7 +74,7 @@ func TestGPUBackendTransfer(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := testutil.ToFloat64(gpuCache.WithLabelValues("miss"))
-	proof, err := Prove(system.ConstraintSystem, system.ProvingKey, full)
+	proof, err := prove(system.ConstraintSystem, system.ProvingKey, full)
 	if err != nil {
 		t.Fatal(err)
 	}

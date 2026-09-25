@@ -12,10 +12,7 @@ import (
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/indexed"
-	mergeprover "zolana/prover/prover/merge"
-	nullifiertree "zolana/prover/prover/nullifier_tree"
 	"zolana/prover/prover/timing"
-	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -876,6 +873,10 @@ func (error *Error) MarshalJSON() ([]byte, error) {
 	})
 }
 
+func (error *Error) Error() string {
+	return error.Message
+}
+
 func (error *Error) send(w http.ResponseWriter) {
 	w.WriteHeader(error.StatusCode)
 	jsonBytes, err := error.MarshalJSON()
@@ -1167,7 +1168,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 		timer := StartProofTimer(string(meta.CircuitType))
 
-		proof, proofError := handler.processProofSync(buf)
+		proof, proofError := circuitProver{keys: handler.keyManager, trace: handler.timing}.prove(buf)
 		if proof != nil {
 			proof.Resolution = resolution
 		}
@@ -1301,194 +1302,6 @@ func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) tim
 	}
 	estimate := time.Duration(handler.getEstimatedTimeSeconds(circuitType)) * time.Second
 	return min(maxSyncProofTimeout, max(10*time.Second, 2*estimate))
-}
-
-func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error) {
-	proofRequestMeta, err := common.ParseProofRequestMeta(buf)
-	if err != nil {
-		return nil, malformedBodyError(err)
-	}
-
-	if proofRequestMeta.CircuitType.IsRing() {
-		return handler.customRingProof(buf, proofRequestMeta.CircuitType)
-	}
-	switch proofRequestMeta.CircuitType {
-	case common.BatchAddressAppendCircuitType:
-		return handler.batchAddressAppendProof(buf)
-	case common.TransferConfidentialCircuitType,
-		common.TransferRingCircuitType,
-		common.TransferRingAuthorityCircuitType:
-		return handler.transferEddsaProof(buf)
-	case common.TransferP256RingCircuitType:
-		return handler.transferP256Proof(buf)
-	case common.MergeCircuitType:
-		return handler.mergeProof(buf)
-	case common.MergeRingCircuitType:
-		return handler.mergeRingProof(buf)
-	default:
-		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
-	}
-}
-
-func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
-	finishParameters := handler.timing.Start("parameters")
-	defer finishParameters()
-	var params mergeprover.MergeParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	// Merge parameters carry no shape field; the declared input count is the
-	// shape. Validate it before a key lookup so an unsupported count fails as a
-	// bad request rather than a missing key.
-	if err := params.ValidateShape(); err != nil {
-		return nil, malformedBodyError(err)
-	}
-	finishParameters()
-	finishKeys := handler.timing.Start("keys")
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeCircuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
-	finishKeys()
-	if err != nil {
-		return nil, provingError(fmt.Errorf("merge: %w", err))
-	}
-
-	proof, err := (mergeprover.MergeProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
-	finishParameters := handler.timing.Start("parameters")
-	defer finishParameters()
-	var params mergeprover.MergeParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	if err := params.ValidateShape(); err != nil {
-		return nil, malformedBodyError(err)
-	}
-	finishParameters()
-	finishKeys := handler.timing.Start("keys")
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeRingCircuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
-	finishKeys()
-	if err != nil {
-		return nil, provingError(fmt.Errorf("merge-ring: %w", err))
-	}
-
-	proof, err := (mergeprover.MergeProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) customRingProof(buf []byte, circuitType common.CircuitType) (*common.Proof, *Error) {
-	finishParameters := handler.timing.Start("parameters")
-	request, err := customring.DecodeRequest(circuitType, buf)
-	finishParameters()
-	if err != nil {
-		return nil, malformedBodyError(err)
-	}
-	finishKeys := handler.timing.Start("keys")
-	ps, err := handler.keyManager.GetRingSystem(circuitType)
-	finishKeys()
-	if err != nil {
-		return nil, provingError(fmt.Errorf("%s: %w", circuitType, err))
-	}
-	proof, err := (customring.RingProof{System: ps, Parameters: request, Timing: handler.timing}).Prove()
-	if err != nil {
-		return nil, provingError(errors.New("custom ring proof failed"))
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, *Error) {
-	var params nullifiertree.BatchAddressAppendParameters
-	err := json.Unmarshal(buf, &params)
-	if err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	treeHeight := params.TreeHeight
-	batchSize := params.BatchSize
-
-	finishKeys := handler.timing.Start("keys")
-	ps, err := handler.keyManager.GetBatchSystem(common.BatchAddressAppendCircuitType, treeHeight, batchSize)
-	finishKeys()
-	if err != nil {
-		return nil, provingError(fmt.Errorf("batch address append: %w", err))
-	}
-
-	proof, err := nullifiertree.ProveBatchAddressAppend(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Error) {
-	finishParameters := handler.timing.Start("parameters")
-	defer finishParameters()
-	var params transfereddsaonly.TransferParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	circuitType := params.Variant.CircuitType()
-	finishParameters()
-	finishKeys := handler.timing.Start("keys")
-	ps, err := handler.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
-	finishKeys()
-	if err != nil {
-		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
-	}
-
-	proof, err := (transfereddsaonly.TransferProof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) transferP256Proof(buf []byte) (*common.Proof, *Error) {
-	finishParameters := handler.timing.Start("parameters")
-	defer finishParameters()
-	var params transfereddsaonly.P256TransferParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		return nil, malformedBodyError(err)
-	}
-	finishParameters()
-	finishKeys := handler.timing.Start("keys")
-	ps, err := handler.keyManager.GetTransferSystem(
-		common.TransferP256RingCircuitType,
-		params.NInputs,
-		params.NOutputs,
-	)
-	finishKeys()
-	if err != nil {
-		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
-	}
-	proof, err := (transfereddsaonly.P256Proof{System: ps, Parameters: &params, Timing: handler.timing}).Prove()
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
 }
 
 func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

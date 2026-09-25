@@ -331,35 +331,20 @@ func SetupP256Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSy
 	}, nil
 }
 
-func ProveP256Transfer(ps *common.TransferProofSystem, params *P256TransferParameters) (*common.Proof, error) {
-	return (P256Proof{System: ps, Parameters: params}).Prove()
-}
-
 func (request P256Proof) Prove() (*common.Proof, error) {
 	ps, params := request.System, request.Parameters
-	finishWitness := request.Timing.Start("witness")
-	defer finishWitness()
-	if params == nil {
-		panic("params cannot be nil")
-	}
-	if err := params.ValidateShape(); err != nil {
+	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
+		if err := params.ValidateShape(); err != nil {
+			return nil, err
+		}
+		assignment, err := params.CreateWitness()
+		if err != nil {
+			return nil, fmt.Errorf("create P256 transfer witness: %w", err)
+		}
+		return assignment, nil
+	})
+	if err != nil {
 		return nil, err
-	}
-	assignment, err := params.CreateWitness()
-	if err != nil {
-		return nil, fmt.Errorf("error creating P256 circuit witness: %w", err)
-	}
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("error creating P256 witness: %w", err)
-	}
-	finishWitness()
-	finishProve := request.Timing.Start("prove")
-	defer finishProve()
-	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
-	finishProve()
-	if err != nil {
-		return nil, fmt.Errorf("error proving P256 transfer: %w", err)
 	}
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

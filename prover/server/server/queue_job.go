@@ -5,18 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
-	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/indexed"
-	mergeprover "zolana/prover/prover/merge"
-	"zolana/prover/prover/nullifier_tree"
-	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 )
 
 const (
@@ -659,16 +654,6 @@ func (w *BaseQueueWorker) prepareProof(job *ProofJob) (*indexed.Resolved, error)
 	return w.indexer.Resolve(ctx, job.Payload)
 }
 
-// generateProof generates a proof for the given job and returns it.
-// Result storage is handled by the caller to include timing information.
-func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
-	work, err := w.prepareProof(job)
-	if err != nil {
-		return nil, err
-	}
-	return w.generatePreparedProof(work)
-}
-
 func (w *BaseQueueWorker) generatePreparedProof(work *indexed.Resolved) (*common.Proof, error) {
 	payload := work.Payload
 	proofRequestMeta, err := common.ParseProofRequestMeta(payload)
@@ -682,29 +667,7 @@ func (w *BaseQueueWorker) generatePreparedProof(work *indexed.Resolved) (*common
 	timer := StartProofTimer(string(proofRequestMeta.CircuitType))
 	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(payload))
 
-	var proof *common.Proof
-	var proofError error
-
-	log.Printf("proofRequestMeta.CircuitType: %s", proofRequestMeta.CircuitType)
-
-	switch {
-	case proofRequestMeta.CircuitType.IsRing():
-		proof, proofError = w.processCustomRingProof(payload, proofRequestMeta.CircuitType)
-	case proofRequestMeta.CircuitType == common.BatchAddressAppendCircuitType:
-		proof, proofError = w.processBatchAddressAppendProof(payload)
-	case proofRequestMeta.CircuitType == common.TransferConfidentialCircuitType,
-		proofRequestMeta.CircuitType == common.TransferRingCircuitType,
-		proofRequestMeta.CircuitType == common.TransferRingAuthorityCircuitType:
-		proof, proofError = w.processTransferEddsaProof(payload)
-	case proofRequestMeta.CircuitType == common.TransferP256RingCircuitType:
-		proof, proofError = w.processTransferP256Proof(payload)
-	case proofRequestMeta.CircuitType == common.MergeCircuitType:
-		proof, proofError = w.processMergeProof(payload, common.MergeCircuitType)
-	case proofRequestMeta.CircuitType == common.MergeRingCircuitType:
-		proof, proofError = w.processMergeProof(payload, common.MergeRingCircuitType)
-	default:
-		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
-	}
+	proof, proofError := circuitProver{keys: w.keyManager}.dispatch(proofRequestMeta.CircuitType, payload)
 
 	if proofError != nil {
 		timer.ObserveError("proof_generation_failed")
@@ -722,82 +685,6 @@ func (w *BaseQueueWorker) generatePreparedProof(work *indexed.Resolved) (*common
 
 	proof.Resolution = work.Resolution
 	return proof, nil
-}
-
-func (w *BaseQueueWorker) processBatchAddressAppendProof(payload json.RawMessage) (*common.Proof, error) {
-	var params nullifiertree.BatchAddressAppendParameters
-	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal batch address append parameters: %w", err)
-	}
-
-	ps, err := w.keyManager.GetBatchSystem(
-		common.BatchAddressAppendCircuitType,
-		params.TreeHeight,
-		params.BatchSize,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("batch address append proof: %w", err)
-	}
-
-	logging.Logger().Info().Msg("Processing batch address append proof")
-	return nullifiertree.ProveBatchAddressAppend(ps, &params)
-}
-
-func (w *BaseQueueWorker) processTransferEddsaProof(payload json.RawMessage) (*common.Proof, error) {
-	var params transfereddsaonly.TransferParameters
-	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("unmarshal transfer-eddsa params: %w", err)
-	}
-	ps, err := w.keyManager.GetTransferSystem(params.Variant.CircuitType(), params.NInputs, params.NOutputs)
-	if err != nil {
-		return nil, fmt.Errorf("transfer-eddsa: %w", err)
-	}
-	return transfereddsaonly.ProveTransfer(ps, &params)
-}
-
-func (w *BaseQueueWorker) processTransferP256Proof(payload json.RawMessage) (*common.Proof, error) {
-	var params transfereddsaonly.P256TransferParameters
-	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("unmarshal transfer-p256 params: %w", err)
-	}
-	ps, err := w.keyManager.GetTransferSystem(
-		common.TransferP256RingCircuitType,
-		params.NInputs,
-		params.NOutputs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("transfer-p256: %w", err)
-	}
-	return transfereddsaonly.ProveP256Transfer(ps, &params)
-}
-
-func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {
-	var params mergeprover.MergeParameters
-	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("unmarshal merge params: %w", err)
-	}
-	// The declared input count is the merge shape; check it before the key
-	// lookup so an unsupported count is not reported as a missing key.
-	if err := params.ValidateShape(); err != nil {
-		return nil, err
-	}
-	ps, err := w.keyManager.GetTransferSystem(circuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", circuitType, err)
-	}
-	return mergeprover.ProveMerge(ps, &params)
-}
-
-func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {
-	request, err := customring.DecodeRequest(circuitType, payload)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal %s params: %w", circuitType, err)
-	}
-	ps, err := w.keyManager.GetRingSystem(circuitType)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", circuitType, err)
-	}
-	return customring.Prove(ps, request)
 }
 
 // removeFromProcessingQueue drops the entry a worker added when it started, by
@@ -825,8 +712,6 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(item string) {
 			Msg("Failed to remove entry from processing queue (cleanup will age it out)")
 	}
 }
-
-var errCustomRingProof = errors.New("custom ring proof failed")
 
 func (w *BaseQueueWorker) redactProofError(err error) error {
 	if w.queueName == "zk_custom_ring_queue" {

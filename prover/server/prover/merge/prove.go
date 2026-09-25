@@ -9,7 +9,6 @@ import (
 	"zolana/prover/prover/common"
 	"zolana/prover/prover/timing"
 
-	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"zolana/prover/prover/backend"
 )
@@ -53,44 +52,29 @@ func (p *MergeParameters) ValidateShape() error {
 	return nil
 }
 
-func ProveMerge(ps *common.TransferProofSystem, params *MergeParameters) (*common.Proof, error) {
-	return (MergeProof{System: ps, Parameters: params}).Prove()
-}
-
 func (request MergeProof) Prove() (*common.Proof, error) {
 	ps, params := request.System, request.Parameters
-	finishWitness := request.Timing.Start("witness")
-	defer finishWitness()
-	if params == nil {
-		panic("params cannot be nil")
-	}
-	if err := params.ValidateShape(); err != nil {
+	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
+		if err := params.ValidateShape(); err != nil {
+			return nil, err
+		}
+		// The witness is allocated from the parameter count, so a proof system for
+		// another shape would only surface as gnark's opaque witness-size error.
+		if got := uint32(len(params.Inputs)); got != ps.NInputs {
+			return nil, fmt.Errorf(
+				"merge: proof system is %d-in but the request has %d inputs",
+				ps.NInputs,
+				got,
+			)
+		}
+		assignment, err := params.CreateWitness()
+		if err != nil {
+			return nil, fmt.Errorf("create merge witness: %w", err)
+		}
+		return assignment, nil
+	})
+	if err != nil {
 		return nil, err
-	}
-	// The witness is allocated from the parameter count, so a proof system for
-	// another shape would only surface as gnark's opaque witness-size error.
-	if got := uint32(len(params.Inputs)); got != ps.NInputs {
-		return nil, fmt.Errorf(
-			"merge: proof system is %d-in but the request has %d inputs",
-			ps.NInputs,
-			got,
-		)
-	}
-	assignment, err := params.CreateWitness()
-	if err != nil {
-		return nil, fmt.Errorf("error creating circuit: %v", err)
-	}
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("error creating witness: %v", err)
-	}
-	finishWitness()
-	finishProve := request.Timing.Start("prove")
-	defer finishProve()
-	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
-	finishProve()
-	if err != nil {
-		return nil, fmt.Errorf("error proving: %v", err)
 	}
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

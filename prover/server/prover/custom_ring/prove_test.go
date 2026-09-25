@@ -20,7 +20,7 @@ import (
 func TestCustomRingProofVerifies(t *testing.T) {
 	loadedSystem := loadRingSystem(t, common.CustomRingPolicyKeyFile)
 	params := rulesFreeParams(t)
-	proof, err := Prove(loadedSystem, params)
+	proof, err := RingProof{System: loadedSystem, Parameters: params}.Prove()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestCustomRingProofVerifies(t *testing.T) {
 func TestAuditProofVerifies(t *testing.T) {
 	ps := loadRingSystem(t, common.CustomRingBaseKeyFile)
 	params := baseParams(t)
-	proof, err := Prove(ps, params)
+	proof, err := RingProof{System: ps, Parameters: params}.Prove()
 	if err != nil {
 		t.Fatal(err)
 	}

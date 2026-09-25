@@ -781,7 +781,7 @@ func runCli() {
 
 						for _, provingSystem := range psv2 {
 							if provingSystem.TreeHeight == params.TreeHeight && provingSystem.BatchSize == params.BatchSize {
-								proof, err = nullifiertree.ProveBatchAddressAppend(provingSystem, &params)
+								proof, err = nullifiertree.BatchAddressAppendProof{System: provingSystem, Parameters: &params}.Prove()
 								if err != nil {
 									return err
 								}

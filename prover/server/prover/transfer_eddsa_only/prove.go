@@ -8,7 +8,6 @@ import (
 	"zolana/prover/prover/common"
 	"zolana/prover/prover/timing"
 
-	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"zolana/prover/prover/backend"
 )
@@ -57,40 +56,20 @@ func (p *TransferParameters) ValidateShape() error {
 	return nil
 }
 
-func ProveTransfer(ps *common.TransferProofSystem, params *TransferParameters) (*common.Proof, error) {
-	return (TransferProof{System: ps, Parameters: params}).Prove()
-}
-
 func (request TransferProof) Prove() (*common.Proof, error) {
 	ps, params := request.System, request.Parameters
-	finishWitness := request.Timing.Start("witness")
-	defer finishWitness()
-	if params == nil {
-		panic("params cannot be nil")
-	}
-
-	if err := params.ValidateShape(); err != nil {
+	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
+		if err := params.ValidateShape(); err != nil {
+			return nil, err
+		}
+		assignment, err := params.CreateWitness()
+		if err != nil {
+			return nil, fmt.Errorf("create transfer witness: %w", err)
+		}
+		return assignment, nil
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	assignment, err := params.CreateWitness()
-	if err != nil {
-		return nil, fmt.Errorf("error creating circuit: %v", err)
-	}
-
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("error creating witness: %v", err)
-	}
-
-	finishWitness()
-	finishProve := request.Timing.Start("prove")
-	defer finishProve()
-	proof, err := backend.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
-	finishProve()
-	if err != nil {
-		return nil, fmt.Errorf("error proving: %v", err)
-	}
-
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

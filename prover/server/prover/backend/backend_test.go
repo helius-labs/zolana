@@ -50,7 +50,7 @@ func TestInvalidSelectionDisablesProofs(t *testing.T) {
 	if err := Initialize(); err == nil {
 		t.Fatal("invalid backend was accepted")
 	}
-	if _, err := Prove(nil, nil, nil); err == nil {
+	if _, err := prove(nil, nil, nil); err == nil {
 		t.Fatal("proof request reached a backend after selection failed")
 	}
 }
@@ -81,7 +81,7 @@ func TestCloseDrainsProofs(t *testing.T) {
 	state.Unlock()
 	proved := make(chan error, 1)
 	go func() {
-		_, err := Prove(nil, nil, nil)
+		_, err := prove(nil, nil, nil)
 		proved <- err
 	}()
 	<-p.entered
@@ -104,7 +104,7 @@ func TestCloseDrainsProofs(t *testing.T) {
 	default:
 		t.Fatal("backend resources were not closed")
 	}
-	if _, err := Prove(nil, nil, nil); err == nil {
+	if _, err := prove(nil, nil, nil); err == nil {
 		t.Fatal("closed backend accepted a proof")
 	}
 	if err := Close(); err != nil {

@@ -5,9 +5,13 @@ import (
 	"os"
 	"sync"
 
+	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/constraint"
+	"github.com/consensys/gnark/frontend"
+
+	"zolana/prover/prover/timing"
 )
 
 type prover interface {
@@ -53,7 +57,7 @@ func Initialize() error {
 	return nil
 }
 
-func Prove(ccs constraint.ConstraintSystem, key groth16.ProvingKey, full witness.Witness) (groth16.Proof, error) {
+func prove(ccs constraint.ConstraintSystem, key groth16.ProvingKey, full witness.Witness) (groth16.Proof, error) {
 	//1 - Backend ownership lasts until each admitted proof returns.
 	state.RLock()
 	defer state.RUnlock()
@@ -61,6 +65,26 @@ func Prove(ccs constraint.ConstraintSystem, key groth16.ProvingKey, full witness
 		return nil, fmt.Errorf("proof backend is closed")
 	}
 	return state.prover.Prove(ccs, key, full)
+}
+
+func ProveAssignment(trace *timing.Trace, ccs constraint.ConstraintSystem, key groth16.ProvingKey, assign func() (frontend.Circuit, error)) (groth16.Proof, error) {
+	finishWitness := trace.Start("witness")
+	defer finishWitness()
+	assignment, err := assign()
+	if err != nil {
+		return nil, err
+	}
+	full, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
+	if err != nil {
+		return nil, fmt.Errorf("create witness: %w", err)
+	}
+	finishWitness()
+	defer trace.Start("prove")()
+	proof, err := prove(ccs, key, full)
+	if err != nil {
+		return nil, fmt.Errorf("prove: %w", err)
+	}
+	return proof, nil
 }
 
 func Close() error {

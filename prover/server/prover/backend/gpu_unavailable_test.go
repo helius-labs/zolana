@@ -10,7 +10,7 @@ func TestGPUSelectionRequiresBuildSupport(t *testing.T) {
 	if err := Initialize(); err == nil {
 		t.Fatal("GPU selection succeeded without build support")
 	}
-	if _, err := Prove(nil, nil, nil); err == nil {
+	if _, err := prove(nil, nil, nil); err == nil {
 		t.Fatal("CPU proof remained available after GPU selection failed")
 	}
 }
