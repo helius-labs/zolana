@@ -17,6 +17,8 @@ pub struct Issuer {
     pub issued: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Issuer {}
+
 impl ProofInput for Issuer {
     type Circuit = circuit::Issuer;
 
@@ -51,6 +53,8 @@ pub struct Credential {
     pub issuer_hash: [u8; 32],
     pub attribute_commitment: [u8; 32],
 }
+
+impl zk_program_sdk::circuit::CircuitType for circuit::Credential {}
 
 impl ProofInput for Credential {
     type Circuit = circuit::Credential;
@@ -98,6 +102,8 @@ struct CreateIssuerPublicInputs {
     issuer: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::CreateIssuer {}
+
 impl ProofInput for CreateIssuer {
     type Circuit = circuit::CreateIssuer;
 
@@ -132,9 +138,9 @@ impl Placeholder for CreateIssuer {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            constant, poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
+            TokenUtxo, TxContext, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -212,6 +218,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for CreateIssuer {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

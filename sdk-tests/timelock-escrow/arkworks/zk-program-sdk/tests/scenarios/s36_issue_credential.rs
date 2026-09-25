@@ -33,6 +33,8 @@ struct IssueCredentialPublicInputs {
     issuer: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::IssueCredential {}
+
 impl ProofInput for IssueCredential {
     type Circuit = circuit::IssueCredential;
 
@@ -78,8 +80,8 @@ impl Placeholder for IssueCredential {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            constant, poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -105,6 +107,8 @@ mod circuit {
     }
 
     impl Circuit for IssueCredential {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let issuer_hash = self.public.issuer.hash()?;

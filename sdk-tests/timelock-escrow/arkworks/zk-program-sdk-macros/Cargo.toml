@@ -1,0 +1,26 @@
+[package]
+name = "zk-program-sdk-macros"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+sha2 = { workspace = true }
+syn = { workspace = true, features = ["visit"] }
+
+[dev-dependencies]
+borsh = { workspace = true }
+solana-address = { workspace = true }
+solana-signature = { workspace = true }
+trybuild = "1"
+zk-program-sdk = { path = "../zk-program-sdk" }
+zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program = { workspace = true }
+zolana-transaction = { workspace = true }

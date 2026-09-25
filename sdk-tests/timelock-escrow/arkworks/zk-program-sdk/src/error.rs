@@ -23,6 +23,8 @@ pub enum RelationError {
     Conversion(&'static str),
     #[error("a data utxo state cannot be encoded: {0}")]
     StateEncoding(String),
+    #[error("a state's byte hash differs from its circuit hash")]
+    DataHashMismatch,
     #[error("a value does not fit in {0} bits")]
     OutOfRange(usize),
     #[error("a range check over {0} bits covers the whole field")]

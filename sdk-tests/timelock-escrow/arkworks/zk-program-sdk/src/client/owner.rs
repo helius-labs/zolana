@@ -1,8 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_hasher::primitives::{P256_OWNER_TAG, SOLANA_OWNER_TAG};
+use zolana_hasher::{
+    primitives::{hash_bytes, P256_OWNER_TAG, SOLANA_OWNER_TAG},
+    Hasher, HasherError, Poseidon,
+};
 use zolana_keypair::{Curve, PublicKey, ShieldedAddress};
 
-use crate::RelationError;
+use crate::{hasher::ToByteArray, RelationError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Owner {
@@ -36,5 +39,15 @@ impl TryFrom<&ShieldedAddress> for Owner {
 
     fn try_from(address: &ShieldedAddress) -> Result<Self, RelationError> {
         Self::try_from((&address.signing_pubkey, address.nullifier_pubkey))
+    }
+}
+
+impl ToByteArray for Owner {
+    fn to_byte_array(&self) -> Result<[u8; 32], HasherError> {
+        let mut tagged = [0u8; 33];
+        let (tag, key) = tagged.split_at_mut(1);
+        tag.fill(self.tag);
+        key.copy_from_slice(&self.key);
+        Poseidon::hashv(&[&hash_bytes(&tagged)?, &self.nullifier_pk])
     }
 }

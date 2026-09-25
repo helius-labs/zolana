@@ -30,6 +30,8 @@ struct AllowlistedPaymentPublicInputs {
     recipient: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::AllowlistedPayment {}
+
 impl ProofInput for AllowlistedPayment {
     type Circuit = circuit::AllowlistedPayment;
 
@@ -73,7 +75,7 @@ impl Placeholder for AllowlistedPayment {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
@@ -99,6 +101,8 @@ mod circuit {
     }
 
     impl Circuit for AllowlistedPayment {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

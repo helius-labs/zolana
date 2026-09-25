@@ -4,8 +4,9 @@ use borsh::BorshSerialize;
 
 use super::{utxo_domain, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
 use crate::{
-    circuit::{zero, Assert, Asset, CircuitVar, Owner, PublicTransfer},
-    conversion::FromCircuit,
+    circuit::{poseidon, zero, Assert, Asset, Bool, Bytes, CircuitVar, Owner, PublicTransfer},
+    conversion::{to_bytes, FromCircuit},
+    hasher::{DataHasher, Poseidon},
     RelationError,
 };
 
@@ -22,9 +23,50 @@ pub trait UtxoData: DataHash + Sized {
     }
 }
 
+pub fn checked_utxo_data<S>(state: &S) -> Result<Vec<u8>, RelationError>
+where
+    S: UtxoData,
+    S::Client: DataHasher,
+{
+    let client = S::Client::from_circuit(state)?;
+    if DataHasher::hash::<Poseidon>(&client)? != to_bytes(&DataHash::hash(state)?)? {
+        return Err(RelationError::DataHashMismatch);
+    }
+    borsh::to_vec(&client).map_err(|error| RelationError::StateEncoding(error.to_string()))
+}
+
 impl DataHash for CircuitVar {
     fn hash(&self) -> Result<CircuitVar, RelationError> {
         Ok(self.clone())
+    }
+}
+
+impl DataHash for Bool {
+    fn hash(&self) -> Result<CircuitVar, RelationError> {
+        Ok(self.var())
+    }
+}
+
+impl DataHash for Asset {
+    fn hash(&self) -> Result<CircuitVar, RelationError> {
+        Asset::hash(self)
+    }
+}
+
+impl<const N: usize> DataHash for Bytes<N> {
+    fn hash(&self) -> Result<CircuitVar, RelationError> {
+        self.hash_bytes()
+    }
+}
+
+impl<T: DataHash, const N: usize> DataHash for [T; N] {
+    fn hash(&self) -> Result<CircuitVar, RelationError> {
+        poseidon(
+            &self
+                .iter()
+                .map(DataHash::hash)
+                .collect::<Result<Vec<_>, _>>()?,
+        )
     }
 }
 

@@ -24,6 +24,8 @@ pub struct Vesting {
     pub end: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Vesting {}
+
 impl ProofInput for Vesting {
     type Circuit = circuit::Vesting;
 
@@ -86,6 +88,8 @@ struct VestingClaimPublicInputs {
     end: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::VestingClaim {}
+
 impl ProofInput for VestingClaim {
     type Circuit = circuit::VestingClaim;
 
@@ -135,9 +139,9 @@ impl Placeholder for VestingClaim {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            constant, poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
+            TokenUtxo, TxContext, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -201,6 +205,8 @@ mod circuit {
     }
 
     impl Circuit for VestingClaim {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

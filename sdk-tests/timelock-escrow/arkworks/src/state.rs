@@ -12,6 +12,8 @@ pub struct EscrowTerms {
     pub unlock: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::EscrowTerms {}
+
 impl ProofInput for EscrowTerms {
     type Circuit = circuit::EscrowTerms;
 

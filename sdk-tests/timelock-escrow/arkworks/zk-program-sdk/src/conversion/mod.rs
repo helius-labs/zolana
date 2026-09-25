@@ -14,9 +14,10 @@ use zolana_transaction::{Mint, WalletUtxo};
 #[cfg(any(feature = "client", feature = "setup"))]
 pub(crate) use var::be_bytes;
 pub use var::{field, field_bytes, to_bytes, var};
+pub use zk_program_sdk_macros::ProofInput;
 
 use crate::{
-    circuit::{CircuitSystem, CircuitVar},
+    circuit::{CircuitSystem, CircuitType, CircuitVar},
     RelationError,
 };
 
@@ -73,7 +74,7 @@ impl Allocator {
 }
 
 pub trait ProofInput {
-    type Circuit;
+    type Circuit: CircuitType;
 
     fn instantiate(&self, allocator: &Allocator) -> Result<Self::Circuit, RelationError>;
 }

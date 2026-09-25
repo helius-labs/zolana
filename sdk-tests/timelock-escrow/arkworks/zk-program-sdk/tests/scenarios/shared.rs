@@ -370,6 +370,8 @@ pub struct CircuitMerklePath {
     pub bits: [Bool; MERKLE_DEPTH],
 }
 
+impl zk_program_sdk::circuit::CircuitType for CircuitMerklePath {}
+
 impl ProofInput for MerklePath {
     type Circuit = CircuitMerklePath;
 

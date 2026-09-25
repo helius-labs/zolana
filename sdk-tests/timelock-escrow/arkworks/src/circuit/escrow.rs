@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     circuit::{
-        poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+        poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
         ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
     },
     RelationError,
@@ -26,6 +26,8 @@ pub struct EscrowPublicInputs {
 }
 
 impl Circuit for Escrow {
+    const MARKER: CircuitMarker = CircuitMarker;
+
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
         private

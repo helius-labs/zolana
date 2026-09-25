@@ -31,6 +31,8 @@ struct CreateTwoPublicInputs {
     owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::CreateTwo {}
+
 impl ProofInput for CreateTwo {
     type Circuit = circuit::CreateTwo;
 
@@ -69,8 +71,8 @@ impl Placeholder for CreateTwo {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Asset, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -94,6 +96,8 @@ mod circuit {
     }
 
     impl Circuit for CreateTwo {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

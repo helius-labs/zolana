@@ -33,6 +33,8 @@ struct SwapPublicInputs {
     amount_b: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Swap {}
+
 impl ProofInput for Swap {
     type Circuit = circuit::Swap;
 
@@ -80,8 +82,8 @@ impl Placeholder for Swap {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -116,6 +118,8 @@ mod circuit {
     }
 
     impl Circuit for Swap {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

@@ -24,6 +24,8 @@ pub struct Poll {
     pub tally: [u64; 3],
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Poll {}
+
 impl ProofInput for Poll {
     type Circuit = circuit::Poll;
 
@@ -75,6 +77,8 @@ struct CreatePollPublicInputs {
     root: [u8; 32],
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::CreatePoll {}
+
 impl ProofInput for CreatePoll {
     type Circuit = circuit::CreatePoll;
 
@@ -113,7 +117,7 @@ impl Placeholder for CreatePoll {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Utxo, UtxoData,
         },
@@ -168,6 +172,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for CreatePoll {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

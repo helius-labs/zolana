@@ -30,6 +30,8 @@ struct DepositPublicInputs {
     amount: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Deposit {}
+
 impl ProofInput for Deposit {
     type Circuit = circuit::Deposit;
 
@@ -68,8 +70,8 @@ impl Placeholder for Deposit {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Asset, Balance, Bytes, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Asset, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -91,6 +93,8 @@ mod circuit {
     }
 
     impl Circuit for Deposit {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

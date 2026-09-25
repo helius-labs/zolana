@@ -27,6 +27,8 @@ pub struct WithdrawPublicInputs {
     pub owner_identity: [u8; 32],
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Withdraw {}
+
 impl ProofInput for Withdraw {
     type Circuit = circuit::Withdraw;
 

@@ -28,6 +28,8 @@ pub(crate) struct IncrementPublicInputs {
     pub(crate) step: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Increment {}
+
 impl ProofInput for Increment {
     type Circuit = circuit::Increment;
 
@@ -64,8 +66,8 @@ impl Placeholder for Increment {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataUtxo, PublicInputs, TxContext, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -88,6 +90,8 @@ mod circuit {
     }
 
     impl Circuit for Increment {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;

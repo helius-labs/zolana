@@ -30,6 +30,8 @@ pub(crate) struct WithdrawPublicInputs {
     pub(crate) owner_identity: [u8; 32],
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Withdraw {}
+
 impl ProofInput for Withdraw {
     type Circuit = circuit::Withdraw;
 
@@ -68,8 +70,9 @@ impl Placeholder for Withdraw {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo, TxContext,
+            Utxo,
         },
         RelationError,
     };
@@ -93,6 +96,8 @@ mod circuit {
     }
 
     impl Circuit for Withdraw {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;

@@ -19,6 +19,7 @@ light-poseidon = { workspace = true }
 solana-address = { workspace = true }
 solana-bn254 = { workspace = true, optional = true }
 thiserror = { workspace = true }
+zk-program-sdk-macros = { path = "../zk-program-sdk-macros" }
 zolana-client = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }

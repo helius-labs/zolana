@@ -23,6 +23,8 @@ pub struct TypedState {
     pub asset_hash: [u8; 32],
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::TypedState {}
+
 impl ProofInput for TypedState {
     type Circuit = circuit::TypedState;
 
@@ -90,6 +92,8 @@ struct TypedCreatePublicInputs {
     amount: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::TypedCreate {}
+
 impl ProofInput for TypedCreate {
     type Circuit = circuit::TypedCreate;
 
@@ -136,7 +140,7 @@ impl Placeholder for TypedCreate {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, Bool, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Asset, Bool, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Utxo, UtxoData,
         },
@@ -207,6 +211,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for TypedCreate {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

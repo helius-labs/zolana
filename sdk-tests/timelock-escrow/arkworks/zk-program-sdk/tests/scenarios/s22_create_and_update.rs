@@ -16,6 +16,8 @@ pub struct Profile {
     pub score: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Profile {}
+
 impl ProofInput for Profile {
     type Circuit = circuit::Profile;
 
@@ -46,6 +48,8 @@ impl Placeholder for Profile {
 pub struct Badge {
     pub level: u16,
 }
+
+impl zk_program_sdk::circuit::CircuitType for circuit::Badge {}
 
 impl ProofInput for Badge {
     type Circuit = circuit::Badge;
@@ -92,6 +96,8 @@ struct CreateAndUpdatePublicInputs {
     badge_owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::CreateAndUpdate {}
+
 impl ProofInput for CreateAndUpdate {
     type Circuit = circuit::CreateAndUpdate;
 
@@ -133,9 +139,9 @@ impl Placeholder for CreateAndUpdate {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Assert, Asset, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
-            UtxoData,
+            constant, poseidon, zero, Assert, Asset, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
+            TxContext, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -199,6 +205,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for CreateAndUpdate {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;

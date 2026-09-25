@@ -31,6 +31,8 @@ struct UpdateTwoPublicInputs {
     owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::UpdateTwo {}
+
 impl ProofInput for UpdateTwo {
     type Circuit = circuit::UpdateTwo;
 
@@ -71,8 +73,8 @@ impl Placeholder for UpdateTwo {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            constant, poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -97,6 +99,8 @@ mod circuit {
     }
 
     impl Circuit for UpdateTwo {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let owner = self.public.owner.hash()?;

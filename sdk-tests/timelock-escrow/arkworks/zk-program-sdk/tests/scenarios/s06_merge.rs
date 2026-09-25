@@ -30,6 +30,8 @@ struct MergePublicInputs {
     owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Merge {}
+
 impl ProofInput for Merge {
     type Circuit = circuit::Merge;
 
@@ -64,7 +66,7 @@ impl Placeholder for Merge {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
@@ -87,6 +89,8 @@ mod circuit {
     }
 
     impl Circuit for Merge {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;

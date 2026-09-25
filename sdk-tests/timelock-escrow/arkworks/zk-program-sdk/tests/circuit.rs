@@ -35,6 +35,8 @@ struct RecipientPublicInputs {
     recipient: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::RecipientPublicInputs {}
+
 impl ProofInput for RecipientPublicInputs {
     type Circuit = circuit::RecipientPublicInputs;
 
@@ -47,6 +49,8 @@ impl ProofInput for RecipientPublicInputs {
         })
     }
 }
+
+impl zk_program_sdk::circuit::CircuitType for circuit::Payment {}
 
 impl ProofInput for Payment {
     type Circuit = circuit::Payment;
@@ -143,6 +147,8 @@ struct SweepPrivateInputs {
     amount: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Sweep {}
+
 impl ProofInput for Sweep {
     type Circuit = circuit::Sweep;
 
@@ -178,6 +184,8 @@ impl Placeholder for Sweep {
 pub struct Label {
     value: u64,
 }
+
+impl zk_program_sdk::circuit::CircuitType for circuit::Label {}
 
 impl ProofInput for Label {
     type Circuit = circuit::Label;
@@ -215,6 +223,8 @@ struct RegisterPublicInputs {
     label: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Register {}
+
 impl ProofInput for Register {
     type Circuit = circuit::Register;
 
@@ -249,7 +259,7 @@ impl Placeholder for Register {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Utxo, UtxoData,
         },
@@ -278,6 +288,8 @@ mod circuit {
     }
 
     impl Circuit for Payment {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -302,6 +314,8 @@ mod circuit {
     }
 
     impl Circuit for Sweep {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
@@ -357,6 +371,8 @@ mod circuit {
     }
 
     impl Circuit for Register {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

@@ -101,6 +101,8 @@ pub struct Counter {
     value: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Counter {}
+
 impl ProofInput for Counter {
     type Circuit = circuit::Counter;
 

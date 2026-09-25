@@ -3,6 +3,7 @@ mod circuit_lib;
 mod client;
 pub mod conversion;
 mod error;
+pub mod hasher;
 pub mod program;
 mod prover;
 
@@ -16,3 +17,4 @@ pub use prover::VerifyingKeyExport;
 pub use prover::{CompressedProof, Groth16Prover, ProofResult, SolanaProof};
 #[cfg(any(feature = "client", feature = "setup"))]
 pub use prover::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
+pub use zk_program_sdk_macros::circuit;

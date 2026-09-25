@@ -31,6 +31,8 @@ struct FanOutPublicInputs {
     total: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::FanOut {}
+
 impl ProofInput for FanOut {
     type Circuit = circuit::FanOut;
 
@@ -69,8 +71,8 @@ impl Placeholder for FanOut {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -94,6 +96,8 @@ mod circuit {
     }
 
     impl Circuit for FanOut {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             private

@@ -29,6 +29,11 @@ pub(crate) struct PaymentPublicInputs<const R: usize> {
     pub(crate) recipients: [ShieldedAddress; R],
 }
 
+impl<const N: usize, const R: usize> zk_program_sdk::circuit::CircuitType
+    for circuit::Payment<N, R>
+{
+}
+
 impl<const N: usize, const R: usize> ProofInput for Payment<N, R> {
     type Circuit = circuit::Payment<N, R>;
 
@@ -65,8 +70,8 @@ impl<const N: usize, const R: usize> Placeholder for Payment<N, R> {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -87,6 +92,8 @@ mod circuit {
     }
 
     impl<const N: usize, const R: usize> Circuit for Payment<N, R> {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

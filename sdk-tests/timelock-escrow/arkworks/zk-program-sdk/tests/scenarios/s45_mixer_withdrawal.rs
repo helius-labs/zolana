@@ -32,6 +32,8 @@ struct MixerWithdrawalPublicInputs {
     nullifier_hash: [u8; 32],
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::MixerWithdrawal {}
+
 impl ProofInput for MixerWithdrawal {
     type Circuit = circuit::MixerWithdrawal;
 
@@ -77,7 +79,7 @@ impl Placeholder for MixerWithdrawal {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
@@ -104,6 +106,8 @@ mod circuit {
     }
 
     impl Circuit for MixerWithdrawal {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

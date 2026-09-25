@@ -36,6 +36,8 @@ struct CastVotePublicInputs {
     nullifier: [u8; 32],
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::CastVote {}
+
 impl ProofInput for CastVote {
     type Circuit = circuit::CastVote;
 
@@ -85,8 +87,8 @@ impl Placeholder for CastVote {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            constant, poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -115,6 +117,8 @@ mod circuit {
     }
 
     impl Circuit for CastVote {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

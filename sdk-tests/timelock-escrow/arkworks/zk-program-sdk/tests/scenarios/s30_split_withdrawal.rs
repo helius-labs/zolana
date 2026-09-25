@@ -33,6 +33,8 @@ struct SplitWithdrawPublicInputs {
     fee: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::SplitWithdraw {}
+
 impl ProofInput for SplitWithdraw {
     type Circuit = circuit::SplitWithdraw;
 
@@ -76,8 +78,9 @@ impl Placeholder for SplitWithdraw {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo,
+            TxContext, Utxo,
         },
         RelationError,
     };
@@ -103,6 +106,8 @@ mod circuit {
     }
 
     impl Circuit for SplitWithdraw {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

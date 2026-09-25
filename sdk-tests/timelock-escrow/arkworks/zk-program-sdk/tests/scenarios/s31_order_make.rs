@@ -26,6 +26,8 @@ pub struct OrderTerms {
     pub expiry: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::OrderTerms {}
+
 impl ProofInput for OrderTerms {
     type Circuit = circuit::OrderTerms;
 
@@ -82,6 +84,8 @@ struct MakePublicInputs {
     expiry: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Make {}
+
 impl ProofInput for Make {
     type Circuit = circuit::Make;
 
@@ -124,7 +128,7 @@ impl Placeholder for Make {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Utxo, UtxoData,
         },
@@ -184,6 +188,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for Make {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

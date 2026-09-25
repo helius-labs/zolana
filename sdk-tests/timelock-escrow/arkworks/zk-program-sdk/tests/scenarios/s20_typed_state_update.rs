@@ -33,6 +33,8 @@ struct TypedUpdatePublicInputs {
     count: u32,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::TypedUpdate {}
+
 impl ProofInput for TypedUpdate {
     type Circuit = circuit::TypedUpdate;
 
@@ -75,8 +77,8 @@ impl Placeholder for TypedUpdate {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Asset, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            constant, poseidon, Assert, Asset, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -102,6 +104,8 @@ mod circuit {
     }
 
     impl Circuit for TypedUpdate {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut state = DataUtxo::new_mut(&private.state_utxo, &private.state)?;

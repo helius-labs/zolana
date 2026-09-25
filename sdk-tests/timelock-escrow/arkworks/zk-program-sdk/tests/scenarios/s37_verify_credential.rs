@@ -36,6 +36,8 @@ struct VerifyCredentialPublicInputs {
     threshold: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::VerifyCredential {}
+
 impl ProofInput for VerifyCredential {
     type Circuit = circuit::VerifyCredential;
 
@@ -88,8 +90,8 @@ impl Placeholder for VerifyCredential {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataHash, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -118,6 +120,8 @@ mod circuit {
     }
 
     impl Circuit for VerifyCredential {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

@@ -28,6 +28,8 @@ pub struct EscrowPublicInputs {
     pub escrow_owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Escrow {}
+
 impl ProofInput for Escrow {
     type Circuit = circuit::Escrow;
 

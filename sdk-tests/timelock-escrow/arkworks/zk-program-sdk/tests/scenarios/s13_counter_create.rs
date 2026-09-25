@@ -16,6 +16,8 @@ pub struct Counter {
     pub count: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Counter {}
+
 impl ProofInput for Counter {
     type Circuit = circuit::Counter;
 
@@ -59,6 +61,8 @@ pub(crate) struct CounterCreatePublicInputs {
     pub(crate) owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::CounterCreate {}
+
 impl ProofInput for CounterCreate {
     type Circuit = circuit::CounterCreate;
 
@@ -93,7 +97,7 @@ impl Placeholder for CounterCreate {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Utxo, UtxoData,
         },
@@ -136,6 +140,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for CounterCreate {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

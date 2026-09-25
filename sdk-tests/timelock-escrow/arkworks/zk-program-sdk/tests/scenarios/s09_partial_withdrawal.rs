@@ -28,6 +28,8 @@ struct WithdrawalPublicInputs {
     amount: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Withdrawal {}
+
 impl ProofInput for Withdrawal {
     type Circuit = circuit::Withdrawal;
 
@@ -64,7 +66,7 @@ impl Placeholder for Withdrawal {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
@@ -86,6 +88,8 @@ mod circuit {
     }
 
     impl Circuit for Withdrawal {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

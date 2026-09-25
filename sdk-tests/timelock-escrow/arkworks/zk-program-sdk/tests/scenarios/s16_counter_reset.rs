@@ -29,6 +29,8 @@ pub(crate) struct ResetPublicInputs {
     pub(crate) owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Reset {}
+
 impl ProofInput for Reset {
     type Circuit = circuit::Reset;
 
@@ -65,8 +67,8 @@ impl Placeholder for Reset {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -89,6 +91,8 @@ mod circuit {
     }
 
     impl Circuit for Reset {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;

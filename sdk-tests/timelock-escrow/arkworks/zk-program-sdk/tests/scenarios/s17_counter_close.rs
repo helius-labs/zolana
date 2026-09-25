@@ -29,6 +29,8 @@ pub(crate) struct ClosePublicInputs {
     pub(crate) owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Close {}
+
 impl ProofInput for Close {
     type Circuit = circuit::Close;
 
@@ -65,7 +67,7 @@ impl Placeholder for Close {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,
@@ -89,6 +91,8 @@ mod circuit {
     }
 
     impl Circuit for Close {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let counter = DataUtxo::new_burn(&private.counter, &private.state)?;

@@ -28,6 +28,8 @@ struct TopUpPublicInputs {
     amount: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::TopUp {}
+
 impl ProofInput for TopUp {
     type Circuit = circuit::TopUp;
 
@@ -64,7 +66,7 @@ impl Placeholder for TopUp {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
@@ -86,6 +88,8 @@ mod circuit {
     }
 
     impl Circuit for TopUp {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

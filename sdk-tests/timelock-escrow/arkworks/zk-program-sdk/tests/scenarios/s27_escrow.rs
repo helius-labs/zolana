@@ -23,6 +23,8 @@ pub struct EscrowTerms {
     pub unlock: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::EscrowTerms {}
+
 impl ProofInput for EscrowTerms {
     type Circuit = circuit::EscrowTerms;
 
@@ -71,6 +73,8 @@ pub(crate) struct EscrowPublicInputs {
     pub(crate) escrow_owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Escrow {}
+
 impl ProofInput for Escrow {
     type Circuit = circuit::Escrow;
 
@@ -109,9 +113,9 @@ impl Placeholder for Escrow {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
+            TokenUtxo, TxContext, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -158,6 +162,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for Escrow {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             private

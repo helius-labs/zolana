@@ -19,6 +19,8 @@ pub struct Reservation {
     pub fill_price: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Reservation {}
+
 impl ProofInput for Reservation {
     type Circuit = circuit::Reservation;
 
@@ -70,6 +72,8 @@ struct SettlePublicInputs {
     execution_price: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Settle {}
+
 impl ProofInput for Settle {
     type Circuit = circuit::Settle;
 
@@ -115,8 +119,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             constant, poseidon, zero, Assert, Balance, Bool, CheckedTransaction, Circuit,
-            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
-            TokenUtxo, TxContext, Utxo, UtxoData,
+            CircuitMarker, CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner,
+            PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -168,6 +172,8 @@ mod circuit {
     }
 
     impl Circuit for Settle {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let price = &self.public.execution_price;

@@ -28,6 +28,8 @@ pub(crate) struct DecrementPublicInputs {
     pub(crate) step: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Decrement {}
+
 impl ProofInput for Decrement {
     type Circuit = circuit::Decrement;
 
@@ -64,8 +66,8 @@ impl Placeholder for Decrement {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataUtxo, PublicInputs, TxContext, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -88,6 +90,8 @@ mod circuit {
     }
 
     impl Circuit for Decrement {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;

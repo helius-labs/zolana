@@ -37,6 +37,8 @@ struct ClaimPublicInputs {
     amount: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Claim {}
+
 impl ProofInput for Claim {
     type Circuit = circuit::Claim;
 
@@ -88,7 +90,7 @@ impl Placeholder for Claim {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
@@ -119,6 +121,8 @@ mod circuit {
     }
 
     impl Circuit for Claim {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

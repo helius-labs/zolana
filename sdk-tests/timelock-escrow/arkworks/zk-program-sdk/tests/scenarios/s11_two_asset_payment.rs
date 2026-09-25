@@ -31,6 +31,8 @@ struct TwoAssetPaymentPublicInputs {
     recipient: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::TwoAssetPayment {}
+
 impl ProofInput for TwoAssetPayment {
     type Circuit = circuit::TwoAssetPayment;
 
@@ -74,8 +76,8 @@ impl Placeholder for TwoAssetPayment {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -98,6 +100,8 @@ mod circuit {
     }
 
     impl Circuit for TwoAssetPayment {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let recipient = &self.public.recipient;

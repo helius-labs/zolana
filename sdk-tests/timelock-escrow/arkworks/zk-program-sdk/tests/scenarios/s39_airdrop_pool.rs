@@ -23,6 +23,8 @@ pub struct Pool {
     pub airdrop_id: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Pool {}
+
 impl ProofInput for Pool {
     type Circuit = circuit::Pool;
 
@@ -72,6 +74,8 @@ struct CreatePoolPublicInputs {
     airdrop_id: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::CreatePool {}
+
 impl ProofInput for CreatePool {
     type Circuit = circuit::CreatePool;
 
@@ -112,7 +116,7 @@ impl Placeholder for CreatePool {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Utxo, UtxoData,
         },
@@ -162,6 +166,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for CreatePool {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

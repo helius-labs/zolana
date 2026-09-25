@@ -20,6 +20,8 @@ pub struct Limits {
     pub tier: u16,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Limits {}
+
 impl ProofInput for Limits {
     type Circuit = circuit::Limits;
 
@@ -66,6 +68,8 @@ pub struct Portfolio {
     pub balances: [u64; 4],
     pub labels: [u16; 2],
 }
+
+impl zk_program_sdk::circuit::CircuitType for circuit::Portfolio {}
 
 impl ProofInput for Portfolio {
     type Circuit = circuit::Portfolio;
@@ -126,6 +130,8 @@ struct PortfolioCreatePublicInputs {
     owner: ShieldedAddress,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::PortfolioCreate {}
+
 impl ProofInput for PortfolioCreate {
     type Circuit = circuit::PortfolioCreate;
 
@@ -171,7 +177,7 @@ impl Placeholder for PortfolioCreate {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, Bool, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Asset, Bool, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Utxo, UtxoData,
         },
@@ -267,6 +273,8 @@ mod circuit {
     }
 
     impl Circuit for PortfolioCreate {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

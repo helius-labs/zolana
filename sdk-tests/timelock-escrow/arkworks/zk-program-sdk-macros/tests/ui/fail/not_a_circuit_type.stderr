@@ -1,0 +1,23 @@
+error[E0277]: `u64` is not a circuit type
+  --> tests/ui/fail/not_a_circuit_type.rs:11:20
+   |
+11 |     type Circuit = u64;
+   |                    ^^^ a circuit type is built only from CircuitVars
+   |
+   = help: the trait `CircuitType` is not implemented for `u64`
+   = note: derive `ProofInput` or `CircuitType` on the client struct to generate its circuit type, or implement `CircuitType` for a circuit struct by hand
+   = help: the following other types implement trait `CircuitType`:
+             Asset
+             OwnerKey
+             Utxo
+             [T; N]
+             ark_r1cs_std::fields::fp::FpVar<ark_ff::fields::models::fp::Fp<ark_ff::fields::models::fp::montgomery_backend::MontBackend<ark_bn254::fields::fr::FrConfig, 4>, 4>>
+             zk_program_sdk::circuit::Bool
+             zk_program_sdk::circuit::Bytes<N>
+             zk_program_sdk::circuit::Owner
+             zk_program_sdk::circuit::TxContext
+note: required by a bound in `zk_program_sdk::conversion::ProofInput::Circuit`
+  --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/conversion/mod.rs
+   |
+   |     type Circuit: CircuitType;
+   |                   ^^^^^^^^^^^ required by this bound in `ProofInput::Circuit`

@@ -32,6 +32,8 @@ struct CancelPublicInputs {
     maker_identity: [u8; 32],
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Cancel {}
+
 impl ProofInput for Cancel {
     type Circuit = circuit::Cancel;
 
@@ -72,7 +74,7 @@ impl Placeholder for Cancel {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
@@ -98,6 +100,8 @@ mod circuit {
     }
 
     impl Circuit for Cancel {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;

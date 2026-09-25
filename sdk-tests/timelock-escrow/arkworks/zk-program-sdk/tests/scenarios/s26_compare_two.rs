@@ -30,6 +30,8 @@ struct CompareTwoPublicInputs {
     total: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::CompareTwo {}
+
 impl ProofInput for CompareTwo {
     type Circuit = circuit::CompareTwo;
 
@@ -70,8 +72,8 @@ impl Placeholder for CompareTwo {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataUtxo, PublicInputs, TxContext, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Utxo,
         },
         RelationError,
     };
@@ -96,6 +98,8 @@ mod circuit {
     }
 
     impl Circuit for CompareTwo {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let first = DataUtxo::new_mut(&private.first_utxo, &private.first)?;

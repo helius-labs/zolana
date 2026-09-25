@@ -58,6 +58,7 @@ members = [
     "sdk-tests/zk-program-swap/test",
     "sdk-tests/timelock-escrow/arkworks",
     "sdk-tests/timelock-escrow/arkworks/zk-program-sdk",
+    "sdk-tests/timelock-escrow/arkworks/zk-program-sdk-macros",
     "sdk-tests/timelock-escrow/program",
     "sdk-tests/timelock-escrow/prover",
     "sdk-tests/timelock-escrow/sdk",

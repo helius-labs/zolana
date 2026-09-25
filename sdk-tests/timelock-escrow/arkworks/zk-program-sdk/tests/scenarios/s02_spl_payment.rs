@@ -29,6 +29,8 @@ struct SplPaymentPublicInputs {
     mint: Mint,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::SplPayment {}
+
 impl ProofInput for SplPayment {
     type Circuit = circuit::SplPayment;
 
@@ -67,7 +69,7 @@ impl Placeholder for SplPayment {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
@@ -90,6 +92,8 @@ mod circuit {
     }
 
     impl Circuit for SplPayment {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

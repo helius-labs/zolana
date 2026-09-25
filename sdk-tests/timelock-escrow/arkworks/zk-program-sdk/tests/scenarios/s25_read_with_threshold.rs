@@ -15,6 +15,8 @@ pub struct Account {
     pub balance: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::Account {}
+
 impl ProofInput for Account {
     type Circuit = circuit::Account;
 
@@ -59,6 +61,8 @@ struct ReadThresholdPublicInputs {
     threshold: u64,
 }
 
+impl zk_program_sdk::circuit::CircuitType for circuit::ReadThreshold {}
+
 impl ProofInput for ReadThreshold {
     type Circuit = circuit::ReadThreshold;
 
@@ -95,7 +99,7 @@ impl Placeholder for ReadThreshold {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, PublicInputs, TxContext, Utxo, UtxoData,
         },
         RelationError,
@@ -138,6 +142,8 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for ReadThreshold {
+        const MARKER: CircuitMarker = CircuitMarker;
+
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;

@@ -4,7 +4,7 @@ mod ledger;
 mod output;
 mod token;
 
-pub use data::{DataHash, DataUtxo, UtxoData};
+pub use data::{checked_utxo_data, DataHash, DataUtxo, UtxoData};
 pub(crate) use input::SpentInput;
 pub use input::Utxo;
 pub use ledger::Balance;

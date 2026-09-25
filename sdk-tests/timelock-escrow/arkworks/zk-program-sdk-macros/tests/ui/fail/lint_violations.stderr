@@ -1,0 +1,95 @@
+error: a circuit does not branch on values: write `if const { .. }` for a compile-time condition, or `select` for a value
+ --> tests/ui/fail/lint_violations.rs:5:17
+  |
+5 |     let first = if flag { 1u64 } else { 2u64 };
+  |                 ^^
+
+error: `if let` branches on a value; a circuit has one shape
+ --> tests/ui/fail/lint_violations.rs:6:5
+  |
+6 |     if let Some(inner) = maybe {
+  |     ^^
+
+error: a circuit does not branch on values: write `match const { .. }` for a compile-time value
+ --> tests/ui/fail/lint_violations.rs:9:18
+  |
+9 |     let second = match flag {
+  |                  ^^^^^
+
+error: a match guard branches on a value
+  --> tests/ui/fail/lint_violations.rs:14:15
+   |
+14 |         value if value > 0 => value,
+   |               ^^
+
+error: a circuit has a fixed shape: iterate a fixed-size array instead of `while`
+  --> tests/ui/fail/lint_violations.rs:17:5
+   |
+17 |     while flag {}
+   |     ^^^^^
+
+error: a circuit has a fixed shape: iterate a fixed-size array instead of `loop`
+  --> tests/ui/fail/lint_violations.rs:18:5
+   |
+18 |     loop {
+   |     ^^^^
+
+error: a circuit has a fixed shape: no `break`
+  --> tests/ui/fail/lint_violations.rs:19:9
+   |
+19 |         break;
+   |         ^^^^^
+
+error: a circuit has a fixed shape: no `continue`
+  --> tests/ui/fail/lint_violations.rs:22:9
+   |
+22 |         continue;
+   |         ^^^^^^^^
+
+error: `let ... else` branches on a value
+  --> tests/ui/fail/lint_violations.rs:24:30
+   |
+24 |     let Some(fourth) = maybe else { return 0 };
+   |                              ^^^^
+
+error: a circuit has one exit: end with the value and leave on errors with `?`
+  --> tests/ui/fail/lint_violations.rs:24:37
+   |
+24 |     let Some(fourth) = maybe else { return 0 };
+   |                                     ^^^^^^
+
+error: `&&` and `||` short-circuit, which is a branch
+  --> tests/ui/fail/lint_violations.rs:25:30
+   |
+25 |     let fifth = flag && flag || flag;
+   |                              ^
+
+error: `&&` and `||` short-circuit, which is a branch
+  --> tests/ui/fail/lint_violations.rs:25:22
+   |
+25 |     let fifth = flag && flag || flag;
+   |                      ^
+
+error: no indexing in a circuit: destructure the array or iterate over it
+  --> tests/ui/fail/lint_violations.rs:26:29
+   |
+26 |     let sixth = [1u64, 2u64][0];
+   |                             ^^^
+
+error: `Vec` has no fixed length: use an array `[T; N]`
+  --> tests/ui/fail/lint_violations.rs:27:18
+   |
+27 |     let seventh: Vec<u64> = Vec::new();
+   |                  ^^^
+
+error: `Vec` has no fixed length: use an array `[T; N]`
+  --> tests/ui/fail/lint_violations.rs:27:29
+   |
+27 |     let seventh: Vec<u64> = Vec::new();
+   |                             ^^^
+
+error: the circuit lint cannot see inside a macro, so circuits use none
+  --> tests/ui/fail/lint_violations.rs:28:5
+   |
+28 |     println!("{first}");
+   |     ^^^^^^^
