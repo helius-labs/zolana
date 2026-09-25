@@ -737,8 +737,122 @@ literal.
    transaction viewing key.
 5. `private_tx_hash` is computed once on the client and checked against the SPP prover's output
    before an instruction is built.
-6. The escrow circuit rejects a source input with a non-zero data hash.
+6. The escrow circuit accepts only the signing creator's funding UTXO as its source, so neither
+   a locked escrow UTXO nor someone else's deposit can be escrowed.
 7. The circuits build every output UTXO themselves. A circuit's inputs are the input UTXOs, the
    old state of spent program UTXOs, and only the new state it cannot derive.
 8. `cargo test` passes for the program, prover and sdk crates. The escrow localnet test passes.
    Keys verify with `just ensure-escrow-keys`. The CU bench runs.
+
+---
+
+## 9. Arkworks R1CS variant
+
+2026-09-24. A parallel crate, `sdk-tests/timelock-escrow/arkworks` (`timelock-escrow-arkworks`,
+arkworks 0.5 to match the workspace). The program keeps its gnark verifying keys; this crate
+shows the same abstractions with circuits written in Rust.
+
+The point is the property `LightAccount` gets from sharing code between program and client: one
+definition. Every state (`EscrowTerms`, `Funding`), the UTXO hash, `ConfidentialTransaction` with
+in-circuit `create`, and the escrow and withdraw relations are written once, over one concrete
+type, `CircuitVar` (`FpVar<Fr>`). Developers never see an arkworks generic:
+
+- **Constants run natively.** Proof inputs built from the SDK are `CircuitVar` constants, and
+  every operation on constants folds to a constant. The client computes the output hashes,
+  `private_tx_hash` and the public input with the exact code the circuit enforces, and a broken
+  rule fails with a named `RelationError` instead of an unsatisfied constraint.
+- **Allocated variables are the R1CS circuit.** `ProofInput::allocate` turns the same values into
+  private variables, and `ArkworksCircuit` runs the same relation over them. Poseidon is built
+  from light-poseidon's own parameters, the source `zolana_hasher` uses natively.
+
+Layout:
+
+- `arkworks/circuit-lib` (`circuit-lib`): everything not specific to the escrow. `CircuitVar`,
+  `ProofInput`, `Assert`, `poseidon`, `Utxo`, `DataHash`, `DataUtxo` (the `LightAccount`
+  counterpart: `new_init` / `from_output_utxo` / `new_mut` / `new_burn`), `TokenUtxo` (several
+  UTXOs of one owner and asset, with `transfer` and automatic change),
+  `ConfidentialTransaction` (input and output slots, `private_tx_hash`),
+  `TransactionProofInputs`, `Circuit` / `ArkworksCircuit`, Groth16 and groth16-solana helpers,
+  and `convert` from SDK bytes.
+- `arkworks` (`timelock-escrow-arkworks`): only the escrow. The `EscrowTerms` and `Funding`
+  states, the `Escrow` and `Withdraw` circuits, and their construction from the SDK's
+  `EscrowProofInputs` / `WithdrawProofInputs`, the same proof inputs the gnark prover takes.
+- `arkworks/README.md`: every name with what it is good for, and the flow diagrams.
+
+Slot constants come straight from the program crate. The proof inputs are built from the SDK's
+typed objects, with no key strings and no Go.
+
+Todos (one at a time, each verified before the next):
+
+1. Crate skeleton and root workspace member lines. Done.
+2. `CircuitVar`, `ProofInput`, `Assert`, Poseidon over constants and allocated variables. Verify:
+   Poseidon equals `zolana_hasher` for arities 1 to 7. Done.
+3. circuit-lib: `Utxo`, `DataHash`, `InputHash`, `Output`, `payment`, `plain_hash`, `DataUtxo`,
+   `TokenUtxo`, `TransactionProofInputs`, `ConfidentialTransaction`, `hash_chain4`, blinding
+   derivations. Verify: native results equal `ProofInputUtxo::hash`, `PrivateTxHash` and
+   `zolana_program::derivation`, and the R1CS run is satisfied with the same hash. Done.
+4. `Circuit` / `ArkworksCircuit` in circuit-lib; the escrow and withdraw circuits in the example
+   crate, with proof inputs built from the SDK transactions. Verify: the native public input
+   equals the program's `EscrowPublicInput` / `WithdrawPublicInput` over the builder's
+   `private_tx_hash`, and the constraint system is satisfied. Done.
+5. Groth16 setup, prove and verify helpers in circuit-lib, plus conversion of arkworks keys and
+   proofs to the groth16-solana byte layout and verification with `groth16-solana`, the verifier
+   the program uses. Rejection cases: a locked escrow UTXO or another creator's funding as the
+   source, a zero amount, another blinding seed, a withdraw to another signer. Done.
+6. Compare constraint counts with the gnark circuits, lint, format and review. Counts: escrow
+   4,782 (gnark 4,784), withdraw 3,346 (gnark 3,347).
+7. `arkworks/README.md`: every trait and abstraction name with one sentence on what it is good
+   for, and a state machine diagram of how the abstractions fit into the overall flow, from the
+   SDK transaction through proof inputs, the native run, the R1CS run and Groth16 to the
+   program. Done.
+
+## 10. Implement `arkworks/spec.md`
+
+2026-09-25. Implement [`arkworks/spec.md`](arkworks/spec.md) in circuit-lib and the example
+crate, adapting the existing Rust circuits. Requirements from the user:
+
+- Do not modify the program, send Solana transactions or generate SPP proofs.
+- Add a new test file that, for every instruction (escrow, withdraw), builds the proof inputs
+  through the client, generates the Groth16 proof from the Rust circuit, and produces the SPP
+  proof inputs.
+- Todos one at a time, each tested before the next.
+
+Decisions made while implementing, recorded in the spec:
+
+- The withdraw needs the spec's open item. A burned `DataUtxo` gets
+  `transfer(recipient, amount) -> OutputTokenUtxo`, like a `TokenUtxo`, with no change.
+- The program is unchanged, so its public input hash still follows the current protocol. The new
+  proofs verify with the program's `verify_groth16` against the spec's public hash.
+
+Todos:
+
+1. Types and instantiation: `Uint<BITS>` / `U64` / `U32` / `U16`, `Bool`, `RangeCheck`,
+   `check_bits` / `check_is_bool`, `ProofInput` with an associated `Circuit` type and
+   instantiation (native or R1CS). Verify: named error natively and an unsatisfied constraint
+   system in R1CS for an out-of-range value. Done.
+2. UTXO types: `Utxo` with dummies, `DataHash`, `OutputTokenUtxo`, `DataUtxo<S>` (`new_init`,
+   `from_output_utxo`, `new_mut`, `new_burn`, `transfer` when burned), `TokenUtxo<N>` (`Init` /
+   `Mut` / `Burn`, dummies, `transfer`, `deposit`, `withdraw`).
+   Verify natively and in R1CS. Done.
+3. `TxContext`, `PublicInputs`, `ConfidentialTransaction<IN, OUT>` builder and `check`, with
+   `private_tx_hash` without `external_data_hash`. Verify against an independent computation
+   with `zolana_hasher`. Done.
+4. `Circuit` trait and `ArkworksCircuit` (public hash as the only instance variable),
+   `check_constraints`, Groth16 setup, prove and verify. Done.
+5. circuit-lib `client` module: `TxContext`, `TokenUtxo`, `OutputTokenUtxo`, `DataUtxo`,
+   `ConfidentialTransaction` with real Rust types, producing `SppProofInputs`, the circuit's
+   proof inputs and the public hash. Done.
+6. Example crate: `EscrowTerms`, the escrow and withdraw circuits and their `client`
+   counterparts. Remove the old circuits and tests. Done.
+7. New test file: for escrow and withdraw, client build, drift check (native circuit run equals
+   the client's public hash), Groth16 proof verified by `verify_groth16`, SPP proof inputs with a
+   valid shape and output hashes equal to the client's. Done: `arkworks/tests/proofs.rs`,
+   plus `tests/rules.rs` for the broken rules.
+8. fmt, clippy, README, and a review. Done: the review's burn-balance, dummy-domain, owner-hash
+   and test findings are fixed.
+
+Acceptance criteria:
+
+- `cargo test -p circuit-lib -p timelock-escrow-arkworks` passes.
+- `cargo clippy -p circuit-lib -p timelock-escrow-arkworks --all-targets -- -D warnings` is clean.
+- No change under `sdk-tests/timelock-escrow/program`.

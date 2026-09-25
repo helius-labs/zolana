@@ -1,0 +1,16 @@
+[package]
+name = "timelock-escrow-arkworks"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+circuit-lib = { path = "circuit-lib" }
+solana-address = { workspace = true }
+timelock-escrow-program = { path = "../program" }
+timelock-escrow-sdk = { path = "../sdk" }
+zolana-client = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
