@@ -48,11 +48,17 @@ struct Args {
     port: u16,
 
     /// URL of the RPC server
-    #[arg(short, long, default_value = "http://127.0.0.1:8899")]
+    #[arg(
+        short,
+        long,
+        env = photon_indexer::common::RPC_URL_ENV,
+        hide_env_values = true,
+        default_value = "http://127.0.0.1:8899"
+    )]
     rpc_url: String,
 
     /// DB URL to store indexing data. By default we use an in-memory SQLite database.
-    #[arg(short, long)]
+    #[arg(short, long, env = "PHOTON_DATABASE_URL", hide_env_values = true)]
     db_url: Option<String>,
 
     /// The start slot to begin indexing from. Defaults to the last indexed slot in the database plus
@@ -196,7 +202,10 @@ pub fn parse_db_type(db_url: &str) -> Result<DatabaseBackend> {
     } else if db_url.starts_with("sqlite://") {
         Ok(DatabaseBackend::Sqlite)
     } else {
-        bail!("Unsupported database type: {}", db_url)
+        let scheme = reqwest::Url::parse(db_url)
+            .map(|url| url.scheme().to_owned())
+            .unwrap_or_default();
+        bail!("Unsupported database scheme {scheme:?}")
     }
 }
 
@@ -551,4 +560,27 @@ async fn main() -> Result<()> {
         tokio::spawn(api_handler.stopped());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Args;
+    use clap::CommandFactory;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn urls_are_read_from_the_environment_without_echoing_values() {
+        let command = Args::command();
+        for (id, env) in [
+            ("rpc_url", "PHOTON_RPC_URL"),
+            ("db_url", "PHOTON_DATABASE_URL"),
+        ] {
+            let arg = command
+                .get_arguments()
+                .find(|arg| arg.get_id() == id)
+                .unwrap();
+            assert_eq!(arg.get_env(), Some(OsStr::new(env)));
+            assert!(arg.is_hide_env_values_set());
+        }
+    }
 }

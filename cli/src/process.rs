@@ -62,6 +62,10 @@ pub(crate) fn spawn_service(
         .with_context(|| format!("failed to clone {}", log_path.display()))?;
 
     let mut command = Command::new(binary);
+    if service == Service::Photon {
+        // Localnet Photon takes a database only through --db-url.
+        command.env_remove("PHOTON_DATABASE_URL");
+    }
     command.envs(envs.iter().copied());
     if let Some(scope) = scope.as_ref().filter(|_| service == Service::Photon) {
         let temporary = scope.join(format!("photon-data-{}", std::process::id()));
