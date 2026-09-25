@@ -12,6 +12,7 @@ import (
 )
 
 type Request struct {
+	Registry       *RegistryRequest   `json:"registry,omitempty"`
 	CircuitType    common.CircuitType `json:"circuitType"`
 	Prepared       json.RawMessage    `json:"prepared"`
 	Trees          []Tree             `json:"trees"`
@@ -21,11 +22,13 @@ type Request struct {
 }
 
 type Tree struct {
-	Address string `json:"tree"`
-	ID      uint16 `json:"id"`
+	Fallback *common.ResolvedTree `json:"fallback,omitempty"`
+	Address  string               `json:"tree"`
+	ID       uint16               `json:"id"`
 }
 
 type Lookup struct {
+	Nullifier  *Hash `json:"nullifier,omitempty"`
 	TreeSlot   uint8 `json:"treeSlot"`
 	Commitment *Hash `json:"commitment"`
 }

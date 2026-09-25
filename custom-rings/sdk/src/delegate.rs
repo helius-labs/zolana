@@ -117,6 +117,13 @@ impl<'a> DelegateTransfer<'a> {
         self,
         env: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenDelegateTransfer, TransferError> {
+        crate::projection::retry_projection_lag(|| self.clone().prove_once(&env))
+    }
+
+    fn prove_once<I: Rpc, R: Rpc>(
+        self,
+        env: &TransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenDelegateTransfer, TransferError> {
         let config = self
             .ring
             .read_config(env.rpc)?
@@ -139,15 +146,18 @@ impl<'a> DelegateTransfer<'a> {
             }
             .load()?,
         };
-        let statement = staged.policy_tier().read(ReadEnvironment {
-            indexer: env.indexer,
-            rpc: env.rpc,
-        })?;
-        let witnessed = staged.witness(spends, statement)?;
+        let statement = staged.policy_tier().read(
+            ReadEnvironment {
+                indexer: env.indexer,
+                rpc: env.rpc,
+            },
+            env.prover.proof_data_source(),
+        )?;
+        let mut witnessed = staged.witness(spends, statement)?;
         let spp_proof =
             ProofCompressed::try_from(env.prover.prove_ring_authority(witnessed.spp())?)?
                 .to_transact_proof();
-        let ring_proof = env.prover.prove(&witnessed.request)?;
+        let ring_proof = witnessed.request.prove(env.prover)?;
         witnessed.finish(spp_proof, ring_proof)
     }
 
@@ -155,6 +165,13 @@ impl<'a> DelegateTransfer<'a> {
     pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         env: AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenDelegateTransfer, TransferError> {
+        crate::projection::retry_projection_lag_async(|| self.clone().prove_once_async(&env)).await
+    }
+
+    async fn prove_once_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        env: &AsyncTransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenDelegateTransfer, TransferError> {
         let config = self
             .ring
@@ -183,15 +200,18 @@ impl<'a> DelegateTransfer<'a> {
         };
         let statement = staged
             .policy_tier()
-            .read_async(ReadEnvironment {
-                indexer: env.indexer,
-                rpc: env.rpc,
-            })
+            .read_async(
+                ReadEnvironment {
+                    indexer: env.indexer,
+                    rpc: env.rpc,
+                },
+                env.prover.proof_data_source(),
+            )
             .await?;
-        let witnessed = staged.witness(spends, statement)?;
+        let mut witnessed = staged.witness(spends, statement)?;
         let (spp, ring) = try_join(
-            env.prover.prove_ring_authority(witnessed.spp()),
-            env.prover.prove(&witnessed.request),
+            env.prover.prove_ring_authority(&witnessed.result.inputs),
+            witnessed.request.prove_async(env.prover),
         )
         .await?;
         witnessed.finish(ProofCompressed::try_from(spp)?.to_transact_proof(), ring)

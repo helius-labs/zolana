@@ -43,7 +43,14 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	if len(data) > 1<<20 || decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF {
 		return request, nil, fmt.Errorf("invalid indexed request")
 	}
-	if len(request.Trees) == 0 || len(request.Trees) > 2 {
+	if request.Registry != nil && !policyCircuit(request.CircuitType) {
+		return request, nil, fmt.Errorf("unexpected registry request")
+	}
+	maximumTrees := 2
+	if policyCircuit(request.CircuitType) {
+		maximumTrees = 5
+	}
+	if len(request.Trees) == 0 || len(request.Trees) > maximumTrees {
 		return request, nil, fmt.Errorf("invalid input tree count")
 	}
 	for index, tree := range request.Trees {
@@ -66,6 +73,10 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 		expected = 8
 	case common.MergeRingCircuitType:
 		expected = 8
+	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
+		expected = 19
+	case common.CustomRingCompressedPolicyCircuitType:
+		expected = 20
 	}
 	if len(request.PublicInputs) != expected {
 		return request, nil, fmt.Errorf("invalid public input count")
@@ -80,7 +91,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 		}
 	}
 	for index, input := range request.Inputs {
-		if index > 0 && input.TreeSlot < request.Inputs[index-1].TreeSlot {
+		if !policyCircuit(request.CircuitType) && index > 0 && input.TreeSlot < request.Inputs[index-1].TreeSlot {
 			return request, nil, fmt.Errorf("interleaved input trees")
 		}
 	}
@@ -112,6 +123,9 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	defer finishFetch()
 	proofs := make([]treeProofs, len(request.Trees))
 	for index, input := range request.Inputs {
+		if prepared.inputs[index].disabled {
+			continue
+		}
 		group := &proofs[input.TreeSlot]
 		group.inputs = append(group.inputs, index)
 		if input.Commitment != nil {
@@ -119,7 +133,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		}
 	}
 	for _, group := range proofs {
-		if len(group.inputs) == 0 {
+		if len(group.inputs) == 0 && !prepared.policy {
 			return nil, fmt.Errorf("input tree has no real spend")
 		}
 	}
@@ -127,6 +141,9 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	defer cancel()
 	// 1. Fetch one nullifier snapshot per tree for real and dummy inputs together.
 	tasks, taskContext := errgroup.WithContext(ctx)
+	if prepared.registry != nil {
+		tasks.Go(func() error { return r.resolvePolicyRegistry(taskContext, request, prepared.registry) })
+	}
 	for treeIndex, tree := range request.Trees {
 		group := &proofs[treeIndex]
 		leaves := make([]Hash, len(group.realInputs))
@@ -149,16 +166,18 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 				return nil
 			})
 		}
-		tasks.Go(func() error {
-			data, err := r.call(taskContext, proofQuery{Method: "getNonInclusionProofs", Tree: tree.Address, Leaves: nullifiers})
-			if err != nil {
-				return err
-			}
-			if json.Unmarshal(data, &group.exclusion) != nil || group.exclusion.Context.Slot < request.MinContextSlot {
-				return fmt.Errorf("invalid nullifier proof response")
-			}
-			return nil
-		})
+		if len(nullifiers) != 0 {
+			tasks.Go(func() error {
+				data, err := r.call(taskContext, proofQuery{Method: "getNonInclusionProofs", Tree: tree.Address, Leaves: nullifiers})
+				if err != nil {
+					return err
+				}
+				if json.Unmarshal(data, &group.exclusion) != nil || group.exclusion.Context.Slot < request.MinContextSlot {
+					return fmt.Errorf("invalid nullifier proof response")
+				}
+				return nil
+			})
+		}
 	}
 	if err := tasks.Wait(); err != nil {
 		return nil, err
@@ -181,7 +200,20 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		if len(group.state.Proofs) != 0 {
 			stateRoot = group.state.Proofs[0]
 		}
-		nullifierRoot := group.exclusion.Proofs[0]
+		var nullifierRoot nullifierProof
+		if fallback := tree.Fallback; fallback != nil {
+			state, _ := common.FeFromHex(fallback.UtxoRoot)
+			exclusion, _ := common.FeFromHex(fallback.NullifierRoot)
+			if len(group.state.Proofs) == 0 {
+				stateRoot.Root, _ = hashField(state)
+				stateRoot.RootIndex = fallback.UtxoRootIndex
+			}
+			nullifierRoot.Root, _ = hashField(exclusion)
+			nullifierRoot.RootIndex = fallback.NullifierRootIndex
+		}
+		if len(group.exclusion.Proofs) != 0 {
+			nullifierRoot = group.exclusion.Proofs[0]
+		}
 		states := make(map[int]*stateProof, len(group.realInputs))
 		for index, input := range group.realInputs {
 			proof := &group.state.Proofs[index]
@@ -242,7 +274,18 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	transcript := append([]*big.Int{}, public[:2]...)
 	transcript = append(transcript, treeHash)
 	transcript = append(transcript, public[2:]...)
-	*prepared.hash, err = prooftranscript.HashChain4(transcript)
+	if prepared.policy {
+		value := public[0]
+		for _, field := range append([]*big.Int{treeHash}, public[1:]...) {
+			value, err = prooftranscript.HashFields([]*big.Int{value, field})
+			if err != nil {
+				return nil, err
+			}
+		}
+		*prepared.hash = value
+	} else {
+		*prepared.hash, err = prooftranscript.HashChain4(transcript)
+	}
 	if err != nil {
 		return nil, err
 	}

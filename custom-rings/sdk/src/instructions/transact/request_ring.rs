@@ -181,6 +181,7 @@ impl VelocityProofInput {
 }
 
 pub struct CustomRingPolicyProofRequest {
+    pub indexed: Option<zolana_client::prover::indexed::IndexedPolicyData>,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
@@ -646,6 +647,7 @@ mod tests {
 
     fn request() -> CustomRingPolicyProofRequest {
         CustomRingPolicyProofRequest {
+            indexed: None,
             public_input_hash: [1u8; 32],
             private_tx_hash: [2u8; 32],
             tx_viewing_key: ViewingKey::from_bytes(&[3u8; 32]).expect("viewing key"),

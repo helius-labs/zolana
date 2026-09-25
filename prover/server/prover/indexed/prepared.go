@@ -11,6 +11,7 @@ import (
 )
 
 type inputTarget struct {
+	disabled              bool
 	slot, nullifier       *big.Int
 	dummy, cached         bool
 	state, exclusion      *[]*big.Int
@@ -19,10 +20,12 @@ type inputTarget struct {
 }
 
 type preparedProof struct {
-	value  json.Marshaler
-	inputs []inputTarget
-	slots  *[]common.TreeSlotParams
-	hash   **big.Int
+	registry *resolvedPolicy
+	policy   bool
+	value    json.Marshaler
+	inputs   []inputTarget
+	slots    *[]common.TreeSlotParams
+	hash     **big.Int
 }
 
 func transferTargets(inputs []transfer.InputParams, cache transfer.CacheSelectionParams) ([]inputTarget, error) {
@@ -51,6 +54,19 @@ func decodePrepared(request Request) (*preparedProof, error) {
 	}
 	if json.Unmarshal(request.Prepared, &meta) != nil || meta.Circuit != request.CircuitType {
 		return nil, fmt.Errorf("prepared circuit mismatch")
+	}
+	if policyCircuit(request.CircuitType) {
+		return decodePolicy(request)
+	}
+	for _, tree := range request.Trees {
+		if tree.Fallback != nil {
+			return nil, fmt.Errorf("unexpected fallback roots")
+		}
+	}
+	for _, input := range request.Inputs {
+		if input.Nullifier != nil {
+			return nil, fmt.Errorf("unexpected lookup nullifier")
+		}
 	}
 	var prepared preparedProof
 	shape := common.ProofShape{Circuit: request.CircuitType}

@@ -1,3 +1,5 @@
+mod policy;
+pub use policy::{IndexedPolicyData, IndexedPolicyLookup, IndexedPolicyRequest, IndexedRegistry};
 pub(crate) mod batch;
 pub use batch::{BatchAnchor, IndexedBatchRequest, ProvenIndexedBatch};
 mod merge;
@@ -305,7 +307,7 @@ impl IndexedProofRequest {
 
 impl ProofResolution {
     pub fn tree_slots(&self) -> Result<[TreeSlot; INPUT_TREES], ClientError> {
-        if self.trees.is_empty() || self.trees.len() > MAX_INPUT_TREES {
+        if self.trees.is_empty() || self.trees.len() > INPUT_TREES {
             return Err(invalid_resolution());
         }
         let mut slots = [TreeSlot::ZERO; INPUT_TREES];

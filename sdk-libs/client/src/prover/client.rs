@@ -438,6 +438,21 @@ impl ProverClient {
         })
     }
 
+    pub fn prove_indexed_policy(
+        &self,
+        request: &super::indexed::IndexedPolicyRequest,
+    ) -> Result<IndexedProof, ClientError> {
+        let proof = self
+            .send_response(ProofRequest {
+                body: request.body(),
+                delivery: self.delivery,
+                route: ProofRoute::Indexed,
+                key: request.key(),
+            })
+            .map_err(indexed_failure)?;
+        request.validate(proof)
+    }
+
     pub fn prove_indexed_batch(
         &self,
         request: &IndexedBatchRequest,
@@ -974,6 +989,22 @@ impl AsyncProverClient {
             key,
         })
         .await
+    }
+
+    pub async fn prove_indexed_policy(
+        &self,
+        request: &super::indexed::IndexedPolicyRequest,
+    ) -> Result<IndexedProof, ClientError> {
+        let proof = self
+            .send_response(ProofRequest {
+                body: request.body(),
+                delivery: self.delivery,
+                route: ProofRoute::Indexed,
+                key: request.key(),
+            })
+            .await
+            .map_err(indexed_failure)?;
+        request.validate(proof)
     }
 
     pub async fn prove_indexed_batch(

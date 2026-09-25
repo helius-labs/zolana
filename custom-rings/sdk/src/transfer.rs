@@ -268,6 +268,12 @@ pub enum TransferError {
     KeyRegistration(#[from] KeyRegistrationError),
 }
 
+impl crate::projection::ProjectionLag for TransferError {
+    fn is_projection_lag(&self) -> bool {
+        matches!(self, Self::Client(ClientError::IndexerProofDataNotReady))
+    }
+}
+
 impl From<PolicyMatchError> for TransferError {
     fn from(error: PolicyMatchError) -> Self {
         Self::PolicyMatch(Box::new(error))
@@ -347,6 +353,13 @@ impl<'a> CustomRingTransfer<'a> {
         self,
         environment: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenTransfer, TransferError> {
+        crate::projection::retry_projection_lag(|| self.clone().prove_once(&environment))
+    }
+
+    fn prove_once<I: Rpc, R: Rpc>(
+        self,
+        environment: &TransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenTransfer, TransferError> {
         let config = self
             .ring
             .read_config(environment.rpc)?
@@ -382,18 +395,18 @@ impl<'a> CustomRingTransfer<'a> {
             None
         };
         let tier = match &policy {
-            Some(policy) => Tier::Policy(
-                staged
-                    .policy_tier(&policy.pinned, key_registry)?
-                    .build(environment.indexer, environment.rpc)?,
-            ),
+            Some(policy) => Tier::Policy(staged.policy_tier(&policy.pinned, key_registry)?.build(
+                environment.indexer,
+                environment.rpc,
+                environment.prover.proof_data_source(),
+            )?),
             None => Tier::Base,
         };
-        let witnessed = staged.witness(inputs, trees, tier)?;
+        let mut witnessed = staged.witness(inputs, trees, tier)?;
         let spp_proof = witnessed
             .spp
             .prove(environment.prover, &witnessed.proof_inputs)?;
-        let ring_proof = environment.prover.prove(&witnessed.request)?;
+        let ring_proof = witnessed.request.prove(environment.prover)?;
         witnessed.finish(spp_proof, ring_proof)
     }
 
@@ -411,6 +424,16 @@ impl<'a> CustomRingTransfer<'a> {
     pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         environment: AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenTransfer, TransferError> {
+        crate::projection::retry_projection_lag_async(|| {
+            self.clone().prove_once_async(&environment)
+        })
+        .await
+    }
+
+    async fn prove_once_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        environment: &AsyncTransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenTransfer, TransferError> {
         let config = self
             .ring
@@ -454,12 +477,16 @@ impl<'a> CustomRingTransfer<'a> {
             Some(policy) => Tier::Policy(
                 staged
                     .policy_tier(&policy.pinned, key_registry)?
-                    .build_async(environment.indexer, environment.rpc)
+                    .build_async(
+                        environment.indexer,
+                        environment.rpc,
+                        environment.prover.proof_data_source(),
+                    )
                     .await?,
             ),
             None => Tier::Base,
         };
-        let witnessed = staged.witness(inputs, trees, tier)?;
+        let mut witnessed = staged.witness(inputs, trees, tier)?;
         // Both witnesses are complete, and neither proof is an input to the
         // other: SPP proves the transfer, the ring circuit proves the auditor
         // encryption over the `private_tx_hash` the SPP witness already fixed.
@@ -473,7 +500,7 @@ impl<'a> CustomRingTransfer<'a> {
             witnessed
                 .spp
                 .prove_async(environment.prover, &witnessed.proof_inputs),
-            environment.prover.prove(&witnessed.request),
+            witnessed.request.prove_async(environment.prover),
         )
         .await?;
         witnessed.finish(spp, ring)
@@ -999,17 +1026,20 @@ impl PolicyTierInput<'_> {
     pub fn read<I: Rpc, R: Rpc>(
         self,
         env: ReadEnvironment<'_, I, R>,
+        source: ProofDataSource,
     ) -> Result<PolicyStatement, TransferError> {
         let pinned = self
             .ring
             .read_pinned_policy(env.rpc)?
             .ok_or(TransferError::MissingPolicyConfig)?;
-        self.with_config(&pinned)?.build(env.indexer, env.rpc)
+        self.with_config(&pinned)?
+            .build(env.indexer, env.rpc, source)
     }
 
     pub async fn read_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         env: ReadEnvironment<'_, I, R>,
+        source: ProofDataSource,
     ) -> Result<PolicyStatement, TransferError> {
         let pinned = self
             .ring
@@ -1017,7 +1047,7 @@ impl PolicyTierInput<'_> {
             .await?
             .ok_or(TransferError::MissingPolicyConfig)?;
         self.with_config(&pinned)?
-            .build_async(env.indexer, env.rpc)
+            .build_async(env.indexer, env.rpc, source)
             .await
     }
 
@@ -1068,8 +1098,9 @@ impl PolicyTier<'_> {
         self,
         indexer: &I,
         rpc: &R,
+        source: ProofDataSource,
     ) -> Result<PolicyStatement, TransferError> {
-        let mut witness = self.witness.build(indexer, rpc)?;
+        let mut witness = self.witness.build_with_source(indexer, rpc, source)?;
         if let Some(velocity) = self.committed_velocity {
             witness.velocity = velocity;
         }
@@ -1080,8 +1111,12 @@ impl PolicyTier<'_> {
         self,
         indexer: &I,
         rpc: &R,
+        source: ProofDataSource,
     ) -> Result<PolicyStatement, TransferError> {
-        let mut witness = self.witness.build_async(indexer, rpc).await?;
+        let mut witness = self
+            .witness
+            .build_async_with_source(indexer, rpc, source)
+            .await?;
         if let Some(velocity) = self.committed_velocity {
             witness.velocity = velocity;
         }
@@ -1379,6 +1414,20 @@ impl TierRequestInput<'_> {
 }
 
 impl TierRequest {
+    fn prove(&mut self, prover: &ProverClient) -> Result<Proof, ClientError> {
+        match self {
+            Self::Base(request) => Ok(prover.prove(request)?),
+            Self::Policy(request) => request.prove(prover),
+        }
+    }
+
+    async fn prove_async(&mut self, prover: &AsyncProverClient) -> Result<Proof, ClientError> {
+        match self {
+            Self::Base(request) => Ok(prover.prove(request).await?),
+            Self::Policy(request) => request.prove_async(prover).await,
+        }
+    }
+
     fn with_compressed(self, compressed: CompressedDisclosure) -> Result<Self, TransferError> {
         match self {
             Self::Base(_) => Err(TransferError::CompressedWithoutWindow),
@@ -1410,6 +1459,70 @@ impl TierRequest {
 }
 
 impl PolicyRequest {
+    fn indexed_request(
+        &self,
+    ) -> Result<Option<zolana_client::prover::indexed::IndexedPolicyRequest>, ClientError> {
+        let Some(mut data) = self.request.indexed.clone() else {
+            return Ok(None);
+        };
+        if let PolicyProofKind::Compressed(compressed) = &self.kind {
+            data.public_inputs.push(compressed.counters_disclosure_hash);
+        }
+        zolana_client::prover::indexed::IndexedPolicyRequest::new(
+            self.body()?,
+            self.proving_key()?,
+            data,
+        )
+        .map(Some)
+    }
+
+    fn accept_indexed(
+        &mut self,
+        indexed: zolana_client::prover::indexed::IndexedProof,
+    ) -> Result<Proof, ClientError> {
+        use custom_ring_interface::{
+            compressed_policy_verifying_key, delegate_policy_verifying_key, policy_verifying_key,
+        };
+        let key = match self.kind {
+            PolicyProofKind::Ordinary => &policy_verifying_key::VERIFYINGKEY,
+            PolicyProofKind::Compressed(_) => &compressed_policy_verifying_key::VERIFYINGKEY,
+            PolicyProofKind::Delegate => &delegate_policy_verifying_key::VERIFYINGKEY,
+        };
+        // 2. Root contexts enter the transaction only after statement verification.
+        zolana_client::prover::verify_proof_statement(
+            &indexed.proof,
+            indexed.resolution.public_input_hash,
+            key,
+        )?;
+        self.reads.trees = indexed
+            .resolution
+            .trees
+            .into_iter()
+            .map(|tree| crate::PolicyTreeContext {
+                tree: tree.tree,
+                context: tree.context,
+            })
+            .collect();
+        Ok(indexed.proof)
+    }
+
+    pub(crate) fn prove(&mut self, prover: &ProverClient) -> Result<Proof, ClientError> {
+        match self.indexed_request()? {
+            Some(request) => self.accept_indexed(prover.prove_indexed_policy(&request)?),
+            None => Ok(prover.prove(self)?),
+        }
+    }
+
+    pub(crate) async fn prove_async(
+        &mut self,
+        prover: &AsyncProverClient,
+    ) -> Result<Proof, ClientError> {
+        match self.indexed_request()? {
+            Some(request) => self.accept_indexed(prover.prove_indexed_policy(&request).await?),
+            None => Ok(prover.prove(self).await?),
+        }
+    }
+
     /// The compressed circuit folds the disclosure after the policy chain.
     fn with_compressed(mut self, compressed: CompressedDisclosure) -> Result<Self, TransferError> {
         if self.request.velocity.window_slots == 0 {

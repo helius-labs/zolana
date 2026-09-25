@@ -126,7 +126,18 @@ func (r *Resolver) rpc(ctx context.Context, method string, params any) (json.Raw
 		Result  json.RawMessage `json:"result"`
 		Error   json.RawMessage `json:"error"`
 	}
-	if json.Unmarshal(data, &envelope) != nil || envelope.JSONRPC != "2.0" || envelope.ID != method || len(envelope.Error) != 0 || len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) {
+	if json.Unmarshal(data, &envelope) != nil || envelope.JSONRPC != "2.0" || envelope.ID != method {
+		return nil, fmt.Errorf("invalid indexer response")
+	}
+	if method == "getRingKeyRegistryEntry" && len(envelope.Error) != 0 {
+		var failure struct {
+			Code int `json:"code"`
+		}
+		if json.Unmarshal(envelope.Error, &failure) == nil && (failure.Code == -32070 || failure.Code == -32071) {
+			return nil, ErrIndexerNotReady
+		}
+	}
+	if len(envelope.Error) != 0 || len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) {
 		return nil, fmt.Errorf("invalid indexer response")
 	}
 	return envelope.Result, nil

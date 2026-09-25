@@ -177,3 +177,15 @@ impl StatementVerification {
         })
     }
 }
+
+pub fn verify_proof_statement(
+    proof: &Proof,
+    public_input_hash: [u8; 32],
+    verifying_key: &'static Groth16Verifyingkey<'static>,
+) -> Result<(), ClientError> {
+    StatementVerification {
+        verifying_key,
+        public_input_hash,
+    }
+    .verify(proof)
+}
