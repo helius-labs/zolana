@@ -50,8 +50,8 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `TxContext` | The transaction settings: the blinding seed, from the OS RNG in `new`, and the output tree, `Some(0)` by default and the first spent input's `latest_tree_id` when `None`. The first nullifier comes from the first spent input and the sender from the keys. |
 | `Owner` | An owner preimage: the tag (`S` for Ed25519 and PDA keys, `P` for P256), the key bytes and the nullifier key. From a `ShieldedAddress`, or a signing key and nullifier key. |
 | `Bytes<N>` | A byte string the circuit sees byte by byte. |
-| `ZkProgram` | Feature `client`. Implemented with an empty `impl` on inputs that implement `Placeholder`. Its `create_proof_inputs_and_encrypt` borrows the inputs, runs `circuit` natively, resolves the slots against the records, and encrypts through `zolana_transaction::ConfidentialTransaction` with the sender's `ShieldedKeys`. It picks the smallest SPP shape the real inputs and outputs fit and returns the `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints` runs the circuit natively and in R1CS without proving. |
-| `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
+| `ZkProgram` | Feature `client`. Implemented with an empty `impl` on inputs that implement `Placeholder`. Its `create_proof_inputs_and_encrypt` borrows the inputs, runs `circuit` natively, resolves the slots against the records, and encrypts through `zolana_transaction::ConfidentialTransaction` with the sender's `ShieldedKeys`. It picks the smallest SPP shape the real inputs and outputs fit and returns the `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints` runs the circuit natively and in R1CS without proving. `export_r1cs` (feature `setup`) writes the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony, and `export_assignment` writes an input's full variable assignment as a snarkjs `.wtns` file. |
+| `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
 | `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
 | `SolanaProof`, `CompressedProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`, and the 128-byte form an instruction contains, from `CompressedProof::try_from(&proof)`. `CompressedProof::verify` decompresses and verifies it. |
 | `RelationError` | Names the broken rule, the misused slot, the value out of range or the failed resolution. |
@@ -61,8 +61,8 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 
 | Name | What it is good for |
 | --- | --- |
-| `Groth16Keys` | A proving key and its verifying key, from an arkworks `ProvingKey` or `Groth16Prover::keys`. `save` and `load` write and read the proving key. `export_verifying_key` writes the program constant. |
-| `VerifyingKeyExport` | Where `export_verifying_key` writes: the proving key to hash, the output file and the constant's name. The file comes from groth16-solana's generator and is marked `InsecureTest`. |
+| `Groth16Keys` | A proving key and its verifying key, from an arkworks `ProvingKey` or `Groth16Prover::keys`. `save` and `load` write and read the proving key. `load_zkey::<P>` (feature `client`) reads a snarkjs Groth16 zkey. It checks every point, refuses an identity in the verifying key and a zkey without a phase-2 contribution, and checks that the shape and the A and B rows match `P`'s circuit. `export_verifying_key` writes the program constant. |
+| `VerifyingKeyExport` | Where `export_verifying_key` writes: the proving key to hash, the output file, the constant's name and the `SetupKind`. The file comes from groth16-solana's generator. Keys from the local setup are `InsecureTest`. A ceremony zkey is `Production`, and its digest is the zkey's sha256. |
 | `SolanaVerifyingKey` | The verifying key in the groth16-solana layout, from an arkworks `VerifyingKey`. It converts into the `Groth16Verifyingkey` that `verify_groth16` takes. |
 
 ### `zk_program_sdk::circuit`: the DSL
@@ -215,6 +215,8 @@ the asset it was built with, the others their inputs' asset.
 cargo test -p zk-program-sdk
 cargo test -p timelock-escrow-arkworks
 cargo run -p timelock-escrow-arkworks --example constraints
+cargo run -p timelock-escrow-arkworks --example export_r1cs -- <dir>
+just test-arkworks-snarkjs
 ```
 
 - `tests/functional.rs` runs the escrow, then withdraws the escrow UTXO it created, with the
@@ -226,6 +228,19 @@ cargo run -p timelock-escrow-arkworks --example constraints
   - `verify_groth16`;
   - the SPP outputs.
 - `tests/rules.rs` checks every broken rule and every resolution failure, natively and in R1CS.
+- `tests/r1cs.rs` decodes the exported `.r1cs` and `.wtns` files, checks their headers and
+  that the assignment satisfies every constraint, and pins each r1cs's sha256. A change to a
+  circuit, a gadget or arkworks changes the digest and invalidates any zkey made from it.
+- `tests/snarkjs.rs` (feature `snarkjs`, needs `snarkjs` on PATH) runs a throwaway ceremony
+  on both circuits: a power-14 ptau, `groth16 setup`, one contribution, a beacon and
+  `zkey verify`. The ptau and zkeys are cached under `target/tmp/snarkjs`. It then checks:
+  - a Rust proof from the zkey, verified by groth16-solana and by `snarkjs groth16 verify`;
+  - `snarkjs wtns check` on the Rust assignment, and a snarkjs proof from it verified in Rust;
+  - a proof with arkworks' default `LibsnarkReduction` is rejected under the zkey;
+  - `load_zkey` refuses another circuit's zkey, a zkey without a contribution, an identity
+    `delta`, a point off the curve, a G2 point outside the subgroup, a changed coefficient
+    and a truncated file;
+  - the final zkey exports as `Production`, with the zkey's sha256 as its digest.
 - zk-program-sdk's tests cover:
   - Poseidon and `nonzero_hash_chain` parity;
   - the plain input types, the records and `FromCircuit`;
@@ -239,5 +254,18 @@ cargo run -p timelock-escrow-arkworks --example constraints
 | escrow | 13,838 |
 | withdraw | 5,786 |
 
-`setup` with an RNG is a single-party setup, suitable for tests only. A deployment needs its own
-setup, the exported verifying key in the program, and the protocol change.
+`setup` with an RNG is a single-party setup, suitable for tests only. A deployment needs a
+ceremony, the exported verifying key in the program, and the protocol change. The ceremony
+runs on snarkjs over a published, phase-2-prepared ptau:
+
+```bash
+cargo run -p timelock-escrow-arkworks --example export_r1cs -- keys
+snarkjs groth16 setup keys/escrow.r1cs powersOfTau28_hez_final_14.ptau keys/escrow_0000.zkey
+snarkjs zkey contribute keys/escrow_0000.zkey keys/escrow_0001.zkey --name="contributor 1"
+snarkjs zkey beacon keys/escrow_0001.zkey keys/escrow_final.zkey <beacon hex> 10 -n="final beacon"
+snarkjs zkey verify keys/escrow.r1cs powersOfTau28_hez_final_14.ptau keys/escrow_final.zkey
+```
+
+`Groth16Keys::load_zkey::<Escrow>` then loads `escrow_final.zkey`, and `export_verifying_key`
+with `SetupKind::Production` writes the program constant. The circuit is frozen from the
+`groth16 setup` on.

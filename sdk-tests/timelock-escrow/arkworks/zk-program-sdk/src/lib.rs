@@ -11,10 +11,10 @@ mod prover;
 pub use client::ZkProgram;
 pub use client::{Bytes, Owner, TxContext};
 pub use error::RelationError;
-#[cfg(feature = "setup")]
-pub use prover::VerifyingKeyExport;
 #[cfg(feature = "client")]
 pub use prover::{CompressedProof, Groth16Prover, ProofResult, SolanaProof};
 #[cfg(any(feature = "client", feature = "setup"))]
 pub use prover::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
+#[cfg(feature = "setup")]
+pub use prover::{SetupKind, VerifyingKeyExport};
 pub use zk_program_sdk_macros::circuit;

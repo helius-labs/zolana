@@ -6,7 +6,7 @@ use solana_address::Address;
 use zk_program_sdk::{
     circuit::{constant, Circuit, CircuitVar, ConstraintSystem, Field},
     conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Keys, Groth16Prover, RelationError, TxContext, VerifyingKeyExport, ZkProgram,
+    Groth16Keys, Groth16Prover, RelationError, SetupKind, TxContext, VerifyingKeyExport, ZkProgram,
 };
 use zolana_interface::instruction::instruction_data::transact::OwnerTag;
 use zolana_keypair::ShieldedAddress;
@@ -880,6 +880,7 @@ fn setup_saves_loads_and_exports_the_keys() {
         output_dir: &dir,
         output_filename: "payment.rs",
         const_name: "VERIFYINGKEY",
+        setup: SetupKind::InsecureTest,
     })
     .unwrap();
     let exported = std::fs::read_to_string(dir.join("payment.rs")).unwrap();

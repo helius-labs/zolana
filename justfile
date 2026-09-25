@@ -807,6 +807,12 @@ bench-zk-program-sdk:
 test-zk-program-sdk-macros:
     cargo test --release -p zk-program-sdk-macros
 
+# Runs a throwaway snarkjs ceremony on the exported escrow and withdraw r1cs
+# and proves from its zkeys. Needs `snarkjs` on PATH; the ptau and zkeys are
+# cached under target/tmp/snarkjs, keyed by the r1cs digest.
+test-arkworks-snarkjs:
+    cargo test --release -p timelock-escrow-arkworks --features snarkjs --test snarkjs
+
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in
 # target/deploy either -- build the bench programs into their own dedicated

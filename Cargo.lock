@@ -9646,8 +9646,15 @@ dependencies = [
 name = "timelock-escrow-arkworks"
 version = "0.1.0"
 dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16",
  "ark-relations",
  "borsh",
+ "hex",
+ "serde_json",
+ "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-signature",
  "timelock-escrow-program",
@@ -11209,6 +11216,7 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-groth16",
+ "ark-poly 0.5.0",
  "ark-r1cs-std",
  "ark-relations",
  "ark-serialize 0.5.0",

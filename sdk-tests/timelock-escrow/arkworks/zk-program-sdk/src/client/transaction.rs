@@ -19,6 +19,16 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
         ArkworksCircuit::new(self)?.check_constraints()
     }
 
+    #[cfg(feature = "setup")]
+    fn export_r1cs() -> Result<Vec<u8>, RelationError> {
+        let placeholder = Self::placeholder()?;
+        ArkworksCircuit::for_setup(&placeholder).matrices()?.r1cs()
+    }
+
+    fn export_assignment(&self) -> Result<Vec<u8>, RelationError> {
+        ArkworksCircuit::new(self)?.wtns()
+    }
+
     fn create_finalized_transaction(
         &self,
         sender: &ShieldedAddress,

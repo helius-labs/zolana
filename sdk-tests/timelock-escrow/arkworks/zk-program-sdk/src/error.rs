@@ -39,6 +39,12 @@ pub enum RelationError {
     InvalidProofPoint,
     #[error("the Groth16 keys cannot be read or written: {0}")]
     Keys(String),
+    #[error("the zkey is malformed: {0}")]
+    InvalidZkey(&'static str),
+    #[error("the zkey holds a {0} point that is not a valid curve point")]
+    InvalidKeyPoint(&'static str),
+    #[error("the zkey has no phase-2 contribution, so its delta equals gamma")]
+    UncontributedZkey,
     #[error("the Groth16 keys belong to another circuit")]
     KeysForAnotherCircuit,
     #[error("the proof inputs build another circuit than the prover's")]

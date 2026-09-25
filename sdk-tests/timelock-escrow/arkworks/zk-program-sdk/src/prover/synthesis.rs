@@ -36,6 +36,11 @@ impl CircuitMatrices {
         &self.matrices
     }
 
+    #[cfg(feature = "setup")]
+    pub(crate) fn r1cs(&self) -> Result<Vec<u8>, RelationError> {
+        super::snarkjs::r1cs(&self.matrices)
+    }
+
     pub(crate) fn check(&self, assignment: &[Field]) -> Result<(), RelationError> {
         let variables = self.matrices.num_instance_variables + self.matrices.num_witness_variables;
         if assignment.len() != variables {
@@ -117,10 +122,18 @@ where
         field_bytes(&self.public_hash)
     }
 
-    pub(crate) fn check_constraints(&self) -> Result<usize, RelationError> {
+    fn synthesize(&self, mode: SynthesisMode) -> Result<CircuitSystem, RelationError> {
         let cs = ConstraintSystem::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
+        cs.set_mode(mode);
         self.generate_constraints(cs.clone())?;
+        Ok(cs)
+    }
+
+    pub(crate) fn check_constraints(&self) -> Result<usize, RelationError> {
+        let cs = self.synthesize(SynthesisMode::Prove {
+            construct_matrices: true,
+        })?;
         one_public_input(cs.num_instance_variables())?;
         match cs.which_is_unsatisfied()? {
             Some(constraint) => Err(RelationError::Unsatisfied(constraint)),
@@ -129,23 +142,21 @@ where
     }
 
     pub(crate) fn matrices(&self) -> Result<CircuitMatrices, RelationError> {
-        let cs = ConstraintSystem::new_ref();
-        cs.set_optimization_goal(OptimizationGoal::Constraints);
-        cs.set_mode(SynthesisMode::Setup);
-        self.generate_constraints(cs.clone())?;
+        let cs = self.synthesize(SynthesisMode::Setup)?;
         cs.finalize();
         let matrices = cs.to_matrices().ok_or(SynthesisError::MissingCS)?;
         one_public_input(matrices.num_instance_variables)?;
         Ok(CircuitMatrices { matrices })
     }
 
+    pub(crate) fn wtns(&self) -> Result<Vec<u8>, RelationError> {
+        super::snarkjs::wtns(&self.assignment()?)
+    }
+
     pub(crate) fn assignment(&self) -> Result<Vec<Field>, RelationError> {
-        let cs = ConstraintSystem::new_ref();
-        cs.set_optimization_goal(OptimizationGoal::Constraints);
-        cs.set_mode(SynthesisMode::Prove {
+        let cs = self.synthesize(SynthesisMode::Prove {
             construct_matrices: false,
-        });
-        self.generate_constraints(cs.clone())?;
+        })?;
         let system = cs.borrow().ok_or(SynthesisError::MissingCS)?;
         Ok([
             system.instance_assignment.as_slice(),

@@ -10,8 +10,15 @@ use ark_groth16::Groth16;
 use ark_std::{rand::rngs::OsRng, UniformRand};
 use groth16_solana::groth16::Groth16Verifyingkey;
 
+#[cfg(feature = "setup")]
+pub use groth16_solana::vk::setup::SetupKind;
+
 #[cfg(feature = "client")]
-use super::synthesis::{ArkworksCircuit, CircuitMatrices, CircuitShape};
+use super::{
+    reduction::CircomReduction,
+    synthesis::{ArkworksCircuit, CircuitMatrices, CircuitShape},
+    zkey::Zkey,
+};
 #[cfg(feature = "client")]
 use crate::{circuit::Field, ZkProgram};
 use crate::{conversion::be_bytes, RelationError};
@@ -37,6 +44,10 @@ impl From<ProvingKey> for Groth16Keys {
 impl Groth16Keys {
     pub fn verifying_key(&self) -> &SolanaVerifyingKey {
         &self.verifying_key
+    }
+
+    pub fn proving_key(&self) -> &ProvingKey {
+        &self.proving_key
     }
 
     #[cfg(feature = "client")]
@@ -68,6 +79,16 @@ impl Groth16Keys {
         Ok(Self::from(proving_key))
     }
 
+    #[cfg(feature = "client")]
+    pub fn load_zkey<P: ZkProgram>(path: &Path) -> Result<Self, RelationError> {
+        let bytes = std::fs::read(path).map_err(RelationError::keys)?;
+        let zkey = Zkey::read(&bytes)?;
+        let placeholder = P::placeholder()?;
+        let matrices = ArkworksCircuit::for_setup(&placeholder).matrices()?;
+        zkey.check_circuit(matrices.matrices())?;
+        Ok(Self::from(zkey.proving_key))
+    }
+
     #[cfg(feature = "setup")]
     pub fn gnark_verifying_key(&self) -> Result<Vec<u8>, RelationError> {
         let vk = &self.proving_key.vk;
@@ -94,10 +115,7 @@ impl Groth16Keys {
         &self,
         export: &VerifyingKeyExport<'_>,
     ) -> Result<(), RelationError> {
-        use groth16_solana::vk::{
-            gnark::generate_bsb22_vk_file,
-            setup::{ProvingKeySource, SetupKind},
-        };
+        use groth16_solana::vk::{gnark::generate_bsb22_vk_file, setup::ProvingKeySource};
 
         std::fs::create_dir_all(export.output_dir).map_err(RelationError::keys)?;
         let raw = export
@@ -109,7 +127,7 @@ impl Groth16Keys {
             export.output_dir,
             export.output_filename,
             export.const_name,
-            SetupKind::InsecureTest,
+            export.setup,
             ProvingKeySource::File(export.proving_key),
         )
         .map_err(|error| RelationError::keys(format!("{error:?}")));
@@ -124,6 +142,7 @@ pub struct VerifyingKeyExport<'a> {
     pub output_dir: &'a Path,
     pub output_filename: &'a str,
     pub const_name: &'a str,
+    pub setup: SetupKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -279,10 +298,11 @@ impl<P: ZkProgram> Groth16Prover<P> {
         use ark_std::rand::{rngs::StdRng, SeedableRng};
 
         let placeholder = P::placeholder()?;
-        let proving_key = Groth16::<Bn254>::generate_random_parameters_with_reduction(
-            ArkworksCircuit::for_setup(&placeholder),
-            &mut StdRng::seed_from_u64(TEST_SETUP_SEED),
-        )?;
+        let proving_key =
+            Groth16::<Bn254, CircomReduction>::generate_random_parameters_with_reduction(
+                ArkworksCircuit::for_setup(&placeholder),
+                &mut StdRng::seed_from_u64(TEST_SETUP_SEED),
+            )?;
         Ok(Self {
             keys: Groth16Keys::from(proving_key),
             matrices: ArkworksCircuit::for_setup(&placeholder).matrices()?,
@@ -303,15 +323,17 @@ impl<P: ZkProgram> Groth16Prover<P> {
         let assignment = circuit.assignment()?;
         self.matrices.check(&assignment)?;
         let matrices = self.matrices.matrices();
-        let proof = SolanaProof::from(&Groth16::<Bn254>::create_proof_with_reduction_and_matrices(
-            &self.keys.proving_key,
-            Field::rand(&mut OsRng),
-            Field::rand(&mut OsRng),
-            matrices,
-            matrices.num_instance_variables,
-            matrices.num_constraints,
-            &assignment,
-        )?);
+        let proof = SolanaProof::from(
+            &Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
+                &self.keys.proving_key,
+                Field::rand(&mut OsRng),
+                Field::rand(&mut OsRng),
+                matrices,
+                matrices.num_instance_variables,
+                matrices.num_constraints,
+                &assignment,
+            )?,
+        );
         let public_hash = circuit.public_hash_bytes();
         proof.verify(&self.keys.verifying_key, public_hash)?;
         Ok(ProofResult { proof, public_hash })
