@@ -6,7 +6,7 @@ use zolana_interface::{
         instruction_data::merge_transact::{
             MergeExternalDataHash, MergeProof, MergeTransactIxData,
         },
-        tag::MERGE_TRANSACT,
+        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::tree_id_field,
 };
@@ -39,18 +39,38 @@ pub struct IndexedMergePreparation {
 pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
     data: MergeTransactIxData,
+    ring_data_hash: Option<[u8; 32]>,
 }
 
 impl IndexedMergePreparation {
     pub fn prepare(self) -> Result<PreparedIndexedMerge, ClientError> {
+        self.prepare_with_cache(None)
+    }
+
+    pub fn prepare_for_cache(
+        self,
+        cache: crate::prover::MergeCacheTarget,
+    ) -> Result<PreparedIndexedMerge, ClientError> {
+        self.prepare_with_cache(Some(cache))
+    }
+
+    fn prepare_with_cache(
+        self,
+        cache: Option<crate::prover::MergeCacheTarget>,
+    ) -> Result<PreparedIndexedMerge, ClientError> {
+        if cache.is_some_and(|target| {
+            usize::from(target.slot) >= zolana_interface::state::cache::CACHE_CAPACITY
+        }) {
+            return Err(invalid());
+        }
         let Self {
             merge,
             nullifier_key,
         } = self;
         merge.input_utxo_hashes()?;
-        if merge.ring_program_id.is_some() {
-            return Err(invalid());
-        }
+        let ring_hash =
+            zolana_transaction::utxo::program_id_proof_input_hash(&merge.ring_program_id)?;
+        let ring_data_hash = merge.output_utxo.ring_data_hash.unwrap_or_default();
         let first = merge
             .input_utxos
             .first()
@@ -70,13 +90,16 @@ impl IndexedMergePreparation {
         let mut saw_dummy = false;
         for (index, input) in merge.input_utxos.iter().enumerate() {
             let dummy = input.is_dummy();
+            if input.cache_slot.is_some() {
+                return Err(invalid());
+            }
             if !dummy {
                 if saw_dummy
                     || input.tree_id != tree_id
                     || input.utxo.owner != merge.signing_pubkey
                     || input.nullifier_pubkey != nullifier_pk
                     || input.utxo.asset != first.utxo.asset
-                    || input.utxo.ring_program_id.is_some()
+                    || input.utxo.ring_program_id != merge.ring_program_id
                 {
                     return Err(invalid());
                 }
@@ -110,7 +133,7 @@ impl IndexedMergePreparation {
                 domain: hex_field(&utxo.domain),
                 amount: hex_field(&utxo.amount),
                 blinding: hex_field(&utxo.blinding),
-                ring_data_hash: "0x0",
+                ring_data_hash: hex_field(&utxo.ring_data_hash),
                 tree_slot: "0x0",
                 nullifier: hex_field(&nullifier),
             });
@@ -130,19 +153,25 @@ impl IndexedMergePreparation {
         let owner_pk_hash = merge.signing_pubkey.owner_proof_input_hash()?;
         if merge.output_utxo.amount != total
             || merge.output_utxo.asset != first.utxo.asset
-            || output.utxo.ring_data_hash != [0; 32]
+            || (merge.ring_program_id.is_none() && output.utxo.ring_data_hash != [0; 32])
             || output.utxo.data_hash != [0; 32]
-            || output.utxo.ring_program_id != [0; 32]
+            || output.utxo.ring_program_id != ring_hash
             || output.utxo.owner_hash
                 != zolana_keypair::hash::owner_hash(&merge.signing_pubkey, &nullifier_pk)?
         {
             return Err(invalid());
         }
         let external = MergeExternalDataHash {
-            spp_instruction_discriminator: MERGE_TRANSACT,
+            spp_instruction_discriminator: if merge.ring_program_id.is_some() {
+                RING_MERGE_TRANSACT
+            } else {
+                MERGE_TRANSACT
+            },
             expiry_unix_ts: merge.expiry_unix_ts,
             output_utxo_hash: &output_hash,
-            cache: None,
+            cache: cache
+                .as_ref()
+                .map(|target| (target.address.as_array(), target.slot)),
         }
         .hash()?;
         let private = PrivateTxHash::new(
@@ -159,14 +188,26 @@ impl IndexedMergePreparation {
             private,
             external,
             scalar_one(),
-            owner_pk_hash,
-            nullifier_pk,
+            if merge.ring_program_id.is_some() {
+                ring_data_hash
+            } else {
+                owner_pk_hash
+            },
+            if merge.ring_program_id.is_some() {
+                ring_hash
+            } else {
+                nullifier_pk
+            },
         ];
         let witness = PreparedMergeJson {
-            circuit_type: IndexedCircuit::Merge,
+            circuit_type: if merge.ring_program_id.is_some() {
+                IndexedCircuit::MergeRing
+            } else {
+                IndexedCircuit::Merge
+            },
             inputs,
             output: MergeOutputParamsJson {
-                ring_data_hash: "0x0".to_owned(),
+                ring_data_hash: hex_field(&ring_data_hash),
                 hash: hex_field(&output_hash),
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
@@ -179,8 +220,8 @@ impl IndexedMergePreparation {
             external_data_hash: hex_field(&external),
             private_tx_hash: hex_field(&private),
             allow_dummy_inputs: "0x1",
-            output_ring_data_hash: "0x0",
-            ring_program_id: "0x0",
+            output_ring_data_hash: hex_field(&ring_data_hash),
+            ring_program_id: hex_field(&ring_hash),
         };
         let request = IndexedProofRequest::new(IndexedProofData {
             witness: Zeroizing::new(serde_json::to_string(&witness).map_err(|_| invalid())?),
@@ -203,10 +244,14 @@ impl IndexedMergePreparation {
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
             private_tx_hash: private,
-            cache_slot: None,
+            cache_slot: cache.map(|target| target.slot),
             eddsa_owner: matches!(merge.signing_pubkey.curve()?, Curve::Ed25519 | Curve::Pda),
         };
-        Ok(PreparedIndexedMerge { request, data })
+        Ok(PreparedIndexedMerge {
+            request,
+            data,
+            ring_data_hash: merge.ring_program_id.map(|_| ring_data_hash),
+        })
     }
 }
 
@@ -221,13 +266,40 @@ impl PreparedIndexedMerge {
         self
     }
 
-    pub fn finish(mut self, proof: IndexedProof) -> Result<MergeTransactIxData, ClientError> {
+    pub fn finish(self, proof: IndexedProof) -> Result<MergeTransactIxData, ClientError> {
+        if self.ring_data_hash.is_some() {
+            return Err(invalid());
+        }
+        self.complete(proof)
+    }
+
+    pub fn finish_ring(
+        self,
+        proof: IndexedProof,
+    ) -> Result<
+        zolana_interface::instruction::instruction_data::merge_ring::MergeRingIxData,
+        ClientError,
+    > {
+        let output_ring_data_hash = self.ring_data_hash.ok_or_else(invalid)?;
+        Ok(
+            zolana_interface::instruction::instruction_data::merge_ring::MergeRingIxData {
+                output_ring_data_hash,
+                merge: self.complete(proof)?,
+            },
+        )
+    }
+
+    fn complete(mut self, proof: IndexedProof) -> Result<MergeTransactIxData, ClientError> {
         let proof = self.request.validate(proof)?;
-        MergeProofStatement {
+        let statement = MergeProofStatement {
             n_inputs: self.data.nullifiers.len(),
             public_input_hash: proof.resolution.public_input_hash,
+        };
+        if self.ring_data_hash.is_some() {
+            statement.verify_ring(&proof.proof)?;
+        } else {
+            statement.verify(&proof.proof)?;
         }
-        .verify(&proof.proof)?;
         let context = proof.resolution.trees.first().ok_or_else(invalid)?.context;
         self.data.utxo_tree_root_index = context.utxo_tree_root_index;
         self.data.nullifier_tree_root_index = context.nullifier_tree_root_index;
@@ -242,7 +314,7 @@ struct PreparedMergeInputJson {
     domain: String,
     amount: String,
     blinding: String,
-    ring_data_hash: &'static str,
+    ring_data_hash: String,
     tree_slot: &'static str,
     nullifier: String,
 }
@@ -261,8 +333,8 @@ struct PreparedMergeJson {
     external_data_hash: String,
     private_tx_hash: String,
     allow_dummy_inputs: &'static str,
-    output_ring_data_hash: &'static str,
-    ring_program_id: &'static str,
+    output_ring_data_hash: String,
+    ring_program_id: String,
 }
 
 #[cfg(test)]

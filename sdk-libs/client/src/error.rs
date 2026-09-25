@@ -272,6 +272,9 @@ pub enum ClientError {
     #[error("prover server error: {0}")]
     ProverServer(String),
 
+    #[error("indexer proof data not ready")]
+    IndexerProofDataNotReady,
+
     #[error("proof parse error: {0}")]
     ProofParse(String),
 

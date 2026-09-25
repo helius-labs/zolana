@@ -1,3 +1,8 @@
+use super::indexed::ProofDataSource;
+use super::indexed::{
+    batch::{BatchResolution, IndexedBatchResponse},
+    IndexedBatchRequest, ProvenIndexedBatch,
+};
 use super::indexed::{decode_resolution, IndexedProof, IndexedProofRequest};
 use std::{
     env,
@@ -202,6 +207,7 @@ pub struct ProverClient {
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
+    proof_data_source: ProofDataSource,
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -211,6 +217,7 @@ pub struct AsyncProverClient {
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
+    proof_data_source: ProofDataSource,
 }
 
 impl Default for ProverClient {
@@ -226,6 +233,16 @@ impl Default for AsyncProverClient {
 }
 
 impl ProverClient {
+    #[must_use]
+    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
+        self.proof_data_source = source;
+        self
+    }
+
+    pub fn proof_data_source(&self) -> ProofDataSource {
+        self.proof_data_source
+    }
+
     pub fn local() -> Self {
         Self::new(server_address())
     }
@@ -236,6 +253,7 @@ impl ProverClient {
             http: build_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
+            proof_data_source: ProofDataSource::default(),
         }
     }
 
@@ -420,6 +438,23 @@ impl ProverClient {
         })
     }
 
+    pub fn prove_indexed_batch(
+        &self,
+        request: &IndexedBatchRequest,
+    ) -> Result<ProvenIndexedBatch, ClientError> {
+        let body = request.body()?;
+        let key = request.key()?;
+        let response = self
+            .send_response(ProofRequest {
+                body: &body,
+                delivery: Delivery::Queued,
+                route: ProofRoute::Indexed,
+                key: &key,
+            })
+            .map_err(indexed_failure)?;
+        request.finish(response)
+    }
+
     pub fn prove_indexed(
         &self,
         request: &IndexedProofRequest,
@@ -462,6 +497,15 @@ impl ProverClient {
             break (status, text);
         };
         if !status.is_success() {
+            if serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .is_some_and(|value| {
+                    value.get("code").and_then(serde_json::Value::as_str)
+                        == Some("indexer_not_ready")
+                })
+            {
+                return Err(ClientError::IndexerProofDataNotReady);
+            }
             return Err(ClientError::ProverServer(format!(
                 "status {status}: {text}"
             )));
@@ -564,6 +608,11 @@ impl ProverClient {
                     return T::decode(result, &text, key);
                 }
                 Some("failed") => {
+                    if value.get("error").and_then(serde_json::Value::as_str)
+                        == Some("indexer proof data not ready")
+                    {
+                        return Err(ClientError::IndexerProofDataNotReady);
+                    }
                     return Err(ClientError::ProverServer(format!(
                         "async proof failed (job {job_id}): {text}"
                     )));
@@ -667,8 +716,41 @@ impl ProverResponse for IndexedProof {
     }
 }
 
+impl ProverResponse for IndexedBatchResponse {
+    fn decode(
+        value: &serde_json::Value,
+        raw: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<Self, ClientError> {
+        let proof = ProverClient::proof_from_value(value, raw, key)?;
+        let resolution = value
+            .get("proof")
+            .unwrap_or(value)
+            .get("resolution")
+            .ok_or_else(|| ClientError::ProofParse("missing batch resolution".to_owned()))?;
+        let mut batch: BatchResolution = serde_json::from_value(
+            resolution
+                .get("batch")
+                .cloned()
+                .ok_or_else(|| ClientError::ProofParse("missing batch resolution".to_owned()))?,
+        )
+        .map_err(|_| ClientError::ProofParse("invalid batch resolution".to_owned()))?;
+        batch.public_input_hash = super::indexed::decode_field(
+            resolution
+                .get("publicInputHash")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| ClientError::ProofParse("missing batch hash".to_owned()))?,
+        )?;
+        Ok(Self {
+            proof,
+            resolution: batch,
+        })
+    }
+}
+
 fn indexed_failure(error: ClientError) -> ClientError {
     match error {
+        ClientError::IndexerProofDataNotReady => error,
         ClientError::ProofParse(_) => {
             ClientError::ProofParse("invalid indexed proof response".to_owned())
         }
@@ -742,6 +824,16 @@ fn wait_or_timeout(
 }
 
 impl AsyncProverClient {
+    #[must_use]
+    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
+        self.proof_data_source = source;
+        self
+    }
+
+    pub fn proof_data_source(&self) -> ProofDataSource {
+        self.proof_data_source
+    }
+
     pub fn local() -> Self {
         Self::new(server_address())
     }
@@ -752,6 +844,7 @@ impl AsyncProverClient {
             http: build_async_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
+            proof_data_source: ProofDataSource::default(),
         }
     }
 
@@ -883,6 +976,24 @@ impl AsyncProverClient {
         .await
     }
 
+    pub async fn prove_indexed_batch(
+        &self,
+        request: &IndexedBatchRequest,
+    ) -> Result<ProvenIndexedBatch, ClientError> {
+        let body = request.body()?;
+        let key = request.key()?;
+        let response = self
+            .send_response(ProofRequest {
+                body: &body,
+                delivery: Delivery::Queued,
+                route: ProofRoute::Indexed,
+                key: &key,
+            })
+            .await
+            .map_err(indexed_failure)?;
+        request.finish(response)
+    }
+
     pub async fn prove_indexed(
         &self,
         request: &IndexedProofRequest,
@@ -921,6 +1032,15 @@ impl AsyncProverClient {
             break (status, text);
         };
         if !status.is_success() {
+            if serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .is_some_and(|value| {
+                    value.get("code").and_then(serde_json::Value::as_str)
+                        == Some("indexer_not_ready")
+                })
+            {
+                return Err(ClientError::IndexerProofDataNotReady);
+            }
             return Err(ClientError::ProverServer(format!(
                 "status {status}: {text}"
             )));
@@ -1047,6 +1167,11 @@ impl AsyncProverClient {
                     return T::decode(result, &text, key);
                 }
                 Some("failed") => {
+                    if value.get("error").and_then(serde_json::Value::as_str)
+                        == Some("indexer proof data not ready")
+                    {
+                        return Err(ClientError::IndexerProofDataNotReady);
+                    }
                     return Err(ClientError::ProverServer(format!(
                         "async proof failed (job {job_id}): {text}"
                     )));

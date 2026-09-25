@@ -1,8 +1,12 @@
+pub(crate) mod batch;
+pub use batch::{BatchAnchor, IndexedBatchRequest, ProvenIndexedBatch};
 mod merge;
 pub use merge::{IndexedMergePreparation, PreparedIndexedMerge};
 
 mod transfer;
-pub use transfer::{PreparedIndexedTransfer, ProvenIndexedTransfer};
+pub use transfer::{
+    IndexedTransferPreparation, IndexedTransferRail, PreparedIndexedTransfer, ProvenIndexedTransfer,
+};
 
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
@@ -22,6 +26,13 @@ use zolana_interface::{
 
 use super::{field::right_align_slice, ExpectedProvingKey, Proof, SPP_SUPPORTED_SHAPES};
 use crate::ClientError;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProofDataSource {
+    Client,
+    #[default]
+    Prover,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -137,9 +148,14 @@ impl IndexedProofRequest {
                 return Err(invalid());
             }
         }
+        if !metadata.cache_is_cached.is_empty()
+            && metadata.cache_is_cached.len() != metadata.inputs.len()
+        {
+            return Err(invalid());
+        }
         let mut next_tree = 0usize;
         let mut previous = None;
-        for (lookup, input) in data.inputs.iter().zip(metadata.inputs.iter()) {
+        for (index, (lookup, input)) in data.inputs.iter().zip(metadata.inputs.iter()).enumerate() {
             let slot = usize::from(lookup.tree_slot);
             if slot >= data.trees.len()
                 || input.paths_supplied()
@@ -159,7 +175,23 @@ impl IndexedProofRequest {
             if !dummy && flag != real {
                 return Err(invalid());
             }
-            if dummy != lookup.commitment.is_none()
+            let cached = match metadata.cache_is_cached.get(index).map(String::as_str) {
+                None | Some("0x0") => false,
+                Some("0x1") => true,
+                _ => return Err(invalid()),
+            };
+            if cached
+                && (dummy
+                    || matches!(
+                        metadata.circuit_type,
+                        IndexedCircuit::TransferRingAuthority
+                            | IndexedCircuit::Merge
+                            | IndexedCircuit::MergeRing
+                    ))
+            {
+                return Err(invalid());
+            }
+            if (dummy || cached) != lookup.commitment.is_none()
                 || lookup
                     .commitment
                     .as_ref()
@@ -247,8 +279,19 @@ impl IndexedProofRequest {
         if resolution.trees.len() != self.data.trees.len() {
             return Err(invalid_resolution());
         }
-        for (expected, resolved) in self.data.trees.iter().zip(&resolution.trees) {
-            if expected.tree != resolved.tree || expected.id != resolved.id {
+        for (index, (expected, resolved)) in
+            self.data.trees.iter().zip(&resolution.trees).enumerate()
+        {
+            let needs_state =
+                self.data.inputs.iter().any(|input| {
+                    usize::from(input.tree_slot) == index && input.commitment.is_some()
+                });
+            let no_state = resolved.context.utxo_tree_root_index
+                == zolana_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
+            if expected.tree != resolved.tree
+                || expected.id != resolved.id
+                || needs_state == no_state
+            {
                 return Err(invalid_resolution());
             }
         }
@@ -267,7 +310,12 @@ impl ProofResolution {
         }
         let mut slots = [TreeSlot::ZERO; INPUT_TREES];
         for (slot, tree) in slots.iter_mut().zip(&self.trees) {
-            if usize::from(tree.context.utxo_tree_root_index) >= STATE_ROOT_HISTORY_CAPACITY
+            let no_state = tree.context.utxo_tree_root_index
+                == zolana_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
+            if (no_state && tree.utxo_root != [0; 32])
+                || (!no_state
+                    && usize::from(tree.context.utxo_tree_root_index)
+                        >= STATE_ROOT_HISTORY_CAPACITY)
                 || u32::from(tree.context.nullifier_tree_root_index)
                     >= NULLIFIER_TREE_ROOT_HISTORY_CAPACITY
                 || !is_canonical_bn254_scalar_be(&tree.utxo_root)
@@ -309,6 +357,8 @@ impl IndexedCircuit {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PreparedMetadata {
+    #[serde(default)]
+    cache_is_cached: Vec<String>,
     circuit_type: IndexedCircuit,
     inputs: Vec<PreparedInputMetadata>,
     n_inputs: Option<usize>,
@@ -414,7 +464,7 @@ fn scalar_one() -> [u8; 32] {
     field
 }
 
-fn decode_field(value: &str) -> Result<[u8; 32], ClientError> {
+pub(crate) fn decode_field(value: &str) -> Result<[u8; 32], ClientError> {
     let digits = value.strip_prefix("0x").ok_or_else(invalid_resolution)?;
     if digits.is_empty()
         || digits.len() > 64
@@ -537,6 +587,71 @@ mod tests {
         *data.witness = wire.to_string();
         data.inputs = vec![data.inputs[0].clone(); 36];
         assert!(IndexedProofRequest::new(data).is_ok());
+    }
+
+    #[test]
+    fn state_root_presence_is_bound_to_requested_lookups() {
+        use zolana_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
+        for cached in [false, true] {
+            for root in [[0; 32], scalar_one()] {
+                for index in [0, NO_UTXO_ROOT] {
+                    let mut data = request_data();
+                    if cached {
+                        let mut wire: serde_json::Value =
+                            serde_json::from_str(&data.witness).unwrap();
+                        wire["cacheIsCached"] = json!(["0x1"]);
+                        *data.witness = wire.to_string();
+                        data.inputs[0].commitment = None;
+                    }
+                    let request = IndexedProofRequest::new(data).unwrap();
+                    let mut resolution = ProofResolution {
+                        trees: vec![ResolvedProofTree {
+                            tree: request.data.trees[0].tree,
+                            id: 3,
+                            utxo_root: root,
+                            nullifier_root: scalar_one(),
+                            context: TreeContext {
+                                utxo_tree_root_index: index,
+                                nullifier_tree_root_index: 0,
+                            },
+                        }],
+                        public_input_hash: [0; 32],
+                    };
+                    resolution.public_input_hash = resolution
+                        .hash(&request.data.public_inputs)
+                        .unwrap_or_default();
+                    let result = request.validate(IndexedProof {
+                        proof: Proof {
+                            a: [0; 64],
+                            b: [0; 128],
+                            c: [0; 64],
+                            commitment: None,
+                        },
+                        resolution,
+                    });
+                    assert_eq!(
+                        result.is_ok(),
+                        if cached {
+                            index == NO_UTXO_ROOT && root == [0; 32]
+                        } else {
+                            index != NO_UTXO_ROOT
+                        }
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cached_lookup_flags_must_be_complete_bits() {
+        for flags in [json!(["0x2"]), json!(["0x1", "0x0"]), json!([])] {
+            let mut data = request_data();
+            let mut wire: serde_json::Value = serde_json::from_str(&data.witness).unwrap();
+            wire["cacheIsCached"] = flags;
+            *data.witness = wire.to_string();
+            data.inputs[0].commitment = None;
+            assert!(IndexedProofRequest::new(data).is_err());
+        }
     }
 
     #[test]

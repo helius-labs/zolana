@@ -8,7 +8,7 @@ use crate::{
         field::{be, right_align_slice},
         json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
         transact::assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
-        verify::ConfidentialProofStatement,
+        verify::TransferProofStatement,
         ProofCompressed, ProofInputUtxo, TransferInput,
     },
     ClientError,
@@ -29,11 +29,24 @@ use zolana_transaction::{
     },
 };
 
+pub enum IndexedTransferRail {
+    Confidential,
+    Ring(solana_address::Address),
+    RingAuthority(solana_address::Address),
+    RingP256 {
+        ring: solana_address::Address,
+        authorization: zolana_transaction::P256Signature,
+    },
+}
+
+pub struct IndexedTransferPreparation {
+    pub transaction: SppProofInputs,
+    pub rail: IndexedTransferRail,
+}
+
 pub struct PreparedIndexedTransfer {
     request: IndexedProofRequest,
     data: TransactIxData,
-    n_inputs: usize,
-    n_outputs: usize,
 }
 
 pub struct ProvenIndexedTransfer {
@@ -43,26 +56,72 @@ pub struct ProvenIndexedTransfer {
     pub proof: ProofCompressed,
 }
 
-impl PreparedIndexedTransfer {
-    pub fn new(
-        transaction: SppProofInputs,
+impl IndexedTransferPreparation {
+    pub fn prepare(
+        self,
         authority: &dyn ProofAuthority,
-    ) -> Result<Self, ClientError> {
-        let shape = transaction.check_shape()?;
-        if transaction.cache_accounts.read.is_some()
-            || transaction.cache_accounts.write.is_some()
-            || transaction
+    ) -> Result<PreparedIndexedTransfer, ClientError> {
+        self.prepare_with_dummy_policy(authority, true)
+    }
+
+    pub fn prepare_with_dummy_policy(
+        self,
+        authority: &dyn ProofAuthority,
+        allow_dummy_inputs: bool,
+    ) -> Result<PreparedIndexedTransfer, ClientError> {
+        let Self { transaction, rail } = self;
+        if !allow_dummy_inputs {
+            if let Some(index) = transaction
                 .input_utxos
                 .iter()
-                .any(|input| input.cache_slot.is_some())
-            || transaction
-                .output_utxos
-                .iter()
-                .any(|output| output.cache_slot.is_some())
+                .position(|input| input.is_dummy())
+            {
+                return Err(ClientError::NonSpendInputNotAllowed { index });
+            }
+        }
+        let shape = transaction.check_shape()?;
+        let proof_inputs = transaction
+            .input_utxos
+            .iter()
+            .cloned()
+            .map(|utxo| crate::prover::TransferInputUtxo {
+                utxo,
+                proof: None,
+                nullifier_proof: None,
+            })
+            .collect::<Vec<_>>();
+        let cache = crate::prover::cache::CacheSelection::derive(
+            &proof_inputs,
+            &transaction.output_utxos,
+            transaction.cache_accounts,
+            &transaction.external_data,
+        )?;
+        let authority_rail = matches!(rail, IndexedTransferRail::RingAuthority(_));
+        let ring = match &rail {
+            IndexedTransferRail::Confidential => None,
+            IndexedTransferRail::Ring(ring)
+            | IndexedTransferRail::RingAuthority(ring)
+            | IndexedTransferRail::RingP256 { ring, .. } => Some(*ring),
+        };
+        if authority_rail
+            && (shape.n_inputs() != shape.n_outputs()
+                || cache.access.is_some()
+                || !transaction.external_data.interface_transfers.is_empty()
+                || transaction
+                    .input_utxos
+                    .iter()
+                    .any(|input| !input.is_dummy() && input.utxo.ring_program_id != ring)
+                || transaction
+                    .output_utxos
+                    .iter()
+                    .any(|output| !output.is_dummy() && output.ring_program_id != ring))
         {
             return Err(super::invalid());
         }
-        if inputs_require_p256(&transaction.input_utxos)? {
+        if !authority_rail
+            && !matches!(rail, IndexedTransferRail::RingP256 { .. })
+            && inputs_require_p256(&transaction.input_utxos)?
+        {
             return Err(ClientError::P256TransactUnsupported);
         }
         validate_input_tree_order(transaction.input_utxos.iter().map(|input| input.tree_id))?;
@@ -100,7 +159,10 @@ impl PreparedIndexedTransfer {
                     .into(),
                 );
             }
-            let owner = if input.is_dummy() {
+            let owner = if input.is_dummy()
+                || (matches!(rail, IndexedTransferRail::RingP256 { .. })
+                    && input.utxo.owner.curve()? == zolana_keypair::Curve::P256)
+            {
                 [0; 32]
             } else {
                 input.utxo.owner.owner_proof_input_hash()?
@@ -121,7 +183,7 @@ impl PreparedIndexedTransfer {
             });
             lookups.push(IndexedLookup {
                 tree_slot,
-                commitment: (!input.is_dummy()).then_some(hash),
+                commitment: (!input.is_dummy() && input.cache_slot.is_none()).then_some(hash),
             });
             indexes.push(tree_slot);
             input_hashes.push(if input.is_dummy() { [0; 32] } else { hash });
@@ -137,7 +199,7 @@ impl PreparedIndexedTransfer {
             }
         }
         let outputs = assemble_outputs(&transaction.output_utxos, transaction.output_tree_id)?;
-        let external_hash = transaction.external_data.hash()?;
+        let external_hash = cache.external_data_hash;
         let blinding = derive_private_tx_blinding(first, &transaction.blinding_seed)?;
         let private_tx = PrivateTxHash::new(
             &input_hashes,
@@ -147,8 +209,45 @@ impl PreparedIndexedTransfer {
         )
         .hash()?;
         let movements = transaction.public_transfers()?;
-        let signers = transaction.signer_pk_hashes(shape.signer_width())?;
-        let flags = pack_input_flags(true, indexes.iter().copied())?;
+        let signers = if authority_rail {
+            vec![zolana_hasher::primitives::solana_owner_identity(
+                transaction.payer.as_array(),
+            )?]
+        } else {
+            transaction.signer_pk_hashes(shape.signer_width())?
+        };
+        let ring_program_id = zolana_transaction::utxo::program_id_proof_input_hash(&ring)?;
+        let owners = match rail {
+            IndexedTransferRail::Confidential => Some(outputs.output_owner_pk_hashes.clone()),
+            IndexedTransferRail::Ring(_) | IndexedTransferRail::RingP256 { .. } => Some(
+                crate::prover::transact::assembly::confidential_marked_output_owner_pk_hashes(
+                    &transaction.external_data,
+                )?,
+            ),
+            IndexedTransferRail::RingAuthority(_) => None,
+        };
+        let p256 = match &rail {
+            IndexedTransferRail::RingP256 { authorization, .. } => Some(
+                crate::prover::transact::ring_p256::P256AuthorizationPreparation {
+                    inputs: &proof_inputs,
+                    authorization,
+                    private_tx: &private_tx,
+                    published_owners: owners.as_deref().unwrap_or_default(),
+                }
+                .prepare()?,
+            ),
+            _ => None,
+        };
+        let appendix = p256
+            .as_ref()
+            .map(|auth| {
+                Ok::<_, ClientError>([
+                    zolana_hasher::primitives::hash_bytes(&auth.message_digest)?,
+                    auth.default_p256_owner_pk_hash,
+                ])
+            })
+            .transpose()?;
+        let flags = pack_input_flags(allow_dummy_inputs, indexes.iter().copied())?;
         let public_inputs = PublicInputs {
             nullifiers: &nullifiers,
             output_hashes: &outputs.output_hashes,
@@ -157,17 +256,38 @@ impl PreparedIndexedTransfer {
             private_tx: &private_tx,
             external_data_hash: &external_hash,
             public_transfers: &movements,
-            ring_program_id: &[0; 32],
+            ring_program_id: &ring_program_id,
             input_flags: &flags,
             signer_pk_hashes: &signers,
-            output_owner_pk_hashes: Some(&outputs.output_owner_pk_hashes),
-            cached_inputs: zolana_interface::state::cache::empty_cached_input_fields(
-                local_inputs.len(),
-            )?,
+            output_owner_pk_hashes: owners.as_deref(),
+            cached_inputs: cache.public_fields,
         }
-        .without_roots(&[])?;
+        .without_roots(appendix.as_ref().map_or(&[], |fields| fields.as_slice()))?;
         let prepared = PreparedTransferJson {
-            circuit_type: IndexedCircuit::TransferConfidential,
+            p256: match (&rail, &p256) {
+                (IndexedTransferRail::RingP256 { authorization, .. }, Some(auth)) => {
+                    Some(PreparedP256Json {
+                        p256_pub_x: hex_field(&auth.pub_x),
+                        p256_pub_y: hex_field(&auth.pub_y),
+                        p256_sig_r: hex_field(&authorization.sig_r),
+                        p256_sig_s: hex_field(&authorization.sig_s),
+                        p256_message_hash_low: hex_field(&right_align_slice(
+                            &auth.message_digest[16..],
+                        )?),
+                        p256_message_hash_high: hex_field(&right_align_slice(
+                            &auth.message_digest[..16],
+                        )?),
+                        default_p256_owner_pk_hash: hex_field(&auth.default_p256_owner_pk_hash),
+                    })
+                }
+                _ => None,
+            },
+            circuit_type: match rail {
+                IndexedTransferRail::Confidential => IndexedCircuit::TransferConfidential,
+                IndexedTransferRail::Ring(_) => IndexedCircuit::TransferRing,
+                IndexedTransferRail::RingAuthority(_) => IndexedCircuit::TransferRingAuthority,
+                IndexedTransferRail::RingP256 { .. } => IndexedCircuit::TransferP256Ring,
+            },
             n_inputs: shape.n_inputs(),
             n_outputs: shape.n_outputs(),
             inputs: local_inputs
@@ -181,16 +301,13 @@ impl PreparedIndexedTransfer {
             private_tx_hash: hex_field(&private_tx),
             public_assets: movements.assets.iter().map(hex_field).collect(),
             public_amounts: movements.amounts.iter().map(hex_field).collect(),
-            ring_program_id: "0x0",
+            ring_program_id: hex_field(&ring_program_id),
             signer_pk_hashes: signers.iter().map(hex_field).collect(),
             input_flags: hex_field(&flags),
-            cache: super::super::json::cache_reads_to_json(
-                &super::super::inputs::CacheReadInputs::uncached(
-                    zolana_interface::state::cache::empty_cached_input_fields(local_inputs.len())?,
-                ),
-            ),
-            published_output_owner_pk_hashes: outputs
-                .output_owner_pk_hashes
+            cache: super::super::json::cache_reads_to_json(&cache.proof_inputs),
+            published_output_owner_pk_hashes: owners
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(hex_field)
                 .collect(),
@@ -208,11 +325,33 @@ impl PreparedIndexedTransfer {
             proof: TransactProof::zeroed(),
             expiry_unix_ts: external.expiry_unix_ts,
             private_tx_hash: private_tx,
-            circuit: CircuitId::ConfidentialEddsa(
-                u8::try_from(shape.n_inputs()).map_err(|_| super::invalid())?,
-                u8::try_from(shape.n_outputs()).map_err(|_| super::invalid())?,
-                u8::try_from(N_PUBLIC_SLOTS).map_err(|_| super::invalid())?,
-            ),
+            circuit: {
+                let n_in = u8::try_from(shape.n_inputs()).map_err(|_| super::invalid())?;
+                let n_out = u8::try_from(shape.n_outputs()).map_err(|_| super::invalid())?;
+                let slots = u8::try_from(N_PUBLIC_SLOTS).map_err(|_| super::invalid())?;
+                match rail {
+                    IndexedTransferRail::Confidential => match cache.access {
+                        Some(access) => CircuitId::ConfidentialEddsaCached(n_in, n_out, slots, access),
+                        None => CircuitId::ConfidentialEddsa(n_in, n_out, slots),
+                    },
+                    IndexedTransferRail::Ring(_) => match cache.access {
+                        Some(access) => CircuitId::RingEddsaCached(n_in, n_out, slots, access),
+                        None => CircuitId::RingEddsa(n_in, n_out, slots),
+                    },
+                    IndexedTransferRail::RingAuthority(_) => CircuitId::RingAuthority(n_in, n_out, slots),
+                    IndexedTransferRail::RingP256 { .. } => {
+                        let auth = p256.as_ref().ok_or_else(super::invalid)?;
+                        let data = zolana_interface::verifying_keys::RingP256ProofData {
+                            default_owner_tag: auth.default_owner_tag,
+                            bsb22_commitment: zolana_interface::instruction::instruction_data::transact::Bsb22Commitment { commitment: [0; 32], commitment_pok: [0; 32] },
+                        };
+                        match cache.access {
+                            Some(access) => CircuitId::RingP256Cached(n_in, n_out, slots, data, access),
+                            None => CircuitId::RingP256(n_in, n_out, slots, data),
+                        }
+                    }
+                }
+            },
             inputs: input_utxos_from_nullifiers(&nullifiers, &indexes)?,
             tree_contexts: Vec::new(),
             interface_transfers: external.interface_transfers.iter().copied()
@@ -224,12 +363,20 @@ impl PreparedIndexedTransfer {
             outputs: external.outputs,
             messages: external.messages,
         };
-        Ok(Self {
-            request,
-            data,
-            n_inputs: shape.n_inputs(),
-            n_outputs: shape.n_outputs(),
-        })
+        Ok(PreparedIndexedTransfer { request, data })
+    }
+}
+
+impl PreparedIndexedTransfer {
+    pub fn new(
+        transaction: SppProofInputs,
+        authority: &dyn ProofAuthority,
+    ) -> Result<Self, ClientError> {
+        IndexedTransferPreparation {
+            transaction,
+            rail: IndexedTransferRail::Confidential,
+        }
+        .prepare(authority)
     }
 
     #[must_use]
@@ -242,17 +389,21 @@ impl PreparedIndexedTransfer {
         &self.request
     }
 
-    pub fn finish(mut self, proof: IndexedProof) -> Result<ProvenIndexedTransfer, ClientError> {
+    pub fn private_tx_hash(&self) -> [u8; 32] {
+        self.data.private_tx_hash
+    }
+
+    pub fn finish(&self, proof: IndexedProof) -> Result<ProvenIndexedTransfer, ClientError> {
         let proof = self.request.validate(proof)?;
+        let mut data = self.data.clone();
         let public_input_hash = proof.resolution.public_input_hash;
         // 2. Verify the resolved statement before exposing transaction bytes.
-        ConfidentialProofStatement {
-            n_inputs: self.n_inputs,
-            n_outputs: self.n_outputs,
+        TransferProofStatement {
+            circuit: data.circuit,
             public_input_hash,
         }
         .verify(&proof.proof)?;
-        self.data.tree_contexts = proof
+        data.tree_contexts = proof
             .resolution
             .trees
             .iter()
@@ -260,10 +411,18 @@ impl PreparedIndexedTransfer {
             .collect();
         let input_tree_ids = proof.resolution.trees.iter().map(|tree| tree.id).collect();
         let proof = ProofCompressed::try_from(proof.proof)?;
-        self.data.proof = proof.to_transact_proof();
+        match &mut data.circuit {
+            CircuitId::RingP256(_, _, _, authorization)
+            | CircuitId::RingP256Cached(_, _, _, authorization, _) => {
+                let (transact, commitment) = proof.into_ring_p256_transact_parts()?;
+                data.proof = transact;
+                authorization.bsb22_commitment = commitment;
+            }
+            _ => data.proof = proof.to_transact_proof(),
+        }
         Ok(ProvenIndexedTransfer {
             input_tree_ids,
-            data: self.data,
+            data,
             public_input_hash,
             proof,
         })
@@ -315,10 +474,12 @@ impl TryFrom<&TransferInput> for PreparedInputJson {
 #[serde(rename_all = "camelCase")]
 struct PreparedTransferJson {
     #[serde(flatten)]
-    cache: super::super::json::CacheReadsJson,
-    circuit_type: IndexedCircuit,
+    p256: Option<PreparedP256Json>,
     n_inputs: usize,
     n_outputs: usize,
+    #[serde(flatten)]
+    cache: super::super::json::CacheReadsJson,
+    circuit_type: IndexedCircuit,
     inputs: Vec<PreparedInputJson>,
     outputs: Vec<OutputParamsJson>,
     output_tree_id: String,
@@ -327,8 +488,296 @@ struct PreparedTransferJson {
     private_tx_hash: String,
     public_assets: Vec<String>,
     public_amounts: Vec<String>,
-    ring_program_id: &'static str,
+    ring_program_id: String,
     signer_pk_hashes: Vec<String>,
     input_flags: String,
     published_output_owner_pk_hashes: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreparedP256Json {
+    p256_pub_x: String,
+    p256_pub_y: String,
+    p256_sig_r: String,
+    p256_sig_s: String,
+    p256_message_hash_low: String,
+    p256_message_hash_high: String,
+    default_p256_owner_pk_hash: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{MerkleContext, MerkleProof, NonInclusionProof, SpendProof, TransferInputUtxo};
+    use solana_address::Address;
+    use zolana_interface::instruction::{OwnerTag, TransactOutput, TreeContext};
+    use zolana_keypair::ShieldedKeypair;
+    use zolana_transaction::{
+        Data, ExternalData, Mint, P256Signature, SppProofOutputUtxo, Utxo, WalletUtxo,
+    };
+
+    fn fixture(owner: &ShieldedKeypair, ring: Option<Address>) -> SppProofInputs {
+        let utxo = Utxo {
+            owner: owner.signing_pubkey(),
+            asset: Mint::SOL,
+            amount: 10,
+            blinding: [2; 32],
+            ring_program_id: ring,
+            data: Data::default(),
+        };
+        let nullifier_pubkey = owner.nullifier_key.pubkey().unwrap();
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 3).unwrap();
+        let nullifier = owner
+            .nullifier_key
+            .nullifier(&utxo_hash, &utxo.blinding)
+            .unwrap();
+        let input = WalletUtxo {
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            nullifier,
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: 3,
+            leaf_index: 0,
+            slot: 0,
+            tx_signature: Default::default(),
+            slot_index: 0,
+        };
+        let seed = [7; 32];
+        let output_seed = derive_output_blinding_seed(&nullifier, &seed).unwrap();
+        let mut output =
+            SppProofOutputUtxo::new(Mint::SOL, 10, owner.shielded_address().unwrap()).unwrap();
+        output.ring_program_id = ring;
+        output.blinding = derive_transact_output_blinding(&nullifier, &output_seed, 0).unwrap();
+        let mut external = ExternalData::new(
+            [0; 33],
+            [0; 16],
+            vec![TransactOutput {
+                utxo_hash: output.hash(4).unwrap(),
+                owner_tag: OwnerTag::Inline([0; 32]),
+                data: None,
+            }],
+            Vec::new(),
+            Vec::new(),
+        );
+        external.resolved_owner_tags = vec![[0; 32]];
+        SppProofInputs {
+            input_utxos: vec![input.into()],
+            output_utxos: vec![output],
+            blinding_seed: seed,
+            output_tree_id: 4,
+            external_data: external,
+            payer: Address::new_from_array([5; 32]),
+            cache_accounts: Default::default(),
+        }
+    }
+
+    fn authorization(transaction: &SppProofInputs, owner: &ShieldedKeypair) -> P256Signature {
+        let signature = owner
+            .sign_hash(&transaction.message_hash().unwrap())
+            .unwrap();
+        P256Signature {
+            pubkey: owner.signing_pubkey().as_p256().unwrap(),
+            sig_r: signature[..32].try_into().unwrap(),
+            sig_s: signature[32..].try_into().unwrap(),
+        }
+    }
+
+    fn complete_inputs(transaction: &SppProofInputs) -> Vec<TransferInputUtxo> {
+        transaction
+            .input_utxos
+            .iter()
+            .cloned()
+            .map(|utxo| {
+                let tree = zolana_interface::pda::tree(utxo.tree_id);
+                let state = MerkleProof {
+                    leaf: utxo.utxo_hash,
+                    merkle_context: MerkleContext { tree, tree_type: 1 },
+                    path: vec![[0; 32]; 32],
+                    leaf_index: 0,
+                    root: super::super::scalar_one(),
+                    root_seq: 0,
+                    root_index: 0,
+                };
+                let nullifier = NonInclusionProof {
+                    leaf: utxo.nullifier,
+                    merkle_context: MerkleContext { tree, tree_type: 2 },
+                    path: vec![[0; 32]; 40],
+                    low_element: [0; 32],
+                    high_element: [0; 32],
+                    low_element_index: 0,
+                    high_element_index: 1,
+                    root: super::super::scalar_one(),
+                    root_seq: 0,
+                    root_index: 0,
+                };
+                TransferInputUtxo {
+                    utxo,
+                    proof: Some(SpendProof { state, nullifier }),
+                    nullifier_proof: None,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn indexed_statements_match_complete_transfer_rails() {
+        for (rail, allow_dummy_inputs) in
+            (0..4).flat_map(|rail| [true, false].map(|allowed| (rail, allowed)))
+        {
+            if rail == 0 && !allow_dummy_inputs {
+                continue;
+            }
+            let owner = if rail == 3 {
+                ShieldedKeypair::new_p256().unwrap()
+            } else {
+                ShieldedKeypair::new_ed25519().unwrap()
+            };
+            let ring = (rail != 0).then_some(Address::new_from_array([9; 32]));
+            let transaction = fixture(&owner, ring);
+            let shape = transaction.check_shape().unwrap();
+            let inputs = complete_inputs(&transaction);
+            let public_transfers = transaction.public_transfers().unwrap();
+            let signers = transaction.signer_pk_hashes(shape.signer_width()).unwrap();
+            let (mode, expected) = match rail {
+                0 => {
+                    let result = crate::prover::transact::witness::assemble(
+                        transaction.clone(),
+                        &[inputs[0].proof.clone().unwrap()],
+                        &[],
+                    )
+                    .unwrap();
+                    (
+                        IndexedTransferRail::Confidential,
+                        result.prover_inputs.public_input_hash,
+                    )
+                }
+                1 => {
+                    let result = crate::RingTransferProver {
+                        inputs,
+                        outputs: transaction.output_utxos.clone(),
+                        blinding_seed: transaction.blinding_seed,
+                        output_tree_id: transaction.output_tree_id,
+                        external_data: transaction.external_data.clone(),
+                        public_transfers,
+                        signer_pk_hashes: signers,
+                        allow_dummy_inputs,
+                        ring_program_id: ring,
+                        shape,
+                    }
+                    .build()
+                    .unwrap();
+                    (
+                        IndexedTransferRail::Ring(ring.unwrap()),
+                        result.inputs.public_input_hash,
+                    )
+                }
+                2 => {
+                    let result = crate::RingAuthorityProver {
+                        inputs,
+                        outputs: transaction.output_utxos.clone(),
+                        blinding_seed: transaction.blinding_seed,
+                        output_tree_id: transaction.output_tree_id,
+                        external_data: transaction.external_data.clone(),
+                        public_transfers,
+                        payer: transaction.payer,
+                        allow_dummy_inputs,
+                        ring_program_id: ring,
+                        shape,
+                    }
+                    .build()
+                    .unwrap();
+                    (
+                        IndexedTransferRail::RingAuthority(ring.unwrap()),
+                        result.inputs.public_input_hash,
+                    )
+                }
+                _ => {
+                    let authorization = authorization(&transaction, &owner);
+                    let result = crate::RingTransferP256Prover {
+                        inputs,
+                        outputs: transaction.output_utxos.clone(),
+                        blinding_seed: transaction.blinding_seed,
+                        output_tree_id: transaction.output_tree_id,
+                        external_data: transaction.external_data.clone(),
+                        public_transfers,
+                        signer_pk_hashes: signers,
+                        allow_dummy_inputs,
+                        ring_program_id: ring,
+                        shape,
+                        authorization,
+                    }
+                    .build()
+                    .unwrap();
+                    (
+                        IndexedTransferRail::RingP256 {
+                            ring: ring.unwrap(),
+                            authorization,
+                        },
+                        result.inputs.public_input_hash,
+                    )
+                }
+            };
+            let prepared = IndexedTransferPreparation {
+                transaction,
+                rail: mode,
+            }
+            .prepare_with_dummy_policy(&owner, allow_dummy_inputs)
+            .unwrap();
+            let resolution = super::super::ProofResolution {
+                public_input_hash: [0; 32],
+                trees: vec![super::super::ResolvedProofTree {
+                    tree: zolana_interface::pda::tree(3),
+                    id: 3,
+                    utxo_root: super::super::scalar_one(),
+                    nullifier_root: super::super::scalar_one(),
+                    context: TreeContext {
+                        utxo_tree_root_index: 0,
+                        nullifier_tree_root_index: 0,
+                    },
+                }],
+            };
+            assert_eq!(
+                resolution
+                    .hash(&prepared.request.data.public_inputs)
+                    .unwrap(),
+                crate::prover::field::right_align_slice(&expected.to_bytes_be()).unwrap(),
+                "rail {rail}"
+            );
+        }
+    }
+
+    #[test]
+    fn p256_signature_binds_cache_write_address_and_slot() {
+        let owner = ShieldedKeypair::new_p256().unwrap();
+        let ring = Address::new_from_array([9; 32]);
+        let mut transaction = fixture(&owner, Some(ring));
+        transaction.cache_accounts.write = Some(Address::new_from_array([12; 32]));
+        transaction.output_utxos[0].cache_slot = Some(3);
+        let authorization = authorization(&transaction, &owner);
+        let prepare = |transaction| {
+            IndexedTransferPreparation {
+                transaction,
+                rail: IndexedTransferRail::RingP256 {
+                    ring,
+                    authorization,
+                },
+            }
+            .prepare(&owner)
+        };
+        assert!(prepare(transaction.clone()).is_ok());
+        let mut changed = transaction.clone();
+        changed.cache_accounts.write = Some(Address::new_from_array([13; 32]));
+        assert!(matches!(
+            prepare(changed),
+            Err(ClientError::InvalidP256Authorization(_))
+        ));
+        transaction.output_utxos[0].cache_slot = Some(4);
+        assert!(matches!(
+            prepare(transaction),
+            Err(ClientError::InvalidP256Authorization(_))
+        ));
+    }
 }

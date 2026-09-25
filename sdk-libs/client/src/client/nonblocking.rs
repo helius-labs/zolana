@@ -282,10 +282,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         transaction: SppProofInputs,
         authority: &dyn ProofAuthority,
     ) -> Result<ProveResult, ClientError> {
-        if self.proof_data_source == ProofDataSource::Prover
-            && transaction.cache_accounts.read.is_none()
-            && transaction.cache_accounts.write.is_none()
-        {
+        if self.proof_data_source == ProofDataSource::Prover {
             let proved = self
                 .indexed_transfer_async(
                     TransferPreparation {

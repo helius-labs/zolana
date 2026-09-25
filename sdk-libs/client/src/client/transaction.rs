@@ -59,10 +59,7 @@ impl<R: Rpc> ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        if self.proof_data_source == ProofDataSource::Prover
-            && proof_inputs.cache_accounts.read.is_none()
-            && proof_inputs.cache_accounts.write.is_none()
-        {
+        if self.proof_data_source == ProofDataSource::Prover {
             return Ok(self
                 .indexed_transfer(
                     TransferPreparation {
@@ -111,9 +108,7 @@ impl<R: Rpc> ZolanaClient<R> {
             return Err(ClientError::CacheWriteNeedsWriter);
         }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.proof_data_source == ProofDataSource::Prover
-            && signed.transaction.cache_accounts.read.is_none()
-        {
+        if self.proof_data_source == ProofDataSource::Prover {
             let proved = self.indexed_transfer(
                 TransferPreparation {
                     transaction: signed.transaction.clone(),
@@ -127,7 +122,7 @@ impl<R: Rpc> ZolanaClient<R> {
                 fee_payer,
                 TransactTrees {
                     input_tree_ids: proved.input_tree_ids,
-                    read_cache: None,
+                    read_cache: signed.transaction.cache_accounts.read,
                     output_tree_id: signed.transaction.output_tree_id,
                 },
                 owner_signers,
@@ -182,9 +177,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             return Err(ClientError::CacheWriteNeedsWriter);
         }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.proof_data_source == ProofDataSource::Prover
-            && signed.transaction.cache_accounts.read.is_none()
-        {
+        if self.proof_data_source == ProofDataSource::Prover {
             let proved = self
                 .indexed_transfer_async(
                     TransferPreparation {
@@ -199,7 +192,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
                 fee_payer,
                 TransactTrees {
                     input_tree_ids: proved.input_tree_ids,
-                    read_cache: None,
+                    read_cache: signed.transaction.cache_accounts.read,
                     output_tree_id: signed.transaction.output_tree_id,
                 },
                 owner_signers,

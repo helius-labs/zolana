@@ -4,6 +4,9 @@ use zolana_keypair::KeypairError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TransactionError {
+    #[error("invalid cache write binding")]
+    InvalidCacheWrite,
+
     #[error("unexpected discriminator: {0}")]
     BadDiscriminator(u8),
 

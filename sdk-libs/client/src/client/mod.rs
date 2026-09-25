@@ -40,12 +40,7 @@ use validation::check_service_url;
 /// carries its own ceiling and does not come through here.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ProofDataSource {
-    #[default]
-    Client,
-    Prover,
-}
+pub use crate::prover::indexed::ProofDataSource;
 
 /// Unified client for private transaction proving and submission helpers.
 ///
