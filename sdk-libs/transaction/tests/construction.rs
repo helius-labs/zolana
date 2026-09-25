@@ -1467,3 +1467,62 @@ fn padding_independent_private_tx_hash_skips_padding_and_external_data() {
         )
     );
 }
+
+#[test]
+fn finalized_transaction_encrypts_like_the_one_shot_path() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let receiver = keypair(2).shielded_address().unwrap();
+    let mut tx = ConfidentialTransaction::new(
+        vec![
+            wallet_utxo(&owner, Mint::SOL, 50, 9, 1),
+            wallet_utxo(&owner, mint(2), 30, 9, 2),
+        ],
+        payer(&owner),
+    )
+    .unwrap()
+    .with_output_tree_id(12)
+    .unwrap();
+    tx.transfer_sol(&receiver, 20).unwrap();
+    tx.deposit(mint(2), 5, payer(&owner)).unwrap();
+    tx.withdraw_sol(3, payer(&owner)).unwrap();
+
+    let one_shot = tx.clone().encrypt(&owner).unwrap();
+    let finalized = tx.finalize(&sender).unwrap();
+    let finalized_output_hashes = finalized.output_hashes().unwrap();
+    let finalized_private_tx_hash = finalized.padding_independent_private_tx_hash().unwrap();
+    let finalized_transfers = finalized.interface_transfers().to_vec();
+    error(
+        finalized.clone().encrypt(&keypair(2)),
+        E::SenderAddressMismatch,
+    );
+    let encrypted = finalized.clone().encrypt(&owner).unwrap();
+
+    let ciphertext_independent = |proof: &SppProofInputs| {
+        (
+            proof
+                .output_utxos
+                .iter()
+                .map(|output| output.hash(proof.output_tree_id).unwrap())
+                .collect::<Vec<_>>(),
+            proof.padding_independent_private_tx_hash().unwrap(),
+            proof.external_data.interface_transfers.clone(),
+            proof.external_data.resolved_owner_tags.clone(),
+            proof.check_shape().unwrap(),
+        )
+    };
+    let expected = (
+        finalized_output_hashes,
+        finalized_private_tx_hash,
+        finalized_transfers,
+        finalized
+            .owner_tags()
+            .iter()
+            .map(|tag| tag.resolved)
+            .collect::<Vec<_>>(),
+        Shape::IN2_OUT3,
+    );
+    assert_eq!(ciphertext_independent(&encrypted), expected);
+    assert_eq!(ciphertext_independent(&one_shot), expected);
+    assert_ne!(encrypted.external_data.salt, one_shot.external_data.salt);
+}

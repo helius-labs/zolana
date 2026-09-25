@@ -1,8 +1,10 @@
 use solana_address::Address;
-use zolana_transaction::{
-    instructions::transact::{canonical_shape, ConfidentialTransaction, SppProofInputs},
-    keys::ShieldedKeys,
+use zolana_keypair::ShieldedAddress;
+use zolana_transaction::instructions::transact::{
+    canonical_shape, ConfidentialTransaction, FinalizedTransaction,
 };
+#[cfg(feature = "encrypt")]
+use zolana_transaction::{instructions::transact::SppProofInputs, keys::ShieldedKeys};
 
 use crate::{
     circuit::{CheckedTransaction, Circuit},
@@ -17,12 +19,11 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
         ArkworksCircuit::new(self)?.check_constraints()
     }
 
-    fn create_proof_inputs_and_encrypt(
+    fn create_finalized_transaction(
         &self,
-        shielded_keys: &impl ShieldedKeys,
+        sender: &ShieldedAddress,
         payer: Address,
-        expiry_unix_ts: u64,
-    ) -> Result<SppProofInputs, RelationError> {
+    ) -> Result<FinalizedTransaction, RelationError> {
         let allocator = Allocator::native();
         let checked = self.instantiate(&allocator)?.circuit()?;
         let records = allocator.into_records();
@@ -30,9 +31,24 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
             checked: &checked,
             records: &records,
             payer,
-            expiry_unix_ts,
         }
-        .encrypt(shielded_keys)
+        .build(sender)
+    }
+
+    #[cfg(feature = "encrypt")]
+    fn create_proof_inputs_and_encrypt(
+        &self,
+        shielded_keys: &impl ShieldedKeys,
+        payer: Address,
+        expiry_unix_ts: u64,
+    ) -> Result<SppProofInputs, RelationError> {
+        let sender = shielded_keys.address().map_err(RelationError::spp)?;
+        let mut spp_proof_inputs = self
+            .create_finalized_transaction(&sender, payer)?
+            .encrypt(shielded_keys)
+            .map_err(RelationError::spp)?;
+        spp_proof_inputs.external_data.expiry_unix_ts = expiry_unix_ts;
+        Ok(spp_proof_inputs)
     }
 }
 
@@ -42,18 +58,16 @@ pub(super) struct SppTransactionBuilder<'a> {
     pub(super) checked: &'a CheckedTransaction,
     pub(super) records: &'a Records,
     payer: Address,
-    expiry_unix_ts: u64,
 }
 
 impl SppTransactionBuilder<'_> {
-    fn encrypt(self, shielded_keys: &impl ShieldedKeys) -> Result<SppProofInputs, RelationError> {
-        let sender = shielded_keys.address().map_err(RelationError::spp)?;
+    fn build(self, sender: &ShieldedAddress) -> Result<FinalizedTransaction, RelationError> {
         let first_nullifier = to_bytes(&self.checked.first_nullifier)?;
         let blinding_seed = to_bytes(&self.checked.blinding_seed)?;
         let output_tree_id = u16::from_circuit(&self.checked.output_tree_id)
             .map_err(|_| RelationError::Conversion("the output tree id does not fit in u16"))?;
         let inputs = self.input_utxos(&first_nullifier)?;
-        let outputs = self.output_utxos(&sender)?;
+        let outputs = self.output_utxos(sender)?;
         let shape = canonical_shape(inputs.len(), outputs.len()).map_err(RelationError::spp)?;
         let mut transaction = ConfidentialTransaction::new(inputs, self.payer)
             .and_then(|transaction| transaction.with_blinding_seed(blinding_seed))
@@ -75,28 +89,19 @@ impl SppTransactionBuilder<'_> {
                 .map_err(RelationError::spp)?;
         }
         transaction
-            .pad_utxos_with_empty_outputs(shape, &sender)
+            .pad_utxos_with_empty_outputs(shape, sender)
             .map_err(RelationError::spp)?;
-        let mut spp_proof_inputs = transaction
-            .encrypt(shielded_keys)
-            .map_err(RelationError::spp)?;
-        spp_proof_inputs.external_data.expiry_unix_ts = self.expiry_unix_ts;
-        self.check_hashes(&spp_proof_inputs)?;
-        Ok(spp_proof_inputs)
+        let finalized = transaction.finalize(sender).map_err(RelationError::spp)?;
+        self.check_hashes(&finalized)?;
+        Ok(finalized)
     }
 
-    fn check_hashes(&self, spp_proof_inputs: &SppProofInputs) -> Result<(), RelationError> {
-        for (slot, (output, checked)) in spp_proof_inputs
-            .output_utxos
-            .iter()
-            .zip(&self.checked.outputs)
-            .enumerate()
+    fn check_hashes(&self, finalized: &FinalizedTransaction) -> Result<(), RelationError> {
+        let output_hashes = finalized.output_hashes().map_err(RelationError::spp)?;
+        for (slot, (output_hash, checked)) in
+            output_hashes.iter().zip(&self.checked.outputs).enumerate()
         {
-            if output
-                .hash(spp_proof_inputs.output_tree_id)
-                .map_err(RelationError::spp)?
-                != to_bytes(&checked.hash)?
-            {
+            if *output_hash != to_bytes(&checked.hash)? {
                 return Err(RelationError::Slot {
                     kind: "output",
                     slot,
@@ -104,7 +109,7 @@ impl SppTransactionBuilder<'_> {
                 });
             }
         }
-        let private_tx_hash = spp_proof_inputs
+        let private_tx_hash = finalized
             .padding_independent_private_tx_hash()
             .map_err(RelationError::spp)?;
         if private_tx_hash != to_bytes(&self.checked.private_tx_hash)? {
@@ -112,9 +117,8 @@ impl SppTransactionBuilder<'_> {
                 "the SPP transaction does not match the circuit's private transaction hash",
             ));
         }
-        let public_transfers: Vec<PublicTransfer> = spp_proof_inputs
-            .external_data
-            .interface_transfers
+        let public_transfers: Vec<PublicTransfer> = finalized
+            .interface_transfers()
             .iter()
             .copied()
             .map(PublicTransfer::from)

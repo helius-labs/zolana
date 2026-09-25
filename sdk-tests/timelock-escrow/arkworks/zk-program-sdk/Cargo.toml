@@ -27,7 +27,7 @@ zolana-program = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [features]
-default = ["client", "setup"]
+default = ["client", "setup", "encrypt"]
 client = [
     "dep:ark-ec",
     "dep:ark-groth16",
@@ -42,10 +42,11 @@ setup = [
     "dep:groth16-solana",
     "groth16-solana?/gnark-vk",
 ]
+encrypt = ["client"]
 
 [[test]]
 name = "circuit"
-required-features = ["client", "setup"]
+required-features = ["client", "setup", "encrypt"]
 
 [dev-dependencies]
 groth16-solana = { workspace = true, features = ["gnark-vk"] }

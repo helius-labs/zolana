@@ -597,6 +597,60 @@ fn the_native_run_produces_the_spp_transaction() {
 }
 
 #[test]
+fn the_keyless_finalized_transaction_carries_the_circuit_hashes_to_the_key_holder() {
+    let sender = keypair(5);
+    let sender_address = sender.shielded_address().unwrap();
+    let payer = sender_address.solana_address().unwrap();
+    let payment = Payment {
+        private: PaymentPrivateInputs {
+            tx_context: TxContext::new(),
+            token_utxos_asset_a: [
+                spendable(&sender, Mint::SOL, 300, 0),
+                spendable(&sender, Mint::SOL, 200, 1),
+            ],
+            amount: 400,
+        },
+        public: RecipientPublicInputs {
+            recipient: keypair(6).shielded_address().unwrap(),
+        },
+    };
+    let native = payment
+        .instantiate(&Allocator::native())
+        .unwrap()
+        .circuit()
+        .unwrap();
+    let finalized = payment
+        .create_finalized_transaction(&sender_address, payer)
+        .unwrap();
+    let finalized_hashes = (
+        finalized.output_hashes().unwrap(),
+        finalized.padding_independent_private_tx_hash().unwrap(),
+    );
+    let encrypted = finalized.encrypt(&sender).unwrap();
+    let one_shot = payment
+        .create_proof_inputs_and_encrypt(&sender, payer, u64::MAX)
+        .unwrap();
+    let hashes = |spp: &SppProofInputs| {
+        (
+            spp.output_utxos
+                .iter()
+                .map(|output| output.hash(spp.output_tree_id).unwrap())
+                .collect::<Vec<_>>(),
+            spp.padding_independent_private_tx_hash().unwrap(),
+        )
+    };
+
+    assert_eq!(
+        (finalized_hashes.1, hashes(&encrypted), hashes(&one_shot),),
+        (
+            to_bytes(native.private_tx_hash()).unwrap(),
+            finalized_hashes.clone(),
+            finalized_hashes,
+        )
+    );
+}
+
+#[test]
 fn logic_dummies_are_dropped_and_unused_outputs_are_empty_utxos() {
     let first = spendable(&keypair(5), Mint::SOL, 500, 0);
     let recipient = keypair(6).shielded_address().unwrap();
