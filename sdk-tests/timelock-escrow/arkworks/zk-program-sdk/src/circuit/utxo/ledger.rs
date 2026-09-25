@@ -1,9 +1,8 @@
 use ark_ff::Zero;
 use ark_r1cs_std::boolean::Boolean;
 
-use super::OutputTokenUtxo;
 use crate::{
-    circuit::{var::subtract_within, zero, Asset, Bytes, CircuitVar, Owner, PublicTransfer},
+    circuit::{zero, Assert, Asset, Bytes, CircuitVar, Owner, PublicTransfer},
     RelationError,
 };
 
@@ -12,6 +11,7 @@ pub struct Ledger {
     owner: Owner,
     asset: Asset,
     balance: CircuitVar,
+    transferred: CircuitVar,
     public_transfers: Vec<PublicTransfer>,
 }
 
@@ -21,6 +21,7 @@ impl Ledger {
             owner,
             asset,
             balance,
+            transferred: zero(),
             public_transfers: Vec::new(),
         }
     }
@@ -29,12 +30,20 @@ impl Ledger {
         &self.public_transfers
     }
 
-    fn output(&self, recipient: &Owner, amount: CircuitVar) -> OutputTokenUtxo {
-        OutputTokenUtxo {
-            owner: recipient.clone(),
-            asset: self.asset.clone(),
-            amount,
-        }
+    pub(super) fn transferred(&self) -> &CircuitVar {
+        &self.transferred
+    }
+
+    fn debit(&mut self, amount: &CircuitVar, rule: &'static str) -> Result<(), RelationError> {
+        let remaining = self.balance.clone() - amount;
+        assert_u64(&remaining, rule)?;
+        self.balance = remaining;
+        Ok(())
+    }
+
+    fn credit(&mut self, amount: &CircuitVar) {
+        self.balance += amount;
+        self.transferred += amount;
     }
 
     fn record_public_transfer(
@@ -61,10 +70,32 @@ fn refuse_zero(amount: &CircuitVar) -> Result<(), RelationError> {
     }
 }
 
+fn assert_u64(value: &CircuitVar, rule: &'static str) -> Result<(), RelationError> {
+    value.check_bits(64).map_err(|error| match error {
+        RelationError::OutOfRange(_) => RelationError::Violated(rule),
+        error => error,
+    })
+}
+
+fn check_destination(asset: &Asset, destination: &impl HasLedger) -> Result<(), RelationError> {
+    if destination.is_burned() {
+        return Err(RelationError::Violated(
+            "a burned utxo receives no transfer",
+        ));
+    }
+    let held = &destination.ledger().asset;
+    if asset.is_clone_of(held) {
+        return Ok(());
+    }
+    asset.assert_same_unless(held, &Boolean::FALSE, "the destination holds another asset")
+}
+
 pub trait HasLedger {
     fn ledger(&self) -> &Ledger;
 
     fn ledger_mut(&mut self) -> &mut Ledger;
+
+    fn is_burned(&self) -> bool;
 }
 
 pub trait Balance: HasLedger {
@@ -82,29 +113,24 @@ pub trait Balance: HasLedger {
 
     fn transfer(
         &mut self,
-        recipient: &Owner,
+        destination: &mut impl Balance,
         amount: &CircuitVar,
-    ) -> Result<OutputTokenUtxo, RelationError> {
-        let ledger = self.ledger_mut();
-        ledger.balance =
-            subtract_within(&ledger.balance, amount, "the transfer exceeds the balance")?;
-        Ok(ledger.output(recipient, amount.clone()))
+    ) -> Result<(), RelationError> {
+        check_destination(&self.ledger().asset, &*destination)?;
+        assert_u64(amount, "the transfer amount is not a u64")?;
+        let source = self.ledger_mut();
+        source.debit(amount, "the transfer exceeds the balance")?;
+        source.transferred -= amount;
+        destination.ledger_mut().credit(amount);
+        Ok(())
     }
 
-    fn transfer_all(&mut self, recipient: &Owner) -> OutputTokenUtxo {
-        let ledger = self.ledger_mut();
-        let amount = core::mem::replace(&mut ledger.balance, zero());
-        ledger.output(recipient, amount)
-    }
-
-    fn receive(&mut self, output: OutputTokenUtxo) -> Result<(), RelationError> {
-        let ledger = self.ledger_mut();
-        output.asset.assert_same_unless(
-            &ledger.asset,
-            &Boolean::FALSE,
-            "the received output holds another asset",
-        )?;
-        ledger.balance += &output.amount;
+    fn transfer_all(&mut self, destination: &mut impl Balance) -> Result<(), RelationError> {
+        check_destination(&self.ledger().asset, &*destination)?;
+        let source = self.ledger_mut();
+        let amount = core::mem::replace(&mut source.balance, zero());
+        source.transferred -= &amount;
+        destination.ledger_mut().credit(&amount);
         Ok(())
     }
 
@@ -123,11 +149,7 @@ pub trait Balance: HasLedger {
     ) -> Result<(), RelationError> {
         refuse_zero(amount)?;
         let ledger = self.ledger_mut();
-        ledger.balance = subtract_within(
-            &ledger.balance,
-            amount,
-            "the withdrawal exceeds the balance",
-        )?;
+        ledger.debit(amount, "the withdrawal exceeds the balance")?;
         ledger.record_public_transfer(false, amount, destination);
         Ok(())
     }

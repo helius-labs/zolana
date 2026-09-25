@@ -89,7 +89,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -141,16 +141,16 @@ mod circuit {
                 .assert_equal(&public.root, "the claim is not in the airdrop")?;
             poseidon(&[public.airdrop_id.clone(), private.secret_key.clone()])?
                 .assert_equal(&public.nullifier, "the nullifier is not the claim's")?;
-            let claim = pool.transfer(&public.recipient, &public.amount)?;
-            let refund = pool.transfer_all(&private.pool_owner);
-            refund.amount().check_bits(64)?;
-            let mut next_pool = DataUtxo::<Pool>::from_output_utxo(refund);
+            let mut claim = TokenUtxo::new_init(&public.recipient, &pool.asset());
+            pool.transfer(&mut claim, &public.amount)?;
+            let mut next_pool = DataUtxo::<Pool>::new_init(&private.pool_owner, &pool.asset());
+            pool.transfer_all(&mut next_pool)?;
             next_pool.root = pool.root.clone();
             next_pool.airdrop_id = pool.airdrop_id.clone();
 
             ConfidentialTransaction::new(&private.tx_context, public)
                 .with_data_utxo(pool)
-                .with_output_token_utxo(claim)
+                .with_token_utxos(claim)
                 .with_data_utxo(next_pool)
                 .check()
         }

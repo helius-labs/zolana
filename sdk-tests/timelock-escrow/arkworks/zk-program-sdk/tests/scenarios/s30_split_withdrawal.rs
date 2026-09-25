@@ -77,7 +77,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -117,15 +117,15 @@ mod circuit {
             public
                 .unlock
                 .assert_equal(&escrow.unlock, "the unlock time is not the escrow's")?;
-            let fee = escrow.transfer(&public.fee_recipient, &public.fee)?;
-            let creator = escrow.creator.clone();
-            let payout = escrow.transfer_all(&creator);
-            payout.amount().check_bits(64)?;
+            let mut fee = TokenUtxo::new_init(&public.fee_recipient, &escrow.asset());
+            escrow.transfer(&mut fee, &public.fee)?;
+            let mut payout = TokenUtxo::new_init(&escrow.creator, &escrow.asset());
+            escrow.transfer_all(&mut payout)?;
 
             ConfidentialTransaction::new(&private.tx_context, public)
                 .with_data_utxo(escrow)
-                .with_output_token_utxo(payout)
-                .with_output_token_utxo(fee)
+                .with_token_utxos(payout)
+                .with_token_utxos(fee)
                 .check()
         }
     }

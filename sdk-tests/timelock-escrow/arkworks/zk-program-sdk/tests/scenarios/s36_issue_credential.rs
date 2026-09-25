@@ -78,7 +78,7 @@ impl Placeholder for IssueCredential {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+            constant, poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,
@@ -118,7 +118,7 @@ mod circuit {
                 .assert_equal(&issuer_hash, "the issuer state is another issuer's")?;
             issuer.issued = issuer.issued.clone() + constant(1u64);
             issuer.issued.check_bits(64)?;
-            let mut credential = DataUtxo::<Credential>::new_init(&private.user);
+            let mut credential = DataUtxo::<Credential>::new_init(&private.user, &Asset::sol());
             credential.issuer_hash = issuer_hash;
             credential.attribute_commitment =
                 poseidon(&[private.attribute.clone(), private.salt.clone()])?;

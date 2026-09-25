@@ -36,6 +36,10 @@ impl Asset {
         cached(&self.hash, || self.bytes.hash_bytes())
     }
 
+    pub(crate) fn is_clone_of(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.hash, &other.hash)
+    }
+
     pub(crate) fn assert_same_unless(
         &self,
         other: &Self,

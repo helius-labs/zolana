@@ -73,7 +73,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -113,11 +113,12 @@ mod circuit {
             public
                 .expiry
                 .assert_equal(&order.expiry, "the expiry is not the order's")?;
-            let refund = order.transfer_all(&private.maker);
+            let mut refund = TokenUtxo::new_init(&private.maker, &order.asset());
+            order.transfer_all(&mut refund)?;
 
             ConfidentialTransaction::new(&private.tx_context, public)
                 .with_data_utxo(order)
-                .with_output_token_utxo(refund)
+                .with_token_utxos(refund)
                 .check()
         }
     }

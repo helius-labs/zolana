@@ -90,20 +90,22 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let payments: Vec<_> = self
+            let mut payments = self
                 .public
                 .recipients
-                .iter()
+                .each_ref()
+                .map(|recipient| TokenUtxo::new_init(recipient, &tokens.asset()));
+            payments
+                .iter_mut()
                 .zip(&private.amounts)
-                .map(|(recipient, amount)| tokens.transfer(recipient, amount))
-                .collect::<Result<_, _>>()?;
+                .try_for_each(|(payment, amount)| tokens.transfer(payment, amount))?;
 
             payments
                 .into_iter()
                 .fold(
                     ConfidentialTransaction::new(&private.tx_context, &self.public)
                         .with_token_utxos(tokens),
-                    ConfidentialTransaction::with_output_token_utxo,
+                    ConfidentialTransaction::with_token_utxos,
                 )
                 .check()
         }

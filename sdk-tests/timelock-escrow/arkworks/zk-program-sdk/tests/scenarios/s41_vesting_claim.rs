@@ -136,8 +136,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             constant, poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
-            UtxoData,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
+            Utxo, UtxoData,
         },
         RelationError,
     };
@@ -229,11 +229,10 @@ mod circuit {
             )?;
             (duration - &private.remainder - constant(1u64)).check_bits(64)?;
             let payout = private.unlocked.clone() - &vesting.claimed;
-            payout.check_bits(64)?;
-            let paid = vesting.transfer(&private.beneficiary, &payout)?;
-            let refund = vesting.transfer_all(&private.vesting_owner);
-            refund.amount().check_bits(64)?;
-            let mut next = DataUtxo::<Vesting>::from_output_utxo(refund);
+            let mut paid = TokenUtxo::new_init(&private.beneficiary, &vesting.asset());
+            vesting.transfer(&mut paid, &payout)?;
+            let mut next = DataUtxo::<Vesting>::new_init(&private.vesting_owner, &vesting.asset());
+            vesting.transfer_all(&mut next)?;
             next.beneficiary_hash = vesting.beneficiary_hash.clone();
             next.total = vesting.total.clone();
             next.claimed = private.unlocked.clone();
@@ -242,7 +241,7 @@ mod circuit {
 
             ConfidentialTransaction::new(&private.tx_context, public)
                 .with_data_utxo(vesting)
-                .with_output_token_utxo(paid)
+                .with_token_utxos(paid)
                 .with_data_utxo(next)
                 .check()
         }

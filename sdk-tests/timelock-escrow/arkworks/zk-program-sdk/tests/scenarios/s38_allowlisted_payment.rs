@@ -107,11 +107,12 @@ mod circuit {
                 .root(&public.recipient.hash()?)?
                 .assert_equal(&public.root, "the recipient is not on the allowlist")?;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let payment = tokens.transfer(&public.recipient, &private.amount)?;
+            let mut payment = TokenUtxo::new_init(&public.recipient, &tokens.asset());
+            tokens.transfer(&mut payment, &private.amount)?;
 
             ConfidentialTransaction::new(&private.tx_context, public)
                 .with_token_utxos(tokens)
-                .with_output_token_utxo(payment)
+                .with_token_utxos(payment)
                 .check()
         }
     }

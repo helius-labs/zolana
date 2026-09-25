@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
         poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-        ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Utxo,
+        ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo, TxContext, Utxo,
     },
     RelationError,
 };
@@ -38,12 +38,12 @@ impl Circuit for Withdraw {
         self.public
             .unlock
             .assert_equal(&escrow.unlock, "the unlock time is not the escrow's")?;
-        let creator = escrow.creator.clone();
-        let payout = escrow.transfer_all(&creator);
+        let mut payout = TokenUtxo::new_init(&escrow.creator, &escrow.asset());
+        escrow.transfer_all(&mut payout)?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(escrow)
-            .with_output_token_utxo(payout)
+            .with_token_utxos(payout)
             .check()
     }
 }

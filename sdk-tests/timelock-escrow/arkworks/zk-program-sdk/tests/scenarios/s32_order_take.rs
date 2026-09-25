@@ -118,18 +118,16 @@ mod circuit {
                 .ask_amount
                 .assert_equal(&order.ask_amount, "the ask amount is not the order's")?;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_b)?;
-            tokens
-                .asset()
-                .hash()?
-                .assert_equal(&order.ask_asset_hash, "the taker pays in another asset")?;
-            let payment = tokens.transfer(&private.maker, &public.ask_amount)?;
-            let payout = order.transfer_all(&tokens.owner());
+            let mut payment = TokenUtxo::new_init(&private.maker, &public.ask_asset);
+            tokens.transfer(&mut payment, &public.ask_amount)?;
+            let mut payout = TokenUtxo::new_init(&tokens.owner(), &order.asset());
+            order.transfer_all(&mut payout)?;
 
             ConfidentialTransaction::new(&private.tx_context, public)
                 .with_data_utxo(order)
                 .with_token_utxos(tokens)
-                .with_output_token_utxo(payment)
-                .with_output_token_utxo(payout)
+                .with_token_utxos(payment)
+                .with_token_utxos(payout)
                 .check()
         }
     }

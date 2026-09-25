@@ -187,8 +187,9 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let offered = tokens.transfer(&self.public.order_owner, &private.amount)?;
-            let mut order = DataUtxo::<OrderTerms>::from_output_utxo(offered);
+            let mut order =
+                DataUtxo::<OrderTerms>::new_init(&self.public.order_owner, &tokens.asset());
+            tokens.transfer(&mut order, &private.amount)?;
             order.maker_hash = tokens.owner().hash()?;
             order.ask_asset_hash = private.ask_mint.hash()?;
             order.ask_amount = private.ask_amount.clone();

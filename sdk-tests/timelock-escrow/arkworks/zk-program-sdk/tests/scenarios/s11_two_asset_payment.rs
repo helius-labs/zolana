@@ -102,15 +102,17 @@ mod circuit {
             let private = &self.private;
             let recipient = &self.public.recipient;
             let mut tokens_a = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let payment_a = tokens_a.transfer(recipient, &private.amount_a)?;
+            let mut payment_a = TokenUtxo::new_init(recipient, &tokens_a.asset());
+            tokens_a.transfer(&mut payment_a, &private.amount_a)?;
             let mut tokens_b = TokenUtxo::new_mut(&private.token_utxos_asset_b)?;
-            let payment_b = tokens_b.transfer(recipient, &private.amount_b)?;
+            let mut payment_b = TokenUtxo::new_init(recipient, &tokens_b.asset());
+            tokens_b.transfer(&mut payment_b, &private.amount_b)?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens_a)
-                .with_output_token_utxo(payment_a)
+                .with_token_utxos(payment_a)
                 .with_token_utxos(tokens_b)
-                .with_output_token_utxo(payment_b)
+                .with_token_utxos(payment_b)
                 .check()
         }
     }

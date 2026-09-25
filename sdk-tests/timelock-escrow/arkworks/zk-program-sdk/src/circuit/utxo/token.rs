@@ -11,23 +11,13 @@ use crate::{
 
 #[must_use]
 #[derive(Debug)]
-pub struct TokenUtxo<const N: usize> {
+pub struct TokenUtxo {
     ledger: Ledger,
     spent_inputs: Vec<SpentInput>,
     burn: bool,
 }
 
-impl TokenUtxo<0> {
-    pub fn new_init(owner: &Owner, asset: &Asset) -> Self {
-        Self {
-            ledger: Ledger::new(owner.clone(), asset.clone(), zero()),
-            spent_inputs: Vec::new(),
-            burn: false,
-        }
-    }
-}
-
-impl<const N: usize> HasLedger for TokenUtxo<N> {
+impl HasLedger for TokenUtxo {
     fn ledger(&self) -> &Ledger {
         &self.ledger
     }
@@ -35,16 +25,28 @@ impl<const N: usize> HasLedger for TokenUtxo<N> {
     fn ledger_mut(&mut self) -> &mut Ledger {
         &mut self.ledger
     }
+
+    fn is_burned(&self) -> bool {
+        self.burn
+    }
 }
 
-impl<const N: usize> Balance for TokenUtxo<N> {}
+impl Balance for TokenUtxo {}
 
-impl<const N: usize> TokenUtxo<N> {
-    pub fn new_mut(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
+impl TokenUtxo {
+    pub fn new_init(owner: &Owner, asset: &Asset) -> Self {
+        Self {
+            ledger: Ledger::new(owner.clone(), asset.clone(), zero()),
+            spent_inputs: Vec::new(),
+            burn: false,
+        }
+    }
+
+    pub fn new_mut<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
         Self::spend(inputs, false)
     }
 
-    pub fn new_burn(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
+    pub fn new_burn<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
         Self::spend(inputs, true)
     }
 
@@ -54,6 +56,10 @@ impl<const N: usize> TokenUtxo<N> {
 
     pub(crate) fn public_transfers(&self) -> &[PublicTransfer] {
         self.ledger.public_transfers()
+    }
+
+    pub(crate) fn transferred(&self) -> &CircuitVar {
+        self.ledger.transferred()
     }
 
     pub(crate) fn change(&self) -> Result<Option<Output>, RelationError> {
@@ -71,7 +77,7 @@ impl<const N: usize> TokenUtxo<N> {
         }))
     }
 
-    fn spend(inputs: &[Utxo; N], burn: bool) -> Result<Self, RelationError> {
+    fn spend(inputs: &[Utxo], burn: bool) -> Result<Self, RelationError> {
         let first = inputs.first().ok_or(RelationError::Violated(
             "a token utxo spends at least one input",
         ))?;
@@ -81,7 +87,7 @@ impl<const N: usize> TokenUtxo<N> {
         let owner = first.owner.hash()?;
         let asset = first.asset.hash()?;
         let mut balance = zero();
-        let mut spent_inputs = Vec::with_capacity(N);
+        let mut spent_inputs = Vec::with_capacity(inputs.len());
         for (index, input) in inputs.iter().enumerate() {
             let dummy = input.domain.is_eq(&constant(u64::from(DUMMY_DOMAIN)))?;
             input.assert_default_ring()?;

@@ -92,10 +92,9 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `Utxo` | The circuit form of a spent UTXO, with its `Owner` and `Asset`. `Utxo::dummy()` pads a `TokenUtxo`. |
 | `DataHash` | The hash of a state: Poseidon over its fields, each contributing its own `hash`. |
 | `UtxoData` | Names a state's client form. The borsh bytes of that form are the data a new data UTXO contains. |
-| `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init`, `from_output_utxo`, `new_mut` or `new_burn`. It moves value through `Balance` like a token UTXO; what is left is its output, or must be zero once burned. |
-| `TokenUtxo<N>` | `N` plain UTXOs of one owner and asset, with dummies after the first. It moves value through `Balance`, and its lifecycle (`new_init`, `new_mut`, `new_burn`) decides whether what is left becomes change. |
-| `Balance` | The value operations both UTXO types share: `owner`, `asset`, `balance`, `transfer`, `transfer_all`, `receive` (an `OutputTokenUtxo` in the same asset), `deposit`, `withdraw` and `withdraw_all`. In the native run they refuse more than the balance and a public transfer of zero. They are default methods over a `Ledger`. |
-| `OutputTokenUtxo` | The output a transfer creates, or the value of a new data UTXO. |
+| `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner, asset)`, `new_mut` or `new_burn`. It moves value through `Balance` like a token UTXO; what is left is its output, or must be zero once burned. |
+| `TokenUtxo` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` from `new_mut` or `new_burn`, with dummies after the first. It moves value through `Balance`, and its lifecycle decides whether what is left becomes an output. |
+| `Balance` | The value operations both UTXO types share: `owner`, `asset`, `balance`, `transfer` and `transfer_all` into a destination UTXO of either type, `deposit`, `withdraw` and `withdraw_all`. A transfer refuses a burned destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` checks that its amount fits in 64 bits, and `transfer` and `withdraw` that what remains does: a named error natively, a range check in R1CS. A public transfer of zero is refused. They are default methods over a crate-private `Ledger`. |
 
 **Transaction and circuit**
 
@@ -103,7 +102,7 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | --- | --- |
 | `TxContext` | The transaction settings as `CircuitVar`s. `check` derives the output blindings and `private_tx_blinding` from them and the first spent input's nullifier, and selects the output tree. |
 | `PublicInputs` | Hashes a circuit's public fields, then `private_tx_hash`, into the public hash. |
-| `ConfidentialTransaction<P>` | The transaction's inputs and outputs, in call order of `with_token_utxos`, `with_output_token_utxo` and `with_data_utxo`, with no SPP shape. `check` blinds and hashes the outputs and computes `private_tx_hash` and the public hash. |
+| `ConfidentialTransaction<P>` | The transaction's inputs and outputs, in call order of `with_token_utxos` and `with_data_utxo`, with no SPP shape. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, and computes `private_tx_hash` and the public hash. |
 | `CheckedTransaction` | What `check` returns: the public hash, `private_tx_hash` and the slots. |
 | `Circuit` | The `circuit` method of a circuit type. |
 
@@ -186,27 +185,29 @@ R1CS, proves, and checks the proof against the keys. `verify` and the program's
 ```mermaid
 stateDiagram-v2
     accTitle: The DataUtxo and TokenUtxo lifecycles
-    accDescr: Both UTXO types start as Init, Mut or Burn. Init adds an output, Mut inputs and an output, Burn inputs. A burned UTXO pays out through transfers and has no change.
+    accDescr: Both UTXO types start as Init, Mut or Burn. Init adds an output, Mut inputs and an output, Burn inputs. A burned UTXO transfers its value into other UTXOs and has no output.
 
     state "Init - no input, one output" as Init
     state "Mut - inputs in, the new state or change out" as Mut
     state "Burn - inputs in, no output of its own" as Burn
     state "Slots in the ConfidentialTransaction" as Slots
 
-    [*] --> Init : new_init or from_output_utxo
+    [*] --> Init : new_init
     [*] --> Mut : new_mut
     [*] --> Burn : new_burn
     Init --> Slots : output
     Mut --> Slots : inputs and output
-    Burn --> Slots : inputs, and a transfer as OutputTokenUtxo
+    Burn --> Slots : inputs, its value transferred into other UTXOs
     Slots --> [*]
 ```
 
 *Figure 2: The lifecycles shared by `DataUtxo` and `TokenUtxo`, the counterparts of `LightAccount`.*
 
 A UTXO starts in `Init`, `Mut` or `Burn`. `Init` adds only an output: the new state for a
-`DataUtxo`, the change for a `TokenUtxo`. `Mut` adds its inputs and that output. `Burn` adds only
-its inputs, and its transfers must pay out its whole value.
+`DataUtxo`, the value transferred into it for a `TokenUtxo`. `Mut` adds its inputs and that
+output, the change for a `TokenUtxo`. `Burn` adds only its inputs, and its transfers must move
+out its whole value. Every UTXO but a burned one can receive a transfer: an `Init` UTXO holds
+the asset it was built with, the others their inputs' asset.
 
 ## Running it
 
@@ -229,13 +230,14 @@ cargo run -p timelock-escrow-arkworks --example constraints
   - Poseidon and `nonzero_hash_chain` parity;
   - the plain input types, the records and `FromCircuit`;
   - the lifecycles and the slot order;
+  - the transfer rules and the conservation check, natively and in R1CS;
   - `ZkProgram` resolution, dropped dummies, empty output padding, owner tags and errors;
   - Groth16, and saving, loading and exporting keys.
 
 | Circuit | Constraints |
 | --- | --- |
-| escrow | 13,707 |
-| withdraw | 5,785 |
+| escrow | 13,838 |
+| withdraw | 5,786 |
 
 `setup` with an RNG is a single-party setup, suitable for tests only. A deployment needs its own
 setup, the exported verifying key in the program, and the protocol change.

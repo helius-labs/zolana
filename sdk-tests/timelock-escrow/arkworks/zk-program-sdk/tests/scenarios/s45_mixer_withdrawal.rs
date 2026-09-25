@@ -78,7 +78,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         RelationError,
     };
@@ -114,11 +114,12 @@ mod circuit {
                 &public.nullifier_hash,
                 "the nullifier hash is not the commitment's",
             )?;
-            let payout = note.transfer_all(&public.recipient);
+            let mut payout = TokenUtxo::new_init(&public.recipient, &note.asset());
+            note.transfer_all(&mut payout)?;
 
             ConfidentialTransaction::new(&private.tx_context, public)
                 .with_data_utxo(note)
-                .with_output_token_utxo(payout)
+                .with_token_utxos(payout)
                 .check()
         }
     }

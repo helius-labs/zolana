@@ -106,16 +106,12 @@ mod circuit {
         pub amount_b: CircuitVar,
     }
 
-    fn leg(inputs: &[Utxo; 1], owner: &Owner, mint: &Asset) -> Result<TokenUtxo<1>, RelationError> {
+    fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, RelationError> {
         let tokens = TokenUtxo::new_burn(inputs)?;
         tokens
             .owner()
             .hash()?
             .assert_equal(&owner.hash()?, "the leg belongs to another party")?;
-        tokens
-            .asset()
-            .hash()?
-            .assert_equal(&mint.hash()?, "the leg is in another mint")?;
         Ok(tokens)
     }
 
@@ -123,24 +119,18 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let public = &self.public;
-            let mut tokens_a = leg(
-                &private.token_utxos_asset_a,
-                &private.party_a,
-                &public.mint_a,
-            )?;
-            let mut tokens_b = leg(
-                &private.token_utxos_asset_b,
-                &private.party_b,
-                &public.mint_b,
-            )?;
-            let to_b = tokens_a.transfer(&private.party_b, &public.amount_a)?;
-            let to_a = tokens_b.transfer(&private.party_a, &public.amount_b)?;
+            let mut tokens_a = leg(&private.token_utxos_asset_a, &private.party_a)?;
+            let mut tokens_b = leg(&private.token_utxos_asset_b, &private.party_b)?;
+            let mut to_b = TokenUtxo::new_init(&private.party_b, &public.mint_a);
+            tokens_a.transfer(&mut to_b, &public.amount_a)?;
+            let mut to_a = TokenUtxo::new_init(&private.party_a, &public.mint_b);
+            tokens_b.transfer(&mut to_a, &public.amount_b)?;
 
             ConfidentialTransaction::new(&private.tx_context, public)
                 .with_token_utxos(tokens_a)
                 .with_token_utxos(tokens_b)
-                .with_output_token_utxo(to_b)
-                .with_output_token_utxo(to_a)
+                .with_token_utxos(to_b)
+                .with_token_utxos(to_a)
                 .check()
         }
     }

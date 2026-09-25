@@ -10,7 +10,6 @@ pub use input::Utxo;
 pub use ledger::Balance;
 use ledger::{HasLedger, Ledger};
 pub(crate) use output::Output;
-pub use output::OutputTokenUtxo;
 pub use token::TokenUtxo;
 use zolana_interface::UTXO_DOMAIN;
 

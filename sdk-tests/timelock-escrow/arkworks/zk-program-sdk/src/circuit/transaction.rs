@@ -8,8 +8,7 @@ use zolana_program::{
 use super::{
     constant, nonzero_hash_chain, poseidon,
     utxo::{Output, SpentInput},
-    zero, Assert, Bool, CircuitVar, DataUtxo, OutputTokenUtxo, PublicTransfer, TokenUtxo, Utxo,
-    UtxoData,
+    zero, Assert, Bool, CircuitVar, DataUtxo, PublicTransfer, TokenUtxo, Utxo, UtxoData,
 };
 use crate::RelationError;
 
@@ -125,6 +124,7 @@ pub struct ConfidentialTransaction<'a, P> {
     inputs: Vec<SpentInput>,
     outputs: Vec<Output>,
     public_transfers: Vec<PublicTransfer>,
+    transferred: CircuitVar,
     error: Option<RelationError>,
 }
 
@@ -136,24 +136,21 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             inputs: Vec::new(),
             outputs: Vec::new(),
             public_transfers: Vec::new(),
+            transferred: zero(),
             error: None,
         }
     }
 
-    pub fn with_token_utxos<const N: usize>(mut self, token: TokenUtxo<N>) -> Self {
+    pub fn with_token_utxos(mut self, token: TokenUtxo) -> Self {
         self.inputs.extend(token.spent_inputs().iter().cloned());
         self.public_transfers
             .extend(token.public_transfers().iter().cloned());
+        self.transferred += token.transferred();
         match token.change() {
             Ok(Some(change)) => self.outputs.push(change),
             Ok(None) => {}
             Err(error) => self.record(error),
         }
-        self
-    }
-
-    pub fn with_output_token_utxo(mut self, output: OutputTokenUtxo) -> Self {
-        self.outputs.push(Output::from(output));
         self
     }
 
@@ -163,6 +160,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         }
         self.public_transfers
             .extend(utxo.public_transfers().iter().cloned());
+        self.transferred += utxo.transferred();
         let output = utxo.output().and_then(|output| {
             output
                 .map(|mut output| {
@@ -185,6 +183,10 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         if let Some(error) = self.error {
             return Err(error);
         }
+        self.transferred.assert_equal(
+            &zero(),
+            "value leaves the transaction: a utxo was not added",
+        )?;
         let first = self.inputs.first().ok_or(RelationError::Violated(
             "a transaction spends at least one input",
         ))?;

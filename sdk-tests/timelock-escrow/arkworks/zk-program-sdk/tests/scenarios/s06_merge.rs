@@ -94,11 +94,12 @@ mod circuit {
                 .owner()
                 .hash()?
                 .assert_equal(&self.public.owner.hash()?, "the inputs have another owner")?;
-            let merged = tokens.transfer_all(&self.public.owner);
+            let mut merged = TokenUtxo::new_init(&self.public.owner, &tokens.asset());
+            tokens.transfer_all(&mut merged)?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
-                .with_output_token_utxo(merged)
+                .with_token_utxos(merged)
                 .check()
         }
     }

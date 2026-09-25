@@ -2,7 +2,7 @@ use core::ops::{Deref, DerefMut};
 
 use borsh::BorshSerialize;
 
-use super::{utxo_domain, Balance, HasLedger, Ledger, Output, OutputTokenUtxo, SpentInput, Utxo};
+use super::{utxo_domain, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
 use crate::{
     circuit::{zero, Assert, Asset, CircuitVar, Owner, PublicTransfer},
     conversion::FromCircuit,
@@ -45,23 +45,18 @@ impl<S> HasLedger for DataUtxo<S> {
     fn ledger_mut(&mut self) -> &mut Ledger {
         &mut self.ledger
     }
+
+    fn is_burned(&self) -> bool {
+        self.burn
+    }
 }
 
 impl<S> Balance for DataUtxo<S> {}
 
 impl<S: Default> DataUtxo<S> {
-    pub fn new_init(owner: &Owner) -> Self {
+    pub fn new_init(owner: &Owner, asset: &Asset) -> Self {
         Self {
-            ledger: Ledger::new(owner.clone(), Asset::sol(), zero()),
-            state: S::default(),
-            spent: None,
-            burn: false,
-        }
-    }
-
-    pub fn from_output_utxo(output: OutputTokenUtxo) -> Self {
-        Self {
-            ledger: Ledger::new(output.owner, output.asset, output.amount),
+            ledger: Ledger::new(owner.clone(), asset.clone(), zero()),
             state: S::default(),
             spent: None,
             burn: false,
@@ -107,6 +102,10 @@ impl<S> DataUtxo<S> {
 
     pub(crate) fn public_transfers(&self) -> &[PublicTransfer] {
         self.ledger.public_transfers()
+    }
+
+    pub(crate) fn transferred(&self) -> &CircuitVar {
+        self.ledger.transferred()
     }
 }
 

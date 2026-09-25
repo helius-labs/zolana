@@ -164,8 +164,9 @@ pub(crate) mod circuit {
                 .amount
                 .assert_not_equal(&zero(), "the escrow locks nothing")?;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let locked = tokens.transfer(&self.public.escrow_owner, &private.amount)?;
-            let mut escrow = DataUtxo::<EscrowTerms>::from_output_utxo(locked);
+            let mut escrow =
+                DataUtxo::<EscrowTerms>::new_init(&self.public.escrow_owner, &tokens.asset());
+            tokens.transfer(&mut escrow, &private.amount)?;
             escrow.creator = tokens.owner();
             escrow.unlock = private.unlock.clone();
 

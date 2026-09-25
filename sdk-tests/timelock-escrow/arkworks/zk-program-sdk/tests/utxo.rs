@@ -93,16 +93,17 @@ fn a_data_utxo_follows_its_lifecycle() {
         counter_hash,
     ));
     let mut tokens = TokenUtxo::new_mut(&[native(&spendable(&keypair(11), MINT, 50, 1))]).unwrap();
-    let funded = DataUtxo::<Counter>::from_output_utxo(
-        tokens.transfer(&owner(12), &constant(30u64)).unwrap(),
-    );
-    let valueless = DataUtxo::<Counter>::new_init(&owner(12));
+    let mut funded = DataUtxo::<Counter>::new_init(&owner(12), &tokens.asset());
+    tokens.transfer(&mut funded, &constant(30u64)).unwrap();
+    let valueless = DataUtxo::<Counter>::new_init(&owner(12), &Asset::sol());
     let mut mutated = DataUtxo::new_mut(&spent, &counter(9)).unwrap();
     mutated.value = constant(10u64);
     let mut burned = DataUtxo::new_burn(&spent, &counter(9)).unwrap();
-    let overpaid = error(burned.transfer(&owner(40), &constant(8u64)));
-    let payout = burned.transfer(&owner(40), &constant(7u64)).unwrap();
-    let paid_out = burned.transfer_all(&owner(41));
+    let mut payout = TokenUtxo::new_init(&owner(40), &burned.asset());
+    let overpaid = error(burned.transfer(&mut payout, &constant(8u64)));
+    burned.transfer(&mut payout, &constant(7u64)).unwrap();
+    let mut paid_out = TokenUtxo::new_init(&owner(41), &burned.asset());
+    burned.transfer_all(&mut paid_out).unwrap();
 
     assert_eq!(
         (
@@ -118,9 +119,9 @@ fn a_data_utxo_follows_its_lifecycle() {
             to_bytes(&mutated.value).unwrap(),
             (
                 to_bytes(&payout.owner().hash().unwrap()).unwrap(),
-                to_bytes(&payout.amount()).unwrap(),
+                to_bytes(&payout.balance()).unwrap(),
             ),
-            to_bytes(&paid_out.amount()).unwrap(),
+            to_bytes(&paid_out.balance()).unwrap(),
             overpaid,
             error(DataUtxo::new_mut(&spent, &counter(8))),
             error(DataUtxo::new_burn(
@@ -156,13 +157,12 @@ fn a_data_utxo_moves_value_in_every_lifecycle() {
     let account = circuit::Bytes::constant(&[6u8; 32]);
     let mut tokens = TokenUtxo::new_mut(&[native(&spendable(&keypair(11), MINT, 50, 1))]).unwrap();
     let mut vault = DataUtxo::new_mut(&spent, &counter(9)).unwrap();
-    let paid = vault.transfer(&owner(40), &constant(3u64)).unwrap();
-    vault
-        .receive(tokens.transfer(&owner(12), &constant(20u64)).unwrap())
-        .unwrap();
+    let mut paid = TokenUtxo::new_init(&owner(40), &vault.asset());
+    vault.transfer(&mut paid, &constant(3u64)).unwrap();
+    tokens.transfer(&mut vault, &constant(20u64)).unwrap();
     vault.deposit(&constant(5u64), &account).unwrap();
-    let mut sol = DataUtxo::<Counter>::new_init(&owner(12));
-    let other_asset = error(sol.receive(tokens.transfer(&owner(12), &constant(1u64)).unwrap()));
+    let mut sol = DataUtxo::<Counter>::new_init(&owner(12), &Asset::sol());
+    let other_asset = error(tokens.transfer(&mut sol, &constant(1u64)));
     let zero_deposit = error(sol.deposit(&constant(0u64), &account));
     let empty_withdrawal = error(sol.withdraw_all(&account));
     let mut burned = DataUtxo::new_burn(&spent, &counter(9)).unwrap();
@@ -170,7 +170,7 @@ fn a_data_utxo_moves_value_in_every_lifecycle() {
 
     assert_eq!(
         (
-            to_bytes(&paid.amount()).unwrap(),
+            to_bytes(&paid.balance()).unwrap(),
             to_bytes(&vault.balance()).unwrap(),
             to_bytes(&tokens.balance()).unwrap(),
             other_asset,
@@ -182,8 +182,8 @@ fn a_data_utxo_moves_value_in_every_lifecycle() {
         (
             bytes(3),
             bytes(29),
-            bytes(29),
-            "the received output holds another asset".to_string(),
+            bytes(30),
+            "the destination holds another asset".to_string(),
             "a public transfer moves a nonzero amount".to_string(),
             "a public transfer moves a nonzero amount".to_string(),
             bytes(7),
@@ -200,14 +200,16 @@ fn a_token_utxo_balances_transfers_deposits_and_withdrawals() {
         Utxo::dummy(),
     ])
     .unwrap();
-    let transfer = token.transfer(&owner(30), &constant(350u64)).unwrap();
+    let mut transfer = TokenUtxo::new_init(&owner(30), &token.asset());
+    token.transfer(&mut transfer, &constant(350u64)).unwrap();
     let account = circuit::Bytes::constant(&[6u8; 32]);
     token.deposit(&constant(10u64), &account).unwrap();
     token.withdraw(&constant(5u64), &account).unwrap();
-    let overspent = error(token.transfer(&owner(30), &constant(156u64)));
+    let overspent = error(token.transfer(&mut transfer, &constant(156u64)));
     let overdrawn = error(token.withdraw(&constant(156u64), &account));
     let balance = to_bytes(&token.balance()).unwrap();
-    let everything = token.transfer_all(&owner(31));
+    let mut everything = TokenUtxo::new_init(&owner(31), &token.asset());
+    token.transfer_all(&mut everything).unwrap();
     let mut deposit_only = TokenUtxo::new_init(&owner(11), &Asset::constant(&MINT.asset));
     deposit_only.deposit(&constant(25u64), &account).unwrap();
 
@@ -215,10 +217,10 @@ fn a_token_utxo_balances_transfers_deposits_and_withdrawals() {
         (
             balance,
             to_bytes(&token.owner().hash().unwrap()).unwrap(),
-            to_bytes(&transfer.amount()).unwrap(),
+            to_bytes(&transfer.balance()).unwrap(),
             to_bytes(&deposit_only.balance()).unwrap(),
             (
-                to_bytes(&everything.amount()).unwrap(),
+                to_bytes(&everything.balance()).unwrap(),
                 to_bytes(&token.balance()).unwrap(),
             ),
             overspent,
@@ -288,5 +290,199 @@ fn a_token_utxo_enforces_its_rules_in_r1cs() {
             dummy_with_value,
         ),
         (true, false, (bytes(300), true))
+    );
+}
+
+fn natively_and_in_r1cs(
+    run: impl Fn(&Allocator) -> Result<(), RelationError>,
+) -> (Result<(), String>, Result<bool, String>) {
+    let native = run(&Allocator::native()).map_err(|e| e.to_string());
+    let cs = ConstraintSystem::new_ref();
+    let in_r1cs = run(&Allocator::R1cs(cs.clone()))
+        .map_err(|e| e.to_string())
+        .and_then(|()| cs.is_satisfied().map_err(|e| e.to_string()));
+    (native, in_r1cs)
+}
+
+fn tokens(allocator: &Allocator, owner: u8, mint: Mint, amount: u64) -> TokenUtxo {
+    TokenUtxo::new_mut(&[spendable(&keypair(owner), mint, amount, 1)
+        .instantiate(allocator)
+        .unwrap()])
+    .unwrap()
+}
+
+fn amount(allocator: &Allocator, amount: Field) -> CircuitVar {
+    allocator.private_input(&constant(amount)).unwrap()
+}
+
+#[test]
+fn a_transfer_refuses_a_destination_in_another_asset() {
+    let into_empty = natively_and_in_r1cs(|allocator| {
+        let mut destination = TokenUtxo::new_init(&owner(30), &Asset::sol());
+        tokens(allocator, 11, MINT, 50)
+            .transfer(&mut destination, &amount(allocator, Field::from(10u64)))
+    });
+    let into_non_empty = |mint: Mint| {
+        natively_and_in_r1cs(move |allocator| {
+            let mut destination = tokens(allocator, 12, mint, 5);
+            tokens(allocator, 11, MINT, 50)
+                .transfer(&mut destination, &amount(allocator, Field::from(10u64)))
+        })
+    };
+    let into_data = natively_and_in_r1cs(|allocator| {
+        let counter_hash = to_bytes(&counter(9).hash()?)?;
+        let input = with_data_hash(
+            &keypair(12),
+            spendable(&keypair(12), Mint::SOL, 7, 0),
+            counter_hash,
+        );
+        let mut destination = DataUtxo::new_mut(&input.instantiate(allocator)?, &counter(9))?;
+        tokens(allocator, 11, MINT, 50).transfer_all(&mut destination)
+    });
+    let other_asset = || {
+        (
+            Err("the destination holds another asset".to_string()),
+            Ok(false),
+        )
+    };
+
+    assert_eq!(
+        (
+            into_empty,
+            into_non_empty(Mint::SOL),
+            into_data,
+            into_non_empty(MINT)
+        ),
+        (
+            other_asset(),
+            other_asset(),
+            other_asset(),
+            (Ok(()), Ok(true))
+        )
+    );
+}
+
+#[test]
+fn a_burned_utxo_receives_no_transfer() {
+    let burned = |allocator: &Allocator| {
+        TokenUtxo::new_burn(&[spendable(&keypair(12), MINT, 5, 2)
+            .instantiate(allocator)
+            .unwrap()])
+        .unwrap()
+    };
+    let refused = || {
+        (
+            Err("a burned utxo receives no transfer".to_string()),
+            Err("a burned utxo receives no transfer".to_string()),
+        )
+    };
+
+    assert_eq!(
+        (
+            natively_and_in_r1cs(|allocator| {
+                tokens(allocator, 11, MINT, 50).transfer(
+                    &mut burned(allocator),
+                    &amount(allocator, Field::from(1u64)),
+                )
+            }),
+            natively_and_in_r1cs(|allocator| {
+                tokens(allocator, 11, MINT, 50).transfer_all(&mut burned(allocator))
+            }),
+        ),
+        (refused(), refused())
+    );
+}
+
+#[test]
+fn an_overdraw_is_unsatisfied_in_r1cs() {
+    let account = circuit::Bytes::constant(&[6u8; 32]);
+    let transfer = |paid: u64| {
+        natively_and_in_r1cs(move |allocator| {
+            let mut source = tokens(allocator, 11, MINT, 50);
+            let mut destination = TokenUtxo::new_init(&owner(30), &source.asset());
+            source.transfer(&mut destination, &amount(allocator, Field::from(paid)))
+        })
+    };
+    let withdraw = |withdrawn: u64| {
+        natively_and_in_r1cs(|allocator| {
+            tokens(allocator, 11, MINT, 50)
+                .withdraw(&amount(allocator, Field::from(withdrawn)), &account)
+        })
+    };
+
+    assert_eq!(
+        (transfer(50), transfer(51), withdraw(50), withdraw(51)),
+        (
+            (Ok(()), Ok(true)),
+            (
+                Err("the transfer exceeds the balance".to_string()),
+                Ok(false)
+            ),
+            (Ok(()), Ok(true)),
+            (
+                Err("the withdrawal exceeds the balance".to_string()),
+                Ok(false)
+            ),
+        )
+    );
+}
+
+#[test]
+fn a_field_negative_amount_is_unsatisfied_in_r1cs() {
+    let negative = -Field::from(20u64);
+    let refused = natively_and_in_r1cs(|allocator| {
+        let mut destination = tokens(allocator, 12, MINT, 30);
+        tokens(allocator, 11, MINT, 50).transfer(&mut destination, &amount(allocator, negative))
+    });
+    let balances_in_r1cs = {
+        let cs = ConstraintSystem::new_ref();
+        let allocator = Allocator::R1cs(cs.clone());
+        let mut source = tokens(&allocator, 11, MINT, 50);
+        let mut destination = tokens(&allocator, 12, MINT, 30);
+        source
+            .transfer(&mut destination, &amount(&allocator, negative))
+            .unwrap();
+        (
+            to_bytes(&source.balance()).unwrap(),
+            to_bytes(&destination.balance()).unwrap(),
+            cs.is_satisfied().unwrap(),
+        )
+    };
+
+    assert_eq!(
+        (refused, balances_in_r1cs),
+        (
+            (
+                Err("the transfer amount is not a u64".to_string()),
+                Ok(false)
+            ),
+            (bytes(70), bytes(10), false),
+        )
+    );
+}
+
+#[test]
+fn a_destination_built_from_the_source_asset_adds_no_asset_constraints() {
+    let cs = ConstraintSystem::new_ref();
+    let allocator = Allocator::R1cs(cs.clone());
+    let cost = |transfer: &mut dyn FnMut() -> Result<(), RelationError>| {
+        let before = cs.num_constraints();
+        transfer().unwrap();
+        cs.num_constraints() - before
+    };
+    let mut source = tokens(&allocator, 11, MINT, 50);
+    let mut shared = TokenUtxo::new_init(&owner(30), &source.asset());
+    let mut separate = TokenUtxo::new_init(&owner(30), &Asset::constant(&MINT.asset));
+    let paid = amount(&allocator, Field::from(10u64));
+    let costs = (
+        cost(&mut || source.transfer(&mut shared, &paid)),
+        cost(&mut || source.transfer(&mut separate, &paid)),
+        cost(&mut || source.transfer_all(&mut shared)),
+        cost(&mut || shared.transfer_all(&mut separate)),
+    );
+
+    assert_eq!(
+        (costs, cs.is_satisfied().unwrap()),
+        ((130, 132, 0, 2), true)
     );
 }

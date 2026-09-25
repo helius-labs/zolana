@@ -93,8 +93,9 @@ impl Placeholder for CounterCreate {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
+            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
+            Utxo, UtxoData,
         },
         RelationError,
     };
@@ -138,7 +139,7 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let counter = DataUtxo::<Counter>::new_init(&self.public.owner);
+            let counter = DataUtxo::<Counter>::new_init(&self.public.owner, &Asset::sol());
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)

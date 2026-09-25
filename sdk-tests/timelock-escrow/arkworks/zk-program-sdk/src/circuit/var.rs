@@ -121,19 +121,6 @@ impl Assert for CircuitVar {
     }
 }
 
-pub(crate) fn subtract_within(
-    balance: &CircuitVar,
-    amount: &CircuitVar,
-    rule: &'static str,
-) -> Result<CircuitVar, RelationError> {
-    if let (CircuitVar::Constant(balance), CircuitVar::Constant(amount)) = (balance, amount) {
-        if amount.into_bigint() > balance.into_bigint() {
-            return Err(RelationError::Violated(rule));
-        }
-    }
-    Ok(balance.clone() - amount)
-}
-
 pub(crate) fn assert_equal_unless(
     left: &CircuitVar,
     right: &CircuitVar,

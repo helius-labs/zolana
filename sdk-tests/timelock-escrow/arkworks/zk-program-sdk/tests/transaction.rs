@@ -3,8 +3,9 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zk_program_sdk::{
     circuit::{
-        constant, nonzero_hash_chain, poseidon, Balance, CircuitVar, ConfidentialTransaction,
-        ConstraintSystem, DataHash, DataUtxo, Field, Owner, PublicInputs, TokenUtxo, Utxo,
+        constant, nonzero_hash_chain, poseidon, Asset, Balance, CircuitVar,
+        ConfidentialTransaction, ConstraintSystem, DataHash, DataUtxo, Field, Owner, PublicInputs,
+        TokenUtxo, Utxo,
     },
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
     RelationError, TxContext,
@@ -219,12 +220,13 @@ fn transaction<P: PublicInputs>(
 ) -> Result<CircuitVar, RelationError> {
     let [first, second, data] = inputs;
     let mut token = TokenUtxo::new_mut(&[first, second])?;
-    let transfer = token.transfer(&owner(30), &constant(350u64))?;
+    let mut transfer = TokenUtxo::new_init(&owner(30), &token.asset());
+    token.transfer(&mut transfer, &constant(350u64))?;
     let mut mutated = DataUtxo::new_mut(&data, &counter(9))?;
     mutated.value = constant(10u64);
     ConfidentialTransaction::new(context, public)
         .with_token_utxos(token)
-        .with_output_token_utxo(transfer)
+        .with_token_utxos(transfer)
         .with_data_utxo(mutated)
         .check()
         .map(|checked| checked.public_hash().clone())
@@ -289,6 +291,103 @@ fn the_private_tx_hash_follows_the_order_utxos_are_added() {
 }
 
 #[test]
+fn two_transfers_into_one_destination_produce_one_output_holding_the_sum() {
+    let pay_twice = |allocator: &Allocator| -> Result<([u8; 32], bool), RelationError> {
+        let context = tx_context().instantiate(allocator)?;
+        let [first, second, data] = inputs().map(|input| input.instantiate(allocator).unwrap());
+        let mut token = TokenUtxo::new_mut(&[first, second])?;
+        let mut payment = TokenUtxo::new_init(&owner(30), &token.asset());
+        token.transfer(&mut payment, &allocator.private_input(&constant(100u64))?)?;
+        token.transfer(&mut payment, &allocator.private_input(&constant(250u64))?)?;
+        let mut mutated = DataUtxo::new_mut(&data, &counter(9))?;
+        mutated.value = constant(10u64);
+        let checked = ConfidentialTransaction::new(&context, &PrivateTxHash)
+            .with_token_utxos(token)
+            .with_token_utxos(payment)
+            .with_data_utxo(mutated)
+            .check()?;
+        let satisfied = match allocator {
+            Allocator::R1cs(cs) => cs.is_satisfied()?,
+            Allocator::Native(_) => true,
+        };
+        Ok((to_bytes(checked.private_tx_hash())?, satisfied))
+    };
+    let owner_hash = |seed| address(seed).owner_hash().unwrap();
+    let expected = expected_private_tx_hash(
+        &inputs().map(|input| input.utxo_hash),
+        &[
+            expected_output(owner_hash(11), &MINT.asset, 150, [0u8; 32], 0),
+            expected_output(owner_hash(30), &MINT.asset, 350, [0u8; 32], 1),
+            expected_output(
+                owner_hash(12),
+                &MINT.asset,
+                7,
+                to_bytes(&counter(10).hash().unwrap()).unwrap(),
+                2,
+            ),
+        ],
+    );
+
+    assert_eq!(
+        (
+            pay_twice(&Allocator::native()).unwrap(),
+            pay_twice(&Allocator::R1cs(ConstraintSystem::new_ref())).unwrap(),
+        ),
+        ((expected, true), (expected, true))
+    );
+}
+
+#[test]
+fn a_transfer_that_leaves_a_utxo_out_of_the_transaction_is_refused() {
+    let leave_out = |allocator: &Allocator, destination_added: bool| -> Result<bool, String> {
+        let context = tx_context()
+            .instantiate(allocator)
+            .map_err(|e| e.to_string())?;
+        let [first, second, data] = inputs().map(|input| input.instantiate(allocator).unwrap());
+        let transaction = || -> Result<(), RelationError> {
+            let mut token = TokenUtxo::new_mut(&[first, second])?;
+            let mut vault = DataUtxo::new_mut(&data, &counter(9))?;
+            let mut payment = TokenUtxo::new_init(&owner(30), &token.asset());
+            token.transfer(&mut payment, &allocator.private_input(&constant(100u64))?)?;
+            vault.transfer(&mut payment, &allocator.private_input(&constant(3u64))?)?;
+            let transaction =
+                ConfidentialTransaction::new(&context, &PrivateTxHash).with_token_utxos(token);
+            let transaction = if destination_added {
+                transaction.with_token_utxos(payment)
+            } else {
+                transaction.with_data_utxo(vault)
+            };
+            transaction.check().map(|_| ())
+        };
+        transaction().map_err(|e| e.to_string())?;
+        match allocator {
+            Allocator::R1cs(cs) => cs.is_satisfied().map_err(|e| e.to_string()),
+            Allocator::Native(_) => Ok(true),
+        }
+    };
+    let natively_and_in_r1cs = |destination_added: bool| {
+        (
+            leave_out(&Allocator::native(), destination_added),
+            leave_out(
+                &Allocator::R1cs(ConstraintSystem::new_ref()),
+                destination_added,
+            ),
+        )
+    };
+    let refused = || {
+        (
+            Err("value leaves the transaction: a utxo was not added".to_string()),
+            Ok(false),
+        )
+    };
+
+    assert_eq!(
+        (natively_and_in_r1cs(false), natively_and_in_r1cs(true)),
+        (refused(), refused())
+    );
+}
+
+#[test]
 fn the_same_transaction_is_satisfied_in_r1cs() {
     let cs = ConstraintSystem::new_ref();
     let allocator = Allocator::R1cs(cs.clone());
@@ -312,24 +411,29 @@ fn a_burned_utxo_pays_out_everything() {
     let [first, _, data] = native_inputs();
     let burn = |paid: u64| {
         let mut burned = DataUtxo::new_burn(&data, &counter(9)).unwrap();
-        let payout = burned.transfer(&owner(40), &constant(paid)).unwrap();
+        let mut payout = TokenUtxo::new_init(&owner(40), &burned.asset());
+        burned.transfer(&mut payout, &constant(paid)).unwrap();
         ConfidentialTransaction::new(&context, &PrivateTxHash)
             .with_data_utxo(burned)
-            .with_output_token_utxo(payout)
+            .with_token_utxos(payout)
             .check()
             .map(|_| ())
             .map_err(|e| e.to_string())
     };
     let mut token = TokenUtxo::new_burn(&[first]).unwrap();
-    let transfer = token.transfer(&owner(30), &constant(100u64)).unwrap();
+    let mut transfer = TokenUtxo::new_init(&owner(30), &token.asset());
+    token.transfer(&mut transfer, &constant(100u64)).unwrap();
     let token_leftover = ConfidentialTransaction::new(&context, &PrivateTxHash)
         .with_token_utxos(token)
-        .with_output_token_utxo(transfer)
+        .with_token_utxos(transfer)
         .check()
         .map(|_| ())
         .map_err(|e| e.to_string());
     let no_input = ConfidentialTransaction::new(&context, &PrivateTxHash)
-        .with_data_utxo(DataUtxo::<circuit::Counter>::new_init(&owner(3)))
+        .with_data_utxo(DataUtxo::<circuit::Counter>::new_init(
+            &owner(3),
+            &Asset::sol(),
+        ))
         .check()
         .map(|_| ())
         .map_err(|e| e.to_string());
@@ -339,13 +443,14 @@ fn a_burned_utxo_pays_out_everything() {
         let [first_input, _, _] = inputs();
         let mut token =
             TokenUtxo::new_burn(&[first_input.instantiate(&allocator).unwrap()]).unwrap();
-        let transfer = token.transfer(&owner(30), &constant(100u64)).unwrap();
+        let mut transfer = TokenUtxo::new_init(&owner(30), &token.asset());
+        token.transfer(&mut transfer, &constant(100u64)).unwrap();
         let _public_hash = ConfidentialTransaction::new(
             &tx_context().instantiate(&allocator).unwrap(),
             &PrivateTxHash,
         )
         .with_token_utxos(token)
-        .with_output_token_utxo(transfer)
+        .with_token_utxos(transfer)
         .check()
         .unwrap();
         cs.is_satisfied().unwrap()

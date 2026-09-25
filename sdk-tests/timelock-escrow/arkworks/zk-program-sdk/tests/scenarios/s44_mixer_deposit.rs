@@ -161,8 +161,8 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let deposit = tokens.transfer(&private.mixer, &self.public.denomination)?;
-            let mut note = DataUtxo::<MixerCommitment>::from_output_utxo(deposit);
+            let mut note = DataUtxo::<MixerCommitment>::new_init(&private.mixer, &tokens.asset());
+            tokens.transfer(&mut note, &self.public.denomination)?;
             note.commitment =
                 poseidon(&[private.nullifier_secret.clone(), private.secret.clone()])?;
 

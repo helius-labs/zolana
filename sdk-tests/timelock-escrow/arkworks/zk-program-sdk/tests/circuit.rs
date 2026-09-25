@@ -249,7 +249,7 @@ impl Placeholder for Register {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitVar,
+            poseidon, zero, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Utxo, UtxoData,
         },
@@ -281,10 +281,11 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let payment = tokens.transfer(&self.public.recipient, &private.amount)?;
+            let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
+            tokens.transfer(&mut payment, &private.amount)?;
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
-                .with_output_token_utxo(payment)
+                .with_token_utxos(payment)
                 .check()
         }
     }
@@ -304,10 +305,11 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
-            let payment = tokens.transfer(&self.public.recipient, &private.amount)?;
+            let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
+            tokens.transfer(&mut payment, &private.amount)?;
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
-                .with_output_token_utxo(payment)
+                .with_token_utxos(payment)
                 .check()
         }
     }
@@ -358,7 +360,7 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let mut label = DataUtxo::<Label>::new_init(&private.owner);
+            let mut label = DataUtxo::<Label>::new_init(&private.owner, &Asset::sol());
             label.value = self.public.label.clone();
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)

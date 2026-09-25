@@ -113,8 +113,9 @@ impl Placeholder for CreatePoll {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
+            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
+            Utxo, UtxoData,
         },
         RelationError,
     };
@@ -170,7 +171,7 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let mut poll = DataUtxo::<Poll>::new_init(&private.poll_owner);
+            let mut poll = DataUtxo::<Poll>::new_init(&private.poll_owner, &Asset::sol());
             poll.poll_id = self.public.poll_id.clone();
             poll.root = self.public.root.clone();
 

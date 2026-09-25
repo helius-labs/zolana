@@ -165,8 +165,8 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let funded = tokens.transfer(&private.pool_owner, &private.amount)?;
-            let mut pool = DataUtxo::<Pool>::from_output_utxo(funded);
+            let mut pool = DataUtxo::<Pool>::new_init(&private.pool_owner, &tokens.asset());
+            tokens.transfer(&mut pool, &private.amount)?;
             pool.root = self.public.root.clone();
             pool.airdrop_id = self.public.airdrop_id.clone();
 

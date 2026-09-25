@@ -77,11 +77,12 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
-            let sweep = tokens.transfer_all(&private.recipient);
+            let mut sweep = TokenUtxo::new_init(&private.recipient, &tokens.asset());
+            tokens.transfer_all(&mut sweep)?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
-                .with_output_token_utxo(sweep)
+                .with_token_utxos(sweep)
                 .check()
         }
     }

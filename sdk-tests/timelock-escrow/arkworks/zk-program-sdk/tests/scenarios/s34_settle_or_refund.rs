@@ -116,7 +116,7 @@ mod circuit {
         circuit::{
             constant, poseidon, zero, Assert, Balance, Bool, CheckedTransaction, Circuit,
             CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
-            TxContext, Utxo, UtxoData,
+            TokenUtxo, TxContext, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -190,14 +190,16 @@ mod circuit {
             let maker_amount = value - &taker_amount;
             reservation.fill_price = settles.select(price, &zero());
             let taker = reservation.owner();
-            let to_taker = order.transfer(&taker, &taker_amount)?;
-            let to_maker = order.transfer(&private.maker, &maker_amount)?;
+            let mut to_taker = TokenUtxo::new_init(&taker, &order.asset());
+            order.transfer(&mut to_taker, &taker_amount)?;
+            let mut to_maker = TokenUtxo::new_init(&private.maker, &order.asset());
+            order.transfer(&mut to_maker, &maker_amount)?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_data_utxo(order)
                 .with_data_utxo(reservation)
-                .with_output_token_utxo(to_taker)
-                .with_output_token_utxo(to_maker)
+                .with_token_utxos(to_taker)
+                .with_token_utxos(to_maker)
                 .check()
         }
     }

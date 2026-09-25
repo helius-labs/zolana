@@ -89,11 +89,12 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
-            let payment = tokens.transfer(&self.public.recipient, &private.amount)?;
+            let mut payment = TokenUtxo::new_init(&self.public.recipient, &tokens.asset());
+            tokens.transfer(&mut payment, &private.amount)?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
-                .with_output_token_utxo(payment)
+                .with_token_utxos(payment)
                 .check()
         }
     }
