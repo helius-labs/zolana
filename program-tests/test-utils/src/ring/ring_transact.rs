@@ -19,10 +19,12 @@ use zolana_interface::{
             CircuitId, InputUtxo, TransactIxData, TransactProof, TreeContext,
         },
         tag::RING_TRANSACT,
-        RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplWithdrawalAccounts,
     },
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
+};
+use zolana_program::instruction::{
+    RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplWithdrawalAccounts,
 };
 use zolana_program_test::Rejection;
 use zolana_transaction::instructions::transact::ConfidentialTransaction;

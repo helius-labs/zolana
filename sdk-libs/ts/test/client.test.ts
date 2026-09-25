@@ -28,6 +28,7 @@ import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
+import { proofFor } from "./helpers/proofs.js";
 import {
   ProofInputUtxo,
   SOL_MINT,
@@ -47,14 +48,6 @@ const FOREIGN_TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const RPC_URL = "https://rpc.example.com/zolana";
 const INDEXER_URL = "https://indexer.example.com/api";
 const PROVER_URL = "https://prover.example.com/api";
-const STANDARD_PROOF = {
-  ar: ["0x0", "0x0"],
-  bs: [
-    ["0x0", "0x0"],
-    ["0x0", "0x0"],
-  ],
-  krs: ["0x0", "0x0"],
-};
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
@@ -185,7 +178,7 @@ async function serviceRequestUrls(
   overrides: ServiceOverrides = {},
 ): Promise<readonly string[]> {
   const urls: string[] = [];
-  const fetch = vi.fn(async (input: URL | RequestInfo): Promise<Response> => {
+  const fetch = vi.fn(async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
     const requestUrl = input instanceof Request ? input.url : String(input);
     urls.push(requestUrl);
     const path = new URL(requestUrl).pathname;
@@ -200,7 +193,7 @@ async function serviceRequestUrls(
       );
     }
     if (path.endsWith("/prove")) {
-      return new Response(JSON.stringify(STANDARD_PROOF), {
+      return new Response(JSON.stringify(proofFor(String(init?.body))), {
         headers: { "content-type": "application/json" },
       });
     }
@@ -236,9 +229,9 @@ async function serviceRequestUrls(
 }
 
 function proverFetch(): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
-  return vi.fn<typeof globalThis.fetch>(() =>
+  return vi.fn<typeof globalThis.fetch>((_url, init) =>
     Promise.resolve(
-      new Response(JSON.stringify(STANDARD_PROOF), {
+      new Response(JSON.stringify(proofFor(String(init?.body))), {
         headers: { "content-type": "application/json" },
       }),
     ),
@@ -642,8 +635,8 @@ describe("ZolanaClient", () => {
 
   it("proves caller-assembled transfer inputs on the transfer circuit", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
-      async () =>
-        new Response(JSON.stringify(STANDARD_PROOF), {
+      async (_url, init) =>
+        new Response(JSON.stringify(proofFor(String(init?.body))), {
           headers: { "content-type": "application/json" },
         }),
     );
@@ -783,7 +776,7 @@ describe("ZolanaClient", () => {
       const sent = JSON.parse(String(init?.body)) as { inputs: { nullifierSecret: unknown }[] };
       expect(sent.inputs[0]?.nullifierSecret).toMatch(/^0x[0-9a-f]+$/u);
       expect(sent.inputs[0]?.nullifierSecret).not.toBe("0x0");
-      return new Response(JSON.stringify(STANDARD_PROOF), {
+      return new Response(JSON.stringify(proofFor(String(init?.body))), {
         headers: { "content-type": "application/json" },
       });
     });
@@ -873,8 +866,13 @@ describe("prover indexer fetching", () => {
         ring === undefined ? { kind: "confidential" } : { kind: "ring", ring },
       );
       const prepared = prepareTransfer(fixture.proofInputs, ring);
+      const proof = proofFor({
+        circuitType: ring === undefined ? "transfer-confidential" : "transfer-ring",
+        nInputs: 2,
+        nOutputs: 2,
+      });
       const resultBody = {
-        ...STANDARD_PROOF,
+        ...proof,
         resolution: {
           publicInputHash: `0x${expected.proverInputs.payload.publicInputHash.toString(16)}`,
           trees: [
@@ -909,7 +907,11 @@ describe("prover indexer fetching", () => {
           { headers: { "content-type": "application/json" } },
         );
       });
-      const instance = new ZolanaClient({ proofDataSource: "prover", fetch });
+      const instance = new ZolanaClient({
+        proofDataSource: "prover",
+        proverUrl: "https://prover.test/v1/zolana?api-key=secret",
+        fetch,
+      });
       const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
       try {
         const result =
@@ -917,17 +919,21 @@ describe("prover indexer fetching", () => {
             ? await instance.proveTransact(fixture.proofInputs, keys)
             : (await instance.proveRingTransact(fixture.proofInputs, ring, keys)).data;
         expect(result).toEqual(
-          expected.withProof(compressProof(parseProof(STANDARD_PROOF)).toTransactProof()),
+          expected.withProof(compressProof(parseProof(proof)).toTransactProof()),
         );
         expect(fetch).toHaveBeenCalledTimes(fallback ? 3 : 1);
         if (fallback) {
-          expect(String(fetch.mock.calls[1]?.[0])).toBe("http://127.0.0.1:3001/prove/indexed");
+          expect(String(fetch.mock.calls[1]?.[0])).toBe(
+            "https://prover.test/v1/zolana/prove/indexed?api-key=secret",
+          );
           expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("X-Async")).toBe("true");
           expect(String(fetch.mock.calls[2]?.[0])).toBe(
-            "http://127.0.0.1:3001/prove/status?jobId=indexed-job",
+            "https://prover.test/v1/zolana/prove/status?api-key=secret&jobId=indexed-job",
           );
         }
-        expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:3001/prove/indexed");
+        expect(String(fetch.mock.calls[0]?.[0])).toBe(
+          "https://prover.test/v1/zolana/prove/indexed?api-key=secret",
+        );
         const decoder = wireDecoder(() => new Error("bad request"));
         const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
         const envelope = decoder.record(body, "request");
@@ -976,7 +982,7 @@ describe("prover indexer fetching", () => {
         async () =>
           new Response(
             JSON.stringify({
-              ...STANDARD_PROOF,
+              ...proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 1 }),
               ...(corruption === "missing" ? {} : { resolution }),
             }),
             { headers: { "content-type": "application/json" } },

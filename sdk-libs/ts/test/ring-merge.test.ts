@@ -1,3 +1,4 @@
+import { proofFor } from "./helpers/proofs.js";
 import { address, AccountRole } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 import { LocalKeys, ZolanaClient } from "../src/client/index.js";
@@ -100,14 +101,7 @@ describe("ring merge", () => {
       const inputs = [input(3n), input(5n)];
       const prepared = merge(inputs, 9).prepare();
       const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-        Response.json({
-          ar: ["0x0", "0x0"],
-          bs: [
-            ["0x0", "0x0"],
-            ["0x0", "0x0"],
-          ],
-          krs: ["0x0", "0x0"],
-        }),
+        Response.json(proofFor({ circuitType: "merge-ring", inputs: Array(8) })),
       );
       const client = new ZolanaClient({ treeId: 7, proofDataSource, fetch });
       const state = vi

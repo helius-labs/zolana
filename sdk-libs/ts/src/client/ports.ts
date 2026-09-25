@@ -21,7 +21,7 @@ import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import { equal } from "../transaction/internal.js";
 
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
-import type { ProverHealth } from "./prover/client.js";
+import type { ProverHealth, ProvingKeyReport } from "./prover/client.js";
 import type {
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
@@ -295,6 +295,11 @@ export interface RingProvingConfig {
   readonly outputTree?: TreeContext;
 }
 
+export interface MergeCacheTarget {
+  readonly address: Address;
+  readonly slot: number;
+}
+
 export interface Prover {
   proveCustomRingDeposit(
     inputs: CustomRingDepositProofRequest,
@@ -343,6 +348,8 @@ export interface Prover {
   /** The ring circuit when `ringProgramId` is non-zero. */
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof>;
   proverHealth(context?: RequestContext): Promise<ProverHealth>;
+  /** The prover's proving keys, checked against the SDK's verifying keys. */
+  checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport>;
 }
 
 export interface TransactionConfirmer {
@@ -463,6 +470,7 @@ export interface MergeAssembler {
       prepared: PreparedMerge;
       keys: ProofAuthority;
       indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+      cache?: MergeCacheTarget;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge>;

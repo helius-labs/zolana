@@ -23,11 +23,8 @@ use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
     SolanaRpc,
 };
-use zolana_interface::{
-    instruction::{deposit_blinding, AssetDeposit},
-    pda,
-    state::state_root_offset,
-};
+use zolana_interface::{instruction::deposit_blinding, pda, state::state_root_offset};
+use zolana_program::instruction::AssetDeposit;
 use zolana_program_test::DepositOutput;
 use zolana_tree::TreeAccount;
 
@@ -79,8 +76,8 @@ pub fn expected_deposit_view(
                 .expect("expected deposit blinding"),
             asset: expected.asset.to_bytes(),
             amount: expected.amount,
-            data_hash: data.utxo_data.as_ref().map(|p| p.data_hash),
-            utxo_data: data.utxo_data.as_ref().map(|p| p.data.clone()),
+            data_hash: None,
+            utxo_data: None,
             ring_program_id: None,
             ring_data_hash: None,
             ring_data: None,

@@ -1,8 +1,9 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
-use zolana_interface::{error::ShieldedPoolError, instruction::DepositBuildError};
+use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::KeypairError;
+use zolana_program::instruction::DepositBuildError;
 use zolana_transaction::TransactionError;
 
 #[derive(Debug, Error)]
@@ -41,6 +42,54 @@ pub enum ClientError {
     /// transport is already private.
     #[error("{field} must use https (or http to loopback): {url}")]
     InsecureServiceUrl { field: &'static str, url: String },
+
+    #[error("input {index} reads cache slot {slot}, but a cache holds slots 0..36")]
+    CacheReadSlotOutOfRange { index: usize, slot: u8 },
+
+    #[error("input {index} reads cache slot {slot}, which an earlier input already reads")]
+    DuplicateCacheReadSlot { index: usize, slot: u8 },
+
+    #[error(
+        "input {index} is a UTXO of tree {tree_id}, but the read cache holds tree {cache_tree_id}"
+    )]
+    CacheReadTreeMismatch {
+        index: usize,
+        tree_id: u16,
+        cache_tree_id: u16,
+    },
+
+    #[error("input {index} names a cache slot, but the transaction reads no cache")]
+    CachedInputWithoutReadCache { index: usize },
+
+    #[error("input {index} is padding and cannot be read from a cache")]
+    CachedDummyInput { index: usize },
+
+    #[error("input {index} names a cache slot, but this proof reads no cache")]
+    CachedInputUnsupported { index: usize },
+
+    #[error("the transaction names a read cache, but no input reads from it")]
+    UnusedReadCache,
+
+    #[error("output {index} is the cache write beyond the {max} a transact holds")]
+    TooManyCacheWrites { index: usize, max: usize },
+
+    #[error("output {index} writes cache slot {slot}, but a cache holds slots 0..36")]
+    CacheWriteSlotOutOfRange { index: usize, slot: u8 },
+
+    #[error("output {index} writes cache slot {slot}, which an earlier output already writes")]
+    DuplicateCacheWriteSlot { index: usize, slot: u8 },
+
+    #[error("output {index} names a cache slot, but the transaction writes no cache")]
+    CachedOutputWithoutWriteCache { index: usize },
+
+    #[error("output {index} is padding and cannot be written to a cache")]
+    CachedDummyOutput { index: usize },
+
+    #[error("the transaction names a write cache, but no output is written to it")]
+    UnusedWriteCache,
+
+    #[error("the transaction writes a cache, whose writer must sign the transact")]
+    CacheWriteNeedsWriter,
 
     #[error("no supported circuit shape holds {n_in} inputs and {n_out} outputs")]
     UnsupportedShape { n_in: usize, n_out: usize },
@@ -232,11 +281,32 @@ pub enum ClientError {
     #[error("prover process error: {0}")]
     Prover(String),
 
+    #[error(
+        "prover used proving key {key} with sha256 {reported}, the verifying key pins {expected}"
+    )]
+    ProvingKeyMismatch {
+        key: String,
+        expected: String,
+        reported: String,
+    },
+
+    #[error("prover did not report the proving key sha256 for {key}")]
+    MissingProvingKeySha256 { key: String },
+
+    #[error("prover proving keys differ from the verifying keys: {}", mismatches.join("; "))]
+    ProverProvingKeysMismatch { mismatches: Vec<String> },
+
+    #[error("no committed verifying key for address append at tree height {tree_height}, batch size {batch_size}")]
+    UnsupportedAddressAppendShape { tree_height: u32, batch_size: u32 },
+
     #[error("missing input merkle proof for input {index}")]
     MissingInputMerkleProof { index: usize },
 
     #[error("missing nullifier proof for dummy input {index}")]
     MissingDummyNullifierProof { index: usize },
+
+    #[error("missing nullifier proof for cached input {index}")]
+    MissingCachedNullifierProof { index: usize },
 
     #[error("input {index} has a proof for the wrong slot kind")]
     UnexpectedInputProof { index: usize },

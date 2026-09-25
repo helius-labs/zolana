@@ -105,6 +105,7 @@ fn escrow_then_withdraw() -> Result<()> {
         payer: creator_address.solana_address()?,
         blinding_seed,
         output_tree_id: localnet.tree_id,
+        cache_accounts: Default::default(),
     };
 
     let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
@@ -226,6 +227,7 @@ fn escrow_then_withdraw() -> Result<()> {
         payer: creator_address.solana_address()?,
         blinding_seed,
         output_tree_id: localnet.tree_id,
+        cache_accounts: Default::default(),
     };
 
     let withdraw_proof_inputs = WithdrawProofInputParams {

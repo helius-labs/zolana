@@ -33,6 +33,7 @@ zolana-account-checks = { workspace = true, features = ["test-only"] }
 pinocchio = { workspace = true }
 shielded-pool-program = { workspace = true, features = ["test-sbf"] }
 zolana-interface = { workspace = true }
+zolana-program = { workspace = true, features = ["protocol"] }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-keypair = { workspace = true }
@@ -61,6 +62,9 @@ mollusk-svm = { workspace = true }
 
 [dev-dependencies]
 wincode = { workspace = true }
+# vk::setup reads the verifying key setup markers back from the built program.
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
+zolana-tree = { workspace = true, features = ["verify"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
@@ -196,6 +200,16 @@ name = "merge_functional"
 path = "tests/merge/functional.rs"
 required-features = ["proofs"]
 
+[[test]]
+name = "cache_functional"
+path = "tests/cache/functional.rs"
+required-features = ["proofs"]
+
+[[test]]
+name = "cache_queued"
+path = "tests/cache/queued.rs"
+required-features = ["proofs"]
+
 # --- Mollusk mutation coverage ---
 
 [[test]]
@@ -286,3 +300,11 @@ path = "tests/spl_interface/validation.rs"
 [[test]]
 name = "dispatch_validation"
 path = "tests/dispatch/validation.rs"
+
+[[test]]
+name = "verifying_keys_setup_markers"
+path = "tests/verifying_keys/setup_markers.rs"
+
+[[test]]
+name = "cache_contract"
+path = "tests/cache/contract.rs"

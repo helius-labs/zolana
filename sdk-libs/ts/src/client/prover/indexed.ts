@@ -1,3 +1,4 @@
+import type { ExpectedProvingKey } from "../../interface/proving-keys.js";
 import {
   STATE_ROOT_HISTORY_CAPACITY,
   NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
@@ -20,7 +21,7 @@ import { resolvedPublicInputHash, type InputTree } from "./assembly.js";
 import type { CircuitUtxo, TransferOutput, Field, Proof } from "./types.js";
 import type { PreparedTransferInput } from "../ports.js";
 import { asField } from "./assembly.js";
-import { compressProof, parseProof } from "./proof.js";
+import { compressProof, parseCheckedProof } from "./proof.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
 const decoder = wireDecoder(() => new ClientError("CLIENT_PROOF_PARSE", { details: {} }));
@@ -123,6 +124,11 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
             publicAmounts: fields("publicAmounts"),
             signerPublicKeyHashes: fields("signerPublicKeyHashes"),
             inputFlags: field("inputFlags"),
+            cacheTreeId: field("cacheTreeId"),
+            cacheReadHashChain: field("cacheReadHashChain"),
+            cacheReadHashes: fields("cacheReadHashes"),
+            cacheIsCached: fields("cacheIsCached"),
+            cacheReadIndex: fields("cacheReadIndex"),
             publishedOutputOwnerPublicKeyHashes: fields("publishedOutputOwnerPublicKeyHashes"),
           },
         };
@@ -243,7 +249,7 @@ export function indexedRequestEnvelope(
     inputs.trees.length < 1 ||
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
-    inputs.publicInputs.length !== (inputs.circuit === "merge" ? 7 : 15)
+    inputs.publicInputs.length !== (inputs.circuit === "merge" ? 8 : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {
@@ -318,7 +324,12 @@ export function indexedRequestEnvelope(
   };
 }
 
-export function parseIndexedResult(value: unknown, inputs: IndexedProofInputs): IndexedProofResult {
+export function parseIndexedResult(
+  value: unknown,
+  inputs: IndexedProofInputs,
+  key: ExpectedProvingKey,
+): IndexedProofResult {
+  const parsedProof = parseCheckedProof(value, key);
   const envelope = decoder.record(value, "proof");
   const proof = Object.hasOwn(envelope, "proof")
     ? decoder.record(envelope["proof"], "proof")
@@ -348,7 +359,7 @@ export function parseIndexedResult(value: unknown, inputs: IndexedProofInputs): 
     publicInputHash: fieldBytes(raw["publicInputHash"]),
   });
   validateResolution(inputs, resolution);
-  return Object.freeze({ proof: parseProof(value), resolution });
+  return Object.freeze({ proof: parsedProof, resolution });
 }
 
 export function validateResolution(

@@ -18,7 +18,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
 use zolana_client::{compile_message, sign_transaction, ComputeBudgetConfig};
-use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
+use zolana_interface::instruction::BatchUpdateNullifierTreeData;
+use zolana_program::instruction::BatchUpdateNullifierTree;
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 
 #[derive(Debug, thiserror::Error)]

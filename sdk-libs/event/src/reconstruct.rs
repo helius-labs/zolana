@@ -14,6 +14,7 @@ use zolana_event::{
 use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
     merge_transact::MergeTransactIxDataRef,
+    settlement_accounts,
     transact::{InputUtxo, InterfaceTransfer, OwnerTag, TransactIxDataRef},
 };
 
@@ -81,7 +82,11 @@ pub fn transact_general_event(
     }
     let ix = TransactIxDataRef::from_bytes(ix_bytes)
         .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-    let spl_transfers = settlement_transfers(&ix.interface_transfers, &source.accounts)?;
+    let spl_transfers = settlement_transfers(
+        &ix.interface_transfers,
+        settlement_accounts(&ix.interface_transfers, ix.circuit, &source.accounts)
+            .ok_or(EventDecodeError::MissingSettlementAccount)?,
+    )?;
 
     let inputs = inputs_from_tree_indexes(&event.input_trees, &ix.inputs)?;
 
@@ -131,25 +136,12 @@ pub fn transact_general_event(
 
 /// One [`SplTransfer`] per interface transfer, in leg order. `is_deposit` and
 /// `amount` come from the transfer; the mint comes from the leg's settlement
-/// group. The groups are the last accounts of the instruction, in leg order, and
-/// the program rejects any account after them, so they are located from the end
-/// of the account list; the owner signers before them need no counting.
+/// group. `settlement_accounts` is the window [`zolana_interface::instruction::settlement_accounts`]
+/// located, so the owner signers before it and any cache after it need no counting here.
 fn settlement_transfers(
     transfers: &[InterfaceTransfer],
-    accounts: &[Pubkey],
+    settlement_accounts: &[Pubkey],
 ) -> Result<Vec<SplTransfer>, EventDecodeError> {
-    let total = transfers
-        .iter()
-        .try_fold(0usize, |total, transfer| {
-            total.checked_add(transfer.settlement_account_count())
-        })
-        .ok_or(EventDecodeError::IndexOverflow)?;
-    let settlement_accounts = accounts
-        .len()
-        .checked_sub(total)
-        .and_then(|start| accounts.get(start..))
-        .ok_or(EventDecodeError::MissingSettlementAccount)?;
-
     let mut spl_transfers = Vec::with_capacity(transfers.len());
     let mut group_start = 0usize;
     for transfer in transfers {

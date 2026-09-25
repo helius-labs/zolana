@@ -3,10 +3,10 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_client::Rpc;
 use zolana_interface::{
-    instruction::CreateTree,
     pda,
     state::{state_root_offset, ProtocolConfig},
 };
+use zolana_program::instruction::CreateTree;
 use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::ProgramTestError;

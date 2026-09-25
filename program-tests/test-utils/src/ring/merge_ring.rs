@@ -6,10 +6,10 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient};
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{instruction_data::merge_transact::MergeProof, MergeRing},
+    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
 };
 use zolana_keypair::ShieldedKeypair;
+use zolana_program::instruction::MergeRing;
 use zolana_program_test::Rejection;
 use zolana_transaction::Utxo;
 
@@ -84,6 +84,7 @@ impl RingHarness {
             nullifier_key: keypair.nullifier_key.clone(),
             proofs,
             dummy_nullifier_proofs,
+            cache: None,
         })
     }
 }
@@ -257,6 +258,7 @@ impl RingHarness {
             payer: payer.pubkey(),
             data: data.merge.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
+            cache: None,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -411,6 +413,7 @@ impl RingHarness {
             payer: payer.pubkey(),
             data: data.merge.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
+            cache: None,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);

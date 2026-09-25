@@ -1510,6 +1510,8 @@ name = "client-example"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
+ "solana-address 2.6.1",
  "solana-keypair",
  "solana-pubkey 4.2.1",
  "solana-signature",
@@ -1517,6 +1519,7 @@ dependencies = [
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
@@ -1623,6 +1626,7 @@ dependencies = [
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-transaction",
 ]
 
@@ -1641,6 +1645,7 @@ dependencies = [
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
@@ -1993,6 +1998,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "groth16-solana",
+ "serde_json",
  "solana-address 2.6.1",
  "wincode",
  "zolana-hasher",
@@ -2073,6 +2079,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-ring-client",
  "zolana-ring-key-registry",
  "zolana-ring-policy",
@@ -2106,6 +2113,7 @@ dependencies = [
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-program-test",
  "zolana-ring-client",
  "zolana-ring-policy",
@@ -2439,6 +2447,7 @@ dependencies = [
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-test-utils",
  "zolana-transaction",
 ]
@@ -2472,6 +2481,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
@@ -2861,6 +2871,7 @@ dependencies = [
  "zolana-hasher",
  "zolana-interface",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-smart-account-client",
  "zolana-tree",
 ]
@@ -3055,7 +3066,7 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 [[package]]
 name = "groth16-solana"
 version = "0.2.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208#43fee1a67e91c0df7bb4edad5ba87ae4602aa208"
+source = "git+https://github.com/Lightprotocol/groth16-solana?rev=70a93803e5f55b8425301d506c625169ef557c9d#70a93803e5f55b8425301d506c625169ef557c9d"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -5686,6 +5697,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
@@ -6512,6 +6524,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-program-test",
  "zolana-smart-account-client",
  "zolana-test-utils",
@@ -9260,6 +9273,7 @@ dependencies = [
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-wallet",
@@ -9294,6 +9308,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
@@ -9530,6 +9545,7 @@ dependencies = [
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-transaction",
 ]
 
@@ -9560,6 +9576,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
@@ -10138,6 +10155,7 @@ dependencies = [
  "solana-transaction-error",
  "zolana-client",
  "zolana-keypair",
+ "zolana-program",
  "zolana-user-registry",
  "zolana-user-registry-interface",
 ]
@@ -10830,6 +10848,7 @@ dependencies = [
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-program-test",
  "zolana-smart-account-client",
  "zolana-test-utils",
@@ -11021,19 +11040,25 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "groth16-solana",
  "hex",
  "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
+ "solana-loader-v3-interface 8.0.1",
+ "solana-loader-v4-interface",
  "solana-pubkey 4.2.1",
+ "solana-sdk-ids",
  "solana-signature",
  "solana-signer",
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-transaction",
  "zolana-user-registry-interface",
  "zolana-wallet",
@@ -11083,7 +11108,9 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-transaction",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -11177,7 +11204,6 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-address 2.6.1",
- "solana-instruction",
  "solana-message",
  "solana-program-error",
  "solana-pubkey 4.2.1",
@@ -11234,9 +11260,17 @@ dependencies = [
 name = "zolana-program"
 version = "0.1.0"
 dependencies = [
+ "borsh",
+ "bytemuck",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-pubkey 4.2.1",
+ "thiserror 2.0.20",
  "wincode",
  "zolana-hasher",
  "zolana-interface",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -11265,6 +11299,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-transaction",
  "zolana-tree",
 ]
@@ -11480,6 +11515,7 @@ dependencies = [
  "num-traits",
  "pinocchio 0.11.2",
  "rand 0.8.8",
+ "serde_json",
  "solana-msg",
  "thiserror 2.0.20",
  "wincode",
@@ -11545,6 +11581,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-transaction",
  "zolana-user-registry-interface",
 ]

@@ -6,7 +6,7 @@ use p256::elliptic_curve::sec1::ToEncodedPoint;
 use serde::Serialize;
 use zeroize::Zeroizing;
 use zolana_client::{
-    prover::{Delivery, ProveRequest},
+    prover::{Delivery, ExpectedProvingKey, ProveRequest},
     ClientError, ProofInputUtxo,
 };
 use zolana_interface::tree_slot::{tree_id_field, TreeSlot};
@@ -253,6 +253,13 @@ impl ProveRequest for CustomRingBaseProofRequest {
             .map_err(|_| ClientError::Prover("base request serialization failed".to_string()))
     }
 
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        Ok(ExpectedProvingKey {
+            name: "custom_ring_base.key".to_string(),
+            sha256: custom_ring_interface::base_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+        })
+    }
+
     fn delivery(&self) -> Delivery {
         Delivery::Queued
     }
@@ -328,6 +335,13 @@ impl CustomRingPolicyProofRequest {
 impl ProveRequest for CustomRingPolicyProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         json_body(&self.json()?)
+    }
+
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        Ok(ExpectedProvingKey {
+            name: "custom_ring_policy.key".to_string(),
+            sha256: custom_ring_interface::policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+        })
     }
 
     fn delivery(&self) -> Delivery {

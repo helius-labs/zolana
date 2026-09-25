@@ -40,7 +40,9 @@ func (p *TransferParameters) ValidateShape() error {
 	// SelectTreeSlot, and a slot the packed InputFlags does not publish inside
 	// the flag decode, both as opaque proving errors; reject them as request
 	// errors.
-	if err := common.ValidateTreeSlots(p.TreeSlots, inputSlots, txcircuit.InputTrees); err != nil {
+	if err := common.ValidateTreeSlotRoots(
+		p.TreeSlots, inputSlots, txcircuit.InputTrees, p.needsStateRoot,
+	); err != nil {
 		return err
 	}
 	if err := common.ValidateInputFlags(p.InputFlags, inputSlots); err != nil {
@@ -48,6 +50,9 @@ func (p *TransferParameters) ValidateShape() error {
 	}
 	if p.OutputTreeID == nil {
 		return fmt.Errorf("spp: outputTreeId is required")
+	}
+	if err := p.Cache.validate(int(p.NInputs)); err != nil {
+		return err
 	}
 	return nil
 }
@@ -87,5 +92,5 @@ func (request TransferProof) Prove() (*common.Proof, error) {
 		return nil, fmt.Errorf("error proving: %v", err)
 	}
 
-	return &common.Proof{Proof: proof}, nil
+	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

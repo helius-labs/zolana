@@ -111,6 +111,7 @@ pub fn finalized_transaction(
             vec![],
         ),
         payer,
+        cache_accounts: Default::default(),
     }
 }
 

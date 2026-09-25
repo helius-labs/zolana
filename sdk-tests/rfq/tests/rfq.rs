@@ -8,7 +8,7 @@ use anyhow::{anyhow, Result};
 use shared::{send_cosigned, setup, TestEnv, BUY_USDC, SELL_SOL};
 use solana_signer::Signer;
 use zolana_client::Rpc;
-use zolana_interface::instruction::Transact;
+use zolana_program::instruction::Transact;
 use zolana_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     Data, Utxo, SOL_ASSET_ID, SOL_MINT,
@@ -75,6 +75,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
         payer: maker_address.solana_address()?,
         blinding_seed,
         output_tree_id: localnet.tree_id,
+        cache_accounts: Default::default(),
     };
 
     let data = localnet

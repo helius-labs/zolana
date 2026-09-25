@@ -5,11 +5,8 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_interface::{
-    instruction::{UpdateProtocolConfig, UpdateProtocolConfigData},
-    pda,
-    state::ProtocolConfig,
-};
+use zolana_interface::{instruction::UpdateProtocolConfigData, pda, state::ProtocolConfig};
+use zolana_program::instruction::UpdateProtocolConfig;
 use zolana_smart_account_client::roles::Role;
 use zolana_test_utils::smart_account::{execute_sync_ix, settings_pda, smart_account_pda};
 

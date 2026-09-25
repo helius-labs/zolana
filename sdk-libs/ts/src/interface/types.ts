@@ -22,11 +22,6 @@ export interface DepositInstructionData {
   readonly deposits: readonly DepositEntry[];
 }
 
-export interface UtxoData {
-  readonly dataHash: Bytes32;
-  readonly data: Uint8Array;
-}
-
 export type DepositAssetKind =
   | Readonly<{ kind: "sol" }>
   | Readonly<{ kind: "spl"; splInterfaceBump: number }>;
@@ -36,7 +31,6 @@ export interface DepositEntry {
   readonly viewTag: Bytes32;
   readonly recipientOwnerHash: Bytes32;
   readonly amount: bigint;
-  readonly utxoData?: UtxoData;
   readonly memo?: Uint8Array;
 }
 
@@ -78,7 +72,6 @@ export interface RingDepositEntry {
   readonly viewTag: Bytes32;
   readonly ownerUtxoHash: Bytes32;
   readonly amount: bigint;
-  readonly dataHash?: Bytes32;
   readonly ringDataHash: Bytes32;
   readonly encrypted: EncryptedRingDepositData;
 }
@@ -135,6 +128,16 @@ export interface TransactProof {
   readonly c: Bytes32;
 }
 
+export interface CacheWrite {
+  readonly output: number;
+  readonly slot: number;
+}
+
+export interface CacheAccess {
+  readonly readBitmap: bigint;
+  readonly writeSlots: readonly CacheWrite[];
+}
+
 export type CircuitId =
   | Readonly<{
       kind: "confidentialEddsa";
@@ -153,6 +156,20 @@ export type CircuitId =
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
+    }>
+  | Readonly<{
+      kind: "confidentialEddsaCached";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      cacheAccess: CacheAccess;
+    }>
+  | Readonly<{
+      kind: "ringEddsaCached";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      cacheAccess: CacheAccess;
     }>;
 
 export type InterfaceTransfer =
@@ -278,4 +295,21 @@ export interface MergeTransactInstructionData {
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndex: number;
   readonly nullifierTreeRootIndex: number;
+  readonly cacheSlot?: number;
+}
+
+export interface CreateCacheData {
+  readonly writeAuthority: Address;
+  readonly nonce: bigint;
+  readonly treeId: number;
+  readonly expiresAt: bigint;
+}
+
+export interface CacheAccount {
+  readonly bump: number;
+  readonly treeId: number;
+  readonly expiresAt: bigint;
+  readonly rentSponsor: Address;
+  readonly writeAuthority: Address;
+  readonly utxoHashes: readonly Bytes32[];
 }

@@ -18,6 +18,7 @@ use zolana_transaction::{
 use crate::{
     error::ClientError,
     prover::{
+        cache::CacheSelection,
         field::be,
         transact::assembly::{
             assemble_transaction, validate_shape, AssembledTransaction, OwnerMode, PublicInputs,
@@ -84,7 +85,13 @@ impl RingAuthorityProver {
             &self.outputs,
             &self.blinding_seed,
             self.output_tree_id,
-            &self.external_data,
+            &CacheSelection::derive(
+                &self.inputs,
+                &self.outputs,
+                Default::default(),
+                &self.external_data,
+            )?
+            .external_data_hash,
             &OwnerMode::RingAuthority,
             self.allow_dummy_inputs,
         )?;
@@ -112,6 +119,8 @@ impl RingAuthorityProver {
             input_flags: &input_flags,
             signer_pk_hashes: &signer_pk_hashes,
             output_owner_pk_hashes: None,
+            // Ring authority binds no owner tags and no cache selection.
+            cached_inputs: [[0u8; 32]; 2],
         }
         .hash()?;
 
@@ -129,6 +138,9 @@ impl RingAuthorityProver {
             signer_pk_hashes: vec![be(&payer_pk_hash)],
             input_flags: be(&input_flags),
             published_output_owner_pk_hashes: Vec::new(),
+            // The ring authority circuit carries no cache selection; the prover
+            // ignores these for this rail.
+            cache: Default::default(),
             public_input_hash: be(&public_input),
         };
 

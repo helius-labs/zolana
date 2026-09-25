@@ -59,7 +59,10 @@ type P256TransferParameters struct {
 	SignerPkHashes               []*big.Int
 	InputFlags                   *big.Int
 	PublishedOutputOwnerPkHashes []*big.Int
-	PublicInputHash              *big.Int
+
+	Cache CacheSelectionParams
+
+	PublicInputHash *big.Int
 }
 
 type P256TransferParametersJSON struct {
@@ -86,7 +89,8 @@ type P256TransferParametersJSON struct {
 	SignerPkHashes               []string                    `json:"signerPkHashes"`
 	InputFlags                   string                      `json:"inputFlags"`
 	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
-	PublicInputHash              string                      `json:"publicInputHash"`
+	CacheSelectionJSON
+	PublicInputHash string `json:"publicInputHash"`
 }
 
 func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
@@ -133,6 +137,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		SignerPkHashes:               base.SignerPkHashes,
 		InputFlags:                   base.InputFlags,
 		PublishedOutputOwnerPkHashes: base.PublishedOutputOwnerPkHashes,
+		CacheSelectionJSON:           base.CacheSelectionJSON,
 		PublicInputHash:              base.PublicInputHash,
 	})
 }
@@ -163,6 +168,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 		SignerPkHashes:               params.SignerPkHashes,
 		InputFlags:                   params.InputFlags,
 		PublishedOutputOwnerPkHashes: params.PublishedOutputOwnerPkHashes,
+		CacheSelectionJSON:           params.CacheSelectionJSON,
 		PublicInputHash:              params.PublicInputHash,
 	}); err != nil {
 		return err
@@ -182,6 +188,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	p.SignerPkHashes = base.SignerPkHashes
 	p.InputFlags = base.InputFlags
 	p.PublishedOutputOwnerPkHashes = base.PublishedOutputOwnerPkHashes
+	p.Cache = base.Cache
 	p.PublicInputHash = base.PublicInputHash
 
 	var err error
@@ -210,6 +217,7 @@ func (p *P256TransferParameters) ValidateShape() error {
 		TreeSlots:    p.TreeSlots,
 		OutputTreeID: p.OutputTreeID,
 		InputFlags:   p.InputFlags,
+		Cache:        p.Cache,
 	}).ValidateShape()
 }
 
@@ -248,7 +256,8 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		outputNullifierPks[i] = orZero(out.NullifierPk)
 	}
 	return &customring.CustomRingP256Circuit{
-		Shape: txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
+		CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
+		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
 		Public: customring.CustomRingP256Public{
 			Nullifiers:                   core.nullifiers,
 			OutputHashes:                 core.outputHashes,
@@ -352,5 +361,5 @@ func (request P256Proof) Prove() (*common.Proof, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error proving P256 transfer: %w", err)
 	}
-	return &common.Proof{Proof: proof}, nil
+	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

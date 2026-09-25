@@ -8,14 +8,12 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_event_parser::indexed_events_from_instruction_groups;
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{
-        AssetDeposit, Deposit, DepositAsset, DepositSplAccounts, EncryptedRingDepositData,
-        RingAssetDeposit, RingDeposit,
-    },
-    SHIELDED_POOL_PROGRAM_ID,
+    error::ShieldedPoolError, instruction::EncryptedRingDepositData, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::random_blinding;
+use zolana_program::instruction::{
+    AssetDeposit, Deposit, DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit,
+};
 use zolana_program_test::{
     ring_deposit_output_from_event, test_blinding, Rejection, RING_TEST_PROGRAM_ID,
 };
@@ -50,7 +48,6 @@ impl RingHarness {
             view_tag: keypair.recipient_bootstrap_view_tag(),
             owner: keypair.owner_hash()?,
             amount,
-            utxo_data: None,
             memo: None,
         })
     }
@@ -95,7 +92,6 @@ impl RingHarness {
             view_tag: keypair.recipient_bootstrap_view_tag(),
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: RingDepositPlaintext {
                 blinding,
@@ -362,7 +358,6 @@ impl RingHarness {
                 view_tag: [0u8; 32],
                 owner_utxo_hash: owner_utxo_hash(&[3u8; 32], &test_blinding(4))?,
                 amount: 1_000_000,
-                data_hash: None,
                 ring_data_hash: [0u8; 32],
                 encrypted: EncryptedRingDepositData {
                     tx_viewing_pk: [0u8; 33],

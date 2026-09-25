@@ -1,10 +1,8 @@
 use solana_hash::Hash;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
-use zolana_interface::{
-    instruction::{Transact, TransactInterfaceTransferAccounts, TransactIxData},
-    pda,
-};
+use zolana_interface::{instruction::TransactIxData, pda};
+use zolana_program::instruction::{Transact, TransactInterfaceTransferAccounts};
 use zolana_transaction::instructions::transact::SppProofInputs;
 
 use crate::{
@@ -61,7 +59,10 @@ impl<R: Rpc> ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        if self.proof_data_source == ProofDataSource::Prover {
+        if self.proof_data_source == ProofDataSource::Prover
+            && proof_inputs.cache_accounts.read.is_none()
+            && proof_inputs.cache_accounts.write.is_none()
+        {
             return Ok(self
                 .indexed_transfer(
                     TransferPreparation {
@@ -106,8 +107,13 @@ impl<R: Rpc> ZolanaClient<R> {
         R: Sync,
     {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
+        if signed.transaction.cache_accounts.write.is_some() {
+            return Err(ClientError::CacheWriteNeedsWriter);
+        }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.proof_data_source == ProofDataSource::Prover {
+        if self.proof_data_source == ProofDataSource::Prover
+            && signed.transaction.cache_accounts.read.is_none()
+        {
             let proved = self.indexed_transfer(
                 TransferPreparation {
                     transaction: signed.transaction.clone(),
@@ -121,6 +127,7 @@ impl<R: Rpc> ZolanaClient<R> {
                 fee_payer,
                 TransactTrees {
                     input_tree_ids: proved.input_tree_ids,
+                    read_cache: None,
                     output_tree_id: signed.transaction.output_tree_id,
                 },
                 owner_signers,
@@ -171,8 +178,13 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         authority: &dyn ProofAuthority,
     ) -> Result<VersionedMessage, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
+        if signed.transaction.cache_accounts.write.is_some() {
+            return Err(ClientError::CacheWriteNeedsWriter);
+        }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.proof_data_source == ProofDataSource::Prover {
+        if self.proof_data_source == ProofDataSource::Prover
+            && signed.transaction.cache_accounts.read.is_none()
+        {
             let proved = self
                 .indexed_transfer_async(
                     TransferPreparation {
@@ -187,6 +199,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
                 fee_payer,
                 TransactTrees {
                     input_tree_ids: proved.input_tree_ids,
+                    read_cache: None,
                     output_tree_id: signed.transaction.output_tree_id,
                 },
                 owner_signers,
@@ -233,6 +246,7 @@ struct TransactTrees {
     /// in that order, which is the order the builder pairs them up in.
     input_tree_ids: Vec<u16>,
     output_tree_id: u16,
+    read_cache: Option<Pubkey>,
 }
 
 /// Read both from the transaction itself: assembly declared the input trees in
@@ -243,6 +257,7 @@ fn transact_trees(assembled: &AssembledTransfer, transaction: &SppProofInputs) -
     TransactTrees {
         input_tree_ids: assembled.input_tree_ids.clone(),
         output_tree_id: transaction.output_tree_id,
+        read_cache: assembled.cache_accounts.read,
     }
 }
 
@@ -260,7 +275,7 @@ fn build_unsigned_message(
         accounts: &settlement_transfers,
     }
     .validate()?;
-    let transact_ix = Transact {
+    let transact = Transact {
         payer: fee_payer,
         input_trees: trees
             .input_tree_ids
@@ -272,8 +287,11 @@ fn build_unsigned_message(
         owner_signers,
         interface_transfer_accounts: settlement_transfers,
         data: transact_data,
-    }
-    .instruction();
+    };
+    let transact_ix = match trees.read_cache {
+        Some(cache) => transact.instruction_with_cache_read(cache),
+        None => transact.instruction(),
+    };
     // The transact is the only instruction: a v1 message states its compute
     // ceiling and its priority fee in the header, so nothing rides along to
     // set them.

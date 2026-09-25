@@ -14,6 +14,7 @@
 //! `.so` binary.
 
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, tree_roots, Pool};
+use zolana_interface::state::cache::empty_cached_input_fields;
 
 use borsh::BorshSerialize;
 use num_bigint::BigUint;
@@ -25,15 +26,14 @@ use zolana_client::{PublicInputs, PublicTransfers, TransferInput, STATE_TREE_HEI
 use zolana_event::{OutputDataEncoding, ProoflessOutput};
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{
-        instruction_data::transact::InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
-        TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
-    },
-    pda,
+    error::ShieldedPoolError, instruction::instruction_data::transact::InterfaceTransfer, pda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+};
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     instructions::transact::PrivateTxHash, Data, SppProofOutputUtxo, Utxo, SOL_MINT,
@@ -303,6 +303,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(2).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");
@@ -522,6 +523,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");
@@ -726,6 +728,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         input_flags: &fe(1),
         signer_pk_hashes: &[payer_hash, zero, zero],
         output_owner_pk_hashes: Some(&output_owner_hashes),
+        cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");
@@ -1041,6 +1044,7 @@ fn phase_transfer_to_recipient(
         input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&transfer_owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(2).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");
@@ -1263,6 +1267,7 @@ fn phase_withdraw_recipient_utxo(
         input_flags: &fe(1),
         signer_pk_hashes: &[recipient_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&withdraw_owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(2).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

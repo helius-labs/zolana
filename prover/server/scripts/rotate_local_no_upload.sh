@@ -34,7 +34,8 @@ xtask="$repo_root/target/debug/xtask"
 ./light-prover setup-custom-ring-policy \
     --output "$keys_dir/custom_ring_policy.key" \
     --vk-out "$tmp_dir/custom_ring_policy.vkbin"
-"$xtask" bsb22-vk "$tmp_dir/custom_ring_policy.vkbin" "$vkey_dir" "policy_verifying_key.rs"
+"$xtask" bsb22-vk "$tmp_dir/custom_ring_policy.vkbin" "$keys_dir/custom_ring_policy.key" \
+    "$vkey_dir" "policy_verifying_key.rs"
 rustfmt "$vkey_dir/policy_verifying_key.rs"
 
 echo "==> generating batch address-append proving keys"
@@ -57,6 +58,7 @@ for spec in "10" "250"; do
     ./light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
     (cd "$repo_root" && cargo run -q -p xtask -- bsb22-vk \
         "$tmp_dir/${stem}.vkbin" \
+        "$keys_dir/${stem}.key" \
         "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
         "${module}.rs")
 done

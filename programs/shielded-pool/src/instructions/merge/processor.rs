@@ -8,11 +8,8 @@ use pinocchio::{
 use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, InputTreeSequence},
-    instruction::{
-        instruction_data::merge_transact::{
-            MergeExternalDataHash, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
-        },
-        tag::MERGE_TRANSACT,
+    instruction::instruction_data::merge_transact::{
+        MergeExternalDataHash, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     tree_slot::TreeSlot,
@@ -21,10 +18,12 @@ use zolana_tree::TreeAccount;
 
 use super::{
     account::{load_user_record, MergeTransactAccounts},
+    cache::load_merge_cache,
     event::{build_merge_event, MergeTreeWrite},
     verify::{MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
 use crate::instructions::{
+    cache::write::CacheWrite,
     event::emit_event,
     nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     shared::{
@@ -68,7 +67,8 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeTransactAccounts::validate_and_parse(accounts, ix.nullifiers.len())?;
+    let merge_accounts =
+        MergeTransactAccounts::validate_and_parse(accounts, ix.nullifiers.len(), ix.cache_slot)?;
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
 
@@ -85,15 +85,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     // alter it.
     let output_view_tag = pk_fields.signing_view_tag;
 
-    let external_data_hash = MergeExternalDataHash {
-        spp_instruction_discriminator: MERGE_TRANSACT,
-        expiry_unix_ts: ix.expiry_unix_ts,
-        output_utxo_hash: ix.output_utxo_hash,
-    }
-    .hash()
-    .map_err(caused_by(
-        ShieldedPoolError::TransactProofVerificationFailed,
-    ))?;
+    let cache = load_merge_cache(merge_accounts.cache, clock.unix_timestamp)?;
 
     process_merge_core(
         MergeCoreAccounts {
@@ -103,8 +95,11 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
             nullifier_pdas: merge_accounts.nullifier_pdas,
         },
         &ix,
-        external_data_hash,
-        MergeOwnerBinding::Registry { signing_pk_field },
+        MergeOwnerBinding::Registry {
+            signing_pk_field,
+            nullifier_pk: pk_fields.nullifier_pk,
+        },
+        cache,
         output_view_tag,
         clock.slot,
     )
@@ -118,11 +113,21 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 pub(crate) fn process_merge_core(
     mut accounts: MergeCoreAccounts<'_>,
     ix: &MergeTransactIxDataRef<'_>,
-    external_data_hash: [u8; 32],
     owner_binding: MergeOwnerBinding,
+    cache: Option<(CacheWrite<'_>, u8)>,
     output_view_tag: [u8; 32],
     slot: u64,
 ) -> ProgramResult {
+    let external_data_hash = MergeExternalDataHash {
+        spp_instruction_discriminator: owner_binding.instruction_tag(),
+        expiry_unix_ts: ix.expiry_unix_ts,
+        output_utxo_hash: ix.output_utxo_hash,
+        cache: cache.as_ref().map(|(cache, slot)| (cache.address(), *slot)),
+    }
+    .hash()
+    .map_err(caused_by(
+        ShieldedPoolError::TransactProofVerificationFailed,
+    ))?;
     let (input_tree_result, mut derived) = {
         let input_tree = accounts.input_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
@@ -173,6 +178,9 @@ pub(crate) fn process_merge_core(
         )
         .map_err(tree_error)?;
         derived.output_tree_id = tree.tree_id_array();
+        if let Some((cache, _)) = cache.as_ref() {
+            cache.check_output_tree(tree.tree_id())?;
+        }
         apply_output_tree(
             &mut tree,
             ix,
@@ -184,6 +192,9 @@ pub(crate) fn process_merge_core(
 
     let event = build_merge_event(tree_write, output_view_tag);
     MergeProof::new(ix, derived).verify()?;
+    if let Some((mut cache, cache_slot)) = cache {
+        cache.write(cache_slot, ix.output_utxo_hash)?;
+    }
     emit_event(EventKind::Merge, &event)
 }
 

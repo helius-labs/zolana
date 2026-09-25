@@ -1,0 +1,10 @@
+{
+  "cached": {
+    "cache_address": "7777777777777777777777777777777777777777777777777777777777777777",
+    "cache_slot": 5,
+    "external_data_hash": "00b87fa14771c21a2b8bf5fb3cdbcf4afd0f45dc8eec23f1a483dec1c4099c17",
+    "instruction_sha256": "9565ed1c7c376bbb635303de501e6a5ef17a68c265aec16b0aba2077d4a863e6"
+  },
+  "external_data_hash": "003df3284567587f136e0d6cbfb8cf2efa948a92ef1a89e598a27edc9105c48b",
+  "instruction_sha256": "ad0752418f025c10069a3ef084e633df46d5a22eb54067d13f66f279c94bd146"
+}

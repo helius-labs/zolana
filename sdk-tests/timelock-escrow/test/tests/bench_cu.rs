@@ -458,6 +458,7 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         payer: payer_address,
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
+        cache_accounts: Default::default(),
     };
 
     let commitments = spp_proof_inputs
@@ -582,6 +583,7 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
         payer: payer_address,
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
+        cache_accounts: Default::default(),
     };
 
     let commitments = spp_proof_inputs

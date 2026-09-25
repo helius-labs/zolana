@@ -7,6 +7,7 @@ mod localnet;
 mod process;
 mod prover;
 mod release;
+mod vks;
 mod wallet_cli;
 
 use anyhow::Result;
@@ -17,6 +18,7 @@ use crate::{
     config_cmd::run_config,
     localnet::run_test_validator,
     prover::run_start_prover,
+    vks::run_vks,
     wallet_cli::{
         run_balance, run_create_tree, run_deposit, run_merge, run_set_merging, run_set_tree_fees,
         run_split, run_sync, run_test_mint, run_transfer, run_utxos, run_wallet, run_withdraw,
@@ -45,6 +47,7 @@ fn run(cli: Cli) -> Result<()> {
         Some(CliCommand::Split(opts)) => run_split(opts),
         Some(CliCommand::Merge(opts)) => run_merge(opts),
         Some(CliCommand::SetMerging(opts)) => run_set_merging(opts),
+        Some(CliCommand::Vks { command }) => run_vks(command),
         None => {
             Cli::command().print_help()?;
             println!();

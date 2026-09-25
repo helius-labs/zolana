@@ -3,7 +3,10 @@ use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::instruction_data::merge_transact::MergeTransactIxDataRef,
+    instruction::{
+        instruction_data::merge_transact::MergeTransactIxDataRef,
+        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
+    },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
     verifying_keys::{merge_36_1, merge_8_1, merge_ring_36_1, merge_ring_8_1},
 };
@@ -13,12 +16,15 @@ use crate::instructions::verifier;
 /// The owner-binding tail of the merge public-input hash, which differs by
 /// variant. Modeling it as an enum keeps the two shapes mutually exclusive: the
 /// default merge cannot carry a ring id, and the policy-ring merge cannot carry
-/// owner-identity fields. The variant also selects the verifying key.
+/// the registry's signing identity. The variant also selects the verifying key.
 pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
-    /// registry record -- the tagged owner identity of the registered key.
+    /// registry record -- both the signing identity and nullifier public key.
     /// Verified against `merge_<n_inputs>_1`.
-    Registry { signing_pk_field: [u8; 32] },
+    Registry {
+        signing_pk_field: [u8; 32],
+        nullifier_pk: [u8; 32],
+    },
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the output `ring_data_hash` the ring program
     /// selected; the proof asserts it against the output's
@@ -27,6 +33,17 @@ pub enum MergeOwnerBinding {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
     },
+}
+
+impl MergeOwnerBinding {
+    /// The instruction each binding belongs to, which domain-separates the
+    /// external data hash exactly as the binding selects the verifying key.
+    pub fn instruction_tag(&self) -> u8 {
+        match self {
+            MergeOwnerBinding::Registry { .. } => MERGE_TRANSACT,
+            MergeOwnerBinding::Ring { .. } => RING_MERGE_TRANSACT,
+        }
+    }
 }
 
 /// Derived public inputs the program resolves from the trees (and, for the
@@ -92,12 +109,12 @@ impl<'a> MergeProof<'a> {
     /// Both variants share the same 7 leading elements (nullifier chain, output
     /// hash, tree slot chain, output tree id, private tx hash, external data
     /// hash, dummy-input policy); the default merge then appends the owner's
-    /// signing identity (bound from the user registry), while the policy-ring
-    /// merge omits owner identity (no registry to bind it against) and appends
-    /// the output `ring_data_hash` and `ring_program_id`. The 7-element prefix
-    /// is 1 + 3 + 3, so it ends on a complete HashChain4 group without padding.
-    /// Continuing from its hash with the owner-binding tail is therefore
-    /// equivalent to folding all 8 or 9 elements together.
+    /// signing identity and nullifier public key (from the registry), while the
+    /// policy-ring merge omits that identity (no registry to bind it against) and
+    /// appends the output `ring_data_hash` and `ring_program_id`. The 7-element
+    /// prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group without
+    /// padding. Continuing from its hash with the two-element owner-binding tail
+    /// is therefore equivalent to folding all 9 elements together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
@@ -119,9 +136,10 @@ impl<'a> MergeProof<'a> {
                 *output_ring_data_hash,
                 *ring_program_id,
             ]),
-            MergeOwnerBinding::Registry { signing_pk_field } => {
-                create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field])
-            }
+            MergeOwnerBinding::Registry {
+                signing_pk_field,
+                nullifier_pk,
+            } => create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field, *nullifier_pk]),
         }
         .map_err(Into::into)
     }

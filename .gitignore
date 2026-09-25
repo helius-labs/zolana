@@ -38,3 +38,6 @@ target-linux-x64/
 /coverage.json
 /coverage-html/
 sdk-libs/transaction/type-lifecycle.md
+
+# Local TLA+ models of the cache account flow.
+/tla_plus/

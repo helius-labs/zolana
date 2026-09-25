@@ -1,8 +1,8 @@
 use solana_pubkey::{Pubkey, PubkeyError};
 
 use crate::{
-    ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED, NULLIFIER_PDA_SEED,
-    RING_AUTH_PDA_SEED, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
+    state::cache::CACHE_SEED, ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED,
+    NULLIFIER_PDA_SEED, RING_AUTH_PDA_SEED, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED,
     SPL_INTERFACE_PDA_SEED, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
     SPP_PROTOCOL_CONFIG_PDA_SEED, TREE_PDA_SEED,
@@ -110,6 +110,13 @@ pub fn ring_auth_with_bump(ring_program: &Pubkey, bump: u8) -> Result<Pubkey, Pu
 pub fn nullifier_pda(tree: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[NULLIFIER_PDA_SEED, tree.as_ref(), nullifier],
+        &shielded_pool_program_id(),
+    )
+}
+
+pub fn cache(rent_sponsor: &Pubkey, nonce: u64) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[CACHE_SEED, rent_sponsor.as_ref(), &nonce.to_le_bytes()],
         &shielded_pool_program_id(),
     )
 }

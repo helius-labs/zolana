@@ -35,6 +35,7 @@ light-program-profiler = { workspace = true, optional = true }
 
 [dev-dependencies]
 rand = { workspace = true }
+serde_json = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-client = { workspace = true }
 zolana-indexed-array = { workspace = true }

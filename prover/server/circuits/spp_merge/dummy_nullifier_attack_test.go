@@ -47,6 +47,7 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 		f.public.ExternalDataHash.(*big.Int),
 		f.public.AllowDummyInputs.(*big.Int),
 		f.userSigningPkHash,
+		f.userNullifierPk,
 	})
 }
 

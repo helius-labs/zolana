@@ -7,12 +7,12 @@ use solana_system_interface::error::SystemError;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        CreateAssetCounter, CreateProtocolConfig, CreateProtocolConfigData, CreateRingConfig,
-        CreateTree, UpdateProtocolConfigData,
-    },
+    instruction::{CreateProtocolConfigData, UpdateProtocolConfigData},
     pda,
     state::{default_tree_fees, nullifier_tree_params, ProtocolConfig, RingConfig},
+};
+use zolana_program::instruction::{
+    CreateAssetCounter, CreateProtocolConfig, CreateRingConfig, CreateTree,
 };
 use zolana_program_test::{next_tree_id, Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::mollusk::{
@@ -586,7 +586,7 @@ fn ring_owner_rotation_binds_the_new_owner_to_the_co_signing_account() {
     let impostor = pool.funded_signer(1_000_000_000);
     let next = Keypair::new();
 
-    let mut ix = zolana_interface::instruction::UpdateRingConfigOwner {
+    let mut ix = zolana_program::instruction::UpdateRingConfigOwner {
         authority: pool.authority.pubkey(),
         ring_config,
         new_authority: next.pubkey().to_bytes().into(),
@@ -617,7 +617,7 @@ fn ring_owner_rotation_rejects_an_unsigned_co_signer() {
         .expect("create ring config");
     let next = Keypair::new();
 
-    let mut ix = zolana_interface::instruction::UpdateRingConfigOwner {
+    let mut ix = zolana_program::instruction::UpdateRingConfigOwner {
         authority: pool.authority.pubkey(),
         ring_config,
         new_authority: next.pubkey().to_bytes().into(),
@@ -643,7 +643,7 @@ fn ring_update_rejects_a_cosplay_config_account() {
         .airdrop(&impostor_config, 1_000_000)
         .expect("fund impostor config");
 
-    let ix = zolana_interface::instruction::UpdateRingConfig {
+    let ix = zolana_program::instruction::UpdateRingConfig {
         authority: pool.authority.pubkey(),
         ring_config: impostor_config,
         paused: false,

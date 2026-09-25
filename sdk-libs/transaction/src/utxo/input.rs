@@ -1,3 +1,4 @@
+use zolana_interface::state::cache::CACHE_CAPACITY;
 use zolana_keypair::{
     constants::BLINDING_LEN, viewing_key::random_blinding, NullifierKey, PublicKey,
 };
@@ -30,6 +31,7 @@ pub struct SppProofInputUtxo {
     pub tree_id: u16,
     /// Position of the commitment in its tree. Unused for dummy inputs.
     pub leaf_index: u64,
+    pub cache_slot: Option<u8>,
 }
 
 impl SppProofInputUtxo {
@@ -59,7 +61,19 @@ impl SppProofInputUtxo {
             ring_data_hash: None,
             tree_id,
             leaf_index: 0,
+            cache_slot: None,
         })
+    }
+
+    pub fn with_cache_slot(mut self, slot: u8) -> Result<Self, TransactionError> {
+        if usize::from(slot) >= CACHE_CAPACITY {
+            return Err(TransactionError::CacheSlotOutOfRange { slot });
+        }
+        if self.is_dummy() {
+            return Err(TransactionError::CachedDummyInput);
+        }
+        self.cache_slot = Some(slot);
+        Ok(self)
     }
 
     pub fn is_dummy(&self) -> bool {

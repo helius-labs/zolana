@@ -6,8 +6,8 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{assemble, ProofAuthority, ProverClient, SpendProof};
-use zolana_interface::instruction::Transact;
 use zolana_keypair::PublicKey;
+use zolana_program::instruction::Transact;
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
 use zolana_transaction::{
     serialization::confidential::Confidential, Data, ShieldedTransaction, Utxo, WalletUtxo,

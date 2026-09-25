@@ -11,6 +11,7 @@ import {
   createSolanaRpc,
   createSolanaRpcSubscriptions,
   createTransactionMessage,
+  generateKeyPairSigner,
   lamports,
   pipe,
   sendTransactionWithoutConfirmingFactory,
@@ -18,14 +19,19 @@ import {
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
+  signTransactionWithSigners,
   type Address,
   type Instruction,
+  type KeyPairSigner,
   type Signature,
+  type Transaction,
+  type TransactionPartialSigner,
   type TransactionSigner,
 } from "@solana/kit";
 import {
   SHIELDED_POOL_PROGRAM_ID,
   SPL_TOKEN_PROGRAM_ID,
+  USER_REGISTRY_PROGRAM_ID,
   ShieldedKeypair,
   SigningKey,
   createZolanaClient,
@@ -116,7 +122,7 @@ async function senderKeypair(): Promise<ShieldedKeypair> {
   }
 }
 
-function recipientKeypair(): ShieldedKeypair {
+function randomKeypair(): ShieldedKeypair {
   const seed = crypto.getRandomValues(new Uint8Array(32)) as Bytes32;
   try {
     return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));
@@ -153,11 +159,15 @@ export interface ConfirmedTransaction {
 export function sendAndConfirmFactory(
   client: Awaited<ReturnType<typeof createZolanaClient>>,
   feePayer: TransactionSigner,
-): (instructions: readonly Instruction[]) => Promise<ConfirmedTransaction> {
+): (
+  instructions: readonly Instruction[],
+  options?: Readonly<{ computeUnitLimit?: number }>,
+) => Promise<ConfirmedTransaction> {
   const sendTransaction = sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc });
 
   return async function sendAndConfirm(
     instructions: readonly Instruction[],
+    options: Readonly<{ computeUnitLimit?: number }> = {},
   ): Promise<ConfirmedTransaction> {
     const { value: lifetime } = await client.solanaRpc.getLatestBlockhash().send();
     const signed = await signTransactionMessageWithSigners(
@@ -168,7 +178,7 @@ export function sendAndConfirmFactory(
         (message) =>
           setTransactionMessageConfig(
             {
-              computeUnitLimit: TRANSACT_COMPUTE_UNIT_LIMIT,
+              computeUnitLimit: options.computeUnitLimit ?? TRANSACT_COMPUTE_UNIT_LIMIT,
               loadedAccountsDataSizeLimit: LOADED_ACCOUNTS_DATA_SIZE_LIMIT,
             },
             message,
@@ -184,6 +194,69 @@ export function sendAndConfirmFactory(
   };
 }
 
+export async function signSendAndConfirm(
+  client: Awaited<ReturnType<typeof createZolanaClient>>,
+  transaction: Transaction,
+  signers: readonly TransactionPartialSigner[],
+): Promise<ConfirmedTransaction> {
+  const signed = await signTransactionWithSigners(signers, transaction);
+  assertIsTransactionWithBlockhashLifetime(signed);
+  await sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc })(signed, {
+    commitment: "confirmed",
+  });
+  const signature = getSignatureFromTransaction(signed);
+  const slot = await client.confirmTransaction(signature);
+  return { signature, slot };
+}
+
+function localnetRpcUrl(clientConfig: ZolanaClientConfig): string {
+  return typeof clientConfig.solanaRpcUrl === "string"
+    ? clientConfig.solanaRpcUrl
+    : DEFAULT_LOCALNET_RPC_URL;
+}
+
+async function airdrop(
+  clientConfig: ZolanaClientConfig,
+  recipient: Address,
+  amount: bigint,
+): Promise<void> {
+  const rpcUrl = localnetRpcUrl(clientConfig);
+  await airdropFactory({
+    rpc: createSolanaRpc(rpcUrl),
+    rpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl(rpcUrl)),
+  })({
+    commitment: "confirmed",
+    recipientAddress: recipient,
+    lamports: lamports(amount),
+  });
+}
+
+export async function fundedSigner(
+  clientConfig: ZolanaClientConfig,
+  amount: bigint,
+): Promise<KeyPairSigner> {
+  const signer = await generateKeyPairSigner();
+  await airdrop(clientConfig, signer.address, amount);
+  return signer;
+}
+
+export async function fundedKeypair(
+  clientConfig: ZolanaClientConfig,
+  amount: bigint,
+): Promise<ShieldedKeypair> {
+  const keypair = randomKeypair();
+  await airdrop(clientConfig, keypair.toSolanaSigner().address, amount);
+  return keypair;
+}
+
+export async function userRecordAddress(owner: Address): Promise<Address> {
+  const [record] = await getProgramDerivedAddress({
+    programAddress: USER_REGISTRY_PROGRAM_ID,
+    seeds: [encoder.encode("zolana/registry/v0"), addressEncoder.encode(owner)],
+  });
+  return record;
+}
+
 export async function setup(): Promise<ExampleSetup> {
   await initializePoseidon();
 
@@ -195,24 +268,12 @@ export async function setup(): Promise<ExampleSetup> {
   });
 
   const clientConfig = clientConfigFromEnv();
-  const rpcUrl =
-    typeof clientConfig.solanaRpcUrl === "string"
-      ? clientConfig.solanaRpcUrl
-      : DEFAULT_LOCALNET_RPC_URL;
-  const airdrop = airdropFactory({
-    rpc: createSolanaRpc(rpcUrl),
-    rpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl(rpcUrl)),
-  });
-  await airdrop({
-    commitment: "confirmed",
-    recipientAddress: sender.toSolanaSigner().address,
-    lamports: lamports(SENDER_LAMPORTS),
-  });
+  await airdrop(clientConfig, sender.toSolanaSigner().address, SENDER_LAMPORTS);
   const tokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_ACCOUNT"));
 
   return Object.freeze({
     sender,
-    recipient: recipientKeypair(),
+    recipient: randomKeypair(),
     clientConfig,
     spl: Object.freeze({
       assetId: FIRST_SPL_ASSET_ID,

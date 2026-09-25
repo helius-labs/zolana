@@ -3,7 +3,8 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::{instruction::RingAssetDeposit, state::read_tree_id};
+use zolana_interface::state::read_tree_id;
+use zolana_program::instruction::RingAssetDeposit;
 use zolana_program_test::RingDepositOutput;
 use zolana_transaction::{OutputContext, OutputSlot};
 use zolana_wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
@@ -51,7 +52,7 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
             owner_utxo_hash: data.owner_utxo_hash,
             asset: expected_asset.to_bytes(),
             amount: expected_amount,
-            data_hash: data.data_hash,
+            data_hash: None,
             ring_program_id: expected_ring_program_id,
             ring_data_hash: data.ring_data_hash,
             encrypted: zolana_event::EncryptedRingDepositData {

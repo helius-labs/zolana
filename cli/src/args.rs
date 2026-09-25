@@ -76,6 +76,91 @@ pub(crate) enum CliCommand {
         about = "Enable or disable the merge service for this wallet"
     )]
     SetMerging(SetMergingOptions),
+
+    #[command(
+        name = "vks",
+        about = "Inspect the Groth16 verifying keys embedded in a program binary"
+    )]
+    Vks {
+        #[command(subcommand)]
+        command: VksCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum VksCommand {
+    #[command(
+        name = "list",
+        about = "List each embedded verifying key's proving-key sha256 and setup kind"
+    )]
+    List(VksListOptions),
+
+    #[command(
+        name = "check",
+        about = "Fail if the program embeds no verifying keys or any insecure test setup; --expect or --shielded-pool also pin the keys it must embed"
+    )]
+    Check(VksCheckOptions),
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct VksListOptions {
+    #[command(flatten)]
+    pub(crate) source: VksSourceOptions,
+
+    #[arg(
+        long = "expect",
+        value_name = "MANIFEST",
+        help = "Name keys from a sha256sum-style manifest of proving keys (*pk.bin or *.key lines)"
+    )]
+    pub(crate) expect: Option<std::path::PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct VksSourceOptions {
+    #[arg(
+        long = "program-id",
+        conflicts_with = "so",
+        help = "Deployed program to read (default: the shielded-pool program id)"
+    )]
+    pub(crate) program_id: Option<String>,
+
+    #[arg(
+        long = "so",
+        help = "Read a local program binary instead of a deployed program"
+    )]
+    pub(crate) so: Option<std::path::PathBuf>,
+
+    #[arg(
+        long = "rpc-url",
+        help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
+    )]
+    pub(crate) rpc_url: Option<String>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct VksCheckOptions {
+    #[command(flatten)]
+    pub(crate) source: VksSourceOptions,
+
+    #[arg(
+        long = "shielded-pool",
+        help = "Also require exactly this build's shielded-pool verifying keys (implied when reading the shielded-pool program by id without --expect)"
+    )]
+    pub(crate) shielded_pool: bool,
+
+    #[arg(
+        long = "expect",
+        value_name = "MANIFEST",
+        conflicts_with = "shielded_pool",
+        help = "Also require every proving key a sha256sum-style manifest lists (*pk.bin or *.key lines), such as an example's keys CHECKSUM"
+    )]
+    pub(crate) expect: Option<std::path::PathBuf>,
+
+    #[arg(
+        long = "prover-url",
+        help = "Also check this prover's proving keys against the same verifying keys (shielded-pool only)"
+    )]
+    pub(crate) prover_url: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]

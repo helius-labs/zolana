@@ -7,12 +7,12 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateSplInterface},
     pda,
     state::{ProtocolConfig, SplAssetRegistry},
     PROGRAM_ID_PUBKEY, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
     SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
+use zolana_program::instruction::{CreateAssetCounter, CreateSplInterface};
 use zolana_transaction::Address;
 
 use super::{

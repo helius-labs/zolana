@@ -20,7 +20,7 @@ use zolana_interface::{
     INPUT_TREES, MAX_INPUT_TREES,
 };
 
-use super::{field::right_align_slice, Proof, SPP_SUPPORTED_SHAPES};
+use super::{field::right_align_slice, ExpectedProvingKey, Proof, SPP_SUPPORTED_SHAPES};
 use crate::ClientError;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -59,6 +59,7 @@ pub struct IndexedProofData {
 pub struct IndexedProofRequest {
     data: IndexedProofData,
     circuit: IndexedCircuit,
+    proving_key: ExpectedProvingKey,
     min_context_slot: Option<u64>,
 }
 
@@ -177,11 +178,32 @@ impl IndexedProofRequest {
         if next_tree != data.trees.len() {
             return Err(invalid());
         }
+        let n_inputs = metadata.inputs.len();
+        let n_outputs = metadata.outputs.len();
+        let proving_key = match metadata.circuit_type {
+            IndexedCircuit::TransferConfidential => {
+                ExpectedProvingKey::transfer_confidential(n_inputs, n_outputs)?
+            }
+            IndexedCircuit::TransferRing => ExpectedProvingKey::transfer_ring(n_inputs, n_outputs)?,
+            IndexedCircuit::TransferRingAuthority => {
+                ExpectedProvingKey::transfer_ring_authority(n_inputs, n_outputs)?
+            }
+            IndexedCircuit::TransferP256Ring => {
+                ExpectedProvingKey::transfer_p256_ring(n_inputs, n_outputs)?
+            }
+            IndexedCircuit::Merge => ExpectedProvingKey::merge(n_inputs)?,
+            IndexedCircuit::MergeRing => ExpectedProvingKey::merge_ring(n_inputs)?,
+        };
         Ok(Self {
             data,
+            proving_key,
             circuit: metadata.circuit_type,
             min_context_slot: None,
         })
+    }
+
+    pub(crate) fn proving_key(&self) -> &ExpectedProvingKey {
+        &self.proving_key
     }
 
     pub fn input_trees(&self) -> &[IndexedTree] {
@@ -275,10 +297,10 @@ impl ProofResolution {
 impl IndexedCircuit {
     fn public_input_count(self) -> usize {
         match self {
-            Self::TransferConfidential | Self::TransferRing => 15,
+            Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
-            Self::TransferP256Ring => 17,
-            Self::Merge => 7,
+            Self::TransferP256Ring => 19,
+            Self::Merge => 8,
             Self::MergeRing => 8,
         }
     }
@@ -473,7 +495,7 @@ mod tests {
                 tree_slot: 0,
                 commitment: Some(scalar_one()),
             }],
-            public_inputs: vec![scalar_one(); 15],
+            public_inputs: vec![scalar_one(); 17],
         }
     }
 

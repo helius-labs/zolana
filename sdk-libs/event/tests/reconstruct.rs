@@ -17,6 +17,7 @@ use zolana_event_parser::{
     InstructionGroup, ParsedInstruction,
 };
 use zolana_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
+use zolana_interface::verifying_keys::{CacheAccess, CircuitId};
 
 const OWNER_ACCOUNT_INDEX: u8 = 6;
 /// The second declared input tree of a multi-tree spend.
@@ -234,10 +235,11 @@ fn malformed_source_instruction_data_is_an_error() {
     );
 }
 
-/// Settlement groups are the last accounts of the instruction, in leg order:
-/// SPL deposit `[mint, spl_interface, token_authority, user_token_account,
-/// token_program]`, SPL withdrawal `[cpi_authority, mint, spl_interface,
-/// user_token_account, token_program]`, SOL `[sol_interface, recipient]`.
+/// Settlement groups follow the owner signers in leg order, ahead of any cache
+/// accounts: SPL deposit `[mint, spl_interface, token_authority,
+/// user_token_account, token_program]`, SPL withdrawal `[cpi_authority, mint,
+/// spl_interface, user_token_account, token_program]`, SOL `[sol_interface,
+/// recipient]`.
 #[test]
 fn spl_legs_take_their_mint_from_the_settlement_group() {
     let spp = Pubkey::new_unique();
@@ -266,34 +268,50 @@ fn spl_legs_take_their_mint_from_the_settlement_group() {
             InterfaceTransfer::SolDeposit { amount: 3 },
         ],
     );
-    let src = transact_source(spp, tag::TRANSACT, accounts, &ix, 1);
+    for cached in [false, true] {
+        let mut ix = ix.clone();
+        let mut accounts = accounts.clone();
+        if cached {
+            ix.circuit = CircuitId::ConfidentialEddsaCached(
+                1,
+                0,
+                3,
+                CacheAccess {
+                    read_bitmap: 1,
+                    write_slots: CacheAccess::NO_WRITES,
+                },
+            );
+            accounts.push(Pubkey::new_unique());
+        }
+        let src = transact_source(spp, tag::TRANSACT, accounts, &ix, 1);
 
-    let event = reconstruct_general_event(
-        &src,
-        &emit_event_data(EventKind::Transact, &transfer_event()),
-    )
-    .expect("reconstruct transact");
+        let event = reconstruct_general_event(
+            &src,
+            &emit_event_data(EventKind::Transact, &transfer_event()),
+        )
+        .expect("reconstruct transact");
 
-    assert_eq!(
-        event.spl_transfers,
-        vec![
-            SplTransfer {
-                is_deposit: true,
-                amount: 1,
-                asset: Some(deposit_mint.to_bytes()),
-            },
-            SplTransfer {
-                is_deposit: false,
-                amount: 2,
-                asset: Some(withdrawal_mint.to_bytes()),
-            },
-            SplTransfer {
-                is_deposit: true,
-                amount: 3,
-                asset: None,
-            },
-        ]
-    );
+        assert_eq!(
+            event.spl_transfers,
+            vec![
+                SplTransfer {
+                    is_deposit: true,
+                    amount: 1,
+                    asset: Some(deposit_mint.to_bytes()),
+                },
+                SplTransfer {
+                    is_deposit: false,
+                    amount: 2,
+                    asset: Some(withdrawal_mint.to_bytes()),
+                },
+                SplTransfer {
+                    is_deposit: true,
+                    amount: 3,
+                    asset: None,
+                },
+            ]
+        );
+    }
 }
 
 #[test]
@@ -655,4 +673,36 @@ fn emit_event_data_must_start_with_the_emit_event_tag() {
         reconstruct_general_event(&src, &[tag::EMIT_EVENT, 200]),
         Err(EventDecodeError::InvalidEventKind(200))
     );
+}
+
+#[test]
+fn cached_merges_reconstruct_under_the_existing_tags() {
+    for ring in [false, true] {
+        let mut merge = merge_ix([0xC0; 32]);
+        merge.cache_slot = Some(35);
+        let (tag, bytes, output_data) = if ring {
+            let mut wrapper = merge_ring_ix([0xC0; 32], [0xE0; 32]);
+            wrapper.merge = merge;
+            (
+                tag::RING_MERGE_TRANSACT,
+                wrapper.serialize().unwrap(),
+                vec![0xE0; 32],
+            )
+        } else {
+            (tag::MERGE_TRANSACT, merge.serialize().unwrap(), Vec::new())
+        };
+        let src = source(
+            Pubkey::new_unique(),
+            tag,
+            vec![Pubkey::new_unique()],
+            bytes,
+            1,
+        );
+        let event = reconstruct_general_event(
+            &src,
+            &emit_event_data(EventKind::Merge, &merge_event([0xD0; 32])),
+        )
+        .unwrap();
+        assert_eq!(event, expected_merge([0xD0; 32], output_data));
+    }
 }

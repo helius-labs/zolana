@@ -1,12 +1,16 @@
 use num_bigint::BigUint;
-use zolana_interface::instruction::instruction_data::transact::TreeContext;
+use zolana_interface::{
+    instruction::instruction_data::transact::TreeContext, verifying_keys::CacheAccess,
+};
 use zolana_transaction::{
-    instructions::transact::PublicTransfers, ExternalData, SppProofOutputUtxo,
+    instructions::transact::{CacheAccounts, PublicTransfers},
+    ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
+        cache::CacheSelection,
         field::be,
         transact::assembly::{
             assemble_transaction, validate_shape, AssembledTransaction, OwnerMode, PublicInputs,
@@ -30,6 +34,7 @@ pub struct TransferProver {
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
     pub shape: Shape,
+    pub cache_accounts: CacheAccounts,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +54,7 @@ pub struct TransferProofResult {
     pub tree_ids: Vec<u16>,
     /// Each input's index into `tree_contexts`, parallel to `nullifiers`.
     pub input_tree_indexes: Vec<u8>,
+    pub cache_access: Option<CacheAccess>,
 }
 
 impl TransferProver {
@@ -61,6 +67,12 @@ impl TransferProver {
                 expected: shape.signer_width(),
             });
         }
+        let cache = CacheSelection::derive(
+            &self.inputs,
+            &self.outputs,
+            self.cache_accounts,
+            &self.external_data,
+        )?;
         let AssembledTransaction {
             inputs: assembled_inputs,
             outputs: assembled_outputs,
@@ -72,7 +84,7 @@ impl TransferProver {
             &self.outputs,
             &self.blinding_seed,
             self.output_tree_id,
-            &self.external_data,
+            &cache.external_data_hash,
             &OwnerMode::ConfidentialEddsa,
             self.allow_dummy_inputs,
         )?;
@@ -88,6 +100,7 @@ impl TransferProver {
             input_flags: &input_flags,
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&assembled_outputs.output_owner_pk_hashes),
+            cached_inputs: cache.public_fields,
         }
         .hash()?;
 
@@ -109,6 +122,7 @@ impl TransferProver {
                 .iter()
                 .map(be)
                 .collect(),
+            cache: cache.proof_inputs,
             public_input_hash: be(&public_input),
         };
 
@@ -121,6 +135,7 @@ impl TransferProver {
             tree_contexts: assembled_inputs.tree_contexts,
             tree_ids: assembled_inputs.tree_ids,
             input_tree_indexes: assembled_inputs.input_tree_indexes,
+            cache_access: cache.access,
         })
     }
 }

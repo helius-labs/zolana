@@ -142,6 +142,7 @@ impl IndexedMergePreparation {
             spp_instruction_discriminator: MERGE_TRANSACT,
             expiry_unix_ts: merge.expiry_unix_ts,
             output_utxo_hash: &output_hash,
+            cache: None,
         }
         .hash()?;
         let private = PrivateTxHash::new(
@@ -159,6 +160,7 @@ impl IndexedMergePreparation {
             external,
             scalar_one(),
             owner_pk_hash,
+            nullifier_pk,
         ];
         let witness = PreparedMergeJson {
             circuit_type: IndexedCircuit::Merge,
@@ -201,6 +203,7 @@ impl IndexedMergePreparation {
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
             private_tx_hash: private,
+            cache_slot: None,
             eddsa_owner: matches!(merge.signing_pubkey.curve()?, Curve::Ed25519 | Curve::Pda),
         };
         Ok(PreparedIndexedMerge { request, data })
@@ -326,7 +329,8 @@ mod tests {
                 .get("statePathElements")
                 .is_none());
             assert_eq!(body["inputs"][1]["commitment"], serde_json::Value::Null);
-            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 7);
+            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 8);
+            assert_eq!(body["publicInputs"][7], body["prepared"]["userNullifierPk"]);
         }
     }
 

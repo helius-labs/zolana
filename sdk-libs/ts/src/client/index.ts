@@ -8,6 +8,7 @@ export type {
   IndexerReader,
   KitRpcAccess,
   MergeAssembler,
+  MergeCacheTarget,
   ProofAuthority,
   IndexedProofAuthority,
   IndexedProofInputs,
@@ -54,6 +55,8 @@ export {
   type AsyncPollConfig,
   type ProverHealth,
   type ProverRequestBody,
+  type ProvingKeyCheck,
+  type ProvingKeyReport,
 } from "./prover/client.js";
 export { ringOpenings } from "./prover/assembly.js";
 export type { RingOpenings } from "./prover/assembly.js";

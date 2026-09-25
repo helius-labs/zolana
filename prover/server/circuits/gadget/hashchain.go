@@ -79,3 +79,45 @@ func HashChain4(api frontend.API, inputs []frontend.Variable) frontend.Variable 
 
 	return abstractor.Call(api, HashChain4Gadget{Inputs: inputs})
 }
+
+// RightHashChain4Gadget folds Poseidon over the inputs three elements at a
+// time, from right to left: h = inputs[len-1], then, walking the preceding
+// elements backwards in groups of up to three that keep their order,
+// h = Poseidon(g0, g1, g2, h). The short group is the leftmost one and its
+// elements stay left-aligned, so an all-zero suffix folds to a value that
+// depends on its length alone: the cached-commitment chain uses this direction
+// so SPP starts from that precomputed constant and hashes only the populated
+// prefix. The call count matches HashChain4Gadget, so a circuit pays the same.
+// No domain separation: every chain hashed this way has a length fixed by the
+// compiled circuit.
+type RightHashChain4Gadget struct {
+	Inputs []frontend.Variable
+}
+
+func (g RightHashChain4Gadget) DefineGadget(api frontend.API) interface{} {
+	h := g.Inputs[len(g.Inputs)-1]
+	for end := len(g.Inputs) - 1; end > 0; {
+		start := end - 3
+		if start < 0 {
+			start = 0
+		}
+		group := []frontend.Variable{0, 0, 0, h}
+		for j := start; j < end; j++ {
+			group[j-start] = g.Inputs[j]
+		}
+		h = PoseidonHash(api, group)
+		end = start
+	}
+	return h
+}
+
+func RightHashChain4(api frontend.API, inputs []frontend.Variable) frontend.Variable {
+	if len(inputs) == 0 {
+		return frontend.Variable(0)
+	}
+	if len(inputs) == 1 {
+		return inputs[0]
+	}
+
+	return abstractor.Call(api, RightHashChain4Gadget{Inputs: inputs})
+}

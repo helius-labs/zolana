@@ -1,7 +1,8 @@
 //! Post-instruction checks for `ring_deposit` (policy-ring deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{instruction::RingAssetDeposit, state::read_tree_id};
+use zolana_interface::state::read_tree_id;
+use zolana_program::instruction::RingAssetDeposit;
 use zolana_program_test::{RingDepositOutput, ZolanaProgramTest};
 use zolana_wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -51,7 +52,7 @@ pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
             owner_utxo_hash: data.owner_utxo_hash,
             asset: expected_asset,
             amount: expected_amount,
-            data_hash: data.data_hash,
+            data_hash: None,
             ring_program_id: expected_ring_program_id,
             ring_data_hash: data.ring_data_hash,
             encrypted: zolana_event::EncryptedRingDepositData {

@@ -47,6 +47,7 @@ import {
   type IndexerReader,
   type KitRpcAccess,
   type MergeAssembler,
+  type MergeCacheTarget,
   type ProofAuthority,
   type ProofReader,
   type ProofService,
@@ -70,8 +71,13 @@ import {
   type SolanaRpc,
   type SolanaRpcSubscriptions,
 } from "./kit.js";
-import { assemble, checkedProverInputs } from "./prover/assembly.js";
-import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
+import { assemble, checkedProverInputs, checkedTransferCache } from "./prover/assembly.js";
+import {
+  ProverClient,
+  type AsyncPollConfig,
+  type ProverHealth,
+  type ProvingKeyReport,
+} from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import type {
@@ -628,8 +634,12 @@ export class ZolanaClient
   ): Promise<Readonly<{ proofs: SpendProof[]; dummyProofs: NonInclusionProof[] }>> {
     const commitments = proofInputs.inputContexts();
     const dummyNullifiers = proofInputs.dummyNullifiers();
-    const realTrees = proofInputs.inputUtxos.filter((input) => !input.isDummy());
-    const dummyTrees = proofInputs.inputUtxos.filter((input) => input.isDummy());
+    const realTrees = proofInputs.inputUtxos.filter(
+      (input) => !input.isDummy() && input.cacheSlot === undefined,
+    );
+    const dummyTrees = proofInputs.inputUtxos.filter(
+      (input) => input.isDummy() || input.cacheSlot !== undefined,
+    );
     const at = (inputs: readonly ProofInputUtxo[], treeId: number): number[] =>
       inputs.flatMap((input, index) => (input.treeId === treeId ? [index] : []));
     const spends = new Map<number, SpendProof>();
@@ -792,6 +802,15 @@ export class ZolanaClient
     }
   }
 
+  /** See `ProverClient.checkProvingKeys`: run it before the first proof. */
+  async checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
+    try {
+      return await this.#prover.checkProvingKeys(context);
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
   async proveCustomRingPolicy(
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
@@ -921,7 +940,12 @@ export class ZolanaClient
       });
     }
     try {
-      if (this.#proofDataSource === "prover" && circuit.kind !== "ringAuthority") {
+      const cache = checkedTransferCache(proofInputs);
+      if (
+        this.#proofDataSource === "prover" &&
+        circuit.kind !== "ringAuthority" &&
+        cache === undefined
+      ) {
         const prepared = prepareTransfer(
           proofInputs,
           circuit.kind === "ring" ? circuit.ring : undefined,
@@ -955,6 +979,7 @@ export class ZolanaClient
       prepared: PreparedMerge;
       keys: ProofAuthority;
       indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+      cache?: MergeCacheTarget;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
@@ -966,7 +991,11 @@ export class ZolanaClient
     if (!(input.prepared instanceof PreparedMerge)) {
       throw new ClientError("CLIENT_INVALID_MERGE");
     }
-    if (this.#proofDataSource === "prover" && input.prepared.output.ringProgramId === undefined) {
+    if (
+      this.#proofDataSource === "prover" &&
+      input.prepared.output.ringProgramId === undefined &&
+      input.cache === undefined
+    ) {
       const prepared = prepareMerge(input.prepared, this.tree);
       const slot = this.#indexerConfig.requireSlot;
       const inputs = {
@@ -988,6 +1017,7 @@ export class ZolanaClient
       input.indexer ?? this,
       this.tree,
       context,
+      input.cache,
     );
     const compressed = compressProof(await input.keys.proveMerge(assembled.proverInputs, context));
     return Object.freeze({

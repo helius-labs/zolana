@@ -5,14 +5,9 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_event::SplTransfer;
 use zolana_event_parser::general_event_from_indexed;
-use zolana_interface::{
-    instruction::{deposit_blinding, AssetDeposit, Deposit, UtxoData},
-    pda,
-    state::STATE_ROOT_HISTORY_CAPACITY,
-};
-use zolana_keypair::{
-    hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey,
-};
+use zolana_interface::{instruction::deposit_blinding, pda, state::STATE_ROOT_HISTORY_CAPACITY};
+use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_program::instruction::{AssetDeposit, Deposit};
 use zolana_program_test::{
     DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID,
 };
@@ -345,59 +340,6 @@ fn sol_deposit_modifies_only_the_tree_and_the_settlement_pair() {
     }
 }
 
-/// The `Some(utxo_data)` deposit arm: the supplied `data_hash` must be
-/// committed into the on-chain UTXO hash exactly as the canonical client
-/// hash computes it, and must change the hash relative to the plain arm.
-#[test]
-fn sol_deposit_with_utxo_data_commits_the_data_hash() {
-    const AMOUNT: u64 = 250_000_000;
-    let mut pool = Pool::initialized();
-    let depositor = pool.funded_signer(5_000_000_000);
-    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
-    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pk");
-    let owner_pk = PublicKey::from_ed25519(&depositor.pubkey().to_bytes());
-    let owner_field = owner_hash(&owner_pk, &nullifier_pk).expect("owner field");
-
-    let mut data_hash = [0u8; 32];
-    if let Some(last) = data_hash.last_mut() {
-        *last = 42;
-    }
-    let mut data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_field);
-    data.utxo_data = Some(UtxoData {
-        data_hash,
-        data: vec![1, 2, 3],
-    });
-
-    let tree = pool.tree;
-    let event = pool
-        .rpc
-        .deposit(&tree, &depositor, &data)
-        .expect("SOL deposit with utxo data");
-    let blinding = deposit_blinding(&tree.to_bytes(), event.leaf_index).expect("deposit blinding");
-    let utxo = Utxo {
-        owner: owner_pk,
-        asset: zolana_transaction::Mint::SOL,
-        amount: AMOUNT,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-
-    let zero = [0u8; 32];
-    assert_eq!(
-        event.utxo_hash,
-        utxo.hash(&nullifier_pk, &data_hash, &zero, pool.tree_id)
-            .expect("hash with data"),
-        "on-chain utxo hash must commit the supplied data_hash"
-    );
-    assert_ne!(
-        event.utxo_hash,
-        utxo.hash(&nullifier_pk, &zero, &zero, pool.tree_id)
-            .expect("hash without data"),
-        "the data-carrying arm must produce a different commitment than the plain arm"
-    );
-}
-
 #[test]
 fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
     const AMOUNTS: [u64; 3] = [1_000_000_000, 250_000_000, 1_000_000];
@@ -711,7 +653,7 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
                 owner_utxo_hash: data.owner_utxo_hash,
                 asset: [0u8; 32],
                 amount,
-                data_hash: data.data_hash,
+                data_hash: None,
                 ring_program_id: RING_TEST_PROGRAM_ID,
                 ring_data_hash,
                 encrypted: zolana_event::EncryptedRingDepositData {

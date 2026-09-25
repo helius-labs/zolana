@@ -33,7 +33,8 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 
 # Shielded-pool interface for instruction-data shapes and builders.
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
+zolana-program = { workspace = true, features = ["protocol"] }
 
 # Tree + nullifier-queue state for the read-only `info` report.
 zolana-tree = { workspace = true }

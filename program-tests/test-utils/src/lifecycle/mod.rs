@@ -28,10 +28,10 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
-use zolana_interface::instruction::{
+use zolana_keypair::ShieldedAddress;
+use zolana_program::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
-use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Data, Utxo, SOL_MINT};
 
 use crate::{
@@ -193,7 +193,6 @@ impl Deposit<'_> {
             view_tag,
             owner,
             amount: self.amount,
-            utxo_data: None,
             memo: None,
         };
         let ix = DepositInstruction {

@@ -41,16 +41,6 @@ pub fn decode_encrypted_ring_deposit_output_data(
         .map_err(|_| EventDecodeError::InvalidOutputData)
 }
 
-pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessOutput, EventDecodeError> {
-    let output = event
-        .outputs
-        .first()
-        .ok_or(EventDecodeError::MissingOutput)?;
-    let proofless = decode_output_data(&output.data)?;
-    require_deposit(event)?;
-    Ok(proofless)
-}
-
 /// Decode every output of a batched proofless `deposit` event, in slot order.
 pub fn proofless_outputs(event: &GeneralEvent) -> Result<Vec<ProoflessOutput>, EventDecodeError> {
     if event.outputs.is_empty() {

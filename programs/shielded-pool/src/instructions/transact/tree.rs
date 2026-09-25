@@ -5,7 +5,7 @@ use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError,
     event::InputTreeSequence,
-    instruction::instruction_data::transact::TransactIxDataRef,
+    instruction::instruction_data::transact::{TransactIxDataRef, TreeContext, NO_UTXO_ROOT},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     tree_slot::{pack_input_flags, resolve_tree_slot, TreeSlot},
     INPUT_TREES,
@@ -72,7 +72,7 @@ pub(crate) fn apply_input_trees(
             allow_dummy_inputs &=
                 input_tree.dummy_input_headroom().map_err(tree_error)? >= tree_inputs.len() as u64;
             tree_slots
-                .try_push(resolve_tree_slot(&input_tree, context).map_err(tree_error)?)
+                .try_push(resolve_input_tree_slot(&input_tree, context)?)
                 .map_err(|_| shape)?;
 
             // 3. Queue its nullifiers and credit its insertion fee.
@@ -132,6 +132,22 @@ pub(crate) fn apply_input_trees(
     )?;
     proof_inputs.assign_input_trees(tree_slots, input_flags);
     Ok(sequences)
+}
+
+pub(crate) fn resolve_input_tree_slot(
+    input_tree: &TreeAccount<'_>,
+    context: &TreeContext,
+) -> Result<TreeSlot, ProgramError> {
+    if context.utxo_tree_root_index != NO_UTXO_ROOT {
+        return resolve_tree_slot(input_tree, context).map_err(tree_error);
+    }
+    Ok(TreeSlot {
+        id: input_tree.tree_id_array(),
+        utxo_root: [0; 32],
+        nullifier_root: input_tree
+            .get_nullifier_tree_root(context.nullifier_tree_root_index)
+            .map_err(tree_error)?,
+    })
 }
 
 #[profile]

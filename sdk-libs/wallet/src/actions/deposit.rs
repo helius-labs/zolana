@@ -6,10 +6,10 @@ use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::{
+use zolana_keypair::ShieldedAddress;
+use zolana_program::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
-use zolana_keypair::ShieldedAddress;
 use zolana_transaction::SOL_MINT;
 
 use zolana_client::{
@@ -55,7 +55,6 @@ impl Deposit {
                 view_tag,
                 owner,
                 amount: request.amount,
-                utxo_data: None,
                 memo: request.memo,
             },
             asset: request.asset,
@@ -253,7 +252,6 @@ mod tests {
             view_tag: [1u8; 32],
             owner: [2u8; 32],
             amount: 1_000,
-            utxo_data: None,
             memo: Some(b"thanks".to_vec()),
         };
 

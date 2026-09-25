@@ -209,6 +209,9 @@ export async function ringTransactInstruction(
       withdrawal?: TransactWithdrawal;
     }>,
 ): Promise<Instruction> {
+  if ("cacheAccess" in input.data.circuit) {
+    throw new RingError("RING_CACHE_UNSUPPORTED", { details: { kind: input.data.circuit.kind } });
+  }
   const [config, ringAuth, cosignerPda, windows, policy] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),

@@ -1,11 +1,21 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
 
 export {
+  decodeCache,
   decodeProtocolConfig,
   decodeSplAssetCounter,
   decodeSplAssetRegistry,
   decodeRingConfig,
 } from "./accounts.js";
+export {
+  bindCacheWrite,
+  CACHE_WRITE_NONE,
+  cachedInputFields,
+  emptyCachedInputFields,
+  MAX_CACHE_WRITES,
+  NO_CACHE_WRITES,
+} from "./cache.js";
+export type { CachedInputFields } from "./cache.js";
 export {
   decodeTreeFeeSchedule,
   decodeTreeFees,
@@ -24,11 +34,15 @@ export { externalDataHash } from "./external-data-hash.js";
 export { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "./key-registry.js";
 export type { ExternalDataHashInput, SettlementAccounts } from "./external-data-hash.js";
 export {
+  TransactCacheAccounts,
+  closeCacheInstruction,
+  createCacheInstruction,
   depositInstruction,
   nullifierPdaAccounts,
   ringTransactAccounts,
   transactInstruction,
 } from "./instructions/index.js";
+export type { CacheWriteAccounts } from "./instructions/index.js";
 export { DepositAsset, TransactWithdrawal } from "./types.js";
 export {
   ciphertextHash,
@@ -53,6 +67,8 @@ export type { CreateTreeData, NullifierTreeParams } from "./program.js";
 export { SPP_SUPPORTED_SHAPES, selectSppShape, validateSppShape } from "./shape.js";
 export type { Shape } from "./shape.js";
 export {
+  CACHE_ACCOUNT_SIZE,
+  CACHE_CAPACITY,
   DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS,
   DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS,
   FIRST_ASSET_ID,
@@ -89,6 +105,7 @@ export {
   DEFAULT_TREE_ID,
   INPUT_TREES,
   MAX_INPUT_TREES,
+  NO_UTXO_ROOT,
   ZERO_TREE_SLOT,
   inputTreeSlots,
   treeIdField,

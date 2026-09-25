@@ -1,3 +1,4 @@
+import { proofFor } from "./helpers/proofs.js";
 import { LocalKeys, ZolanaClient, type IndexedProofInputs } from "../src/client/index.js";
 import { prepareMerge } from "../src/client/prover/merge.js";
 import { compressProof, parseProof } from "../src/client/prover/proof.js";
@@ -12,14 +13,7 @@ import { inputTreeSlots } from "../src/interface/tree-slot.js";
 import { bigintToBytes, bytesToBigInt, checkedBytes } from "../src/client/internal.js";
 import { asField, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
 
-const STANDARD_PROOF = {
-  ar: ["0x0", "0x0"],
-  bs: [
-    ["0x0", "0x0"],
-    ["0x0", "0x0"],
-  ],
-  krs: ["0x0", "0x0"],
-};
+const STANDARD_PROOF = proofFor({ circuitType: "merge", inputs: Array(8) });
 
 const decode = wireDecoder(() => new Error("invalid shared vector"));
 
@@ -162,6 +156,19 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(typeof payload["userNullifierSecret"]).toBe("string");
     expect(decode.list(payload["inputs"], "inputs")).toHaveLength(8);
     expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
+    const publicInputs = decode.list(envelope["publicInputs"], "publicInputs");
+    expect(publicInputs).toHaveLength(8);
+    expect(publicInputs[7]).toBe(payload["userNullifierPk"]);
+    for (const provingKeySha256 of [undefined, "00".repeat(32)]) {
+      fetch.mockResolvedValueOnce(Response.json({ ...STANDARD_PROOF, provingKeySha256 }));
+      await expect(client.proveMerge({ prepared, keys })).rejects.toMatchObject({
+        code:
+          provingKeySha256 === undefined
+            ? "CLIENT_PROVING_KEY_MISSING"
+            : "CLIENT_PROVING_KEY_MISMATCH",
+      });
+    }
+
     const valid = {
       proof: parseProof(STANDARD_PROOF),
       resolution: { trees: [resolved], publicInputHash: complete.publicInputHash },

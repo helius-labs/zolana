@@ -3,12 +3,10 @@ use client_example::{setup, SetupContext};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
-use zolana_interface::{
-    instruction::{
-        AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
-        TransactSolTransferAccounts,
-    },
-    pda,
+use zolana_interface::pda;
+use zolana_program::instruction::{
+    AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
+    TransactSolTransferAccounts,
 };
 use zolana_transaction::{
     decrypt_spendable,
@@ -88,7 +86,7 @@ fn main() -> Result<()> {
             depositor: sender.pubkey(),
             deposits: vec![AssetDeposit {
                 asset: DepositAsset::Sol,
-                // SPL: asset: DepositAsset::Spl(zolana_interface::instruction::DepositSplAccounts {
+                // SPL: asset: DepositAsset::Spl(zolana_program::instruction::DepositSplAccounts {
                 // SPL:     mint: spl.mint,
                 // SPL:     user_token: spl.user_token_account,
                 // SPL:     token_program: spl.token_program,
@@ -96,7 +94,6 @@ fn main() -> Result<()> {
                 view_tag: sender_shielded_address.confidential_view_tag()?,
                 owner: sender_shielded_address.owner_hash()?,
                 amount: DEPOSIT_AMOUNT,
-                utxo_data: None,
                 memo: None,
             }],
         }
@@ -242,7 +239,7 @@ fn main() -> Result<()> {
             )],
             // SPL: interface_transfer_accounts: vec![
             // SPL:     TransactInterfaceTransferAccounts::SplWithdrawal(
-            // SPL:         zolana_interface::instruction::TransactSplWithdrawalAccounts {
+            // SPL:         zolana_program::instruction::TransactSplWithdrawalAccounts {
             // SPL:             mint: spl.mint,
             // SPL:             vault: spl.vault,
             // SPL:             user_token_account: spl.user_token_account,

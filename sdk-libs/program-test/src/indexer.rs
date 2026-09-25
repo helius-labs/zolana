@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 use zolana_client::ProofInputUtxo;
 use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
-use zolana_event_parser::proofless_output;
 use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::{P256Pubkey, PublicKey};
@@ -162,24 +161,10 @@ impl TestIndexer {
 
         for (offset, output) in event.outputs.iter().enumerate() {
             let leaf_index = event.first_output_leaf_index + offset as u64;
-            let payload = if event
-                .spl_transfers
-                .first()
-                .is_some_and(|transfer| transfer.is_deposit)
-                && offset == 0
-            {
-                let proofless =
-                    proofless_output(event).map_err(|_| IndexerError::InvalidProoflessPayload)?;
-                IndexedPayload::Proofless(ProoflessOutput {
-                    owner: proofless.owner,
-                    asset: proofless.asset,
-                    amount: proofless.amount,
-                    blinding: proofless.blinding,
-                    memo: proofless.memo.clone(),
-                })
-            } else {
-                IndexedPayload::Encrypted(output.data.clone())
-            };
+            // This path is dispatched only for Transact/Merge events. A public
+            // deposit leg in a proved transaction does not make its output a
+            // proofless deposit; those are handled by record_deposit instead.
+            let payload = IndexedPayload::Encrypted(output.data.clone());
             self.append_output_slot(
                 output_tree,
                 leaf_index,

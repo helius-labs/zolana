@@ -125,6 +125,7 @@ impl EscrowUtxo {
             ring_data_hash: None,
             tree_id,
             leaf_index,
+            cache_slot: None,
         })
     }
 }
@@ -196,6 +197,7 @@ impl Reservation {
             ring_data_hash: None,
             tree_id,
             leaf_index,
+            cache_slot: None,
         })
     }
 }

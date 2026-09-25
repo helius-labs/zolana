@@ -9,6 +9,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/provingkeys"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -1057,9 +1058,18 @@ func (rq *RedisQueue) cleanupIndexEntry(queueName string, jobID string) {
 }
 
 // ComputeInputHash computes a SHA256 hash of the proof input payload
+// ComputeInputHash keys the proof result and failure caches. The proving-key
+// version (the embedded lockfile prefix) is part of it, so a result cached
+// under another key set, or before proofs carried provingKeySha256, is never
+// replayed: clients reject such a proof, and every retry would hit it again.
 func ComputeInputHash(payload json.RawMessage) string {
-	hash := sha256.Sum256(payload)
-	return hex.EncodeToString(hash[:])
+	hasher := sha256.New()
+	if manifest, err := provingkeys.Load(); err == nil {
+		hasher.Write([]byte(manifest.Prefix))
+		hasher.Write([]byte{0})
+	}
+	hasher.Write(payload)
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 // FindCachedResult searches for a cached result by input hash.

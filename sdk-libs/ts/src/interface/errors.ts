@@ -76,6 +76,17 @@ export const ShieldedPoolError = Object.freeze({
   InputsNotGroupedByTree: 7063,
   UnreferencedTreeContext: 7064,
   DuplicateInputTree: 7065,
+  InvalidCache: 7066,
+  CacheConfigMismatch: 7067,
+  CacheSlotEmpty: 7068,
+  InvalidCacheSlot: 7069,
+  InvalidCacheBitmap: 7070,
+  CacheTreeMismatch: 7071,
+  CacheExpired: 7073,
+  CacheNotExpired: 7074,
+  CacheExpiryNotInFuture: 7075,
+  CacheWriteAuthorityMismatch: 7076,
+  CacheRentRecipientMismatch: 7077,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

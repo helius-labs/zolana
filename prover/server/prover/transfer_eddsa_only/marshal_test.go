@@ -26,7 +26,16 @@ func TestTransferParametersJSONKeys(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatalf("unmarshal to map: %v", err)
 	}
-	for _, key := range []string{"treeSlots", "outputTreeId", "blindingSeed"} {
+	for _, key := range []string{
+		"treeSlots",
+		"outputTreeId",
+		"blindingSeed",
+		"cacheTreeId",
+		"cacheReadHashChain",
+		"cacheReadHashes",
+		"cacheIsCached",
+		"cacheReadIndex",
+	} {
 		if _, ok := fields[key]; !ok {
 			t.Fatalf("missing top-level key %q in %s", key, data)
 		}

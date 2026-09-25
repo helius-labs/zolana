@@ -81,6 +81,17 @@ export interface TransferInputs {
   /** Bit 0 is the dummy-input policy, then three bits of tree slot per input. */
   readonly inputFlags: Field;
   readonly publishedOutputOwnerPublicKeyHashes: readonly Field[];
+  /**
+   * The cache selection published right after the output owners. A spend that
+   * draws no input from a cache publishes the empty selection rather than
+   * omitting it, so every owner-signed rail proves on one verifying key with
+   * or without a cache.
+   */
+  readonly cacheTreeId: Field;
+  readonly cacheReadHashChain: Field;
+  readonly cacheReadHashes: readonly Field[];
+  readonly cacheIsCached: readonly Field[];
+  readonly cacheReadIndex: readonly Field[];
   readonly publicInputHash: Field;
 }
 

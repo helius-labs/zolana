@@ -7,7 +7,10 @@ use super::transact::{
     request::{json_body, SecretHex},
 };
 use crate::escrow::RegistryKeyOpening;
-use zolana_client::{prover::ProveRequest, ClientError};
+use zolana_client::{
+    prover::{ExpectedProvingKey, ProveRequest},
+    ClientError,
+};
 
 pub struct RingDepositProofRequest<'a> {
     pub public_input_hash: &'a [u8; 32],
@@ -75,6 +78,13 @@ impl ProveRequest for RingDepositProofRequest<'_> {
             ));
         }
         json_body(self)
+    }
+
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        Ok(ExpectedProvingKey {
+            name: "custom_ring_deposit.key".to_string(),
+            sha256: custom_ring_interface::deposit_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+        })
     }
 }
 

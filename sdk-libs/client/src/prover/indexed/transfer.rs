@@ -49,6 +49,19 @@ impl PreparedIndexedTransfer {
         authority: &dyn ProofAuthority,
     ) -> Result<Self, ClientError> {
         let shape = transaction.check_shape()?;
+        if transaction.cache_accounts.read.is_some()
+            || transaction.cache_accounts.write.is_some()
+            || transaction
+                .input_utxos
+                .iter()
+                .any(|input| input.cache_slot.is_some())
+            || transaction
+                .output_utxos
+                .iter()
+                .any(|output| output.cache_slot.is_some())
+        {
+            return Err(super::invalid());
+        }
         if inputs_require_p256(&transaction.input_utxos)? {
             return Err(ClientError::P256TransactUnsupported);
         }
@@ -148,6 +161,9 @@ impl PreparedIndexedTransfer {
             input_flags: &flags,
             signer_pk_hashes: &signers,
             output_owner_pk_hashes: Some(&outputs.output_owner_pk_hashes),
+            cached_inputs: zolana_interface::state::cache::empty_cached_input_fields(
+                local_inputs.len(),
+            )?,
         }
         .without_roots(&[])?;
         let prepared = PreparedTransferJson {
@@ -168,6 +184,11 @@ impl PreparedIndexedTransfer {
             ring_program_id: "0x0",
             signer_pk_hashes: signers.iter().map(hex_field).collect(),
             input_flags: hex_field(&flags),
+            cache: super::super::json::cache_reads_to_json(
+                &super::super::inputs::CacheReadInputs::uncached(
+                    zolana_interface::state::cache::empty_cached_input_fields(local_inputs.len())?,
+                ),
+            ),
             published_output_owner_pk_hashes: outputs
                 .output_owner_pk_hashes
                 .iter()
@@ -293,6 +314,8 @@ impl TryFrom<&TransferInput> for PreparedInputJson {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PreparedTransferJson {
+    #[serde(flatten)]
+    cache: super::super::json::CacheReadsJson,
     circuit_type: IndexedCircuit,
     n_inputs: usize,
     n_outputs: usize,

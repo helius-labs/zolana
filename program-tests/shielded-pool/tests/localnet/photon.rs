@@ -32,10 +32,7 @@ use zolana_client::{
 use zolana_event::OutputDataEncoding;
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
-    instruction::{
-        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
-        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-    },
+    instruction::instruction_data::transact::InterfaceTransfer,
     pda,
     state::{
         nullifier_tree_params, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
@@ -48,6 +45,9 @@ use zolana_keypair::{
     pubkey::PublicKey,
     shielded::{ShieldedAddress, ShieldedKeypair},
     NullifierKey, SigningKey,
+};
+use zolana_program::instruction::{
+    Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
 use zolana_program_test::{rpc_state_root, ZolanaProgramTest};
 use zolana_test_utils::smart_account;

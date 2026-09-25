@@ -1,17 +1,18 @@
+use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::SplTransfer;
 use zolana_interface::{
-    instruction::{
-        encode_instruction, tag, CreateRingConfigData, DepositAsset, DepositSplAccounts,
-        EncryptedRingDepositData, RingAssetDeposit, RingDeposit, SetRingActivation,
-        UpdateRingConfig, UpdateRingConfigOwner,
-    },
+    instruction::{encode_instruction, tag, CreateRingConfigData, EncryptedRingDepositData},
     pda,
 };
 use zolana_keypair::shielded::ShieldedAddress;
+use zolana_program::instruction::{
+    DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit, SetRingActivation,
+    UpdateRingConfig, UpdateRingConfigOwner,
+};
 use zolana_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Blinding};
 
 use crate::{
@@ -69,6 +70,22 @@ impl ZolanaProgramTest {
         };
         self.send(&[ix], &[payer])?;
         Ok(ring_config)
+    }
+
+    /// Rotate the authority to the default address, which nothing can sign for,
+    /// so no further `update_ring_config`/`update_ring_config_owner` can succeed.
+    pub fn burn_ring_config_owner(
+        &mut self,
+        authority: &Keypair,
+        ring_config: &Address,
+    ) -> Result<(), ProgramTestError> {
+        let ix = UpdateRingConfigOwner {
+            authority: authority.pubkey(),
+            ring_config: *ring_config,
+            new_authority: [0u8; 32].into(),
+        }
+        .instruction();
+        self.send(&[ix], &[authority])
     }
 
     pub fn update_ring_config_owner(
@@ -156,7 +173,6 @@ impl ZolanaProgramTest {
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)
                 .expect("test owner and blinding are field elements"),
             amount: lamports,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [0u8; 33],
@@ -177,7 +193,6 @@ impl ZolanaProgramTest {
             view_tag,
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount: lamports,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: RingDepositPlaintext {
                 blinding,
@@ -206,7 +221,6 @@ impl ZolanaProgramTest {
             view_tag,
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: RingDepositPlaintext {
                 blinding,

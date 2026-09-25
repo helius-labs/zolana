@@ -27,6 +27,13 @@ pub struct TransactAccounts<'a> {
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
+    /// Taken by the processor, which loads the cache once for the instruction.
+    pub cache: Option<TransactCacheAccounts<'a>>,
+}
+
+pub struct TransactCacheAccounts<'a> {
+    pub read_cache: Option<&'a mut AccountView>,
+    pub write_cache: Option<(&'a mut AccountView, &'a AccountView)>,
 }
 
 impl<'a> TransactAccounts<'a> {
@@ -37,7 +44,10 @@ impl<'a> TransactAccounts<'a> {
     /// 5. T input trees - mut, one per declared tree context, in context order
     ///    5 + T: I nullifier PDAs - mut, one per input in `inputs` order
     ///    5 + T + I: N signers - signer
-    ///    5 + T + I + N: transfer settlement accounts -
+    ///    5 + T + I + N: transfer settlement accounts
+    ///    A cached selector's read cache follows all settlement accounts when
+    ///    it reads, then its writable write cache and writer (signer) when it
+    ///    writes.
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
@@ -71,6 +81,7 @@ impl<'a> TransactAccounts<'a> {
             nullifier_pdas: ArrayVec::new(),
             owner_signers: &[],
             settlements: ArrayVec::new(),
+            cache: None,
         });
         for _ in 0..ix.inputs.len() {
             this.nullifier_pdas
@@ -100,7 +111,19 @@ impl<'a> TransactAccounts<'a> {
                 total.checked_add(transfer.settlement_account_count())
             })
             .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
-        if settlement_accounts.len() != settlement_account_count {
+        let reads_cache = ix
+            .circuit
+            .cache_access()
+            .is_some_and(|access| access.read_bitmap != 0);
+        let writes_cache = ix
+            .circuit
+            .cache_access()
+            .is_some_and(|access| access.writes_cache());
+        let remaining_count = settlement_account_count
+            .checked_add(usize::from(reads_cache))
+            .and_then(|count| count.checked_add(2 * usize::from(writes_cache)))
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        if settlement_accounts.len() != remaining_count {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
         let mut iter = AccountIterator::new(settlement_accounts);
@@ -182,6 +205,24 @@ impl<'a> TransactAccounts<'a> {
                 .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
         }
 
+        if reads_cache || writes_cache {
+            let read_cache = if reads_cache {
+                Some(iter.next_account("read_cache")?)
+            } else {
+                None
+            };
+            let write_cache = if writes_cache {
+                let cache = iter.next_mut("write_cache")?;
+                let writer: &AccountView = iter.next_signer("cache_writer")?;
+                Some((cache, writer))
+            } else {
+                None
+            };
+            this.cache = Some(TransactCacheAccounts {
+                read_cache,
+                write_cache,
+            });
+        }
         Ok(this)
     }
 }

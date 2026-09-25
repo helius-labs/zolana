@@ -617,6 +617,28 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 	}, redisQueue, keyManager)
 }
 
+// gatewayPrefix is the path namespace the Helius gateway exposes this service
+// under. Gatekeeper forwards the request path verbatim -- heimdall-proxy's
+// HttpRestOrigin replaces the origin path with the incoming one and has no
+// prefix rewriting -- so a REST service reached through /v1/zolana/* has to
+// answer on that path itself. ts-services/lana-api does the same thing with a
+// two-path controller.
+//
+// photon needs none of this and is not a precedent for skipping it: it is
+// JSON-RPC, dispatches on the body's method, and therefore answers on any path
+// at all. The prover is the only half of the pair that dispatches on the path,
+// which is why only the prover has to care.
+const gatewayPrefix = "/v1/zolana"
+
+// handleBoth registers h under its own path and under the gateway prefix, so
+// one handler serves a direct caller on the ALB and a gateway caller alike.
+// Only the proving surface is published this way; /health and /queue/* are the
+// operational surface and stay off the public prefix.
+func handleBoth(mux *http.ServeMux, path string, h http.Handler) {
+	mux.Handle(path, h)
+	mux.Handle(gatewayPrefix+path, h)
+}
+
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	transferExecution := config.TransferExecution
 	if transferExecution == nil {
@@ -648,17 +670,19 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		enableQueue:       config.Queue != nil && config.Queue.Enabled,
 		admission:         newSyncAdmission(syncPermits()),
 	}
-	proverMux.Handle("/prove", observeProofHTTP("complete", handler))
+	handleBoth(proverMux, "/prove", observeProofHTTP("complete", handler))
 	handler.indexed = true
-	proverMux.Handle("/prove/indexed", observeProofHTTP("indexed", handler))
+	handleBoth(proverMux, "/prove/indexed", observeProofHTTP("indexed", handler))
 
 	proverMux.Handle("/ready", config.Readiness)
 	proverMux.Handle("/health", healthHandler{
 		circuits: servedCircuits(),
 	})
 
+	handleBoth(proverMux, "/proving-keys", provingKeysHandler{keyManager: keyManager})
+
 	if redisQueue != nil {
-		proverMux.Handle("/prove/status", proofStatusHandler{redisQueue: redisQueue})
+		handleBoth(proverMux, "/prove/status", proofStatusHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/stats", queueStatsHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/health", queueHealthHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/cleanup", queueCleanupHandler{redisQueue: redisQueue})
@@ -892,6 +916,37 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 
 type healthHandler struct {
 	circuits []common.CircuitType
+}
+
+// provingKeysHandler serves GET /proving-keys: per key, the sha256 the
+// lockfile pins, the sha256 of the loaded bytes, and whether it is available,
+// so clients can check the prover against their verifying keys at startup.
+type provingKeysHandler struct {
+	keyManager *common.LazyKeyManager
+}
+
+func (handler provingKeysHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	report, err := handler.keyManager.ProvingKeysReport()
+	if err != nil {
+		logging.Logger().Error().Err(err).Msg("error building proving key report")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	responseBytes, err := json.Marshal(report)
+	if err != nil {
+		logging.Logger().Error().Err(err).Msg("error marshaling proving key report")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(responseBytes); err != nil {
+		logging.Logger().Error().Err(err).Msg("error writing response")
+	}
 }
 
 func servedCircuits() []common.CircuitType {

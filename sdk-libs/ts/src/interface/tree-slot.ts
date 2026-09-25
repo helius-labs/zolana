@@ -13,6 +13,8 @@ export const INPUT_TREES = 5;
 /** Maximum trees one transact may spend from; mirrors Rust `MAX_INPUT_TREES`. */
 export const MAX_INPUT_TREES = 2;
 
+export const NO_UTXO_ROOT = 0xffff;
+
 /**
  * The tree id the SDK hashes under until the tree id is read from the tree
  * account. The protocol has one live tree today and it carries id 0, so

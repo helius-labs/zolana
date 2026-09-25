@@ -9,25 +9,28 @@ use std::{
 };
 
 use reqwest::redirect::Policy;
-use reqwest::StatusCode;
+use reqwest::{StatusCode, Url};
 use tokio::time::sleep as async_sleep;
 use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,
     prover::{
+        endpoint::{scrub, ProverEndpoint},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
             to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
             to_json_p256_ring, to_json_ring, to_json_ring_authority,
         },
         proof::{proof_from_gnark_json, Proof},
+        proving_key::{parse_sha256_hex, ExpectedProvingKey, ProverKeys, ProvingKeyReport},
     },
 };
 
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";
 pub const PROVE_PATH: &str = "/prove";
+pub const PROVING_KEYS_PATH: &str = "/proving-keys";
 
 /// Default prover port, mirrored from the CLI's `DEFAULT_PROVER_PORT`. Used as
 /// the fallback when a custom [`server_address`] has no parseable port.
@@ -84,6 +87,10 @@ pub enum Delivery {
 pub trait ProveRequest {
     /// `Zeroizing`, a body may carry key material.
     fn body(&self) -> Result<Zeroizing<String>, ClientError>;
+
+    /// The proving key the proof must come from; the prover's reported
+    /// `provingKeySha256` is checked against it.
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError>;
 
     /// The queue suits anything heavier than a transfer-shaped proof.
     fn delivery(&self) -> Delivery {
@@ -190,7 +197,7 @@ fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
 
 /// Blocking client for the transfer proving endpoints of the prover server.
 pub struct ProverClient {
-    server_address: String,
+    endpoint: ProverEndpoint,
     http: reqwest::blocking::Client,
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
@@ -199,7 +206,7 @@ pub struct ProverClient {
 
 /// Async client for the transfer proving endpoints of the prover server.
 pub struct AsyncProverClient {
-    server_address: String,
+    endpoint: ProverEndpoint,
     http: reqwest::Client,
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
@@ -225,7 +232,7 @@ impl ProverClient {
 
     pub fn new(server_address: String) -> Self {
         Self {
-            server_address,
+            endpoint: ProverEndpoint::parse(&server_address),
             http: build_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
@@ -268,32 +275,39 @@ impl ProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs)?, self.delivery)
+        let key =
+            ExpectedProvingKey::transfer_confidential(inputs.inputs.len(), inputs.outputs.len())?;
+        self.send(to_json(inputs)?, self.delivery, &key)
     }
 
     /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs), self.delivery)
+        let key = ExpectedProvingKey::merge(inputs.inputs.len())?;
+        self.send(to_json_merge(inputs), self.delivery, &key)
     }
 
     /// Prove a ring-authority transfer (anonymous, no signature), returning the
     /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
     /// call [`Proof::compress`] for the wire format.
     pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs)?, self.delivery)
+        let key =
+            ExpectedProvingKey::transfer_ring_authority(inputs.inputs.len(), inputs.outputs.len())?;
+        self.send(to_json_ring_authority(inputs)?, self.delivery, &key)
     }
 
     /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
     /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
     /// wire format.
     pub fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs), self.delivery)
+        let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
+        self.send(to_json_merge_ring(inputs), self.delivery, &key)
     }
 
     /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
     pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs)?, self.delivery)
+        let key = ExpectedProvingKey::transfer_ring(inputs.inputs.len(), inputs.outputs.len())?;
+        self.send(to_json_ring(inputs)?, self.delivery, &key)
     }
 
     /// Prove a custom-ring P256 transfer.
@@ -301,11 +315,14 @@ impl ProverClient {
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs)?, self.delivery)
+        let key =
+            ExpectedProvingKey::transfer_p256_ring(inputs.inputs.len(), inputs.outputs.len())?;
+        self.send(to_json_p256_ring(inputs)?, self.delivery, &key)
     }
 
     pub fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
-        self.send(request.body()?, request.delivery())
+        let key = request.proving_key()?;
+        self.send(request.body()?, request.delivery(), &key)
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -315,7 +332,28 @@ impl ProverClient {
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs), Delivery::Queued)
+        let key = ExpectedProvingKey::batch_address_append(inputs.tree_height, inputs.batch_size)?;
+        self.send(to_json_batch_address_append(inputs), Delivery::Queued, &key)
+    }
+
+    /// Compare the prover's proving keys (`GET /proving-keys`) with the
+    /// proving-key sha256 each committed verifying key pins, so a prover on
+    /// another key set fails before the first proof instead of on-chain.
+    pub fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
+        let url = self.endpoint.url(PROVING_KEYS_PATH)?;
+        let response = self
+            .http
+            .get(url)
+            .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+            .send()
+            .map_err(|e| {
+                ClientError::ProverServer(format!("proving keys request failed: {}", scrub(e)))
+            })?;
+        let status = response.status();
+        let text = response.text().map_err(|e| {
+            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
+        })?;
+        prover_keys_from_response(status, &text)?.check()
     }
 
     /// One POST to `/prove`, retried for transport failures and for a queued
@@ -323,7 +361,7 @@ impl ProverClient {
     /// caller can act on a shed request.
     fn post(
         &self,
-        url: &str,
+        url: &Url,
         body: &str,
         delivery: Delivery,
     ) -> Result<(StatusCode, String), ClientError> {
@@ -332,7 +370,7 @@ impl ProverClient {
             attempt += 1;
             let mut request = self
                 .http
-                .post(url)
+                .post(url.clone())
                 .header("Content-Type", "application/json");
             if delivery == Delivery::InResponse {
                 request = request.header("X-Sync", "true");
@@ -355,23 +393,30 @@ impl ProverClient {
                 }
                 Err(e) => {
                     return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {e}"
+                        "request failed after {attempt} attempt(s): {}",
+                        scrub(e)
                     )));
                 }
             }
         };
         let status = response.status();
-        let text = response
-            .text()
-            .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
+        let text = response.text().map_err(|e| {
+            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
+        })?;
         Ok((status, text))
     }
 
-    fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
+    fn send(
+        &self,
+        body: impl AsRef<str>,
+        delivery: Delivery,
+        key: &ExpectedProvingKey,
+    ) -> Result<Proof, ClientError> {
         self.send_response(ProofRequest {
             body: body.as_ref(),
             delivery,
             route: ProofRoute::Complete,
+            key,
         })
     }
 
@@ -385,6 +430,7 @@ impl ProverClient {
                 body: &body,
                 delivery: self.delivery,
                 route: ProofRoute::Indexed,
+                key: request.proving_key(),
             })
             .map_err(indexed_failure)?;
         request.validate(proof)
@@ -398,8 +444,9 @@ impl ProverClient {
             body,
             delivery,
             route,
+            key,
         } = request;
-        let url = format!("{}{}", self.server_address, route.path());
+        let url = self.endpoint.url(route.path())?;
         crate::prover::timing::note(0, "prover_request_bytes", body.len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
@@ -429,15 +476,19 @@ impl ProverClient {
         // proof directly (plain gnark JSON or a `{ proof, .. }` envelope).
         if value.get("proof").is_none() {
             if let Some(job_id) = value.get("jobId").and_then(|v| v.as_str()) {
-                return self.poll_async(job_id);
+                return self.poll_async(job_id, key);
             }
         }
-        T::decode(&value, &text)
+        T::decode(&value, &text, key)
     }
 
     /// Poll the async job status endpoint until the queued proof completes.
-    fn poll_async<T: ProverResponse>(&self, job_id: &str) -> Result<T, ClientError> {
-        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
+    fn poll_async<T: ProverResponse>(
+        &self,
+        job_id: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<T, ClientError> {
+        let url = self.endpoint.status_url(job_id)?;
         // The configured interval caps the backoff rather than setting it. This
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
         // every proof: a 270ms proof measured 3.3s end to end, essentially all
@@ -467,7 +518,7 @@ impl ProverClient {
         loop {
             let response = match self
                 .http
-                .get(&url)
+                .get(url.clone())
                 .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
                 .send()
             {
@@ -482,7 +533,7 @@ impl ProverClient {
             if status.is_client_error() {
                 let text = match response.text() {
                     Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {e}"),
+                    Err(e) => format!("failed to read status body: {}", scrub(e)),
                 };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
@@ -510,7 +561,7 @@ impl ProverClient {
                 // nested under `result`.
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return T::decode(result, &text);
+                    return T::decode(result, &text, key);
                 }
                 Some("failed") => {
                     return Err(ClientError::ProverServer(format!(
@@ -527,14 +578,30 @@ impl ProverClient {
     }
 
     /// Extract and parse a gnark proof from a proof value, accepting either a
-    /// plain proof object or a `{ proof, .. }` envelope.
-    fn proof_from_value(value: &serde_json::Value, raw: &str) -> Result<Proof, ClientError> {
+    /// plain proof object or a `{ proof, .. }` envelope, and check the proving
+    /// key the prover reports it used against `key`.
+    fn proof_from_value(
+        value: &serde_json::Value,
+        raw: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<Proof, ClientError> {
         let proof_value = value.get("proof").unwrap_or(value);
         if proof_value.is_null() {
             return Err(ClientError::ProverServer(
                 "server returned a null proof".to_string(),
             ));
         }
+        let reported = match proof_value.get("provingKeySha256") {
+            None => None,
+            Some(reported) => Some(reported.as_str().and_then(parse_sha256_hex).ok_or_else(
+                || {
+                    ClientError::ProofParse(
+                        "provingKeySha256 is not 64 lowercase hex digits".to_string(),
+                    )
+                },
+            )?),
+        };
+        key.check(reported)?;
         let proof_json = serde_json::to_string(proof_value)
             .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
         proof_from_gnark_json(&proof_json)
@@ -560,21 +627,34 @@ struct ProofRequest<'a> {
     body: &'a str,
     delivery: Delivery,
     route: ProofRoute,
+    key: &'a ExpectedProvingKey,
 }
 
 trait ProverResponse: Sized {
-    fn decode(value: &serde_json::Value, raw: &str) -> Result<Self, ClientError>;
+    fn decode(
+        value: &serde_json::Value,
+        raw: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<Self, ClientError>;
 }
 
 impl ProverResponse for Proof {
-    fn decode(value: &serde_json::Value, raw: &str) -> Result<Self, ClientError> {
-        ProverClient::proof_from_value(value, raw)
+    fn decode(
+        value: &serde_json::Value,
+        raw: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<Self, ClientError> {
+        ProverClient::proof_from_value(value, raw, key)
     }
 }
 
 impl ProverResponse for IndexedProof {
-    fn decode(value: &serde_json::Value, raw: &str) -> Result<Self, ClientError> {
-        let proof = ProverClient::proof_from_value(value, raw)?;
+    fn decode(
+        value: &serde_json::Value,
+        raw: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<Self, ClientError> {
+        let proof = ProverClient::proof_from_value(value, raw, key)?;
         let resolution = value
             .get("proof")
             .unwrap_or(value)
@@ -592,8 +672,20 @@ fn indexed_failure(error: ClientError) -> ClientError {
         ClientError::ProofParse(_) => {
             ClientError::ProofParse("invalid indexed proof response".to_owned())
         }
+        error @ (ClientError::MissingProvingKeySha256 { .. }
+        | ClientError::ProvingKeyMismatch { .. }) => error,
         _ => ClientError::ProverServer("indexed proof request failed".to_owned()),
     }
+}
+
+fn prover_keys_from_response(status: StatusCode, text: &str) -> Result<ProverKeys, ClientError> {
+    if !status.is_success() {
+        return Err(ClientError::ProverServer(format!(
+            "proving keys status {status}: {text}"
+        )));
+    }
+    serde_json::from_str(text)
+        .map_err(|e| ClientError::ProverServer(format!("invalid /proving-keys response: {e}")))
 }
 
 /// First gap between status polls. A transfer proof completes in well under a
@@ -656,7 +748,7 @@ impl AsyncProverClient {
 
     pub fn new(server_address: String) -> Self {
         Self {
-            server_address,
+            endpoint: ProverEndpoint::parse(&server_address),
             http: build_async_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
@@ -702,53 +794,91 @@ impl AsyncProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs)?, self.delivery).await
+        let key =
+            ExpectedProvingKey::transfer_confidential(inputs.inputs.len(), inputs.outputs.len())?;
+        self.send(to_json(inputs)?, self.delivery, &key).await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs), self.delivery).await
+        let key = ExpectedProvingKey::merge(inputs.inputs.len())?;
+        self.send(to_json_merge(inputs), self.delivery, &key).await
     }
 
     pub async fn prove_ring_authority(
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs)?, self.delivery)
+        let key =
+            ExpectedProvingKey::transfer_ring_authority(inputs.inputs.len(), inputs.outputs.len())?;
+        self.send(to_json_ring_authority(inputs)?, self.delivery, &key)
             .await
     }
 
     pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs), self.delivery).await
+        let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
+        self.send(to_json_merge_ring(inputs), self.delivery, &key)
+            .await
     }
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs)?, self.delivery).await
+        let key = ExpectedProvingKey::transfer_ring(inputs.inputs.len(), inputs.outputs.len())?;
+        self.send(to_json_ring(inputs)?, self.delivery, &key).await
     }
 
     pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs)?, self.delivery).await
+        let key =
+            ExpectedProvingKey::transfer_p256_ring(inputs.inputs.len(), inputs.outputs.len())?;
+        self.send(to_json_p256_ring(inputs)?, self.delivery, &key)
+            .await
     }
 
     pub async fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
-        self.send(request.body()?, request.delivery()).await
+        let key = request.proving_key()?;
+        self.send(request.body()?, request.delivery(), &key).await
     }
 
     pub async fn prove_batch_address_append(
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs), Delivery::Queued)
+        let key = ExpectedProvingKey::batch_address_append(inputs.tree_height, inputs.batch_size)?;
+        self.send(to_json_batch_address_append(inputs), Delivery::Queued, &key)
             .await
     }
 
-    async fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
+    /// Async counterpart of [`ProverClient::check_proving_keys`].
+    pub async fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
+        let url = self.endpoint.url(PROVING_KEYS_PATH)?;
+        let response = self
+            .http
+            .get(url)
+            .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+            .send()
+            .await
+            .map_err(|e| {
+                ClientError::ProverServer(format!("proving keys request failed: {}", scrub(e)))
+            })?;
+        let status = response.status();
+        let text = response.text().await.map_err(|e| {
+            ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
+        })?;
+        prover_keys_from_response(status, &text)?.check()
+    }
+
+    async fn send(
+        &self,
+        body: impl AsRef<str>,
+        delivery: Delivery,
+        key: &ExpectedProvingKey,
+    ) -> Result<Proof, ClientError> {
         self.send_response(ProofRequest {
             body: body.as_ref(),
             delivery,
             route: ProofRoute::Complete,
+            key,
         })
         .await
     }
@@ -763,6 +893,7 @@ impl AsyncProverClient {
                 body: &body,
                 delivery: self.delivery,
                 route: ProofRoute::Indexed,
+                key: request.proving_key(),
             })
             .await
             .map_err(indexed_failure)?;
@@ -777,8 +908,9 @@ impl AsyncProverClient {
             body,
             delivery,
             route,
+            key,
         } = request;
-        let url = format!("{}{}", self.server_address, route.path());
+        let url = self.endpoint.url(route.path())?;
         let mut delivery = delivery;
         let (status, text) = loop {
             let (status, text) = self.post(&url, body, delivery).await?;
@@ -798,15 +930,15 @@ impl AsyncProverClient {
             .map_err(|e| ClientError::ProofParse(format!("invalid response JSON: {e}")))?;
         if value.get("proof").is_none() {
             if let Some(job_id) = value.get("jobId").and_then(|v| v.as_str()) {
-                return self.poll_async(job_id).await;
+                return self.poll_async(job_id, key).await;
             }
         }
-        T::decode(&value, &text)
+        T::decode(&value, &text, key)
     }
 
     async fn post(
         &self,
-        url: &str,
+        url: &Url,
         body: &str,
         delivery: Delivery,
     ) -> Result<(StatusCode, String), ClientError> {
@@ -815,7 +947,7 @@ impl AsyncProverClient {
             attempt += 1;
             let mut request = self
                 .http
-                .post(url)
+                .post(url.clone())
                 .header("Content-Type", "application/json");
             if delivery == Delivery::InResponse {
                 request = request.header("X-Sync", "true");
@@ -833,7 +965,10 @@ impl AsyncProverClient {
                 Ok(response) => {
                     let status = response.status();
                     let text = response.text().await.map_err(|e| {
-                        ClientError::ProverServer(format!("failed to read response body: {e}"))
+                        ClientError::ProverServer(format!(
+                            "failed to read response body: {}",
+                            scrub(e)
+                        ))
                     })?;
                     return Ok((status, text));
                 }
@@ -842,15 +977,20 @@ impl AsyncProverClient {
                 }
                 Err(e) => {
                     return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {e}"
+                        "request failed after {attempt} attempt(s): {}",
+                        scrub(e)
                     )));
                 }
             }
         }
     }
 
-    async fn poll_async<T: ProverResponse>(&self, job_id: &str) -> Result<T, ClientError> {
-        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
+    async fn poll_async<T: ProverResponse>(
+        &self,
+        job_id: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<T, ClientError> {
+        let url = self.endpoint.status_url(job_id)?;
         let poll_cap_ms = self
             .async_poll
             .poll_interval_secs
@@ -862,7 +1002,7 @@ impl AsyncProverClient {
         loop {
             let response = match self
                 .http
-                .get(&url)
+                .get(url.clone())
                 .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
                 .send()
                 .await
@@ -878,7 +1018,7 @@ impl AsyncProverClient {
             if status.is_client_error() {
                 let text = match response.text().await {
                     Ok(text) => text,
-                    Err(e) => format!("failed to read status body: {e}"),
+                    Err(e) => format!("failed to read status body: {}", scrub(e)),
                 };
                 return Err(ClientError::ProverServer(format!(
                     "status {status}: {text}"
@@ -904,7 +1044,7 @@ impl AsyncProverClient {
             match value.get("status").and_then(|v| v.as_str()) {
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return T::decode(result, &text);
+                    return T::decode(result, &text, key);
                 }
                 Some("failed") => {
                     return Err(ClientError::ProverServer(format!(
@@ -942,7 +1082,19 @@ pub fn spawn_prover() -> Result<(), ClientError> {
     spawn_prover_inner(None, None)
 }
 
+/// A reused prover may be another clone's or an older build's, so its proving
+/// keys are checked against this build's verifying keys before any test uses it.
 fn spawn_prover_inner(
+    cli_override: Option<String>,
+    keys_dir: Option<&Path>,
+) -> Result<(), ClientError> {
+    start_prover_unless_healthy(cli_override, keys_dir)?;
+    ProverClient::new(server_address())
+        .check_proving_keys()
+        .map(|_| ())
+}
+
+fn start_prover_unless_healthy(
     cli_override: Option<String>,
     keys_dir: Option<&Path>,
 ) -> Result<(), ClientError> {
@@ -1046,13 +1198,11 @@ pub fn spawn_prover_with_artifacts(
 fn health_check(retries: usize, timeout_secs: u64) -> bool {
     let client = build_http_client(None).expect("failed to build HTTP client");
     let timeout = Duration::from_secs(timeout_secs);
-    let address = server_address();
+    let Ok(url) = ProverEndpoint::parse(&server_address()).url(HEALTH_CHECK) else {
+        return false;
+    };
     for attempt in 0..retries {
-        let ok = client
-            .get(format!("{}{}", address, HEALTH_CHECK))
-            .timeout(timeout)
-            .send()
-            .is_ok();
+        let ok = client.get(url.clone()).timeout(timeout).send().is_ok();
         if ok {
             return true;
         }
@@ -1193,7 +1343,7 @@ mod tests {
                 .with_proxy(proxy.url())
                 .unwrap();
             client
-                .send("{}", Delivery::Queued)
+                .send("{}", Delivery::Queued, &test_key())
                 .expect("proof through proxy");
             assert_proxy_requests(proxy, socks);
         }
@@ -1210,7 +1360,7 @@ mod tests {
                 .with_proxy(proxy.url())
                 .unwrap();
             client
-                .send("{}", Delivery::Queued)
+                .send("{}", Delivery::Queued, &test_key())
                 .await
                 .expect("proof through proxy");
             assert_proxy_requests(proxy, socks);
@@ -1228,7 +1378,9 @@ mod tests {
         let client = queued_prover_client(direct.url())
             .with_proxy(proxy.url())
             .unwrap();
-        assert!(client.send("{}", Delivery::InResponse).is_err());
+        assert!(client
+            .send("{}", Delivery::InResponse, &test_key())
+            .is_err());
         assert_eq!(proxy.requests().len(), PROVE_MAX_ATTEMPTS);
         assert!(
             direct.requests().is_empty(),
@@ -1247,7 +1399,10 @@ mod tests {
         let client = async_prover_client(direct.url())
             .with_proxy(proxy.url())
             .unwrap();
-        assert!(client.send("{}", Delivery::InResponse).await.is_err());
+        assert!(client
+            .send("{}", Delivery::InResponse, &test_key())
+            .await
+            .is_err());
         assert_eq!(proxy.requests().len(), PROVE_MAX_ATTEMPTS);
         assert!(
             direct.requests().is_empty(),
@@ -1298,7 +1453,7 @@ mod tests {
         ]);
         let started = std::time::Instant::now();
         queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .expect("queued proof should complete");
         let elapsed = started.elapsed();
 
@@ -1316,6 +1471,10 @@ mod tests {
         impl ProveRequest for StaticRequest {
             fn body(&self) -> Result<Zeroizing<String>, ClientError> {
                 Ok(Zeroizing::new("{}".to_string()))
+            }
+
+            fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+                Ok(test_key())
             }
         }
 
@@ -1339,6 +1498,196 @@ mod tests {
             requests.iter().all(|request| !request.sync_requested),
             "a custom request must not ask for a synchronous answer"
         );
+    }
+
+    fn proof_with_reported_key(reported: Option<Value>) -> Value {
+        let mut proof = gnark_proof();
+        let fields = proof.as_object_mut().expect("gnark proof is an object");
+        fields.remove("provingKeySha256");
+        if let Some(reported) = reported {
+            fields.insert("provingKeySha256".to_string(), reported);
+        }
+        proof
+    }
+
+    fn sync_proof_result(reported: Option<Value>) -> Result<Proof, ClientError> {
+        let server = MockServer::respond_with(vec![MockResponse::json(
+            200,
+            json!({ "proof": proof_with_reported_key(reported) }),
+        )]);
+        queued_prover_client(server.url()).send("{}", Delivery::InResponse, &test_key())
+    }
+
+    fn queued_proof_result(reported: Option<Value>) -> Result<Proof, ClientError> {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "jobId": "job-key", "status": "queued" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": { "proof": proof_with_reported_key(reported), "proofDurationMs": 7 },
+                }),
+            ),
+        ]);
+        queued_prover_client(server.url()).send("{}", Delivery::Queued, &test_key())
+    }
+
+    /// A proof from a prover running a different key set fails before any
+    /// transaction is built, on both the sync and the queued rail.
+    #[test]
+    fn a_proof_from_another_proving_key_is_rejected() {
+        for result in [
+            sync_proof_result(Some(json!("08".repeat(32)))),
+            queued_proof_result(Some(json!("08".repeat(32)))),
+        ] {
+            match result {
+                Err(ClientError::ProvingKeyMismatch {
+                    key,
+                    expected,
+                    reported,
+                }) => {
+                    assert_eq!(
+                        (key.as_str(), expected, reported),
+                        ("test.key", "07".repeat(32), "08".repeat(32))
+                    );
+                }
+                other => panic!("expected ProvingKeyMismatch, got {other:?}"),
+            }
+        }
+    }
+
+    /// A prover that does not report the key it used is rejected: the check
+    /// fails closed.
+    #[test]
+    fn a_proof_without_a_proving_key_sha256_is_rejected() {
+        for result in [sync_proof_result(None), queued_proof_result(None)] {
+            match result {
+                Err(ClientError::MissingProvingKeySha256 { key }) => assert_eq!(key, "test.key"),
+                other => panic!("expected MissingProvingKeySha256, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_malformed_proving_key_sha256_is_a_parse_error() {
+        for reported in [
+            json!("07".repeat(31)),
+            json!("07".repeat(33)),
+            json!("0A".repeat(32)),
+            json!(format!("0x{}", "07".repeat(31))),
+            json!(7),
+            json!(null),
+        ] {
+            match sync_proof_result(Some(reported.clone())) {
+                Err(ClientError::ProofParse(_)) => {}
+                other => panic!("expected ProofParse for {reported}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn expected_proving_keys_come_from_the_committed_tables() {
+        let table: std::collections::BTreeMap<&str, [u8; 32]> =
+            crate::prover::known_proving_keys().collect();
+        let keys = [
+            ExpectedProvingKey::transfer_confidential(1, 1).expect("1x1 confidential"),
+            ExpectedProvingKey::transfer_ring(2, 2).expect("2x2 ring"),
+            ExpectedProvingKey::transfer_ring_authority(4, 4).expect("4x4 authority"),
+            ExpectedProvingKey::transfer_p256_ring(36, 2).expect("36x2 p256"),
+            ExpectedProvingKey::merge(8).expect("merge 8"),
+            ExpectedProvingKey::merge_ring(36).expect("merge ring 36"),
+            ExpectedProvingKey::batch_address_append(40, 250).expect("address append 250"),
+        ];
+        let names: Vec<&str> = keys.iter().map(|key| key.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "transfer_confidential_1_1.key",
+                "transfer_ring_2_2.key",
+                "transfer_ring_authority_4_4.key",
+                "transfer_p256_ring_36_2.key",
+                "merge_8_1.key",
+                "merge_ring_36_1.key",
+                "batch_address-append_40_250.key",
+            ]
+        );
+        for key in &keys {
+            assert_eq!(
+                table.get(key.name.as_str()),
+                Some(&key.sha256),
+                "{}",
+                key.name
+            );
+        }
+    }
+
+    fn prover_keys_body() -> Value {
+        let keys: Vec<Value> = crate::prover::known_proving_keys()
+            .map(|(name, sha256)| {
+                json!({
+                    "name": name,
+                    "expectedSha256": crate::prover::proving_key::hex(&sha256),
+                    "loadedSha256": null,
+                    "available": true,
+                })
+            })
+            .collect();
+        json!({ "prefix": "proving-keys/test", "keys": keys })
+    }
+
+    #[test]
+    fn check_proving_keys_reads_the_prover_report() {
+        let server = MockServer::respond_with(vec![MockResponse::json(200, prover_keys_body())]);
+        let report = ProverClient::new(server.url().to_string())
+            .check_proving_keys()
+            .expect("matching prover");
+        assert_paths(&server.requests(), ["/proving-keys"]);
+        assert_eq!(
+            (
+                report.prefix.as_str(),
+                report.keys.iter().all(|key| key.served)
+            ),
+            ("proving-keys/test", true)
+        );
+    }
+
+    /// A prover without the endpoint predates the check and fails it.
+    #[test]
+    fn check_proving_keys_rejects_a_prover_without_the_endpoint() {
+        let server = MockServer::respond_with(vec![MockResponse::json(404, json!({}))]);
+        assert!(matches!(
+            ProverClient::new(server.url().to_string()).check_proving_keys(),
+            Err(ClientError::ProverServer(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn async_check_proving_keys_reads_the_prover_report() {
+        let server = MockServer::respond_with(vec![MockResponse::json(200, prover_keys_body())]);
+        let report = AsyncProverClient::new(server.url().to_string())
+            .check_proving_keys()
+            .await
+            .expect("matching prover");
+        assert_eq!(report.prefix, "proving-keys/test");
+    }
+
+    #[test]
+    fn a_shape_without_a_verifying_key_has_no_expected_proving_key() {
+        assert!(matches!(
+            ExpectedProvingKey::transfer_ring(2, 7),
+            Err(ClientError::UnsupportedShape { n_in: 2, n_out: 7 })
+        ));
+        assert!(matches!(
+            ExpectedProvingKey::merge(9),
+            Err(ClientError::UnsupportedShape { n_in: 9, n_out: 1 })
+        ));
+        assert!(matches!(
+            ExpectedProvingKey::batch_address_append(40, 11),
+            Err(ClientError::UnsupportedAddressAppendShape {
+                tree_height: 40,
+                batch_size: 11
+            })
+        ));
     }
 
     /// The configured interval bounds the backoff instead of fixing it, so a
@@ -1389,7 +1738,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .expect("queued proof should complete");
         let requests = server.requests();
 
@@ -1420,7 +1769,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
@@ -1458,7 +1807,7 @@ mod tests {
 
         let started = Instant::now();
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .expect_err("a deadline measured in wall clock must expire");
         let elapsed = started.elapsed();
 
@@ -1488,7 +1837,7 @@ mod tests {
             MockResponse::json(200, json!({ "status": "processing" })),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .expect_err("slow async proof should time out");
         let requests = server.requests();
 
@@ -1510,7 +1859,7 @@ mod tests {
             MockResponse::text(200, "not json"),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
@@ -1531,7 +1880,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
@@ -1558,7 +1907,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .expect("transient poll error should be retried");
         let requests = server.requests();
 
@@ -1590,7 +1939,7 @@ mod tests {
             ),
         ]);
         let proof = async_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .await
             .expect("queued async proof should complete");
         let requests = server.requests();
@@ -1622,7 +1971,7 @@ mod tests {
             ),
         ]);
         async_prover_client(server.url())
-            .send("{}", Delivery::Queued)
+            .send("{}", Delivery::Queued, &test_key())
             .await
             .expect("transient async poll error should be retried");
         let requests = server.requests();
@@ -1646,7 +1995,7 @@ mod tests {
             json!({ "proof": gnark_proof() }),
         )]);
         queued_prover_client(server.url())
-            .send("{}", Delivery::InResponse)
+            .send("{}", Delivery::InResponse, &test_key())
             .expect("a synchronous prover answers with the proof");
 
         let requests = server.requests();
@@ -1679,7 +2028,7 @@ mod tests {
         ]);
 
         let proof = queued_prover_client(server.url())
-            .send("{}", Delivery::InResponse)
+            .send("{}", Delivery::InResponse, &test_key())
             .expect("a shed proof should be queued, not failed");
         assert_eq!(proof.a, [0u8; 64]);
 
@@ -1714,7 +2063,7 @@ mod tests {
             tree: zolana_interface::pda::tree(3).to_bytes().into(),
             id: 3,
         };
-        let fields = vec![[0; 32]; 15];
+        let fields = vec![[0; 32]; 17];
         let resolution = ProofResolution {
             trees: vec![ResolvedProofTree {
                 tree: tree.tree,
@@ -1744,6 +2093,9 @@ mod tests {
         })
         .unwrap();
         let mut proof = gnark_proof();
+        proof["provingKeySha256"] = json!(super::super::proving_key::hex(
+            &request.proving_key().sha256
+        ));
         proof["resolution"] = json!({"trees":[{"tree":tree.tree.to_string(),"id":3,
             "utxoRoot":"0x0","nullifierRoot":"0x0","utxoRootIndex":0,"nullifierRootIndex":0}],
             "publicInputHash":super::super::indexed::hex_field(&hash)});
@@ -1758,7 +2110,7 @@ mod tests {
             MockResponse::json(202, json!({"jobId":"indexed-queued", "status":"queued"})),
             MockResponse::json(200, json!({"status":"completed", "result":{"proof":proof}})),
         ]);
-        let proof = queued_prover_client(server.url())
+        let proof = queued_prover_client(&format!("{}/v1/zolana?api-key=secret", server.url()))
             .prove_indexed(&request)
             .unwrap();
         assert_eq!(proof.resolution.trees[0].id, 3);
@@ -1766,9 +2118,9 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove/indexed",
-                "/prove/indexed",
-                "/prove/status?jobId=indexed-queued",
+                "/v1/zolana/prove/indexed?api-key=secret",
+                "/v1/zolana/prove/indexed?api-key=secret",
+                "/v1/zolana/prove/status?api-key=secret&jobId=indexed-queued",
             ],
         );
         assert!(requests[0].sync_requested);
@@ -1785,6 +2137,28 @@ mod tests {
             .await
             .is_err());
         assert_paths(&server.requests(), ["/prove/indexed"]);
+    }
+
+    #[test]
+    fn indexed_proofs_require_the_pinned_key() {
+        for missing in [true, false] {
+            let (request, mut proof) = indexed_fixture();
+            if missing {
+                proof.as_object_mut().unwrap().remove("provingKeySha256");
+            } else {
+                proof["provingKeySha256"] = json!("00".repeat(32));
+            }
+            let server = MockServer::respond_with(vec![MockResponse::json(200, proof.clone())]);
+            let result = queued_prover_client(server.url()).prove_indexed(&request);
+            assert!(matches!(result, Err(ClientError::MissingProvingKeySha256 { .. })) == missing);
+            assert!(matches!(result, Err(ClientError::ProvingKeyMismatch { .. })) != missing);
+            let server = MockServer::respond_with(vec![MockResponse::json(200, proof)]);
+            let result = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async_prover_client(server.url()).prove_indexed(&request));
+            assert!(matches!(result, Err(ClientError::MissingProvingKeySha256 { .. })) == missing);
+            assert!(matches!(result, Err(ClientError::ProvingKeyMismatch { .. })) != missing);
+        }
     }
 
     #[test]
@@ -1815,6 +2189,15 @@ mod tests {
         })
     }
 
+    /// The proving key every mocked proof reports, so each test also passes
+    /// the proving-key check.
+    fn test_key() -> ExpectedProvingKey {
+        ExpectedProvingKey {
+            name: "test.key".to_string(),
+            sha256: [7u8; 32],
+        }
+    }
+
     fn gnark_proof() -> Value {
         json!({
             "ar": [zero_hex(), zero_hex()],
@@ -1823,6 +2206,7 @@ mod tests {
                 [zero_hex(), zero_hex()],
             ],
             "krs": [zero_hex(), zero_hex()],
+            "provingKeySha256": "07".repeat(32),
         })
     }
 

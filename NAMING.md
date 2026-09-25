@@ -11,7 +11,7 @@ Established parties: `user`, `payer`, `owner`, `sender`, `recipient`,
 `authority` (qualified: `protocol_authority`, `tree_creation_authority`,
 `forester_authority`, `ring_creation_authority`), `relayer`.
 
-- The transaction fee payer is `payer` (`builders/transact.rs`,
+- The transaction fee payer is `payer` (`zolana_program::instruction::Transact`,
   `SppProofInputs::payer`). Do not call it `issuer`, `caller`, or `maker` — those
   imply an identity check; name an account after a check only if the program
   performs it.

@@ -6,9 +6,10 @@ use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{SetTreeFees, UpdateProtocolConfigData},
+    instruction::UpdateProtocolConfigData,
     state::{nullifier_tree_params, TreeFeeSchedule},
 };
+use zolana_program::instruction::SetTreeFees;
 use zolana_program_test::Rejection;
 use zolana_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, sweep_account_matrix, AccountMutation, Expected,

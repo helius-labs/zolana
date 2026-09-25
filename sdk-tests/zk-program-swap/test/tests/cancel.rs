@@ -134,6 +134,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             payer: maker_address.solana_address()?,
             blinding_seed,
             output_tree_id: localnet.tree_id,
+            cache_accounts: Default::default(),
         };
 
         let spp_proof = localnet
@@ -229,6 +230,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             payer: maker_address.solana_address()?,
             blinding_seed,
             output_tree_id: localnet.tree_id,
+            cache_accounts: Default::default(),
         };
 
         let cancel_proof_inputs = CancelProofInputParams {

@@ -15,6 +15,7 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 
 use crate::config::ForesterConfig;
+use zolana_client::prover::redact_api_key;
 use zolana_tree::nullifier_tree::batch::BatchState;
 use zolana_tree::TreeAccount;
 
@@ -106,7 +107,8 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
 
     // --- forester balance (fee capacity); None when PAYER is unset ---
     let forester = read_forester(config, &rpc)?;
-    let prover_url = config.prover_url.clone();
+    // Printed only, so a gateway key is masked.
+    let prover_url = config.prover_url.as_deref().map(redact_api_key);
 
     if json_output {
         let value = json!({

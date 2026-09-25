@@ -5,7 +5,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
-use zolana_interface::{error::ShieldedPoolError, instruction::BatchUpdateNullifierTree};
+use zolana_interface::error::ShieldedPoolError;
+use zolana_program::instruction::BatchUpdateNullifierTree;
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 
 // On-chain negatives against the real SBF program: the forester-authority,

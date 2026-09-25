@@ -97,7 +97,7 @@ test-tree:
 # run (without it `program_test()` finds no .so and the suite skips). Builds
 # the prover server and zolana CLI because transact tests spawn a local prover.
 test-shielded-pool: build-programs build-prover-server build-cli
-    cargo nextest run -p zolana-interface --features solana
+    cargo nextest run -p zolana-interface -p zolana-program --features zolana-program/protocol
     cargo nextest run -p shielded-pool-program --lib --tests
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
     # them serially because nextest isolates tests in separate processes, so a
@@ -110,7 +110,7 @@ test-shielded-pool: build-programs build-prover-server build-cli
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-program-fast: build-programs
-    cargo nextest run -p zolana-interface --features solana
+    cargo nextest run -p zolana-interface -p zolana-program --features zolana-program/protocol
     cargo nextest run -p shielded-pool-program --lib --tests
     cargo nextest run -p zolana-user-registry --tests
     cargo nextest run -p shielded-pool-tests
@@ -140,6 +140,12 @@ test-swap-program: build-programs
 # so locally generated keys cannot pass.
 test-custom-ring: ensure-custom-ring-live-keys
     cd prover/server && go test ./prover/custom_ring -count=1
+
+# Regenerate custom-rings/program/tests/fixtures/deposit-audit/{2,8}.bin with
+# proofs from the pinned deposit key. Run it when the SPP ring deposit layout
+# or the deposit proving key changes.
+dump-deposit-audit-fixtures: ensure-custom-ring-live-keys build-cli
+    cargo test -p custom-ring-sdk --features proofs --test deposit_audit_fixtures -- --ignored --nocapture
 
 # === Custom rings ===
 
@@ -257,7 +263,7 @@ ring-rpc-derived:
 ensure-custom-ring-live-keys: && check-custom-ring-keys
     #!/usr/bin/env bash
     set -euo pipefail
-    keys_dir="prover/server/proving-keys"
+    keys_dir="{{spp-keys-dir}}"
     mkdir -p "$keys_dir"
     temp_dir="$(mktemp -d)"
     trap 'rm -rf "$temp_dir"' EXIT
@@ -300,12 +306,12 @@ check-custom-ring-keys: build-prover-server
     for key in {{custom-ring-keys}}; do
         module="${key#custom_ring_}"
         module="${module%.key}_verifying_key.rs"
-        if [[ ! -f "prover/server/proving-keys/$key" ]]; then
-            echo "prover/server/proving-keys/$key is missing, run just ensure-custom-ring-live-keys" >&2
+        if [[ ! -f "{{spp-keys-dir}}/$key" ]]; then
+            echo "{{spp-keys-dir}}/$key is missing, run just ensure-custom-ring-live-keys" >&2
             exit 1
         fi
-        target/prover-server export-vk --keys-file "prover/server/proving-keys/$key" --output "$export_dir/$key.vkbin" >/dev/null
-        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "$export_dir" "$module" >/dev/null
+        target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
+        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
         rustfmt --config-path rustfmt.toml "$export_dir/$module"
         diff -u "custom-rings/interface/src/$module" "$export_dir/$module"
     done
@@ -314,7 +320,7 @@ check-custom-ring-keys: build-prover-server
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
 # not run twice per PR.
 test-program-proofs-programs-only: build-programs build-prover-server build-cli
-    cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_settlement --test mixed_interface_transfers --test merge_functional --test-threads 1
+    cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_settlement --test mixed_interface_transfers --test merge_functional --test cache_functional --test cache_queued --test-threads 1
 
 # Groth16-backed program and client matrices, separated from fast state tests.
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
@@ -377,6 +383,10 @@ test-ts-e2e: (_test-ts-live "test:ts:e2e")
 
 # Public TypeScript SDK example against a fresh validator, Photon, and prover.
 test-ts-example: (_test-ts-live "test:ts:example")
+
+# Optimized merge and transfer TypeScript SDK example on the same stack.
+test-ts-example-optimized-merge-transfer:
+    ZOLANA_TS_EXAMPLE=optimized-merge-transfer {{just_executable()}} _test-ts-live test:ts:example
 
 _test-ts-live test-script: build-programs build-prover-server build-cli ensure-custom-ring-live-keys
     #!/usr/bin/env bash
@@ -574,7 +584,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features zolana-interface/solana,zolana-client/client
+    cargo llvm-cov --no-report $packages --features zolana-client/client
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -618,7 +628,7 @@ test-programs: build-programs build-prover-server build-cli
 # proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-proofless-programs: build-programs
-    cargo test -p zolana-interface --features solana
+    cargo test -p zolana-interface -p zolana-program --features zolana-program/protocol
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
 
@@ -1249,6 +1259,52 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo run -p client-example --example deposit_transfer_withdraw
 
+# Sequential merge + transfer SDK example
+# (sdk-tests/client/rust/merge_transfer.rs). The baseline the cached example
+# improves on: merge, wait for the merged output to be indexed, fetch its
+# Merkle proof, then prove and send the transfer. Same stack as
+# test-client-example.
+test-client-example-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tools/ci/xtask.sh program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      {{stop-localnet-backends}}
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo run -p client-example --example merge_transfer
+
+# Optimized merge + transfer SDK example
+# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 36 UTXOs in
+# one merge that writes its output commitment into a cache PDA, and spends that
+# commitment from the cache, so the transfer proof is generated concurrently
+# with the merge proof instead of waiting for the merged output to be indexed.
+# Same stack as test-client-example; needs the merge_36_1 proving key, which the
+# prover lazy-loads on the first request.
+test-client-example-optimized-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tools/ci/xtask.sh program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      {{stop-localnet-backends}}
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo run -p client-example --example optimized_merge_transfer
+
 # Dynamic-swap example lifecycle tests
 # (sdk-tests/dynamic-swap/test/tests/{pair,negative,escrow_flow,escrow_refund}.rs),
 # booted through FixtureLocalnet like test-swap-validator; dynamic-swap's own
@@ -1421,6 +1477,7 @@ build-spp-keys:
         prover/server/light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
         cargo run -q -p xtask -- bsb22-vk \
             "$tmp_dir/${stem}.vkbin" \
+            "$keys_dir/${stem}.key" \
             "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done

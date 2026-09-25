@@ -67,11 +67,7 @@ use zolana_client::{
 };
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts,
-        EncryptedRingDepositData, RingAssetDeposit, TransactInterfaceTransferAccounts,
-        TransactSplWithdrawalAccounts, UpdateRingConfig,
-    },
+    instruction::EncryptedRingDepositData,
     pda,
     state::{
         discriminator::{PROTOCOL_CONFIG, RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},
@@ -80,6 +76,10 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_program::instruction::{
+    AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts, RingAssetDeposit,
+    TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts, UpdateRingConfig,
+};
 use zolana_program_test::Rejection;
 use zolana_ring_client::{
     AuditedOutput, AuditedTransaction, RecoveryEnvironment, RingAudit, RingEnvironment,
@@ -2903,7 +2903,6 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         view_tag: [0; 32],
         owner_utxo_hash: [1; 32],
         amount: 1,
-        data_hash: None,
         ring_data_hash: [0; 32],
         encrypted: EncryptedRingDepositData {
             tx_viewing_pk: [2; 33],
@@ -3325,7 +3324,6 @@ impl<'a> DefaultRingDeposit<'a> {
                 view_tag,
                 owner: address.owner_hash()?,
                 amount: self.amount,
-                utxo_data: None,
                 memo: None,
             }],
         }

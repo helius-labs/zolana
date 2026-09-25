@@ -60,6 +60,15 @@ func TreeSlotsFromJSON(slots []TreeSlotParamsJSON) ([]TreeSlotParams, error) {
 // (SelectTreeSlot), so failing here turns an opaque proving error into a
 // request error.
 func ValidateTreeSlots(slots []TreeSlotParams, inputSlots []*big.Int, inputTrees int) error {
+	return ValidateTreeSlotRoots(slots, inputSlots, inputTrees, func(int) bool { return true })
+}
+
+func ValidateTreeSlotRoots(
+	slots []TreeSlotParams,
+	inputSlots []*big.Int,
+	inputTrees int,
+	needsStateRoot func(int) bool,
+) error {
 	if len(slots) != inputTrees {
 		return fmt.Errorf("spp: tree slot count mismatch: got %d want %d", len(slots), inputTrees)
 	}
@@ -68,7 +77,7 @@ func ValidateTreeSlots(slots []TreeSlotParams, inputSlots []*big.Int, inputTrees
 			return fmt.Errorf("spp: input %d tree slot %v out of range [0, %d)", i, slot, inputTrees)
 		}
 		selected := slots[slot.Int64()]
-		if isZero(selected.UtxoRoot) || isZero(selected.NullifierRoot) {
+		if isZero(selected.NullifierRoot) || (needsStateRoot(i) && isZero(selected.UtxoRoot)) {
 			return fmt.Errorf("spp: input %d selects unused tree slot %d", i, slot.Int64())
 		}
 	}

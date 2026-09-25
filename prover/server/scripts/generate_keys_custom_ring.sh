@@ -26,7 +26,7 @@ for key in "${ring_keys[@]}"; do
     module="${stem#custom_ring_}_verifying_key.rs"
     echo "Generating ${circuit} -> ${keys_dir}/${key}"
     ./light-prover "setup-${circuit}" --output "$keys_dir/$key" --vk-out "$tmp_dir/$stem.vkbin"
-    "$xtask" bsb22-vk "$tmp_dir/$stem.vkbin" "$vkey_dir" "$module"
+    "$xtask" bsb22-vk "$tmp_dir/$stem.vkbin" "$keys_dir/$key" "$vkey_dir" "$module"
     rustfmt "$vkey_dir/$module"
     release_flags+=(--release "$key")
 done

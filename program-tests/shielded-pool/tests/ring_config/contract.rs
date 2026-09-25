@@ -6,12 +6,12 @@ use solana_system_interface::error::SystemError;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        encode_instruction, tag, CreateRingConfig, CreateRingConfigData, SetRingActivation,
-        UpdateRingConfig, UpdateRingConfigOwner,
-    },
+    instruction::{encode_instruction, tag, CreateRingConfigData},
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
+};
+use zolana_program::instruction::{
+    CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner,
 };
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::backend::LiteSvmPoolBackend;
@@ -448,36 +448,12 @@ fn ring_owner_burn_freezes_the_toggle_for_the_old_authority() {
         .update_ring_config(&backend.authority, &ring_config, false)
         .expect("disable ring authority transact");
 
-    // A rotation to Address::default() is unreachable by construction: the
-    // incoming authority must co-sign and nothing can sign for the default
-    // address, so the attempt dies on the co-signer signature check.
-    let mut ix = UpdateRingConfigOwner {
-        authority: backend.authority.pubkey(),
-        ring_config,
-        new_authority: Pubkey::default().to_bytes().into(),
-    }
-    .instruction();
-    ix.accounts
-        .get_mut(2)
-        .expect("new authority meta")
-        .is_signer = false;
-    let err = backend
-        .rpc
-        .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
-        .expect_err("rotation to the default address must fail");
-    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
+    // Burning rotates to the default address, the one incoming authority that
+    // does not co-sign. Afterwards the old authority can neither toggle nor
+    // rotate, and no one else can either.
     backend
         .rpc
-        .last_transaction_trace()
-        .expect("rejected transaction trace")
-        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
-
-    // The practical burn: rotate to a signing key whose secret is then
-    // discarded. Afterwards the old authority can neither toggle nor rotate.
-    let burn = Keypair::new();
-    backend
-        .rpc
-        .update_ring_config_owner(&backend.authority, &ring_config, &burn)
+        .burn_ring_config_owner(&backend.authority, &ring_config)
         .expect("burn rotation");
     let err = backend
         .rpc
@@ -503,7 +479,7 @@ fn ring_owner_burn_freezes_the_toggle_for_the_old_authority() {
     // The enabled flag stays exactly in its last state.
     let config = read_ring_config(&backend, &ring_config);
     assert_eq!(config.ring_authority_transact_is_enabled, 0);
-    assert_eq!(config.authority.to_bytes(), burn.pubkey().to_bytes());
+    assert_eq!(config.authority.to_bytes(), [0u8; 32]);
 }
 
 #[test]

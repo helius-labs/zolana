@@ -156,6 +156,7 @@ pub struct TransferInputs {
     /// `zolana_interface::tree_slot::pack_input_flags`.
     pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
+    pub cache: CacheReadInputs,
     pub public_input_hash: BigUint,
 }
 
@@ -194,5 +195,15 @@ pub struct TransferP256Inputs {
     /// `zolana_interface::tree_slot::pack_input_flags`.
     pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
+    pub cache: CacheReadInputs,
     pub public_input_hash: BigUint,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CacheReadInputs {
+    pub tree_id: BigUint,
+    pub read_hash_chain: BigUint,
+    pub read_hashes: Vec<BigUint>,
+    pub is_cached: Vec<bool>,
+    pub read_index: Vec<usize>,
 }

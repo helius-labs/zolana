@@ -11,14 +11,13 @@ use solana_signer::Signer;
 use zolana_client::{SolanaRpc, STATE_TREE_HEIGHT};
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
-    instruction::{
-        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
-        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-    },
-    pda, SHIELDED_POOL_PROGRAM_ID,
+    instruction::instruction_data::transact::InterfaceTransfer, pda, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use zolana_program::instruction::{
+    Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+};
 use zolana_program_test::{rpc_state_root, single_deposit_view, TestIndexer, ZolanaProgramTest};
 use zolana_transaction::{Data, Utxo, SOL_MINT};
 

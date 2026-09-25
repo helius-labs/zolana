@@ -105,7 +105,6 @@ export async function ringDepositInstruction(
         viewTag: deposit.viewTag,
         ownerUtxoHash: deposit.ownerUtxoHash,
         amount: deposit.amount,
-        ...(deposit.dataHash === undefined ? {} : { dataHash: deposit.dataHash }),
         ringDataHash: deposit.ringDataHash,
         encrypted: deposit.encrypted,
       })),

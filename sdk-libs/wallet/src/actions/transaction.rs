@@ -3,16 +3,14 @@ use zolana_client::timing;
 
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{
-        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplWithdrawalAccounts,
-    },
-    pda,
-    shape::Shape,
-    MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    pda, shape::Shape, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID,
+    SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair,
+};
+use zolana_program::instruction::{
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
 };
 use zolana_transaction::{
     instructions::{

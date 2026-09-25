@@ -52,14 +52,14 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 			}
 		}
 	}
-	expected := 15
+	expected := 17
 	switch request.CircuitType {
 	case common.TransferRingAuthorityCircuitType:
 		expected = 14
 	case common.TransferP256RingCircuitType:
-		expected = 17
+		expected = 19
 	case common.MergeCircuitType:
-		expected = 7
+		expected = 8
 	case common.MergeRingCircuitType:
 		expected = 8
 	}

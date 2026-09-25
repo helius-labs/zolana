@@ -10,7 +10,7 @@ use zolana_client::ClientError;
 use zolana_event::tag;
 use zolana_event_parser::{event_parent, InstructionGroup, ParsedInstruction};
 use zolana_interface::{
-    instruction::{InterfaceTransfer, TransactIxData},
+    instruction::{settlement_accounts, InterfaceTransfer, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
 };
 use zolana_transaction::SOL_MINT;
@@ -183,16 +183,12 @@ fn ring_withdrawals_of(
     let cpi_authority = Address::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
     let mut withdrawals = Vec::new();
     for instruction in instructions {
-        let Some(transfers) = interface_transfers(instruction)? else {
+        let Some(data) = transact_data(instruction)? else {
             continue;
         };
-        let total: usize = transfers.iter().map(|t| t.settlement_account_count()).sum();
-        let start = instruction
-            .accounts
-            .len()
-            .checked_sub(total)
+        let transfers = data.interface_transfers;
+        let mut settlement = settlement_accounts(&transfers, data.circuit, &instruction.accounts)
             .ok_or(OriginError::SettlementAccounts)?;
-        let mut settlement = &instruction.accounts[start..];
         for transfer in transfers {
             let (group, rest) = settlement.split_at(transfer.settlement_account_count());
             settlement = rest;
@@ -225,15 +221,13 @@ fn ring_withdrawals_of(
 }
 
 /// `None` for a pool instruction that is not a `ring_transact`.
-fn interface_transfers(
-    instruction: &ParsedInstruction,
-) -> Result<Option<Vec<InterfaceTransfer>>, OriginError> {
+fn transact_data(instruction: &ParsedInstruction) -> Result<Option<TransactIxData>, OriginError> {
     let Some((&tag::RING_TRANSACT, payload)) = instruction.data.split_first() else {
         return Ok(None);
     };
     let data = TransactIxData::deserialize(payload)
         .map_err(|error| OriginError::InvalidTransactData(error.to_string()))?;
-    Ok(Some(data.interface_transfers))
+    Ok(Some(data))
 }
 
 #[cfg(feature = "solana-rpc")]

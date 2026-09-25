@@ -2,11 +2,11 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{
-        ClaimTreeLamports, CreateProtocolConfig, CreateProtocolConfigData, PauseTree, SetTreeFees,
-        UpdateProtocolConfig, UpdateProtocolConfigData,
-    },
+    instruction::{CreateProtocolConfigData, UpdateProtocolConfigData},
     pda,
+};
+use zolana_program::instruction::{
+    ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };
 
 use zolana_interface::state::{default_tree_fees, nullifier_tree_params};

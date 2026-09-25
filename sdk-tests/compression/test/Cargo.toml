@@ -15,7 +15,8 @@ solana-keypair = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
+zolana-program = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-test-utils = { workspace = true }

@@ -16,6 +16,14 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { bytesToBigInt } from "../../keypair/bytes.js";
 import { poseidon } from "../../keypair/poseidon.js";
 
+import { InterfaceError } from "../../interface/errors.js";
+import { wireDecoder } from "../../interface/decode.js";
+import {
+  PROVING_KEY_SHA256S,
+  expectedProvingKey,
+  type ExpectedProvingKey,
+  type ProvingKeyCircuit,
+} from "../../interface/proving-keys.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
@@ -29,7 +37,7 @@ import {
   type ComposedSignal,
 } from "../internal.js";
 import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
-import { parseProof } from "./proof.js";
+import { parseCheckedProof } from "./proof.js";
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_INPUT_SLOTS,
@@ -85,6 +93,7 @@ const REQUEST_TIMEOUT_MS = 600_000;
 const INITIAL_POLL_INTERVAL_MS = 25;
 const PROVE_PATH = "/prove";
 const HEALTH_PATH = "/health";
+const PROVING_KEYS_PATH = "/proving-keys";
 const UNCOMPRESSED_P256_LENGTH = 65;
 type Delivery = "inResponse" | "queued";
 
@@ -109,6 +118,23 @@ const DEFAULT_ASYNC_POLL_CONFIG: AsyncPollConfig = Object.freeze({
 export interface ProverHealth {
   readonly status: string;
   readonly circuits: readonly string[];
+}
+
+/** How one proving key the SDK knows stands on the prover. */
+export interface ProvingKeyCheck {
+  /** Key file name, as proving-keys.lock and the prover's `/proving-keys` name it. */
+  readonly name: string;
+  /** Whether the prover lists the key at all. */
+  readonly served: boolean;
+  readonly available: boolean;
+  readonly loaded: boolean;
+}
+
+/** A prover's proving keys, every digest matching the SDK's verifying keys. */
+export interface ProvingKeyReport {
+  /** The prover's proving-key version, its lockfile prefix. */
+  readonly prefix: string;
+  readonly keys: readonly ProvingKeyCheck[];
 }
 
 export class ProverClient {
@@ -142,23 +168,19 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return parseProof(
-      await this.#send(
-        JSON.stringify(proverRequest(inputs, completeSecret)),
-        "inResponse",
-        context,
-      ),
-    );
+    const body = JSON.stringify(proverRequest(inputs, completeSecret));
+    const key = provingKeyFor({
+      circuit: transferCircuit(inputs),
+      nInputs: inputs.payload.inputs.length,
+      nOutputs: inputs.payload.outputs.length,
+    });
+    return parseCheckedProof(await this.#send(body, "inResponse", context), key);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return parseProof(
-      await this.#send(
-        JSON.stringify(mergeProverRequest(inputs, completeSecret)),
-        "inResponse",
-        context,
-      ),
-    );
+    const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
+    const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
+    return parseCheckedProof(await this.#send(body, "inResponse", context), key);
   }
 
   async proveIndexed(
@@ -170,12 +192,22 @@ export class ProverClient {
       inputs.circuit === "merge"
         ? mergeProverRequest(inputs.payload, completeSecret)
         : proverRequest(inputs, completeSecret);
+    const key = provingKeyFor(
+      inputs.circuit === "merge"
+        ? { circuit: mergeCircuit(inputs.payload), nInputs: inputs.payload.inputs.length }
+        : {
+            circuit: transferCircuit(inputs),
+            nInputs: inputs.payload.inputs.length,
+            nOutputs: inputs.payload.outputs.length,
+          },
+    );
     const body = indexedRequestEnvelope(inputs, prepared);
     const url = new URL(this.#url);
     url.pathname += "/indexed";
     return parseIndexedResult(
       await this.#send(JSON.stringify(body), "inResponse", context, url),
       inputs,
+      key,
     );
   }
 
@@ -183,44 +215,36 @@ export class ProverClient {
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return parseProof(
-      await this.#send(JSON.stringify(customRingPolicyProofRequest(inputs)), "queued", context),
-    );
+    const body = JSON.stringify(customRingPolicyProofRequest(inputs));
+    const key = provingKeyFor({ circuit: "custom-ring-policy" });
+    return parseCheckedProof(await this.#send(body, "queued", context), key);
   }
 
   async proveCustomRingCompressedPolicy(
     inputs: CustomRingCompressedPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return parseProof(
-      await this.#send(
-        JSON.stringify(customRingCompressedPolicyProofRequest(inputs)),
-        "queued",
-        context,
-      ),
-    );
+    const body = JSON.stringify(customRingCompressedPolicyProofRequest(inputs));
+    const key = provingKeyFor({ circuit: "custom-ring-compressed-policy" });
+    return parseCheckedProof(await this.#send(body, "queued", context), key);
   }
 
   async proveCustomRingRegisterKey(
     inputs: CustomRingRegisterKeyProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return parseProof(
-      await this.#send(
-        JSON.stringify(customRingRegisterKeyProofRequest(inputs)),
-        "queued",
-        context,
-      ),
-    );
+    const body = JSON.stringify(customRingRegisterKeyProofRequest(inputs));
+    const key = provingKeyFor({ circuit: "custom-ring-register-key" });
+    return parseCheckedProof(await this.#send(body, "queued", context), key);
   }
 
   async proveCustomRingDeposit(
     inputs: CustomRingDepositProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return parseProof(
-      await this.#send(JSON.stringify(customRingDepositProofRequest(inputs)), "queued", context),
-    );
+    const body = JSON.stringify(customRingDepositProofRequest(inputs));
+    const key = provingKeyFor({ circuit: "custom-ring-deposit" });
+    return parseCheckedProof(await this.#send(body, "queued", context), key);
   }
 
   async proveCustomRingDelegatePolicy(
@@ -229,25 +253,21 @@ export class ProverClient {
   ): Promise<Proof> {
     if (inputs.velocity.windowIndex !== 0n || inputs.velocity.approvalRequired)
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    return parseProof(
-      await this.#send(
-        JSON.stringify({
-          circuitType: "custom-ring-delegate-policy",
-          policy: customRingPolicyProofRequest(inputs),
-        }),
-        "queued",
-        context,
-      ),
-    );
+    const body = JSON.stringify({
+      circuitType: "custom-ring-delegate-policy",
+      policy: customRingPolicyProofRequest(inputs),
+    });
+    const key = provingKeyFor({ circuit: "custom-ring-delegate-policy" });
+    return parseCheckedProof(await this.#send(body, "queued", context), key);
   }
 
   async proveCustomRingBase(
     inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return parseProof(
-      await this.#send(JSON.stringify(customRingBaseProofRequest(inputs)), "queued", context),
-    );
+    const body = JSON.stringify(customRingBaseProofRequest(inputs));
+    const key = provingKeyFor({ circuit: "custom-ring-base" });
+    return parseCheckedProof(await this.#send(body, "queued", context), key);
   }
 
   /** The circuits the server serves. */
@@ -281,6 +301,43 @@ export class ProverClient {
           circuits.filter((circuit): circuit is string => typeof circuit === "string"),
         ),
       });
+    } finally {
+      request.cleanup();
+    }
+  }
+
+  /**
+   * Compare the prover's proving keys (`GET /proving-keys`) with the
+   * proving-key sha256 each committed verifying key pins, so a prover on
+   * another key set fails before the first proof instead of on-chain. A
+   * differing digest throws `CLIENT_PROVER_PROVING_KEYS_MISMATCH` naming every
+   * such key; a key the prover lacks or cannot load is only reported.
+   */
+  async checkProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
+    const url = new URL(this.#url);
+    url.pathname = url.pathname.replace(/\/prove$/u, PROVING_KEYS_PATH);
+    const request = composeSignal(context, "provingKeys");
+    try {
+      let response: Response;
+      try {
+        response = await this.#fetch(url, { redirect: "error", signal: request.signal });
+      } catch {
+        if (request.timedOut() || request.signal.aborted)
+          throw requestError("provingKeys", request);
+        throw new ClientError("CLIENT_PROVER_REQUEST", {
+          details: { method: "provingKeys", attempts: 1 },
+        });
+      }
+      if (!response.ok) {
+        throw new ClientError("CLIENT_PROVER_HTTP", {
+          details: {
+            method: "provingKeys",
+            status: response.status,
+            ...(await proverReason(response)),
+          },
+        });
+      }
+      return checkProverKeys(decodeProverKeys(await decodeResponse(response)));
     } finally {
       request.cleanup();
     }
@@ -469,6 +526,88 @@ export class ProverClient {
   }
 }
 
+type ProverKeyStatus = Readonly<{
+  name: string;
+  expectedSha256: string | null;
+  loadedSha256: string | null;
+  available: boolean;
+}>;
+
+const invalidProverKeys = (): ClientError => new ClientError("CLIENT_PROVER_JSON");
+const proverKeysDecoder = wireDecoder(invalidProverKeys);
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
+
+/** Strict decode of `GET /proving-keys`: any other shape is an error, not a skipped key. */
+function decodeProverKeys(
+  value: unknown,
+): Readonly<{ prefix: string; keys: readonly ProverKeyStatus[] }> {
+  const body = proverKeysDecoder.record(value, "$");
+  const digest = (entry: Record<string, unknown>, field: string): string | null => {
+    const raw = entry[field];
+    if (raw === null) return null;
+    const hex = proverKeysDecoder.string(raw, `$.keys[].${field}`);
+    if (!SHA256_HEX.test(hex)) throw invalidProverKeys();
+    return hex;
+  };
+  const keys = proverKeysDecoder.list(body["keys"], "$.keys").map((raw) => {
+    const entry = proverKeysDecoder.record(raw, "$.keys[]");
+    return Object.freeze({
+      name: proverKeysDecoder.string(entry["name"], "$.keys[].name"),
+      expectedSha256: digest(entry, "expectedSha256"),
+      loadedSha256: digest(entry, "loadedSha256"),
+      available: proverKeysDecoder.boolean(entry["available"], "$.keys[].available"),
+    });
+  });
+  return Object.freeze({
+    prefix: proverKeysDecoder.string(body["prefix"], "$.prefix"),
+    keys: Object.freeze(keys),
+  });
+}
+
+/** Compare a prover's keys with every proving key the SDK knows, as Rust `ProverKeys::check`. */
+function checkProverKeys(
+  prover: Readonly<{ prefix: string; keys: readonly ProverKeyStatus[] }>,
+): ProvingKeyReport {
+  const mismatched: string[] = [];
+  const keys = Object.entries(PROVING_KEY_SHA256S).map(([name, pinned]): ProvingKeyCheck => {
+    const status = prover.keys.find((key) => key.name === name);
+    if (status === undefined) {
+      return Object.freeze({ name, served: false, available: false, loaded: false });
+    }
+    if (
+      (status.expectedSha256 !== null && status.expectedSha256 !== pinned) ||
+      (status.loadedSha256 !== null && status.loadedSha256 !== pinned)
+    ) {
+      mismatched.push(name);
+    }
+    return Object.freeze({
+      name,
+      served: true,
+      available: status.available,
+      loaded: status.loadedSha256 !== null,
+    });
+  });
+  if (mismatched.length > 0) {
+    throw new ClientError("CLIENT_PROVER_PROVING_KEYS_MISMATCH", {
+      details: { keyNames: mismatched.join(",") },
+    });
+  }
+  return Object.freeze({ prefix: prover.prefix, keys: Object.freeze(keys) });
+}
+
+/**
+ * The proving key `request` must be proven with. A shape without a committed
+ * verifying key is a prover input the program could not verify.
+ */
+function provingKeyFor(request: ProvingKeyCircuit): ExpectedProvingKey {
+  try {
+    return expectedProvingKey(request);
+  } catch (error) {
+    if (error instanceof InterfaceError) throw new ClientError("CLIENT_PROVER_INPUT");
+    throw error;
+  }
+}
+
 /** The JSON body the prover accepts; every field a hex string but the slot counts. */
 export type ProverRequestBody = Readonly<Record<string, unknown>>;
 
@@ -494,12 +633,17 @@ export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
 }
 
 /** Mirrors Rust `MergeParametersJson`, key set included. */
+/** A merge inside a custom ring is proven by the `merge-ring` circuit. */
+function mergeCircuit(inputs: MergeInputs | PreparedMergeInputs): "merge" | "merge-ring" {
+  return BigInt(inputs.ringProgramId) === 0n ? "merge" : "merge-ring";
+}
+
 function mergeProverRequest(
   inputs: MergeInputs | PreparedMergeInputs,
   secret: SecretEncoder,
 ): ProverRequestBody {
   return Object.freeze({
-    circuitType: BigInt(inputs.ringProgramId) === 0n ? "merge" : "merge-ring",
+    circuitType: mergeCircuit(inputs),
     inputs: inputs.inputs.map(mergeInputJson),
     output: mergeOutputJson(inputs.output),
     ...("treeSlots" in inputs
@@ -919,18 +1063,21 @@ function sized<T>(values: readonly T[], expected: number, field: string): readon
 }
 
 /** Mirrors Rust `TransferInputsJson`, key set and order included. */
+/** The prover circuit a transfer is proven by. */
+function transferCircuit(
+  inputs: ProverInputs | Exclude<IndexedProofInputs, { circuit: "merge" }>,
+): "transfer-ring-authority" | "transfer-ring" | "transfer-confidential" {
+  if (inputs.circuit === "transferRingAuthority") return "transfer-ring-authority";
+  return inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential";
+}
+
 function proverRequest(
   inputs: ProverInputs | Exclude<IndexedProofInputs, { circuit: "merge" }>,
   secret: SecretEncoder,
 ): ProverRequestBody {
   const payload = inputs.payload;
   return Object.freeze({
-    circuitType:
-      inputs.circuit === "transferRingAuthority"
-        ? "transfer-ring-authority"
-        : inputs.circuit === "transferRing"
-          ? "transfer-ring"
-          : "transfer-confidential",
+    circuitType: transferCircuit(inputs),
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map((input) => inputJson(input, secret)),
@@ -951,6 +1098,11 @@ function proverRequest(
     signerPkHashes: payload.signerPublicKeyHashes.map(hex),
     inputFlags: hex(payload.inputFlags),
     publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
+    cacheTreeId: hex(payload.cacheTreeId),
+    cacheReadHashChain: hex(payload.cacheReadHashChain),
+    cacheReadHashes: payload.cacheReadHashes.map(hex),
+    cacheIsCached: payload.cacheIsCached.map(hex),
+    cacheReadIndex: payload.cacheReadIndex.map(hex),
   });
 }
 

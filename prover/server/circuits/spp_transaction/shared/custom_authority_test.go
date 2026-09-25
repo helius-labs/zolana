@@ -123,6 +123,71 @@ func TestCustomRingAuthorityRejectsAddressInputs(t *testing.T) {
 	}
 }
 
+// A real input on a zero-root slot already fails inclusion, so only a dummy,
+// which skips inclusion, reaches the ring-authority state-root check. The dummy
+// alone selects slot 1, and the control with that slot's root set isolates the
+// check.
+func TestCustomRingAuthorityDummyInputRequiresStateRoot(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	ring := ringAuthorityRing()
+	asset := spptest.Fe(7)
+	inputs := []protocol.Utxo{
+		sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100)),
+		sampleUtxoWithAssetAndAmount(20, asset, spptest.Fe(0)),
+	}
+	outputs := twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(100)))
+	for i := range inputs {
+		inputs[i].RingProgramID = new(big.Int).Set(ring)
+	}
+	for i := range outputs {
+		outputs[i].RingProgramID = new(big.Int).Set(ring)
+	}
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment.RingProgramID = new(big.Int).Set(ring)
+
+	const dummySlot = 1
+	dummy := &assignment.Inputs[1]
+	dummy.TreeSlot = spptest.Fe(dummySlot)
+	setAllowDummyInputs(t, assignment, true)
+	dummy.Utxo = UtxoCircuitFields{
+		Domain:        spptest.Fe(DummyDomain),
+		Owner:         spptest.Fe(0),
+		Asset:         spptest.Fe(0),
+		Amount:        spptest.Fe(0),
+		Blinding:      dummy.Utxo.Blinding,
+		DataHash:      spptest.Fe(0),
+		RingDataHash:  spptest.Fe(0),
+		RingProgramID: spptest.Fe(0),
+	}
+	dummy.OwnerPkHash = spptest.Fe(0)
+	dummy.NullifierSecret = spptest.Fe(0)
+	dummy.Nullifier = spptest.MustNullifier(
+		t,
+		testUtxoHash(t, circuitFieldsToUtxo(dummy.Utxo), assignment.inputTreeID(1)),
+		spptest.AsBigInt(dummy.Utxo.Blinding),
+		spptest.AsBigInt(dummy.NullifierSecret),
+	)
+	assignment.PrivateTxHash = spptest.MustPrivateTxHash(
+		t,
+		[]*big.Int{
+			testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.inputTreeID(0)),
+			big.NewInt(0),
+		},
+		spptest.ToBigInts(assignment.OutputHashes()),
+		noAddressNullifiers(shape.NInputs),
+		spptest.AsBigInt(assignment.ExternalDataHash),
+		assignment.privateTxBlinding(t),
+	)
+	refreshRingAuthorityPublicInputHash(t, assignment)
+	assert.SolvingSucceeded(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
+
+	assignment.TreeSlots[dummySlot].UtxoRoot = 0
+	refreshRingAuthorityPublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
+}
+
 func buildRingAuthorityAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
 	ring := ringAuthorityRing()

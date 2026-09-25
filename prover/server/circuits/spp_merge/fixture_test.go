@@ -414,6 +414,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		publicInputPreimage = append(
 			publicInputPreimage,
 			userSigningPkHash,
+			userNullifierPk,
 		)
 	case ringFixtureRail:
 		publicInputPreimage = append(

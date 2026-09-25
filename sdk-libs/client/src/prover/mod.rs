@@ -1,10 +1,13 @@
+mod cache;
 mod client;
+mod endpoint;
 pub mod field;
 pub mod indexed;
 mod inputs;
 mod json;
 pub mod merge;
 mod proof;
+pub mod proving_key;
 pub mod ring_authority;
 pub mod timing;
 pub mod transact;
@@ -15,14 +18,19 @@ pub mod witness;
 
 pub use client::{
     spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, Delivery,
-    ProveRequest, ProverClient, PROVE_PATH, SERVER_ADDRESS,
+    ProveRequest, ProverClient, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
 };
+pub use endpoint::redact_api_key;
 pub use inputs::{
-    BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs, TreeSlotFields,
+    BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
+    TransferOutput, TransferP256Inputs, TreeSlotFields,
 };
-pub use merge::{MergeProofResult, MergeProver};
+pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
+pub use proving_key::{
+    known_proving_keys, ExpectedProvingKey, ProverKeyStatus, ProverKeys, ProvingKeyCheck,
+    ProvingKeyReport,
+};
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
 pub use transact::{
     attach_input_proofs, input_utxos_from_nullifiers, PublicInputs, PublicTransfers,

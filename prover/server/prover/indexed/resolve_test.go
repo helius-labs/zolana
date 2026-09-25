@@ -62,7 +62,7 @@ func fixture(t *testing.T) (Request, response[stateProof], response[nullifierPro
 		CircuitType: common.TransferConfidentialCircuitType, Prepared: prepared,
 		Trees:        []Tree{{Address: tree, ID: 0}},
 		Inputs:       []Lookup{{TreeSlot: 0, Commitment: &commitment}, {TreeSlot: 0}},
-		PublicInputs: make([]string, 15), MinContextSlot: 10,
+		PublicInputs: make([]string, 17), MinContextSlot: 10,
 	}
 	for index := range request.PublicInputs {
 		request.PublicInputs[index] = "0x0"

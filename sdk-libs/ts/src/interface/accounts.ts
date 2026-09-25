@@ -1,10 +1,12 @@
 import {
+  decodeCacheAccount,
   decodeProtocolConfigAccount,
   decodeSplAssetCounterAccount,
   decodeSplAssetRegistryAccount,
   decodeRingConfigAccount,
 } from "./codecs/index.js";
 import type {
+  CacheAccount,
   ProtocolConfigAccount,
   SplAssetCounterAccount,
   SplAssetRegistryAccount,
@@ -25,4 +27,8 @@ export function decodeSplAssetRegistry(data: Uint8Array): SplAssetRegistryAccoun
 
 export function decodeRingConfig(data: Uint8Array): RingConfigAccount {
   return decodeRingConfigAccount(data);
+}
+
+export function decodeCache(data: Uint8Array): CacheAccount {
+  return decodeCacheAccount(data);
 }

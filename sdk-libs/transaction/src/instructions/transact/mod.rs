@@ -36,7 +36,7 @@ pub use shape::{
     auto_shapes, canonical_shape, resolve_shape, Shape, SPP_CONSOLIDATION_SHAPE,
     SPP_SUPPORTED_SHAPES,
 };
-pub use transaction::{PrivateTxHash, SppProofInputs};
+pub use transaction::{CacheAccounts, PrivateTxHash, SppProofInputs};
 
 use ring::sender_owner_tag;
 

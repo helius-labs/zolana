@@ -27,8 +27,8 @@ use shared::{
 };
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc};
-use zolana_interface::instruction::Transact;
 use zolana_keypair::random_blinding;
+use zolana_program::instruction::Transact;
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{
     instructions::transact::{asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo},
@@ -167,6 +167,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             payer: user_solana.pubkey(),
             blinding_seed,
             output_tree_id: env.localnet.tree_id,
+            cache_accounts: Default::default(),
         };
         let split_transact = env
             .localnet
@@ -378,6 +379,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             payer: authority_solana.pubkey(),
             blinding_seed,
             output_tree_id: env.localnet.tree_id,
+            cache_accounts: Default::default(),
         };
         let transact = env
             .localnet
@@ -667,6 +669,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             payer: authority_solana.pubkey(),
             blinding_seed,
             output_tree_id: env.localnet.tree_id,
+            cache_accounts: Default::default(),
         };
         let transact = env
             .localnet

@@ -31,14 +31,12 @@ use zolana_client::{
     },
     ClientError, ProofAuthority,
 };
-use zolana_interface::{
-    instruction::{
-        InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
-        TransactSolTransferAccounts, TransactSplDepositAccounts,
-    },
-    pda,
-};
+use zolana_interface::{instruction::InterfaceTransfer, pda};
 use zolana_keypair::ShieldedKeypair;
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts,
+};
 use zolana_transaction::{
     instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
     WalletUtxo,
@@ -999,11 +997,11 @@ fn indexed_transfer_routes_skip_client_indexer_reads() {
     .with_proof_data_source(zolana_client::ProofDataSource::Prover);
     assert!(matches!(
         Rpc::prove(&client, transaction.clone(), &owner),
-        Err(ClientError::ProofParse(_))
+        Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert!(matches!(
         client.prove_transact(transaction.clone(), None, &owner),
-        Err(ClientError::ProofParse(_))
+        Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert!(matches!(
         client.finish_submission_unsigned_sync(
@@ -1014,7 +1012,7 @@ fn indexed_transfer_routes_skip_client_indexer_reads() {
             payer.pubkey(),
             &owner,
         ),
-        Err(ClientError::ProofParse(_))
+        Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_eq!(server.requests(), ["/prove/indexed"; 3]);
 }
@@ -1037,7 +1035,7 @@ async fn indexed_async_transfer_routes_skip_client_indexer_reads() {
     .with_proof_data_source(zolana_client::ProofDataSource::Prover);
     assert!(matches!(
         AsyncRpc::prove(&client, transaction.clone(), &owner).await,
-        Err(ClientError::ProofParse(_))
+        Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert!(matches!(
         client
@@ -1051,7 +1049,7 @@ async fn indexed_async_transfer_routes_skip_client_indexer_reads() {
                 &owner,
             )
             .await,
-        Err(ClientError::ProofParse(_))
+        Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_eq!(server.requests(), ["/prove/indexed"; 2]);
 }

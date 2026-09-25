@@ -74,6 +74,7 @@ impl UpdateProofInputParams {
             payer: self.authority,
             blinding_seed: blinding_seed(version),
             output_tree_id: tree_id,
+            cache_accounts: Default::default(),
         };
         Ok(UpdateCompressedAccount {
             spp_proof_inputs,

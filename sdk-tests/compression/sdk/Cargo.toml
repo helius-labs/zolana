@@ -15,5 +15,6 @@ wincode = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api"] }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-program = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

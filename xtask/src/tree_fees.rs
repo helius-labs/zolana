@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use solana_pubkey::Pubkey;
 use zolana_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
-use zolana_interface::instruction::CloseNullifierPdas;
+use zolana_program::instruction::CloseNullifierPdas;
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeFeeSchedule;
 

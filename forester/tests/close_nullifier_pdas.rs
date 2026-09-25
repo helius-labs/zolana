@@ -13,7 +13,8 @@ use solana_hash::Hash as Blockhash;
 use solana_pubkey::Pubkey;
 use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
 use zolana_client::{compile_message, ComputeBudgetConfig};
-use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
+use zolana_interface::{pda, NULLIFIER_PDA_SIZE};
+use zolana_program::instruction::CloseNullifierPdas;
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 
 fn forester() -> ForesterSmartAccount {

@@ -3,9 +3,8 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zolana_interface::instruction::instruction_data::transact::TreeContext;
-use zolana_interface::instruction::{
-    RingTransact, TransactInterfaceTransferAccounts, TransactIxData,
-};
+use zolana_interface::instruction::TransactIxData;
+use zolana_program::instruction::{RingTransact, TransactInterfaceTransferAccounts};
 use zolana_ring_policy::ANSWER_SLOTS;
 use zolana_transaction::SOL_MINT;
 

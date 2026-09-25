@@ -1,6 +1,7 @@
 //! Real-proof coverage for transactions with multiple ordered interface transfers.
 
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
+use zolana_interface::state::cache::empty_cached_input_fields;
 
 use num_bigint::BigUint;
 use solana_keypair::Keypair;
@@ -13,17 +14,17 @@ use zolana_event::SplTransfer;
 use zolana_event_parser::general_event_from_indexed;
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
-    instruction::{
-        instruction_data::transact::{InterfaceTransfer, TransactIxData},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
-    },
+    instruction::instruction_data::transact::{InterfaceTransfer, TransactIxData},
     pda,
     tree_slot::TreeSlot,
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
@@ -363,6 +364,7 @@ fn prove_spend(
         input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(2).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

@@ -34,7 +34,7 @@ pub use custom_ring_interface::{
     SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT, SPEND_WINDOW_PDA_SEED,
 };
 
-pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
+pub use zolana_program::instruction::{DepositAsset, DepositSplAccounts};
 pub use zolana_ring_client::{
     auditor_view_tag, find_counters_message, AuditEncryptionError, AuditorEncryption,
     AuditorMessage, CountersSeal, SealedCounters, SealedNullifierKey, SpendCountersError,

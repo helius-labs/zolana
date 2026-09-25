@@ -7,7 +7,11 @@ export const StateDiscriminator = Object.freeze({
   ringConfig: 4,
   splAssetRegistry: 5,
   splAssetCounter: 6,
+  cache: 7,
 } as const);
+
+export const CACHE_CAPACITY = 36;
+export const CACHE_ACCOUNT_SIZE = 1_228;
 
 export const FIRST_ASSET_ID = 2n;
 export const STATE_HEIGHT = 32;

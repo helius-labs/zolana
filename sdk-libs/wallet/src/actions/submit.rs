@@ -9,8 +9,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::MergeTransact;
 use zolana_keypair::{Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair};
+use zolana_program::instruction::MergeTransact;
 use zolana_transaction::{instructions::merge::MergeProofInputs, Address};
 use zolana_user_registry_interface::{user_record_pda, UserRecord};
 
@@ -131,6 +131,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         nullifier_key: material.nullifier_key.clone(),
         proofs,
         dummy_nullifier_proofs,
+        cache: None,
     }
     .build()?;
 
@@ -144,6 +145,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         payer: payer.pubkey(),
         user_record: user_record_pda(&owner).0,
         data,
+        cache: None,
     }
     .instruction();
     let signature = rpc.create_and_send_transaction(

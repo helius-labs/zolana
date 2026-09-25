@@ -97,6 +97,67 @@ pub fn create_hash_chain_4<'a>(
     Ok(hash_chain)
 }
 
+/// Folds a slice of [u8; 32] elements three at a time with the 4-input
+/// Poseidon hash, from right to left.
+///
+/// `right_hash_chain_4([])` is zero and `right_hash_chain_4([e])` is `e`, as
+/// for the left fold. Otherwise the chain starts at the last element and every
+/// group of up to three preceding elements is absorbed with one call,
+/// `h = Poseidon(g[0], g[1] or 0, g[2] or 0, h)`, walking backwards. The
+/// leftmost group is the short one and its elements stay left-aligned:
+///
+/// ```text
+/// [a, b, c, d]    -> P(a, b, c, d)
+/// [a, b, c, d, e] -> P(a, 0, 0, P(b, c, d, e))
+/// ```
+///
+/// The direction is what makes an all-zero suffix foldable in advance: its
+/// value depends on the suffix length alone, so an on-chain verifier seeds the
+/// fold from that constant and hashes only the populated prefix. The call
+/// count is `ceil((n - 1) / 3)` either way, so a circuit pays the same.
+///
+/// # Security
+///
+/// Like the left fold, this carries no length tag and no domain separation, so
+/// it is injective only over inputs of one fixed length. Here the ambiguity
+/// sits in the leftmost group rather than the trailing one: `[a, b]` and
+/// `[0, a, b]` both fold to `Poseidon(a, 0, 0, b)`. Every caller's length is
+/// fixed by the compiled circuit and verified against that circuit's verifying
+/// key.
+pub fn create_right_hash_chain_4_from_slice(inputs: &[[u8; 32]]) -> Result<[u8; 32], HasherError> {
+    let Some((last, prefix)) = inputs.split_last() else {
+        return Ok([0u8; 32]);
+    };
+    create_right_hash_chain_4_from_seed(prefix, *last)
+}
+
+/// Folds `prefix` into `seed`, an already-folded suffix of the same chain.
+///
+/// [`create_right_hash_chain_4_from_slice`] is this with the chain's last
+/// element as the seed. A caller that knows the chain ends in zeros passes the
+/// precomputed fold of that all-zero suffix together with the prefix it
+/// covers, which skips those groups without changing the result: removing a
+/// multiple of three elements from the right of `prefix` leaves the remaining
+/// group boundaries where they were.
+pub fn create_right_hash_chain_4_from_seed(
+    prefix: &[[u8; 32]],
+    seed: [u8; 32],
+) -> Result<[u8; 32], HasherError> {
+    let mut hash_chain = seed;
+    // `rchunks` walks the groups the fold visits, in order: full groups of
+    // three from the right, then the short leftmost one with its elements
+    // still left-aligned.
+    for group in prefix.rchunks(3) {
+        hash_chain = Poseidon::hashv(&[
+            group.first().unwrap_or(&HASH_CHAIN_4_PADDING),
+            group.get(1).unwrap_or(&HASH_CHAIN_4_PADDING),
+            group.get(2).unwrap_or(&HASH_CHAIN_4_PADDING),
+            &hash_chain,
+        ])?;
+    }
+    Ok(hash_chain)
+}
+
 /// Creates a two inputs hash chain from two slices of [u8;32] arrays.
 /// The two slices must have the same length.
 /// Hashes are hashed in pairs, with the first hash from

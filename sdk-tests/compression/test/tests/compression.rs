@@ -19,12 +19,10 @@ use solana_signer::Signer;
 use zolana_client::{ProofCompressed, ProverClient, Rpc};
 use zolana_interface::{
     event::OutputDataEncoding,
-    instruction::{
-        instruction_data::transact::{OwnerTag, TransactOutput},
-        AssetDeposit, Deposit, DepositAsset, Transact,
-    },
+    instruction::instruction_data::transact::{OwnerTag, TransactOutput},
 };
 use zolana_keypair::ShieldedKeypair;
+use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset, Transact};
 use zolana_program_test::fixture;
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_utxo, wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -96,7 +94,6 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
             view_tag: attacker_address.confidential_view_tag()?,
             owner: attacker_address.owner_hash()?,
             amount: POISON_AMOUNT,
-            utxo_data: None,
             memo: None,
         }],
     }
@@ -168,6 +165,7 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
             payer: attacker.pubkey(),
             blinding_seed,
             output_tree_id: DEFAULT_TREE_ID,
+            cache_accounts: Default::default(),
         },
         None,
         &attacker,

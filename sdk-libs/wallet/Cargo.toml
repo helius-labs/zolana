@@ -11,7 +11,8 @@ autotests = false
 zolana-client = { workspace = true, features = ["indexer-api"] }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
-zolana-interface = { workspace = true, features = ["solana"] }
+zolana-interface = { workspace = true }
+zolana-program = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

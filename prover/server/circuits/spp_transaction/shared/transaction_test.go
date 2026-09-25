@@ -92,6 +92,7 @@ type testOutput struct {
 // testAssignment carries every value any variant needs; the as<Variant>
 // materializers project it onto the variant Public/Private structs.
 type testAssignment struct {
+	CachedInputs CachedInputs
 	Shape        Shape
 	Inputs       []testInput
 	Outputs      []testOutput
@@ -203,6 +204,7 @@ func (a *testAssignment) outputNullifierPks() []frontend.Variable {
 
 func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 	return &customring.CustomRingEddsaOnlyCircuit{
+		CachedInputs: a.CachedInputs,
 		Public: customring.CustomRingEddsaOnlyPublic{
 			Nullifiers:                   a.InputNullifiers(),
 			OutputHashes:                 a.OutputHashes(),
@@ -256,6 +258,7 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 
 func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
 	return &defaultring.DefaultRingEddsaOnlyCircuit{
+		CachedInputs: a.CachedInputs,
 		Public: defaultring.DefaultRingEddsaOnlyPublic{
 			Nullifiers:          a.InputNullifiers(),
 			OutputHashes:        a.OutputHashes(),
@@ -510,6 +513,7 @@ func buildCircuitAssignmentExact(
 	}
 
 	circuit := &testAssignment{
+		CachedInputs:     emptyCache(t, shape.NInputs),
 		Shape:            Shape(shape),
 		Inputs:           inputs,
 		Outputs:          outputs,
@@ -592,7 +596,7 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, bin
 	if bindOutputOwnerTags {
 		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes())
 	}
-	assignment.PublicInputHash = testPublicInputHash(t, publicInputs, assignment.TreeSlots, assignment.OutputTreeID)
+	assignment.PublicInputHash = testPublicInputHash(t, publicInputs, assignment.TreeSlots, assignment.OutputTreeID, assignment.CachedInputs)
 }
 
 func defaultBalancedUtxos(t testing.TB, shape protocol.Shape) ([]protocol.Utxo, []protocol.Utxo) {

@@ -4,6 +4,7 @@ use zolana_client::{PublicInputs, PublicTransfers};
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},
+    state::cache::empty_cached_input_fields,
     tree_slot::{pack_input_flags, TreeSlot},
     INPUT_TREES,
 };
@@ -27,11 +28,11 @@ const EXTERNAL_HASH: &str = "001329a899d89d646ce5958e2ec09d0fec95f547a2ef76922e7
 const CLAIM_PRIVATE_TX_HASH: &str =
     "01ed252d628b406911ff2feeb37056b886b4e36d10d86c0d5ebe3040a7977706";
 const CLAIM_PUBLIC_INPUT_HASH: &str =
-    "2c3184d43a53ca02340d4435ecf2f8c7e7ca607ac3790931762fa635172ae591";
+    "03d268f456b383cd3953a525f85d2386715f3c4c9af0488a598d02e014a0fd05";
 const SPEND_PRIVATE_TX_HASH: &str =
     "242c97c0d53b2930898d7d982275a3703faeb90cd9d1f41a40b6189cd472b169";
 const SPEND_PUBLIC_INPUT_HASH: &str =
-    "0855b71585b6818a0ba70d23830ee245f71b2cc63b337512cf3e92f8e2e357eb";
+    "00a0df244b7b34b5d8190f31c1addcb3bc870b5563dc7cdc37c3c8742120ade3";
 const CLAIM_BLINDING: &str = "078e398422043456dc67a4c39f57ab507670ab3d1024746d47a2e93c7a46c344";
 const SPEND_BLINDING: &str = "018be3ee8af2454b58a964be7d94a0b752f31e5a85f4a0c80b4d25213d44b256";
 
@@ -117,6 +118,7 @@ fn transition(spent: Option<ListEntry>) -> Transition {
         input_flags: &pack_input_flags(true, [0u8]).expect("input flags"),
         signer_pk_hashes: &[payer_hash, namespace_hash],
         output_owner_pk_hashes: Some(&[namespace_hash]),
+        cached_inputs: empty_cached_input_fields(1).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

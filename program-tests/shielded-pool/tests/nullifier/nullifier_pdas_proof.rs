@@ -1,4 +1,5 @@
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
+use zolana_interface::state::cache::empty_cached_input_fields;
 
 use num_bigint::BigUint;
 use solana_account::Account;
@@ -7,14 +8,12 @@ use solana_signer::Signer;
 use zolana_client::{PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{instruction_data::transact::TransactIxData, Transact},
-    pda,
-    state::TreeFeeSchedule,
-    NullifierPda,
+    error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxData, pda,
+    state::TreeFeeSchedule, NullifierPda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::instruction::Transact;
 use zolana_program_test::{Rejection, Rpc, TransactionTrace};
 use zolana_test_utils::{
     nullifier_pda::{
@@ -174,6 +173,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
+        cached_inputs: empty_cached_input_fields(2).expect("cache selection"),
     }
     .hash()
     .expect("public input hash");

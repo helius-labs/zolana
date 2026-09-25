@@ -25,7 +25,7 @@ use zolana_client::{
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
-    instruction::{instruction_data::transact::TransactIxData, Transact},
+    instruction::instruction_data::transact::TransactIxData,
     state::{
         default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
         tree_account_size, STATE_HEIGHT,
@@ -34,6 +34,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use zolana_program::instruction::Transact;
 use zolana_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo, BN254_MODULUS_DEC},
     AssetRegistry, Data, Utxo,
@@ -442,6 +443,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         payer: payer_address,
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
+        cache_accounts: Default::default(),
     };
 
     let commitments = spp_proof_inputs

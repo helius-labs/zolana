@@ -25,14 +25,14 @@ use zolana_client::ComputeBudgetConfig;
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        instruction_data::transact::{CircuitId, TransactIxData, TransactIxDataRef, TransactProof},
-        RingAuthorityTransact, RingTransact, Transact,
+    instruction::instruction_data::transact::{
+        CircuitId, TransactIxData, TransactIxDataRef, TransactProof, NO_UTXO_ROOT,
     },
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
     MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
+use zolana_program::instruction::{RingAuthorityTransact, RingTransact, Transact};
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::transact::{
     fe, inline_output, input_utxo, input_utxo_in_tree, single_tree_context, tree_contexts,
@@ -226,6 +226,22 @@ fn transact_rejects_a_stale_utxo_root_index() {
     let mut data = transfer_ix_data(2, 3);
     data.tree_contexts = tree_contexts(&[(7, 0)]);
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
+}
+
+#[test]
+fn transact_without_a_utxo_root_reads_no_root_history() {
+    let mut env = Pool::initialized();
+    let mut data = transfer_ix_data(2, 3);
+    data.tree_contexts = tree_contexts(&[(NO_UTXO_ROOT - 1, 0)]);
+    expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
+
+    let mut data = transfer_ix_data(2, 3);
+    data.tree_contexts = tree_contexts(&[(NO_UTXO_ROOT, 0)]);
+    expect_rejection(
+        &mut env,
+        data,
+        ShieldedPoolError::TransactProofVerificationFailed,
+    );
 }
 
 #[test]

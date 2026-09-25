@@ -62,7 +62,6 @@ program-libs/interface/src/
   lib.rs               -- canonical program ids and public modules
   instruction/
     tag.rs             -- first-byte instruction tags
-    builders/          -- client instruction builders
     instruction_data/  -- Borsh or fixed-layout instruction data structs
   state/               -- client-visible account headers and discriminators
   verifying_keys/      -- verifier constants when proof paths need them
@@ -74,7 +73,8 @@ sdk-libs/
   event/               -- indexer-side event discovery; rebuilds GeneralEvent from
                           the emitting instruction plus the minimal on-chain event
   keypair/             -- shielded key material and hashes
-  program/             -- SBF-buildable SDK for programs: on-chain SPP derivations
+  program/             -- SBF-buildable SDK for programs: shielded-pool instruction
+                          builders and on-chain SPP derivations
   program-test/        -- reusable local test/indexer harness
   transaction/         -- wallet, UTXO, encryption, and transaction logic
 
@@ -337,33 +337,49 @@ pub enum ShieldedPoolError {
   be cfg-gated: use `Address::find_program_address` on Solana target and do not
   pretend host tests can derive it unless a host implementation exists.
 
-## Instruction Builder Pattern (interface crate)
+## Instruction Builder Pattern (zolana-program crate)
 
-Builders live in `program-libs/interface/src/instruction/builders/`. Reference:
-`create_pool_tree.rs`
+Builders live in `sdk-libs/program/src/instruction/`, not in the interface
+crate: the shielded-pool program links the interface and must not carry client
+surface. `zolana-program` is `no_std` and SBF-buildable, so programs that CPI
+into SPP use the same builders as clients. Reference: `create_spl_interface.rs`
 
 ```rust
+use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use crate::{instruction::{tag, CreatePoolTreeData}, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 
-pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -> Instruction {
-    let mut instruction_data = vec![tag::CREATE_POOL_TREE];
-    data.serialize(&mut instruction_data)
-        .expect("shielded-pool instruction serialization is infallible");
+pub struct CreateSplInterface {
+    pub authority: Pubkey,
+    pub mint: Pubkey,
+    pub token_program: Pubkey,
+}
 
-    Instruction {
-        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-        accounts: vec![AccountMeta::new(payer, true), AccountMeta::new(tree, false)],
-        data: instruction_data,
+impl CreateSplInterface {
+    pub fn instruction(&self) -> Instruction {
+        Instruction {
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts: vec![
+                AccountMeta::new(self.authority, true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
+                // ...
+            ],
+            data: vec![tag::CREATE_SPL_INTERFACE],
+        }
     }
 }
 ```
 
 - Use canonical program ids from `program-libs/interface/src/lib.rs`, do not pass as parameter
 - Use fixed-size arrays for instruction data, not Vec, when the instruction data is fixed
-- Add `pub mod <name>;` + `pub use <name>::<item>;` to `program-libs/interface/src/instruction/builders/mod.rs`
-- Builders are imported in tests as `zolana_interface::instruction::<builder>`
+- Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/program/src/instruction/mod.rs`
+- Builders are imported as `zolana_program::instruction::<builder>`
+- Builders for protocol operations (protocol and fee authority administration,
+  tree creation, ring activation, forester maintenance) go behind the
+  non-default `protocol` feature (`#[cfg(feature = "protocol")]` on the module
+  or item and its re-export). `CreateSplInterface` stays ungated: the protocol
+  config can open it to everyone, and users register their own mints.
 
 ### Instruction data
 
@@ -391,7 +407,7 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
     - account size must match the account struct size exactly
 6. Recovery and owner encryption keys
     - the owner needs to sign to add or remove encryption keys other than auditor keys
-7. all signer checks must be in the processor not nested inside of other functions
+7. signer checks belong in the processor or in its account validation function (e.g. `<Ix>Accounts::validate_and_parse`), not nested inside other functions
 8. closing accounts
     - every account close instruction must have a dedicated rent_recipient
 
@@ -469,17 +485,70 @@ together with the vkeys in ONE PR.
 ### Regenerate Rust verifying keys (`program-libs/interface/src/verifying_keys/`)
 
 ```bash
-prover/server/scripts/regenerate_all_vkeys.sh
+# keys_dir: absolute, or relative to prover/server (default proving-keys)
+prover/server/scripts/regenerate_all_vkeys.sh [keys_dir]
 ```
 
 Pipeline: `light-prover export-vk` writes the gnark `WriteRawTo` (uncompressed)
-vk binary, then `cargo run -p xtask -- bsb22-vk <vk_bin> <out_dir> <filename>`
-calls `groth16_solana::gnark_vk_parser::generate_bsb22_vk_file` to emit a
+vk binary, then `cargo run -p xtask -- bsb22-vk <vk_bin> <proving_key> <out_dir> <filename> [--insecure-test-setup]`
+calls `groth16_solana::vk::gnark::generate_bsb22_vk_file` to emit a
 `pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit, and `mod.rs` is
 regenerated. The codegen lives in the `xtask` crate, which depends on the
-`groth16-solana` fork (`../groth16-solana`, `features = ["bsb22"]`).
+`groth16-solana` fork pinned by git rev in the root `Cargo.toml`.
 `zolana-interface` depends on the same fork only to compile the committed
 `verifying_keys/*.rs` constants.
+
+Next to each `VERIFYINGKEY` the generator writes `VERIFYINGKEY_PROVING_KEY_SHA256`
+(sha256 of the `.key` file, the value `proving-keys.lock` pins),
+`VERIFYINGKEY_INSECURE_TEST_SETUP`, and an exported `VERIFYINGKEY_SETUP_TXT`
+marker that stays in the program `.so`. Protocol vks (interface, tree,
+custom-rings) are `SetupKind::Production`. The sdk-tests example vks come from
+the shared setup CLI (`sdk-libs/gnark-ffi-prover`, `just regen-*-keys`) run with
+`--insecure-test-keys`, which emits `SetupKind::InsecureTest`: a `compile_error!`
+unless the crate enables its `insecure-test-setup` feature (on by default in
+those example programs only). Without that flag the CLI sets up from system
+randomness and emits `SetupKind::Production`, the setup an example deployment
+uses. Each crate exposes `PROVING_KEY_SHA256S` (key file name -> sha256), and
+`vk_proving_key_lock` tests pin every entry to `proving-keys.lock`.
+
+A vk regen that does not rotate keys exports from the keys the lockfile pins.
+Use the pinned keys, not whatever sits in `prover/server/proving-keys`: diff
+every local key against the lockfile first, and point the scripts at a
+directory of pinned keys when they differ. A correct regen only appends
+metadata; `vk_fingerprint` must pass without a re-pin.
+
+### Proving key checks (deployed program <-> clients <-> prover)
+
+The same sha256 is checked at every hop, so a prover or a deployment on another
+key set fails before a transaction is built instead of on-chain:
+
+- Every proof the prover returns carries `provingKeySha256`, the digest of the
+  bytes it loaded. The Rust `ProverClient` (`ExpectedProvingKey`) and the TS
+  `ProverClient` reject a mismatch or a missing field (fail closed): deploy the
+  prover before clients.
+- `GET /proving-keys` (auth-exempt) lists every key with `expectedSha256`
+  (lockfile), `loadedSha256` (`null` until loaded), and `available`.
+  `ProverClient::check_proving_keys` / TS `checkProvingKeys` compare it at
+  startup; `spawn_prover`, the forester, and `zolana dev prover start` run it.
+  The Rust startup check covers the interface and nullifier-tree keys; the
+  custom-ring keys are checked per proof by the custom-rings SDK (the TS table
+  covers every lockfile key).
+- `zolana vks list|check [--so <path> | --program-id <id>] [--expect <manifest>] [--shielded-pool] [--prover-url <url>]`
+  reads the markers from a local build or any deployed program (upgradeable
+  loader, loader-v4, or the legacy BPF loaders). `check` fails on a binary
+  without markers or with an insecure test setup. `--expect` takes a
+  sha256sum-style manifest (an example's `*-keys.CHECKSUM`) and also fails when
+  a listed proving key (`*pk.bin` / `*.key`) is not embedded; `list` uses it to
+  name keys. `--shielded-pool`, implied when reading the shielded-pool program
+  id without `--expect` and required by `--prover-url`, instead validates the
+  exact shielded-pool key set: it fails on an unknown digest or a missing key. Every program that links
+  `zolana-interface` with default features embeds all interface markers (the
+  markers are exported statics), used or not.
+  `tools/deploy-devnet.sh` runs it on the local build before deploying
+  shielded-pool and on the deployed program after.
+- The TS SDK keeps its own table (`sdk-libs/ts/src/interface/proving-keys.ts`),
+  pinned to the lockfile by `test/proving-keys.test.ts`; a key rotation updates
+  it in the same PR.
 
 ### BSB22 commitments (the two rails differ on purpose)
 

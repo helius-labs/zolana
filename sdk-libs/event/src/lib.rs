@@ -17,8 +17,7 @@ pub mod instruction;
 pub mod reconstruct;
 
 pub use deposit::{
-    decode_encrypted_ring_deposit_output_data, decode_output_data, proofless_output,
-    proofless_outputs,
+    decode_encrypted_ring_deposit_output_data, decode_output_data, proofless_outputs,
 };
 pub use indexed::{
     event_kind_from_indexed, event_parent, general_event_from_indexed,

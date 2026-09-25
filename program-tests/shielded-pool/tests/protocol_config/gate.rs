@@ -13,9 +13,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::{pubkey, Pubkey};
 use solana_signer::Signer;
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::CreateProtocolConfig, pda, state::ProtocolConfig,
-    BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
+    error::ShieldedPoolError, pda, state::ProtocolConfig, BPF_LOADER_UPGRADEABLE_PUBKEY,
+    SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program::instruction::CreateProtocolConfig;
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 
 /// Loader-v3 `Program` state: u32 tag 2 || programdata address. Owner is the

@@ -5,6 +5,7 @@ use std::{
     process::Command,
 };
 
+use groth16_solana::vk::setup::{ProvingKeySource, SetupKind};
 use sha2::{Digest, Sha256};
 
 mod create_release;
@@ -24,36 +25,60 @@ fn main() {
             create_verifying_keys(options);
         }
         Some("bsb22-vk") => {
-            let vk_bin = args
+            let vk_bin = args.next().unwrap_or_else(|| {
+                usage_and_exit(
+                    "usage: bsb22-vk <vk_bin> <proving_key> <out_dir> <filename> [--insecure-test-setup]",
+                )
+            });
+            let proving_key = args
                 .next()
-                .unwrap_or_else(|| usage_and_exit("usage: bsb22-vk <vk_bin> <out_dir> <filename>"));
+                .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <proving_key>"));
             let out_dir = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <out_dir>"));
             let filename = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <filename>"));
+            // Protocol setups are single-party gnark groth16.Setup runs seeded
+            // from crypto/rand whose toxic waste is never persisted. Example
+            // and test circuits declare their setup insecure instead.
+            let setup = match args.next().as_deref() {
+                None => SetupKind::Production,
+                Some("--insecure-test-setup") => SetupKind::InsecureTest,
+                Some(other) => usage_and_exit(&format!("bsb22-vk unexpected arg {other:?}")),
+            };
             groth16_solana::vk::gnark::generate_bsb22_vk_file(
                 &vk_bin,
                 Path::new(&out_dir),
                 &filename,
                 "VERIFYINGKEY",
+                setup,
+                ProvingKeySource::File(Path::new(&proving_key)),
             )
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
             println!("wrote {out_dir}/{filename}");
         }
         Some("vk-json") => {
-            let vk_json = args
+            let vk_json = args.next().unwrap_or_else(|| {
+                usage_and_exit("usage: vk-json <vk_json> <zkey> <out_dir> <filename>")
+            });
+            let zkey = args
                 .next()
-                .unwrap_or_else(|| usage_and_exit("usage: vk-json <vk_json> <out_dir> <filename>"));
+                .unwrap_or_else(|| usage_and_exit("vk-json missing <zkey>"));
             let out_dir = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("vk-json missing <out_dir>"));
             let filename = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("vk-json missing <filename>"));
-            groth16_solana::vk::circom::generate_vk_file(&vk_json, &out_dir, &filename)
-                .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
+            groth16_solana::vk::circom::generate_vk_file(
+                &vk_json,
+                &out_dir,
+                &filename,
+                SetupKind::Production,
+                ProvingKeySource::File(Path::new(&zkey)),
+            )
+            .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
             println!("wrote {out_dir}/{filename}");
         }
         Some("loadtest") => {
@@ -390,8 +415,12 @@ fn print_help() {
     println!();
     println!("Commands:");
     println!("  create-verifying-keys    Export prover-server verifying key artifacts");
-    println!("  bsb22-vk                 Export one binary verifying key as Rust source");
-    println!("  vk-json                  Export one JSON verifying key as Rust source");
+    println!(
+        "  bsb22-vk <vk_bin> <proving_key> <out_dir> <filename> [--insecure-test-setup]  Export one binary verifying key as Rust source"
+    );
+    println!(
+        "  vk-json <vk_json> <zkey> <out_dir> <filename>         Export one JSON verifying key as Rust source"
+    );
     println!("  program-ids              Print local validator program ids as shell assignments");
     println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
     println!(
@@ -893,7 +922,7 @@ fn tx_size(args: Vec<String>) {
         if let Some(circuit) = circuit {
             data.circuit = circuit;
         }
-        zolana_interface::instruction::Transact {
+        zolana_program::instruction::Transact {
             payer: payer_pk,
             input_trees: vec![tree],
             output_tree: tree,
@@ -917,7 +946,7 @@ fn tx_size(args: Vec<String>) {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         data.circuit = circuit;
-        zolana_interface::instruction::RingTransact {
+        zolana_program::instruction::RingTransact {
             payer: payer_pk,
             input_trees: vec![tree],
             output_tree: tree,
@@ -962,13 +991,13 @@ fn tx_size(args: Vec<String>) {
         );
     }
     for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
-        use zolana_interface::instruction::{
-            instruction_data::MergeProof, MergeTransact, MergeTransactIxData,
-        };
+        use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
+        use zolana_program::instruction::MergeTransact;
         let nullifiers = (0..input_count)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
+            cache_slot: None,
             expiry_unix_ts: 0,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
@@ -986,6 +1015,7 @@ fn tx_size(args: Vec<String>) {
             payer: vault,
             user_record: Pubkey::new_unique(),
             data,
+            cache: None,
         }
         .instruction();
         let merge_ix_accounts = merge_ix.accounts.len();

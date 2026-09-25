@@ -173,7 +173,8 @@ same network. Client fetching remains the default. `LocalKeys` supports both
 modes. A remote key holder must implement `IndexedProofAuthority.proveIndexed`
 for prover fetching. Responses bind the returned tree roots to the requested
 public transcript before transaction assembly.
-Ring authority transfers and ring merges fetch their proof paths through the client.
+Ring authority transfers, ring merges and transactions reading or writing a cache fetch
+their proof paths through the client.
 
 ## Common transactions
 

@@ -223,6 +223,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         signer_pk_hashes,
         allow_dummy_inputs: true,
         shape,
+        cache_accounts: Default::default(),
     };
     let mut result = prover
         .build()
@@ -293,6 +294,7 @@ fn dummy_transfer_2_3_proof_verifies() {
         ],
         allow_dummy_inputs: true,
         shape: Shape::new(2, 3),
+        cache_accounts: Default::default(),
     };
 
     let mut result = prover.build().expect("build witness with one real input");

@@ -10,7 +10,8 @@ tree, ring notes merge in one transaction, and ring submissions save each
 signed attempt before broadcast and resolve it after a restart. Ring
 instructions, proof requests and the policy hash change shape, so rings,
 programs and prover keys of 0.2.0-alpha need their counterparts from this
-release.
+release. A merge can write its output into a cache account, and a transfer can
+spend it from there before the tree holds it.
 
 Breaking
 
@@ -70,6 +71,26 @@ Breaking
   nullable `SerializedNoteReservation.expiresAtMs` → upgrade snapshot readers
   before saving and treat `null` as no local expiry, versions 2 and 3 stay
   readable.
+- Every `ProverClient` prove method rejects a proof from a prover that does not
+  report its proving key with `CLIENT_PROVING_KEY_MISSING`, or reports another
+  key than the SDK's verifying key pins with `CLIENT_PROVING_KEY_MISMATCH`, and
+  refuses a shape without a verifying key with `CLIENT_PROVER_INPUT` before any
+  request → prove against a prover from this release.
+- `Prover` requires `checkProverProvingKeys` → implement it in a custom `Prover`.
+
+- `getMergeTransactInstructionAsync` merges prove against the owner's
+  registered nullifier key and end their data with an optional `cacheSlot`,
+  every transfer public-input hash except the ring-authority one ends with the
+  cache selection that `TransferInputs.cacheTreeId`, `cacheReadHashChain`,
+  `cacheReadHashes`, `cacheIsCached` and `cacheReadIndex` carry, `CircuitId`
+  gains `confidentialEddsaCached` and `ringEddsaCached`, and
+  `ShieldedPoolError` adds the cache errors at 7066–7077 with 7072 unused →
+  reprove pending merges and transfers with the program and prover of this
+  release, set the five fields on a hand-built `TransferInputs`, and handle
+  the new variants in exhaustive switches.
+- `UtxoData`, `DepositEntry.utxoData` and `RingDepositEntry.dataHash` are
+  removed, so a deposit output never carries application data → attach data
+  to a UTXO through a proven transaction instead.
 
 Added
 
@@ -124,6 +145,27 @@ Added
   attempt before broadcast, `reconcileRingSubmissions` resolves saved
   signatures after a restart without paying twice, and `savePersistedWallet`
   saves wallet state on the sync queue.
+- `ZolanaClient.checkProverProvingKeys` and `ProverClient.checkProvingKeys` check
+  a prover's proving keys against the SDK's verifying keys before the first
+  proof, return a `ProvingKeyReport` with one `ProvingKeyCheck` per key, and
+  throw `CLIENT_PROVER_PROVING_KEYS_MISMATCH` naming every key whose digest
+  differs.
+
+- `createCacheInstruction` opens a cache account at
+  `getCacheAddress(rentSponsor, nonce)` that `closeCacheInstruction` closes
+  with its rent returned to the sponsor and `decodeCache` reads,
+  `ZolanaClient.proveMerge` takes a `MergeCacheTarget` to write the merged
+  output into a slot, `ProofInputUtxo.withCacheSlot`,
+  `ProofOutputUtxo.withCacheSlot`, `SppProofInputs.withReadCache` and
+  `withWriteCache` let `proveTransact` and `proveRingTransact` spend a cached
+  output and write outputs to any slot, publishing `NO_UTXO_ROOT` for a tree
+  read only from the cache, `transactInstruction` and `ringTransactAccounts`
+  take the accounts as `TransactCacheAccounts`, `cachedInputFields`,
+  `emptyCachedInputFields` and `bindCacheWrite` compute the same values for a
+  custom prover, and a selection the program would reject fails before any
+  request with an error naming the input or output index, while
+  `ringTransactInstruction` refuses a cached circuit, which custom rings do not
+  accept, with `RING_CACHE_UNSUPPORTED`.
 
 Changed
 

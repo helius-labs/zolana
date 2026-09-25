@@ -5,16 +5,13 @@ use pinocchio::{
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{
-        instruction_data::{merge_ring::MergeRingIxDataRef, merge_transact::MergeExternalDataHash},
-        tag::RING_MERGE_TRANSACT,
-    },
+    error::ShieldedPoolError, instruction::instruction_data::merge_ring::MergeRingIxDataRef,
 };
 
 use super::account::MergeRingAccounts;
 use crate::instructions::{
     merge::{
+        cache::load_merge_cache,
         processor::{process_merge_core, validate_field_elements, MergeCoreAccounts},
         verify::MergeOwnerBinding,
     },
@@ -40,17 +37,9 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len())?;
-
-    let external_data_hash = MergeExternalDataHash {
-        spp_instruction_discriminator: RING_MERGE_TRANSACT,
-        expiry_unix_ts: merge.expiry_unix_ts,
-        output_utxo_hash: merge.output_utxo_hash,
-    }
-    .hash()
-    .map_err(caused_by(
-        ShieldedPoolError::TransactProofVerificationFailed,
-    ))?;
+    let merge_accounts =
+        MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len(), merge.cache_slot)?;
+    let cache = load_merge_cache(merge_accounts.cache, clock.unix_timestamp)?;
 
     // The ring merge proof binds `ring_program_id` from the signing `ring_config`
     // and the output `ring_data_hash` the ring program selected, and is verified
@@ -75,8 +64,8 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
             nullifier_pdas: merge_accounts.nullifier_pdas,
         },
         merge,
-        external_data_hash,
         owner_binding,
+        cache,
         *merge
             .nullifiers
             .first()

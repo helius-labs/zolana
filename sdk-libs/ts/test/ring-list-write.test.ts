@@ -142,7 +142,7 @@ describe("entry transition inputs", () => {
       "01ed252d628b406911ff2feeb37056b886b4e36d10d86c0d5ebe3040a7977706",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "2c3184d43a53ca02340d4435ecf2f8c7e7ca607ac3790931762fa635172ae591",
+      "03d268f456b383cd3953a525f85d2386715f3c4c9af0488a598d02e014a0fd05",
     );
     const [input] = inputs.inputs;
     expect(input?.circuit.domain).toBe(2n);
@@ -174,7 +174,7 @@ describe("entry transition inputs", () => {
       "242c97c0d53b2930898d7d982275a3703faeb90cd9d1f41a40b6189cd472b169",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "0855b71585b6818a0ba70d23830ee245f71b2cc63b337512cf3e92f8e2e357eb",
+      "00a0df244b7b34b5d8190f31c1addcb3bc870b5563dc7cdc37c3c8742120ade3",
     );
     expect(inputs.inputs[0]?.circuit.domain).toBe(3n);
     expect(inputs.inputs[0]?.statePathIndex).toBe(3n);

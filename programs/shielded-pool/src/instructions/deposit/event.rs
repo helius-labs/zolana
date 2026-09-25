@@ -19,17 +19,13 @@ pub(crate) fn proofless_output_utxo<'a>(
     blinding: &'a [u8; 32],
     ctx: ProoflessOutputCtx,
 ) -> OutputUtxo {
-    let (data_hash, utxo_data) = match entry.utxo_data {
-        Some(record) => (Some(record.data_hash), Some(record.data)),
-        None => (None, None),
-    };
     let data = encode_output_data_ref(ProoflessOutputRef {
         owner: entry.owner,
         blinding,
         asset: &ctx.asset,
         amount: entry.amount,
-        data_hash,
-        utxo_data,
+        data_hash: None,
+        utxo_data: None,
         ring_program_id: None,
         ring_data_hash: None,
         ring_data: None,
@@ -51,7 +47,7 @@ pub(crate) fn encrypted_ring_output_utxo(
         owner_utxo_hash: entry.owner_utxo_hash,
         asset: &ctx.asset,
         amount: entry.amount,
-        data_hash: entry.data_hash,
+        data_hash: None,
         ring_program_id: &ring_program_id,
         ring_data_hash: entry.ring_data_hash,
         encrypted: entry.encrypted,

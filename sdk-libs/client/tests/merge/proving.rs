@@ -84,6 +84,7 @@ impl MergeHarness {
             nullifier_key: sender.nullifier_key.clone(),
             proofs,
             dummy_nullifier_proofs,
+            cache: None,
         }
         .build()
         .expect("build merge proof");

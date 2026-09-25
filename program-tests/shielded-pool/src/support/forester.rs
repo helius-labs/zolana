@@ -10,8 +10,9 @@ use zolana_client::{
     BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
 };
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
+use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use zolana_program::instruction::BatchUpdateNullifierTree;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::localnet::send_transaction;
 use zolana_transaction::instructions::transact::BN254_MODULUS_DEC;

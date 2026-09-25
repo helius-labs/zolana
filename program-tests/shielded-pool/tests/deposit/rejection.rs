@@ -8,12 +8,10 @@ use zolana_account_checks::AccountError;
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        tag, DepositAsset, DepositAssetKind, DepositEntry, EncryptedRingDepositData,
-        RingAssetDeposit, RingDeposit,
-    },
+    instruction::{tag, DepositAssetKind, DepositEntry, EncryptedRingDepositData},
     pda, PROGRAM_ID_PUBKEY,
 };
+use zolana_program::instruction::{DepositAsset, RingAssetDeposit, RingDeposit};
 use zolana_program_test::{Rejection, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 
 use zolana_test_utils::mollusk::{
@@ -72,7 +70,6 @@ fn raw_entry(amount: u64) -> DepositEntry {
         view_tag: [9u8; 32],
         owner: [9u8; 32],
         amount,
-        utxo_data: None,
         memo: None,
     }
 }
@@ -597,7 +594,6 @@ fn mollusk_ring_deposit_fixture() -> (
             view_tag: [1u8; 32],
             owner_utxo_hash: [2u8; 32],
             amount: 1_000_000,
-            data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [0u8; 33],

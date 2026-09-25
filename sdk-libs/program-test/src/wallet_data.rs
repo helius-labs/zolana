@@ -1,6 +1,6 @@
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::{AssetDeposit, DepositAsset, DepositSplAccounts};
 use zolana_keypair::shielded::ShieldedAddress;
+use zolana_program::instruction::{AssetDeposit, DepositAsset, DepositSplAccounts};
 use zolana_transaction::TransactionError;
 
 use crate::{ProgramTestError, ZolanaProgramTest};
@@ -21,7 +21,6 @@ impl ZolanaProgramTest {
             view_tag: [0u8; 32],
             owner,
             amount: lamports,
-            utxo_data: None,
             memo: None,
         }
     }
@@ -53,7 +52,6 @@ impl ZolanaProgramTest {
             view_tag: [0u8; 32],
             owner,
             amount,
-            utxo_data: None,
             memo: None,
         }
     }
@@ -68,7 +66,6 @@ impl ZolanaProgramTest {
             view_tag,
             owner,
             amount: lamports,
-            utxo_data: None,
             memo: None,
         })
     }
@@ -85,7 +82,6 @@ impl ZolanaProgramTest {
             view_tag,
             owner,
             amount,
-            utxo_data: None,
             memo: None,
         })
     }

@@ -8,10 +8,7 @@ use zolana_account_checks::AccountError;
 use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
-        CloseNullifierPdas, Transact,
-    },
+    instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
     pda,
     state::{
         tree_account_size, TreeFeeSchedule, AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
@@ -19,6 +16,7 @@ use zolana_interface::{
     },
     NullifierPda, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS,
 };
+use zolana_program::instruction::{CloseNullifierPdas, Transact};
 use zolana_program_test::{ProgramTestError, Rejection, Rpc, TransactionTrace, ZolanaProgramTest};
 use zolana_test_utils::{
     nullifier_pda::{

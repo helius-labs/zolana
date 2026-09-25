@@ -159,6 +159,28 @@ pub enum ShieldedPoolError {
     UnreferencedTreeContext = 7064,
     #[error("the same input tree account is passed twice")]
     DuplicateInputTree = 7065,
+    #[error("invalid UTXO cache")]
+    InvalidCache = 7066,
+    #[error("cache configuration does not match")]
+    CacheConfigMismatch = 7067,
+    #[error("cache slot is empty")]
+    CacheSlotEmpty = 7068,
+    #[error("invalid cache slot")]
+    InvalidCacheSlot = 7069,
+    #[error("invalid cache bitmap")]
+    InvalidCacheBitmap = 7070,
+    #[error("cache tree does not match")]
+    CacheTreeMismatch = 7071,
+    #[error("cache is past its expiry")]
+    CacheExpired = 7073,
+    #[error("cache is not past its expiry")]
+    CacheNotExpired = 7074,
+    #[error("cache expiry must be in the future")]
+    CacheExpiryNotInFuture = 7075,
+    #[error("cache writer is not the cache's write authority")]
+    CacheWriteAuthorityMismatch = 7076,
+    #[error("rent recipient is not the cache's rent sponsor")]
+    CacheRentRecipientMismatch = 7077,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -271,6 +293,17 @@ mod tests {
                 InputsNotGroupedByTree => 7063,
                 UnreferencedTreeContext => 7064,
                 DuplicateInputTree => 7065,
+                InvalidCache => 7066,
+                CacheConfigMismatch => 7067,
+                CacheSlotEmpty => 7068,
+                InvalidCacheSlot => 7069,
+                InvalidCacheBitmap => 7070,
+                CacheTreeMismatch => 7071,
+                CacheExpired => 7073,
+                CacheNotExpired => 7074,
+                CacheExpiryNotInFuture => 7075,
+                CacheWriteAuthorityMismatch => 7076,
+                CacheRentRecipientMismatch => 7077,
             }
         }
 
@@ -343,8 +376,20 @@ mod tests {
             InputsNotGroupedByTree,
             UnreferencedTreeContext,
             DuplicateInputTree,
+            InvalidCache,
+            CacheConfigMismatch,
+            CacheSlotEmpty,
+            InvalidCacheSlot,
+            InvalidCacheBitmap,
+            CacheTreeMismatch,
+            CacheExpired,
+            CacheNotExpired,
+            CacheExpiryNotInFuture,
+            CacheWriteAuthorityMismatch,
+            CacheRentRecipientMismatch,
         ];
-        for (variant, code) in variants.into_iter().zip(7000_u32..) {
+        let codes = (7000_u32..).filter(|code| *code != 7072);
+        for (variant, code) in variants.into_iter().zip(codes) {
             assert_eq!(
                 variant as u32,
                 expected_code(variant),
@@ -353,7 +398,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 66, "variant count drifted");
+        assert_eq!(variants.len(), 77, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

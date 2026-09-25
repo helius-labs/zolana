@@ -3,6 +3,7 @@ use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::{
         instruction_data::{
             merge_ring::MergeRingIxData,
@@ -10,6 +11,7 @@ use zolana_interface::{
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
+    state::cache::CACHE_CAPACITY,
     tree_slot::{tree_id_field, tree_slots_hash_chain},
 };
 use zolana_keypair::{Curve, NullifierKey};
@@ -39,6 +41,14 @@ pub struct MergeProver {
     pub nullifier_key: NullifierKey,
     pub proofs: Vec<SpendProof>,
     pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
+    pub cache: Option<MergeCacheTarget>,
+}
+
+/// The cache slot a merge writes its output to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MergeCacheTarget {
+    pub address: Address,
+    pub slot: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +68,7 @@ pub struct MergeProofResult {
     /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
     /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
     pub eddsa_owner: bool,
+    pub cache_slot: Option<u8>,
     pub ring_program_id: Option<Address>,
     pub output_ring_data_hash: [u8; 32],
     pub tx_viewing_pk: [u8; 33],
@@ -80,6 +91,7 @@ impl MergeProofResult {
             nullifier_tree_root_index: self.nullifier_tree_root_index,
             private_tx_hash: self.private_tx_hash,
             eddsa_owner: self.eddsa_owner,
+            cache_slot: self.cache_slot,
         }
     }
 
@@ -187,6 +199,11 @@ impl MergeProver {
             .output_hashes
             .first()
             .ok_or(ClientError::MissingOutput)?;
+        let cache_slot = match self.cache.as_ref() {
+            Some(target) if usize::from(target.slot) < CACHE_CAPACITY => Some(target.slot),
+            Some(_) => return Err(ShieldedPoolError::InvalidCacheSlot.into()),
+            None => None,
+        };
         let external_data_hash = MergeExternalDataHash {
             spp_instruction_discriminator: if ring_program_id.is_some() {
                 RING_MERGE_TRANSACT
@@ -195,6 +212,11 @@ impl MergeProver {
             },
             expiry_unix_ts,
             output_utxo_hash: &output_hash,
+            cache: self
+                .cache
+                .as_ref()
+                .map(|target| target.address.as_array())
+                .zip(cache_slot),
         }
         .hash()?;
         let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
@@ -219,7 +241,9 @@ impl MergeProver {
         if ring_program_id.is_some() {
             elements.extend([output_ring_data_hash, ring_hash]);
         } else {
-            elements.push(user_signing_pk_hash);
+            // Bind both halves of the UTXO owner to the registry, so another
+            // nullifier key cannot manufacture a merge for this signing identity.
+            elements.extend([user_signing_pk_hash, nullifier_pubkey]);
         }
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
         let eddsa_owner = match signing_pubkey.curve()? {
@@ -258,6 +282,7 @@ impl MergeProver {
             external_data_hash,
             expiry_unix_ts,
             eddsa_owner,
+            cache_slot,
             ring_program_id,
             output_ring_data_hash,
             tx_viewing_pk,

@@ -7,11 +7,12 @@ use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{UpdateProtocolConfig, UpdateProtocolConfigData},
+    instruction::UpdateProtocolConfigData,
     pda,
     state::{discriminator, ProtocolConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program::instruction::UpdateProtocolConfig;
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::mollusk::{expect_err_exact, mollusk_with_program};
 

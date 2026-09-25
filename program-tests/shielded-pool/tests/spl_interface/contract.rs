@@ -6,10 +6,10 @@ use solana_system_interface::error::SystemError;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::CreateAssetCounter,
     pda,
     state::{discriminator::SPL_ASSET_COUNTER, SplAssetCounter},
 };
+use zolana_program::instruction::CreateAssetCounter;
 use zolana_program_test::Rejection;
 use zolana_test_utils::backend::LiteSvmPoolBackend;
 

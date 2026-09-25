@@ -1,21 +1,18 @@
-#[cfg(feature = "solana")]
-pub mod builders;
 pub mod instruction_data;
 #[cfg(feature = "borsh")]
 use borsh::BorshSerialize;
-#[cfg(feature = "solana")]
-pub use builders::*;
 pub use instruction_data::{
-    deposit_blinding, fetch_tag, validate_input_tree_contexts, validate_interface_transfers,
-    CircuitId, CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind, DepositEntry,
+    deposit_blinding, fetch_tag, settlement_accounts, validate_input_tree_contexts,
+    validate_interface_transfers, CacheAccess, CacheWrite, CircuitId, CreateCacheData,
+    CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind, DepositEntry,
     DepositEntryRef, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
     EncryptedRingDepositDataRef, ExternalDataPreimage, InputUtxo, InterfaceTransfer,
     MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef, MergeTransactIxData,
     MergeTransactIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData,
     ResolvedOutput, RingDepositEntry, RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef,
     SetRingActivationData, TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef,
-    TransactProof, TreeContext, UpdateProtocolConfigData, UpdateRingConfigData, UtxoData,
-    UtxoDataRef, DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
+    TransactProof, TreeContext, UpdateProtocolConfigData, UpdateRingConfigData,
+    DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
 };
 #[cfg(feature = "tree")]
 pub use instruction_data::{

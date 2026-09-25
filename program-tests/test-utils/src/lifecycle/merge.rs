@@ -6,7 +6,8 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient, SpendProof};
-use zolana_interface::{error::ShieldedPoolError, instruction::MergeTransact};
+use zolana_interface::error::ShieldedPoolError;
+use zolana_program::instruction::MergeTransact;
 use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::{Utxo, WalletUtxo};
@@ -152,6 +153,7 @@ impl LifecycleHarness {
             nullifier_key: keypair.nullifier_key.clone(),
             proofs,
             dummy_nullifier_proofs,
+            cache: None,
         }
         .build()?;
 
@@ -171,6 +173,7 @@ impl LifecycleHarness {
             payer: self.merge_vault,
             user_record,
             data,
+            cache: None,
         }
         .instruction();
         let sync_ix = execute_sync_ix(

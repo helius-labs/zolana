@@ -2,7 +2,7 @@
 
 `ZolanaClient` fetches proof data from the indexer by default. Opt into prover fetching with `with_proof_data_source(ProofDataSource::Prover)`. Configure the prover with `PROVER_INDEXER_URL` and, when needed, `PROVER_INDEXER_API_KEY`.
 
-Blocking and async confidential transaction methods then submit locally prepared fields to `/prove/indexed`. The prover resolves paths and root contexts. The SDK binds the returned roots to its original public transcript and verifies the proof before returning transaction data. `IndexerRpcConfig.require_slot` becomes the minimum indexer context slot.
+Blocking and async confidential transaction methods then submit locally prepared fields to `/prove/indexed`. The prover resolves paths and root contexts. The SDK binds the returned roots to its original public transcript and verifies the proof before returning transaction data. `IndexerRpcConfig.require_slot` becomes the minimum indexer context slot. Transactions reading or writing a cache keep fetching paths through the client.
 
 For a merge, construct `IndexedMergePreparation { merge, nullifier_key }.prepare()?`, call `prove_indexed(prepared.request())`, then `prepared.finish(proof)?`. Both owner rails use the same preparation API. The final step verifies the proof and returns merge instruction data.
 

@@ -49,6 +49,7 @@ impl From<&WalletUtxo> for SppProofInputUtxo {
             ring_data_hash: spendable.ring_data_hash,
             tree_id: spendable.tree_id,
             leaf_index: spendable.leaf_index,
+            cache_slot: None,
         }
     }
 }
@@ -66,6 +67,7 @@ impl From<WalletUtxo> for SppProofInputUtxo {
             ring_data_hash: spendable.ring_data_hash,
             tree_id: spendable.tree_id,
             leaf_index: spendable.leaf_index,
+            cache_slot: None,
         }
     }
 }

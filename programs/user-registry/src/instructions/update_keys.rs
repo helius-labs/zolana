@@ -29,6 +29,13 @@ pub fn process_update_keys(
     if state.owner.as_array() != owner.address().as_array() {
         return Err(fail(UserRegistryError::OwnerMismatch));
     }
+    // The nullifier pubkey is wallet-wide and part of the published owner hash,
+    // so rotating it in place would replace the record's shielded identity while
+    // every UTXO already addressed to the old one stays behind. Rejecting before
+    // the proof check leaves the record untouched.
+    if data.nullifier_pubkey != state.nullifier_pubkey {
+        return Err(fail(UserRegistryError::NullifierPubkeyRotation));
+    }
 
     if let Some(owner_p256) = &data.owner_p256 {
         let instructions = tail.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
@@ -36,7 +43,6 @@ pub fn process_update_keys(
     }
 
     state.owner_p256 = data.owner_p256;
-    state.nullifier_pubkey = data.nullifier_pubkey;
     state.viewing_pubkey = data.viewing_pubkey;
     write_record(record, &state)
 }

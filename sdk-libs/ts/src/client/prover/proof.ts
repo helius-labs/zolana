@@ -2,6 +2,7 @@ import { bn254 } from "@noble/curves/bn254.js";
 
 import { wireDecoder } from "../../interface/decode.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../../interface/custom-ring-proof.js";
+import type { ExpectedProvingKey } from "../../interface/proving-keys.js";
 import type { Bytes32, Bytes64, Bytes128, TransactProof } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
@@ -117,6 +118,36 @@ export function parseProof(value: unknown): Proof {
     commitmentPok: parseG1(proof["proofCommitmentPok"], "$.proof.proofCommitmentPok"),
   });
 }
+
+/**
+ * `parseProof`, after checking the proving key the prover reports it used
+ * against `key`, in the order Rust `proof_from_value` checks: a null proof is
+ * the server's, then the reported key, then the proof bytes. A missing or
+ * foreign key fails closed, before any transaction is built.
+ */
+export function parseCheckedProof(value: unknown, key: ExpectedProvingKey): Proof {
+  const proofValue = isRecord(value) && Object.hasOwn(value, "proof") ? value["proof"] : value;
+  if (proofValue !== null) {
+    const reported =
+      isRecord(proofValue) && Object.hasOwn(proofValue, "provingKeySha256")
+        ? proofValue["provingKeySha256"]
+        : undefined;
+    if (reported === undefined) {
+      throw new ClientError("CLIENT_PROVING_KEY_MISSING", { details: { keyName: key.name } });
+    }
+    if (typeof reported !== "string" || !SHA256_HEX.test(reported)) {
+      invalid("$.proof.provingKeySha256");
+    }
+    if (reported !== key.sha256) {
+      throw new ClientError("CLIENT_PROVING_KEY_MISMATCH", {
+        details: { keyName: key.name, expectedSha256: key.sha256, reportedSha256: reported },
+      });
+    }
+  }
+  return parseProof(value);
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
 
 function compressG1(point: Bytes64, name: string): Bytes32 {
   const x = bytesToBigInt(point.subarray(0, 32));

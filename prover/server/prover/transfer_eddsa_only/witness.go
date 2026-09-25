@@ -169,7 +169,8 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
 		return &defaultring.DefaultRingEddsaOnlyCircuit{
-			Shape: shape,
+			CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
+			Shape:        shape,
 			Public: defaultring.DefaultRingEddsaOnlyPublic{
 				Nullifiers:          core.nullifiers,
 				OutputHashes:        core.outputHashes,
@@ -224,7 +225,8 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
 		return &customring.CustomRingEddsaOnlyCircuit{
-			Shape: shape,
+			CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
+			Shape:        shape,
 			Public: customring.CustomRingEddsaOnlyPublic{
 				Nullifiers:                   core.nullifiers,
 				OutputHashes:                 core.outputHashes,

@@ -17,7 +17,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
     input_utxos_from_nullifiers,
-    prover::{Delivery, ProveRequest},
+    prover::{Delivery, ExpectedProvingKey, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
     Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, ProverClient, RingTransferProofResult,
     RingTransferProver, Rpc, SettlementAccountValidation, SpendProof, TransferInputUtxo,
@@ -26,8 +26,7 @@ use zolana_client::{
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
-        tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, OwnerTag, RingAssetDeposit,
-        TransactInterfaceTransferAccounts, TransactIxData, TransactOutput, TransactProof,
+        tag::RING_TRANSACT, CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     MAX_INPUT_TREES, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -35,6 +34,9 @@ use zolana_interface::{
 use zolana_keypair::{
     random_blinding, KeypairError, NullifierKey, P256Pubkey, ShieldedAddress, ShieldedKeypair,
     ViewingKey,
+};
+use zolana_program::instruction::{
+    DepositAsset, DepositBuildError, RingAssetDeposit, TransactInterfaceTransferAccounts,
 };
 use zolana_ring_client::{DepositEncryption, DepositOpening, DepositSeal};
 use zolana_ring_policy::{ListNamespace, Member, VelocityMode, VelocityRow};
@@ -1264,6 +1266,13 @@ impl ProveRequest for TierRequest {
         }
     }
 
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        match self {
+            Self::Base(request) => request.proving_key(),
+            Self::Policy(request) => request.proving_key(),
+        }
+    }
+
     fn delivery(&self) -> Delivery {
         match self {
             Self::Base(request) => request.delivery(),
@@ -1290,6 +1299,23 @@ impl ProveRequest for PolicyRequest {
                 },
             }),
         }
+    }
+
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        use custom_ring_interface::{
+            compressed_policy_verifying_key, delegate_policy_verifying_key,
+        };
+        Ok(match &self.kind {
+            PolicyProofKind::Ordinary => return self.request.proving_key(),
+            PolicyProofKind::Delegate => ExpectedProvingKey {
+                name: "custom_ring_delegate_policy.key".to_string(),
+                sha256: delegate_policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+            },
+            PolicyProofKind::Compressed(_) => ExpectedProvingKey {
+                name: "custom_ring_compressed_policy.key".to_string(),
+                sha256: compressed_policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+            },
+        })
     }
 
     fn delivery(&self) -> Delivery {
@@ -1531,7 +1557,6 @@ impl RingDeposit<'_> {
             view_tag: self.recipient.recipient_bootstrap_view_tag(),
             owner_utxo_hash: owner_utxo_hash(&owner_hash, &blinding)?,
             amount: self.amount,
-            data_hash: None,
             ring_data_hash: NO_RING_DATA_HASH,
             encrypted: RingDepositPlaintext {
                 blinding,
@@ -1560,7 +1585,7 @@ impl RingDeposit<'_> {
                 recipient_ciphertext: &deposit.encrypted.ciphertext,
             }
             .encode();
-            let spp_instruction = zolana_interface::instruction::RingDeposit {
+            let spp_instruction = zolana_program::instruction::RingDeposit {
                 tree: self.tree,
                 depositor: self.payer.pubkey(),
                 ring_program_id: self.ring.program_id(),
@@ -2239,12 +2264,10 @@ impl RingInstructionData<'_> {
 #[cfg(test)]
 mod tests {
     use zolana_client::MerkleContext;
-    use zolana_interface::instruction::{
-        instruction_data::transact::{
-            confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
-        },
-        TransactSolTransferAccounts,
+    use zolana_interface::instruction::instruction_data::transact::{
+        confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
     };
+    use zolana_program::instruction::TransactSolTransferAccounts;
     use zolana_transaction::keys::LocalShieldedKeys;
     use zolana_transaction::Mint;
 

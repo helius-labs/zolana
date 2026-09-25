@@ -255,7 +255,10 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         transaction: SppProofInputs,
         authority: &dyn ProofAuthority,
     ) -> Result<ProveResult, ClientError> {
-        if self.proof_data_source == ProofDataSource::Prover {
+        if self.proof_data_source == ProofDataSource::Prover
+            && transaction.cache_accounts.read.is_none()
+            && transaction.cache_accounts.write.is_none()
+        {
             let proved = self.indexed_transfer(
                 TransferPreparation {
                     transaction,
