@@ -7,8 +7,8 @@ use zolana_hasher::{
 use zolana_interface::{tree_slot::tree_slots_hash_chain, INPUT_TREES};
 
 use super::{
-    decode_resolution, hex_field, invalid, invalid_resolution, serialize_commitment, IndexedProof,
-    ProofResolution, Request, ResolvedProofTree,
+    decode_resolution, hex_field, invalid, invalid_resolution, serialize_address,
+    serialize_commitment, IndexedProof, ProofResolution, Request, ResolvedProofTree,
 };
 use crate::{
     prover::{ExpectedProvingKey, Proof},
@@ -28,6 +28,7 @@ pub struct IndexedPolicyLookup {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexedRegistry {
+    #[serde(serialize_with = "serialize_address")]
     pub ring_program_id: Address,
     #[serde(serialize_with = "serialize_hash")]
     pub root: [u8; 32],
@@ -347,5 +348,24 @@ mod tests {
             assert!(prepared["answers"][0].get("nfPathElements").is_none());
             assert_eq!(prepared["txViewingSk"], "secret");
         }
+    }
+
+    #[test]
+    fn registry_is_sent_in_the_prover_encoding() {
+        let ring_program_id = Address::from([3; 32]);
+        let registry = serde_json::to_value(IndexedRegistry {
+            ring_program_id,
+            root: [9; 32],
+            next_index: 2,
+        })
+        .unwrap();
+        assert_eq!(
+            registry,
+            serde_json::json!({
+                "ringProgramId": ring_program_id.to_string(),
+                "root": Address::from([9; 32]).to_string(),
+                "nextIndex": 2,
+            })
+        );
     }
 }

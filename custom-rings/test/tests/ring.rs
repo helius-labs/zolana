@@ -62,8 +62,8 @@ use zolana_client::{
         RingSpendRecordRequest,
     },
     AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError, ComputeBudgetConfig,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig, ProverClient, Rpc,
-    ShieldedTransaction, SolanaRpc, ZolanaIndexer,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig, ProofDataSource,
+    ProverClient, Rpc, ShieldedTransaction, SolanaRpc, ZolanaIndexer,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -2859,8 +2859,9 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     };
 
     // 2. An owner without an enrolled key is refused before any prover round.
-    let unreachable = ProverClient::new("http://127.0.0.1:1".to_owned());
-    let refused = |to: &ShieldedAddress| -> Result<Member> {
+    let unreachable = ProverClient::new("http://127.0.0.1:1".to_owned())
+        .with_proof_data_source(ProofDataSource::Client);
+    let refused = |to: &ShieldedAddress, prover: &ProverClient| -> Result<Member> {
         let result = CustomRingTransfer::new(CustomRingTransferInput {
             ring,
             sender: member,
@@ -2870,7 +2871,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         .prove(TransferProofEnvironment {
             indexer,
             rpc,
-            prover: &unreachable,
+            prover,
         });
         match result {
             Err(TransferError::KeyRegistration(KeyRegistrationError::UnregisteredOutputKey {
@@ -2885,14 +2886,26 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     let unregistered = env.recipient.keypair.shielded_address()?;
     let unregistered_owner =
         Member::owner_identity(&unregistered.signing_pubkey.owner_proof_input_hash()?)?;
-    assert_eq!(refused(&unregistered)?, unregistered_owner);
+    // The prover's registry lookup refuses the same owner when it fetches proof data.
+    for prover in [&unreachable, &prover] {
+        assert_eq!(refused(&unregistered, prover)?, unregistered_owner);
+    }
 
     // 3. The zero key is refused, only the namespace-owned spend record carries it.
     let zero_key = ShieldedAddress {
         nullifier_pubkey: ZERO_NULLIFIER_PK,
         ..unregistered
     };
-    assert_eq!(refused(&zero_key)?, unregistered_owner);
+    assert_eq!(refused(&zero_key, &unreachable)?, unregistered_owner);
+    // An enrolled owner whose output names another nullifier key is refused by the prover too.
+    let mismatched = ShieldedAddress {
+        nullifier_pubkey: ZERO_NULLIFIER_PK,
+        ..member_address
+    };
+    assert_eq!(
+        refused(&mismatched, &prover)?,
+        Member::owner_identity(&member_address.signing_pubkey.owner_proof_input_hash()?)?
+    );
 
     // 4. A plain deposit never builds, the audited one binds the registry root.
     let root = ring.read_key_registry_root(rpc)?.context("key registry")?;
