@@ -101,6 +101,10 @@ pub trait ProveRequest {
     fn delivery(&self) -> Delivery {
         Delivery::Queued
     }
+
+    fn proof_data_source(&self) -> ProofDataSource {
+        ProofDataSource::Client
+    }
 }
 
 const PROVE_MAX_ATTEMPTS: usize = 3;
@@ -340,7 +344,21 @@ impl ProverClient {
 
     pub fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
         let key = request.proving_key()?;
-        self.send(request.body()?, request.delivery(), &key)
+        let body = request.body()?;
+        let source = request.proof_data_source();
+        self.send_response(ProofRequest {
+            body: &body,
+            delivery: request.delivery(),
+            route: match source {
+                ProofDataSource::Client => ProofRoute::Complete,
+                ProofDataSource::Prover => ProofRoute::Indexed,
+            },
+            key: &key,
+        })
+        .map_err(|error| match source {
+            ProofDataSource::Client => error,
+            ProofDataSource::Prover => indexed_failure(error),
+        })
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -945,7 +963,22 @@ impl AsyncProverClient {
 
     pub async fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
         let key = request.proving_key()?;
-        self.send(request.body()?, request.delivery(), &key).await
+        let body = request.body()?;
+        let source = request.proof_data_source();
+        self.send_response(ProofRequest {
+            body: &body,
+            delivery: request.delivery(),
+            route: match source {
+                ProofDataSource::Client => ProofRoute::Complete,
+                ProofDataSource::Prover => ProofRoute::Indexed,
+            },
+            key: &key,
+        })
+        .await
+        .map_err(|error| match source {
+            ProofDataSource::Client => error,
+            ProofDataSource::Prover => indexed_failure(error),
+        })
     }
 
     pub async fn prove_batch_address_append(

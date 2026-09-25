@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { ClientError } from "../src/client/error.js";
 import type { MerkleProof, NonInclusionProof } from "../src/client/rpc.js";
 import type { CustomRingDepositProofRequest } from "../src/client/prover/types.js";
+import type { IndexedDepositInputs } from "../src/client/ports.js";
 import { hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import {
   nullifierPdaAddress,
@@ -240,6 +241,38 @@ describe("escrowed output keys", () => {
 });
 
 describe("escrowed deposits", () => {
+  it.each(["client", "prover"] as const)(
+    "fetches deposit membership on the %s",
+    async (proofDataSource) => {
+      const ring = await escrowedRing();
+      const membership = vi.fn(ring.client.getRingKeyRegistryEntry);
+      const indexed = vi.fn(async (input: IndexedDepositInputs) => {
+        expect(input.registry.root).toEqual(ring.registry.root);
+        expect(input.deposit.keys.every((key) => key === undefined)).toBe(true);
+        return new Uint8Array(192);
+      });
+      const complete = vi.fn(async (input: CustomRingDepositProofRequest) => {
+        expect(input.keys[0]?.path).toEqual(ring.registry.entry.proof);
+        return new Uint8Array(192);
+      });
+      await buildRingDepositTransaction({
+        client: {
+          ...depositClient({ getAccount: ring.client.getAccount }),
+          proofDataSource,
+          getRingKeyRegistryEntry: membership,
+          proveIndexedRingDeposit: indexed,
+          proveCustomRingDeposit: complete,
+        },
+        ringProgramId: RING,
+        feePayer: addressOf(3),
+        recipient: ring.member.shieldedAddress(),
+        amount: 1n,
+      });
+      expect(membership).toHaveBeenCalledTimes(proofDataSource === "client" ? 1 : 0);
+      expect(complete).toHaveBeenCalledTimes(proofDataSource === "client" ? 1 : 0);
+      expect(indexed).toHaveBeenCalledTimes(proofDataSource === "prover" ? 1 : 0);
+    },
+  );
   function deposit(ciphertext: Uint8Array) {
     return {
       asset: DepositAsset.sol(),

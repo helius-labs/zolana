@@ -210,7 +210,7 @@ impl IndexedPolicyRequest {
     }
 }
 
-struct SecretJson(serde_json::Value);
+pub(super) struct SecretJson(pub(super) serde_json::Value);
 impl std::ops::Deref for SecretJson {
     type Target = serde_json::Value;
     fn deref(&self) -> &Self::Target {

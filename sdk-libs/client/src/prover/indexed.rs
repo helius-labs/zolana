@@ -1,3 +1,5 @@
+mod deposit;
+pub use deposit::IndexedDepositRequest;
 mod policy;
 pub use policy::{IndexedPolicyData, IndexedPolicyLookup, IndexedPolicyRequest, IndexedRegistry};
 pub(crate) mod batch;

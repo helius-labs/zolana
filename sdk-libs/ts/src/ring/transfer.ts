@@ -1,4 +1,4 @@
-import { waitForRingProjection } from "./projection.js";
+import { withProofDataRetry } from "./projection.js";
 import { findSpendCountersMessage, spendCountersDisclosureHash } from "./counters.js";
 import type {
   BlockhashProvider,
@@ -635,23 +635,15 @@ export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
-  if (input.client.proofDataSource !== "prover")
-    return proveRingTransferStatement(
-      input,
-      { kind: "member", client: input.client, keys: input.keys },
-      context,
-    );
-  return waitForRingProjection(
+  return withProofDataRetry(
+    input.client.proofDataSource,
     (attempt) =>
       proveRingTransferStatement(
         input,
         { kind: "member", client: input.client, keys: input.keys },
         attempt,
       ),
-    new Set(["CLIENT_INDEXER_PROOF_DATA_NOT_READY"]),
     context,
-    undefined,
-    context?.timeoutMs ?? 600_000,
   );
 }
 
@@ -660,23 +652,15 @@ export async function proveCustomRingDelegateTransfer(
   input: CustomRingDelegateTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
-  if (input.client.proofDataSource !== "prover")
-    return proveRingTransferStatement(
-      input,
-      { kind: "delegate", client: input.client, spender: input.spender },
-      context,
-    );
-  return waitForRingProjection(
+  return withProofDataRetry(
+    input.client.proofDataSource,
     (attempt) =>
       proveRingTransferStatement(
         input,
         { kind: "delegate", client: input.client, spender: input.spender },
         attempt,
       ),
-    new Set(["CLIENT_INDEXER_PROOF_DATA_NOT_READY"]),
     context,
-    undefined,
-    context?.timeoutMs ?? 600_000,
   );
 }
 

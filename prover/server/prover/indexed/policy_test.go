@@ -175,66 +175,114 @@ func TestPolicyRegistryBindsOwnerKeyAndAnchor(t *testing.T) {
 	request.Registry = &RegistryRequest{Ring: request.Trees[0].Address, Root: rootHash, NextIndex: 2}
 	base["keyEscrow"], base["keyRegistryRoot"] = true, common.ToHex(root)
 	request.Prepared = encoded(t, base)
-	for _, mutation := range []string{"", "owner", "root", "count", "index", "path", "ciphertext", "nullifier"} {
-		t.Run(mutation, func(t *testing.T) {
-			resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
-			if err != nil {
-				t.Fatal(err)
-			}
-			entry := registryEntry{Root: rootHash, Member: member, Next: next, NextIndex: 2, Index: 1, Ciphertext: append([]byte{}, ciphertext...), Proof: append([]Hash{}, path...)}
-			switch mutation {
-			case "owner":
-				entry.Member[31]++
-			case "root":
-				entry.Root[31]++
-			case "count":
-				entry.NextIndex++
-			case "index":
-				entry.Index = 0
-			case "path":
-				entry.Proof[1][31]++
-			case "ciphertext":
-				entry.Ciphertext[0]++
-			}
-			current := request
-			if mutation == "nullifier" {
-				output["nullifierPk"] = common.ToHex(big.NewInt(7))
-				current.Prepared = encoded(t, base)
-				output["nullifierPk"] = common.ToHex(big.NewInt(6))
-			}
-			calls := 0
-			resolver.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				calls++
-				var query struct {
-					Method string
-					Params struct {
-						Member            Hash
-						ExpectedRoot      Hash
-						ExpectedNextIndex uint64
+	for _, circuit := range []common.CircuitType{common.CustomRingPolicyCircuitType, common.CustomRingDepositCircuitType} {
+		for _, mutation := range []string{"", "owner", "root", "count", "index", "path", "ciphertext", "nullifier", "stale"} {
+			t.Run(string(circuit)+"/"+mutation, func(t *testing.T) {
+				resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+				if err != nil {
+					t.Fatal(err)
+				}
+				entry := registryEntry{Root: rootHash, Member: member, Next: next, NextIndex: 2, Index: 1, Ciphertext: append([]byte{}, ciphertext...), Proof: append([]Hash{}, path...)}
+				switch mutation {
+				case "owner":
+					entry.Member[31]++
+				case "root":
+					entry.Root[31]++
+				case "count":
+					entry.NextIndex++
+				case "index":
+					entry.Index = 0
+				case "path":
+					entry.Proof[1][31]++
+				case "ciphertext":
+					entry.Ciphertext[0]++
+				}
+				current := request
+				if mutation == "nullifier" {
+					output["nullifierPk"] = common.ToHex(big.NewInt(7))
+					current.Prepared = encoded(t, base)
+					output["nullifierPk"] = common.ToHex(big.NewInt(6))
+				}
+				if circuit == common.CustomRingDepositCircuitType {
+					var policy map[string]any
+					if err := json.Unmarshal(current.Prepared, &policy); err != nil {
+						t.Fatal(err)
+					}
+					output := policy["outputs"].([]any)[0].(map[string]any)
+					column := func(first any) []any {
+						values := make([]any, 8)
+						for i := range values {
+							values[i] = common.ToHex(new(big.Int))
+						}
+						values[0] = first
+						return values
+					}
+					current.CircuitType = circuit
+					current.Trees = nil
+					current.Inputs = nil
+					current.PublicInputs = []string{"0x0"}
+					current.Prepared = encoded(t, map[string]any{"circuitType": circuit, "publicInputHash": common.ToHex(new(big.Int)), "contextHash": common.ToHex(new(big.Int)), "count": 1, "ownerPkHashes": column(output["ownerPkHash"]), "nullifierPks": column(output["nullifierPk"]), "blindings": column(common.ToHex(big.NewInt(1))), "keyEscrow": true, "keyRegistryRoot": base["keyRegistryRoot"], "ephSk": base["ephSk"], "auditorPk": base["auditorPk"]})
+				}
+				if mutation == "stale" {
+					current.MinContextSlot = 1
+				}
+				calls := 0
+				resolver.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					calls++
+					var query struct {
+						Method string
+						Params struct {
+							Member            Hash
+							ExpectedRoot      Hash
+							ExpectedNextIndex uint64
+						}
+					}
+					if err := json.NewDecoder(req.Body).Decode(&query); err != nil {
+						t.Fatal(err)
+					}
+					if query.Method != "getRingKeyRegistryEntry" || query.Params.Member != member || query.Params.ExpectedRoot != rootHash || query.Params.ExpectedNextIndex != 2 {
+						t.Fatal("registry query mismatch")
+					}
+					return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(bytes.NewReader(encoded(t, map[string]any{"jsonrpc": "2.0", "id": query.Method, "result": entry})))}, nil
+				})
+				resolved, err := resolver.Resolve(context.Background(), encoded(t, current))
+				if (err == nil) != (mutation == "") {
+					t.Fatalf("unexpected registry validation result %v", err)
+				}
+				if mutation == "stale" {
+					if !errors.Is(err, ErrIndexerNotReady) {
+						t.Fatalf("slot lag is not retryable %v", err)
+					}
+					entry.Context.Slot = current.MinContextSlot
+					if _, err := resolver.Resolve(context.Background(), encoded(t, current)); err != nil || calls != 2 {
+						t.Fatalf("fresh membership rejected %v", err)
 					}
 				}
-				if err := json.NewDecoder(req.Body).Decode(&query); err != nil {
-					t.Fatal(err)
+				if mutation == "" && circuit == common.CustomRingDepositCircuitType {
+					var params ring.DepositParameters
+					if err := json.Unmarshal(resolved.Payload, &params); err != nil {
+						t.Fatal(err)
+					}
+					if params.Keys[0] == nil || params.Keys[0].Index != 1 || params.Keys[0].CtHash.Cmp(ctHash) != 0 || calls != 1 || resolved.Resolution.PublicInputHash != common.FeHex(params.PublicInputHash) {
+						t.Fatal("unresolved deposit membership")
+					}
+					for _, key := range params.Keys[1:] {
+						if key != nil {
+							t.Fatal("nonzero deposit padding")
+						}
+					}
 				}
-				if query.Method != "getRingKeyRegistryEntry" || query.Params.Member != member || query.Params.ExpectedRoot != rootHash || query.Params.ExpectedNextIndex != 2 {
-					t.Fatal("registry query mismatch")
+				if mutation == "" && circuit == common.CustomRingPolicyCircuitType {
+					var params ring.PolicyParameters
+					if err := json.Unmarshal(resolved.Payload, &params); err != nil {
+						t.Fatal(err)
+					}
+					if params.Outputs[0].Key == nil || params.Outputs[0].Key.Index != 1 || params.Outputs[0].Key.CtHash.Cmp(ctHash) != 0 || calls != 1 {
+						t.Fatal("unresolved registry key")
+					}
 				}
-				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(bytes.NewReader(encoded(t, map[string]any{"jsonrpc": "2.0", "id": query.Method, "result": entry})))}, nil
 			})
-			resolved, err := resolver.Resolve(context.Background(), encoded(t, current))
-			if (err == nil) != (mutation == "") {
-				t.Fatalf("unexpected registry validation result %v", err)
-			}
-			if mutation == "" {
-				var params ring.PolicyParameters
-				if err := json.Unmarshal(resolved.Payload, &params); err != nil {
-					t.Fatal(err)
-				}
-				if params.Outputs[0].Key == nil || params.Outputs[0].Key.Index != 1 || params.Outputs[0].Key.CtHash.Cmp(ctHash) != 0 || calls != 1 {
-					t.Fatal("unresolved registry key")
-				}
-			}
-		})
+		}
 	}
 }
 

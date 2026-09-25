@@ -850,6 +850,25 @@ export class ZolanaClient
     }
   }
 
+  async proveIndexedRingDeposit(
+    inputs: import("./ports.js").IndexedDepositInputs,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      const minContextSlot = policyContextSlot(
+        inputs.minContextSlot,
+        this.#indexerConfig.requireSlot,
+      );
+      const proof = await this.#prover.proveIndexedDeposit(
+        { ...inputs, ...(minContextSlot === undefined ? {} : { minContextSlot }) },
+        context,
+      );
+      return compressProof(proof).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
   async proveCustomRingCompressedPolicy(
     inputs: CustomRingCompressedPolicyProofRequest,
     context?: RequestContext,

@@ -10,7 +10,13 @@ import {
 import { hashChain, equal as equalBytes } from "../../transaction/internal.js";
 import { ClientError } from "../error.js";
 import { checkedBytes, bytesField } from "../internal.js";
-import type { IndexedPolicyInputs, ProofResolution } from "../ports.js";
+import type {
+  IndexedPolicyInputs,
+  IndexedDepositInputs,
+  IndexedRegistry,
+  ProofResolution,
+} from "../ports.js";
+import type { Bytes32 } from "../../interface/types.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
 const decoder = wireDecoder(invalid);
@@ -102,13 +108,6 @@ export function indexedPolicyEnvelope(
   if ((inputs.registry === undefined) !== (inputs.policy.keyRegistryRoot === undefined))
     throw invalid();
   const registry = inputs.registry;
-  if (
-    registry !== undefined &&
-    (registry.nextIndex < 1n ||
-      registry.nextIndex > 1n << 40n ||
-      !equalBytes(registry.root, inputs.policy.keyRegistryRoot!))
-  )
-    throw invalid();
   const wrapped =
     inputs.circuit === "custom-ring-policy"
       ? prepared
@@ -135,12 +134,41 @@ export function indexedPolicyEnvelope(
     ...(registry === undefined
       ? {}
       : {
-          registry: {
-            ringProgramId: registry.ringProgramId,
-            root: base58(registry.root),
-            nextIndex: Number(registry.nextIndex),
-          },
+          registry: registryEnvelope(registry, inputs.policy.keyRegistryRoot),
         }),
+  };
+}
+
+function registryEnvelope(
+  registry: IndexedRegistry,
+  root?: Bytes32,
+): Readonly<Record<string, unknown>> {
+  if (
+    root === undefined ||
+    typeof registry.nextIndex !== "bigint" ||
+    registry.nextIndex < 1n ||
+    registry.nextIndex > 1n << 40n ||
+    !equalBytes(registry.root, root)
+  )
+    throw invalid();
+  return {
+    ringProgramId: decoder.address(registry.ringProgramId, "ring"),
+    root: base58(registry.root),
+    nextIndex: Number(registry.nextIndex),
+  };
+}
+
+export function indexedDepositEnvelope(
+  inputs: IndexedDepositInputs,
+  serialized: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const slot = policyContextSlot(inputs.minContextSlot);
+  return {
+    circuitType: "custom-ring-deposit",
+    prepared: omit(serialized, ["keys"]),
+    publicInputs: [hex(inputs.deposit.publicInputHash)],
+    registry: registryEnvelope(inputs.registry, inputs.deposit.keyRegistryRoot),
+    ...(slot === undefined ? {} : { minContextSlot: Number(slot) }),
   };
 }
 

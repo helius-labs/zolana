@@ -1,11 +1,18 @@
 import type {
   IndexedPolicyInputs,
+  IndexedDepositInputs,
   IndexedProofInputs,
   IndexedProofResult,
   PreparedTransferInput,
   PreparedMergeInputs,
 } from "../ports.js";
-import { indexedPolicyEnvelope, snapshotPolicyInputs, validatePolicyResolution } from "./policy.js";
+import {
+  indexedPolicyEnvelope,
+  indexedDepositEnvelope,
+  snapshotPolicyInputs,
+  validatePolicyResolution,
+} from "./policy.js";
+import { equal } from "../../transaction/internal.js";
 import {
   decodeIndexedInputs,
   parseProofResolution,
@@ -227,7 +234,7 @@ export class ProverClient {
     const key = provingKeyFor({ circuit: inputs.circuit });
     const url = new URL(this.#url);
     url.pathname += "/indexed";
-    const result = await this.#send(JSON.stringify(body), "queued", context, url);
+    const result = await this.#send(JSON.stringify(body), "inResponse", context, url);
     const proof = parseCheckedProof(result, key);
     const resolution = parseProofResolution(result, inputs.trees);
     validatePolicyResolution(inputs, resolution);
@@ -241,6 +248,21 @@ export class ProverClient {
     const body = JSON.stringify(customRingPolicyProofRequest(inputs));
     const key = provingKeyFor({ circuit: "custom-ring-policy" });
     return parseCheckedProof(await this.#send(body, "queued", context), key);
+  }
+
+  async proveIndexedDeposit(
+    inputs: IndexedDepositInputs,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    const publicInputHash = checkedBytes(inputs.deposit.publicInputHash, 32, "public input hash");
+    const body = indexedDepositEnvelope(inputs, customRingDepositProofRequest(inputs.deposit));
+    const url = new URL(this.#url);
+    url.pathname += "/indexed";
+    const result = await this.#send(JSON.stringify(body), "inResponse", context, url);
+    const resolution = parseProofResolution(result, []);
+    if (!equal(publicInputHash, resolution.publicInputHash))
+      throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
+    return parseCheckedProof(result, provingKeyFor({ circuit: "custom-ring-deposit" }));
   }
 
   async proveCustomRingCompressedPolicy(

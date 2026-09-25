@@ -314,6 +314,12 @@ pub enum DepositError {
     },
 }
 
+impl crate::projection::ProjectionLag for DepositError {
+    fn is_projection_lag(&self) -> bool {
+        matches!(self, Self::Client(ClientError::IndexerProofDataNotReady))
+    }
+}
+
 #[cfg(feature = "solana-rpc")]
 impl From<crate::SubmissionError> for DepositError {
     fn from(error: crate::SubmissionError) -> Self {
@@ -1932,6 +1938,13 @@ impl PreparedRingDeposit {
         &self,
         env: DepositProofEnvironment<'_, I, R>,
     ) -> Result<Instruction, DepositError> {
+        crate::projection::retry_projection_lag(|| self.prove_once(&env))
+    }
+
+    fn prove_once<I: Rpc, R: Rpc>(
+        &self,
+        env: &DepositProofEnvironment<'_, I, R>,
+    ) -> Result<Instruction, DepositError> {
         let Some(disclosure) = &self.disclosure else {
             return self.instruction(None, None);
         };
@@ -1939,6 +1952,9 @@ impl PreparedRingDeposit {
         let escrow = disclosure
             .key_registry
             .map(|registry| {
+                if env.prover.proof_data_source() == ProofDataSource::Prover {
+                    return registry.pending(env.rpc);
+                }
                 registry.openings(
                     ReadEnvironment {
                         indexer: env.indexer,
@@ -1949,7 +1965,14 @@ impl PreparedRingDeposit {
             })
             .transpose()?;
         let statement = disclosure.statement(escrow.as_ref())?;
-        let proof = env.prover.prove(&disclosure.request(&statement))?;
+        let proof = match disclosure.indexed_request(
+            &statement,
+            escrow.as_ref(),
+            env.prover.proof_data_source(),
+        )? {
+            Some(request) => disclosure.verify_deposit(env.prover.prove(&request)?, &statement)?,
+            None => env.prover.prove(&disclosure.request(&statement))?,
+        };
         self.instruction(Some(to_instruction_proof(proof)?), escrow)
     }
 
@@ -1957,10 +1980,20 @@ impl PreparedRingDeposit {
         &self,
         env: AsyncTransferProofEnvironment<'_, I, R>,
     ) -> Result<Instruction, DepositError> {
+        crate::projection::retry_projection_lag_async(|| self.prove_once_async(&env)).await
+    }
+
+    async fn prove_once_async<I: AsyncRpc, R: AsyncRpc>(
+        &self,
+        env: &AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<Instruction, DepositError> {
         let Some(disclosure) = &self.disclosure else {
             return self.instruction(None, None);
         };
         let escrow = match disclosure.key_registry {
+            Some(registry) if env.prover.proof_data_source() == ProofDataSource::Prover => {
+                Some(registry.pending_async(env.rpc).await?)
+            }
             Some(registry) => Some(
                 registry
                     .openings_async(
@@ -1975,7 +2008,16 @@ impl PreparedRingDeposit {
             None => None,
         };
         let statement = disclosure.statement(escrow.as_ref())?;
-        let proof = env.prover.prove(&disclosure.request(&statement)).await?;
+        let proof = match disclosure.indexed_request(
+            &statement,
+            escrow.as_ref(),
+            env.prover.proof_data_source(),
+        )? {
+            Some(request) => {
+                disclosure.verify_deposit(env.prover.prove(&request).await?, &statement)?
+            }
+            None => env.prover.prove(&disclosure.request(&statement)).await?,
+        };
         self.instruction(Some(to_instruction_proof(proof)?), escrow)
     }
 
@@ -2006,6 +2048,42 @@ struct DepositStatement {
 }
 
 impl DepositDisclosure {
+    fn indexed_request(
+        &self,
+        statement: &DepositStatement,
+        escrow: Option<&EscrowedKeys>,
+        source: ProofDataSource,
+    ) -> Result<Option<zolana_client::prover::indexed::IndexedDepositRequest>, ClientError> {
+        if source == ProofDataSource::Client {
+            return Ok(None);
+        }
+        let (Some(escrow), Some(registry)) = (escrow, self.key_registry) else {
+            return Ok(None);
+        };
+        zolana_client::prover::indexed::IndexedDepositRequest::new(
+            &self.request(statement),
+            zolana_client::prover::indexed::IndexedRegistry {
+                ring_program_id: registry.ring.program_id(),
+                root: escrow.root.root,
+                next_index: escrow.root.next_index,
+            },
+        )
+        .map(Some)
+    }
+
+    fn verify_deposit(
+        &self,
+        proof: Proof,
+        statement: &DepositStatement,
+    ) -> Result<Proof, ClientError> {
+        zolana_client::prover::verify_proof_statement(
+            &proof,
+            statement.public_input_hash,
+            &custom_ring_interface::deposit_verifying_key::VERIFYINGKEY,
+        )?;
+        Ok(proof)
+    }
+
     fn statement(&self, escrow: Option<&EscrowedKeys>) -> Result<DepositStatement, DepositError> {
         let key_registry_root = escrow.map(|escrow| escrow.root.root);
         let public_input_hash = custom_ring_interface::DepositPublicInput {

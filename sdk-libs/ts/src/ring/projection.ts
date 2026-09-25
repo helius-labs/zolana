@@ -26,6 +26,22 @@ type ProjectionAttempt<T> =
   | Readonly<{ kind: "ready"; value: T }>
   | Readonly<{ kind: "retry"; error: ClientError }>;
 
+export function withProofDataRetry<T>(
+  source: "client" | "prover" | undefined,
+  prove: (context?: RequestContext) => Promise<T>,
+  context?: RequestContext,
+): Promise<T> {
+  return source === "prover"
+    ? waitForRingProjection(
+        prove,
+        new Set(["CLIENT_INDEXER_PROOF_DATA_NOT_READY"]),
+        context,
+        undefined,
+        context?.timeoutMs ?? 600_000,
+      )
+    : prove(context);
+}
+
 /** Refetches correlated chain and indexer state while a ring projection catches up. */
 export async function waitForRingProjection<T>(
   read: (context: RequestContext) => Promise<T>,

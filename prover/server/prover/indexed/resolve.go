@@ -28,6 +28,10 @@ type treeProofs struct {
 }
 
 func Validate(data []byte) error {
+	if requestCircuit(data) == common.CustomRingDepositCircuitType {
+		_, _, err := decodeDeposit(data)
+		return err
+	}
 	if batchCircuit(data) {
 		_, err := decodeBatch(data)
 		return err
@@ -37,11 +41,9 @@ func Validate(data []byte) error {
 }
 
 func decodeRequest(data []byte) (Request, *preparedProof, error) {
-	var request Request
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if len(data) > 1<<20 || decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF {
-		return request, nil, fmt.Errorf("invalid indexed request")
+	request, err := decodeEnvelope(data)
+	if err != nil {
+		return request, nil, err
 	}
 	if request.Registry != nil && !policyCircuit(request.CircuitType) {
 		return request, nil, fmt.Errorf("unexpected registry request")
@@ -100,6 +102,9 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 }
 
 func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {
+	if requestCircuit(data) == common.CustomRingDepositCircuitType {
+		return r.resolveDeposit(ctx, data)
+	}
 	if batchCircuit(data) {
 		return r.resolveBatch(ctx, data)
 	}
@@ -296,6 +301,26 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		return nil, fmt.Errorf("cannot encode resolved inputs")
 	}
 	return &Resolved{Payload: payload, Resolution: resolution}, nil
+}
+
+func decodeEnvelope(data []byte) (Request, error) {
+	var request Request
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if len(data) > 1<<20 || decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF {
+		return request, fmt.Errorf("invalid indexed request")
+	}
+	return request, nil
+}
+
+func requestCircuit(data []byte) common.CircuitType {
+	var meta struct {
+		Circuit common.CircuitType `json:"circuitType"`
+	}
+	if json.Unmarshal(data, &meta) != nil {
+		return ""
+	}
+	return meta.Circuit
 }
 
 func verifyPath(leaf Hash, path []Hash, index uint64, root Hash) error {

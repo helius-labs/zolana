@@ -3,6 +3,8 @@ import { address, AccountRole, getAddressDecoder, type Signature } from "@solana
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { initializePoseidon, BN254_SCALAR_ORDER } from "../src/hasher/index.js";
 import { customRingDepositProofRequest, ProverClient } from "../src/client/prover/client.js";
+import { ZolanaClient } from "../src/client/client.js";
+import { wireDecoder } from "../src/interface/decode.js";
 import type { CustomRingDepositProofRequest } from "../src/client/prover/types.js";
 import { DepositAsset } from "../src/interface/types.js";
 import type { Bytes16, Bytes32 } from "../src/interface/types.js";
@@ -369,6 +371,44 @@ describe("deposit disclosure", () => {
         code: "CLIENT_PROOF_PARSE",
       });
       expect(fetch).toHaveBeenCalledTimes(2);
+      const deposit = { ...input, keyRegistryRoot: field(17n) };
+      const indexed = {
+        deposit,
+        registry: { ringProgramId: RING, root: field(17n), nextIndex: 2n },
+      };
+      const proof = {
+        ...proofFor({ circuitType: "custom-ring-deposit" }),
+        proofCommitment: ["0x1", "0x2"],
+        proofCommitmentPok: ["0x0", "0x0"],
+      };
+      const indexedFetch = vi.fn<typeof globalThis.fetch>(async () =>
+        Response.json({ ...proof, resolution: { trees: [], publicInputHash: "0x1" } }),
+      );
+      const client = new ZolanaClient({
+        fetch: indexedFetch,
+        indexerConfig: { requireSlot: 42n, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
+      });
+      await expect(client.proveIndexedRingDeposit(indexed)).resolves.toHaveLength(192);
+      expect(String(indexedFetch.mock.lastCall?.[0])).toMatch(/\/prove\/indexed$/u);
+      expect(new Headers(indexedFetch.mock.lastCall?.[1]?.headers).get("X-Sync")).toBe("true");
+      const wire: unknown = JSON.parse(String(indexedFetch.mock.lastCall?.[1]?.body));
+      const decoder = wireDecoder(() => new Error("invalid body"));
+      const body = decoder.record(wire, "body");
+      expect(body["minContextSlot"]).toBe(42);
+      expect(decoder.record(body["prepared"], "prepared")["keys"]).toBeUndefined();
+      indexedFetch.mockResolvedValueOnce(
+        Response.json({ ...proof, resolution: { trees: [], publicInputHash: "0x2" } }),
+      );
+      await expect(client.proveIndexedRingDeposit(indexed)).rejects.toMatchObject({
+        code: "CLIENT_PROOF_PARSE",
+      });
+      await expect(
+        client.proveIndexedRingDeposit({
+          ...indexed,
+          registry: { ...indexed.registry, root: field(18n) },
+        }),
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
+      expect(indexedFetch).toHaveBeenCalledTimes(2);
     } finally {
       input.ephemeralSecret.fill(0);
       ephemeral.destroy();

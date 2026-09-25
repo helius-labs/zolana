@@ -262,6 +262,26 @@ export interface IndexedPolicyLookup {
   readonly nullifier: Bytes32 | null;
 }
 
+export interface IndexedRegistry {
+  readonly ringProgramId: Address;
+  readonly root: Bytes32;
+  readonly nextIndex: bigint;
+}
+
+export interface IndexedDepositInputs {
+  readonly deposit: CustomRingDepositProofRequest;
+  readonly registry: IndexedRegistry;
+  readonly minContextSlot?: bigint;
+}
+
+export interface IndexedDepositClient {
+  readonly proofDataSource?: "client" | "prover";
+  proveIndexedRingDeposit?(
+    inputs: IndexedDepositInputs,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+}
+
 export interface IndexedPolicyInputs {
   readonly minContextSlot?: bigint;
   readonly circuit:
@@ -273,7 +293,7 @@ export interface IndexedPolicyInputs {
   readonly trees: readonly ResolvedProofTree[];
   readonly lookups: readonly IndexedPolicyLookup[];
   readonly publicInputs: readonly Bytes32[];
-  readonly registry?: Readonly<{ ringProgramId: Address; root: Bytes32; nextIndex: bigint }>;
+  readonly registry?: IndexedRegistry;
 }
 
 export interface IndexedPolicyClient {

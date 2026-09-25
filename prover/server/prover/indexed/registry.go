@@ -36,6 +36,21 @@ func prepareRegistry(base map[string]json.RawMessage, request *RegistryRequest) 
 	if !enabled {
 		return nil
 	}
+	if err := validateRegistryAnchor(base, request); err != nil {
+		return err
+	}
+	// 1. Registry placeholders remain internal until membership is verified.
+	for _, output := range outputs {
+		output["key"] = registryPlaceholder()
+	}
+	base["outputs"], _ = json.Marshal(outputs)
+	return nil
+}
+
+func validateRegistryAnchor(base map[string]json.RawMessage, request *RegistryRequest) error {
+	if request == nil {
+		return fmt.Errorf("missing registry anchor")
+	}
 	if _, err := decodeHash(request.Ring); err != nil {
 		return err
 	}
@@ -51,17 +66,17 @@ func prepareRegistry(base map[string]json.RawMessage, request *RegistryRequest) 
 	if err != nil || root.Cmp(expected) != 0 {
 		return fmt.Errorf("registry root mismatch")
 	}
+	return nil
+}
+
+func registryPlaceholder() json.RawMessage {
 	zero := common.ToHex(new(big.Int))
 	path := make([]string, registry.Height)
 	for i := range path {
 		path[i] = zero
 	}
-	// 1. Registry placeholders remain internal until membership is verified.
-	for _, output := range outputs {
-		output["key"], _ = json.Marshal(map[string]any{"next": zero, "ctHash": zero, "index": 0, "path": path})
-	}
-	base["outputs"], _ = json.Marshal(outputs)
-	return nil
+	value, _ := json.Marshal(map[string]any{"next": zero, "ctHash": zero, "index": 0, "path": path})
+	return value
 }
 
 type registryEntry struct {
@@ -81,7 +96,6 @@ func (r *Resolver) resolvePolicyRegistry(ctx context.Context, request Request, p
 	if request.Registry == nil {
 		return nil
 	}
-	anchor := request.Registry
 	keys := make(map[Hash]*ring.RegistryKey)
 	for i := range policy.base.Outputs {
 		output := &policy.base.Outputs[i]
@@ -96,47 +110,59 @@ func (r *Resolver) resolvePolicyRegistry(ctx context.Context, request Request, p
 		if owner.Cmp(policy.base.NamespaceOwnerHash) == 0 {
 			continue
 		}
-		member, err := hashField(output.OwnerPkHash)
-		if err != nil || output.OwnerPkHash.Sign() == 0 {
-			return fmt.Errorf("invalid registry owner")
-		}
-		// 2. The membership leaf binds both the owner and its expected nullifier key.
-		if known := keys[member]; known != nil {
-			if err := verifyRegistryKey(member, output.NullifierPk, known, anchor.Root); err != nil {
-				return err
-			}
-			output.Key = known
-			continue
-		}
-		payload, err := r.rpc(ctx, "getRingKeyRegistryEntry", map[string]any{"ringProgramId": anchor.Ring, "member": member, "expectedRoot": anchor.Root, "expectedNextIndex": anchor.NextIndex})
+		key, err := r.registryKey(ctx, request, keys, output.OwnerPkHash, output.NullifierPk)
 		if err != nil {
 			return err
 		}
-		var entry registryEntry
-		if json.Unmarshal(payload, &entry) != nil || entry.Context.Slot < request.MinContextSlot || entry.Root != anchor.Root || entry.Member != member || entry.NextIndex != anchor.NextIndex || entry.Index == 0 || entry.Index >= entry.NextIndex || len(entry.Proof) != registry.Height || len(entry.Ciphertext) != 32 {
-			return fmt.Errorf("invalid registry membership")
-		}
-		next, err := entry.Next.field()
-		if err != nil {
-			return err
-		}
-		ciphertext, err := transcript.HashFields([]*big.Int{new(big.Int).SetBytes(entry.Ciphertext[:31]), new(big.Int).SetBytes(entry.Ciphertext[31:])})
-		if err != nil {
-			return err
-		}
-		key := &ring.RegistryKey{Next: next, CtHash: ciphertext, Index: entry.Index}
-		for level, sibling := range entry.Proof {
-			key.Path[level], err = sibling.field()
-			if err != nil {
-				return err
-			}
-		}
-		if err := verifyRegistryKey(member, output.NullifierPk, key, anchor.Root); err != nil {
-			return err
-		}
-		keys[member], output.Key = key, key
+		output.Key = key
 	}
 	return nil
+}
+
+func (r *Resolver) registryKey(ctx context.Context, request Request, keys map[Hash]*ring.RegistryKey, owner, nullifier *big.Int) (*ring.RegistryKey, error) {
+	anchor := request.Registry
+	member, err := hashField(owner)
+	if err != nil || owner.Sign() == 0 {
+		return nil, fmt.Errorf("invalid registry owner")
+	}
+	// 2. The membership leaf binds both the owner and its expected nullifier key.
+	if known := keys[member]; known != nil {
+		if err := verifyRegistryKey(member, nullifier, known, anchor.Root); err != nil {
+			return nil, err
+		}
+		return known, nil
+	}
+	payload, err := r.rpc(ctx, "getRingKeyRegistryEntry", map[string]any{"ringProgramId": anchor.Ring, "member": member, "expectedRoot": anchor.Root, "expectedNextIndex": anchor.NextIndex})
+	if err != nil {
+		return nil, err
+	}
+	var entry registryEntry
+	if json.Unmarshal(payload, &entry) != nil || entry.Root != anchor.Root || entry.Member != member || entry.NextIndex != anchor.NextIndex || entry.Index == 0 || entry.Index >= entry.NextIndex || len(entry.Proof) != registry.Height || len(entry.Ciphertext) != 32 {
+		return nil, fmt.Errorf("invalid registry membership")
+	}
+	next, err := entry.Next.field()
+	if err != nil {
+		return nil, err
+	}
+	ciphertext, err := transcript.HashFields([]*big.Int{new(big.Int).SetBytes(entry.Ciphertext[:31]), new(big.Int).SetBytes(entry.Ciphertext[31:])})
+	if err != nil {
+		return nil, err
+	}
+	key := &ring.RegistryKey{Next: next, CtHash: ciphertext, Index: entry.Index}
+	for level, sibling := range entry.Proof {
+		key.Path[level], err = sibling.field()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := verifyRegistryKey(member, nullifier, key, anchor.Root); err != nil {
+		return nil, err
+	}
+	if entry.Context.Slot < request.MinContextSlot {
+		return nil, ErrIndexerNotReady
+	}
+	keys[member] = key
+	return key, nil
 }
 
 func verifyRegistryKey(member Hash, nullifier *big.Int, key *ring.RegistryKey, root Hash) error {
