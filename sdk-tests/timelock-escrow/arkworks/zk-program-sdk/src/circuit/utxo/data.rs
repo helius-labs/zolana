@@ -2,7 +2,7 @@ use core::ops::{Deref, DerefMut};
 
 use borsh::BorshSerialize;
 
-use super::{utxo_domain, Balance, Ledger, Output, OutputTokenUtxo, SpentInput, Utxo};
+use super::{utxo_domain, Balance, HasLedger, Ledger, Output, OutputTokenUtxo, SpentInput, Utxo};
 use crate::{
     circuit::{zero, Assert, Asset, CircuitVar, Owner, PublicTransfer},
     conversion::FromCircuit,
@@ -28,23 +28,16 @@ impl DataHash for CircuitVar {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DataLifecycle {
-    Init,
-    Mut,
-    Burn,
-}
-
 #[must_use]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct DataUtxo<S> {
     ledger: Ledger,
     state: S,
     spent: Option<SpentInput>,
-    lifecycle: DataLifecycle,
+    burn: bool,
 }
 
-impl<S> Balance for DataUtxo<S> {
+impl<S> HasLedger for DataUtxo<S> {
     fn ledger(&self) -> &Ledger {
         &self.ledger
     }
@@ -54,13 +47,15 @@ impl<S> Balance for DataUtxo<S> {
     }
 }
 
+impl<S> Balance for DataUtxo<S> {}
+
 impl<S: Default> DataUtxo<S> {
     pub fn new_init(owner: &Owner) -> Self {
         Self {
             ledger: Ledger::new(owner.clone(), Asset::sol(), zero()),
             state: S::default(),
             spent: None,
-            lifecycle: DataLifecycle::Init,
+            burn: false,
         }
     }
 
@@ -69,21 +64,21 @@ impl<S: Default> DataUtxo<S> {
             ledger: Ledger::new(output.owner, output.asset, output.amount),
             state: S::default(),
             spent: None,
-            lifecycle: DataLifecycle::Init,
+            burn: false,
         }
     }
 }
 
 impl<S: DataHash + Clone> DataUtxo<S> {
     pub fn new_mut(input: &Utxo, state: &S) -> Result<Self, RelationError> {
-        Self::spend(input, state, DataLifecycle::Mut)
+        Self::spend(input, state, false)
     }
 
     pub fn new_burn(input: &Utxo, state: &S) -> Result<Self, RelationError> {
-        Self::spend(input, state, DataLifecycle::Burn)
+        Self::spend(input, state, true)
     }
 
-    fn spend(input: &Utxo, state: &S, lifecycle: DataLifecycle) -> Result<Self, RelationError> {
+    fn spend(input: &Utxo, state: &S, burn: bool) -> Result<Self, RelationError> {
         input
             .domain
             .assert_equal(&utxo_domain(), "the utxo is not a spendable utxo")?;
@@ -100,7 +95,7 @@ impl<S: DataHash + Clone> DataUtxo<S> {
             ),
             state: state.clone(),
             spent: Some(input.spent(input.hash()?)),
-            lifecycle,
+            burn,
         })
     }
 }
@@ -117,16 +112,15 @@ impl<S> DataUtxo<S> {
 
 impl<S: DataHash> DataUtxo<S> {
     pub(crate) fn output(&self) -> Result<Option<Output>, RelationError> {
-        if self.lifecycle == DataLifecycle::Burn {
-            self.ledger
-                .balance()
+        if self.burn {
+            self.balance()
                 .assert_equal(&zero(), "a burned data utxo leaves a balance")?;
             return Ok(None);
         }
         Ok(Some(Output {
-            owner: self.ledger.owner(),
-            asset: self.ledger.asset(),
-            amount: self.ledger.balance(),
+            owner: self.owner(),
+            asset: self.asset(),
+            amount: self.balance(),
             data_hash: self.state.hash()?,
             data: None,
         }))

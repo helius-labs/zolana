@@ -7,7 +7,7 @@ use crate::{
     RelationError,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Ledger {
     owner: Owner,
     asset: Asset,
@@ -16,7 +16,7 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    pub(crate) fn new(owner: Owner, asset: Asset, balance: CircuitVar) -> Self {
+    pub(super) fn new(owner: Owner, asset: Asset, balance: CircuitVar) -> Self {
         Self {
             owner,
             asset,
@@ -25,74 +25,8 @@ impl Ledger {
         }
     }
 
-    pub(crate) fn public_transfers(&self) -> &[PublicTransfer] {
+    pub(super) fn public_transfers(&self) -> &[PublicTransfer] {
         &self.public_transfers
-    }
-
-    pub fn owner(&self) -> Owner {
-        self.owner.clone()
-    }
-
-    pub fn asset(&self) -> Asset {
-        self.asset.clone()
-    }
-
-    pub fn balance(&self) -> CircuitVar {
-        self.balance.clone()
-    }
-
-    pub fn transfer(
-        &mut self,
-        recipient: &Owner,
-        amount: &CircuitVar,
-    ) -> Result<OutputTokenUtxo, RelationError> {
-        self.balance = subtract_within(&self.balance, amount, "the transfer exceeds the balance")?;
-        Ok(self.output(recipient, amount.clone()))
-    }
-
-    pub fn transfer_all(&mut self, recipient: &Owner) -> OutputTokenUtxo {
-        let amount = core::mem::replace(&mut self.balance, zero());
-        self.output(recipient, amount)
-    }
-
-    pub fn receive(&mut self, output: OutputTokenUtxo) -> Result<(), RelationError> {
-        output.asset.assert_same_unless(
-            &self.asset,
-            &Boolean::FALSE,
-            "the received output holds another asset",
-        )?;
-        self.balance += &output.amount;
-        Ok(())
-    }
-
-    pub fn deposit(
-        &mut self,
-        amount: &CircuitVar,
-        source: &Bytes<32>,
-    ) -> Result<(), RelationError> {
-        refuse_zero(amount)?;
-        self.balance += amount;
-        self.record_public_transfer(true, amount, source);
-        Ok(())
-    }
-
-    pub fn withdraw(
-        &mut self,
-        amount: &CircuitVar,
-        destination: &Bytes<32>,
-    ) -> Result<(), RelationError> {
-        refuse_zero(amount)?;
-        self.balance =
-            subtract_within(&self.balance, amount, "the withdrawal exceeds the balance")?;
-        self.record_public_transfer(false, amount, destination);
-        Ok(())
-    }
-
-    pub fn withdraw_all(&mut self, destination: &Bytes<32>) -> Result<CircuitVar, RelationError> {
-        refuse_zero(&self.balance)?;
-        let amount = core::mem::replace(&mut self.balance, zero());
-        self.record_public_transfer(false, &amount, destination);
-        Ok(amount)
     }
 
     fn output(&self, recipient: &Owner, amount: CircuitVar) -> OutputTokenUtxo {
@@ -127,21 +61,23 @@ fn refuse_zero(amount: &CircuitVar) -> Result<(), RelationError> {
     }
 }
 
-pub trait Balance {
+pub trait HasLedger {
     fn ledger(&self) -> &Ledger;
 
     fn ledger_mut(&mut self) -> &mut Ledger;
+}
 
+pub trait Balance: HasLedger {
     fn owner(&self) -> Owner {
-        self.ledger().owner()
+        self.ledger().owner.clone()
     }
 
     fn asset(&self) -> Asset {
-        self.ledger().asset()
+        self.ledger().asset.clone()
     }
 
     fn balance(&self) -> CircuitVar {
-        self.ledger().balance()
+        self.ledger().balance.clone()
     }
 
     fn transfer(
@@ -149,19 +85,35 @@ pub trait Balance {
         recipient: &Owner,
         amount: &CircuitVar,
     ) -> Result<OutputTokenUtxo, RelationError> {
-        self.ledger_mut().transfer(recipient, amount)
+        let ledger = self.ledger_mut();
+        ledger.balance =
+            subtract_within(&ledger.balance, amount, "the transfer exceeds the balance")?;
+        Ok(ledger.output(recipient, amount.clone()))
     }
 
     fn transfer_all(&mut self, recipient: &Owner) -> OutputTokenUtxo {
-        self.ledger_mut().transfer_all(recipient)
+        let ledger = self.ledger_mut();
+        let amount = core::mem::replace(&mut ledger.balance, zero());
+        ledger.output(recipient, amount)
     }
 
     fn receive(&mut self, output: OutputTokenUtxo) -> Result<(), RelationError> {
-        self.ledger_mut().receive(output)
+        let ledger = self.ledger_mut();
+        output.asset.assert_same_unless(
+            &ledger.asset,
+            &Boolean::FALSE,
+            "the received output holds another asset",
+        )?;
+        ledger.balance += &output.amount;
+        Ok(())
     }
 
     fn deposit(&mut self, amount: &CircuitVar, source: &Bytes<32>) -> Result<(), RelationError> {
-        self.ledger_mut().deposit(amount, source)
+        refuse_zero(amount)?;
+        let ledger = self.ledger_mut();
+        ledger.balance += amount;
+        ledger.record_public_transfer(true, amount, source);
+        Ok(())
     }
 
     fn withdraw(
@@ -169,10 +121,22 @@ pub trait Balance {
         amount: &CircuitVar,
         destination: &Bytes<32>,
     ) -> Result<(), RelationError> {
-        self.ledger_mut().withdraw(amount, destination)
+        refuse_zero(amount)?;
+        let ledger = self.ledger_mut();
+        ledger.balance = subtract_within(
+            &ledger.balance,
+            amount,
+            "the withdrawal exceeds the balance",
+        )?;
+        ledger.record_public_transfer(false, amount, destination);
+        Ok(())
     }
 
     fn withdraw_all(&mut self, destination: &Bytes<32>) -> Result<CircuitVar, RelationError> {
-        self.ledger_mut().withdraw_all(destination)
+        let ledger = self.ledger_mut();
+        refuse_zero(&ledger.balance)?;
+        let amount = core::mem::replace(&mut ledger.balance, zero());
+        ledger.record_public_transfer(false, &amount, destination);
+        Ok(amount)
     }
 }

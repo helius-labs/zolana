@@ -1,7 +1,7 @@
 use ark_r1cs_std::{eq::EqGadget, select::CondSelectGadget};
 use zolana_interface::DUMMY_DOMAIN;
 
-use super::{utxo_domain, Balance, Ledger, Output, SpentInput, Utxo};
+use super::{utxo_domain, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
 use crate::{
     circuit::{
         constant, var::assert_equal_unless, zero, Assert, Asset, CircuitVar, Owner, PublicTransfer,
@@ -9,19 +9,12 @@ use crate::{
     RelationError,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TokenLifecycle {
-    Init,
-    Mut,
-    Burn,
-}
-
 #[must_use]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct TokenUtxo<const N: usize> {
     ledger: Ledger,
     spent_inputs: Vec<SpentInput>,
-    lifecycle: TokenLifecycle,
+    burn: bool,
 }
 
 impl TokenUtxo<0> {
@@ -29,12 +22,12 @@ impl TokenUtxo<0> {
         Self {
             ledger: Ledger::new(owner.clone(), asset.clone(), zero()),
             spent_inputs: Vec::new(),
-            lifecycle: TokenLifecycle::Init,
+            burn: false,
         }
     }
 }
 
-impl<const N: usize> Balance for TokenUtxo<N> {
+impl<const N: usize> HasLedger for TokenUtxo<N> {
     fn ledger(&self) -> &Ledger {
         &self.ledger
     }
@@ -44,13 +37,15 @@ impl<const N: usize> Balance for TokenUtxo<N> {
     }
 }
 
+impl<const N: usize> Balance for TokenUtxo<N> {}
+
 impl<const N: usize> TokenUtxo<N> {
     pub fn new_mut(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
-        Self::spend(inputs, TokenLifecycle::Mut)
+        Self::spend(inputs, false)
     }
 
     pub fn new_burn(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
-        Self::spend(inputs, TokenLifecycle::Burn)
+        Self::spend(inputs, true)
     }
 
     pub(crate) fn spent_inputs(&self) -> &[SpentInput] {
@@ -62,24 +57,21 @@ impl<const N: usize> TokenUtxo<N> {
     }
 
     pub(crate) fn change(&self) -> Result<Option<Output>, RelationError> {
-        match self.lifecycle {
-            TokenLifecycle::Init | TokenLifecycle::Mut => Ok(Some(Output {
-                owner: self.ledger.owner(),
-                asset: self.ledger.asset(),
-                amount: self.ledger.balance(),
-                data_hash: zero(),
-                data: None,
-            })),
-            TokenLifecycle::Burn => {
-                self.ledger
-                    .balance()
-                    .assert_equal(&zero(), "a burned token utxo leaves a balance")?;
-                Ok(None)
-            }
+        if self.burn {
+            self.balance()
+                .assert_equal(&zero(), "a burned token utxo leaves a balance")?;
+            return Ok(None);
         }
+        Ok(Some(Output {
+            owner: self.owner(),
+            asset: self.asset(),
+            amount: self.balance(),
+            data_hash: zero(),
+            data: None,
+        }))
     }
 
-    fn spend(inputs: &[Utxo; N], lifecycle: TokenLifecycle) -> Result<Self, RelationError> {
+    fn spend(inputs: &[Utxo; N], burn: bool) -> Result<Self, RelationError> {
         let first = inputs.first().ok_or(RelationError::Violated(
             "a token utxo spends at least one input",
         ))?;
@@ -124,7 +116,7 @@ impl<const N: usize> TokenUtxo<N> {
         Ok(Self {
             ledger: Ledger::new(first.owner.clone(), first.asset.clone(), balance),
             spent_inputs,
-            lifecycle,
+            burn,
         })
     }
 }

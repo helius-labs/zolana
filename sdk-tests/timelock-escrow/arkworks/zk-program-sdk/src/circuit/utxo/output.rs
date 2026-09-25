@@ -10,7 +10,7 @@ pub(crate) struct Output {
 }
 
 #[must_use]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct OutputTokenUtxo {
     pub(super) owner: Owner,
     pub(super) asset: Asset,

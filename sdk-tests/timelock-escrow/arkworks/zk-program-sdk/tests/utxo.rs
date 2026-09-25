@@ -100,7 +100,7 @@ fn a_data_utxo_follows_its_lifecycle() {
     let mut mutated = DataUtxo::new_mut(&spent, &counter(9)).unwrap();
     mutated.value = constant(10u64);
     let mut burned = DataUtxo::new_burn(&spent, &counter(9)).unwrap();
-    let overpaid = error(burned.clone().transfer(&owner(40), &constant(8u64)));
+    let overpaid = error(burned.transfer(&owner(40), &constant(8u64)));
     let payout = burned.transfer(&owner(40), &constant(7u64)).unwrap();
     let paid_out = burned.transfer_all(&owner(41));
 
@@ -162,10 +162,7 @@ fn a_data_utxo_moves_value_in_every_lifecycle() {
         .unwrap();
     vault.deposit(&constant(5u64), &account).unwrap();
     let mut sol = DataUtxo::<Counter>::new_init(&owner(12));
-    let other_asset = error(
-        sol.clone()
-            .receive(tokens.transfer(&owner(12), &constant(1u64)).unwrap()),
-    );
+    let other_asset = error(sol.receive(tokens.transfer(&owner(12), &constant(1u64)).unwrap()));
     let zero_deposit = error(sol.deposit(&constant(0u64), &account));
     let empty_withdrawal = error(sol.withdraw_all(&account));
     let mut burned = DataUtxo::new_burn(&spent, &counter(9)).unwrap();
@@ -207,22 +204,22 @@ fn a_token_utxo_balances_transfers_deposits_and_withdrawals() {
     let account = circuit::Bytes::constant(&[6u8; 32]);
     token.deposit(&constant(10u64), &account).unwrap();
     token.withdraw(&constant(5u64), &account).unwrap();
-    let overspent = error(token.clone().transfer(&owner(30), &constant(156u64)));
-    let overdrawn = error(token.clone().withdraw(&constant(156u64), &account));
-    let mut swept = token.clone();
-    let everything = swept.transfer_all(&owner(31));
+    let overspent = error(token.transfer(&owner(30), &constant(156u64)));
+    let overdrawn = error(token.withdraw(&constant(156u64), &account));
+    let balance = to_bytes(&token.balance()).unwrap();
+    let everything = token.transfer_all(&owner(31));
     let mut deposit_only = TokenUtxo::new_init(&owner(11), &Asset::constant(&MINT.asset));
     deposit_only.deposit(&constant(25u64), &account).unwrap();
 
     assert_eq!(
         (
-            to_bytes(&token.balance()).unwrap(),
+            balance,
             to_bytes(&token.owner().hash().unwrap()).unwrap(),
             to_bytes(&transfer.amount()).unwrap(),
             to_bytes(&deposit_only.balance()).unwrap(),
             (
                 to_bytes(&everything.amount()).unwrap(),
-                to_bytes(&swept.balance()).unwrap(),
+                to_bytes(&token.balance()).unwrap(),
             ),
             overspent,
             overdrawn,
