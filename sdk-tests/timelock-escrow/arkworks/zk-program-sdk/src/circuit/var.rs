@@ -1,3 +1,5 @@
+use std::cell::OnceCell;
+
 use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, BigInteger, One, PrimeField, Zero};
 use ark_r1cs_std::{
@@ -26,6 +28,17 @@ pub fn zero() -> CircuitVar {
 
 pub fn value(var: &CircuitVar) -> Result<Field, RelationError> {
     Ok(var.value()?)
+}
+
+pub(crate) fn cached(
+    cell: &OnceCell<CircuitVar>,
+    compute: impl FnOnce() -> Result<CircuitVar, RelationError>,
+) -> Result<CircuitVar, RelationError> {
+    if let Some(value) = cell.get() {
+        return Ok(value.clone());
+    }
+    let value = compute()?;
+    Ok(cell.get_or_init(|| value).clone())
 }
 
 pub trait Assert {

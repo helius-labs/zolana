@@ -78,23 +78,23 @@ fn the_native_run_records_what_a_circuit_var_cannot_hold() {
     let input = spendable(&owner, Mint::SOL, 300, 0);
     let dummy = WalletUtxo::dummy(3).unwrap();
     let allocator = Allocator::native();
-    let owner_hash = address.instantiate(&allocator).unwrap();
-    let asset_hash = Mint::SOL.instantiate(&allocator).unwrap();
+    let owner = address.instantiate(&allocator).unwrap();
+    let asset = Mint::SOL.instantiate(&allocator).unwrap();
     let utxo_hash = input.instantiate(&allocator).unwrap().hash().unwrap();
     let dummy_domain = dummy.instantiate(&allocator).unwrap().domain;
     let records = allocator.into_records();
     let r1cs_records = {
         let allocator = Allocator::R1cs(ConstraintSystem::new_ref());
-        let _owner_hash = address.instantiate(&allocator).unwrap();
+        let _owner = address.instantiate(&allocator).unwrap();
         allocator.into_records()
     };
     let sol_asset = hash_bytes(Mint::SOL.asset.as_array()).unwrap();
 
     assert_eq!(
         (
-            to_bytes(&owner_hash).unwrap(),
+            to_bytes(&owner.hash().unwrap()).unwrap(),
             records.owner(&address.owner_hash().unwrap()).copied(),
-            to_bytes(&asset_hash).unwrap(),
+            to_bytes(&asset.hash().unwrap()).unwrap(),
             records.mint(&sol_asset).copied(),
             to_bytes(&utxo_hash).unwrap(),
             records

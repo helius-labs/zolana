@@ -1,3 +1,6 @@
+mod asset;
+mod bytes;
+mod owner;
 mod transaction;
 mod utxo;
 mod var;

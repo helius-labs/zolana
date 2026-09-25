@@ -7,13 +7,13 @@ use timelock_escrow_sdk::escrow_authority;
 use zk_program_sdk::{
     circuit::{value, Circuit, ConstraintSystem},
     conversion::{Allocator, ProofInput},
-    ArkworksCircuit, RelationError, TxContext, ZkProgram,
+    ArkworksCircuit, Owner, RelationError, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_keypair::ShieldedKeypair;
 
 mod shared;
-use shared::{escrow_utxo, keypair, token_input, TREE_ID};
+use shared::{escrow_utxo, keypair, token_input, token_inputs, TREE_ID};
 
 fn native<P>(proof_inputs: P) -> Option<String>
 where
@@ -68,8 +68,7 @@ fn escrow_names_every_broken_rule() {
     let honest = Escrow {
         private: EscrowPrivateInputs {
             tx_context: TxContext::new(first.nullifier, TREE_ID, address),
-            token_utxos_asset_a: [first, token_input(&creator, 400, 1)],
-            creator: address,
+            token_utxos_asset_a: token_inputs([first, token_input(&creator, 400, 1)]),
             unlock: 1_700_000_000,
             amount: 250,
         },
@@ -93,7 +92,6 @@ fn escrow_names_every_broken_rule() {
     other_first_nullifier.private.tx_context = TxContext::new([7u8; 32], TREE_ID, address);
     let stranger = keypair(6);
     let mut unnamed_change_owner = honest.clone();
-    unnamed_change_owner.private.creator = stranger.shielded_address().expect("stranger");
     unnamed_change_owner.private.tx_context.sender = stranger.shielded_address().expect("stranger");
     let mut overspend = honest.clone();
     overspend.private.amount = 1_100;
@@ -118,7 +116,7 @@ fn escrow_names_every_broken_rule() {
         (
             Some("the escrow locks nothing".to_string()),
             Some("the inputs belong to different owners".to_string()),
-            Some("the first nullifier is not slot 0's".to_string()),
+            Some("the first nullifier is not the first input's".to_string()),
             Some("output slot 0 has an owner no input names".to_string()),
             Some("output slot 0 has an amount that does not fit in u64".to_string()),
             Some("the keys are not the transaction's sender".to_string()),
@@ -141,11 +139,9 @@ fn withdraw_names_every_broken_rule() {
             tx_context: TxContext::new(escrow.nullifier, TREE_ID, address),
             escrow,
             terms: EscrowTerms {
-                creator: address.owner_hash().expect("creator owner hash"),
+                creator: Owner::try_from(&address).expect("creator owner"),
                 unlock: 1_700_000_000,
             },
-            creator: address,
-            creator_nullifier_pk: address.nullifier_pubkey,
         },
         public: WithdrawPublicInputs {
             unlock: 1_700_000_000,

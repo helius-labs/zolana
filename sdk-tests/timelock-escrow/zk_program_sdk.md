@@ -977,3 +977,86 @@ Todos:
    Verify: zk-program-sdk tests, including the hash cross-check. Done.
 4. Example crate: `WalletUtxo` inputs and `escrow_input`. Verify: example tests. Done.
 5. README, fmt, clippy on every feature set, and `cargo check --workspace --all-targets`. Done.
+
+## 15. Owner and asset preimages
+
+2026-09-25. Implement [`arkworks/docs/circuit_preimage_types.md`](arkworks/docs/circuit_preimage_types.md):
+circuits always work on owner and asset preimages and hash them in the circuit. Todos one at a
+time, each tested before the next.
+
+Decisions:
+
+- Always preimages, no hash-only variant.
+- The SPP proof checks dummies. A dummy slot contributes 0 to the input chain and skips every
+  constraint except hashing, so a dummy preimage is all zeros. Only the owner tag check is
+  gated on the slot being real: zero bytes already pass the byte range checks.
+- `Owner`, `OwnerKey` and `Asset` compute their hashes once, lazily, and reuse them.
+- `TokenUtxo<N>` keeps up to `N` real inputs, with the dummy flag read from the domain.
+
+Todos:
+
+1. Preimage types: `circuit::Bytes<N>`, the `hash_bytes` gadget, `circuit::Asset`,
+   `circuit::OwnerKey`, `circuit::Owner`; client `Bytes<N>` and `Owner`; `ProofInput` and
+   `FromCircuit` for `u8`, `Bytes<N>` and `Owner`. Existing code unchanged. Verify: parity with
+   `hash_bytes<32>`, `hash_bytes<33>` and `owner_hash` for Ed25519, PDA and P256; a byte of 256
+   or more and a tag outside {S, P} are unsatisfied; a gated all-zero owner is satisfied. Done:
+   `ProofInput`/`FromCircuit` for `u8` would overlap the `[u8; 32]` field impl, so the tag is
+   allocated directly; the gated all-zero owner is tested with todo 2.
+2. Switch the SDK: `circuit::Utxo`, `TokenUtxo`, `DataUtxo`, `OutputTokenUtxo`, `Output` and
+   `TxContext.sender` carry `Owner` and `Asset`; `ShieldedAddress`, `Mint` and `WalletUtxo`
+   instantiate to preimages; `TryFrom<&ProofInputUtxo> for Utxo` goes. Verify: zk-program-sdk
+   tests, with fixtures built from keypairs and mints. Done.
+3. Example: `EscrowTerms.creator` is an `Owner`; withdraw checks the creator's identity against
+   `owner_identity`; the unread `creator` inputs and `creator_nullifier_pk` go. Verify: example
+   tests. Done: escrow 9,710 constraints (was 5,570), withdraw 5,591 (was 3,471).
+4. Spec, README, preimage doc, fmt, clippy on every feature set, constraint counts. Done.
+
+## 16. Later token inputs reuse the first input's owner and asset
+
+2026-09-25. From the review of section 15: `TokenUtxo` hashes every input after the first with
+the first input's owner and asset hashes instead of hashing each input's own preimages.
+
+Decisions:
+
+- Later inputs are compared with the first on their packed preimage chunks (two for the key,
+  one for the nullifier key, two for the asset) in both runs, instead of on their hashes. The
+  R1CS keeps refusing another owner or asset, and equal chunks make the first input's hashes
+  exact for the later input.
+
+Todos:
+
+1. `Utxo::hash_with(owner_hash, asset_hash)`, `Owner`/`Asset::assert_same_unless` over packed
+   chunks; `TokenUtxo::spend` uses both. Verify: zk-program-sdk and example tests. Done:
+   escrow 8,993 constraints (was 9,710).
+2. Spec, preimage doc, README constraint counts. Done.
+
+## 17. Padding-independent `private_tx_hash`
+
+2026-09-25. The logic circuit no longer has an SPP shape. It assumes the protocol change in
+[`docs/padding_independent_private_tx_hash.md`](../../docs/padding_independent_private_tx_hash.md):
+`private_tx_hash` chains only nonzero entries and padding outputs are empty UTXOs.
+
+Decisions:
+
+- `ConfidentialTransaction<P>` drops `IN` and `OUT` and adds no padding. `check` chains the
+  inputs and outputs with `nonzero_hash_chain`; the address chain of a transaction without
+  addresses is 0.
+- The client drops the circuit's dummies, picks the smallest shape with `canonical_shape`, and
+  pads with `pad_utxos_with_empty_outputs`.
+- An empty output carries the tag of a real output owner, the sender when it owns one, and a
+  zero-SOL ciphertext encrypted for that owner, the bytes an owner-bound padding output
+  publishes today. `add_output_utxo` refuses an ownerless output, so only padding is empty.
+- The escrow program keeps its fixed `ProvenTransact` shapes; making it shape-generic is a
+  separate change.
+
+Todos:
+
+1. `docs/padding_independent_private_tx_hash.md`. Done.
+2. `zolana-transaction`: `padding_independent_private_tx_hash` (replaces
+   `private_tx_hash_without_external_data`), `pad_utxos_with_empty_outputs`, empty output
+   encryption. Verify: `cargo test -p zolana-transaction`. Done.
+3. zk-program-sdk: `nonzero_hash_chain`, shape-free `ConfidentialTransaction`, client shape
+   selection; example circuits without `N_INPUTS`/`N_OUTPUTS`. Verify: zk-program-sdk and
+   example tests. Done.
+4. Spec, README, preimage doc, constraint counts. Done: escrow 9,377 (was 8,993), withdraw 6,071 (was 5,591), one width-3 Poseidon per real UTXO. With `ESCROW_TOKEN_INPUTS = 5`, the most any auto-selected SPP shape with two outputs takes, the escrow has 14,468.
+

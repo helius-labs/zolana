@@ -92,7 +92,8 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        let owner_tags = self.owner_tags(&sender.signing_pubkey)?;
+        let padding_owner = self.padding_owner(sender);
+        let owner_tags = self.owner_tags(&sender.signing_pubkey, padding_owner.as_ref())?;
         let interface_transfers = self.interface_transfers()?;
 
         // 4. Encrypt each output with a fresh OS RNG salt.
@@ -104,6 +105,7 @@ impl ConfidentialTransaction {
             .map(|(slot_index, output)| {
                 let address = output
                     .owner_address
+                    .or(padding_owner)
                     .ok_or(TransactionError::OutputWithoutOwner { slot_index })?;
                 let mut message = Confidential::encode_plaintext(
                     &ConfidentialOutputPlaintext {
@@ -189,12 +191,15 @@ impl ConfidentialTransaction {
     pub fn owner_tags(
         &self,
         sender: &PublicKey,
+        padding_owner: Option<&ShieldedAddress>,
     ) -> Result<Vec<ResolvedOwnerTag>, TransactionError> {
         let sender_tag = self.sender_owner_tag(sender)?;
         let mut owner_tags = Vec::with_capacity(self.outputs.len());
         for (slot_index, output) in self.outputs.iter().enumerate() {
             let resolved = output
                 .owner_address
+                .as_ref()
+                .or(padding_owner)
                 .ok_or(TransactionError::OutputWithoutOwner { slot_index })?
                 .signing_pubkey
                 .confidential_view_tag()?;
@@ -208,5 +213,16 @@ impl ConfidentialTransaction {
             });
         }
         Ok(owner_tags)
+    }
+
+    fn padding_owner(&self, sender: &ShieldedAddress) -> Option<ShieldedAddress> {
+        let owners = || {
+            self.outputs
+                .iter()
+                .filter_map(|output| output.owner_address)
+        };
+        owners()
+            .find(|owner| owner == sender)
+            .or_else(|| owners().next())
     }
 }

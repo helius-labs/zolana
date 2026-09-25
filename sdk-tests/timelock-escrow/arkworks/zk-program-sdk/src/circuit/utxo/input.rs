@@ -1,15 +1,15 @@
 use zolana_interface::DUMMY_DOMAIN;
 
 use crate::{
-    circuit::{constant, poseidon, zero, Assert, CircuitVar},
+    circuit::{constant, poseidon, zero, Assert, Asset, CircuitVar, Owner},
     RelationError,
 };
 
 #[derive(Clone, Debug)]
 pub struct Utxo {
     pub domain: CircuitVar,
-    pub owner: CircuitVar,
-    pub asset: CircuitVar,
+    pub owner: Owner,
+    pub asset: Asset,
     pub amount: CircuitVar,
     pub blinding: CircuitVar,
     pub data_hash: CircuitVar,
@@ -22,8 +22,8 @@ impl Default for Utxo {
     fn default() -> Self {
         Self {
             domain: zero(),
-            owner: zero(),
-            asset: zero(),
+            owner: Owner::default(),
+            asset: Asset::default(),
             amount: zero(),
             blinding: zero(),
             data_hash: zero(),
@@ -43,12 +43,20 @@ impl Utxo {
     }
 
     pub fn hash(&self) -> Result<CircuitVar, RelationError> {
+        self.hash_with(&self.owner.hash()?, &self.asset.hash()?)
+    }
+
+    pub(super) fn hash_with(
+        &self,
+        owner_hash: &CircuitVar,
+        asset_hash: &CircuitVar,
+    ) -> Result<CircuitVar, RelationError> {
         let ring = poseidon(&[self.ring_data_hash.clone(), self.ring_program_id.clone()])?;
-        let owner = poseidon(&[self.owner.clone(), self.blinding.clone()])?;
+        let owner = poseidon(&[owner_hash.clone(), self.blinding.clone()])?;
         poseidon(&[
             self.domain.clone(),
             self.tree_id.clone(),
-            self.asset.clone(),
+            asset_hash.clone(),
             self.amount.clone(),
             self.data_hash.clone(),
             ring,

@@ -1,14 +1,14 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     conversion::{Allocator, FromCircuit, ProofInput},
-    RelationError,
+    Owner, RelationError,
 };
 
 use crate::circuit;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct EscrowTerms {
-    pub creator: [u8; 32],
+    pub creator: Owner,
     pub unlock: u64,
 }
 
@@ -26,7 +26,7 @@ impl ProofInput for EscrowTerms {
 impl FromCircuit for EscrowTerms {
     fn from_circuit(circuit: &circuit::EscrowTerms) -> Result<Self, RelationError> {
         Ok(Self {
-            creator: <[u8; 32]>::from_circuit(&circuit.creator)?,
+            creator: Owner::from_circuit(&circuit.creator)?,
             unlock: u64::from_circuit(&circuit.unlock)?,
         })
     }

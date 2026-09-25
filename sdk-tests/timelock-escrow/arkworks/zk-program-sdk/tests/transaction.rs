@@ -1,46 +1,80 @@
 use borsh::BorshSerialize;
 use solana_address::Address;
+use solana_signature::Signature;
 use zk_program_sdk::{
     circuit::{
-        constant, hash_chain4, poseidon, CircuitVar, ConfidentialTransaction, ConstraintSystem,
-        DataHash, DataUtxo, Field, PublicInputs, TokenUtxo, Utxo,
+        constant, nonzero_hash_chain, poseidon, CircuitVar, ConfidentialTransaction,
+        ConstraintSystem, DataHash, DataUtxo, Field, Owner, PublicInputs, TokenUtxo, Utxo,
     },
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
     RelationError, TxContext,
 };
 use zolana_client::ProofInputUtxo;
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
 use zolana_program::{
     derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
 };
-use zolana_transaction::Mint;
+use zolana_transaction::{Data, Mint, WalletUtxo};
 
 const TREE_ID: u16 = 2;
 const FIRST_NULLIFIER: u64 = 22;
 const BLINDING_SEED: u64 = 23;
-const ASSET: [u8; 32] = [4u8; 32];
+const MINT: Mint = Mint::new(Address::new_from_array([4u8; 32]), 4);
 
 fn bytes(value: u64) -> [u8; 32] {
     field_bytes(&Field::from(value))
 }
 
-fn plain_input(owner: u64, amount: u64, blinding: u64) -> ProofInputUtxo {
-    ProofInputUtxo::new(
-        bytes(owner),
-        &ASSET.into(),
-        amount,
-        &bytes(blinding),
-        TREE_ID,
-    )
-    .unwrap()
+fn keypair(seed: u8) -> ShieldedKeypair {
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32])).unwrap()
 }
 
-fn sender() -> ShieldedAddress {
-    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[5u8; 32]))
-        .unwrap()
-        .shielded_address()
-        .unwrap()
+fn address(seed: u8) -> ShieldedAddress {
+    keypair(seed).shielded_address().unwrap()
+}
+
+fn owner(seed: u8) -> Owner {
+    address(seed).instantiate(&Allocator::native()).unwrap()
+}
+
+fn wallet_input(
+    owner_seed: u8,
+    amount: u64,
+    blinding: u64,
+    data_hash: Option<[u8; 32]>,
+) -> WalletUtxo {
+    let owner = keypair(owner_seed);
+    let address = owner.shielded_address().unwrap();
+    let utxo = zolana_transaction::utxo::Utxo {
+        owner: owner.signing_pubkey(),
+        asset: MINT,
+        amount,
+        blinding: bytes(blinding),
+        ring_program_id: None,
+        data: Data::default(),
+    };
+    let utxo_hash = utxo
+        .hash(
+            &address.nullifier_pubkey,
+            &data_hash.unwrap_or_default(),
+            &[0u8; 32],
+            TREE_ID,
+        )
+        .unwrap();
+    WalletUtxo {
+        nullifier: owner.nullifier(&utxo_hash, &utxo.blinding).unwrap(),
+        utxo,
+        nullifier_pubkey: address.nullifier_pubkey,
+        utxo_hash,
+        data_hash,
+        ring_data_hash: None,
+        tree_id: TREE_ID,
+        leaf_index: 0,
+        slot: 0,
+        tx_signature: Signature::default(),
+        slot_index: 0,
+    }
 }
 
 fn tx_context() -> TxContext {
@@ -48,7 +82,7 @@ fn tx_context() -> TxContext {
         first_nullifier: bytes(FIRST_NULLIFIER),
         blinding_seed: bytes(BLINDING_SEED),
         output_tree_id: TREE_ID,
-        sender: sender(),
+        sender: address(5),
     }
 }
 
@@ -153,15 +187,22 @@ fn expected_output(
     .unwrap()
 }
 
+fn chain(values: &[[u8; 32]]) -> [u8; 32] {
+    values
+        .iter()
+        .filter(|value| **value != [0u8; 32])
+        .fold([0u8; 32], |chain, value| {
+            Poseidon::hashv(&[chain.as_slice(), value.as_slice()]).unwrap()
+        })
+}
+
 fn expected_private_tx_hash(inputs: &[[u8; 32]], outputs: &[[u8; 32]]) -> [u8; 32] {
     let blinding =
         derive_private_tx_blinding(&bytes(FIRST_NULLIFIER), &bytes(BLINDING_SEED)).unwrap();
     Poseidon::hashv(&[
-        create_hash_chain_4_from_slice(inputs).unwrap().as_slice(),
-        create_hash_chain_4_from_slice(outputs).unwrap().as_slice(),
-        create_hash_chain_4_from_slice(&vec![[0u8; 32]; inputs.len()])
-            .unwrap()
-            .as_slice(),
+        chain(inputs).as_slice(),
+        chain(outputs).as_slice(),
+        [0u8; 32].as_slice(),
         blinding.as_slice(),
     ])
     .unwrap()
@@ -174,10 +215,10 @@ fn transaction<P: PublicInputs>(
 ) -> Result<CircuitVar, RelationError> {
     let [first, second, data] = inputs;
     let mut token = TokenUtxo::new_mut([first, second])?;
-    let transfer = token.transfer(&constant(30u64), constant(350u64));
+    let transfer = token.transfer(&owner(30), constant(350u64));
     let mut mutated = DataUtxo::new_mut(&data, counter(9))?;
     mutated.value = constant(10u64);
-    ConfidentialTransaction::<P, 3, 4>::new(context, public)
+    ConfidentialTransaction::new(context, public)
         .with_token_utxos(token)
         .with_output_token_utxo(transfer)
         .with_data_utxo(mutated)
@@ -185,24 +226,30 @@ fn transaction<P: PublicInputs>(
         .map(|checked| checked.public_hash().clone())
 }
 
-fn inputs() -> [Utxo; 3] {
+fn inputs() -> [WalletUtxo; 3] {
     let counter_hash = to_bytes(&counter(9).hash().unwrap()).unwrap();
     [
-        Utxo::try_from(&plain_input(11, 300, 1)).unwrap(),
-        Utxo::try_from(&plain_input(11, 200, 2)).unwrap(),
-        Utxo::try_from(&plain_input(12, 7, 17).with_data_hash(counter_hash)).unwrap(),
+        wallet_input(11, 300, 1, None),
+        wallet_input(11, 200, 2, None),
+        wallet_input(12, 7, 17, Some(counter_hash)),
     ]
 }
 
+fn native_inputs() -> [Utxo; 3] {
+    inputs().map(|input| input.instantiate(&Allocator::native()).unwrap())
+}
+
 #[test]
-fn hash_chain4_matches_zolana_for_every_length() {
+fn nonzero_hash_chain_skips_zeros_for_every_length() {
     for length in 0..=7u64 {
-        let values: Vec<CircuitVar> = (1..=length).map(constant).collect();
+        let values: Vec<CircuitVar> = (1..=length)
+            .map(|value| constant(if value % 3 == 0 { 0 } else { value }))
+            .collect();
         let value_bytes: Vec<[u8; 32]> = values.iter().map(|v| to_bytes(v).unwrap()).collect();
 
         assert_eq!(
-            to_bytes(&hash_chain4(&values).unwrap()).unwrap(),
-            create_hash_chain_4_from_slice(&value_bytes).unwrap(),
+            to_bytes(&nonzero_hash_chain(&values).unwrap()).unwrap(),
+            chain(&value_bytes),
             "length {length}"
         );
     }
@@ -210,37 +257,25 @@ fn hash_chain4_matches_zolana_for_every_length() {
 
 #[test]
 fn the_private_tx_hash_follows_the_order_utxos_are_added() {
-    let counter_hash = to_bytes(&counter(9).hash().unwrap()).unwrap();
     let next_hash = to_bytes(&counter(10).hash().unwrap()).unwrap();
+    let owner_hash = |seed| address(seed).owner_hash().unwrap();
     let expected = expected_private_tx_hash(
+        &inputs().map(|input| input.utxo_hash),
         &[
-            plain_input(11, 300, 1).hash().unwrap(),
-            plain_input(11, 200, 2).hash().unwrap(),
-            plain_input(12, 7, 17)
-                .with_data_hash(counter_hash)
-                .hash()
-                .unwrap(),
-        ],
-        &[
-            expected_output(bytes(11), &ASSET.into(), 150, [0u8; 32], 0),
-            expected_output(bytes(30), &ASSET.into(), 350, [0u8; 32], 1),
-            expected_output(bytes(12), &ASSET.into(), 7, next_hash, 2),
-            expected_output(
-                sender().owner_hash().unwrap(),
-                &Mint::SOL.asset,
-                0,
-                [0u8; 32],
-                3,
-            ),
+            expected_output(owner_hash(11), &MINT.asset, 150, [0u8; 32], 0),
+            expected_output(owner_hash(30), &MINT.asset, 350, [0u8; 32], 1),
+            expected_output(owner_hash(12), &MINT.asset, 7, next_hash, 2),
         ],
     );
     let tag = constant(5u64);
 
     assert_eq!(
         (
-            to_bytes(&transaction(&context(), &PrivateTxHash, inputs()).unwrap()).unwrap(),
-            to_bytes(&transaction(&context(), &Tagged { tag: tag.clone() }, inputs()).unwrap())
-                .unwrap(),
+            to_bytes(&transaction(&context(), &PrivateTxHash, native_inputs()).unwrap()).unwrap(),
+            to_bytes(
+                &transaction(&context(), &Tagged { tag: tag.clone() }, native_inputs()).unwrap()
+            )
+            .unwrap(),
         ),
         (
             expected,
@@ -260,7 +295,7 @@ fn the_same_transaction_is_satisfied_in_r1cs() {
     assert_eq!(
         (to_bytes(&in_circuit).unwrap(), cs.is_satisfied().unwrap()),
         (
-            to_bytes(&transaction(&self::context(), &PrivateTxHash, self::inputs()).unwrap())
+            to_bytes(&transaction(&self::context(), &PrivateTxHash, native_inputs()).unwrap())
                 .unwrap(),
             true
         )
@@ -268,69 +303,40 @@ fn the_same_transaction_is_satisfied_in_r1cs() {
 }
 
 #[test]
-fn a_transaction_names_the_misuse() {
-    let context = context();
-    let [first, second, data] = inputs();
-    let token = TokenUtxo::new_mut([first.clone(), second]).unwrap();
-    let mut burned = DataUtxo::new_burn(&data, counter(9)).unwrap();
-    let _payout = burned.transfer(&constant(40u64), constant(7u64)).unwrap();
-    let too_many_outputs =
-        ConfidentialTransaction::<PrivateTxHash, 3, 1>::new(&context, &PrivateTxHash)
-            .with_token_utxos(token.clone())
-            .with_data_utxo(DataUtxo::<circuit::Counter>::new_init(&constant(3u64)).unwrap())
-            .check();
-    let too_many_inputs =
-        ConfidentialTransaction::<PrivateTxHash, 2, 2>::new(&context, &PrivateTxHash)
-            .with_token_utxos(token)
-            .with_data_utxo(burned)
-            .check();
-
-    assert_eq!(
-        (
-            too_many_outputs.map(|_| ()).map_err(|e| e.to_string()),
-            too_many_inputs.map(|_| ()).map_err(|e| e.to_string()),
-        ),
-        (
-            Err("output slot 1 is outside the transaction".to_string()),
-            Err("input slot 2 is outside the transaction".to_string()),
-        )
-    );
-}
-
-#[test]
 fn a_burned_utxo_pays_out_everything() {
     let context = context();
-    let [first, _, data] = inputs();
+    let [first, _, data] = native_inputs();
     let burn = |paid: u64| {
         let mut burned = DataUtxo::new_burn(&data, counter(9)).unwrap();
-        let payout = burned.transfer(&constant(40u64), constant(paid)).unwrap();
-        ConfidentialTransaction::<PrivateTxHash, 1, 1>::new(&context, &PrivateTxHash)
+        let payout = burned.transfer(&owner(40), constant(paid)).unwrap();
+        ConfidentialTransaction::new(&context, &PrivateTxHash)
             .with_data_utxo(burned)
             .with_output_token_utxo(payout)
             .check()
             .map(|_| ())
             .map_err(|e| e.to_string())
     };
-    let mut token = TokenUtxo::new_burn([first.clone()]).unwrap();
-    let transfer = token.transfer(&constant(30u64), constant(100u64));
-    let token_leftover =
-        ConfidentialTransaction::<PrivateTxHash, 1, 1>::new(&context, &PrivateTxHash)
-            .with_token_utxos(token)
-            .with_output_token_utxo(transfer)
-            .check()
-            .map(|_| ())
-            .map_err(|e| e.to_string());
-    let no_input = ConfidentialTransaction::<PrivateTxHash, 1, 1>::new(&context, &PrivateTxHash)
-        .with_data_utxo(DataUtxo::<circuit::Counter>::new_init(&constant(3u64)).unwrap())
+    let mut token = TokenUtxo::new_burn([first]).unwrap();
+    let transfer = token.transfer(&owner(30), constant(100u64));
+    let token_leftover = ConfidentialTransaction::new(&context, &PrivateTxHash)
+        .with_token_utxos(token)
+        .with_output_token_utxo(transfer)
+        .check()
+        .map(|_| ())
+        .map_err(|e| e.to_string());
+    let no_input = ConfidentialTransaction::new(&context, &PrivateTxHash)
+        .with_data_utxo(DataUtxo::<circuit::Counter>::new_init(&owner(3)).unwrap())
         .check()
         .map(|_| ())
         .map_err(|e| e.to_string());
     let in_r1cs = {
         let cs = ConstraintSystem::new_ref();
         let allocator = Allocator::R1cs(cs.clone());
-        let mut token = TokenUtxo::new_burn([first.instantiate(&allocator).unwrap()]).unwrap();
-        let transfer = token.transfer(&constant(30u64), constant(100u64));
-        let _public_hash = ConfidentialTransaction::<PrivateTxHash, 1, 1>::new(
+        let [first_input, _, _] = inputs();
+        let mut token =
+            TokenUtxo::new_burn([first_input.instantiate(&allocator).unwrap()]).unwrap();
+        let transfer = token.transfer(&owner(30), constant(100u64));
+        let _public_hash = ConfidentialTransaction::new(
             &tx_context().instantiate(&allocator).unwrap(),
             &PrivateTxHash,
         )

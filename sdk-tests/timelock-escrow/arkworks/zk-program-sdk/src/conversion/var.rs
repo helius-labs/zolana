@@ -118,7 +118,7 @@ impl<T: FromCircuit, const N: usize> FromCircuit for [T; N] {
     }
 }
 
-fn integer_value(var: &CircuitVar, bits: usize) -> Result<u64, RelationError> {
+pub(super) fn integer_value(var: &CircuitVar, bits: usize) -> Result<u64, RelationError> {
     let value = value(var)?.into_bigint();
     if value.num_bits() as usize > bits {
         return Err(RelationError::OutOfRange(bits));

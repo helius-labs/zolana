@@ -1,5 +1,7 @@
 use solana_signature::Signature;
-use timelock_escrow_arkworks::{escrow_input, Escrow, EscrowPrivateInputs, EscrowPublicInputs};
+use timelock_escrow_arkworks::{
+    escrow_input, Escrow, EscrowPrivateInputs, EscrowPublicInputs, ESCROW_TOKEN_INPUTS,
+};
 use timelock_escrow_program::instructions::escrow::slot;
 use timelock_escrow_sdk::escrow_authority;
 use zk_program_sdk::{TxContext, ZkProgram};
@@ -42,14 +44,22 @@ pub fn token_input(owner: &ShieldedKeypair, amount: u64, leaf_index: u64) -> Wal
     }
 }
 
+pub fn token_inputs<const N: usize>(inputs: [WalletUtxo; N]) -> [WalletUtxo; ESCROW_TOKEN_INPUTS] {
+    let mut inputs = inputs.into_iter();
+    std::array::from_fn(|_| {
+        inputs
+            .next()
+            .unwrap_or_else(|| WalletUtxo::dummy(TREE_ID).expect("dummy"))
+    })
+}
+
 pub fn escrow_utxo(creator: &ShieldedKeypair, amount: u64, unlock: u64) -> WalletUtxo {
     let address = creator.shielded_address().expect("creator address");
     let funding = token_input(creator, amount, 0);
     let (_, spp_proof_inputs) = Escrow {
         private: EscrowPrivateInputs {
             tx_context: TxContext::new(funding.nullifier, TREE_ID, address),
-            token_utxos_asset_a: [funding, WalletUtxo::dummy(TREE_ID).expect("dummy")],
-            creator: address,
+            token_utxos_asset_a: token_inputs([funding]),
             unlock,
             amount,
         },

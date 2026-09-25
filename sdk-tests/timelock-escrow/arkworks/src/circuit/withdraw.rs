@@ -1,4 +1,3 @@
-use timelock_escrow_program::instructions::withdraw::{N_INPUTS, N_OUTPUTS};
 use zk_program_sdk::{
     circuit::{
         poseidon, zero, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
@@ -18,8 +17,6 @@ pub struct WithdrawPrivateInputs {
     pub tx_context: TxContext,
     pub escrow: Utxo,
     pub terms: EscrowTerms,
-    pub creator: CircuitVar,
-    pub creator_nullifier_pk: CircuitVar,
 }
 
 pub struct WithdrawPublicInputs {
@@ -34,18 +31,17 @@ impl Circuit for Withdraw {
         escrow
             .amount()
             .assert_not_equal(&zero(), "the escrow utxo holds nothing")?;
-        poseidon(&[
-            self.public.owner_identity.clone(),
-            private.creator_nullifier_pk.clone(),
-        ])?
-        .assert_equal(&escrow.creator, "the signer is not the escrow creator")?;
+        escrow.creator.key().identity()?.assert_equal(
+            &self.public.owner_identity,
+            "the signer is not the escrow creator",
+        )?;
         self.public
             .unlock
             .assert_equal(&escrow.unlock, "the unlock time is not the escrow's")?;
         let (creator, amount) = (escrow.creator.clone(), escrow.amount().clone());
         let payout = escrow.transfer(&creator, amount)?;
 
-        ConfidentialTransaction::<_, N_INPUTS, N_OUTPUTS>::new(&private.tx_context, &self.public)
+        ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(escrow)
             .with_output_token_utxo(payout)
             .check()

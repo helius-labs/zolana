@@ -1,12 +1,13 @@
 use solana_address::Address;
 use zolana_transaction::{
-    instructions::transact::{ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES},
+    instructions::transact::{canonical_shape, ConfidentialTransaction, SppProofInputs},
     keys::ShieldedKeys,
 };
 
 use crate::{
     circuit::{CheckedTransaction, Circuit},
     conversion::{to_bytes, Allocator, FromCircuit, ProofInput, Records},
+    program::{transaction_hash, PublicTransfer},
     RelationError,
 };
 
@@ -42,7 +43,8 @@ impl SppTransactionBuilder<'_> {
     fn encrypt(self, shielded_keys: &impl ShieldedKeys) -> Result<SppProofInputs, RelationError> {
         let tx_context = &self.checked.tx_context;
         let sender = shielded_keys.address().map_err(RelationError::spp)?;
-        if sender.owner_hash().map_err(RelationError::spp)? != to_bytes(&tx_context.sender)? {
+        if sender.owner_hash().map_err(RelationError::spp)? != to_bytes(&tx_context.sender.hash()?)?
+        {
             return Err(RelationError::Violated(
                 "the keys are not the transaction's sender",
             ));
@@ -53,12 +55,7 @@ impl SppTransactionBuilder<'_> {
             .map_err(|_| RelationError::Conversion("the output tree id does not fit in u16"))?;
         let inputs = self.input_utxos(&first_nullifier)?;
         let outputs = self.output_utxos()?;
-        let shape = SPP_SUPPORTED_SHAPES
-            .into_iter()
-            .find(|shape| shape.n_inputs() == inputs.len() && shape.n_outputs() == outputs.len())
-            .ok_or(RelationError::Violated(
-                "the transaction's shape is not one the SPP supports",
-            ))?;
+        let shape = canonical_shape(inputs.len(), outputs.len()).map_err(RelationError::spp)?;
         let mut transaction = ConfidentialTransaction::new(inputs, self.payer)
             .and_then(|transaction| transaction.with_blinding_seed(blinding_seed))
             .and_then(|transaction| transaction.with_output_tree_id(output_tree_id))
@@ -68,8 +65,18 @@ impl SppTransactionBuilder<'_> {
                 .add_output_utxo(output)
                 .map_err(RelationError::spp)?;
         }
+        for transfer in self.public_transfers()? {
+            transaction
+                .settle(
+                    transfer.asset,
+                    transfer.is_deposit,
+                    transfer.amount,
+                    transfer.target,
+                )
+                .map_err(RelationError::spp)?;
+        }
         transaction
-            .pad_utxos(shape, &sender)
+            .pad_utxos_with_empty_outputs(shape, &sender)
             .map_err(RelationError::spp)?;
         let mut spp_proof_inputs = transaction
             .encrypt(shielded_keys)
@@ -98,13 +105,26 @@ impl SppTransactionBuilder<'_> {
                 });
             }
         }
-        if spp_proof_inputs
-            .private_tx_hash_without_external_data()
-            .map_err(RelationError::spp)?
-            != to_bytes(&self.checked.private_tx_hash)?
-        {
+        let private_tx_hash = spp_proof_inputs
+            .padding_independent_private_tx_hash()
+            .map_err(RelationError::spp)?;
+        if private_tx_hash != to_bytes(&self.checked.private_tx_hash)? {
             return Err(RelationError::Violated(
                 "the SPP transaction does not match the circuit's private transaction hash",
+            ));
+        }
+        let public_transfers: Vec<PublicTransfer> = spp_proof_inputs
+            .external_data
+            .interface_transfers
+            .iter()
+            .copied()
+            .map(PublicTransfer::from)
+            .collect();
+        if transaction_hash(&private_tx_hash, &public_transfers)?
+            != to_bytes(&self.checked.transaction_hash)?
+        {
+            return Err(RelationError::Violated(
+                "the SPP transaction's public transfers do not match the circuit's",
             ));
         }
         Ok(())

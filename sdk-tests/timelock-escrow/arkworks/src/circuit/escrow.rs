@@ -1,8 +1,7 @@
-use timelock_escrow_program::instructions::escrow::{N_INPUTS, N_OUTPUTS};
 use zk_program_sdk::{
     circuit::{
         poseidon, zero, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-        DataUtxo, PublicInputs, TokenUtxo, TxContext, Utxo,
+        DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
     },
     RelationError,
 };
@@ -18,13 +17,12 @@ pub struct Escrow {
 pub struct EscrowPrivateInputs {
     pub tx_context: TxContext,
     pub token_utxos_asset_a: [Utxo; ESCROW_TOKEN_INPUTS],
-    pub creator: CircuitVar,
     pub unlock: CircuitVar,
     pub amount: CircuitVar,
 }
 
 pub struct EscrowPublicInputs {
-    pub escrow_owner: CircuitVar,
+    pub escrow_owner: Owner,
 }
 
 impl Circuit for Escrow {
@@ -39,7 +37,7 @@ impl Circuit for Escrow {
         escrow.creator = tokens.owner().clone();
         escrow.unlock = private.unlock.clone();
 
-        ConfidentialTransaction::<_, N_INPUTS, N_OUTPUTS>::new(&private.tx_context, &self.public)
+        ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_token_utxos(tokens)
             .with_data_utxo(escrow)
             .check()
@@ -48,6 +46,6 @@ impl Circuit for Escrow {
 
 impl PublicInputs for EscrowPublicInputs {
     fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-        poseidon(&[self.escrow_owner.clone(), private_tx_hash.clone()])
+        poseidon(&[self.escrow_owner.hash()?, private_tx_hash.clone()])
     }
 }

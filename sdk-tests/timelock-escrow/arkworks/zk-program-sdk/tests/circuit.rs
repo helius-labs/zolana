@@ -28,7 +28,6 @@ struct Payment {
 struct PaymentPrivateInputs {
     tx_context: TxContext,
     token_utxos_asset_a: [WalletUtxo; 2],
-    sender: ShieldedAddress,
     amount: u64,
 }
 
@@ -55,7 +54,6 @@ impl ProofInput for Payment {
 
     fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, RelationError> {
         let private = &self.private;
-        let _sender = private.sender.instantiate(allocator)?;
         Ok(circuit::Payment {
             private: circuit::PaymentPrivateInputs {
                 tx_context: private.tx_context.instantiate(allocator)?,
@@ -165,7 +163,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataHash, DataUtxo, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
+            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -182,12 +180,12 @@ mod circuit {
     }
 
     pub struct RecipientPublicInputs {
-        pub recipient: CircuitVar,
+        pub recipient: Owner,
     }
 
     impl PublicInputs for RecipientPublicInputs {
         fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.recipient.clone(), private_tx_hash.clone()])
+            poseidon(&[self.recipient.hash()?, private_tx_hash.clone()])
         }
     }
 
@@ -196,7 +194,7 @@ mod circuit {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(private.token_utxos_asset_a.clone())?;
             let payment = tokens.transfer(&self.public.recipient, private.amount.clone());
-            ConfidentialTransaction::<_, 2, 2>::new(&private.tx_context, &self.public)
+            ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
                 .with_output_token_utxo(payment)
                 .check()
@@ -219,7 +217,7 @@ mod circuit {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(private.token_utxos_asset_a.clone())?;
             let payment = tokens.transfer(&self.public.recipient, private.amount.clone());
-            ConfidentialTransaction::<_, 2, 2>::new(&private.tx_context, &self.public)
+            ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
                 .with_output_token_utxo(payment)
                 .check()
@@ -255,7 +253,7 @@ mod circuit {
     pub struct RegisterPrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 1],
-        pub owner: CircuitVar,
+        pub owner: Owner,
     }
 
     pub struct RegisterPublicInputs {
@@ -274,7 +272,7 @@ mod circuit {
             let tokens = TokenUtxo::new_mut(private.token_utxos_asset_a.clone())?;
             let mut label = DataUtxo::<Label>::new_init(&private.owner)?;
             label.value = self.public.label.clone();
-            ConfidentialTransaction::<_, 1, 2>::new(&private.tx_context, &self.public)
+            ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
                 .with_data_utxo(label)
                 .check()
@@ -324,7 +322,6 @@ fn a_circuit_runs_natively_and_in_r1cs_on_one_definition() {
                 keypair(5).shielded_address().unwrap(),
             ),
             token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
-            sender: sender.shielded_address().unwrap(),
             amount: 400,
         },
         public: RecipientPublicInputs {
@@ -371,7 +368,6 @@ fn a_groth16_proof_verifies_and_compresses() {
                 keypair(5).shielded_address().unwrap(),
             ),
             token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
-            sender: sender.shielded_address().unwrap(),
             amount: 400,
         },
         public: RecipientPublicInputs {
@@ -422,7 +418,6 @@ fn the_native_run_produces_the_spp_transaction() {
                 keypair(5).shielded_address().unwrap(),
             ),
             token_utxos_asset_a: [first, second],
-            sender: sender_address,
             amount: 400,
         },
         public: RecipientPublicInputs { recipient },
@@ -452,7 +447,7 @@ fn the_native_run_produces_the_spp_transaction() {
                 .map(|output| output.owner_tag)
                 .collect::<Vec<_>>(),
             spp.external_data.expiry_unix_ts,
-            spp.private_tx_hash_without_external_data().unwrap(),
+            spp.padding_independent_private_tx_hash().unwrap(),
             ArkworksCircuit::new(returned).unwrap().public_hash_bytes(),
         ),
         (
@@ -470,25 +465,23 @@ fn the_native_run_produces_the_spp_transaction() {
 }
 
 #[test]
-fn dummy_inputs_become_spp_dummies_and_unused_outputs_pay_the_sender_nothing() {
+fn logic_dummies_are_dropped_and_unused_outputs_are_empty_utxos() {
     let first = spendable(&keypair(5), Mint::SOL, 500, 0);
-    let spp = encrypt(Sweep {
-        private: SweepPrivateInputs {
-            tx_context: TxContext::new(
-                first.nullifier,
-                TREE_ID,
-                keypair(5).shielded_address().unwrap(),
-            ),
-            token_utxos_asset_a: [first, WalletUtxo::dummy(TREE_ID).unwrap()],
-            amount: 500,
-        },
-        public: RecipientPublicInputs {
-            recipient: keypair(6).shielded_address().unwrap(),
-        },
-    })
-    .unwrap();
-
-    assert_eq!(
+    let recipient = keypair(6).shielded_address().unwrap();
+    let sweep = |token_utxos_asset_a, amount| {
+        let spp = encrypt(Sweep {
+            private: SweepPrivateInputs {
+                tx_context: TxContext::new(
+                    first.nullifier,
+                    TREE_ID,
+                    keypair(5).shielded_address().unwrap(),
+                ),
+                token_utxos_asset_a,
+                amount,
+            },
+            public: RecipientPublicInputs { recipient },
+        })
+        .unwrap();
         (
             spp.input_utxos
                 .iter()
@@ -503,14 +496,24 @@ fn dummy_inputs_become_spp_dummies_and_unused_outputs_pay_the_sender_nothing() {
                 .iter()
                 .map(|output| output.data.is_some())
                 .collect::<Vec<_>>(),
+        )
+    };
+
+    assert_eq!(
+        (
+            sweep([first.clone(), WalletUtxo::dummy(TREE_ID).unwrap()], 500),
+            sweep(
+                [first.clone(), spendable(&keypair(5), Mint::SOL, 200, 1)],
+                700
+            ),
         ),
         (
-            vec![false, true],
-            vec![
-                (keypair(6).shielded_address().ok(), 500),
-                (keypair(5).shielded_address().ok(), 0),
-            ],
-            vec![true, true],
+            (vec![false], vec![(Some(recipient), 500)], vec![true]),
+            (
+                vec![false, false],
+                vec![(Some(recipient), 700), (None, 0)],
+                vec![true, true],
+            ),
         )
     );
 }
@@ -572,7 +575,6 @@ fn every_resolution_failure_is_named() {
                 keypair(5).shielded_address().unwrap(),
             ),
             token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
-            sender: sender.shielded_address().unwrap(),
             amount: 400,
         },
         public: RecipientPublicInputs {
@@ -584,7 +586,6 @@ fn every_resolution_failure_is_named() {
         TxContext::new([7u8; 32], TREE_ID, keypair(5).shielded_address().unwrap());
     let stranger = keypair(7);
     let mut unnamed_change_owner = honest.clone();
-    unnamed_change_owner.private.sender = stranger.shielded_address().unwrap();
     unnamed_change_owner.private.tx_context.sender = stranger.shielded_address().unwrap();
     let mut overspend = honest;
     overspend.private.amount = 600;
@@ -599,7 +600,7 @@ fn every_resolution_failure_is_named() {
             encrypt(overspend).err(),
         ),
         (
-            Some("the first nullifier is not slot 0's".to_string()),
+            Some("the first nullifier is not the first input's".to_string()),
             Some("output slot 0 has an owner no input names".to_string()),
             Some("output slot 0 has an amount that does not fit in u64".to_string()),
         )
@@ -618,7 +619,6 @@ fn setup_saves_loads_and_exports_the_keys() {
                 keypair(5).shielded_address().unwrap(),
             ),
             token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
-            sender: sender.shielded_address().unwrap(),
             amount: 400,
         },
         public: RecipientPublicInputs {

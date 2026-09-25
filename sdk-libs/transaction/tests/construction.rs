@@ -6,7 +6,7 @@ use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use std::cell::RefCell;
 use zolana_event::OutputDataEncoding;
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
@@ -938,8 +938,10 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
         }
     }
     let mut tx = builder(&owner, 1);
-    tx.add_output_utxo(SppProofOutputUtxo::default()).unwrap();
-    error(tx.encrypt(&owner), E::OutputWithoutOwner { slot_index: 0 });
+    error(
+        tx.add_output_utxo(SppProofOutputUtxo::default()),
+        E::OutputWithoutOwner { slot_index: 0 },
+    );
 }
 
 #[test]
@@ -1360,43 +1362,56 @@ fn wallet_dummy_pads_a_slot_between_real_inputs() {
 }
 
 #[test]
-fn private_tx_hash_without_external_data_leaves_the_external_data_out() {
+fn padding_independent_private_tx_hash_skips_padding_and_external_data() {
     let owner = keypair(1);
-    let proof = builder(&owner, 3).encrypt(&owner).unwrap();
+    let sender = owner.shielded_address().unwrap();
+    let mut tx = builder(&owner, 3);
+    tx.pad_utxos_with_empty_outputs(Shape::IN2_OUT3, &sender)
+        .unwrap();
+    let proof = tx.encrypt(&owner).unwrap();
     let mut other_expiry = proof.clone();
     other_expiry.external_data.expiry_unix_ts = proof.external_data.expiry_unix_ts.wrapping_add(1);
-    let inputs: Vec<[u8; 32]> = proof
+    let chain = |hashes: Vec<[u8; 32]>| {
+        hashes.iter().fold([0u8; 32], |chain, hash| {
+            Poseidon::hashv(&[chain.as_slice(), hash.as_slice()]).unwrap()
+        })
+    };
+    let inputs = proof
         .input_utxos
         .iter()
-        .map(|input| {
-            if input.is_dummy() {
-                [0u8; 32]
-            } else {
-                input.utxo_hash
-            }
-        })
+        .filter(|input| !input.is_dummy())
+        .map(|input| input.utxo_hash)
         .collect();
-    let outputs: Vec<[u8; 32]> = proof
+    let outputs = proof
         .output_utxos
         .iter()
+        .filter(|output| !output.is_dummy())
         .map(|output| output.hash(proof.output_tree_id).unwrap())
         .collect();
     let expected = Poseidon::hashv(&[
-        create_hash_chain_4_from_slice(&inputs).unwrap().as_slice(),
-        create_hash_chain_4_from_slice(&outputs).unwrap().as_slice(),
-        create_hash_chain_4_from_slice(&vec![[0u8; 32]; inputs.len()])
-            .unwrap()
-            .as_slice(),
+        chain(inputs).as_slice(),
+        chain(outputs).as_slice(),
+        [0u8; 32].as_slice(),
         proof.private_tx_blinding().unwrap().as_slice(),
     ])
     .unwrap();
 
     assert_eq!(
         (
-            proof.private_tx_hash_without_external_data().ok(),
-            other_expiry.private_tx_hash_without_external_data().ok(),
+            proof.padding_independent_private_tx_hash().ok(),
+            other_expiry.padding_independent_private_tx_hash().ok(),
             other_expiry.message_hash().ok() == proof.message_hash().ok(),
+            proof
+                .output_utxos
+                .iter()
+                .map(SppProofOutputUtxo::is_dummy)
+                .collect::<Vec<_>>(),
         ),
-        (Some(expected), Some(expected), false)
+        (
+            Some(expected),
+            Some(expected),
+            false,
+            vec![false, true, true]
+        )
     );
 }

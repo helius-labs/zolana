@@ -16,7 +16,7 @@ use zolana_hasher::primitives::solana_owner_identity;
 
 #[allow(dead_code)]
 mod shared;
-use shared::{keypair, token_input, TREE_ID};
+use shared::{keypair, token_input, token_inputs, TREE_ID};
 
 fn verify_on_program(proof: &SolanaProof, public_hash: [u8; 32], keys: &Groth16Keys) {
     let compressed = CompressedProof::try_from(proof).expect("compressed proof");
@@ -45,8 +45,7 @@ fn escrow_then_withdraw_prove_and_verify() {
     let (escrow, escrow_spp_proof_inputs) = Escrow {
         private: EscrowPrivateInputs {
             tx_context: TxContext::new(first.nullifier, TREE_ID, address),
-            token_utxos_asset_a: [first, second],
-            creator: address,
+            token_utxos_asset_a: token_inputs([first, second]),
             unlock: 1_700_000_000,
             amount: 250,
         },
@@ -83,8 +82,6 @@ fn escrow_then_withdraw_prove_and_verify() {
             tx_context: TxContext::new(escrow_utxo.nullifier, TREE_ID, address),
             escrow: escrow_utxo,
             terms,
-            creator: address,
-            creator_nullifier_pk: address.nullifier_pubkey,
         },
         public: WithdrawPublicInputs {
             unlock,

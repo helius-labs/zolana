@@ -2,9 +2,9 @@ use core::ops::{Deref, DerefMut};
 
 use borsh::BorshSerialize;
 
-use super::{sol_asset, utxo_domain, Output, OutputTokenUtxo, Utxo};
+use super::{utxo_domain, Output, OutputTokenUtxo, Utxo};
 use crate::{
-    circuit::{zero, Assert, CircuitVar},
+    circuit::{zero, Assert, Asset, CircuitVar, Owner},
     conversion::FromCircuit,
     RelationError,
 };
@@ -38,8 +38,8 @@ enum DataLifecycle {
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct DataUtxo<S> {
-    owner: CircuitVar,
-    asset: CircuitVar,
+    owner: Owner,
+    asset: Asset,
     amount: CircuitVar,
     unpaid: CircuitVar,
     state: S,
@@ -47,13 +47,13 @@ pub struct DataUtxo<S> {
 }
 
 impl<S: DataHash> DataUtxo<S> {
-    pub fn new_init(owner: &CircuitVar) -> Result<Self, RelationError>
+    pub fn new_init(owner: &Owner) -> Result<Self, RelationError>
     where
         S: Default,
     {
         Ok(Self {
             owner: owner.clone(),
-            asset: sol_asset()?,
+            asset: Asset::sol(),
             amount: zero(),
             unpaid: zero(),
             state: S::default(),
@@ -93,11 +93,11 @@ impl<S: DataHash> DataUtxo<S> {
         ))
     }
 
-    pub fn owner(&self) -> &CircuitVar {
+    pub fn owner(&self) -> &Owner {
         &self.owner
     }
 
-    pub fn asset(&self) -> &CircuitVar {
+    pub fn asset(&self) -> &Asset {
         &self.asset
     }
 
@@ -107,7 +107,7 @@ impl<S: DataHash> DataUtxo<S> {
 
     pub fn transfer(
         &mut self,
-        recipient: &CircuitVar,
+        recipient: &Owner,
         amount: CircuitVar,
     ) -> Result<OutputTokenUtxo, RelationError> {
         match self.lifecycle {

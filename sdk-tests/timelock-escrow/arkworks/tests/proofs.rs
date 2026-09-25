@@ -9,7 +9,7 @@ use timelock_escrow_program::instructions::{
 use timelock_escrow_sdk::escrow_authority;
 use zk_program_sdk::{
     rand::{rngs::StdRng, SeedableRng},
-    ArkworksCircuit, CompressedProof, Groth16Keys, SolanaProof, TxContext, ZkProgram,
+    ArkworksCircuit, CompressedProof, Groth16Keys, Owner, SolanaProof, TxContext, ZkProgram,
 };
 use zolana_hasher::{
     primitives::{right_align, solana_owner_identity},
@@ -17,7 +17,7 @@ use zolana_hasher::{
 };
 
 mod shared;
-use shared::{escrow_utxo, keypair, token_input, TREE_ID};
+use shared::{escrow_utxo, keypair, token_input, token_inputs, TREE_ID};
 
 fn rng() -> StdRng {
     StdRng::seed_from_u64(7)
@@ -47,8 +47,7 @@ fn escrow_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
     let escrow = Escrow {
         private: EscrowPrivateInputs {
             tx_context: TxContext::new(first.nullifier, TREE_ID, address),
-            token_utxos_asset_a: [first, second],
-            creator: address,
+            token_utxos_asset_a: token_inputs([first, second]),
             unlock: 1_700_000_000,
             amount: 250,
         },
@@ -67,7 +66,7 @@ fn escrow_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
         )
         .expect("escrow proof inputs");
     let private_tx_hash = spp
-        .private_tx_hash_without_external_data()
+        .padding_independent_private_tx_hash()
         .expect("private tx hash");
     let circuit = ArkworksCircuit::new(escrow).expect("escrow circuit");
     let keys = circuit.setup(&mut rng()).expect("escrow setup");
@@ -104,7 +103,7 @@ fn escrow_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
             escrow_authority().owner_hash().expect("escrow owner hash"),
             Some(
                 borsh::to_vec(&EscrowTerms {
-                    creator: address.owner_hash().expect("creator owner hash"),
+                    creator: Owner::try_from(&address).expect("creator owner"),
                     unlock: 1_700_000_000,
                 })
                 .expect("escrow terms bytes")
@@ -126,11 +125,9 @@ fn withdraw_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
             tx_context: TxContext::new(escrow.nullifier, TREE_ID, address),
             escrow,
             terms: EscrowTerms {
-                creator: address.owner_hash().expect("creator owner hash"),
+                creator: Owner::try_from(&address).expect("creator owner"),
                 unlock: 1_700_000_000,
             },
-            creator: address,
-            creator_nullifier_pk: address.nullifier_pubkey,
         },
         public: WithdrawPublicInputs {
             unlock: 1_700_000_000,
@@ -146,7 +143,7 @@ fn withdraw_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
         )
         .expect("withdraw proof inputs");
     let private_tx_hash = spp
-        .private_tx_hash_without_external_data()
+        .padding_independent_private_tx_hash()
         .expect("private tx hash");
     let circuit = ArkworksCircuit::new(withdraw).expect("withdraw circuit");
     let keys = circuit.setup(&mut rng()).expect("withdraw setup");

@@ -3,7 +3,10 @@ use zolana_interface::DUMMY_DOMAIN;
 
 use super::{utxo_domain, Output, OutputTokenUtxo, Utxo};
 use crate::{
-    circuit::{constant, var::assert_equal_unless, zero, Assert, CircuitVar},
+    circuit::{
+        constant, var::assert_equal_unless, zero, Assert, Asset, Bytes, CircuitVar, Owner,
+        PublicTransfer,
+    },
     RelationError,
 };
 
@@ -17,21 +20,23 @@ enum TokenLifecycle {
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct TokenUtxo<const N: usize> {
-    owner: CircuitVar,
-    asset: CircuitVar,
+    owner: Owner,
+    asset: Asset,
     input_hashes: Vec<CircuitVar>,
     balance: CircuitVar,
     lifecycle: TokenLifecycle,
+    public_transfers: Vec<PublicTransfer>,
 }
 
 impl TokenUtxo<0> {
-    pub fn new_init(owner: &CircuitVar, asset: &CircuitVar) -> Self {
+    pub fn new_init(owner: &Owner, asset: &Asset) -> Self {
         Self {
             owner: owner.clone(),
             asset: asset.clone(),
             input_hashes: Vec::new(),
             balance: zero(),
             lifecycle: TokenLifecycle::Init,
+            public_transfers: Vec::new(),
         }
     }
 }
@@ -45,11 +50,11 @@ impl<const N: usize> TokenUtxo<N> {
         Self::spend(inputs, TokenLifecycle::Burn)
     }
 
-    pub fn owner(&self) -> &CircuitVar {
+    pub fn owner(&self) -> &Owner {
         &self.owner
     }
 
-    pub fn asset(&self) -> &CircuitVar {
+    pub fn asset(&self) -> &Asset {
         &self.asset
     }
 
@@ -57,7 +62,7 @@ impl<const N: usize> TokenUtxo<N> {
         &self.balance
     }
 
-    pub fn transfer(&mut self, recipient: &CircuitVar, amount: CircuitVar) -> OutputTokenUtxo {
+    pub fn transfer(&mut self, recipient: &Owner, amount: CircuitVar) -> OutputTokenUtxo {
         self.balance -= &amount;
         OutputTokenUtxo {
             owner: recipient.clone(),
@@ -66,16 +71,22 @@ impl<const N: usize> TokenUtxo<N> {
         }
     }
 
-    pub fn deposit(&mut self, amount: &CircuitVar) {
+    pub fn deposit(&mut self, amount: &CircuitVar, source: &Bytes<32>) {
         self.balance += amount;
+        self.record_public_transfer(true, amount, source);
     }
 
-    pub fn withdraw(&mut self, amount: &CircuitVar) {
+    pub fn withdraw(&mut self, amount: &CircuitVar, destination: &Bytes<32>) {
         self.balance -= amount;
+        self.record_public_transfer(false, amount, destination);
     }
 
     pub(crate) fn input_hashes(&self) -> &[CircuitVar] {
         &self.input_hashes
+    }
+
+    pub(crate) fn public_transfers(&self) -> &[PublicTransfer] {
+        &self.public_transfers
     }
 
     pub(crate) fn change(&self) -> Result<Option<Output>, RelationError> {
@@ -95,6 +106,20 @@ impl<const N: usize> TokenUtxo<N> {
         }
     }
 
+    fn record_public_transfer(
+        &mut self,
+        is_deposit: bool,
+        amount: &CircuitVar,
+        account: &Bytes<32>,
+    ) {
+        self.public_transfers.push(PublicTransfer {
+            asset: self.asset.clone(),
+            is_deposit,
+            amount: amount.clone(),
+            account: account.clone(),
+        });
+    }
+
     fn spend(inputs: [Utxo; N], lifecycle: TokenLifecycle) -> Result<Self, RelationError> {
         let first = inputs.first().ok_or(RelationError::Violated(
             "a token utxo spends at least one input",
@@ -102,6 +127,8 @@ impl<const N: usize> TokenUtxo<N> {
         first
             .domain
             .assert_equal(&utxo_domain(), "the first input of a token utxo is a dummy")?;
+        let owner = first.owner.hash()?;
+        let asset = first.asset.hash()?;
         let mut balance = zero();
         let mut input_hashes = Vec::with_capacity(N);
         for (index, input) in inputs.iter().enumerate() {
@@ -117,14 +144,12 @@ impl<const N: usize> TokenUtxo<N> {
                     &dummy,
                     "the utxo is not a spendable utxo",
                 )?;
-                assert_equal_unless(
-                    &input.asset,
+                input.asset.assert_same_unless(
                     &first.asset,
                     &dummy,
                     "the inputs hold different assets",
                 )?;
-                assert_equal_unless(
-                    &input.owner,
+                input.owner.assert_same_unless(
                     &first.owner,
                     &dummy,
                     "the inputs belong to different owners",
@@ -134,7 +159,7 @@ impl<const N: usize> TokenUtxo<N> {
             input_hashes.push(CircuitVar::conditionally_select(
                 &dummy,
                 &zero(),
-                &input.hash()?,
+                &input.hash_with(&owner, &asset)?,
             )?);
         }
         Ok(Self {
@@ -143,6 +168,7 @@ impl<const N: usize> TokenUtxo<N> {
             input_hashes,
             balance,
             lifecycle,
+            public_transfers: Vec::new(),
         })
     }
 }

@@ -3,6 +3,7 @@ use zolana_transaction::{Mint, SppProofOutputUtxo, WalletUtxo};
 
 use super::transaction::SppTransactionBuilder;
 use crate::{
+    circuit::Asset,
     conversion::{to_bytes, FromCircuit},
     RelationError,
 };
@@ -12,49 +13,32 @@ impl SppTransactionBuilder<'_> {
         &self,
         first_nullifier: &[u8; 32],
     ) -> Result<Vec<WalletUtxo>, RelationError> {
-        let spent = self
-            .checked
-            .inputs
-            .iter()
-            .enumerate()
-            .map(|(slot, hash)| {
-                let hash = to_bytes(hash)?;
-                if hash == [0u8; 32] {
-                    return Ok(None);
-                }
-                self.records
-                    .utxo(&hash)
-                    .cloned()
-                    .map(Some)
-                    .ok_or(RelationError::Slot {
-                        kind: "input",
-                        slot,
-                        problem: "is not an input of the proof inputs",
-                    })
-            })
-            .collect::<Result<Vec<_>, RelationError>>()?;
-        let first = spent
-            .first()
-            .and_then(Option::as_ref)
-            .ok_or(RelationError::Violated(
-                "input slot 0 must hold a real input: it is the first nullifier",
-            ))?;
+        let spent =
+            self.checked
+                .inputs
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, hash)| match to_bytes(hash) {
+                    Ok(hash) if hash == [0u8; 32] => None,
+                    Ok(hash) => Some(self.records.utxo(&hash).cloned().ok_or(
+                        RelationError::Slot {
+                            kind: "input",
+                            slot,
+                            problem: "is not an input of the proof inputs",
+                        },
+                    )),
+                    Err(error) => Some(Err(error)),
+                })
+                .collect::<Result<Vec<_>, RelationError>>()?;
+        let first = spent.first().ok_or(RelationError::Violated(
+            "a transaction spends at least one input",
+        ))?;
         if first.nullifier != *first_nullifier {
             return Err(RelationError::Violated(
-                "the first nullifier is not slot 0's",
+                "the first nullifier is not the first input's",
             ));
         }
-        let mut tree_id = first.tree_id;
-        spent
-            .into_iter()
-            .map(|input| match input {
-                Some(input) => {
-                    tree_id = input.tree_id;
-                    Ok(input)
-                }
-                None => WalletUtxo::dummy(tree_id).map_err(RelationError::spp),
-            })
-            .collect()
+        Ok(spent)
     }
 
     pub(super) fn output_utxos(&self) -> Result<Vec<SppProofOutputUtxo>, RelationError> {
@@ -71,15 +55,12 @@ impl SppTransactionBuilder<'_> {
                 let output = &checked.output;
                 let owner = self
                     .records
-                    .owner(&to_bytes(&output.owner)?)
+                    .owner(&to_bytes(&output.owner.hash()?)?)
                     .copied()
                     .ok_or(problem("has an owner no input names"))?;
-                let asset_hash = to_bytes(&output.asset)?;
-                let asset = match self.records.mint(&asset_hash) {
-                    Some(mint) => *mint,
-                    None if asset_hash == hash_bytes(Mint::SOL.asset.as_array())? => Mint::SOL,
-                    None => return Err(problem("has an asset no input names")),
-                };
+                let asset = self
+                    .mint(&output.asset)?
+                    .ok_or(problem("has an asset no input names"))?;
                 let amount = u64::from_circuit(&output.amount)
                     .map_err(|_| problem("has an amount that does not fit in u64"))?;
                 let utxo =
@@ -92,5 +73,14 @@ impl SppTransactionBuilder<'_> {
                 })
             })
             .collect()
+    }
+
+    pub(super) fn mint(&self, asset: &Asset) -> Result<Option<Mint>, RelationError> {
+        let asset_hash = to_bytes(&asset.hash()?)?;
+        Ok(match self.records.mint(&asset_hash) {
+            Some(mint) => Some(*mint),
+            None if asset_hash == hash_bytes(Mint::SOL.asset.as_array())? => Some(Mint::SOL),
+            None => None,
+        })
     }
 }

@@ -4,20 +4,20 @@ Status: draft, 2026-09-25.
 
 ## Protocol assumption
 
-This spec assumes a protocol change that is not implemented yet. [`docs/spec.md`](../../../docs/spec.md)
-still includes `external_data_hash` in `private_tx_hash`.
+This spec assumes the protocol change in
+[`docs/padding_independent_private_tx_hash.md`](../../../docs/padding_independent_private_tx_hash.md),
+which is not implemented yet. [`docs/spec.md`](../../../docs/spec.md) still chains every slot
+of the SPP shape and includes `external_data_hash` in `private_tx_hash`.
 
-- `private_tx_hash = Poseidon(input_utxo_hash_chain, output_utxo_hash_chain,
-  address_nullifier_chain, private_tx_blinding)`, without `external_data_hash`.
-- The SPP proof keeps `external_data_hash` as its own public input, which SPP recomputes from
-  the instruction data. The SPP proof still covers the external data.
-- P256 owners sign `SHA-256(private_tx_hash || external_data_hash)`. SPP computes the digest.
-- Ed25519 owners are covered by the Solana transaction signature, as today.
+- `private_tx_hash` chains only the nonzero input, output and address entries, so padding does
+  not enter it, and it leaves out `external_data_hash`.
+- Unused output slots hold empty UTXOs.
 - `zolana_transaction` computes this hash with
-  `SppProofInputs::private_tx_hash_without_external_data`. The current hash, which
+  `SppProofInputs::padding_independent_private_tx_hash`. The current hash, which
   `message_hash` uses, stays as it is.
 
-The logic proof then depends only on the UTXOs, not on the encrypted notes.
+The logic proof then depends only on the real UTXOs, not on the SPP shape or the encrypted
+notes.
 
 ## Circuit structure
 
@@ -102,9 +102,9 @@ order:
    the outputs. `TxContext::new(first_nullifier, output_tree_id, sender)` picks the blinding
    seed.
 2. Token UTXOs, one array per asset: `token_utxos_asset_a: [WalletUtxo; A]`,
-   `token_utxos_asset_b: [WalletUtxo; B]`. Each length is a const generic or a constant, so
-   the circuit's shape is fixed. `WalletUtxo::dummy` pads an array. In `circuit` each array
-   becomes a `TokenUtxo`.
+   `token_utxos_asset_b: [WalletUtxo; B]`. Each length is a const generic or a constant: the
+   most UTXOs of that asset the circuit spends. `WalletUtxo::dummy` fills the unused entries.
+   In `circuit` each array becomes a `TokenUtxo`.
 3. Data UTXOs: one named `WalletUtxo` per spent UTXO that holds program state, with its
    state next to it.
 4. Arbitrary data: every other value, for example an amount or a recipient's
@@ -117,7 +117,6 @@ everything the transaction crate needs to build the SPP transaction.
 pub struct EscrowPrivateInputs {
     pub tx_context: TxContext,
     pub token_utxos_asset_a: [WalletUtxo; ESCROW_TOKEN_INPUTS],
-    pub creator: ShieldedAddress,
     pub unlock: u64,
     pub amount: u64,
 }
@@ -126,21 +125,19 @@ pub struct WithdrawPrivateInputs {
     pub tx_context: TxContext,
     pub escrow: WalletUtxo,
     pub terms: EscrowTerms,
-    pub creator: ShieldedAddress,
-    pub creator_nullifier_pk: [u8; 32],
 }
 ```
 
-- The escrow spends the creator's token UTXOs of one asset.
-- The withdraw spends `escrow`, a data UTXO, and `terms` is its old state.
-- `creator` is the address the escrow's change and the withdraw's payout go to.
+- The escrow spends the creator's token UTXOs of one asset. The change goes back to their
+  owner, and the escrow state records that owner as `creator`.
+- The withdraw spends `escrow`, a data UTXO, and `terms` is its old state. The payout goes to
+  `terms.creator`, whose key identity must equal the public `owner_identity`.
+- `tx_context.sender` names the address the client encrypts the change and the payout for.
 - `unlock` and `amount` are new data: the prover sets them and the escrow output includes
   them. The circuit checks that `amount` is not zero. Beyond its `u64` range, `unlock` needs
   no check at creation, because the program compares it with the clock at withdraw.
-- `creator_nullifier_pk` is checked with the public `owner_identity`:
-  `Poseidon(owner_identity, creator_nullifier_pk)` must equal `terms.creator`.
-- Nothing the circuit can compute is a private input. Outputs, blindings and hashes are
-  built in `circuit`.
+- Nothing the circuit can compute is a private input, and every private input is read by a
+  constraint. Outputs, blindings and hashes are built in `circuit`.
 
 ### Types and range checks
 
@@ -162,23 +159,34 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 | `u64`, `u32`, `u16` | the number | fits the width |
 | `bool` | 0 or 1 | is 0 or 1 |
 | `[u8; 32]` | the value | is canonical |
-| `ShieldedAddress` | its owner hash | none |
-| `Mint` | its asset hash | none |
-| `WalletUtxo` | a `Utxo` | none, the SPP proof range-checks UTXO fields |
+| `Bytes<N>` | `N` byte variables | each byte fits 8 bits |
+| `ShieldedAddress`, `Owner` | an `Owner`: tag, key bytes, nullifier key | key bytes fit 8 bits, the tag is `S` or `P` |
+| `Mint` | an `Asset`: the mint bytes | each byte fits 8 bits |
+| `WalletUtxo` | a `Utxo` with its `Owner` and `Asset` | the owner and asset checks; the SPP proof range-checks the other fields |
 | a struct | its circuit type, field by field | its fields' checks |
+
+- Owners and assets are always preimages. The circuit hashes them itself, each once:
+  `Asset::hash` is `hash_bytes(mint)`, `OwnerKey::identity` is `hash_bytes(tag || key)`,
+  and `Owner::hash` is `Poseidon(identity, nullifier_pk)`. Two owners or two assets are
+  compared on their packed preimage chunks, a few constraints and no hashing. A `TokenUtxo`
+  checks that its later inputs match the first input's owner and asset this way, then hashes
+  them with the first input's owner and asset hashes.
+- The SPP proof checks dummy inputs. A dummy slot contributes 0 to the input chain, and its
+  preimage is all zeros: the byte checks pass for zeros, and only the tag check is skipped
+  for a slot whose domain is the dummy domain.
 
 - `circuit` is a method of the circuit type, so inside it every value is a `CircuitVar`.
 - Instantiation is the only way from a proof input to its circuit type, and it runs the
   checks: natively as a comparison that fails with a named `RelationError`, in R1CS as
   constraints, for example a bit decomposition for a `u64`.
 - A state has two forms, written by hand for now: the client form, for example
-  `EscrowTerms { creator: [u8; 32], unlock: u64 }`, and the circuit form with `CircuitVar`
-  fields.
+  `EscrowTerms { creator: Owner, unlock: u64 }`, and the circuit form with `circuit::Owner`
+  and `CircuitVar` fields.
 - `FromCircuit` is the way back, `from_circuit(&circuit) -> Result<Self>`. It reads the
   values of the native run and checks the same ranges. `u64`, `u32`, `u16`, `bool`,
-  `[u8; 32]` and arrays of them implement it, and a state's client form implements it
-  field by field. A `ShieldedAddress`, a `Mint` or a spent UTXO cannot come back from its
-  hash.
+  `[u8; 32]`, `Bytes<N>`, `Owner` and arrays of them implement it, and a state's client form
+  implements it field by field. A `ShieldedAddress`, a `Mint` or a spent UTXO cannot come
+  back: the viewing key, the asset id and the indexer context are not in the circuit.
 - A computed value that needs a bound gets an explicit check in `circuit`:
   `check_bits(bits)` or `check_is_bool` on `CircuitVar`.
 - The SPP proof range-checks UTXO amounts. The circuit range-checks its inputs and the
@@ -215,8 +223,9 @@ zk-program-sdk has three UTXO types, each a version of Light's `LightAccount`:
 
   The client form implements `FromCircuit` and derives `BorshSerialize` and
   `BorshDeserialize`. Its borsh bytes are the data a new data UTXO contains, for the escrow
-  `creator || unlock`. The native run converts the new state back and serializes it. R1CS
-  does neither. A client reads a spent UTXO's state back with `try_from_slice`.
+  the creator's tag, key and nullifier key, then `unlock`: 73 bytes. The native run converts
+  the new state back and serializes it. R1CS does neither. A client reads a spent UTXO's state
+  back with `try_from_slice`.
 - `DataUtxo::new_init(owner)` holds no value: SOL with amount 0.
 - `token.transfer(recipient, amount)` returns an `OutputTokenUtxo` for the recipient.
 - A `TokenUtxo` tracks a change balance: its inputs plus deposits, minus withdrawals and
@@ -224,12 +233,12 @@ zk-program-sdk has three UTXO types, each a version of Light's `LightAccount`:
   passed around: `with_token_utxos` creates it.
 - Any input after the first can be a dummy, so a wallet with fewer UTXOs than `N` pads with
   dummies. The first input is real: the token takes its owner and asset from it. A dummy
-  has the protocol's dummy domain, holds nothing, skips the owner and asset checks, and its
-  input slot hashes as 0.
+  has the protocol's dummy domain, holds nothing, skips the owner and asset checks, and hashes
+  as 0, which `private_tx_hash` skips.
 - `token.deposit(amount)` adds to the change balance and `token.withdraw(amount)` subtracts
   from it. They only balance the UTXOs. The public amounts themselves are controlled by the
   SPP proof.
-- A `TokenUtxo` has a lifecycle like a `DataUtxo`, so the circuit's shape is fixed:
+- A `TokenUtxo` has a lifecycle like a `DataUtxo`, fixed when the circuit is written:
 
   | Lifecycle | Constructor | Inputs | Change output |
   | --- | --- | --- | --- |
@@ -259,7 +268,7 @@ impl Circuit for Escrow {
         escrow.creator = tokens.owner().clone();
         escrow.unlock = private.unlock.clone();
 
-        ConfidentialTransaction::<_, N_INPUTS, N_OUTPUTS>::new(&private.tx_context, &self.public)
+        ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_token_utxos(tokens)
             .with_data_utxo(escrow)
             .check()
@@ -272,18 +281,16 @@ impl Circuit for Escrow {
 - `with_output_token_utxo(OutputTokenUtxo)` adds a transfer's output.
 - `with_data_utxo(DataUtxo)` adds what the lifecycle implies: `Init` adds an output, `Mut` an
   input and an output, and `Burn` an input.
-- `ConfidentialTransaction<IN, OUT>` has the SPP circuit's shape. `IN` and `OUT` are the
-  program's `N_INPUTS` and `N_OUTPUTS`.
-- Slots follow the order in which UTXOs are added: each input takes the next input slot and
-  each output the next output slot.
-- Unused input slots hash as 0. Unused output slots hold a zero-SOL output to
-  `tx_context.sender`, the transaction crate's padding, so every output slot carries a
-  ciphertext and the transaction does not show how many outputs are real. Adding more inputs
-  than `IN` or more outputs than `OUT` fails with a named `RelationError`.
+- `ConfidentialTransaction` has no shape. It holds the UTXOs the circuit adds, and the client
+  picks the smallest SPP shape with enough slots for the real ones.
+- Inputs and outputs keep the order in which UTXOs are added. The SPP transaction puts the
+  real outputs first, in this order, because an output's blinding depends on its index.
+- A dummy input hashes as 0 and the chain skips it. The circuit adds no padding: the SPP
+  transaction fills its unused output slots with empty UTXOs, which carry a ciphertext like
+  every output, so the transaction does not show how many outputs are real.
 - `check` does the rest:
-  1. fills the unused output slots, derives each output's blinding from `tx_context` and
-     hashes the output,
-  2. computes `private_tx_hash` from the input and output hashes,
+  1. derives each output's blinding from `tx_context` and its index, and hashes the output,
+  2. computes `private_tx_hash` with `nonzero_hash_chain` over the input and output hashes,
   3. computes the public hash with `public.hash(&private_tx_hash)`.
 
   It returns a `CheckedTransaction`: the public hash, `private_tx_hash` and the slots, which
@@ -324,24 +331,25 @@ let proof = ArkworksCircuit::new(escrow)?.prove(&keys, &mut rng)?;
   2. resolves the slots against the records and converts each output amount to `u64`, with a
      named error when one does not fit,
   3. builds `zolana_transaction::ConfidentialTransaction` from the resolved inputs and
-     outputs, with the circuit's blinding seed and shape, and encrypts it with the keys:
-     blindings, owner tags, ciphertexts and `external_data_hash`,
-  4. sets the expiry and checks that `private_tx_hash_without_external_data` equals the
+     outputs, with the circuit's blinding seed, picks the smallest SPP shape they fit, pads it
+     with dummy inputs and empty outputs, and encrypts it with the keys: blindings, owner
+     tags, ciphertexts and `external_data_hash`,
+  4. sets the expiry and checks that `padding_independent_private_tx_hash` equals the
      circuit's `private_tx_hash`.
 
   It takes the inputs by value and returns them with the `SppProofInputs`.
 - The keys implement `ShieldedKeys`, and their address must be `tx_context.sender`.
-- Both proofs share the hash `private_tx_hash_without_external_data` computes from the
+- Both proofs share the hash `padding_independent_private_tx_hash` computes from the
   `SppProofInputs`.
 - Building the program instruction from the proofs is a separate step, after proving.
 - Native instantiation records what a `CircuitVar` cannot hold, keyed by the hash the logic
   uses: `owner_hash → ShieldedAddress`, `asset_hash → Mint` and `utxo_hash → WalletUtxo`.
   R1CS instantiation records nothing.
-- `create_proof_inputs_and_encrypt` checks `tx_context.first_nullifier` against slot 0 and
-  resolves each slot of the `CheckedTransaction` against these records: an input hash to its
-  `WalletUtxo`, an unused input slot to `WalletUtxo::dummy` in the tree before it, and an
-  output's owner and asset hashes to its address and `Mint`. Each resolved output must hash
-  to the circuit's output hash.
+- `create_proof_inputs_and_encrypt` resolves the `CheckedTransaction` against these records:
+  each nonzero input hash to its `WalletUtxo`, and an output's owner and asset hashes to its
+  address and `Mint`. It drops the circuit's dummies, since the transaction crate pads with
+  its own, and checks `tx_context.first_nullifier` against the first real input, which takes
+  SPP input slot 0. Each resolved output must hash to the circuit's output hash.
 - Every output owner, change included, comes from a `ShieldedAddress` input: a spent UTXO has
   its owner's signing and nullifier keys but not the viewing key the encryption needs.
 - Both proofs start from the result of `create_proof_inputs_and_encrypt` and run in
@@ -357,8 +365,8 @@ zk-program-sdk follows the same split:
 
 | Path | Contents |
 | --- | --- |
-| `zk_program_sdk` | What the client and the prover use: `TxContext`, `ZkProgram`, `ArkworksCircuit`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `RelationError`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `constant`, `zero`, `value`, `poseidon`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `OutputTokenUtxo`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`. |
+| `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `ArkworksCircuit`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `RelationError`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `OutputTokenUtxo`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`. |
 | `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Allocator`, `Records`, and bytes to fields and back. |
 
 Everything a future macro derives can also be written by hand, so `conversion` stays public.
@@ -366,8 +374,9 @@ A feature may gate it later.
 
 ## Setup and features
 
-- `ArkworksCircuit::setup` synthesizes default sample inputs. `ConfidentialTransaction<IN, OUT>`
-  and `TokenUtxo<N>` keep the sizes generic, so another shape is other constants.
+- `ArkworksCircuit::setup` synthesizes default sample inputs. `TokenUtxo<N>` keeps its size
+  generic, so a circuit that spends more UTXOs is another constant. One set of keys pairs
+  with every SPP shape the real UTXOs fit.
 - zk-program-sdk has two features:
 
   | Feature | Contents |
@@ -385,6 +394,8 @@ Each test builds its inputs inline. Shared helpers only create keypairs and spen
 
 ## Out of scope for the PoC
 
+- The timelock escrow program still fixes its SPP shape, `ProvenTransact<2, 2>` and
+  `ProvenTransact<1, 1>`. A program that accepts every shape is a separate change.
 - A macro that rejects logic that branches on values.
 - A derive macro on the client types that generates their `circuit` module types and the
   `ProofInput`, `FromCircuit`, `DataHash` and `UtxoData` impls.

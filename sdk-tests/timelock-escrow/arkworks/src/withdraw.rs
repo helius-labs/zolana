@@ -4,7 +4,6 @@ use zk_program_sdk::{
     conversion::{Allocator, ProofInput},
     RelationError, TxContext, ZkProgram,
 };
-use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{utxo::Utxo, SppProofOutputUtxo, WalletUtxo};
 
 use crate::{circuit, EscrowTerms};
@@ -20,8 +19,6 @@ pub struct WithdrawPrivateInputs {
     pub tx_context: TxContext,
     pub escrow: WalletUtxo,
     pub terms: EscrowTerms,
-    pub creator: ShieldedAddress,
-    pub creator_nullifier_pk: [u8; 32],
 }
 
 #[derive(Clone)]
@@ -40,8 +37,6 @@ impl ProofInput for Withdraw {
                 tx_context: private.tx_context.instantiate(allocator)?,
                 escrow: private.escrow.instantiate(allocator)?,
                 terms: private.terms.instantiate(allocator)?,
-                creator: private.creator.instantiate(allocator)?,
-                creator_nullifier_pk: private.creator_nullifier_pk.instantiate(allocator)?,
             },
             public: circuit::WithdrawPublicInputs {
                 unlock: self.public.unlock.instantiate(allocator)?,

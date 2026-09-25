@@ -3,12 +3,13 @@ mod circuit_lib;
 mod client;
 pub mod conversion;
 mod error;
+pub mod program;
 mod prover;
 
 pub use ark_std::rand;
-pub use client::TxContext;
 #[cfg(feature = "client")]
 pub use client::ZkProgram;
+pub use client::{Bytes, Owner, TxContext};
 pub use error::RelationError;
 pub use prover::ArkworksCircuit;
 #[cfg(feature = "setup")]

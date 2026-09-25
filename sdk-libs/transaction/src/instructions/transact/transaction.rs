@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::hash::sha256;
 pub use zolana_program::PrivateTxHash;
 
@@ -77,14 +77,12 @@ impl SppProofInputs {
         Ok(sha256(&private_tx))
     }
 
-    pub fn private_tx_hash_without_external_data(&self) -> Result<[u8; 32], TransactionError> {
+    pub fn padding_independent_private_tx_hash(&self) -> Result<[u8; 32], TransactionError> {
         validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
-        let input_hashes = self.input_hashes();
-        let output_hashes = self.output_hashes()?;
         Ok(Poseidon::hashv(&[
-            create_hash_chain_4_from_slice(&input_hashes)?.as_slice(),
-            create_hash_chain_4_from_slice(&output_hashes)?.as_slice(),
-            create_hash_chain_4_from_slice(&vec![[0u8; 32]; input_hashes.len()])?.as_slice(),
+            nonzero_hash_chain(&self.input_hashes())?.as_slice(),
+            nonzero_hash_chain(&self.output_hashes()?)?.as_slice(),
+            nonzero_hash_chain(&[])?.as_slice(),
             self.private_tx_blinding()?.as_slice(),
         ])?)
     }
@@ -114,4 +112,13 @@ impl SppProofInputs {
             })
             .collect()
     }
+}
+
+fn nonzero_hash_chain(values: &[[u8; 32]]) -> Result<[u8; 32], TransactionError> {
+    values
+        .iter()
+        .filter(|value| **value != [0u8; 32])
+        .try_fold([0u8; 32], |chain, value| {
+            Ok(Poseidon::hashv(&[chain.as_slice(), value.as_slice()])?)
+        })
 }

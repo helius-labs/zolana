@@ -1,13 +1,13 @@
 #[path = "../tests/shared/mod.rs"]
 mod shared;
 
-use shared::{escrow_utxo, keypair, token_input, TREE_ID};
+use shared::{escrow_utxo, keypair, token_input, token_inputs, TREE_ID};
 use timelock_escrow_arkworks::{
     Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw, WithdrawPrivateInputs,
     WithdrawPublicInputs,
 };
 use timelock_escrow_sdk::escrow_authority;
-use zk_program_sdk::{ArkworksCircuit, TxContext};
+use zk_program_sdk::{ArkworksCircuit, Owner, TxContext};
 use zolana_hasher::primitives::solana_owner_identity;
 
 fn main() {
@@ -17,8 +17,7 @@ fn main() {
     let escrow = Escrow {
         private: EscrowPrivateInputs {
             tx_context: TxContext::new(first.nullifier, TREE_ID, address),
-            token_utxos_asset_a: [first, token_input(&creator, 400, 1)],
-            creator: address,
+            token_utxos_asset_a: token_inputs([first, token_input(&creator, 400, 1)]),
             unlock: 1_700_000_000,
             amount: 250,
         },
@@ -34,11 +33,9 @@ fn main() {
             tx_context: TxContext::new(escrow_input.nullifier, TREE_ID, address),
             escrow: escrow_input,
             terms: EscrowTerms {
-                creator: address.owner_hash().expect("creator owner hash"),
+                creator: Owner::try_from(&address).expect("creator owner"),
                 unlock: 1_700_000_000,
             },
-            creator: address,
-            creator_nullifier_pk: address.nullifier_pubkey,
         },
         public: WithdrawPublicInputs {
             unlock: 1_700_000_000,

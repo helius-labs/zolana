@@ -6,8 +6,8 @@ use zolana_program::{
 };
 
 use super::{
-    constant, hash_chain4, poseidon, utxo::Output, zero, CircuitVar, DataUtxo, OutputTokenUtxo,
-    TokenUtxo, Utxo, UtxoData,
+    constant, nonzero_hash_chain, poseidon, utxo::Output, zero, CircuitVar, DataUtxo,
+    OutputTokenUtxo, Owner, PublicTransfer, TokenUtxo, Utxo, UtxoData,
 };
 use crate::RelationError;
 
@@ -16,7 +16,7 @@ pub struct TxContext {
     pub first_nullifier: CircuitVar,
     pub blinding_seed: CircuitVar,
     pub output_tree_id: CircuitVar,
-    pub sender: CircuitVar,
+    pub sender: Owner,
 }
 
 impl TxContext {
@@ -60,7 +60,7 @@ impl TxContext {
 }
 
 pub trait PublicInputs {
-    fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError>;
+    fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError>;
 }
 
 #[cfg_attr(not(feature = "client"), allow(dead_code))]
@@ -76,7 +76,9 @@ pub struct CheckedTransaction {
     pub(crate) tx_context: TxContext,
     pub(crate) inputs: Vec<CircuitVar>,
     pub(crate) outputs: Vec<CheckedOutput>,
+    pub(crate) public_transfers: Vec<PublicTransfer>,
     pub(crate) private_tx_hash: CircuitVar,
+    pub(crate) transaction_hash: CircuitVar,
     public_hash: CircuitVar,
 }
 
@@ -88,32 +90,38 @@ impl CheckedTransaction {
     pub fn private_tx_hash(&self) -> &CircuitVar {
         &self.private_tx_hash
     }
+
+    pub fn transaction_hash(&self) -> &CircuitVar {
+        &self.transaction_hash
+    }
 }
 
 #[must_use]
-pub struct ConfidentialTransaction<'a, P, const IN: usize, const OUT: usize> {
+pub struct ConfidentialTransaction<'a, P> {
     tx_context: &'a TxContext,
     public: &'a P,
     inputs: Vec<CircuitVar>,
     outputs: Vec<Output>,
+    public_transfers: Vec<PublicTransfer>,
     error: Option<RelationError>,
 }
 
-impl<'a, P: PublicInputs, const IN: usize, const OUT: usize>
-    ConfidentialTransaction<'a, P, IN, OUT>
-{
+impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
     pub fn new(tx_context: &'a TxContext, public: &'a P) -> Self {
         Self {
             tx_context,
             public,
-            inputs: Vec::with_capacity(IN),
-            outputs: Vec::with_capacity(OUT),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            public_transfers: Vec::new(),
             error: None,
         }
     }
 
     pub fn with_token_utxos<const N: usize>(mut self, token: TokenUtxo<N>) -> Self {
         self.inputs.extend(token.input_hashes().iter().cloned());
+        self.public_transfers
+            .extend(token.public_transfers().iter().cloned());
         match token.change() {
             Ok(Some(change)) => self.outputs.push(change),
             Ok(None) => {}
@@ -158,20 +166,9 @@ impl<'a, P: PublicInputs, const IN: usize, const OUT: usize>
                 "a transaction spends at least one input",
             ));
         }
-        let inputs = padded("input", self.inputs, IN)?;
-        if self.outputs.len() > OUT {
-            return Err(RelationError::Slot {
-                kind: "output",
-                slot: OUT,
-                problem: "is outside the transaction",
-            });
-        }
-        let mut outputs = self.outputs;
-        while outputs.len() < OUT {
-            outputs.push(Output::padding(&self.tx_context.sender)?);
-        }
         let output_blinding_seed = self.tx_context.output_blinding_seed()?;
-        let outputs = outputs
+        let outputs = self
+            .outputs
             .into_iter()
             .enumerate()
             .map(|(slot, output)| {
@@ -196,17 +193,20 @@ impl<'a, P: PublicInputs, const IN: usize, const OUT: usize>
         let output_hashes: Vec<CircuitVar> =
             outputs.iter().map(|output| output.hash.clone()).collect();
         let private_tx_hash = poseidon(&[
-            hash_chain4(&inputs)?,
-            hash_chain4(&output_hashes)?,
-            hash_chain4(&vec![zero(); IN])?,
+            nonzero_hash_chain(&self.inputs)?,
+            nonzero_hash_chain(&output_hashes)?,
+            nonzero_hash_chain(&[])?,
             self.tx_context.private_tx_blinding()?,
         ])?;
-        let public_hash = self.public.hash(&private_tx_hash)?;
+        let transaction_hash = transaction_hash(&private_tx_hash, &self.public_transfers)?;
+        let public_hash = self.public.hash(&transaction_hash)?;
         Ok(CheckedTransaction {
             tx_context: self.tx_context.clone(),
-            inputs,
+            inputs: self.inputs,
             outputs,
+            public_transfers: self.public_transfers,
             private_tx_hash,
+            transaction_hash,
             public_hash,
         })
     }
@@ -216,18 +216,17 @@ impl<'a, P: PublicInputs, const IN: usize, const OUT: usize>
     }
 }
 
-fn padded(
-    kind: &'static str,
-    mut hashes: Vec<CircuitVar>,
-    slots: usize,
-) -> Result<Vec<CircuitVar>, RelationError> {
-    if hashes.len() > slots {
-        return Err(RelationError::Slot {
-            kind,
-            slot: slots,
-            problem: "is outside the transaction",
-        });
+fn transaction_hash(
+    private_tx_hash: &CircuitVar,
+    public_transfers: &[PublicTransfer],
+) -> Result<CircuitVar, RelationError> {
+    if public_transfers.is_empty() {
+        return Ok(private_tx_hash.clone());
     }
-    hashes.resize(slots, zero());
-    Ok(hashes)
+    let transfers_hash = public_transfers
+        .iter()
+        .try_fold(zero(), |chain, transfer| {
+            poseidon(&[chain, transfer.hash()?])
+        })?;
+    poseidon(&[private_tx_hash.clone(), transfers_hash])
 }

@@ -1,19 +1,22 @@
+use ark_r1cs_std::{boolean::Boolean, fields::FieldVar, select::CondSelectGadget};
+
 use super::poseidon;
 use crate::{
     circuit::{zero, CircuitVar},
     RelationError,
 };
 
-pub fn hash_chain4(values: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
-    let Some((first, rest)) = values.split_first() else {
-        return Ok(zero());
-    };
-    let mut chain = first.clone();
-    for group in rest.chunks(3) {
-        let mut block = vec![chain];
-        block.extend(group.iter().cloned());
-        block.resize(4, zero());
-        chain = poseidon(&block)?;
-    }
-    Ok(chain)
+pub fn nonzero_hash_chain(values: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
+    values.iter().try_fold(zero(), |chain, value| {
+        let skip = value.is_zero()?;
+        if let Boolean::Constant(skip) = skip {
+            return if skip {
+                Ok(chain)
+            } else {
+                poseidon(&[chain, value.clone()])
+            };
+        }
+        let next = poseidon(&[chain.clone(), value.clone()])?;
+        Ok(CircuitVar::conditionally_select(&skip, &chain, &next)?)
+    })
 }

@@ -1,9 +1,16 @@
+mod bytes;
+mod owner;
 #[cfg(feature = "client")]
 mod transaction;
+#[cfg(feature = "client")]
+mod transfer;
 #[cfg(feature = "client")]
 mod utxo;
 
 use zolana_keypair::{random_blinding, ShieldedAddress};
+
+pub use bytes::Bytes;
+pub use owner::Owner;
 
 #[cfg(feature = "client")]
 pub use transaction::ZkProgram;
