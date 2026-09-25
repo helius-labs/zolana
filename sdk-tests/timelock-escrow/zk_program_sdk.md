@@ -856,3 +856,124 @@ Acceptance criteria:
 - `cargo test -p circuit-lib -p timelock-escrow-arkworks` passes.
 - `cargo clippy -p circuit-lib -p timelock-escrow-arkworks --all-targets -- -D warnings` is clean.
 - No change under `sdk-tests/timelock-escrow/program`.
+
+## 11. One `circuit` fn for client and prover
+
+2026-09-25. Implement the updated [`arkworks/spec.md`](arkworks/spec.md): plain Rust proof inputs,
+records from the native run, `ZkProgram::create_proof_inputs_and_encrypt`, and the `client` /
+`setup` features. Starting point: commit `997691713`. Todos one at a time, each tested before
+the next. The program stays unchanged.
+
+Decisions made while planning:
+
+- `SppTransaction` holds `spp_proof_inputs` and `private_tx_hash`, without `output(slot)`.
+- A spent UTXO has no viewing key, so every output owner, change included, comes from a
+  `ShieldedAddress` input.
+- `TxContext::new(first_nullifier, output_tree_id)` picks the blinding seed.
+  `create_proof_inputs_and_encrypt` takes the inputs by value and returns them with the
+  `SppTransaction`.
+- `setup` writes the arkworks verifying key in gnark's raw layout and exports it with
+  groth16-solana's `generate_bsb22_vk_file`, the generator the program's keys come from.
+
+Todos:
+
+1. Plain Rust proof inputs: `ProofInput` for `u64`, `u32`, `u16`, `bool`, `[u8; 32]`,
+   `ShieldedAddress`, `Mint`, `SppProofInputUtxo`. `Allocator::Native` keeps the records. Remove
+   `Uint` / `Bool` / `PublicHash`. Verify: named errors natively, unsatisfied R1CS, records filled.
+   Done.
+2. `TxContext` (bytes) and `TxContextCircuit`. `check` returns `CheckedTransaction` with the
+   public hash and the slots. `Circuit::circuit` returns it. `ArkworksCircuit` allocates the
+   public hash itself. `UtxoData` on states. Verify with the transaction tests. Done.
+3. `ZkProgram` and `SppTransaction` behind `client`: resolve the slots, check the first
+   nullifier, convert amounts, encrypt, build `SppProofInputs`. Remove the client copies. Verify:
+   SPP hashes equal the circuit's, and every resolution failure has a named error. Done.
+4. `setup` feature: proving key write and read, verifying key export. Verify: the exported file
+   defines `VERIFYINGKEY` with the insecure test marker, and a proof verifies against it.
+   Done.
+5. Example crate on the new API. Verify with `tests/proofs.rs` and `tests/rules.rs`, inputs
+   inline. Done.
+6. README, fmt, clippy, review. Review fixes: refusal tests compare against the circuit's own
+   R1CS public hash, a valueless data UTXO resolves to SOL, dummy inputs take the nearest earlier
+   real input's tree, the test circuits have no flags, and `tests/functional.rs` runs escrow then
+   withdraw without tampering. Done.
+
+## 12. zk-program-sdk layout
+
+2026-09-25. `arkworks/circuit-lib` becomes `arkworks/zk-program-sdk` (crate `zk-program-sdk`),
+with its modules grouped by the phase that uses them. No behavior changes.
+
+- `circuit/`: the DSL. `var.rs`, `utxo.rs`, `transaction.rs`, and the `Circuit` trait in
+  `mod.rs`.
+- `conversion/`: client values to circuit values. `ProofInput`, `Allocator` and `Records` in
+  `mod.rs`; the `ProofInput` impls in `var.rs`, `utxo.rs` and `transaction.rs`. Replaces
+  `convert`.
+- `client/`: `TxContext` in `mod.rs`; `ZkProgram` and `SppTransaction` in `transaction.rs` and
+  the SPP resolution in `utxo.rs`, both behind feature `client`.
+- `circuit_lib/`: `poseidon` and `hash_chain4`.
+- `prover/`: `ArkworksCircuit` and `groth16.rs`.
+
+Todos:
+
+1. Rename the directory, package and imports. Verify: tests pass. Done.
+2. Split the modules into the phase directories. Verify: tests, clippy on every feature set,
+   fmt. Done.
+3. README layout section, spec and plan. Done.
+
+## 13. Client types first
+
+2026-09-25. A Solana developer writes and uses the plain types. The circuit types move into a
+`circuit` module under the same names, as the updated [`arkworks/spec.md`](arkworks/spec.md)
+describes. Todos one at a time, each tested before the next.
+
+Decisions:
+
+- Module path, not suffix: `EscrowCircuit` becomes `circuit::Escrow`, `TxContextCircuit`
+  becomes `circuit::TxContext`.
+- A state's UTXO data is the borsh encoding of its client form. The escrow data grows from 8
+  bytes to 40 (`creator || unlock`). Nothing in the arkworks example or the program reads the
+  old format.
+- `conversion` stays public: everything a future macro derives can be written by hand.
+
+Todos:
+
+1. SDK paths: the root holds the client and prover surface; `pub mod circuit` holds the DSL;
+   `ProofInput`, `Allocator` and `Records` only under `conversion`; no `client::` path. Verify:
+   tests. Done.
+2. SDK `FromCircuit` for `u64`, `u32`, `u16`, `bool`, `[u8; 32]`, and `UtxoData { type Client }`.
+   `with_data_utxo` stores the borsh bytes of the converted state. The SDK test circuits follow
+   the same split. Verify: tests, including a `FromCircuit` range error. Done.
+3. Example crate: client types at the root, circuit types in `circuit`, borsh on
+   `EscrowTerms`. `tests/functional.rs` reads the withdraw's terms back from the escrow data.
+   Verify: tests. Done.
+4. README, fmt, clippy on every feature set. Done.
+
+## 14. Encrypt through the transaction crate
+
+2026-09-25. `create_proof_inputs_and_encrypt` builds `zolana_transaction::ConfidentialTransaction`
+from the resolved slots and encrypts with it, as the updated
+[`arkworks/spec.md`](arkworks/spec.md) describes. The transaction crate gains the protocol
+assumption's hash. Todos one at a time, each tested before the next.
+
+Decisions:
+
+- The transaction crate changes are additive. `PrivateTxHash` and `message_hash` keep the
+  current protocol, because the shielded-pool tests prove against the real SPP.
+- Spent UTXOs are `WalletUtxo`s, so the client holds what `ConfidentialTransaction::new` takes.
+- The circuit pads unused output slots with zero-SOL outputs to `tx_context.sender`, as the
+  transaction crate does, so no slot is left without a ciphertext.
+- `SppTransaction` goes: the transaction crate recomputes `private_tx_hash` from the
+  `SppProofInputs`.
+
+Todos:
+
+1. Transaction crate: `ConfidentialTransaction::with_blinding_seed`, `WalletUtxo::dummy`,
+   `SppProofInputs::private_tx_hash_without_external_data`. Verify: `cargo test -p
+   zolana-transaction`, with tests for the three additions. Done.
+2. Circuit: `TxContext` gains `sender`, and `check` pads unused output slots to it. Verify:
+   zk-program-sdk tests. Done.
+3. Conversion and client: `ProofInput for WalletUtxo` replaces the `SppProofInputUtxo` one,
+   records hold `WalletUtxo`s, and `create_proof_inputs_and_encrypt` takes `ShieldedKeys` and
+   encrypts through `ConfidentialTransaction`. Our own ciphertext and external data code goes.
+   Verify: zk-program-sdk tests, including the hash cross-check. Done.
+4. Example crate: `WalletUtxo` inputs and `escrow_input`. Verify: example tests. Done.
+5. README, fmt, clippy on every feature set, and `cargo check --workspace --all-targets`. Done.

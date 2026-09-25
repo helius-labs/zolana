@@ -5,12 +5,15 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-anyhow = { workspace = true }
-circuit-lib = { path = "circuit-lib" }
-solana-address = { workspace = true }
+borsh = { workspace = true }
+solana-signature = { workspace = true }
 timelock-escrow-program = { path = "../program" }
 timelock-escrow-sdk = { path = "../sdk" }
-zolana-client = { workspace = true }
-zolana-hasher = { workspace = true }
+zk-program-sdk = { path = "zk-program-sdk" }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+ark-relations = { version = "0.5", default-features = false, features = ["std"] }
+solana-address = { workspace = true }
+zolana-hasher = { workspace = true }

@@ -101,6 +101,14 @@ impl ConfidentialTransaction {
         &self.blinding_seed
     }
 
+    pub fn with_blinding_seed(mut self, blinding_seed: [u8; 32]) -> Result<Self, TransactionError> {
+        if self.padded_inputs.is_some() {
+            return Err(TransactionError::OutputUtxosAlreadyPadded);
+        }
+        self.blinding_seed = blinding_seed;
+        Ok(self)
+    }
+
     pub fn first_nullifier(&self) -> &[u8; 32] {
         &self.first_nullifier
     }

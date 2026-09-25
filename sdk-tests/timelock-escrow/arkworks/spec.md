@@ -1,4 +1,4 @@
-# circuit-lib spec
+# zk-program-sdk spec
 
 Status: draft, 2026-09-25.
 
@@ -13,6 +13,9 @@ still includes `external_data_hash` in `private_tx_hash`.
   the instruction data. The SPP proof still covers the external data.
 - P256 owners sign `SHA-256(private_tx_hash || external_data_hash)`. SPP computes the digest.
 - Ed25519 owners are covered by the Solana transaction signature, as today.
+- `zolana_transaction` computes this hash with
+  `SppProofInputs::private_tx_hash_without_external_data`. The current hash, which
+  `message_hash` uses, stays as it is.
 
 The logic proof then depends only on the UTXOs, not on the encrypted notes.
 
@@ -36,8 +39,10 @@ pub struct Escrow {
   `private_tx_hash` last. The native run computes the public hash, and `ArkworksCircuit`
   passes it to R1CS as the instance variable.
 
-Instantiation turns `Escrow` into `EscrowCircuit`, with the same two fields as `Circuit` types
-(see [Types and range checks](#types-and-range-checks)).
+A Solana developer writes these plain types first, and the client, the tests and the prover
+all take them. Instantiation turns `Escrow` into `circuit::Escrow`, with the same two fields
+as circuit types (see [Types and range checks](#types-and-range-checks)). The `circuit`
+module is the only place `CircuitVar` appears.
 
 Rules:
 
@@ -45,7 +50,7 @@ Rules:
    private inputs of the proof.
 2. `private_tx_hash` is not an input. The circuit builds it from the transaction it
    creates.
-3. `ConfidentialTransaction::check` computes the public hash. In R1CS, circuit-lib asserts
+3. `ConfidentialTransaction::check` computes the public hash. In R1CS, zk-program-sdk asserts
    that it equals the public input.
 4. The program hashes the same `public` fields in the same order, then the SPP's
    `private_tx_hash`, and passes the result to the verifier.
@@ -71,7 +76,7 @@ pub struct WithdrawPublicInputs {
   transaction, and the program passes the SPP's hash into its own public input.
 - The circuit-specific fields are what the program must check itself, for example the
   escrow owner it expects or the unlock time it compares with the clock.
-- Every public inputs `Circuit` type implements `PublicInputs`, which computes the public
+- Every public inputs circuit type implements `PublicInputs`, which computes the public
   hash:
 
   ```rust
@@ -79,7 +84,7 @@ pub struct WithdrawPublicInputs {
       fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError>;
   }
 
-  impl PublicInputs for EscrowPublicInputsCircuit {
+  impl PublicInputs for circuit::EscrowPublicInputs {
       fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
           poseidon(&[self.escrow_owner.clone(), private_tx_hash.clone()])
       }
@@ -92,35 +97,43 @@ Every private inputs struct starts with `tx_context`. The rest is circuit specif
 order:
 
 1. `tx_context: TxContext`: the transaction values the circuit cannot compute, namely the
-   first nullifier, the blinding seed and the output tree. `first_nullifier` is the nullifier
-   of the UTXO the logic adds first.
-2. Token UTXOs, one array per asset: `token_utxos_asset_a: [SppProofInputUtxo; A]`,
-   `token_utxos_asset_b: [SppProofInputUtxo; B]`. Each length is a const generic or a
-   constant, so the circuit's shape is fixed. `SppProofInputUtxo::dummy` pads an array. In
-   `circuit` each array becomes a `TokenUtxo`.
-3. Data UTXOs: one named `SppProofInputUtxo` per spent UTXO that holds program state, with
-   its state next to it.
+   first nullifier, the blinding seed, the output tree and the sender. `first_nullifier` is
+   the nullifier of the UTXO the logic adds first. The sender is the wallet whose keys encrypt
+   the outputs. `TxContext::new(first_nullifier, output_tree_id, sender)` picks the blinding
+   seed.
+2. Token UTXOs, one array per asset: `token_utxos_asset_a: [WalletUtxo; A]`,
+   `token_utxos_asset_b: [WalletUtxo; B]`. Each length is a const generic or a constant, so
+   the circuit's shape is fixed. `WalletUtxo::dummy` pads an array. In `circuit` each array
+   becomes a `TokenUtxo`.
+3. Data UTXOs: one named `WalletUtxo` per spent UTXO that holds program state, with its
+   state next to it.
 4. Arbitrary data: every other value, for example an amount or a recipient's
    `ShieldedAddress`.
+
+Spent UTXOs are `WalletUtxo`s, the notes a wallet gets from the indexer, so the client holds
+everything the transaction crate needs to build the SPP transaction.
 
 ```rust
 pub struct EscrowPrivateInputs {
     pub tx_context: TxContext,
-    pub token_utxos_asset_a: [SppProofInputUtxo; ESCROW_TOKEN_INPUTS],
+    pub token_utxos_asset_a: [WalletUtxo; ESCROW_TOKEN_INPUTS],
+    pub creator: ShieldedAddress,
     pub unlock: u64,
     pub amount: u64,
 }
 
 pub struct WithdrawPrivateInputs {
     pub tx_context: TxContext,
-    pub escrow: SppProofInputUtxo,
+    pub escrow: WalletUtxo,
     pub terms: EscrowTerms,
+    pub creator: ShieldedAddress,
     pub creator_nullifier_pk: [u8; 32],
 }
 ```
 
 - The escrow spends the creator's token UTXOs of one asset.
 - The withdraw spends `escrow`, a data UTXO, and `terms` is its old state.
+- `creator` is the address the escrow's change and the withdraw's payout go to.
 - `unlock` and `amount` are new data: the prover sets them and the escrow output includes
   them. The circuit checks that `amount` is not zero. Beyond its `u64` range, `unlock` needs
   no check at creation, because the program compares it with the clock at withdraw.
@@ -131,14 +144,16 @@ pub struct WithdrawPrivateInputs {
 
 ### Types and range checks
 
-Instantiating a circuit transforms its types. Proof inputs go in, and `Circuit`-suffixed types
-come out, with every field a `CircuitVar` or a struct of them:
+Instantiating a circuit transforms its types. Proof inputs go in, and the types of the same
+name in the `circuit` module come out, with every field a `CircuitVar` or a struct of them:
 
 | Proof input | Circuit type |
 | --- | --- |
-| `Escrow` | `EscrowCircuit` |
-| `EscrowPrivateInputs` | `EscrowPrivateInputsCircuit` |
-| `EscrowTerms` | `EscrowTermsCircuit` |
+| `Escrow` | `circuit::Escrow` |
+| `EscrowPrivateInputs` | `circuit::EscrowPrivateInputs` |
+| `EscrowTerms` | `circuit::EscrowTerms` |
+| `TxContext` | `circuit::TxContext` |
+| `WalletUtxo` | `circuit::Utxo` |
 
 Proof inputs use plain Rust types that implement `ProofInput`:
 
@@ -149,16 +164,21 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 | `[u8; 32]` | the value | is canonical |
 | `ShieldedAddress` | its owner hash | none |
 | `Mint` | its asset hash | none |
-| `SppProofInputUtxo` | a `Utxo` | none, the SPP proof range-checks UTXO fields |
-| a struct | its `Circuit` type, field by field | its fields' checks |
+| `WalletUtxo` | a `Utxo` | none, the SPP proof range-checks UTXO fields |
+| a struct | its circuit type, field by field | its fields' checks |
 
-- `circuit` is a method of the `Circuit` type, so inside it every value is a `CircuitVar`.
-- Instantiation is the only way from a proof input to its `Circuit` type, and it runs the
+- `circuit` is a method of the circuit type, so inside it every value is a `CircuitVar`.
+- Instantiation is the only way from a proof input to its circuit type, and it runs the
   checks: natively as a comparison that fails with a named `RelationError`, in R1CS as
   constraints, for example a bit decomposition for a `u64`.
-- A state has two forms, written by hand for now: the input form, for example
-  `EscrowTerms { creator: [u8; 32], unlock: u64 }`, and the `Circuit` form with `CircuitVar`
+- A state has two forms, written by hand for now: the client form, for example
+  `EscrowTerms { creator: [u8; 32], unlock: u64 }`, and the circuit form with `CircuitVar`
   fields.
+- `FromCircuit` is the way back, `from_circuit(&circuit) -> Result<Self>`. It reads the
+  values of the native run and checks the same ranges. `u64`, `u32`, `u16`, `bool`,
+  `[u8; 32]` and arrays of them implement it, and a state's client form implements it
+  field by field. A `ShieldedAddress`, a `Mint` or a spent UTXO cannot come back from its
+  hash.
 - A computed value that needs a bound gets an explicit check in `circuit`:
   `check_bits(bits)` or `check_is_bool` on `CircuitVar`.
 - The SPP proof range-checks UTXO amounts. The circuit range-checks its inputs and the
@@ -166,7 +186,7 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 
 ## UTXO types
 
-circuit-lib has three UTXO types, each a version of Light's `LightAccount`:
+zk-program-sdk has three UTXO types, each a version of Light's `LightAccount`:
 
 | Type | What it is |
 | --- | --- |
@@ -179,14 +199,24 @@ circuit-lib has three UTXO types, each a version of Light's `LightAccount`:
   `DataHash`.
 
   ```rust
-  impl DataHash for EscrowTermsCircuit {
+  impl DataHash for circuit::EscrowTerms {
       fn hash(&self) -> Result<CircuitVar, RelationError> {
           poseidon(&[self.creator.hash()?, self.unlock.hash()?])
       }
   }
   ```
-- A state also implements `UtxoData`, the bytes a new data UTXO contains. It reads constant
-  values, so it runs only in the native run.
+- A state's circuit form implements `UtxoData`, which names its client form:
+
+  ```rust
+  impl UtxoData for circuit::EscrowTerms {
+      type Client = EscrowTerms;
+  }
+  ```
+
+  The client form implements `FromCircuit` and derives `BorshSerialize` and
+  `BorshDeserialize`. Its borsh bytes are the data a new data UTXO contains, for the escrow
+  `creator || unlock`. The native run converts the new state back and serializes it. R1CS
+  does neither. A client reads a spent UTXO's state back with `try_from_slice`.
 - `DataUtxo::new_init(owner)` holds no value: SOL with amount 0.
 - `token.transfer(recipient, amount)` returns an `OutputTokenUtxo` for the recipient.
 - A `TokenUtxo` tracks a change balance: its inputs plus deposits, minus withdrawals and
@@ -215,20 +245,21 @@ circuit-lib has three UTXO types, each a version of Light's `LightAccount`:
 ## The `circuit` method
 
 `circuit` implements the logic of the circuit and creates the output UTXOs. It builds a
-`ConfidentialTransaction` and ends with `check`:
+`ConfidentialTransaction` and ends with `check`. It lives in the `circuit` module, where
+`Escrow` and `EscrowTerms` are the circuit types:
 
 ```rust
-impl EscrowCircuit {
-    pub fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+impl Circuit for Escrow {
+    fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
         private.amount.assert_not_equal(&zero(), "the escrow locks nothing")?;
         let mut tokens = TokenUtxo::new_mut(private.token_utxos_asset_a.clone())?;
         let locked = tokens.transfer(&self.public.escrow_owner, private.amount.clone());
-        let mut escrow = DataUtxo::<EscrowTermsCircuit>::from_output_utxo(locked)?;
+        let mut escrow = DataUtxo::<EscrowTerms>::from_output_utxo(locked)?;
         escrow.creator = tokens.owner().clone();
         escrow.unlock = private.unlock.clone();
 
-        ConfidentialTransaction::<N_INPUTS, N_OUTPUTS>::new(&private.tx_context, &self.public)
+        ConfidentialTransaction::<_, N_INPUTS, N_OUTPUTS>::new(&private.tx_context, &self.public)
             .with_token_utxos(tokens)
             .with_data_utxo(escrow)
             .check()
@@ -245,17 +276,19 @@ impl EscrowCircuit {
   program's `N_INPUTS` and `N_OUTPUTS`.
 - Slots follow the order in which UTXOs are added: each input takes the next input slot and
   each output the next output slot.
-- Unused slots hash as 0. Adding more inputs than `IN` or more outputs than `OUT` fails with a
-  named `RelationError`.
+- Unused input slots hash as 0. Unused output slots hold a zero-SOL output to
+  `tx_context.sender`, the transaction crate's padding, so every output slot carries a
+  ciphertext and the transaction does not show how many outputs are real. Adding more inputs
+  than `IN` or more outputs than `OUT` fails with a named `RelationError`.
 - `check` does the rest:
-  1. derives each output's blinding from `tx_context` and hashes the output,
+  1. fills the unused output slots, derives each output's blinding from `tx_context` and
+     hashes the output,
   2. computes `private_tx_hash` from the input and output hashes,
-  3. computes the public hash with `public.hash(&private_tx_hash)`,
-  4. in the native run, checks `tx_context.first_nullifier` against slot 0 and resolves
-     each slot against the client's records (see [Client](#client)).
+  3. computes the public hash with `public.hash(&private_tx_hash)`.
 
-  It returns a `CheckedTransaction`: the public hash and the slots.
-- In R1CS, circuit-lib asserts the returned public hash equals the public input.
+  It returns a `CheckedTransaction`: the public hash, `private_tx_hash` and the slots, which
+  the client resolves (see [Client](#client)).
+- In R1CS, zk-program-sdk asserts the returned public hash equals the public input.
   `ConfidentialTransaction` is `#[must_use]`, so a circuit cannot skip `check`.
 - The same method runs natively on constants, where a broken rule is a named
   `RelationError`, and in R1CS on allocated variables, where it is an unsatisfied
@@ -268,53 +301,74 @@ impl EscrowCircuit {
 
 ## Client
 
-The proof inputs live in a `client` module in the circuit crate, named like the circuit:
-`client::Escrow`, `client::EscrowPrivateInputs`, `client::EscrowPublicInputs`. This follows
-Anchor's DSL, where a program's `Initialize<'info>` accounts struct has the client counterpart
-`accounts::Initialize`, with `Pubkey` fields instead of account wrappers.
+The proof inputs are the crate's root types: `Escrow`, `EscrowPrivateInputs`,
+`EscrowPublicInputs`. Their circuit forms have the same names in the `circuit` module. This
+inverts Anchor, where the program's `Initialize<'info>` is primary and `accounts::Initialize`
+is its client counterpart. Here the client type is primary, and `circuit::Escrow` derives from
+it.
 
 The client runs the same `circuit` natively through the `ZkProgram` trait, and the prover runs
 it in R1CS:
 
 ```rust
-impl ZkProgram for client::Escrow {}
+impl ZkProgram for Escrow {}
 
-let (escrow, spp_transaction) =
-    escrow.create_proof_inputs_and_encrypt(&viewing_key, payer, expiry_unix_ts)?;
+let (escrow, spp_proof_inputs) =
+    escrow.create_proof_inputs_and_encrypt(&shielded_keys, payer, expiry_unix_ts)?;
 let proof = ArkworksCircuit::new(escrow)?.prove(&keys, &mut rng)?;
 ```
 
-- `ZkProgram` requires the inputs to implement `ProofInput` and their `Circuit` type to
+- `ZkProgram` requires the inputs to implement `ProofInput` and `ProofInput::Circuit` to
   implement `Circuit`. It provides `create_proof_inputs_and_encrypt`, which:
-  1. picks the blinding seed,
-  2. instantiates the inputs natively and runs `circuit`,
-  3. converts each output amount to `u64`, with a named error when one does not fit,
-  4. encrypts each output for its recipient, fixes expiry and salt, and computes
-     `external_data_hash`.
+  1. instantiates the inputs natively and runs `circuit`,
+  2. resolves the slots against the records and converts each output amount to `u64`, with a
+     named error when one does not fit,
+  3. builds `zolana_transaction::ConfidentialTransaction` from the resolved inputs and
+     outputs, with the circuit's blinding seed and shape, and encrypts it with the keys:
+     blindings, owner tags, ciphertexts and `external_data_hash`,
+  4. sets the expiry and checks that `private_tx_hash_without_external_data` equals the
+     circuit's `private_tx_hash`.
 
-  It returns the completed inputs and an `SppTransaction`.
-- `SppTransaction<IN, OUT>` holds `spp_proof_inputs`, the SPP prover's input, and
-  `private_tx_hash`, which the SDK cannot recompute from `SppProofInputs` under the protocol
-  assumption. `output(slot)` returns a created UTXO.
+  It takes the inputs by value and returns them with the `SppProofInputs`.
+- The keys implement `ShieldedKeys`, and their address must be `tx_context.sender`.
+- Both proofs share the hash `private_tx_hash_without_external_data` computes from the
+  `SppProofInputs`.
 - Building the program instruction from the proofs is a separate step, after proving.
 - Native instantiation records what a `CircuitVar` cannot hold, keyed by the hash the logic
-  uses: `owner_hash → ShieldedAddress`, `asset_hash → Mint` and
-  `utxo_hash → SppProofInputUtxo`. R1CS instantiation records nothing.
-- In the native run, `check` resolves each slot against these records: an input hash to its
-  `SppProofInputUtxo`, an output's owner and asset hashes to its address and `Mint`.
-- Every output owner comes from an input: the owner of a spent UTXO, or an address passed as
-  arbitrary data.
+  uses: `owner_hash → ShieldedAddress`, `asset_hash → Mint` and `utxo_hash → WalletUtxo`.
+  R1CS instantiation records nothing.
+- `create_proof_inputs_and_encrypt` checks `tx_context.first_nullifier` against slot 0 and
+  resolves each slot of the `CheckedTransaction` against these records: an input hash to its
+  `WalletUtxo`, an unused input slot to `WalletUtxo::dummy` in the tree before it, and an
+  output's owner and asset hashes to its address and `Mint`. Each resolved output must hash
+  to the circuit's output hash.
+- Every output owner, change included, comes from a `ShieldedAddress` input: a spent UTXO has
+  its owner's signing and nullifier keys but not the viewing key the encryption needs.
 - Both proofs start from the result of `create_proof_inputs_and_encrypt` and run in
   parallel.
 - The client also holds what the circuit does not see: Merkle proofs and leaf indexes,
   nullifier data and owner signers, and recipient viewing keys.
-- Encryption and the SPP proof input types come from the zolana SDKs.
+- Encryption, owner tags and the SPP proof input types come from `zolana_transaction`, the same
+  code a wallet's plain transfer uses.
+
+## SDK modules
+
+zk-program-sdk follows the same split:
+
+| Path | Contents |
+| --- | --- |
+| `zk_program_sdk` | What the client and the prover use: `TxContext`, `ZkProgram`, `ArkworksCircuit`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `RelationError`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `constant`, `zero`, `value`, `poseidon`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `OutputTokenUtxo`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`. |
+| `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Allocator`, `Records`, and bytes to fields and back. |
+
+Everything a future macro derives can also be written by hand, so `conversion` stays public.
+A feature may gate it later.
 
 ## Setup and features
 
 - `ArkworksCircuit::setup` synthesizes default sample inputs. `ConfidentialTransaction<IN, OUT>`
   and `TokenUtxo<N>` keep the sizes generic, so another shape is other constants.
-- circuit-lib has two features:
+- zk-program-sdk has two features:
 
   | Feature | Contents |
   | --- | --- |
@@ -322,7 +376,8 @@ let proof = ArkworksCircuit::new(escrow)?.prove(&keys, &mut rng)?;
   | `setup` | Groth16 setup, writing the proving key, exporting the verifying key as a program constant marked `InsecureTest`. |
 
   The input types, the UTXO types, `ConfidentialTransaction`, `circuit` and R1CS synthesis
-  compile without either.
+  compile without either. Both are on by default. A wallet that does not generate keys
+  depends on zk-program-sdk with `default-features = false, features = ["client"]`.
 
 ## Tests
 
@@ -331,4 +386,5 @@ Each test builds its inputs inline. Shared helpers only create keypairs and spen
 ## Out of scope for the PoC
 
 - A macro that rejects logic that branches on values.
-- A macro that generates both forms of a state and their `ProofInput` impls.
+- A derive macro on the client types that generates their `circuit` module types and the
+  `ProofInput`, `FromCircuit`, `DataHash` and `UtxoData` impls.

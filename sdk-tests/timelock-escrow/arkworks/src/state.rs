@@ -1,33 +1,33 @@
-use circuit_lib::{poseidon, zero, Allocator, CircuitVar, DataHash, ProofInput, RelationError};
+use borsh::{BorshDeserialize, BorshSerialize};
+use zk_program_sdk::{
+    conversion::{Allocator, FromCircuit, ProofInput},
+    RelationError,
+};
 
-#[derive(Clone, Debug)]
+use crate::circuit;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct EscrowTerms {
-    pub creator: CircuitVar,
-    pub unlock: CircuitVar,
-}
-
-impl Default for EscrowTerms {
-    fn default() -> Self {
-        Self {
-            creator: zero(),
-            unlock: zero(),
-        }
-    }
-}
-
-impl DataHash for EscrowTerms {
-    fn hash(&self) -> Result<CircuitVar, RelationError> {
-        poseidon(&[self.creator.hash()?, self.unlock.hash()?])
-    }
+    pub creator: [u8; 32],
+    pub unlock: u64,
 }
 
 impl ProofInput for EscrowTerms {
-    type Circuit = EscrowTerms;
+    type Circuit = circuit::EscrowTerms;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<EscrowTerms, RelationError> {
-        Ok(Self {
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::EscrowTerms, RelationError> {
+        Ok(circuit::EscrowTerms {
             creator: self.creator.instantiate(allocator)?,
             unlock: self.unlock.instantiate(allocator)?,
+        })
+    }
+}
+
+impl FromCircuit for EscrowTerms {
+    fn from_circuit(circuit: &circuit::EscrowTerms) -> Result<Self, RelationError> {
+        Ok(Self {
+            creator: <[u8; 32]>::from_circuit(&circuit.creator)?,
+            unlock: u64::from_circuit(&circuit.unlock)?,
         })
     }
 }

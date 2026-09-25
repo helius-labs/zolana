@@ -1,117 +1,95 @@
-use circuit_lib::{
-    poseidon, zero, Allocator, Assert, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
-    ProofInput, PublicHash, PublicInputs, RelationError, TxContext, Utxo, U64,
+use solana_signature::Signature;
+use timelock_escrow_sdk::{escrow_authority, zk_program::ProgramOwner};
+use zk_program_sdk::{
+    conversion::{Allocator, ProofInput},
+    RelationError, TxContext, ZkProgram,
 };
-use timelock_escrow_program::instructions::withdraw::{N_INPUTS, N_OUTPUTS};
+use zolana_keypair::ShieldedAddress;
+use zolana_transaction::{utxo::Utxo, SppProofOutputUtxo, WalletUtxo};
 
-use crate::EscrowTerms;
+use crate::{circuit, EscrowTerms};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Withdraw {
     pub private: WithdrawPrivateInputs,
     pub public: WithdrawPublicInputs,
-    pub public_hash: PublicHash,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct WithdrawPrivateInputs {
     pub tx_context: TxContext,
-    pub escrow: Utxo,
+    pub escrow: WalletUtxo,
     pub terms: EscrowTerms,
-    pub creator_nullifier_pk: CircuitVar,
+    pub creator: ShieldedAddress,
+    pub creator_nullifier_pk: [u8; 32],
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct WithdrawPublicInputs {
-    pub unlock: U64,
-    pub owner_identity: CircuitVar,
-}
-
-pub struct WithdrawCircuit {
-    pub private: WithdrawPrivateInputs,
-    pub public: WithdrawPublicInputsCircuit,
-    pub public_hash: CircuitVar,
-}
-
-pub struct WithdrawPublicInputsCircuit {
-    pub unlock: CircuitVar,
-    pub owner_identity: CircuitVar,
-}
-
-impl Circuit for WithdrawCircuit {
-    fn circuit(&self) -> Result<CircuitVar, RelationError> {
-        let private = &self.private;
-        let mut escrow = DataUtxo::new_burn(&private.escrow, private.terms.clone())?;
-        escrow
-            .amount()
-            .assert_not_equal(&zero(), "the escrow utxo holds nothing")?;
-        poseidon(&[
-            self.public.owner_identity.clone(),
-            private.creator_nullifier_pk.clone(),
-        ])?
-        .assert_equal(&escrow.creator, "the signer is not the escrow creator")?;
-        self.public
-            .unlock
-            .assert_equal(&escrow.unlock, "the unlock time is not the escrow's")?;
-        let (creator, amount) = (escrow.creator.clone(), escrow.amount().clone());
-        let payout = escrow.transfer(&creator, amount)?;
-
-        ConfidentialTransaction::<_, N_INPUTS, N_OUTPUTS>::new(&private.tx_context, &self.public)
-            .with_data_utxo(escrow)
-            .with_output_token_utxo(payout)
-            .check()
-    }
-
-    fn public_hash(&self) -> &CircuitVar {
-        &self.public_hash
-    }
-}
-
-impl PublicInputs for WithdrawPublicInputsCircuit {
-    fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-        poseidon(&[
-            self.unlock.clone(),
-            self.owner_identity.clone(),
-            private_tx_hash.clone(),
-        ])
-    }
+    pub unlock: u64,
+    pub owner_identity: [u8; 32],
 }
 
 impl ProofInput for Withdraw {
-    type Circuit = WithdrawCircuit;
+    type Circuit = circuit::Withdraw;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<WithdrawCircuit, RelationError> {
-        Ok(WithdrawCircuit {
-            private: self.private.instantiate(allocator)?,
-            public: self.public.instantiate(allocator)?,
-            public_hash: self.public_hash.instantiate(allocator)?,
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Withdraw, RelationError> {
+        let private = &self.private;
+        Ok(circuit::Withdraw {
+            private: circuit::WithdrawPrivateInputs {
+                tx_context: private.tx_context.instantiate(allocator)?,
+                escrow: private.escrow.instantiate(allocator)?,
+                terms: private.terms.instantiate(allocator)?,
+                creator: private.creator.instantiate(allocator)?,
+                creator_nullifier_pk: private.creator_nullifier_pk.instantiate(allocator)?,
+            },
+            public: circuit::WithdrawPublicInputs {
+                unlock: self.public.unlock.instantiate(allocator)?,
+                owner_identity: self.public.owner_identity.instantiate(allocator)?,
+            },
         })
     }
 }
 
-impl ProofInput for WithdrawPrivateInputs {
-    type Circuit = WithdrawPrivateInputs;
+impl ZkProgram for Withdraw {}
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<WithdrawPrivateInputs, RelationError> {
-        Ok(Self {
-            tx_context: self.tx_context.instantiate(allocator)?,
-            escrow: self.escrow.instantiate(allocator)?,
-            terms: self.terms.instantiate(allocator)?,
-            creator_nullifier_pk: self.creator_nullifier_pk.instantiate(allocator)?,
-        })
+pub fn escrow_input(
+    output: &SppProofOutputUtxo,
+    tree_id: u16,
+    leaf_index: u64,
+) -> Result<WalletUtxo, RelationError> {
+    let invalid = |error: String| RelationError::InvalidInput(error);
+    let owner = escrow_authority();
+    let key = ProgramOwner::nullifier_key();
+    let nullifier_pubkey = ProgramOwner::nullifier_pubkey().map_err(|e| invalid(e.to_string()))?;
+    let utxo = Utxo {
+        owner: owner.public_key(),
+        asset: output.asset,
+        amount: output.amount,
+        blinding: output.blinding,
+        ring_program_id: None,
+        data: output.data.clone(),
+    };
+    let data_hash = output.data_hash.unwrap_or_default();
+    let utxo_hash = utxo
+        .hash(&nullifier_pubkey, &data_hash, &[0u8; 32], tree_id)
+        .map_err(|e| invalid(e.to_string()))?;
+    if utxo_hash != output.hash(tree_id).map_err(|e| invalid(e.to_string()))? {
+        return Err(RelationError::Violated("the output is not an escrow utxo"));
     }
-}
-
-impl ProofInput for WithdrawPublicInputs {
-    type Circuit = WithdrawPublicInputsCircuit;
-
-    fn instantiate(
-        &self,
-        allocator: &Allocator,
-    ) -> Result<WithdrawPublicInputsCircuit, RelationError> {
-        Ok(WithdrawPublicInputsCircuit {
-            unlock: self.unlock.instantiate(allocator)?,
-            owner_identity: self.owner_identity.instantiate(allocator)?,
-        })
-    }
+    Ok(WalletUtxo {
+        nullifier: utxo
+            .nullifier(&utxo_hash, &key)
+            .map_err(|e| invalid(e.to_string()))?,
+        utxo,
+        nullifier_pubkey,
+        utxo_hash,
+        data_hash: output.data_hash,
+        ring_data_hash: None,
+        tree_id,
+        leaf_index,
+        slot: 0,
+        tx_signature: Signature::default(),
+        slot_index: 0,
+    })
 }

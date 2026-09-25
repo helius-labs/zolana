@@ -6,6 +6,7 @@ use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use std::cell::RefCell;
 use zolana_event::OutputDataEncoding;
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
 use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
@@ -1294,4 +1295,108 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
             expected
         );
     }
+}
+
+#[test]
+fn blinding_seed_is_configurable_until_padding() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let seed = [9u8; 32];
+    let mut tx = builder(&owner, 3).with_blinding_seed(seed).unwrap();
+    tx.pad_utxos(Shape::IN1_OUT1, &sender).unwrap();
+    let first = *tx.first_nullifier();
+    let proof = tx.encrypt(&owner).unwrap();
+    let output_seed = derive_output_blinding_seed(&first, &seed).unwrap();
+    let mut padded = builder(&owner, 3);
+    padded.pad_utxos(Shape::IN1_OUT1, &sender).unwrap();
+
+    assert_eq!(
+        (
+            proof.blinding_seed,
+            proof.output_utxos.first().map(|output| output.blinding),
+            padded.with_blinding_seed(seed).err(),
+        ),
+        (
+            seed,
+            Some(derive_transact_output_blinding(&first, &output_seed, 0).unwrap()),
+            Some(E::OutputUtxosAlreadyPadded),
+        )
+    );
+}
+
+#[test]
+fn wallet_dummy_pads_a_slot_between_real_inputs() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let dummy = WalletUtxo::dummy(7).unwrap();
+    let mut tx = ConfidentialTransaction::new(
+        vec![
+            wallet_utxo(&owner, Mint::SOL, 5, 7, 1),
+            dummy.clone(),
+            wallet_utxo(&owner, Mint::SOL, 2, 7, 2),
+        ],
+        payer(&owner),
+    )
+    .unwrap();
+    tx.pad_utxos(Shape::IN3_OUT3, &sender).unwrap();
+    let proof = tx.encrypt(&owner).unwrap();
+
+    assert_eq!(
+        (
+            proof
+                .input_utxos
+                .iter()
+                .map(SppProofInputUtxo::is_dummy)
+                .collect::<Vec<_>>(),
+            proof.input_utxos.get(1).map(|input| input.utxo_hash),
+            ConfidentialTransaction::new(vec![WalletUtxo::dummy(7).unwrap()], payer(&owner)).err(),
+        ),
+        (
+            vec![false, true, false],
+            Some(dummy.utxo_hash),
+            Some(E::DummyInFirstInputSlot),
+        )
+    );
+}
+
+#[test]
+fn private_tx_hash_without_external_data_leaves_the_external_data_out() {
+    let owner = keypair(1);
+    let proof = builder(&owner, 3).encrypt(&owner).unwrap();
+    let mut other_expiry = proof.clone();
+    other_expiry.external_data.expiry_unix_ts = proof.external_data.expiry_unix_ts.wrapping_add(1);
+    let inputs: Vec<[u8; 32]> = proof
+        .input_utxos
+        .iter()
+        .map(|input| {
+            if input.is_dummy() {
+                [0u8; 32]
+            } else {
+                input.utxo_hash
+            }
+        })
+        .collect();
+    let outputs: Vec<[u8; 32]> = proof
+        .output_utxos
+        .iter()
+        .map(|output| output.hash(proof.output_tree_id).unwrap())
+        .collect();
+    let expected = Poseidon::hashv(&[
+        create_hash_chain_4_from_slice(&inputs).unwrap().as_slice(),
+        create_hash_chain_4_from_slice(&outputs).unwrap().as_slice(),
+        create_hash_chain_4_from_slice(&vec![[0u8; 32]; inputs.len()])
+            .unwrap()
+            .as_slice(),
+        proof.private_tx_blinding().unwrap().as_slice(),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        (
+            proof.private_tx_hash_without_external_data().ok(),
+            other_expiry.private_tx_hash_without_external_data().ok(),
+            other_expiry.message_hash().ok() == proof.message_hash().ok(),
+        ),
+        (Some(expected), Some(expected), false)
+    );
 }

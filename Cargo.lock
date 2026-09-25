@@ -1564,31 +1564,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "circuit-lib"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-groth16",
- "ark-r1cs-std",
- "ark-relations",
- "ark-std 0.5.0",
- "groth16-solana",
- "light-poseidon 0.4.0",
- "solana-address 2.6.1",
- "solana-bn254",
- "thiserror 2.0.20",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-transaction",
-]
-
-[[package]]
 name = "clap"
 version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9640,12 +9615,13 @@ dependencies = [
 name = "timelock-escrow-arkworks"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "circuit-lib",
+ "ark-relations",
+ "borsh",
  "solana-address 2.6.1",
+ "solana-signature",
  "timelock-escrow-program",
  "timelock-escrow-sdk",
- "zolana-client",
+ "zk-program-sdk",
  "zolana-hasher",
  "zolana-keypair",
  "zolana-transaction",
@@ -11156,6 +11132,33 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.5",
+]
+
+[[package]]
+name = "zk-program-sdk"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-r1cs-std",
+ "ark-relations",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "borsh",
+ "groth16-solana",
+ "light-poseidon 0.4.0",
+ "solana-address 2.6.1",
+ "solana-bn254",
+ "solana-signature",
+ "thiserror 2.0.20",
+ "zolana-client",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program",
+ "zolana-transaction",
 ]
 
 [[package]]
