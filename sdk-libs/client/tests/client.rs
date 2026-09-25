@@ -297,7 +297,8 @@ fn submit_validation_binds_fee_payer() {
         ProverClient::new("http://unused.invalid".to_string()),
         AsyncZolanaIndexer::new(server.url()),
         AsyncProverClient::new("http://unused.invalid".to_string()),
-    );
+    )
+    .with_proof_data_source(zolana_client::ProofDataSource::Client);
 
     assert!(matches!(
         client.finish_submission_unsigned_sync(
@@ -980,7 +981,7 @@ impl<R: Rpc> TestSubmission for ZolanaClient<R> {
 }
 
 #[test]
-fn indexed_transfer_routes_skip_client_indexer_reads() {
+fn default_transfer_routes_skip_client_indexer_reads() {
     let payer = Keypair::new();
     let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
     let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
@@ -993,8 +994,7 @@ fn indexed_transfer_routes_skip_client_indexer_reads() {
         server.url(),
         server.url(),
     )
-    .unwrap()
-    .with_proof_data_source(zolana_client::ProofDataSource::Prover);
+    .unwrap();
     assert!(matches!(
         Rpc::prove(&client, transaction.clone(), &owner),
         Err(ClientError::MissingProvingKeySha256 { .. })
@@ -1018,7 +1018,7 @@ fn indexed_transfer_routes_skip_client_indexer_reads() {
 }
 
 #[tokio::test]
-async fn indexed_async_transfer_routes_skip_client_indexer_reads() {
+async fn default_async_transfer_routes_skip_client_indexer_reads() {
     let payer = Keypair::new();
     let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
     let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
@@ -1031,8 +1031,7 @@ async fn indexed_async_transfer_routes_skip_client_indexer_reads() {
         server.url(),
         server.url(),
     )
-    .unwrap()
-    .with_proof_data_source(zolana_client::ProofDataSource::Prover);
+    .unwrap();
     assert!(matches!(
         AsyncRpc::prove(&client, transaction.clone(), &owner).await,
         Err(ClientError::MissingProvingKeySha256 { .. })
@@ -1052,6 +1051,74 @@ async fn indexed_async_transfer_routes_skip_client_indexer_reads() {
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_eq!(server.requests(), ["/prove/indexed"; 2]);
+}
+
+#[test]
+fn client_proof_data_opt_in_fetches_paths_before_proving() {
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+    let input = funded_utxo(&owner, 10);
+    let server = client_proof_data_server(&input);
+    let transaction = ConfidentialTransaction::new(vec![input], payer.pubkey())
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let client = ZolanaClient::from_urls(
+        MockSubmitRpc::new(Signature::default()),
+        server.url(),
+        server.url(),
+    )
+    .unwrap()
+    .with_proof_data_source(zolana_client::ProofDataSource::Client);
+    assert!(matches!(
+        Rpc::prove(&client, transaction, &owner),
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert_client_proof_data_requests(server.requests());
+}
+
+#[tokio::test]
+async fn client_proof_data_opt_in_fetches_paths_before_proving_async() {
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+    let input = funded_utxo(&owner, 10);
+    let server = client_proof_data_server(&input);
+    let transaction = ConfidentialTransaction::new(vec![input], payer.pubkey())
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let client = ZolanaClient::from_urls(
+        MockSubmitRpc::new(Signature::default()),
+        server.url(),
+        server.url(),
+    )
+    .unwrap()
+    .with_proof_data_source(zolana_client::ProofDataSource::Client);
+    assert!(matches!(
+        AsyncRpc::prove(&client, transaction, &owner).await,
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert_client_proof_data_requests(server.requests());
+}
+
+fn client_proof_data_server(input: &WalletUtxo) -> MockIndexerServer {
+    let tree = pda::tree(input.tree_id);
+    MockIndexerServer::respond_by_path(vec![
+        ("/getMerkleProofs", merkle_response(tree, input.utxo_hash)),
+        (
+            "/getNonInclusionProofs",
+            nullifier_response(tree, input.nullifier),
+        ),
+        ("/prove", json!({})),
+    ])
+}
+
+fn assert_client_proof_data_requests(requests: Vec<String>) {
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[2], "/prove");
+    let mut reads = requests[..2].to_vec();
+    reads.sort();
+    assert_eq!(reads, ["/getMerkleProofs", "/getNonInclusionProofs"]);
 }
 
 #[test]

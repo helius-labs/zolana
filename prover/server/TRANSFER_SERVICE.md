@@ -22,24 +22,28 @@ JSON-RPC requests to that configured URL only. `PROVER_INDEXER_API_KEY` sets
 its `api-key` query parameter. `PROVER_INDEXER_CONCURRENCY` bounds preparation requests.
 Both delivery paths resolve proofs before acquiring a transfer execution slot.
 
-Select `proofDataSource: "prover"` in the TypeScript client, or
-`with_proof_data_source(ProofDataSource::Prover)` in Rust. Reuse the client
-between requests. Keep the prover and indexer in the same availability zone
-and use the private indexer endpoint to avoid another remote round trip.
+Prover fetching is the SDK default. Select `proofDataSource: "client"` in
+TypeScript or `with_proof_data_source(ProofDataSource::Client)` in Rust to
+fetch proof data in the SDK. The forester uses `--client-proof-data` for the
+same choice. Reuse the client between requests. Keep the prover and indexer
+in the same availability zone and use the private indexer endpoint to avoid
+another remote round trip.
 
 The request contains `circuitType`, `prepared`, `trees`, `inputs`,
 `publicInputs`, and optional `minContextSlot`. `prepared` uses the selected
 circuit's JSON fields with paths, tree slots, and public input hash omitted.
 Each tree has its base58 address and raw `id`. Each input has its `treeSlot`
-and base58 `commitment`, or `null` for a dummy. `publicInputs` contains the
-public transcript fields in circuit order, with the tree slot commitment
+and base58 `commitment`, or `null` for a dummy or cached input. `publicInputs`
+contains the public transcript fields in circuit order, with the tree slot commitment
 omitted. Fields use hex encoding. The resolver inserts that commitment at
 position two before hashing the transcript.
 
 State and nullifier requests run concurrently. Real and dummy nullifiers
 share one request per tree. The resolver checks leaf, path, root, tree, and
 root history position before proving. `minContextSlot` rejects older indexer
-responses. Each input tree must contain a real spend.
+responses. Each transfer or merge input tree must start with a non-dummy
+input. When all non-dummy inputs in a tree are cached, the resolver skips its
+state path request and uses the cache root sentinel.
 
 The returned proof includes `resolution` with the resolved trees, their roots
 and history positions, and `publicInputHash`. The caller must bind those trees
