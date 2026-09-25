@@ -117,6 +117,10 @@ http {
             proxy_pass_request_body off;
             proxy_set_header Content-Length "";
         }
+        location ~ ^/(v1/zolana/)?proving-keys$ {
+            auth_request off;
+            proxy_pass http://127.0.0.1:3003;
+        }
         location / { proxy_pass http://127.0.0.1:3003; }
     """
         + indexer

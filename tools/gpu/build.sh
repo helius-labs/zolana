@@ -27,12 +27,12 @@ export GOWORK="$scratch/go.work"
 (cd "$root/prover/server" && CGO_ENABLED=1 GOAMD64="${GOAMD64:-v3}" \
     CGO_LDFLAGS="-L$scratch/native/lib -L/usr/local/cuda/lib64" \
     go build -tags aeglos -trimpath -pgo=auto -ldflags='-s -w -buildid=' -o "$output/light-prover" .)
-(cd "$root" && cargo build --locked --release -p photon-indexer --bin photon)
+(cd "$root" && cargo build --locked --release -p photon-indexer --bin photon --bin photon-migration)
 target_dir=${CARGO_TARGET_DIR:-$root/target}
 [[ $target_dir == /* ]] || target_dir="$root/$target_dir"
-cp "$target_dir/release/photon" "$output/photon"
+cp "$target_dir/release/"{photon,photon-migration} "$output/"
 cp "$root/prover/server/prover/backend/aeglos-source.lock" "$root/LICENSE" "$root/THIRD_PARTY_NOTICES" "$output/"
 cp "$root/tools/gpu/"{install.sh,run-service.sh,supervisord.conf,validate.py} "$output/"
 git -C "$root" rev-parse HEAD > "$output/source-revision"
 printf '%s\n' "$CUDA_ARCH" > "$output/cuda-arch"
-(cd "$output" && sha256sum light-prover photon aeglos-source.lock source-revision cuda-arch LICENSE THIRD_PARTY_NOTICES install.sh run-service.sh supervisord.conf validate.py > SHA256SUMS)
+(cd "$output" && sha256sum light-prover photon photon-migration aeglos-source.lock source-revision cuda-arch LICENSE THIRD_PARTY_NOTICES install.sh run-service.sh supervisord.conf validate.py > SHA256SUMS)

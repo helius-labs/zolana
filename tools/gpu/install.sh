@@ -10,6 +10,7 @@ done
 (cd "$bundle" && sha256sum -c SHA256SUMS)
 "$bundle/light-prover" --version >/dev/null
 "$bundle/photon" --version >/dev/null
+"$bundle/photon-migration" --help >/dev/null
 set -a
 # 1. Deployment files are trusted operator input.
 # shellcheck source=/dev/null
@@ -52,7 +53,7 @@ if [[ -d $release ]]; then
     cmp "$bundle/SHA256SUMS" "$release/SHA256SUMS"
 else
     install -d -m 0750 -o root -g zolana_gpu "$release"
-    install -m 0755 "$bundle/light-prover" "$bundle/photon" "$bundle/run-service.sh" "$release/"
+    install -m 0755 "$bundle/light-prover" "$bundle/photon" "$bundle/photon-migration" "$bundle/run-service.sh" "$release/"
     install -m 0644 "$bundle/SHA256SUMS" "$bundle/aeglos-source.lock" "$bundle/source-revision" "$bundle/cuda-arch" "$bundle/LICENSE" "$bundle/THIRD_PARTY_NOTICES" "$bundle/install.sh" "$bundle/supervisord.conf" "$bundle/validate.py" "$release/"
 fi
 install -m 0640 -o root -g zolana_gpu "$bundle/deployment.env" "$deployment/deployment.env"
@@ -87,9 +88,10 @@ if supervisorctl -c "$deployment/supervisord.conf" pid >/dev/null 2>&1; then
 else
     supervisord -c "$deployment/supervisord.conf"
 fi
+deadline=$((SECONDS + 360))
 for service in "http://127.0.0.1:${PHOTON_PORT:-8784}/readiness" "http://${PROVER_ADDRESS:-127.0.0.1:3003}/ready"; do
     ready=false
-    for ((attempt=0; attempt<60; attempt++)); do
+    while ((SECONDS < deadline)); do
         if curl -fsS --max-time 2 "$service" >/dev/null 2>&1; then
             ready=true
             break

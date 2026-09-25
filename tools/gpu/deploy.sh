@@ -29,7 +29,7 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
-tar -czf "$scratch/bundle.tar.gz" -C "$bundle" light-prover photon SHA256SUMS aeglos-source.lock source-revision cuda-arch LICENSE THIRD_PARTY_NOTICES \
+tar -czf "$scratch/bundle.tar.gz" -C "$bundle" light-prover photon photon-migration SHA256SUMS aeglos-source.lock source-revision cuda-arch LICENSE THIRD_PARTY_NOTICES \
     install.sh run-service.sh supervisord.conf validate.py
 remote=$(ssh "${ssh_options[@]}" "$target" 'umask 077; mktemp -d /tmp/zolana-gpu.XXXXXXXX')
 [[ $remote =~ ^/tmp/zolana-gpu\.[a-zA-Z0-9]+$ ]]

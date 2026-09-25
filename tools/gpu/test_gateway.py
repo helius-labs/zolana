@@ -20,7 +20,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         key = self.headers.get('X-API-Key') or self.headers.get('Authorization', '').removeprefix('Bearer ')
         code = 204 if self.path == '/auth' else 200
-        if self.server.server_port == 3003 and not hmac.compare_digest(key, 'secret'):
+        public = self.path in ('/proving-keys', '/v1/zolana/proving-keys')
+        if self.server.server_port == 3003 and not public and not hmac.compare_digest(key, 'secret'):
             code = 401
         self.send_response(code)
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -49,11 +50,14 @@ for attempt in range(20):
         break
     except urllib.error.URLError:
         time.sleep(0.25)
-for path in ('/ready', '/indexer', '/indexer/readiness'):
+for path in ('/ready', '/indexer', '/indexer/readiness', '/prove/indexed', '/v1/zolana/prove/indexed', '/proving-keys/extra'):
     assert request(path)[0] == 401, path
     assert request(path, 'wrong')[0] == 401, path
     code, _, cors = request(path, 'secret')
     assert code == 200 and cors == ['*'], (path, code, cors)
+for path in ('/proving-keys', '/v1/zolana/proving-keys'):
+    for key in (None, 'wrong', 'secret'):
+        assert request(path, key)[0] == 200, path
 assert request('/_authorize', 'secret')[0] == 404
 assert request('/indexer', 'secret', b'{"jsonrpc":"2.0"}')[1] == b'{"jsonrpc":"2.0"}'
 assert request('/indexer', method='OPTIONS')[0] == 204
