@@ -12,7 +12,7 @@ import (
 
 type inputTarget struct {
 	slot, nullifier       *big.Int
-	dummy                 bool
+	dummy, cached         bool
 	state, exclusion      *[]*big.Int
 	stateIndex, low, high **big.Int
 	exclusionIndex        **big.Int
@@ -25,7 +25,10 @@ type preparedProof struct {
 	hash   **big.Int
 }
 
-func transferTargets(inputs []transfer.InputParams) []inputTarget {
+func transferTargets(inputs []transfer.InputParams, cache transfer.CacheSelectionParams) ([]inputTarget, error) {
+	if err := cache.Validate(len(inputs)); err != nil {
+		return nil, err
+	}
 	result := make([]inputTarget, len(inputs))
 	for index := range inputs {
 		input := &inputs[index]
@@ -35,8 +38,11 @@ func transferTargets(inputs []transfer.InputParams) []inputTarget {
 			exclusion: &input.NullifierLowPathElements, exclusionIndex: &input.NullifierLowPathIndex,
 			low: &input.NullifierLowValue, high: &input.NullifierNextValue,
 		}
+		if len(cache.IsCached) != 0 {
+			result[index].cached = cache.IsCached[index].Sign() != 0
+		}
 	}
-	return result
+	return result, nil
 }
 
 func decodePrepared(request Request) (*preparedProof, error) {
@@ -58,7 +64,11 @@ func decodePrepared(request Request) (*preparedProof, error) {
 			return nil, fmt.Errorf("prepared counts mismatch")
 		}
 		shape.Inputs, shape.Outputs = value.NInputs, value.NOutputs
-		prepared = preparedProof{value: &value, inputs: transferTargets(value.Inputs), slots: &value.TreeSlots, hash: &value.PublicInputHash}
+		inputs, err := transferTargets(value.Inputs, value.Cache)
+		if err != nil {
+			return nil, err
+		}
+		prepared = preparedProof{value: &value, inputs: inputs, slots: &value.TreeSlots, hash: &value.PublicInputHash}
 	case common.TransferP256RingCircuitType:
 		var value transfer.P256TransferParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
@@ -68,7 +78,11 @@ func decodePrepared(request Request) (*preparedProof, error) {
 			return nil, fmt.Errorf("prepared counts mismatch")
 		}
 		shape.Inputs, shape.Outputs = value.NInputs, value.NOutputs
-		prepared = preparedProof{value: &value, inputs: transferTargets(value.Inputs), slots: &value.TreeSlots, hash: &value.PublicInputHash}
+		inputs, err := transferTargets(value.Inputs, value.Cache)
+		if err != nil {
+			return nil, err
+		}
+		prepared = preparedProof{value: &value, inputs: inputs, slots: &value.TreeSlots, hash: &value.PublicInputHash}
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		var value merge.MergeParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
@@ -94,7 +108,13 @@ func decodePrepared(request Request) (*preparedProof, error) {
 	}
 	for index, input := range prepared.inputs {
 		lookup := request.Inputs[index]
-		if input.slot == nil || !input.slot.IsUint64() || input.slot.Uint64() != uint64(lookup.TreeSlot) || int(lookup.TreeSlot) >= len(request.Trees) || input.dummy != (lookup.Commitment == nil) {
+		if input.cached && (input.dummy || request.CircuitType == common.TransferRingAuthorityCircuitType) {
+			return nil, fmt.Errorf("invalid cached input")
+		}
+		if input.dummy && (index == 0 || lookup.TreeSlot != request.Inputs[index-1].TreeSlot) {
+			return nil, fmt.Errorf("input tree starts with a dummy")
+		}
+		if input.slot == nil || !input.slot.IsUint64() || input.slot.Uint64() != uint64(lookup.TreeSlot) || int(lookup.TreeSlot) >= len(request.Trees) || (input.dummy || input.cached) != (lookup.Commitment == nil) {
 			return nil, fmt.Errorf("input lookup mismatch")
 		}
 		if len(*input.state) != 0 || len(*input.exclusion) != 0 || (*input.stateIndex).Sign() != 0 || (*input.exclusionIndex).Sign() != 0 || (*input.low).Sign() != 0 || (*input.high).Sign() != 0 {

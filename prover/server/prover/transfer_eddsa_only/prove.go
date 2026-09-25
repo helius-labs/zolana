@@ -51,7 +51,7 @@ func (p *TransferParameters) ValidateShape() error {
 	if p.OutputTreeID == nil {
 		return fmt.Errorf("spp: outputTreeId is required")
 	}
-	if err := p.Cache.validate(int(p.NInputs)); err != nil {
+	if err := p.Cache.Validate(int(p.NInputs)); err != nil {
 		return err
 	}
 	return nil

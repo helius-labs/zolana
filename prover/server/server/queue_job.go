@@ -836,6 +836,9 @@ func (w *BaseQueueWorker) redactProofError(err error) error {
 }
 
 func (w *BaseQueueWorker) redactJobError(job *ProofJob, err error) error {
+	if errors.Is(err, indexed.ErrIndexerNotReady) {
+		return indexed.ErrIndexerNotReady
+	}
 	if job.Indexed {
 		return errors.New("indexed proof failed")
 	}

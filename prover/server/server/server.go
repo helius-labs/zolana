@@ -1111,6 +1111,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			if ctx.Err() != nil {
 				failure = &Error{StatusCode: http.StatusRequestTimeout, Code: "proof_timeout", Message: "Proof request expired"}
 			}
+			if errors.Is(err, indexed.ErrIndexerNotReady) {
+				failure = &Error{StatusCode: http.StatusServiceUnavailable, Code: "indexer_not_ready", Message: indexed.ErrIndexerNotReady.Error()}
+			}
 			failure.send(w)
 			return
 		}

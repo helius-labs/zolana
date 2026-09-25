@@ -15,16 +15,21 @@ import (
 )
 
 type Config struct {
-	URL         string
-	APIKey      string
-	Concurrency int
+	MaxBatchLeaves uint64
+	URL            string
+	APIKey         string
+	Concurrency    int
 }
 
 type Resolver struct {
-	client  *http.Client
-	url     string
-	apiKey  string
-	permits chan struct{}
+	maxBatchLeaves uint64
+	batchReplay    batchReplay
+	batchPermit    chan struct{}
+	batch          batchCache
+	client         *http.Client
+	url            string
+	apiKey         string
+	permits        chan struct{}
 }
 
 func NewResolver(config Config) (*Resolver, error) {
@@ -35,12 +40,17 @@ func NewResolver(config Config) (*Resolver, error) {
 	if config.Concurrency < 1 {
 		return nil, fmt.Errorf("invalid indexer concurrency")
 	}
+	if config.MaxBatchLeaves == 0 {
+		config.MaxBatchLeaves = 1_000_000
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConnsPerHost = config.Concurrency * 2
 	transport.MaxConnsPerHost = config.Concurrency * 2
 	return &Resolver{
-		url: endpoint.String(), apiKey: config.APIKey,
-		permits: make(chan struct{}, config.Concurrency),
+		maxBatchLeaves: config.MaxBatchLeaves,
+		url:            endpoint.String(), apiKey: config.APIKey,
+		permits:     make(chan struct{}, config.Concurrency),
+		batchPermit: make(chan struct{}, 1),
 		client: &http.Client{
 			Transport: transport,
 			Timeout:   15 * time.Second,
@@ -63,14 +73,18 @@ type proofParams struct {
 }
 
 func (r *Resolver) call(ctx context.Context, query proofQuery) (json.RawMessage, error) {
-	finish := timing.FromContext(ctx).Start(query.Method)
+	return r.rpc(ctx, query.Method, proofParams{Tree: query.Tree, Leaves: query.Leaves})
+}
+
+func (r *Resolver) rpc(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	finish := timing.FromContext(ctx).Start(method)
 	defer finish()
 	body, err := json.Marshal(struct {
-		JSONRPC string      `json:"jsonrpc"`
-		ID      string      `json:"id"`
-		Method  string      `json:"method"`
-		Params  proofParams `json:"params"`
-	}{JSONRPC: "2.0", ID: query.Method, Method: query.Method, Params: proofParams{Tree: query.Tree, Leaves: query.Leaves}})
+		JSONRPC string `json:"jsonrpc"`
+		ID      string `json:"id"`
+		Method  string `json:"method"`
+		Params  any    `json:"params"`
+	}{JSONRPC: "2.0", ID: method, Method: method, Params: params})
 	if err != nil {
 		return nil, fmt.Errorf("cannot encode indexer request")
 	}
@@ -78,7 +92,7 @@ func (r *Resolver) call(ctx context.Context, query proofQuery) (json.RawMessage,
 	if err != nil {
 		return nil, fmt.Errorf("invalid indexer URL")
 	}
-	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + query.Method
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + method
 	if r.apiKey != "" {
 		parameters := endpoint.Query()
 		parameters.Set("api-key", r.apiKey)
@@ -112,7 +126,7 @@ func (r *Resolver) call(ctx context.Context, query proofQuery) (json.RawMessage,
 		Result  json.RawMessage `json:"result"`
 		Error   json.RawMessage `json:"error"`
 	}
-	if json.Unmarshal(data, &envelope) != nil || envelope.JSONRPC != "2.0" || envelope.ID != query.Method || len(envelope.Error) != 0 || len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) {
+	if json.Unmarshal(data, &envelope) != nil || envelope.JSONRPC != "2.0" || envelope.ID != method || len(envelope.Error) != 0 || len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) {
 		return nil, fmt.Errorf("invalid indexer response")
 	}
 	return envelope.Result, nil

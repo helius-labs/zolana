@@ -464,6 +464,7 @@ func runCli() {
 					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server", Value: "0.0.0.0:5000", Required: false},
 					&cli.StringFlag{Name: "indexer-url", Usage: "Indexer for server fetched proof data", EnvVars: []string{"PROVER_INDEXER_URL"}},
 					&cli.StringFlag{Name: "indexer-api-key", Usage: "Indexer authentication key", EnvVars: []string{"PROVER_INDEXER_API_KEY"}},
+					&cli.Uint64Flag{Name: "indexer-max-batch-leaves", Usage: "Maximum indexed forester replay leaves", Value: 1_000_000, EnvVars: []string{"PROVER_INDEXER_MAX_BATCH_LEAVES"}},
 					&cli.IntFlag{Name: "indexer-concurrency", Usage: "Concurrent indexer preparation requests", Value: 32, EnvVars: []string{"PROVER_INDEXER_CONCURRENCY"}},
 					&cli.StringFlag{Name: "metrics-address", Usage: "address for the metrics server", Value: "0.0.0.0:9998", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
@@ -591,7 +592,7 @@ func runCli() {
 					var indexer *indexed.Resolver
 					if context.String("indexer-url") != "" {
 						var err error
-						indexer, err = indexed.NewResolver(indexed.Config{URL: context.String("indexer-url"), APIKey: context.String("indexer-api-key"), Concurrency: context.Int("indexer-concurrency")})
+						indexer, err = indexed.NewResolver(indexed.Config{MaxBatchLeaves: context.Uint64("indexer-max-batch-leaves"), URL: context.String("indexer-url"), APIKey: context.String("indexer-api-key"), Concurrency: context.Int("indexer-concurrency")})
 						if err != nil {
 							return err
 						}

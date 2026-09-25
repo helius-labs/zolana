@@ -28,6 +28,10 @@ type treeProofs struct {
 }
 
 func Validate(data []byte) error {
+	if batchCircuit(data) {
+		_, err := decodeBatch(data)
+		return err
+	}
 	_, _, err := decodeRequest(data)
 	return err
 }
@@ -85,6 +89,9 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 }
 
 func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {
+	if batchCircuit(data) {
+		return r.resolveBatch(ctx, data)
+	}
 	trace := timing.FromContext(ctx)
 	finishDecode := trace.Start("indexer_decode")
 	request, prepared, err := decodeRequest(data)
@@ -112,7 +119,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		}
 	}
 	for _, group := range proofs {
-		if len(group.realInputs) == 0 {
+		if len(group.inputs) == 0 {
 			return nil, fmt.Errorf("input tree has no real spend")
 		}
 	}
@@ -130,16 +137,18 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		for index, input := range group.inputs {
 			prepared.inputs[input].nullifier.FillBytes(nullifiers[index][:])
 		}
-		tasks.Go(func() error {
-			data, err := r.call(taskContext, proofQuery{Method: "getMerkleProofs", Tree: tree.Address, Leaves: leaves})
-			if err != nil {
-				return err
-			}
-			if json.Unmarshal(data, &group.state) != nil || group.state.Context.Slot < request.MinContextSlot {
-				return fmt.Errorf("invalid state proof response")
-			}
-			return nil
-		})
+		if len(leaves) != 0 {
+			tasks.Go(func() error {
+				data, err := r.call(taskContext, proofQuery{Method: "getMerkleProofs", Tree: tree.Address, Leaves: leaves})
+				if err != nil {
+					return err
+				}
+				if json.Unmarshal(data, &group.state) != nil || group.state.Context.Slot < request.MinContextSlot {
+					return fmt.Errorf("invalid state proof response")
+				}
+				return nil
+			})
+		}
 		tasks.Go(func() error {
 			data, err := r.call(taskContext, proofQuery{Method: "getNonInclusionProofs", Tree: tree.Address, Leaves: nullifiers})
 			if err != nil {
@@ -168,7 +177,11 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		if len(group.state.Proofs) != len(group.realInputs) || len(group.exclusion.Proofs) != len(group.inputs) {
 			return nil, fmt.Errorf("indexer proof count mismatch")
 		}
-		stateRoot, nullifierRoot := group.state.Proofs[0], group.exclusion.Proofs[0]
+		stateRoot := stateProof{RootIndex: ^uint16(0)}
+		if len(group.state.Proofs) != 0 {
+			stateRoot = group.state.Proofs[0]
+		}
+		nullifierRoot := group.exclusion.Proofs[0]
 		states := make(map[int]*stateProof, len(group.realInputs))
 		for index, input := range group.realInputs {
 			proof := &group.state.Proofs[index]
