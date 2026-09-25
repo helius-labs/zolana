@@ -6,57 +6,77 @@ use zolana_program::{
 };
 
 use super::{
-    constant, nonzero_hash_chain, poseidon, utxo::Output, zero, CircuitVar, DataUtxo,
-    OutputTokenUtxo, Owner, PublicTransfer, TokenUtxo, Utxo, UtxoData,
+    constant, nonzero_hash_chain, poseidon,
+    utxo::{Output, SpentInput},
+    zero, Assert, Bool, CircuitVar, DataUtxo, OutputTokenUtxo, PublicTransfer, TokenUtxo, Utxo,
+    UtxoData,
 };
 use crate::RelationError;
 
 #[derive(Clone, Debug)]
 pub struct TxContext {
-    pub first_nullifier: CircuitVar,
     pub blinding_seed: CircuitVar,
     pub output_tree_id: CircuitVar,
-    pub sender: Owner,
+    pub uses_output_tree_id: Bool,
 }
 
 impl TxContext {
-    pub fn private_tx_blinding(&self) -> Result<CircuitVar, RelationError> {
-        poseidon(&[
-            constant(u64::from(DOMAIN_PRIVATE_TX_BLINDING_V1)),
-            self.first_nullifier.clone(),
-            self.blinding_seed.clone(),
-        ])
-    }
-
-    fn output_blinding(
-        &self,
-        output_blinding_seed: &CircuitVar,
-        slot: usize,
-    ) -> Result<CircuitVar, RelationError> {
-        let slot = u64::try_from(slot).map_err(|_| RelationError::Slot {
-            kind: "output",
-            slot,
-            problem: "is outside the transaction",
-        })?;
-        poseidon(&[
-            constant(u64::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_V1)),
-            self.first_nullifier.clone(),
-            output_blinding_seed.clone(),
-            constant(slot),
-        ])
-    }
-
-    fn output_blinding_seed(&self) -> Result<CircuitVar, RelationError> {
-        poseidon(&[
-            constant(u64::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1)),
-            self.first_nullifier.clone(),
-            self.blinding_seed.clone(),
-        ])
+    fn output_tree_id(&self, first: &SpentInput) -> Result<CircuitVar, RelationError> {
+        self.uses_output_tree_id
+            .or(&first.has_latest_tree_id)
+            .var()
+            .assert_equal(
+                &constant(1u64),
+                "the first input reports no latest tree and the transaction sets no output tree",
+            )?;
+        Ok(self
+            .uses_output_tree_id
+            .select(&self.output_tree_id, &first.latest_tree_id))
     }
 
     fn is_native(&self) -> bool {
-        self.first_nullifier.is_constant()
+        self.blinding_seed.is_constant()
     }
+}
+
+fn private_tx_blinding(
+    first_nullifier: &CircuitVar,
+    blinding_seed: &CircuitVar,
+) -> Result<CircuitVar, RelationError> {
+    poseidon(&[
+        constant(u64::from(DOMAIN_PRIVATE_TX_BLINDING_V1)),
+        first_nullifier.clone(),
+        blinding_seed.clone(),
+    ])
+}
+
+fn output_blinding_seed(
+    first_nullifier: &CircuitVar,
+    blinding_seed: &CircuitVar,
+) -> Result<CircuitVar, RelationError> {
+    poseidon(&[
+        constant(u64::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1)),
+        first_nullifier.clone(),
+        blinding_seed.clone(),
+    ])
+}
+
+fn output_blinding(
+    first_nullifier: &CircuitVar,
+    output_blinding_seed: &CircuitVar,
+    slot: usize,
+) -> Result<CircuitVar, RelationError> {
+    let slot = u64::try_from(slot).map_err(|_| RelationError::Slot {
+        kind: "output",
+        slot,
+        problem: "is outside the transaction",
+    })?;
+    poseidon(&[
+        constant(u64::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_V1)),
+        first_nullifier.clone(),
+        output_blinding_seed.clone(),
+        constant(slot),
+    ])
 }
 
 pub trait PublicInputs {
@@ -73,7 +93,9 @@ pub(crate) struct CheckedOutput {
 #[cfg_attr(not(feature = "client"), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub struct CheckedTransaction {
-    pub(crate) tx_context: TxContext,
+    pub(crate) blinding_seed: CircuitVar,
+    pub(crate) first_nullifier: CircuitVar,
+    pub(crate) output_tree_id: CircuitVar,
     pub(crate) inputs: Vec<CircuitVar>,
     pub(crate) outputs: Vec<CheckedOutput>,
     pub(crate) public_transfers: Vec<PublicTransfer>,
@@ -100,7 +122,7 @@ impl CheckedTransaction {
 pub struct ConfidentialTransaction<'a, P> {
     tx_context: &'a TxContext,
     public: &'a P,
-    inputs: Vec<CircuitVar>,
+    inputs: Vec<SpentInput>,
     outputs: Vec<Output>,
     public_transfers: Vec<PublicTransfer>,
     error: Option<RelationError>,
@@ -119,7 +141,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
     }
 
     pub fn with_token_utxos<const N: usize>(mut self, token: TokenUtxo<N>) -> Self {
-        self.inputs.extend(token.input_hashes().iter().cloned());
+        self.inputs.extend(token.spent_inputs().iter().cloned());
         self.public_transfers
             .extend(token.public_transfers().iter().cloned());
         match token.change() {
@@ -136,9 +158,11 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
     }
 
     pub fn with_data_utxo<S: UtxoData>(mut self, utxo: DataUtxo<S>) -> Self {
-        if let Some(input_hash) = utxo.input_hash() {
-            self.inputs.push(input_hash);
+        if let Some(spent) = utxo.spent_input() {
+            self.inputs.push(spent);
         }
+        self.public_transfers
+            .extend(utxo.public_transfers().iter().cloned());
         let output = utxo.output().and_then(|output| {
             output
                 .map(|mut output| {
@@ -161,20 +185,19 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         if let Some(error) = self.error {
             return Err(error);
         }
-        if self.inputs.is_empty() {
-            return Err(RelationError::Violated(
-                "a transaction spends at least one input",
-            ));
-        }
-        let output_blinding_seed = self.tx_context.output_blinding_seed()?;
+        let first = self.inputs.first().ok_or(RelationError::Violated(
+            "a transaction spends at least one input",
+        ))?;
+        let first_nullifier = first.nullifier.clone();
+        let output_tree_id = self.tx_context.output_tree_id(first)?;
+        let blinding_seed = self.tx_context.blinding_seed.clone();
+        let output_blinding_seed = output_blinding_seed(&first_nullifier, &blinding_seed)?;
         let outputs = self
             .outputs
             .into_iter()
             .enumerate()
             .map(|(slot, output)| {
-                let blinding = self
-                    .tx_context
-                    .output_blinding(&output_blinding_seed, slot)?;
+                let blinding = output_blinding(&first_nullifier, &output_blinding_seed, slot)?;
                 let hash = Utxo {
                     domain: constant(u64::from(UTXO_DOMAIN)),
                     owner: output.owner.clone(),
@@ -184,25 +207,30 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
                     data_hash: output.data_hash.clone(),
                     ring_data_hash: zero(),
                     ring_program_id: zero(),
-                    tree_id: self.tx_context.output_tree_id.clone(),
+                    tree_id: output_tree_id.clone(),
+                    ..Utxo::default()
                 }
                 .hash()?;
                 Ok(CheckedOutput { output, hash })
             })
             .collect::<Result<Vec<_>, RelationError>>()?;
+        let input_hashes: Vec<CircuitVar> =
+            self.inputs.iter().map(|input| input.hash.clone()).collect();
         let output_hashes: Vec<CircuitVar> =
             outputs.iter().map(|output| output.hash.clone()).collect();
         let private_tx_hash = poseidon(&[
-            nonzero_hash_chain(&self.inputs)?,
+            nonzero_hash_chain(&input_hashes)?,
             nonzero_hash_chain(&output_hashes)?,
             nonzero_hash_chain(&[])?,
-            self.tx_context.private_tx_blinding()?,
+            private_tx_blinding(&first_nullifier, &blinding_seed)?,
         ])?;
         let transaction_hash = transaction_hash(&private_tx_hash, &self.public_transfers)?;
         let public_hash = self.public.hash(&transaction_hash)?;
         Ok(CheckedTransaction {
-            tx_context: self.tx_context.clone(),
-            inputs: self.inputs,
+            blinding_seed,
+            first_nullifier,
+            output_tree_id,
+            inputs: input_hashes,
             outputs,
             public_transfers: self.public_transfers,
             private_tx_hash,

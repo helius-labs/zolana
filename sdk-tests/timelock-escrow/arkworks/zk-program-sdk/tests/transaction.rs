@@ -3,7 +3,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zk_program_sdk::{
     circuit::{
-        constant, nonzero_hash_chain, poseidon, CircuitVar, ConfidentialTransaction,
+        constant, nonzero_hash_chain, poseidon, Balance, CircuitVar, ConfidentialTransaction,
         ConstraintSystem, DataHash, DataUtxo, Field, Owner, PublicInputs, TokenUtxo, Utxo,
     },
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
@@ -18,7 +18,6 @@ use zolana_program::{
 use zolana_transaction::{Data, Mint, WalletUtxo};
 
 const TREE_ID: u16 = 2;
-const FIRST_NULLIFIER: u64 = 22;
 const BLINDING_SEED: u64 = 23;
 const MINT: Mint = Mint::new(Address::new_from_array([4u8; 32]), 4);
 
@@ -71,6 +70,7 @@ fn wallet_input(
         ring_data_hash: None,
         tree_id: TREE_ID,
         leaf_index: 0,
+        latest_tree_id: None,
         slot: 0,
         tx_signature: Signature::default(),
         slot_index: 0,
@@ -79,11 +79,16 @@ fn wallet_input(
 
 fn tx_context() -> TxContext {
     TxContext {
-        first_nullifier: bytes(FIRST_NULLIFIER),
         blinding_seed: bytes(BLINDING_SEED),
-        output_tree_id: TREE_ID,
-        sender: address(5),
+        output_tree_id: Some(TREE_ID),
     }
+}
+
+fn first_nullifier() -> [u8; 32] {
+    inputs()
+        .first()
+        .map(|input| input.nullifier)
+        .expect("first input")
 }
 
 fn context() -> zk_program_sdk::circuit::TxContext {
@@ -172,7 +177,7 @@ fn expected_output(
     data_hash: [u8; 32],
     slot: u32,
 ) -> [u8; 32] {
-    let first = bytes(FIRST_NULLIFIER);
+    let first = first_nullifier();
     let seed = derive_output_blinding_seed(&first, &bytes(BLINDING_SEED)).unwrap();
     ProofInputUtxo::new(
         owner,
@@ -197,8 +202,7 @@ fn chain(values: &[[u8; 32]]) -> [u8; 32] {
 }
 
 fn expected_private_tx_hash(inputs: &[[u8; 32]], outputs: &[[u8; 32]]) -> [u8; 32] {
-    let blinding =
-        derive_private_tx_blinding(&bytes(FIRST_NULLIFIER), &bytes(BLINDING_SEED)).unwrap();
+    let blinding = derive_private_tx_blinding(&first_nullifier(), &bytes(BLINDING_SEED)).unwrap();
     Poseidon::hashv(&[
         chain(inputs).as_slice(),
         chain(outputs).as_slice(),
@@ -214,9 +218,9 @@ fn transaction<P: PublicInputs>(
     inputs: [Utxo; 3],
 ) -> Result<CircuitVar, RelationError> {
     let [first, second, data] = inputs;
-    let mut token = TokenUtxo::new_mut([first, second])?;
-    let transfer = token.transfer(&owner(30), constant(350u64));
-    let mut mutated = DataUtxo::new_mut(&data, counter(9))?;
+    let mut token = TokenUtxo::new_mut(&[first, second])?;
+    let transfer = token.transfer(&owner(30), &constant(350u64))?;
+    let mut mutated = DataUtxo::new_mut(&data, &counter(9))?;
     mutated.value = constant(10u64);
     ConfidentialTransaction::new(context, public)
         .with_token_utxos(token)
@@ -307,8 +311,8 @@ fn a_burned_utxo_pays_out_everything() {
     let context = context();
     let [first, _, data] = native_inputs();
     let burn = |paid: u64| {
-        let mut burned = DataUtxo::new_burn(&data, counter(9)).unwrap();
-        let payout = burned.transfer(&owner(40), constant(paid)).unwrap();
+        let mut burned = DataUtxo::new_burn(&data, &counter(9)).unwrap();
+        let payout = burned.transfer(&owner(40), &constant(paid)).unwrap();
         ConfidentialTransaction::new(&context, &PrivateTxHash)
             .with_data_utxo(burned)
             .with_output_token_utxo(payout)
@@ -316,8 +320,8 @@ fn a_burned_utxo_pays_out_everything() {
             .map(|_| ())
             .map_err(|e| e.to_string())
     };
-    let mut token = TokenUtxo::new_burn([first]).unwrap();
-    let transfer = token.transfer(&owner(30), constant(100u64));
+    let mut token = TokenUtxo::new_burn(&[first]).unwrap();
+    let transfer = token.transfer(&owner(30), &constant(100u64)).unwrap();
     let token_leftover = ConfidentialTransaction::new(&context, &PrivateTxHash)
         .with_token_utxos(token)
         .with_output_token_utxo(transfer)
@@ -325,7 +329,7 @@ fn a_burned_utxo_pays_out_everything() {
         .map(|_| ())
         .map_err(|e| e.to_string());
     let no_input = ConfidentialTransaction::new(&context, &PrivateTxHash)
-        .with_data_utxo(DataUtxo::<circuit::Counter>::new_init(&owner(3)).unwrap())
+        .with_data_utxo(DataUtxo::<circuit::Counter>::new_init(&owner(3)))
         .check()
         .map(|_| ())
         .map_err(|e| e.to_string());
@@ -334,8 +338,8 @@ fn a_burned_utxo_pays_out_everything() {
         let allocator = Allocator::R1cs(cs.clone());
         let [first_input, _, _] = inputs();
         let mut token =
-            TokenUtxo::new_burn([first_input.instantiate(&allocator).unwrap()]).unwrap();
-        let transfer = token.transfer(&owner(30), constant(100u64));
+            TokenUtxo::new_burn(&[first_input.instantiate(&allocator).unwrap()]).unwrap();
+        let transfer = token.transfer(&owner(30), &constant(100u64)).unwrap();
         let _public_hash = ConfidentialTransaction::new(
             &tx_context().instantiate(&allocator).unwrap(),
             &PrivateTxHash,
@@ -351,7 +355,7 @@ fn a_burned_utxo_pays_out_everything() {
         (burn(7), burn(5), token_leftover, no_input, in_r1cs),
         (
             Ok(()),
-            Err("a burned data utxo leaves value unpaid".to_string()),
+            Err("a burned data utxo leaves a balance".to_string()),
             Err("a burned token utxo leaves a balance".to_string()),
             Err("a transaction spends at least one input".to_string()),
             false,

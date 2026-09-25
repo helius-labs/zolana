@@ -1,4 +1,4 @@
-use std::cell::OnceCell;
+use std::{cell::OnceCell, rc::Rc};
 
 use ark_r1cs_std::boolean::Boolean;
 use solana_address::Address;
@@ -13,14 +13,14 @@ use crate::{circuit_lib::packed, RelationError};
 #[derive(Clone, Debug)]
 pub struct Asset {
     bytes: Bytes<32>,
-    hash: OnceCell<CircuitVar>,
+    hash: Rc<OnceCell<CircuitVar>>,
 }
 
 impl Asset {
     pub(crate) fn new(bytes: Bytes<32>) -> Self {
         Self {
             bytes,
-            hash: OnceCell::new(),
+            hash: Rc::new(OnceCell::new()),
         }
     }
 

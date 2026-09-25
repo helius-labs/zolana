@@ -1,7 +1,7 @@
 use zolana_interface::DUMMY_DOMAIN;
 
 use crate::{
-    circuit::{constant, poseidon, zero, Assert, Asset, CircuitVar, Owner},
+    circuit::{constant, poseidon, zero, Assert, Asset, Bool, CircuitVar, Owner},
     RelationError,
 };
 
@@ -16,6 +16,17 @@ pub struct Utxo {
     pub ring_data_hash: CircuitVar,
     pub ring_program_id: CircuitVar,
     pub tree_id: CircuitVar,
+    pub nullifier: CircuitVar,
+    pub latest_tree_id: CircuitVar,
+    pub has_latest_tree_id: Bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SpentInput {
+    pub(crate) hash: CircuitVar,
+    pub(crate) nullifier: CircuitVar,
+    pub(crate) latest_tree_id: CircuitVar,
+    pub(crate) has_latest_tree_id: Bool,
 }
 
 impl Default for Utxo {
@@ -30,6 +41,9 @@ impl Default for Utxo {
             ring_data_hash: zero(),
             ring_program_id: zero(),
             tree_id: zero(),
+            nullifier: zero(),
+            latest_tree_id: zero(),
+            has_latest_tree_id: Bool::constant(false),
         }
     }
 }
@@ -44,6 +58,15 @@ impl Utxo {
 
     pub fn hash(&self) -> Result<CircuitVar, RelationError> {
         self.hash_with(&self.owner.hash()?, &self.asset.hash()?)
+    }
+
+    pub(crate) fn spent(&self, hash: CircuitVar) -> SpentInput {
+        SpentInput {
+            hash,
+            nullifier: self.nullifier.clone(),
+            latest_tree_id: self.latest_tree_id.clone(),
+            has_latest_tree_id: self.has_latest_tree_id.clone(),
+        }
     }
 
     pub(super) fn hash_with(

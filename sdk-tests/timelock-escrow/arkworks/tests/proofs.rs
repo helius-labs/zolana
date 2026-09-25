@@ -8,8 +8,7 @@ use timelock_escrow_program::instructions::{
 };
 use timelock_escrow_sdk::escrow_authority;
 use zk_program_sdk::{
-    rand::{rngs::StdRng, SeedableRng},
-    ArkworksCircuit, CompressedProof, Groth16Keys, Owner, SolanaProof, TxContext, ZkProgram,
+    CompressedProof, Groth16Keys, Groth16Prover, Owner, SolanaProof, TxContext, ZkProgram,
 };
 use zolana_hasher::{
     primitives::{right_align, solana_owner_identity},
@@ -17,11 +16,7 @@ use zolana_hasher::{
 };
 
 mod shared;
-use shared::{escrow_utxo, keypair, token_input, token_inputs, TREE_ID};
-
-fn rng() -> StdRng {
-    StdRng::seed_from_u64(7)
-}
+use shared::{escrow_utxo, keypair, token_input, token_inputs};
 
 fn verify_groth16_accepts(proof: &SolanaProof, public_hash: [u8; 32], keys: &Groth16Keys) -> bool {
     let compressed = CompressedProof::try_from(proof).expect("compressed proof");
@@ -46,7 +41,7 @@ fn escrow_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
     let second = token_input(&creator, 400, 1);
     let escrow = Escrow {
         private: EscrowPrivateInputs {
-            tx_context: TxContext::new(first.nullifier, TREE_ID, address),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: token_inputs([first, second]),
             unlock: 1_700_000_000,
             amount: 250,
@@ -58,7 +53,7 @@ fn escrow_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
         },
     };
 
-    let (escrow, spp) = escrow
+    let spp = escrow
         .create_proof_inputs_and_encrypt(
             &creator,
             address.solana_address().expect("payer"),
@@ -68,9 +63,8 @@ fn escrow_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
     let private_tx_hash = spp
         .padding_independent_private_tx_hash()
         .expect("private tx hash");
-    let circuit = ArkworksCircuit::new(escrow).expect("escrow circuit");
-    let keys = circuit.setup(&mut rng()).expect("escrow setup");
-    let proof = circuit.prove(&keys, &mut rng()).expect("escrow proof");
+    let prover = Groth16Prover::<Escrow>::new_with_test_setup().expect("escrow setup");
+    let result = prover.prove(&escrow).expect("escrow proof");
     let public_hash = Poseidon::hashv(&[
         escrow_authority()
             .owner_hash()
@@ -85,9 +79,9 @@ fn escrow_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
 
     assert_eq!(
         (
-            circuit.public_hash_bytes(),
-            verify_groth16_accepts(&proof, public_hash, &keys),
-            verify_groth16_accepts(&proof, tampered, &keys),
+            result.public_hash,
+            verify_groth16_accepts(&result.proof, public_hash, prover.keys()),
+            verify_groth16_accepts(&result.proof, tampered, prover.keys()),
             spp.output_utxos
                 .iter()
                 .map(|output| output.amount)
@@ -122,7 +116,7 @@ fn withdraw_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
             .expect("owner identity");
     let withdraw = Withdraw {
         private: WithdrawPrivateInputs {
-            tx_context: TxContext::new(escrow.nullifier, TREE_ID, address),
+            tx_context: TxContext::new(),
             escrow,
             terms: EscrowTerms {
                 creator: Owner::try_from(&address).expect("creator owner"),
@@ -135,7 +129,7 @@ fn withdraw_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
         },
     };
 
-    let (withdraw, spp) = withdraw
+    let spp = withdraw
         .create_proof_inputs_and_encrypt(
             &creator,
             address.solana_address().expect("payer"),
@@ -145,9 +139,8 @@ fn withdraw_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
     let private_tx_hash = spp
         .padding_independent_private_tx_hash()
         .expect("private tx hash");
-    let circuit = ArkworksCircuit::new(withdraw).expect("withdraw circuit");
-    let keys = circuit.setup(&mut rng()).expect("withdraw setup");
-    let proof = circuit.prove(&keys, &mut rng()).expect("withdraw proof");
+    let prover = Groth16Prover::<Withdraw>::new_with_test_setup().expect("withdraw setup");
+    let result = prover.prove(&withdraw).expect("withdraw proof");
     let public_hash = Poseidon::hashv(&[
         right_align(&1_700_000_000u64.to_be_bytes()).as_slice(),
         owner_identity.as_slice(),
@@ -158,8 +151,8 @@ fn withdraw_proves_from_the_rust_circuit_with_matching_spp_proof_inputs() {
 
     assert_eq!(
         (
-            circuit.public_hash_bytes(),
-            verify_groth16_accepts(&proof, public_hash, &keys),
+            result.public_hash,
+            verify_groth16_accepts(&result.proof, public_hash, prover.keys()),
             (payout.amount, payout.owner_hash().expect("payout owner")),
             spp.input_utxos.first().map(|input| input.utxo.amount),
         ),

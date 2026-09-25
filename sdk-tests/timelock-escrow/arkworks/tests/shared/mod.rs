@@ -38,6 +38,7 @@ pub fn token_input(owner: &ShieldedKeypair, amount: u64, leaf_index: u64) -> Wal
         ring_data_hash: None,
         tree_id: TREE_ID,
         leaf_index,
+        latest_tree_id: None,
         slot: 0,
         tx_signature: Signature::default(),
         slot_index: 0,
@@ -56,9 +57,9 @@ pub fn token_inputs<const N: usize>(inputs: [WalletUtxo; N]) -> [WalletUtxo; ESC
 pub fn escrow_utxo(creator: &ShieldedKeypair, amount: u64, unlock: u64) -> WalletUtxo {
     let address = creator.shielded_address().expect("creator address");
     let funding = token_input(creator, amount, 0);
-    let (_, spp_proof_inputs) = Escrow {
+    let spp_proof_inputs = Escrow {
         private: EscrowPrivateInputs {
-            tx_context: TxContext::new(funding.nullifier, TREE_ID, address),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: token_inputs([funding]),
             unlock,
             amount,
@@ -75,5 +76,5 @@ pub fn escrow_utxo(creator: &ShieldedKeypair, amount: u64, unlock: u64) -> Walle
         .output_utxos
         .get(slot::ESCROW)
         .expect("escrow output");
-    escrow_input(output, TREE_ID, 2).expect("escrow input")
+    escrow_input(output, spp_proof_inputs.output_tree_id, 2).expect("escrow input")
 }

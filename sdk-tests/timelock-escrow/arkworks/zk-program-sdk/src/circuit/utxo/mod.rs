@@ -1,10 +1,13 @@
 mod data;
 mod input;
+mod ledger;
 mod output;
 mod token;
 
 pub use data::{DataHash, DataUtxo, UtxoData};
+pub(crate) use input::SpentInput;
 pub use input::Utxo;
+pub use ledger::{Balance, Ledger};
 pub(crate) use output::Output;
 pub use output::OutputTokenUtxo;
 pub use token::TokenUtxo;

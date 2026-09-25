@@ -1,13 +1,13 @@
 #[path = "../tests/shared/mod.rs"]
 mod shared;
 
-use shared::{escrow_utxo, keypair, token_input, token_inputs, TREE_ID};
+use shared::{escrow_utxo, keypair, token_input, token_inputs};
 use timelock_escrow_arkworks::{
     Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw, WithdrawPrivateInputs,
     WithdrawPublicInputs,
 };
 use timelock_escrow_sdk::escrow_authority;
-use zk_program_sdk::{ArkworksCircuit, Owner, TxContext};
+use zk_program_sdk::{Owner, TxContext, ZkProgram};
 use zolana_hasher::primitives::solana_owner_identity;
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
     let first = token_input(&creator, 600, 0);
     let escrow = Escrow {
         private: EscrowPrivateInputs {
-            tx_context: TxContext::new(first.nullifier, TREE_ID, address),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: token_inputs([first, token_input(&creator, 400, 1)]),
             unlock: 1_700_000_000,
             amount: 250,
@@ -30,7 +30,7 @@ fn main() {
     let escrow_input = escrow_utxo(&creator, 250, 1_700_000_000);
     let withdraw = Withdraw {
         private: WithdrawPrivateInputs {
-            tx_context: TxContext::new(escrow_input.nullifier, TREE_ID, address),
+            tx_context: TxContext::new(),
             escrow: escrow_input,
             terms: EscrowTerms {
                 creator: Owner::try_from(&address).expect("creator owner"),
@@ -48,14 +48,10 @@ fn main() {
 
     println!(
         "escrow: {} constraints",
-        ArkworksCircuit::new(escrow)
-            .and_then(|circuit| circuit.check_constraints())
-            .expect("escrow constraints")
+        escrow.check_constraints().expect("escrow constraints")
     );
     println!(
         "withdraw: {} constraints",
-        ArkworksCircuit::new(withdraw)
-            .and_then(|circuit| circuit.check_constraints())
-            .expect("withdraw constraints")
+        withdraw.check_constraints().expect("withdraw constraints")
     );
 }

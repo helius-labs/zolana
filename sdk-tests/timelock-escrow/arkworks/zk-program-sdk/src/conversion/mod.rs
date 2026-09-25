@@ -81,3 +81,7 @@ pub trait ProofInput {
 pub trait FromCircuit: ProofInput + Sized {
     fn from_circuit(circuit: &Self::Circuit) -> Result<Self, RelationError>;
 }
+
+pub trait Placeholder: Sized {
+    fn placeholder() -> Result<Self, RelationError>;
+}

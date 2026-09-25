@@ -2,7 +2,7 @@ use solana_address::Address;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_transaction::Mint;
 
-use super::{Allocator, ProofInput};
+use super::{Allocator, Placeholder, ProofInput};
 use crate::{circuit, client, RelationError};
 
 impl ProofInput for Mint {
@@ -24,4 +24,10 @@ pub(super) fn asset(
     Ok(circuit::Asset::new(
         client::Bytes(*mint.as_array()).instantiate(allocator)?,
     ))
+}
+
+impl Placeholder for Mint {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Mint::SOL)
+    }
 }

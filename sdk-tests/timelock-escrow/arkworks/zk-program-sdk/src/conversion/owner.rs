@@ -1,7 +1,8 @@
 use ark_r1cs_std::boolean::Boolean;
-use zolana_keypair::ShieldedAddress;
+use zolana_hasher::primitives::SOLANA_OWNER_TAG;
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
 
-use super::{bytes::byte_value, Allocator, FromCircuit, ProofInput};
+use super::{bytes::byte_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
     circuit::{self, constant, Field},
     client, RelationError,
@@ -52,4 +53,22 @@ pub(super) fn owner(
         key,
         owner.nullifier_pk.instantiate(allocator)?,
     ))
+}
+
+impl Placeholder for ShieldedAddress {
+    fn placeholder() -> Result<Self, RelationError> {
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[1u8; 32]))
+            .and_then(|keypair| keypair.shielded_address())
+            .map_err(RelationError::input)
+    }
+}
+
+impl Placeholder for client::Owner {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            tag: SOLANA_OWNER_TAG,
+            key: [0u8; 32],
+            nullifier_pk: [0u8; 32],
+        })
+    }
 }

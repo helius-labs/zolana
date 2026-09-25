@@ -721,6 +721,7 @@ mod tests {
             ring_data_hash: None,
             tree_id,
             leaf_index: 0,
+            latest_tree_id: None,
             slot: 0,
             tx_signature: Default::default(),
             slot_index: 0,

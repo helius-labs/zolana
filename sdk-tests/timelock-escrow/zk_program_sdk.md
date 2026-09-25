@@ -1060,3 +1060,51 @@ Todos:
    example tests. Done.
 4. Spec, README, preimage doc, constraint counts. Done: escrow 9,377 (was 8,993), withdraw 6,071 (was 5,591), one width-3 Poseidon per real UTXO. With `ESCROW_TOKEN_INPUTS = 5`, the most any auto-selected SPP shape with two outputs takes, the escrow has 14,468.
 
+## 18. A prover per program
+
+2026-09-25. The keys belong to the program type, not to one set of inputs.
+
+Decisions:
+
+- `Groth16Prover<P>` holds the keys of program `P`. `new_with_test_setup` sets them up from
+  `P::placeholder()` with a fixed seed, `new` takes loaded keys and refuses keys whose
+  instance and witness counts differ from `P`'s, `prove(&inputs)` returns a `ProofResult`
+  (proof and public hash) with fresh `OsRng` blinding, and `verify(&result)` checks the
+  compressed proof.
+- `Placeholder` gives every input type a value that instantiates. Setup runs in arkworks setup
+  mode, which evaluates no values, so a circuit's structure must not depend on them.
+- `create_proof_inputs_and_encrypt` borrows the inputs and returns only the `SppProofInputs`.
+  `ZkProgram::check_constraints` replaces `ArkworksCircuit::check_constraints`.
+- `ArkworksCircuit` is crate-internal, and the `rand` re-export is gone: no public API takes an
+  rng.
+
+Todos:
+
+1. zk-program-sdk: `Placeholder` and its SDK impls, `Groth16Prover`, `ProofResult`,
+   `CompressedProof::verify`, `&self` encryption. Verify: all feature sets build. Done.
+2. SDK tests, scenarios and the escrow crate on the new API. Verify: zk-program-sdk and
+   example tests. Done.
+3. README and spec. Done.
+
+## 19. Transaction context, UTXO API and `Bool`
+
+2026-09-25.
+
+Decisions:
+
+- `TxContext::new()` takes nothing: an OS-RNG blinding seed and `output_tree_id: Some(0)`.
+  `None` appends the outputs to the first spent input's `WalletUtxo::latest_tree_id`, which
+  stays `None` until Photon reports it (TODO at `newest_unpaused_tree_id`). The circuit takes
+  the first nullifier from the first spent input, and the client takes the sender from the
+  keys.
+- `TokenUtxo` and `DataUtxo` borrow their inputs and share the `Balance` trait, default
+  methods over a `Ledger` each embeds: `transfer`, `transfer_all`, `receive`, `deposit`,
+  `withdraw` and `withdraw_all`, with owned accessors and amounts by reference. Both keep
+  their lifecycle as a private field; it only decides what happens to the remainder. The
+  native run refuses an overspend and a public transfer of zero. `Balance` is not sealed, so
+  a program can implement it for a wrapper without owning the crate. `Owner` and `Asset`
+  share their hash caches between clones.
+- `Bool` replaces `CircuitVar` for booleans, with `select`, `not`, `and` and `or`, so a circuit
+  imports nothing from arkworks.
+
+Constraint counts: escrow 13,707 (was 14,468), withdraw 5,785 (was 6,071).

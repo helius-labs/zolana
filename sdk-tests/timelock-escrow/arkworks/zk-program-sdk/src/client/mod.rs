@@ -7,7 +7,7 @@ mod transfer;
 #[cfg(feature = "client")]
 mod utxo;
 
-use zolana_keypair::{random_blinding, ShieldedAddress};
+use zolana_keypair::random_blinding;
 
 pub use bytes::Bytes;
 pub use owner::Owner;
@@ -17,24 +17,31 @@ pub use transaction::ZkProgram;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TxContext {
-    pub first_nullifier: [u8; 32],
     pub blinding_seed: [u8; 32],
-    pub output_tree_id: u16,
-    pub sender: ShieldedAddress,
+    pub output_tree_id: Option<u16>,
 }
 
 impl TxContext {
-    pub fn new(first_nullifier: [u8; 32], output_tree_id: u16, sender: ShieldedAddress) -> Self {
+    pub fn new() -> Self {
         Self {
-            first_nullifier,
             blinding_seed: random_blinding(),
-            output_tree_id,
-            sender,
+            output_tree_id: Some(0),
         }
     }
 
     pub fn with_blinding_seed(mut self, blinding_seed: [u8; 32]) -> Self {
         self.blinding_seed = blinding_seed;
         self
+    }
+
+    pub fn with_output_tree_id(mut self, output_tree_id: Option<u16>) -> Self {
+        self.output_tree_id = output_tree_id;
+        self
+    }
+}
+
+impl Default for TxContext {
+    fn default() -> Self {
+        Self::new()
     }
 }

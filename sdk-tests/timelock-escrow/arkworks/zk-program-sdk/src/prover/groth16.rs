@@ -1,16 +1,20 @@
+#[cfg(feature = "client")]
+use core::marker::PhantomData;
 use std::path::Path;
 
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_ec::AffineRepr;
+#[cfg(feature = "client")]
 use ark_groth16::Groth16;
-use ark_std::rand::{CryptoRng, Rng};
+#[cfg(feature = "client")]
+use ark_std::rand::rngs::OsRng;
 use groth16_solana::groth16::Groth16Verifyingkey;
 
-use crate::{
-    circuit::Circuit,
-    conversion::{be_bytes, ProofInput},
-    ArkworksCircuit, RelationError,
-};
+#[cfg(feature = "client")]
+use super::synthesis::{ArkworksCircuit, CircuitShape};
+#[cfg(feature = "client")]
+use crate::ZkProgram;
+use crate::{conversion::be_bytes, RelationError};
 
 pub type ProvingKey = ark_groth16::ProvingKey<Bn254>;
 pub type VerifyingKey = ark_groth16::VerifyingKey<Bn254>;
@@ -33,6 +37,14 @@ impl From<ProvingKey> for Groth16Keys {
 impl Groth16Keys {
     pub fn verifying_key(&self) -> &SolanaVerifyingKey {
         &self.verifying_key
+    }
+
+    #[cfg(feature = "client")]
+    fn circuit_shape(&self) -> CircuitShape {
+        CircuitShape {
+            instance_variables: self.proving_key.vk.gamma_abc_g1.len(),
+            witness_variables: self.proving_key.l_query.len(),
+        }
     }
 
     #[cfg(feature = "setup")]
@@ -212,35 +224,93 @@ impl TryFrom<&SolanaProof> for CompressedProof {
     }
 }
 
-impl<P> ArkworksCircuit<P>
-where
-    P: ProofInput + Clone,
-    P::Circuit: Circuit,
-{
-    #[cfg(feature = "setup")]
-    pub fn setup(&self, rng: &mut (impl Rng + CryptoRng)) -> Result<Groth16Keys, RelationError> {
-        self.check_constraints()?;
-        let proving_key =
-            Groth16::<Bn254>::generate_random_parameters_with_reduction(self.clone(), rng)?;
-        Ok(Groth16Keys::from(proving_key))
-    }
-
-    #[cfg(feature = "client")]
-    pub fn prove(
+#[cfg(feature = "client")]
+impl CompressedProof {
+    pub fn verify(
         &self,
-        keys: &Groth16Keys,
-        rng: &mut (impl Rng + CryptoRng),
-    ) -> Result<SolanaProof, RelationError> {
-        self.check_constraints()?;
-        let proof = SolanaProof::from(&Groth16::<Bn254>::create_random_proof_with_reduction(
-            self.clone(),
-            &keys.proving_key,
-            rng,
-        )?);
-        proof.verify(&keys.verifying_key, self.public_hash_bytes())?;
-        Ok(proof)
+        verifying_key: &SolanaVerifyingKey,
+        public_hash: [u8; 32],
+    ) -> Result<(), RelationError> {
+        use solana_bn254::compression::prelude::{
+            alt_bn128_g1_decompress_be, alt_bn128_g2_decompress_be,
+        };
+
+        let invalid = |_| RelationError::InvalidProofPoint;
+        SolanaProof {
+            a: alt_bn128_g1_decompress_be(&self.a).map_err(invalid)?,
+            b: alt_bn128_g2_decompress_be(&self.b).map_err(invalid)?,
+            c: alt_bn128_g1_decompress_be(&self.c).map_err(invalid)?,
+        }
+        .verify(verifying_key, public_hash)
     }
 }
+
+#[cfg(feature = "client")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProofResult {
+    pub proof: SolanaProof,
+    pub public_hash: [u8; 32],
+}
+
+#[cfg(feature = "client")]
+pub struct Groth16Prover<P> {
+    keys: Groth16Keys,
+    program: PhantomData<fn() -> P>,
+}
+
+#[cfg(feature = "client")]
+impl<P: ZkProgram> Groth16Prover<P> {
+    pub fn new(keys: Groth16Keys) -> Result<Self, RelationError> {
+        let placeholder = P::placeholder()?;
+        if ArkworksCircuit::for_setup(&placeholder).shape()? != keys.circuit_shape() {
+            return Err(RelationError::KeysForAnotherCircuit);
+        }
+        Ok(Self {
+            keys,
+            program: PhantomData,
+        })
+    }
+
+    #[cfg(feature = "setup")]
+    pub fn new_with_test_setup() -> Result<Self, RelationError> {
+        use ark_std::rand::{rngs::StdRng, SeedableRng};
+
+        let placeholder = P::placeholder()?;
+        let proving_key = Groth16::<Bn254>::generate_random_parameters_with_reduction(
+            ArkworksCircuit::for_setup(&placeholder),
+            &mut StdRng::seed_from_u64(TEST_SETUP_SEED),
+        )?;
+        Ok(Self {
+            keys: Groth16Keys::from(proving_key),
+            program: PhantomData,
+        })
+    }
+
+    pub fn keys(&self) -> &Groth16Keys {
+        &self.keys
+    }
+
+    pub fn prove(&self, proof_inputs: &P) -> Result<ProofResult, RelationError> {
+        let circuit = ArkworksCircuit::new(proof_inputs)?;
+        circuit.check_constraints()?;
+        let proof = SolanaProof::from(&Groth16::<Bn254>::create_random_proof_with_reduction(
+            circuit,
+            &self.keys.proving_key,
+            &mut OsRng,
+        )?);
+        let public_hash = circuit.public_hash_bytes();
+        proof.verify(&self.keys.verifying_key, public_hash)?;
+        Ok(ProofResult { proof, public_hash })
+    }
+
+    pub fn verify(&self, result: &ProofResult) -> Result<(), RelationError> {
+        CompressedProof::try_from(&result.proof)?
+            .verify(&self.keys.verifying_key, result.public_hash)
+    }
+}
+
+#[cfg(all(feature = "client", feature = "setup"))]
+const TEST_SETUP_SEED: u64 = 0;
 
 fn g1_bytes(point: &G1Affine) -> [u8; 64] {
     let mut bytes = [0u8; 64];

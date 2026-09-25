@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    conversion::{Allocator, FromCircuit, ProofInput},
+    conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     Owner, RelationError,
 };
 
@@ -28,6 +28,15 @@ impl FromCircuit for EscrowTerms {
         Ok(Self {
             creator: Owner::from_circuit(&circuit.creator)?,
             unlock: u64::from_circuit(&circuit.unlock)?,
+        })
+    }
+}
+
+impl Placeholder for EscrowTerms {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            creator: Placeholder::placeholder()?,
+            unlock: Placeholder::placeholder()?,
         })
     }
 }

@@ -37,6 +37,8 @@ pub enum RelationError {
     InvalidProofPoint,
     #[error("the Groth16 keys cannot be read or written: {0}")]
     Keys(String),
+    #[error("the Groth16 keys belong to another circuit")]
+    KeysForAnotherCircuit,
     #[error(transparent)]
     Hasher(#[from] zolana_hasher::HasherError),
     #[error(transparent)]

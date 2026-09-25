@@ -328,7 +328,7 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
 }
 
 #[test]
-fn shape_selection_boundaries_and_explicit_consolidation() {
+fn shape_selection_boundaries_and_consolidation() {
     // Literal expected order is independent of the selector's iterator.
     let shapes = [
         Shape::IN1_OUT1,
@@ -341,6 +341,7 @@ fn shape_selection_boundaries_and_explicit_consolidation() {
         Shape::IN5_OUT3,
         Shape::IN5_OUT4,
         Shape::IN1_OUT8,
+        Shape::IN36_OUT2,
     ];
     for n_in in 0..=37 {
         for n_out in 0..=9 {
@@ -373,11 +374,14 @@ fn shape_selection_boundaries_and_explicit_consolidation() {
     let notes: Vec<_> = (1..=6)
         .map(|n| wallet_utxo(&owner, Mint::SOL, 1, 7, n))
         .collect();
-    error(
+    assert_eq!(
         ConfidentialTransaction::new(notes.clone(), payer(&owner))
             .unwrap()
-            .encrypt(&owner),
-        E::UnsupportedShape { n_in: 6, n_out: 1 },
+            .encrypt(&owner)
+            .unwrap()
+            .check_shape()
+            .unwrap(),
+        Shape::IN36_OUT2
     );
     let mut tx = ConfidentialTransaction::new(notes, payer(&owner)).unwrap();
     tx.pad_utxos(Shape::IN36_OUT2, &sender).unwrap();
@@ -1166,7 +1170,7 @@ fn pda_sender_owner_tags_resolve_for_self_paid_and_relayed_transactions() {
 }
 
 #[test]
-fn builder_automatically_selects_every_supported_nonconsolidation_boundary() {
+fn builder_automatically_selects_every_supported_boundary() {
     let owner = keypair(1);
     let sender = owner.shielded_address().unwrap();
     for shape in [
@@ -1180,6 +1184,7 @@ fn builder_automatically_selects_every_supported_nonconsolidation_boundary() {
         Shape::IN5_OUT3,
         Shape::IN5_OUT4,
         Shape::IN1_OUT8,
+        Shape::IN36_OUT2,
     ] {
         let inputs = (0..shape.n_inputs())
             .map(|n| wallet_utxo(&owner, Mint::SOL, 10, 7, n as u8))
@@ -1357,6 +1362,53 @@ fn wallet_dummy_pads_a_slot_between_real_inputs() {
             vec![false, true, false],
             Some(dummy.utxo_hash),
             Some(E::DummyInFirstInputSlot),
+        )
+    );
+}
+
+#[test]
+fn padding_without_an_owned_output_encrypts_to_a_throwaway_owner() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let mut tx = builder(&owner, 3);
+    tx.settle(
+        Mint::SOL,
+        false,
+        3,
+        SettlementTarget::Sol {
+            user_sol_account: payer(&owner),
+        },
+    )
+    .unwrap();
+    tx.pad_utxos_with_empty_outputs(Shape::IN1_OUT2, &sender)
+        .unwrap();
+    let proof = tx.encrypt(&owner).unwrap();
+    let throwaway = proof
+        .external_data
+        .resolved_owner_tags
+        .first()
+        .copied()
+        .unwrap();
+
+    assert_eq!(
+        (
+            proof
+                .output_utxos
+                .iter()
+                .map(SppProofOutputUtxo::is_dummy)
+                .collect::<Vec<_>>(),
+            proof
+                .external_data
+                .outputs
+                .iter()
+                .map(|output| output.owner_tag)
+                .collect::<Vec<_>>(),
+            throwaway == sender.signing_pubkey.confidential_view_tag().unwrap(),
+        ),
+        (
+            vec![true, true],
+            vec![OwnerTag::Inline(throwaway); 2],
+            false
         )
     );
 }

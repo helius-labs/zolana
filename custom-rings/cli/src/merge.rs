@@ -241,6 +241,7 @@ mod tests {
             ring_data_hash: None,
             tree_id,
             leaf_index,
+            latest_tree_id: None,
             slot: leaf_index,
             tx_signature: Signature::default(),
             slot_index: 0,

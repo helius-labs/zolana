@@ -1,13 +1,12 @@
+use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
 use ark_relations::r1cs::SynthesisError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use groth16_solana::{groth16::Groth16Verifier, vk::gnark::parse_gnark_vk_bytes};
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit::{value, Circuit, ConstraintSystem, Field},
-    conversion::{to_bytes, Allocator, FromCircuit, ProofInput},
-    rand::{rngs::StdRng, SeedableRng},
-    ArkworksCircuit, CompressedProof, Groth16Keys, RelationError, TxContext, VerifyingKeyExport,
-    ZkProgram,
+    circuit::{Circuit, CircuitVar, ConstraintSystem, Field},
+    conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput},
+    Groth16Keys, Groth16Prover, RelationError, TxContext, VerifyingKeyExport, ZkProgram,
 };
 use zolana_interface::instruction::instruction_data::transact::OwnerTag;
 use zolana_keypair::ShieldedAddress;
@@ -65,7 +64,20 @@ impl ProofInput for Payment {
     }
 }
 
-impl ZkProgram for Payment {}
+impl Placeholder for Payment {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            private: PaymentPrivateInputs {
+                tx_context: TxContext::placeholder()?,
+                token_utxos_asset_a: Placeholder::placeholder()?,
+                amount: 0,
+            },
+            public: RecipientPublicInputs {
+                recipient: ShieldedAddress::placeholder()?,
+            },
+        })
+    }
+}
 
 #[derive(Clone)]
 struct Sweep {
@@ -96,7 +108,20 @@ impl ProofInput for Sweep {
     }
 }
 
-impl ZkProgram for Sweep {}
+impl Placeholder for Sweep {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            private: SweepPrivateInputs {
+                tx_context: TxContext::placeholder()?,
+                token_utxos_asset_a: Placeholder::placeholder()?,
+                amount: 0,
+            },
+            public: RecipientPublicInputs {
+                recipient: ShieldedAddress::placeholder()?,
+            },
+        })
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Label {
@@ -157,13 +182,25 @@ impl ProofInput for Register {
     }
 }
 
-impl ZkProgram for Register {}
+impl Placeholder for Register {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            private: RegisterPrivateInputs {
+                tx_context: TxContext::placeholder()?,
+                token_utxos_asset_a: Placeholder::placeholder()?,
+                owner: ShieldedAddress::placeholder()?,
+            },
+            public: RegisterPublicInputs { label: 0 },
+        })
+    }
+}
 
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
+            poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
+            Utxo, UtxoData,
         },
         RelationError,
     };
@@ -192,8 +229,8 @@ mod circuit {
     impl Circuit for Payment {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
-            let mut tokens = TokenUtxo::new_mut(private.token_utxos_asset_a.clone())?;
-            let payment = tokens.transfer(&self.public.recipient, private.amount.clone());
+            let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let payment = tokens.transfer(&self.public.recipient, &private.amount)?;
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
                 .with_output_token_utxo(payment)
@@ -215,8 +252,8 @@ mod circuit {
     impl Circuit for Sweep {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
-            let mut tokens = TokenUtxo::new_burn(private.token_utxos_asset_a.clone())?;
-            let payment = tokens.transfer(&self.public.recipient, private.amount.clone());
+            let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
+            let payment = tokens.transfer(&self.public.recipient, &private.amount)?;
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
                 .with_output_token_utxo(payment)
@@ -269,8 +306,8 @@ mod circuit {
     impl Circuit for Register {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
-            let tokens = TokenUtxo::new_mut(private.token_utxos_asset_a.clone())?;
-            let mut label = DataUtxo::<Label>::new_init(&private.owner)?;
+            let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+            let mut label = DataUtxo::<Label>::new_init(&private.owner);
             label.value = self.public.label.clone();
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
@@ -280,33 +317,45 @@ mod circuit {
     }
 }
 
-fn r1cs_refuses<P>(proof_inputs: P) -> bool
+fn r1cs_refuses<P>(proof_inputs: &P) -> bool
 where
-    P: ProofInput + Clone,
+    P: ProofInput,
     P::Circuit: Circuit,
 {
     let cs = ConstraintSystem::new_ref();
     match proof_inputs
-        .instantiate(&Allocator::R1cs(cs))
+        .instantiate(&Allocator::R1cs(cs.clone()))
         .and_then(|circuit| circuit.circuit())
     {
         Err(RelationError::Synthesis(
             SynthesisError::AssignmentMissing | SynthesisError::DivisionByZero,
         )) => true,
         Err(error) => panic!("unexpected R1CS error: {error}"),
-        Ok(checked) => ArkworksCircuit::with_public_hash(
-            proof_inputs,
-            value(checked.public_hash()).expect("own public hash"),
-        )
-        .check_constraints()
-        .is_err(),
+        Ok(_) => !cs.is_satisfied().expect("satisfiability"),
     }
 }
 
-fn encrypt<P: ZkProgram>(proof_inputs: P) -> Result<SppProofInputs, String> {
+fn satisfied_with_public_hash<P>(proof_inputs: &P, public_hash: Field) -> bool
+where
+    P: ProofInput,
+    P::Circuit: Circuit,
+{
+    let cs = ConstraintSystem::new_ref();
+    let public_input =
+        CircuitVar::new_input(cs.clone(), || Ok(public_hash)).expect("public hash input");
+    proof_inputs
+        .instantiate(&Allocator::R1cs(cs.clone()))
+        .and_then(|circuit| circuit.circuit())
+        .expect("r1cs circuit")
+        .public_hash()
+        .enforce_equal(&public_input)
+        .expect("public hash constraint");
+    cs.is_satisfied().expect("satisfiability")
+}
+
+fn encrypt<P: ZkProgram>(proof_inputs: &P) -> Result<SppProofInputs, String> {
     proof_inputs
         .create_proof_inputs_and_encrypt(&keypair(5), Address::new_unique(), u64::MAX)
-        .map(|(_, spp_proof_inputs)| spp_proof_inputs)
         .map_err(|e| e.to_string())
 }
 
@@ -316,11 +365,7 @@ fn a_circuit_runs_natively_and_in_r1cs_on_one_definition() {
     let first = spendable(&sender, Mint::SOL, 300, 0);
     let honest = Payment {
         private: PaymentPrivateInputs {
-            tx_context: TxContext::new(
-                first.nullifier,
-                TREE_ID,
-                keypair(5).shielded_address().unwrap(),
-            ),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
             amount: 400,
         },
@@ -332,24 +377,19 @@ fn a_circuit_runs_natively_and_in_r1cs_on_one_definition() {
     if let Some(second) = other_owner.private.token_utxos_asset_a.get_mut(1) {
         *second = spendable(&keypair(7), Mint::SOL, 200, 1);
     }
-    let circuit = ArkworksCircuit::new(honest.clone()).unwrap();
 
     assert_eq!(
         (
-            circuit.check_constraints().is_ok(),
-            r1cs_refuses(honest.clone()),
-            ArkworksCircuit::with_public_hash(honest, Field::from(1u64))
-                .check_constraints()
-                .is_err(),
-            ArkworksCircuit::new(other_owner.clone())
-                .err()
-                .map(|e| e.to_string()),
-            r1cs_refuses(other_owner),
+            honest.check_constraints().is_ok(),
+            r1cs_refuses(&honest),
+            satisfied_with_public_hash(&honest, Field::from(1u64)),
+            other_owner.check_constraints().err().map(|e| e.to_string()),
+            r1cs_refuses(&other_owner),
         ),
         (
             true,
             false,
-            true,
+            false,
             Some("the inputs belong to different owners".to_string()),
             true,
         )
@@ -357,46 +397,42 @@ fn a_circuit_runs_natively_and_in_r1cs_on_one_definition() {
 }
 
 #[test]
-fn a_groth16_proof_verifies_and_compresses() {
+fn a_groth16_proof_verifies_in_its_compressed_form() {
     let sender = keypair(5);
     let first = spendable(&sender, Mint::SOL, 300, 0);
-    let circuit = ArkworksCircuit::new(Payment {
+    let payment = Payment {
         private: PaymentPrivateInputs {
-            tx_context: TxContext::new(
-                first.nullifier,
-                TREE_ID,
-                keypair(5).shielded_address().unwrap(),
-            ),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
             amount: 400,
         },
         public: RecipientPublicInputs {
             recipient: keypair(6).shielded_address().unwrap(),
         },
-    })
-    .unwrap();
-    let mut rng = StdRng::seed_from_u64(7);
-    let keys = circuit.setup(&mut rng).unwrap();
-    let proof = circuit.prove(&keys, &mut rng).unwrap();
-    let mut tampered = circuit.public_hash_bytes();
-    tampered[31] ^= 1;
+    };
+    let native = payment
+        .instantiate(&Allocator::native())
+        .unwrap()
+        .circuit()
+        .unwrap();
+    let prover = Groth16Prover::<Payment>::new_with_test_setup().unwrap();
+    let result = prover.prove(&payment).unwrap();
+    let mut tampered = result;
+    if let Some(byte) = tampered.public_hash.last_mut() {
+        *byte ^= 1;
+    }
 
     assert_eq!(
         (
-            proof
-                .verify(keys.verifying_key(), circuit.public_hash_bytes())
-                .is_ok(),
-            proof
-                .verify(keys.verifying_key(), tampered)
-                .err()
-                .map(|e| e.to_string()),
-            CompressedProof::try_from(&proof).is_ok(),
-            keys.verifying_key().ic.len(),
+            prover.verify(&result).is_ok(),
+            prover.verify(&tampered).err().map(|e| e.to_string()),
+            result.public_hash,
+            prover.keys().verifying_key().ic.len(),
         ),
         (
             true,
             Some("the proof does not verify under these keys".to_string()),
-            true,
+            to_bytes(native.public_hash()).unwrap(),
             2
         )
     );
@@ -412,11 +448,7 @@ fn the_native_run_produces_the_spp_transaction() {
     let input_hashes = vec![first.utxo_hash, second.utxo_hash];
     let payment = Payment {
         private: PaymentPrivateInputs {
-            tx_context: TxContext::new(
-                first.nullifier,
-                TREE_ID,
-                keypair(5).shielded_address().unwrap(),
-            ),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: [first, second],
             amount: 400,
         },
@@ -427,7 +459,7 @@ fn the_native_run_produces_the_spp_transaction() {
         .unwrap()
         .circuit()
         .unwrap();
-    let (returned, spp) = payment
+    let spp = payment
         .create_proof_inputs_and_encrypt(&sender, sender_address.solana_address().unwrap(), 9)
         .unwrap();
 
@@ -448,7 +480,6 @@ fn the_native_run_produces_the_spp_transaction() {
                 .collect::<Vec<_>>(),
             spp.external_data.expiry_unix_ts,
             spp.padding_independent_private_tx_hash().unwrap(),
-            ArkworksCircuit::new(returned).unwrap().public_hash_bytes(),
         ),
         (
             input_hashes,
@@ -459,7 +490,6 @@ fn the_native_run_produces_the_spp_transaction() {
             ],
             9,
             to_bytes(native.private_tx_hash()).unwrap(),
-            to_bytes(native.public_hash()).unwrap(),
         )
     );
 }
@@ -469,13 +499,9 @@ fn logic_dummies_are_dropped_and_unused_outputs_are_empty_utxos() {
     let first = spendable(&keypair(5), Mint::SOL, 500, 0);
     let recipient = keypair(6).shielded_address().unwrap();
     let sweep = |token_utxos_asset_a, amount| {
-        let spp = encrypt(Sweep {
+        let spp = encrypt(&Sweep {
             private: SweepPrivateInputs {
-                tx_context: TxContext::new(
-                    first.nullifier,
-                    TREE_ID,
-                    keypair(5).shielded_address().unwrap(),
-                ),
+                tx_context: TxContext::new(),
                 token_utxos_asset_a,
                 amount,
             },
@@ -525,18 +551,13 @@ fn a_valueless_data_utxo_is_sol_without_a_sol_input() {
     let first = spendable(&owner, mint, 150, 0);
     let register = Register {
         private: RegisterPrivateInputs {
-            tx_context: TxContext::new(
-                first.nullifier,
-                TREE_ID,
-                keypair(5).shielded_address().unwrap(),
-            ),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: [first],
             owner: owner.shielded_address().unwrap(),
         },
         public: RegisterPublicInputs { label: 42 },
     };
-    let circuit = ArkworksCircuit::new(register.clone()).unwrap();
-    let spp = encrypt(register).unwrap();
+    let spp = encrypt(&register).unwrap();
     let label_data = spp
         .output_utxos
         .get(1)
@@ -552,7 +573,7 @@ fn a_valueless_data_utxo_is_sol_without_a_sol_input() {
                 .collect::<Vec<_>>(),
             label_data.clone(),
             Label::try_from_slice(&label_data).ok(),
-            circuit.check_constraints().is_ok(),
+            register.check_constraints().is_ok(),
         ),
         (
             vec![(mint, 150, false), (Mint::SOL, 0, true)],
@@ -569,11 +590,7 @@ fn every_resolution_failure_is_named() {
     let first = spendable(&sender, Mint::SOL, 300, 0);
     let honest = Payment {
         private: PaymentPrivateInputs {
-            tx_context: TxContext::new(
-                first.nullifier,
-                TREE_ID,
-                keypair(5).shielded_address().unwrap(),
-            ),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
             amount: 400,
         },
@@ -581,28 +598,68 @@ fn every_resolution_failure_is_named() {
             recipient: keypair(6).shielded_address().unwrap(),
         },
     };
-    let mut other_nullifier = honest.clone();
-    other_nullifier.private.tx_context =
-        TxContext::new([7u8; 32], TREE_ID, keypair(5).shielded_address().unwrap());
     let stranger = keypair(7);
-    let mut unnamed_change_owner = honest.clone();
-    unnamed_change_owner.private.tx_context.sender = stranger.shielded_address().unwrap();
-    let mut overspend = honest;
+    let mut overspend = honest.clone();
     overspend.private.amount = 600;
 
     assert_eq!(
         (
-            encrypt(other_nullifier).err(),
-            unnamed_change_owner
+            honest
                 .create_proof_inputs_and_encrypt(&stranger, Address::new_unique(), u64::MAX)
                 .err()
                 .map(|e| e.to_string()),
-            encrypt(overspend).err(),
+            encrypt(&overspend).err(),
         ),
         (
-            Some("the first nullifier is not the first input's".to_string()),
             Some("output slot 0 has an owner no input names".to_string()),
-            Some("output slot 0 has an amount that does not fit in u64".to_string()),
+            Some("the transfer exceeds the balance".to_string()),
+        )
+    );
+}
+
+#[test]
+fn the_output_tree_is_the_set_one_or_the_first_inputs_latest_tree() {
+    let sender = keypair(5);
+    let payment = |output_tree_id: Option<u16>, latest_tree_id: Option<u16>| {
+        let mut first = spendable(&sender, Mint::SOL, 300, 0);
+        first.latest_tree_id = latest_tree_id;
+        Payment {
+            private: PaymentPrivateInputs {
+                tx_context: TxContext::new().with_output_tree_id(output_tree_id),
+                token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
+                amount: 400,
+            },
+            public: RecipientPublicInputs {
+                recipient: keypair(6).shielded_address().unwrap(),
+            },
+        }
+    };
+    let output_tree = |program: Payment| {
+        encrypt(&program)
+            .map(|spp_proof_inputs| spp_proof_inputs.output_tree_id)
+            .and_then(|output_tree_id| {
+                program
+                    .check_constraints()
+                    .map(|_| output_tree_id)
+                    .map_err(|e| e.to_string())
+            })
+    };
+
+    assert_eq!(
+        (
+            TxContext::new().output_tree_id,
+            output_tree(payment(Some(4), Some(9))),
+            output_tree(payment(None, Some(9))),
+            output_tree(payment(None, None)),
+        ),
+        (
+            Some(0),
+            Ok(4),
+            Ok(9),
+            Err(
+                "the first input reports no latest tree and the transaction sets no output tree"
+                    .to_string()
+            ),
         )
     );
 }
@@ -611,36 +668,40 @@ fn every_resolution_failure_is_named() {
 fn setup_saves_loads_and_exports_the_keys() {
     let sender = keypair(5);
     let first = spendable(&sender, Mint::SOL, 300, 0);
-    let circuit = ArkworksCircuit::new(Payment {
+    let payment = Payment {
         private: PaymentPrivateInputs {
-            tx_context: TxContext::new(
-                first.nullifier,
-                TREE_ID,
-                keypair(5).shielded_address().unwrap(),
-            ),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: [first, spendable(&sender, Mint::SOL, 200, 1)],
             amount: 400,
         },
         public: RecipientPublicInputs {
             recipient: keypair(6).shielded_address().unwrap(),
         },
-    })
-    .unwrap();
-    let mut rng = StdRng::seed_from_u64(7);
-    let keys = circuit.setup(&mut rng).unwrap();
+    };
+    let prover = Groth16Prover::<Payment>::new_with_test_setup().unwrap();
+    let keys = prover.keys();
     let dir = std::env::temp_dir().join(format!("zk-program-sdk-keys-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let proving_key = dir.join("pk.bin");
     keys.save(&proving_key).unwrap();
-    let loaded = Groth16Keys::load(&proving_key).unwrap();
-    let proof = circuit.prove(&loaded, &mut rng).unwrap();
+    let loaded = Groth16Prover::<Payment>::new(Groth16Keys::load(&proving_key).unwrap()).unwrap();
+    let result = loaded.prove(&payment).unwrap();
+    let other_circuit = Groth16Prover::<Register>::new(Groth16Keys::load(&proving_key).unwrap())
+        .err()
+        .map(|e| e.to_string());
     let parsed = parse_gnark_vk_bytes(&keys.gnark_verifying_key().unwrap()).unwrap();
     let parsed_accepts = {
-        let public_inputs = [circuit.public_hash_bytes()];
+        let public_inputs = [result.public_hash];
         let verifying_key = parsed.as_borrowed();
-        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, &verifying_key)
-            .and_then(|mut verifier| verifier.verify())
-            .is_ok()
+        Groth16Verifier::new(
+            &result.proof.a,
+            &result.proof.b,
+            &result.proof.c,
+            &public_inputs,
+            &verifying_key,
+        )
+        .and_then(|mut verifier| verifier.verify())
+        .is_ok()
     };
     keys.export_verifying_key(&VerifyingKeyExport {
         proving_key: &proving_key,
@@ -655,10 +716,14 @@ fn setup_saves_loads_and_exports_the_keys() {
 
     assert_eq!(
         (
-            loaded.verifying_key() == keys.verifying_key(),
-            proof
-                .verify(keys.verifying_key(), circuit.public_hash_bytes())
-                .is_ok(),
+            loaded.keys().verifying_key() == keys.verifying_key(),
+            Groth16Prover::<Payment>::new_with_test_setup()
+                .unwrap()
+                .keys()
+                .verifying_key()
+                == keys.verifying_key(),
+            prover.verify(&result).is_ok(),
+            other_circuit,
             (
                 parsed.vk_alpha_g1,
                 parsed.vk_delta_g2,
@@ -674,6 +739,8 @@ fn setup_saves_loads_and_exports_the_keys() {
         (
             true,
             true,
+            true,
+            Some("the Groth16 keys belong to another circuit".to_string()),
             (
                 keys.verifying_key().alpha_g1,
                 keys.verifying_key().delta_g2,

@@ -2,9 +2,9 @@ use core::ops::{Deref, DerefMut};
 
 use borsh::BorshSerialize;
 
-use super::{utxo_domain, Output, OutputTokenUtxo, Utxo};
+use super::{utxo_domain, Balance, Ledger, Output, OutputTokenUtxo, SpentInput, Utxo};
 use crate::{
-    circuit::{zero, Assert, Asset, CircuitVar, Owner},
+    circuit::{zero, Assert, Asset, CircuitVar, Owner, PublicTransfer},
     conversion::FromCircuit,
     RelationError,
 };
@@ -28,128 +28,62 @@ impl DataHash for CircuitVar {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DataLifecycle {
     Init,
-    Mut(CircuitVar),
-    Burn(CircuitVar),
+    Mut,
+    Burn,
 }
 
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct DataUtxo<S> {
-    owner: Owner,
-    asset: Asset,
-    amount: CircuitVar,
-    unpaid: CircuitVar,
+    ledger: Ledger,
     state: S,
+    spent: Option<SpentInput>,
     lifecycle: DataLifecycle,
 }
 
-impl<S: DataHash> DataUtxo<S> {
-    pub fn new_init(owner: &Owner) -> Result<Self, RelationError>
-    where
-        S: Default,
-    {
-        Ok(Self {
-            owner: owner.clone(),
-            asset: Asset::sol(),
-            amount: zero(),
-            unpaid: zero(),
+impl<S> Balance for DataUtxo<S> {
+    fn ledger(&self) -> &Ledger {
+        &self.ledger
+    }
+
+    fn ledger_mut(&mut self) -> &mut Ledger {
+        &mut self.ledger
+    }
+}
+
+impl<S: Default> DataUtxo<S> {
+    pub fn new_init(owner: &Owner) -> Self {
+        Self {
+            ledger: Ledger::new(owner.clone(), Asset::sol(), zero()),
             state: S::default(),
+            spent: None,
             lifecycle: DataLifecycle::Init,
-        })
+        }
     }
 
-    pub fn from_output_utxo(output: OutputTokenUtxo) -> Result<Self, RelationError>
-    where
-        S: Default,
-    {
-        Ok(Self {
-            owner: output.owner,
-            asset: output.asset,
-            amount: output.amount,
-            unpaid: zero(),
+    pub fn from_output_utxo(output: OutputTokenUtxo) -> Self {
+        Self {
+            ledger: Ledger::new(output.owner, output.asset, output.amount),
             state: S::default(),
+            spent: None,
             lifecycle: DataLifecycle::Init,
-        })
-    }
-
-    pub fn new_mut(input: &Utxo, state: S) -> Result<Self, RelationError> {
-        let input_hash = Self::spent_input(input, &state)?;
-        Ok(Self::from_input(
-            input,
-            state,
-            DataLifecycle::Mut(input_hash),
-        ))
-    }
-
-    pub fn new_burn(input: &Utxo, state: S) -> Result<Self, RelationError> {
-        let input_hash = Self::spent_input(input, &state)?;
-        Ok(Self::from_input(
-            input,
-            state,
-            DataLifecycle::Burn(input_hash),
-        ))
-    }
-
-    pub fn owner(&self) -> &Owner {
-        &self.owner
-    }
-
-    pub fn asset(&self) -> &Asset {
-        &self.asset
-    }
-
-    pub fn amount(&self) -> &CircuitVar {
-        &self.amount
-    }
-
-    pub fn transfer(
-        &mut self,
-        recipient: &Owner,
-        amount: CircuitVar,
-    ) -> Result<OutputTokenUtxo, RelationError> {
-        match self.lifecycle {
-            DataLifecycle::Burn(_) => {
-                self.unpaid -= &amount;
-                Ok(OutputTokenUtxo {
-                    owner: recipient.clone(),
-                    asset: self.asset.clone(),
-                    amount,
-                })
-            }
-            _ => Err(RelationError::Violated(
-                "only a burned data utxo transfers its value",
-            )),
         }
     }
+}
 
-    pub(crate) fn input_hash(&self) -> Option<CircuitVar> {
-        match &self.lifecycle {
-            DataLifecycle::Mut(input_hash) | DataLifecycle::Burn(input_hash) => {
-                Some(input_hash.clone())
-            }
-            DataLifecycle::Init => None,
-        }
+impl<S: DataHash + Clone> DataUtxo<S> {
+    pub fn new_mut(input: &Utxo, state: &S) -> Result<Self, RelationError> {
+        Self::spend(input, state, DataLifecycle::Mut)
     }
 
-    pub(crate) fn output(&self) -> Result<Option<Output>, RelationError> {
-        if let DataLifecycle::Burn(_) = self.lifecycle {
-            self.unpaid
-                .assert_equal(&zero(), "a burned data utxo leaves value unpaid")?;
-            return Ok(None);
-        }
-        Ok(Some(Output {
-            owner: self.owner.clone(),
-            asset: self.asset.clone(),
-            amount: self.amount.clone(),
-            data_hash: self.state.hash()?,
-            data: None,
-        }))
+    pub fn new_burn(input: &Utxo, state: &S) -> Result<Self, RelationError> {
+        Self::spend(input, state, DataLifecycle::Burn)
     }
 
-    fn spent_input(input: &Utxo, state: &S) -> Result<CircuitVar, RelationError> {
+    fn spend(input: &Utxo, state: &S, lifecycle: DataLifecycle) -> Result<Self, RelationError> {
         input
             .domain
             .assert_equal(&utxo_domain(), "the utxo is not a spendable utxo")?;
@@ -158,18 +92,44 @@ impl<S: DataHash> DataUtxo<S> {
             &state.hash()?,
             "the input does not commit to its program state",
         )?;
-        input.hash()
+        Ok(Self {
+            ledger: Ledger::new(
+                input.owner.clone(),
+                input.asset.clone(),
+                input.amount.clone(),
+            ),
+            state: state.clone(),
+            spent: Some(input.spent(input.hash()?)),
+            lifecycle,
+        })
+    }
+}
+
+impl<S> DataUtxo<S> {
+    pub(crate) fn spent_input(&self) -> Option<SpentInput> {
+        self.spent.clone()
     }
 
-    fn from_input(input: &Utxo, state: S, lifecycle: DataLifecycle) -> Self {
-        Self {
-            owner: input.owner.clone(),
-            asset: input.asset.clone(),
-            amount: input.amount.clone(),
-            unpaid: input.amount.clone(),
-            state,
-            lifecycle,
+    pub(crate) fn public_transfers(&self) -> &[PublicTransfer] {
+        self.ledger.public_transfers()
+    }
+}
+
+impl<S: DataHash> DataUtxo<S> {
+    pub(crate) fn output(&self) -> Result<Option<Output>, RelationError> {
+        if self.lifecycle == DataLifecycle::Burn {
+            self.ledger
+                .balance()
+                .assert_equal(&zero(), "a burned data utxo leaves a balance")?;
+            return Ok(None);
         }
+        Ok(Some(Output {
+            owner: self.ledger.owner(),
+            asset: self.ledger.asset(),
+            amount: self.ledger.balance(),
+            data_hash: self.state.hash()?,
+            data: None,
+        }))
     }
 }
 

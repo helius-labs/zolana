@@ -1,8 +1,8 @@
 use solana_signature::Signature;
 use timelock_escrow_sdk::{escrow_authority, zk_program::ProgramOwner};
 use zk_program_sdk::{
-    conversion::{Allocator, ProofInput},
-    RelationError, TxContext, ZkProgram,
+    conversion::{Allocator, Placeholder, ProofInput},
+    RelationError, TxContext,
 };
 use zolana_transaction::{utxo::Utxo, SppProofOutputUtxo, WalletUtxo};
 
@@ -46,7 +46,21 @@ impl ProofInput for Withdraw {
     }
 }
 
-impl ZkProgram for Withdraw {}
+impl Placeholder for Withdraw {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            private: WithdrawPrivateInputs {
+                tx_context: Placeholder::placeholder()?,
+                escrow: Placeholder::placeholder()?,
+                terms: Placeholder::placeholder()?,
+            },
+            public: WithdrawPublicInputs {
+                unlock: Placeholder::placeholder()?,
+                owner_identity: Placeholder::placeholder()?,
+            },
+        })
+    }
+}
 
 pub fn escrow_input(
     output: &SppProofOutputUtxo,
@@ -83,6 +97,7 @@ pub fn escrow_input(
         ring_data_hash: None,
         tree_id,
         leaf_index,
+        latest_tree_id: None,
         slot: 0,
         tx_signature: Signature::default(),
         slot_index: 0,

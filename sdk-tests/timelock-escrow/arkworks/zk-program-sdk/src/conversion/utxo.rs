@@ -4,7 +4,7 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::DUMMY_DOMAIN;
 use zolana_transaction::{utxo::SppProofInputUtxo, WalletUtxo};
 
-use super::{asset::asset, owner::owner, var, Allocator, ProofInput};
+use super::{asset::asset, owner::owner, var, Allocator, Placeholder, ProofInput};
 use crate::{
     circuit::{self, constant, CircuitVar},
     client, RelationError,
@@ -42,6 +42,10 @@ impl ProofInput for WalletUtxo {
             ring_data_hash: field(allocator, &fields.ring_data_hash, "utxo ring data hash")?,
             ring_program_id: field(allocator, &fields.ring_program_id, "utxo ring program id")?,
             tree_id: field(allocator, &fields.tree_id, "utxo tree id")?,
+            nullifier: field(allocator, &self.nullifier, "utxo nullifier")?,
+            latest_tree_id: allocator
+                .private_input(&constant(u64::from(self.latest_tree_id.unwrap_or(0))))?,
+            has_latest_tree_id: self.latest_tree_id.is_some().instantiate(allocator)?,
         })
     }
 }
@@ -52,4 +56,10 @@ fn field(
     name: &'static str,
 ) -> Result<CircuitVar, RelationError> {
     allocator.private_input(&var(bytes, name)?)
+}
+
+impl Placeholder for WalletUtxo {
+    fn placeholder() -> Result<Self, RelationError> {
+        WalletUtxo::dummy(0).map_err(RelationError::input)
+    }
 }

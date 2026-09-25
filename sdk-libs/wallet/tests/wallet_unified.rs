@@ -261,6 +261,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
         ring_data_hash: Some([0; 32]),
         tree_id: 0,
         leaf_index: 1,
+        latest_tree_id: None,
 
         slot: 1,
         tx_signature: solana_signature::Signature::default(),

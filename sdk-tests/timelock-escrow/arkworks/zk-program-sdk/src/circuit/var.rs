@@ -11,6 +11,7 @@ use ark_r1cs_std::{
 };
 use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 
+use super::Bool;
 use crate::RelationError;
 
 pub type Field = Fr;
@@ -46,6 +47,8 @@ pub trait Assert {
 
     fn assert_not_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError>;
 
+    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError>;
+
     fn check_bits(&self, bits: usize) -> Result<(), RelationError>;
 
     fn check_is_bool(&self) -> Result<(), RelationError>;
@@ -73,6 +76,10 @@ impl Assert for CircuitVar {
             };
         }
         Ok(self.enforce_not_equal(other)?)
+    }
+
+    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+        Bool::is_equal(self, other)
     }
 
     fn check_bits(&self, bits: usize) -> Result<(), RelationError> {
@@ -112,6 +119,19 @@ impl Assert for CircuitVar {
         }
         Ok(self.mul_equals(&(self - Field::one()), &zero())?)
     }
+}
+
+pub(crate) fn subtract_within(
+    balance: &CircuitVar,
+    amount: &CircuitVar,
+    rule: &'static str,
+) -> Result<CircuitVar, RelationError> {
+    if let (CircuitVar::Constant(balance), CircuitVar::Constant(amount)) = (balance, amount) {
+        if amount.into_bigint() > balance.into_bigint() {
+            return Err(RelationError::Violated(rule));
+        }
+    }
+    Ok(balance.clone() - amount)
 }
 
 pub(crate) fn assert_equal_unless(

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
-    conversion::{Allocator, ProofInput},
-    RelationError, TxContext, ZkProgram,
+    conversion::{Allocator, Placeholder, ProofInput},
+    RelationError, TxContext,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::WalletUtxo;
@@ -47,4 +47,18 @@ impl ProofInput for Escrow {
     }
 }
 
-impl ZkProgram for Escrow {}
+impl Placeholder for Escrow {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            private: EscrowPrivateInputs {
+                tx_context: Placeholder::placeholder()?,
+                token_utxos_asset_a: Placeholder::placeholder()?,
+                unlock: Placeholder::placeholder()?,
+                amount: Placeholder::placeholder()?,
+            },
+            public: EscrowPublicInputs {
+                escrow_owner: Placeholder::placeholder()?,
+            },
+        })
+    }
+}

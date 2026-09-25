@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        poseidon, zero, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-        DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+        poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+        ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
     },
     RelationError,
 };
@@ -31,10 +31,10 @@ impl Circuit for Escrow {
         private
             .amount
             .assert_not_equal(&zero(), "the escrow locks nothing")?;
-        let mut tokens = TokenUtxo::new_mut(private.token_utxos_asset_a.clone())?;
-        let locked = tokens.transfer(&self.public.escrow_owner, private.amount.clone());
-        let mut escrow = DataUtxo::<EscrowTerms>::from_output_utxo(locked)?;
-        escrow.creator = tokens.owner().clone();
+        let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let locked = tokens.transfer(&self.public.escrow_owner, &private.amount)?;
+        let mut escrow = DataUtxo::<EscrowTerms>::from_output_utxo(locked);
+        escrow.creator = tokens.owner();
         escrow.unlock = private.unlock.clone();
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

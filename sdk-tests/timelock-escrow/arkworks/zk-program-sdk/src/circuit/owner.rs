@@ -1,4 +1,4 @@
-use std::cell::OnceCell;
+use std::{cell::OnceCell, rc::Rc};
 
 use ark_r1cs_std::boolean::Boolean;
 use zolana_hasher::primitives::{P256_OWNER_TAG, SOLANA_OWNER_TAG};
@@ -14,7 +14,7 @@ use crate::{circuit_lib::packed, RelationError};
 pub struct OwnerKey {
     tag: CircuitVar,
     bytes: Bytes<32>,
-    identity: OnceCell<CircuitVar>,
+    identity: Rc<OnceCell<CircuitVar>>,
 }
 
 impl OwnerKey {
@@ -34,7 +34,7 @@ impl OwnerKey {
         Ok(Self {
             tag,
             bytes,
-            identity: OnceCell::new(),
+            identity: Rc::new(OnceCell::new()),
         })
     }
 
@@ -74,7 +74,7 @@ impl Default for OwnerKey {
         Self {
             tag: zero(),
             bytes: Bytes::default(),
-            identity: OnceCell::new(),
+            identity: Rc::new(OnceCell::new()),
         }
     }
 }
@@ -83,7 +83,7 @@ impl Default for OwnerKey {
 pub struct Owner {
     key: OwnerKey,
     nullifier_pk: CircuitVar,
-    hash: OnceCell<CircuitVar>,
+    hash: Rc<OnceCell<CircuitVar>>,
 }
 
 impl Owner {
@@ -91,7 +91,7 @@ impl Owner {
         Self {
             key,
             nullifier_pk,
-            hash: OnceCell::new(),
+            hash: Rc::new(OnceCell::new()),
         }
     }
 

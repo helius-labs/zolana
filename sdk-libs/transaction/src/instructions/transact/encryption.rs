@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use zolana_event::OutputDataEncoding;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{random_salt, PublicKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{random_salt, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey};
 
 use super::{sender_owner_tag, ConfidentialTransaction};
 use crate::{
@@ -92,8 +92,8 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        let padding_owner = self.padding_owner(sender);
-        let owner_tags = self.owner_tags(&sender.signing_pubkey, padding_owner.as_ref())?;
+        let padding_owner = self.padding_owner(sender)?;
+        let owner_tags = self.owner_tags(&sender.signing_pubkey, Some(&padding_owner))?;
         let interface_transfers = self.interface_transfers()?;
 
         // 4. Encrypt each output with a fresh OS RNG salt.
@@ -103,10 +103,7 @@ impl ConfidentialTransaction {
             .iter()
             .enumerate()
             .map(|(slot_index, output)| {
-                let address = output
-                    .owner_address
-                    .or(padding_owner)
-                    .ok_or(TransactionError::OutputWithoutOwner { slot_index })?;
+                let address = output.owner_address.unwrap_or(padding_owner);
                 let mut message = Confidential::encode_plaintext(
                     &ConfidentialOutputPlaintext {
                         asset_id: output.asset.asset_id,
@@ -215,14 +212,22 @@ impl ConfidentialTransaction {
         Ok(owner_tags)
     }
 
-    fn padding_owner(&self, sender: &ShieldedAddress) -> Option<ShieldedAddress> {
+    /// Dummy outputs have no owner, so their ciphertexts and owner tags borrow
+    /// one: the sender when it receives an output, else the first output's
+    /// owner. A transaction without owned outputs encrypts them to a throwaway
+    /// keypair nobody holds.
+    fn padding_owner(&self, sender: &ShieldedAddress) -> Result<ShieldedAddress, TransactionError> {
         let owners = || {
             self.outputs
                 .iter()
                 .filter_map(|output| output.owner_address)
         };
-        owners()
+        match owners()
             .find(|owner| owner == sender)
             .or_else(|| owners().next())
+        {
+            Some(owner) => Ok(owner),
+            None => Ok(ShieldedKeypair::new_ed25519()?.shielded_address()?),
+        }
     }
 }

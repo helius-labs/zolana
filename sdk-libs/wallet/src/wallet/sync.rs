@@ -199,6 +199,7 @@ impl SyncCtx<'_> {
             ring_data_hash,
             tree_id: site.tree_id,
             leaf_index: site.output_context.leaf_index,
+            latest_tree_id: None,
             slot: site.tx.slot,
             tx_signature: site.tx.tx_signature,
             slot_index: site.slot_index,

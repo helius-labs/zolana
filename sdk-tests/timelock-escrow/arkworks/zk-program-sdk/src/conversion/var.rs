@@ -1,8 +1,8 @@
 use ark_ff::{BigInteger, PrimeField};
 
-use super::{Allocator, FromCircuit, ProofInput};
+use super::{Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{constant, value, Assert, CircuitVar, Field},
+    circuit::{constant, value, zero, Assert, Bool, CircuitVar, Field},
     RelationError,
 };
 
@@ -89,12 +89,12 @@ impl ProofInput for u16 {
 }
 
 impl ProofInput for bool {
-    type Circuit = CircuitVar;
+    type Circuit = Bool;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, RelationError> {
+    fn instantiate(&self, allocator: &Allocator) -> Result<Bool, RelationError> {
         let value = allocator.private_input(&constant(u64::from(*self)))?;
         value.check_is_bool()?;
-        Ok(value)
+        Ok(Bool::from_checked(value))
     }
 }
 
@@ -149,8 +149,8 @@ impl FromCircuit for u16 {
 }
 
 impl FromCircuit for bool {
-    fn from_circuit(circuit: &CircuitVar) -> Result<bool, RelationError> {
-        match value(circuit)? {
+    fn from_circuit(circuit: &Bool) -> Result<bool, RelationError> {
+        match value(&circuit.var())? {
             value if value == Field::from(0u64) => Ok(false),
             value if value == Field::from(1u64) => Ok(true),
             _ => Err(RelationError::NotBool),
@@ -161,5 +161,51 @@ impl FromCircuit for bool {
 impl FromCircuit for [u8; 32] {
     fn from_circuit(circuit: &CircuitVar) -> Result<[u8; 32], RelationError> {
         to_bytes(circuit)
+    }
+}
+
+impl Placeholder for CircuitVar {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(zero())
+    }
+}
+
+impl Placeholder for u64 {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(0)
+    }
+}
+
+impl Placeholder for u32 {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(0)
+    }
+}
+
+impl Placeholder for u16 {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(0)
+    }
+}
+
+impl Placeholder for bool {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(false)
+    }
+}
+
+impl Placeholder for [u8; 32] {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok([0u8; 32])
+    }
+}
+
+impl<T: Placeholder, const N: usize> Placeholder for [T; N] {
+    fn placeholder() -> Result<Self, RelationError> {
+        (0..N)
+            .map(|_| T::placeholder())
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into()
+            .map_err(|_| RelationError::Violated("a placeholder array has its own length"))
     }
 }

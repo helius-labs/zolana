@@ -1,4 +1,5 @@
 use zolana_hasher::primitives::hash_bytes;
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, SppProofOutputUtxo, WalletUtxo};
 
 use super::transaction::SppTransactionBuilder;
@@ -41,7 +42,11 @@ impl SppTransactionBuilder<'_> {
         Ok(spent)
     }
 
-    pub(super) fn output_utxos(&self) -> Result<Vec<SppProofOutputUtxo>, RelationError> {
+    pub(super) fn output_utxos(
+        &self,
+        sender: &ShieldedAddress,
+    ) -> Result<Vec<SppProofOutputUtxo>, RelationError> {
+        let sender_hash = sender.owner_hash().map_err(RelationError::spp)?;
         self.checked
             .outputs
             .iter()
@@ -53,11 +58,12 @@ impl SppTransactionBuilder<'_> {
                     problem,
                 };
                 let output = &checked.output;
-                let owner = self
-                    .records
-                    .owner(&to_bytes(&output.owner.hash()?)?)
-                    .copied()
-                    .ok_or(problem("has an owner no input names"))?;
+                let owner_hash = to_bytes(&output.owner.hash()?)?;
+                let owner = match self.records.owner(&owner_hash) {
+                    Some(owner) => *owner,
+                    None if owner_hash == sender_hash => *sender,
+                    None => return Err(problem("has an owner no input names")),
+                };
                 let asset = self
                     .mint(&output.asset)?
                     .ok_or(problem("has an asset no input names"))?;

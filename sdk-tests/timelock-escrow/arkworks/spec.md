@@ -36,8 +36,8 @@ pub struct Escrow {
   `{ escrow_owner }`.
 - The proof's one public input is the public hash, `Poseidon(public..., private_tx_hash)`. The
   public inputs struct fixes the order: its fields in declaration order, then
-  `private_tx_hash` last. The native run computes the public hash, and `ArkworksCircuit`
-  passes it to R1CS as the instance variable.
+  `private_tx_hash` last. The native run computes the public hash, and the prover passes it
+  to R1CS as the instance variable.
 
 A Solana developer writes these plain types first, and the client, the tests and the prover
 all take them. Instantiation turns `Escrow` into `circuit::Escrow`, with the same two fields
@@ -96,11 +96,11 @@ pub struct WithdrawPublicInputs {
 Every private inputs struct starts with `tx_context`. The rest is circuit specific, in this
 order:
 
-1. `tx_context: TxContext`: the transaction values the circuit cannot compute, namely the
-   first nullifier, the blinding seed, the output tree and the sender. `first_nullifier` is
-   the nullifier of the UTXO the logic adds first. The sender is the wallet whose keys encrypt
-   the outputs. `TxContext::new(first_nullifier, output_tree_id, sender)` picks the blinding
-   seed.
+1. `tx_context: TxContext`: the transaction settings no input determines, namely the
+   blinding seed and the output tree. `TxContext::new()` draws the seed from the OS RNG and
+   sets the output tree to `Some(0)`; `None` appends the outputs to the first spent input's
+   `latest_tree_id`. The circuit takes the first nullifier from the UTXO the logic spends
+   first, and the client takes the sender from the keys that encrypt.
 2. Token UTXOs, one array per asset: `token_utxos_asset_a: [WalletUtxo; A]`,
    `token_utxos_asset_b: [WalletUtxo; B]`. Each length is a const generic or a constant: the
    most UTXOs of that asset the circuit spends. `WalletUtxo::dummy` fills the unused entries.
@@ -132,7 +132,7 @@ pub struct WithdrawPrivateInputs {
   owner, and the escrow state records that owner as `creator`.
 - The withdraw spends `escrow`, a data UTXO, and `terms` is its old state. The payout goes to
   `terms.creator`, whose key identity must equal the public `owner_identity`.
-- `tx_context.sender` names the address the client encrypts the change and the payout for.
+- The keys that encrypt name the address the client encrypts the change and the payout for.
 - `unlock` and `amount` are new data: the prover sets them and the escrow output includes
   them. The circuit checks that `amount` is not zero. Beyond its `u64` range, `unlock` needs
   no check at creation, because the program compares it with the clock at withdraw.
@@ -227,7 +227,14 @@ zk-program-sdk has three UTXO types, each a version of Light's `LightAccount`:
   the new state back and serializes it. R1CS does neither. A client reads a spent UTXO's state
   back with `try_from_slice`.
 - `DataUtxo::new_init(owner)` holds no value: SOL with amount 0.
-- `token.transfer(recipient, amount)` returns an `OutputTokenUtxo` for the recipient.
+- `token.transfer(&recipient, &amount)?` returns an `OutputTokenUtxo` for the recipient. The
+  native run refuses an amount above the balance, and a public transfer of zero, with a named
+  error, so the mistake stops while the proof inputs are built; R1CS adds no constraint for
+  either. `transfer_all(&recipient)` pays out the whole balance and cannot fail;
+  `withdraw_all(&destination)?` returns the amount it withdraws.
+- The constructors borrow their inputs: `TokenUtxo::new_mut(&inputs)`,
+  `DataUtxo::new_mut(&input, &state)`. The accessors return values: `balance()`, `amount()`,
+  `owner()` and `asset()`. An owner's and an asset's hashes are shared between clones.
 - A `TokenUtxo` tracks a change balance: its inputs plus deposits, minus withdrawals and
   transfers. The balance becomes a change UTXO to the token's owner. The change is not
   passed around: `with_token_utxos` creates it.
@@ -262,10 +269,10 @@ impl Circuit for Escrow {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
         private.amount.assert_not_equal(&zero(), "the escrow locks nothing")?;
-        let mut tokens = TokenUtxo::new_mut(private.token_utxos_asset_a.clone())?;
-        let locked = tokens.transfer(&self.public.escrow_owner, private.amount.clone());
-        let mut escrow = DataUtxo::<EscrowTerms>::from_output_utxo(locked)?;
-        escrow.creator = tokens.owner().clone();
+        let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
+        let locked = tokens.transfer(&self.public.escrow_owner, &private.amount)?;
+        let mut escrow = DataUtxo::<EscrowTerms>::from_output_utxo(locked);
+        escrow.creator = tokens.owner();
         escrow.unlock = private.unlock.clone();
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
@@ -301,10 +308,11 @@ impl Circuit for Escrow {
   `RelationError`, and in R1CS on allocated variables, where it is an unsatisfied
   constraint.
 - The logic does not branch on values, so both runs build the same slots.
-- A burned `DataUtxo` pays out its value with `transfer(recipient, amount)`, which returns an
-  `OutputTokenUtxo` like `TokenUtxo::transfer`. It has no change: its transfers must pay out
-  its whole value, and the circuit asserts it. The withdraw transfers the whole escrow amount
-  to `terms.creator`.
+- `TokenUtxo` and `DataUtxo` move value through the same `Balance` trait: `transfer`,
+  `transfer_all`, `receive`, `deposit`, `withdraw` and `withdraw_all`, in every lifecycle.
+  The lifecycle only decides what is left: change for a token, the output for a data UTXO,
+  and zero once burned, which the circuit asserts. The withdraw transfers the whole escrow
+  amount to `terms.creator` with `transfer_all`.
 
 ## Client
 
@@ -320,13 +328,15 @@ it in R1CS:
 ```rust
 impl ZkProgram for Escrow {}
 
-let (escrow, spp_proof_inputs) =
+let spp_proof_inputs =
     escrow.create_proof_inputs_and_encrypt(&shielded_keys, payer, expiry_unix_ts)?;
-let proof = ArkworksCircuit::new(escrow)?.prove(&keys, &mut rng)?;
+let prover = Groth16Prover::<Escrow>::new(Groth16Keys::load(proving_key_path)?)?;
+let result = prover.prove(&escrow)?;
 ```
 
-- `ZkProgram` requires the inputs to implement `ProofInput` and `ProofInput::Circuit` to
-  implement `Circuit`. It provides `create_proof_inputs_and_encrypt`, which:
+- `ZkProgram` requires the inputs to implement `ProofInput` and `Placeholder`, and
+  `ProofInput::Circuit` to implement `Circuit`. It provides `create_proof_inputs_and_encrypt`,
+  which:
   1. instantiates the inputs natively and runs `circuit`,
   2. resolves the slots against the records and converts each output amount to `u64`, with a
      named error when one does not fit,
@@ -337,8 +347,10 @@ let proof = ArkworksCircuit::new(escrow)?.prove(&keys, &mut rng)?;
   4. sets the expiry and checks that `padding_independent_private_tx_hash` equals the
      circuit's `private_tx_hash`.
 
-  It takes the inputs by value and returns them with the `SppProofInputs`.
-- The keys implement `ShieldedKeys`, and their address must be `tx_context.sender`.
+  It borrows the inputs and returns the `SppProofInputs`. The prover borrows the same inputs,
+  so both proofs come from one value.
+- The keys implement `ShieldedKeys`. Their address resolves any output the records do not
+  name, such as the change.
 - Both proofs share the hash `padding_independent_private_tx_hash` computes from the
   `SppProofInputs`.
 - Building the program instruction from the proofs is a separate step, after proving.
@@ -348,10 +360,11 @@ let proof = ArkworksCircuit::new(escrow)?.prove(&keys, &mut rng)?;
 - `create_proof_inputs_and_encrypt` resolves the `CheckedTransaction` against these records:
   each nonzero input hash to its `WalletUtxo`, and an output's owner and asset hashes to its
   address and `Mint`. It drops the circuit's dummies, since the transaction crate pads with
-  its own, and checks `tx_context.first_nullifier` against the first real input, which takes
-  SPP input slot 0. Each resolved output must hash to the circuit's output hash.
-- Every output owner, change included, comes from a `ShieldedAddress` input: a spent UTXO has
-  its owner's signing and nullifier keys but not the viewing key the encryption needs.
+  its own. The first real input takes SPP input slot 0, and its nullifier is the one the
+  circuit derived the blindings from. Each resolved output must hash to the circuit's output
+  hash.
+- Every output owner comes from a `ShieldedAddress` input or the keys: a spent UTXO has its
+  owner's signing and nullifier keys but not the viewing key the encryption needs.
 - Both proofs start from the result of `create_proof_inputs_and_encrypt` and run in
   parallel.
 - The client also holds what the circuit does not see: Merkle proofs and leaf indexes,
@@ -365,24 +378,28 @@ zk-program-sdk follows the same split:
 
 | Path | Contents |
 | --- | --- |
-| `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `ArkworksCircuit`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `RelationError`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `OutputTokenUtxo`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`. |
-| `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Allocator`, `Records`, and bytes to fields and back. |
+| `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `RelationError`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `Ledger`, `OutputTokenUtxo`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`. |
+| `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Allocator`, `Records`, and bytes to fields and back. |
 
 Everything a future macro derives can also be written by hand, so `conversion` stays public.
 A feature may gate it later.
 
 ## Setup and features
 
-- `ArkworksCircuit::setup` synthesizes default sample inputs. `TokenUtxo<N>` keeps its size
-  generic, so a circuit that spends more UTXOs is another constant. One set of keys pairs
-  with every SPP shape the real UTXOs fit.
+- `Groth16Prover::new_with_test_setup` synthesizes the circuit from the program's
+  `Placeholder`. Setup never evaluates the values, so the keys depend only on the type, and a
+  circuit's structure must not depend on its input values. The fixed seed makes the keys
+  reproducible; the setup is insecure either way. `Groth16Prover::new` runs the same synthesis
+  on loaded keys and refuses keys of another circuit. `TokenUtxo<N>` keeps its size generic,
+  so a circuit that spends more UTXOs is another constant. One set of keys pairs with every
+  SPP shape the real UTXOs fit.
 - zk-program-sdk has two features:
 
   | Feature | Contents |
   | --- | --- |
   | `client` | The native run, the SPP proof inputs, loading a proving key, proving. |
-  | `setup` | Groth16 setup, writing the proving key, exporting the verifying key as a program constant marked `InsecureTest`. |
+  | `setup` | The test setup, writing the proving key, exporting the verifying key as a program constant marked `InsecureTest`. |
 
   The input types, the UTXO types, `ConfidentialTransaction`, `circuit` and R1CS synthesis
   compile without either. Both are on by default. A wallet that does not generate keys

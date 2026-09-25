@@ -5,46 +5,55 @@ use timelock_escrow_arkworks::{
 };
 use timelock_escrow_sdk::escrow_authority;
 use zk_program_sdk::{
-    circuit::{value, Circuit, ConstraintSystem},
-    conversion::{Allocator, ProofInput},
-    ArkworksCircuit, Owner, RelationError, TxContext, ZkProgram,
+    circuit::{Circuit, ConstraintSystem},
+    conversion::{to_bytes, Allocator, ProofInput},
+    Owner, RelationError, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_keypair::ShieldedKeypair;
 
 mod shared;
-use shared::{escrow_utxo, keypair, token_input, token_inputs, TREE_ID};
+use shared::{escrow_utxo, keypair, token_input, token_inputs};
 
-fn native<P>(proof_inputs: P) -> Option<String>
+fn native<P>(proof_inputs: &P) -> Option<String>
 where
-    P: ProofInput + Clone,
+    P: ProofInput,
     P::Circuit: Circuit,
 {
-    ArkworksCircuit::new(proof_inputs)
+    proof_inputs
+        .instantiate(&Allocator::native())
+        .and_then(|circuit| circuit.circuit())
         .err()
         .map(|e| e.to_string())
 }
 
-fn r1cs_refuses<P>(proof_inputs: P) -> bool
+fn native_public_hash<P>(proof_inputs: &P) -> [u8; 32]
 where
-    P: ProofInput + Clone,
+    P: ProofInput,
+    P::Circuit: Circuit,
+{
+    let checked = proof_inputs
+        .instantiate(&Allocator::native())
+        .and_then(|circuit| circuit.circuit())
+        .expect("native circuit");
+    to_bytes(checked.public_hash()).expect("public hash")
+}
+
+fn r1cs_refuses<P>(proof_inputs: &P) -> bool
+where
+    P: ProofInput,
     P::Circuit: Circuit,
 {
     let cs = ConstraintSystem::new_ref();
     match proof_inputs
-        .instantiate(&Allocator::R1cs(cs))
+        .instantiate(&Allocator::R1cs(cs.clone()))
         .and_then(|circuit| circuit.circuit())
     {
         Err(RelationError::Synthesis(
             SynthesisError::AssignmentMissing | SynthesisError::DivisionByZero,
         )) => true,
         Err(error) => panic!("unexpected R1CS error: {error}"),
-        Ok(checked) => ArkworksCircuit::with_public_hash(
-            proof_inputs,
-            value(checked.public_hash()).expect("own public hash"),
-        )
-        .check_constraints()
-        .is_err(),
+        Ok(_) => !cs.is_satisfied().expect("satisfiability"),
     }
 }
 
@@ -67,7 +76,7 @@ fn escrow_names_every_broken_rule() {
     let first = token_input(&creator, 600, 0);
     let honest = Escrow {
         private: EscrowPrivateInputs {
-            tx_context: TxContext::new(first.nullifier, TREE_ID, address),
+            tx_context: TxContext::new(),
             token_utxos_asset_a: token_inputs([first, token_input(&creator, 400, 1)]),
             unlock: 1_700_000_000,
             amount: 250,
@@ -78,7 +87,6 @@ fn escrow_names_every_broken_rule() {
                 .expect("escrow owner"),
         },
     };
-    let circuit = ArkworksCircuit::new(honest.clone()).expect("escrow circuit");
 
     let mut zero_amount = honest.clone();
     zero_amount.private.amount = 0;
@@ -88,38 +96,27 @@ fn escrow_names_every_broken_rule() {
     }
     let mut other_seed = honest.clone();
     other_seed.private.tx_context = other_seed.private.tx_context.with_blinding_seed([7u8; 32]);
-    let mut other_first_nullifier = honest.clone();
-    other_first_nullifier.private.tx_context = TxContext::new([7u8; 32], TREE_ID, address);
     let stranger = keypair(6);
-    let mut unnamed_change_owner = honest.clone();
-    unnamed_change_owner.private.tx_context.sender = stranger.shielded_address().expect("stranger");
     let mut overspend = honest.clone();
     overspend.private.amount = 1_100;
 
     assert_eq!(
         (
-            native(zero_amount.clone()),
-            native(other_owner.clone()),
-            encrypt(&creator, other_first_nullifier),
-            encrypt(&stranger, unnamed_change_owner),
-            encrypt(&creator, overspend),
+            native(&zero_amount),
+            native(&other_owner),
             encrypt(&stranger, honest.clone()),
-            circuit.check_constraints().is_ok(),
-            r1cs_refuses(honest),
-            r1cs_refuses(zero_amount),
-            r1cs_refuses(other_owner),
-            ArkworksCircuit::new(other_seed)
-                .expect("another seed is a valid transaction")
-                .public_hash()
-                == circuit.public_hash(),
+            encrypt(&creator, overspend),
+            honest.check_constraints().is_ok(),
+            r1cs_refuses(&honest),
+            r1cs_refuses(&zero_amount),
+            r1cs_refuses(&other_owner),
+            native_public_hash(&other_seed) == native_public_hash(&honest),
         ),
         (
             Some("the escrow locks nothing".to_string()),
             Some("the inputs belong to different owners".to_string()),
-            Some("the first nullifier is not the first input's".to_string()),
             Some("output slot 0 has an owner no input names".to_string()),
-            Some("output slot 0 has an amount that does not fit in u64".to_string()),
-            Some("the keys are not the transaction's sender".to_string()),
+            Some("the transfer exceeds the balance".to_string()),
             true,
             false,
             true,
@@ -136,7 +133,7 @@ fn withdraw_names_every_broken_rule() {
     let escrow = escrow_utxo(&creator, 250, 1_700_000_000);
     let honest = Withdraw {
         private: WithdrawPrivateInputs {
-            tx_context: TxContext::new(escrow.nullifier, TREE_ID, address),
+            tx_context: TxContext::new(),
             escrow,
             terms: EscrowTerms {
                 creator: Owner::try_from(&address).expect("creator owner"),
@@ -151,7 +148,6 @@ fn withdraw_names_every_broken_rule() {
             .expect("owner identity"),
         },
     };
-    let circuit = ArkworksCircuit::new(honest.clone()).expect("withdraw circuit");
 
     let other_signer = keypair(6)
         .shielded_address()
@@ -168,13 +164,13 @@ fn withdraw_names_every_broken_rule() {
 
     assert_eq!(
         (
-            native(other_identity.clone()),
-            native(other_unlock.clone()),
-            native(other_terms),
-            circuit.check_constraints().is_ok(),
-            r1cs_refuses(honest),
-            r1cs_refuses(other_identity),
-            r1cs_refuses(other_unlock),
+            native(&other_identity),
+            native(&other_unlock),
+            native(&other_terms),
+            honest.check_constraints().is_ok(),
+            r1cs_refuses(&honest),
+            r1cs_refuses(&other_identity),
+            r1cs_refuses(&other_unlock),
         ),
         (
             Some("the signer is not the escrow creator".to_string()),

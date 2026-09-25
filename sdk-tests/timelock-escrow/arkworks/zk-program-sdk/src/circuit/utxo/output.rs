@@ -18,16 +18,16 @@ pub struct OutputTokenUtxo {
 }
 
 impl OutputTokenUtxo {
-    pub fn owner(&self) -> &Owner {
-        &self.owner
+    pub fn owner(&self) -> Owner {
+        self.owner.clone()
     }
 
-    pub fn asset(&self) -> &Asset {
-        &self.asset
+    pub fn asset(&self) -> Asset {
+        self.asset.clone()
     }
 
-    pub fn amount(&self) -> &CircuitVar {
-        &self.amount
+    pub fn amount(&self) -> CircuitVar {
+        self.amount.clone()
     }
 }
 

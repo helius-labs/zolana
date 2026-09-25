@@ -12,7 +12,7 @@ ark-groth16 = { version = "0.5", default-features = false, features = ["std"], o
 ark-r1cs-std = { version = "0.5", default-features = false, features = ["std"] }
 ark-relations = { version = "0.5", default-features = false, features = ["std"] }
 ark-serialize = { workspace = true, optional = true }
-ark-std = { workspace = true }
+ark-std = { workspace = true, features = ["getrandom"] }
 borsh = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
 light-poseidon = { workspace = true }

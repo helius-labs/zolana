@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        poseidon, zero, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
-        DataUtxo, PublicInputs, TxContext, Utxo,
+        poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+        ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Utxo,
     },
     RelationError,
 };
@@ -27,9 +27,9 @@ pub struct WithdrawPublicInputs {
 impl Circuit for Withdraw {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
-        let mut escrow = DataUtxo::new_burn(&private.escrow, private.terms.clone())?;
+        let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
         escrow
-            .amount()
+            .balance()
             .assert_not_equal(&zero(), "the escrow utxo holds nothing")?;
         escrow.creator.key().identity()?.assert_equal(
             &self.public.owner_identity,
@@ -38,8 +38,8 @@ impl Circuit for Withdraw {
         self.public
             .unlock
             .assert_equal(&escrow.unlock, "the unlock time is not the escrow's")?;
-        let (creator, amount) = (escrow.creator.clone(), escrow.amount().clone());
-        let payout = escrow.transfer(&creator, amount)?;
+        let creator = escrow.creator.clone();
+        let payout = escrow.transfer_all(&creator);
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(escrow)

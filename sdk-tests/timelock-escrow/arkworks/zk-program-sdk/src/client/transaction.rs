@@ -6,31 +6,37 @@ use zolana_transaction::{
 
 use crate::{
     circuit::{CheckedTransaction, Circuit},
-    conversion::{to_bytes, Allocator, FromCircuit, ProofInput, Records},
+    conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput, Records},
     program::{transaction_hash, PublicTransfer},
+    prover::ArkworksCircuit,
     RelationError,
 };
 
-pub trait ZkProgram: ProofInput<Circuit: Circuit> + Clone + Sized {
+pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
+    fn check_constraints(&self) -> Result<usize, RelationError> {
+        ArkworksCircuit::new(self)?.check_constraints()
+    }
+
     fn create_proof_inputs_and_encrypt(
-        self,
+        &self,
         shielded_keys: &impl ShieldedKeys,
         payer: Address,
         expiry_unix_ts: u64,
-    ) -> Result<(Self, SppProofInputs), RelationError> {
+    ) -> Result<SppProofInputs, RelationError> {
         let allocator = Allocator::native();
         let checked = self.instantiate(&allocator)?.circuit()?;
         let records = allocator.into_records();
-        let spp_proof_inputs = SppTransactionBuilder {
+        SppTransactionBuilder {
             checked: &checked,
             records: &records,
             payer,
             expiry_unix_ts,
         }
-        .encrypt(shielded_keys)?;
-        Ok((self, spp_proof_inputs))
+        .encrypt(shielded_keys)
     }
 }
+
+impl<T: ProofInput<Circuit: Circuit> + Placeholder> ZkProgram for T {}
 
 pub(super) struct SppTransactionBuilder<'a> {
     pub(super) checked: &'a CheckedTransaction,
@@ -41,20 +47,13 @@ pub(super) struct SppTransactionBuilder<'a> {
 
 impl SppTransactionBuilder<'_> {
     fn encrypt(self, shielded_keys: &impl ShieldedKeys) -> Result<SppProofInputs, RelationError> {
-        let tx_context = &self.checked.tx_context;
         let sender = shielded_keys.address().map_err(RelationError::spp)?;
-        if sender.owner_hash().map_err(RelationError::spp)? != to_bytes(&tx_context.sender.hash()?)?
-        {
-            return Err(RelationError::Violated(
-                "the keys are not the transaction's sender",
-            ));
-        }
-        let first_nullifier = to_bytes(&tx_context.first_nullifier)?;
-        let blinding_seed = to_bytes(&tx_context.blinding_seed)?;
-        let output_tree_id = u16::from_circuit(&tx_context.output_tree_id)
+        let first_nullifier = to_bytes(&self.checked.first_nullifier)?;
+        let blinding_seed = to_bytes(&self.checked.blinding_seed)?;
+        let output_tree_id = u16::from_circuit(&self.checked.output_tree_id)
             .map_err(|_| RelationError::Conversion("the output tree id does not fit in u16"))?;
         let inputs = self.input_utxos(&first_nullifier)?;
-        let outputs = self.output_utxos()?;
+        let outputs = self.output_utxos(&sender)?;
         let shape = canonical_shape(inputs.len(), outputs.len()).map_err(RelationError::spp)?;
         let mut transaction = ConfidentialTransaction::new(inputs, self.payer)
             .and_then(|transaction| transaction.with_blinding_seed(blinding_seed))

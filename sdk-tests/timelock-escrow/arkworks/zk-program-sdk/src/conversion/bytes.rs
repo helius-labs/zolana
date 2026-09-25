@@ -1,6 +1,6 @@
 use solana_address::Address;
 
-use super::{var::integer_value, Allocator, FromCircuit, ProofInput};
+use super::{var::integer_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
     circuit::{self, constant, Assert},
     client, RelationError,
@@ -56,4 +56,16 @@ impl FromCircuit for Address {
 
 pub(super) fn byte_value(var: &circuit::CircuitVar) -> Result<u8, RelationError> {
     u8::try_from(integer_value(var, 8)?).map_err(|_| RelationError::OutOfRange(8))
+}
+
+impl<const N: usize> Placeholder for client::Bytes<N> {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self([0u8; N]))
+    }
+}
+
+impl Placeholder for Address {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Address::default())
+    }
 }

@@ -1,5 +1,5 @@
 use zk_program_sdk::{
-    circuit::{constant, Assert, CircuitVar, ConstraintSystem, Field},
+    circuit::{constant, value, Assert, Bool, CircuitVar, ConstraintSystem, Field},
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
 };
 use zolana_hasher::primitives::hash_bytes;
@@ -135,12 +135,11 @@ fn circuit_values_convert_back_with_the_same_ranges() {
         (
             u64::from_circuit(&constant(u64::MAX)).ok(),
             u32::from_circuit(&constant(u64::from(u32::MAX))).ok(),
-            bool::from_circuit(&constant(1u64)).ok(),
+            bool::from_circuit(&Bool::constant(true)).ok(),
             <[u8; 32]>::from_circuit(&constant(7u64)).ok(),
             <[u16; 2]>::from_circuit(&[constant(1u64), constant(2u64)]).ok(),
             from_circuit_error::<u64>(&constant(Field::from(u64::MAX) + Field::from(1u64))),
             from_circuit_error::<u16>(&constant(70_000u64)),
-            from_circuit_error::<bool>(&constant(2u64)),
             from_circuit_error::<[u16; 2]>(&[constant(1u64), constant(70_000u64)]),
         ),
         (
@@ -151,8 +150,59 @@ fn circuit_values_convert_back_with_the_same_ranges() {
             Some([1u16, 2]),
             Some("a value does not fit in 64 bits".to_string()),
             Some("a value does not fit in 16 bits".to_string()),
-            Some("a value is neither 0 nor 1".to_string()),
             Some("a value does not fit in 16 bits".to_string()),
+        )
+    );
+}
+
+#[test]
+fn a_bool_selects_and_combines_natively_and_in_r1cs() {
+    let native = |bool: Bool| {
+        (
+            value(&bool.select(&constant(5u64), &constant(9u64))).unwrap(),
+            value(&bool.not().var()).unwrap(),
+            value(&bool.and(&Bool::constant(true)).var()).unwrap(),
+            value(&bool.or(&Bool::constant(false)).var()).unwrap(),
+        )
+    };
+    let in_r1cs = |input: bool| {
+        let cs = ConstraintSystem::new_ref();
+        let allocator = Allocator::R1cs(cs.clone());
+        let bool = input.instantiate(&allocator).unwrap();
+        let if_true = allocator.private_input(&constant(5u64)).unwrap();
+        let if_false = allocator.private_input(&constant(9u64)).unwrap();
+        (
+            value(&bool.select(&if_true, &if_false)).unwrap(),
+            cs.is_satisfied().unwrap(),
+        )
+    };
+
+    assert_eq!(
+        (
+            native(Bool::constant(true)),
+            native(Bool::constant(false)),
+            value(&constant(3u64).is_equal(&constant(3u64)).unwrap().var()).unwrap(),
+            value(&constant(3u64).is_equal(&constant(4u64)).unwrap().var()).unwrap(),
+            in_r1cs(true),
+            in_r1cs(false),
+        ),
+        (
+            (
+                Field::from(5u64),
+                Field::from(0u64),
+                Field::from(1u64),
+                Field::from(1u64)
+            ),
+            (
+                Field::from(9u64),
+                Field::from(1u64),
+                Field::from(0u64),
+                Field::from(0u64)
+            ),
+            Field::from(1u64),
+            Field::from(0u64),
+            (Field::from(5u64), true),
+            (Field::from(9u64), true),
         )
     );
 }
