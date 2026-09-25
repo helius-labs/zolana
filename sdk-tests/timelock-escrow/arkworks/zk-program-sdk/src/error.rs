@@ -39,6 +39,8 @@ pub enum RelationError {
     Keys(String),
     #[error("the Groth16 keys belong to another circuit")]
     KeysForAnotherCircuit,
+    #[error("the proof inputs build another circuit than the prover's")]
+    ProofInputsForAnotherCircuit,
     #[error(transparent)]
     Hasher(#[from] zolana_hasher::HasherError),
     #[error(transparent)]

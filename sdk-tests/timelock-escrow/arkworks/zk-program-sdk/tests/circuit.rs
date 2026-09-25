@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use groth16_solana::{groth16::Groth16Verifier, vk::gnark::parse_gnark_vk_bytes};
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit::{Circuit, CircuitVar, ConstraintSystem, Field},
+    circuit::{constant, Circuit, CircuitVar, ConstraintSystem, Field},
     conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput},
     Groth16Keys, Groth16Prover, RelationError, TxContext, VerifyingKeyExport, ZkProgram,
 };
@@ -75,6 +75,57 @@ impl Placeholder for Payment {
             public: RecipientPublicInputs {
                 recipient: ShieldedAddress::placeholder()?,
             },
+        })
+    }
+}
+
+#[derive(Clone)]
+struct DivergingPayment {
+    payment: Payment,
+}
+
+impl ProofInput for DivergingPayment {
+    type Circuit = circuit::Payment;
+
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, RelationError> {
+        let mut payment = self.payment.clone();
+        if let Allocator::R1cs(_) = allocator {
+            payment.private.amount += 1;
+        }
+        payment.instantiate(allocator)
+    }
+}
+
+impl Placeholder for DivergingPayment {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            payment: Payment::placeholder()?,
+        })
+    }
+}
+
+#[derive(Clone)]
+struct ReshapedPayment {
+    payment: Payment,
+    extra_input: bool,
+}
+
+impl ProofInput for ReshapedPayment {
+    type Circuit = circuit::Payment;
+
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, RelationError> {
+        if self.extra_input {
+            let _extra = allocator.private_input(&constant(0u64))?;
+        }
+        self.payment.instantiate(allocator)
+    }
+}
+
+impl Placeholder for ReshapedPayment {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Self {
+            payment: Payment::placeholder()?,
+            extra_input: false,
         })
     }
 }
@@ -434,6 +485,55 @@ fn a_groth16_proof_verifies_in_its_compressed_form() {
             Some("the proof does not verify under these keys".to_string()),
             to_bytes(native.public_hash()).unwrap(),
             2
+        )
+    );
+}
+
+#[test]
+fn the_prover_refuses_a_witness_its_circuit_does_not_accept() {
+    let sender = keypair(5);
+    let payment = Payment {
+        private: PaymentPrivateInputs {
+            tx_context: TxContext::new(),
+            token_utxos_asset_a: [
+                spendable(&sender, Mint::SOL, 300, 0),
+                spendable(&sender, Mint::SOL, 200, 1),
+            ],
+            amount: 400,
+        },
+        public: RecipientPublicInputs {
+            recipient: keypair(6).shielded_address().unwrap(),
+        },
+    };
+    let diverging = Groth16Prover::<DivergingPayment>::new_with_test_setup().unwrap();
+    let reshaped = Groth16Prover::<ReshapedPayment>::new_with_test_setup().unwrap();
+
+    assert_eq!(
+        (
+            matches!(
+                diverging.prove(&DivergingPayment {
+                    payment: payment.clone()
+                }),
+                Err(RelationError::Unsatisfied(_))
+            ),
+            reshaped
+                .prove(&ReshapedPayment {
+                    payment: payment.clone(),
+                    extra_input: false,
+                })
+                .is_ok(),
+            reshaped
+                .prove(&ReshapedPayment {
+                    payment,
+                    extra_input: true,
+                })
+                .err()
+                .map(|e| e.to_string()),
+        ),
+        (
+            true,
+            true,
+            Some("the proof inputs build another circuit than the prover's".to_string()),
         )
     );
 }

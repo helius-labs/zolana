@@ -7,13 +7,13 @@ use ark_ec::AffineRepr;
 #[cfg(feature = "client")]
 use ark_groth16::Groth16;
 #[cfg(feature = "client")]
-use ark_std::rand::rngs::OsRng;
+use ark_std::{rand::rngs::OsRng, UniformRand};
 use groth16_solana::groth16::Groth16Verifyingkey;
 
 #[cfg(feature = "client")]
-use super::synthesis::{ArkworksCircuit, CircuitShape};
+use super::synthesis::{ArkworksCircuit, CircuitMatrices, CircuitShape};
 #[cfg(feature = "client")]
-use crate::ZkProgram;
+use crate::{circuit::Field, ZkProgram};
 use crate::{conversion::be_bytes, RelationError};
 
 pub type ProvingKey = ark_groth16::ProvingKey<Bn254>;
@@ -255,6 +255,7 @@ pub struct ProofResult {
 #[cfg(feature = "client")]
 pub struct Groth16Prover<P> {
     keys: Groth16Keys,
+    matrices: CircuitMatrices,
     program: PhantomData<fn() -> P>,
 }
 
@@ -262,11 +263,13 @@ pub struct Groth16Prover<P> {
 impl<P: ZkProgram> Groth16Prover<P> {
     pub fn new(keys: Groth16Keys) -> Result<Self, RelationError> {
         let placeholder = P::placeholder()?;
-        if ArkworksCircuit::for_setup(&placeholder).shape()? != keys.circuit_shape() {
+        let matrices = ArkworksCircuit::for_setup(&placeholder).matrices()?;
+        if matrices.shape() != keys.circuit_shape() {
             return Err(RelationError::KeysForAnotherCircuit);
         }
         Ok(Self {
             keys,
+            matrices,
             program: PhantomData,
         })
     }
@@ -282,6 +285,7 @@ impl<P: ZkProgram> Groth16Prover<P> {
         )?;
         Ok(Self {
             keys: Groth16Keys::from(proving_key),
+            matrices: ArkworksCircuit::for_setup(&placeholder).matrices()?,
             program: PhantomData,
         })
     }
@@ -290,18 +294,23 @@ impl<P: ZkProgram> Groth16Prover<P> {
         &self.keys
     }
 
-    pub fn constraint_count(&self) -> Result<usize, RelationError> {
-        let placeholder = P::placeholder()?;
-        ArkworksCircuit::for_setup(&placeholder).constraint_count()
+    pub fn constraint_count(&self) -> usize {
+        self.matrices.constraint_count()
     }
 
     pub fn prove(&self, proof_inputs: &P) -> Result<ProofResult, RelationError> {
         let circuit = ArkworksCircuit::new(proof_inputs)?;
-        circuit.check_constraints()?;
-        let proof = SolanaProof::from(&Groth16::<Bn254>::create_random_proof_with_reduction(
-            circuit,
+        let assignment = circuit.assignment()?;
+        self.matrices.check(&assignment)?;
+        let matrices = self.matrices.matrices();
+        let proof = SolanaProof::from(&Groth16::<Bn254>::create_proof_with_reduction_and_matrices(
             &self.keys.proving_key,
-            &mut OsRng,
+            Field::rand(&mut OsRng),
+            Field::rand(&mut OsRng),
+            matrices,
+            matrices.num_instance_variables,
+            matrices.num_constraints,
+            &assignment,
         )?);
         let public_hash = circuit.public_hash_bytes();
         proof.verify(&self.keys.verifying_key, public_hash)?;

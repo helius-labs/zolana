@@ -47,7 +47,7 @@ pub fn prove<P: ZkProgram>(
         record(Row {
             circuit: circuit_name::<P>(),
             proof: proof.strip_suffix(" proof").unwrap_or(proof),
-            constraints: prover.constraint_count().expect("constraint count"),
+            constraints: prover.constraint_count(),
             prove_ms,
         });
     }
