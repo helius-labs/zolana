@@ -7,6 +7,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s27_escrow::{escrow_utxo, EscrowTerms},
     shared::keypair,
 };
@@ -182,7 +183,7 @@ fn split_withdrawal_prove_and_verify() {
 
     let prover =
         Groth16Prover::<SplitWithdraw>::new_with_test_setup().expect("split withdraw setup");
-    let result = prover.prove(&withdraw).expect("split withdraw proof");
+    let result = prove(&prover, &withdraw, "split withdraw proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

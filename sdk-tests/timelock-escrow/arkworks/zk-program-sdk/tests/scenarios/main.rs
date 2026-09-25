@@ -1,3 +1,4 @@
+mod benchmark;
 mod shared;
 
 mod s01_sol_payment;

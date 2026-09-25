@@ -3,6 +3,7 @@ use zk_program_sdk::{Groth16Prover, TxContext, ZkProgram};
 use zolana_hasher::primitives::solana_owner_identity;
 
 use crate::{
+    benchmark::prove,
     s27_escrow::{
         escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, ESCROW_SLOT,
     },
@@ -32,7 +33,7 @@ fn spl_escrow_then_withdraw_prove_and_verify() {
         .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
         .expect("escrow proof inputs");
     let escrow_prover = Groth16Prover::<Escrow>::new_with_test_setup().expect("escrow setup");
-    let escrow_result = escrow_prover.prove(&escrow).expect("escrow proof");
+    let escrow_result = prove(&escrow_prover, &escrow, "escrow proof");
     escrow_prover
         .verify(&escrow_result)
         .expect("the compressed proof verifies");
@@ -61,7 +62,7 @@ fn spl_escrow_then_withdraw_prove_and_verify() {
         .create_proof_inputs_and_encrypt(&creator, payer, u64::MAX)
         .expect("withdraw proof inputs");
     let withdraw_prover = Groth16Prover::<Withdraw>::new_with_test_setup().expect("withdraw setup");
-    let withdraw_result = withdraw_prover.prove(&withdraw).expect("withdraw proof");
+    let withdraw_result = prove(&withdraw_prover, &withdraw, "withdraw proof");
     withdraw_prover
         .verify(&withdraw_result)
         .expect("the compressed proof verifies");

@@ -290,6 +290,11 @@ impl<P: ZkProgram> Groth16Prover<P> {
         &self.keys
     }
 
+    pub fn constraint_count(&self) -> Result<usize, RelationError> {
+        let placeholder = P::placeholder()?;
+        ArkworksCircuit::for_setup(&placeholder).constraint_count()
+    }
+
     pub fn prove(&self, proof_inputs: &P) -> Result<ProofResult, RelationError> {
         let circuit = ArkworksCircuit::new(proof_inputs)?;
         circuit.check_constraints()?;

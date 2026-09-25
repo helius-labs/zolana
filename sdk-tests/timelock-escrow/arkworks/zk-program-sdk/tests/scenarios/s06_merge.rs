@@ -6,7 +6,10 @@ use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, on_large_stack, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, on_large_stack, token_input},
+};
 
 const MERGED_INPUTS: usize = 36;
 
@@ -145,7 +148,7 @@ fn merge_prove_and_verify() {
         );
 
         let prover = Groth16Prover::<Merge>::new_with_test_setup().expect("merge setup");
-        let result = prover.prove(&merge).expect("merge proof");
+        let result = prove(&prover, &merge, "merge proof");
         prover
             .verify(&result)
             .expect("the compressed proof verifies");

@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input},
+};
 
 #[derive(Clone)]
 struct Deposit {
@@ -157,7 +160,7 @@ fn deposit_to_another_owner_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Deposit>::new_with_test_setup().expect("deposit setup");
-    let result = prover.prove(&deposit).expect("deposit proof");
+    let result = prove(&prover, &deposit, "deposit proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

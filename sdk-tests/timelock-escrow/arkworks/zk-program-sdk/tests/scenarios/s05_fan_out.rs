@@ -5,7 +5,10 @@ use zk_program_sdk::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input},
+};
 
 const RECIPIENTS: usize = 7;
 
@@ -166,7 +169,7 @@ fn fan_out_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<FanOut>::new_with_test_setup().expect("fan-out setup");
-    let result = prover.prove(&fan_out).expect("fan-out proof");
+    let result = prove(&prover, &fan_out, "fan-out proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

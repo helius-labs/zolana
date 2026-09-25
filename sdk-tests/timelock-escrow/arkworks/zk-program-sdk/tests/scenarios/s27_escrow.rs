@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input, ProgramOwner};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input, ProgramOwner},
+};
 
 pub(crate) const ESCROW_SLOT: usize = 1;
 
@@ -263,7 +266,7 @@ fn escrow_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Escrow>::new_with_test_setup().expect("escrow setup");
-    let result = prover.prove(&escrow).expect("escrow proof");
+    let result = prove(&prover, &escrow, "escrow proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

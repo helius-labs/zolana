@@ -2,6 +2,7 @@ use zk_program_sdk::{Groth16Prover, TxContext, ZkProgram};
 use zolana_program::{derive_output_blinding_seed, derive_transact_output_blinding};
 
 use crate::{
+    benchmark::prove,
     s31_order_make::order_utxo,
     s32_order_take::{Take, TakePrivateInputs, TakePublicInputs},
     shared::{keypair, token_input, USDC},
@@ -57,7 +58,7 @@ fn program_chosen_blinding_seed_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Take>::new_with_test_setup().expect("take setup");
-    let result = prover.prove(&take).expect("take proof");
+    let result = prove(&prover, &take, "take proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

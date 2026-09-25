@@ -7,7 +7,10 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input, USDC};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input, USDC},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct TypedState {
@@ -285,7 +288,7 @@ fn typed_state_create_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<TypedCreate>::new_with_test_setup().expect("typed create setup");
-    let result = prover.prove(&create).expect("typed create proof");
+    let result = prove(&prover, &create, "typed create proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

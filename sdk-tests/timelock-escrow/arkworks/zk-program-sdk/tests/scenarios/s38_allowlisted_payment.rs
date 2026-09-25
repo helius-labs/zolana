@@ -5,7 +5,10 @@ use zk_program_sdk::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input, MerklePath, MerkleTree};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input, MerklePath, MerkleTree},
+};
 
 #[derive(Clone)]
 struct AllowlistedPayment {
@@ -169,7 +172,7 @@ fn allowlisted_payment_prove_and_verify() {
 
     let prover = Groth16Prover::<AllowlistedPayment>::new_with_test_setup()
         .expect("allowlisted payment setup");
-    let result = prover.prove(&payment).expect("allowlisted payment proof");
+    let result = prove(&prover, &payment, "allowlisted payment proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

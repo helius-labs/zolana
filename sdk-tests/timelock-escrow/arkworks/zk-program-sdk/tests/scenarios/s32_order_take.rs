@@ -7,6 +7,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s31_order_make::{order_utxo, OrderTerms},
     shared::{keypair, token_input, USDC},
 };
@@ -189,7 +190,7 @@ fn order_take_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Take>::new_with_test_setup().expect("take setup");
-    let result = prover.prove(&take).expect("take proof");
+    let result = prove(&prover, &take, "take proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

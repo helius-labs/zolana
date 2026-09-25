@@ -7,7 +7,10 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input, ProgramOwner, USDC};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input, ProgramOwner, USDC},
+};
 
 pub(crate) const ORDER_SLOT: usize = 1;
 
@@ -298,7 +301,7 @@ fn order_make_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Make>::new_with_test_setup().expect("make setup");
-    let result = prover.prove(&make).expect("make proof");
+    let result = prove(&prover, &make, "make proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

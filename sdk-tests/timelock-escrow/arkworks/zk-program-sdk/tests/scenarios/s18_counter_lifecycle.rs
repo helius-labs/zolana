@@ -2,6 +2,7 @@ use zk_program_sdk::{Groth16Prover, TxContext, ZkProgram};
 use zolana_transaction::Mint;
 
 use crate::{
+    benchmark::prove,
     s13_counter_create::{
         Counter, CounterCreate, CounterCreatePrivateInputs, CounterCreatePublicInputs,
     },
@@ -31,7 +32,7 @@ fn counter_lifecycle_prove_and_verify() {
         .expect("create proof inputs");
     let create_prover =
         Groth16Prover::<CounterCreate>::new_with_test_setup().expect("create setup");
-    let create_result = create_prover.prove(&create).expect("create proof");
+    let create_result = prove(&create_prover, &create, "create proof");
     create_prover
         .verify(&create_result)
         .expect("the create proof verifies");
@@ -51,7 +52,7 @@ fn counter_lifecycle_prove_and_verify() {
     let increment_spp_proof_inputs = increment
         .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
         .expect("increment proof inputs");
-    let increment_result = increment_prover.prove(&increment).expect("increment proof");
+    let increment_result = prove(&increment_prover, &increment, "increment proof");
     increment_prover
         .verify(&increment_result)
         .expect("the increment proof verifies");
@@ -69,9 +70,7 @@ fn counter_lifecycle_prove_and_verify() {
     let increment_spp_proof_inputs = increment
         .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
         .expect("second increment proof inputs");
-    let increment_result = increment_prover
-        .prove(&increment)
-        .expect("second increment proof");
+    let increment_result = prove(&increment_prover, &increment, "second increment proof");
     increment_prover
         .verify(&increment_result)
         .expect("the second increment proof verifies");
@@ -91,7 +90,7 @@ fn counter_lifecycle_prove_and_verify() {
         .expect("decrement proof inputs");
     let decrement_prover =
         Groth16Prover::<Decrement>::new_with_test_setup().expect("decrement setup");
-    let decrement_result = decrement_prover.prove(&decrement).expect("decrement proof");
+    let decrement_result = prove(&decrement_prover, &decrement, "decrement proof");
     decrement_prover
         .verify(&decrement_result)
         .expect("the decrement proof verifies");
@@ -110,7 +109,7 @@ fn counter_lifecycle_prove_and_verify() {
         .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
         .expect("reset proof inputs");
     let reset_prover = Groth16Prover::<Reset>::new_with_test_setup().expect("reset setup");
-    let reset_result = reset_prover.prove(&reset).expect("reset proof");
+    let reset_result = prove(&reset_prover, &reset, "reset proof");
     reset_prover
         .verify(&reset_result)
         .expect("the reset proof verifies");
@@ -129,7 +128,7 @@ fn counter_lifecycle_prove_and_verify() {
         .create_proof_inputs_and_encrypt(&owner, payer, u64::MAX)
         .expect("close proof inputs");
     let close_prover = Groth16Prover::<Close>::new_with_test_setup().expect("close setup");
-    let close_result = close_prover.prove(&close).expect("close proof");
+    let close_result = prove(&close_prover, &close, "close proof");
     close_prover
         .verify(&close_result)
         .expect("the close proof verifies");

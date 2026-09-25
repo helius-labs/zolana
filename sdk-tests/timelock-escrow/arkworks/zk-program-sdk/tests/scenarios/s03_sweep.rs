@@ -5,7 +5,10 @@ use zk_program_sdk::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{dummy, keypair, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{dummy, keypair, token_input},
+};
 
 #[derive(Clone)]
 struct Sweep {
@@ -133,7 +136,7 @@ fn sweep_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Sweep>::new_with_test_setup().expect("sweep setup");
-    let result = prover.prove(&sweep).expect("sweep proof");
+    let result = prove(&prover, &sweep, "sweep proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

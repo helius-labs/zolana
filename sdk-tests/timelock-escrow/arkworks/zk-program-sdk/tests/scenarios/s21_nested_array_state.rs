@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Limits {
@@ -347,7 +350,7 @@ fn nested_array_state_prove_and_verify() {
 
     let prover =
         Groth16Prover::<PortfolioCreate>::new_with_test_setup().expect("portfolio create setup");
-    let result = prover.prove(&create).expect("portfolio create proof");
+    let result = prove(&prover, &create, "portfolio create proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

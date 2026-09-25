@@ -7,6 +7,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s42_create_poll::{poll_authority, poll_utxo, Poll},
     shared::{keypair, poseidon_bytes, MerklePath, MerkleTree},
 };
@@ -224,7 +225,7 @@ fn cast_vote_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<CastVote>::new_with_test_setup().expect("vote setup");
-    let result = prover.prove(&vote).expect("vote proof");
+    let result = prove(&prover, &vote, "vote proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

@@ -6,6 +6,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s44_mixer_deposit::{commitment_utxo, MixerCommitment, DENOMINATION},
     shared::{keypair, poseidon_bytes},
 };
@@ -169,7 +170,7 @@ fn mixer_withdrawal_prove_and_verify() {
 
     let prover =
         Groth16Prover::<MixerWithdrawal>::new_with_test_setup().expect("mixer withdrawal setup");
-    let result = prover.prove(&withdrawal).expect("mixer withdrawal proof");
+    let result = prove(&prover, &withdrawal, "mixer withdrawal proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

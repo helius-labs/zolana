@@ -6,6 +6,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::WalletUtxo;
 
 use crate::{
+    benchmark::prove,
     s13_counter_create::Counter,
     shared::{data_input, keypair},
 };
@@ -138,7 +139,7 @@ fn counter_close_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Close>::new_with_test_setup().expect("close setup");
-    let result = prover.prove(&close).expect("close proof");
+    let result = prove(&prover, &close, "close proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

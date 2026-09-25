@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, ProgramOwner};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, ProgramOwner},
+};
 
 fn vesting_authority() -> ProgramOwner {
     ProgramOwner::new(43)
@@ -320,7 +323,7 @@ fn vesting_claim_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<VestingClaim>::new_with_test_setup().expect("vesting claim setup");
-    let result = prover.prove(&claim).expect("vesting claim proof");
+    let result = prove(&prover, &claim, "vesting claim proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

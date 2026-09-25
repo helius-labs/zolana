@@ -5,6 +5,7 @@ use zk_program_sdk::{
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s25_read_with_threshold::Account,
     shared::{data_input, keypair},
 };
@@ -167,7 +168,7 @@ fn compare_two_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<CompareTwo>::new_with_test_setup().expect("compare setup");
-    let result = prover.prove(&compare).expect("compare proof");
+    let result = prove(&prover, &compare, "compare proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

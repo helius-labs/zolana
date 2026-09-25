@@ -5,7 +5,10 @@ use zk_program_sdk::{
 };
 use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input},
+};
 
 #[derive(Clone)]
 struct TopUp {
@@ -139,7 +142,7 @@ fn top_up_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<TopUp>::new_with_test_setup().expect("top-up setup");
-    let result = prover.prove(&top_up).expect("top-up proof");
+    let result = prove(&prover, &top_up, "top-up proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

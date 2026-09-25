@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_interface::instruction::instruction_data::transact::OwnerTag;
 use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input},
+};
 
 #[derive(Clone)]
 struct Withdrawal {
@@ -159,7 +162,7 @@ fn full_withdrawal_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Withdrawal>::new_with_test_setup().expect("withdrawal setup");
-    let result = prover.prove(&withdrawal).expect("withdrawal proof");
+    let result = prove(&prover, &withdrawal, "withdrawal proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

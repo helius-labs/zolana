@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input, ProgramOwner};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input, ProgramOwner},
+};
 
 pub(crate) const POOL_SLOT: usize = 1;
 
@@ -269,7 +272,7 @@ fn airdrop_pool_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<CreatePool>::new_with_test_setup().expect("pool setup");
-    let result = prover.prove(&create).expect("pool proof");
+    let result = prove(&prover, &create, "pool proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

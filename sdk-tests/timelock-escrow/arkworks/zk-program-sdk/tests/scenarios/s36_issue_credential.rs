@@ -7,6 +7,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s35_create_issuer::{Credential, Issuer},
     shared::{data_input, keypair, poseidon_bytes},
 };
@@ -203,7 +204,7 @@ fn issue_credential_prove_and_verify() {
 
     let prover =
         Groth16Prover::<IssueCredential>::new_with_test_setup().expect("issue credential setup");
-    let result = prover.prove(&issue).expect("issue credential proof");
+    let result = prove(&prover, &issue, "issue credential proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

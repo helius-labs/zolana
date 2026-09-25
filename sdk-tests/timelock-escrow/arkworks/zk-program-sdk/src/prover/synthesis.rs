@@ -1,6 +1,8 @@
 use ark_ff::Zero;
 use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
-use ark_relations::r1cs::{ConstraintSynthesizer, OptimizationGoal, SynthesisError, SynthesisMode};
+use ark_relations::r1cs::{
+    ConstraintMatrices, ConstraintSynthesizer, OptimizationGoal, SynthesisError, SynthesisMode,
+};
 
 use crate::{
     circuit::{value, Circuit, CircuitSystem, CircuitVar, ConstraintSystem, Field},
@@ -12,6 +14,65 @@ use crate::{
 pub(crate) struct CircuitShape {
     pub(crate) instance_variables: usize,
     pub(crate) witness_variables: usize,
+}
+
+pub(crate) struct CircuitMatrices {
+    matrices: ConstraintMatrices<Field>,
+}
+
+impl CircuitMatrices {
+    pub(crate) fn shape(&self) -> CircuitShape {
+        CircuitShape {
+            instance_variables: self.matrices.num_instance_variables,
+            witness_variables: self.matrices.num_witness_variables,
+        }
+    }
+
+    pub(crate) fn constraint_count(&self) -> usize {
+        self.matrices.num_constraints
+    }
+
+    pub(crate) fn matrices(&self) -> &ConstraintMatrices<Field> {
+        &self.matrices
+    }
+
+    pub(crate) fn check(&self, assignment: &[Field]) -> Result<(), RelationError> {
+        let variables = self.matrices.num_instance_variables + self.matrices.num_witness_variables;
+        if assignment.len() != variables {
+            return Err(RelationError::ProofInputsForAnotherCircuit);
+        }
+        let rows = self
+            .matrices
+            .a
+            .iter()
+            .zip(&self.matrices.b)
+            .zip(&self.matrices.c);
+        for (constraint, ((a, b), c)) in rows.enumerate() {
+            if evaluate(a, assignment)? * evaluate(b, assignment)? != evaluate(c, assignment)? {
+                return Err(RelationError::Unsatisfied(constraint.to_string()));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn evaluate(row: &[(Field, usize)], assignment: &[Field]) -> Result<Field, RelationError> {
+    row.iter()
+        .try_fold(Field::zero(), |sum, (coefficient, variable)| {
+            assignment
+                .get(*variable)
+                .map(|value| sum + *coefficient * value)
+        })
+        .ok_or(RelationError::ProofInputsForAnotherCircuit)
+}
+
+fn one_public_input(instance_variables: usize) -> Result<(), RelationError> {
+    if instance_variables != 2 {
+        return Err(RelationError::Violated(
+            "a circuit has exactly one public input, its public hash",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) struct ArkworksCircuit<'a, P> {
@@ -60,27 +121,37 @@ where
         let cs = ConstraintSystem::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
         self.generate_constraints(cs.clone())?;
-        if cs.num_instance_variables() != 2 {
-            return Err(RelationError::Violated(
-                "a circuit has exactly one public input, its public hash",
-            ));
-        }
+        one_public_input(cs.num_instance_variables())?;
         match cs.which_is_unsatisfied()? {
             Some(constraint) => Err(RelationError::Unsatisfied(constraint)),
             None => Ok(cs.num_constraints()),
         }
     }
 
-    pub(crate) fn shape(&self) -> Result<CircuitShape, RelationError> {
+    pub(crate) fn matrices(&self) -> Result<CircuitMatrices, RelationError> {
         let cs = ConstraintSystem::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
         cs.set_mode(SynthesisMode::Setup);
         self.generate_constraints(cs.clone())?;
         cs.finalize();
-        Ok(CircuitShape {
-            instance_variables: cs.num_instance_variables(),
-            witness_variables: cs.num_witness_variables(),
-        })
+        let matrices = cs.to_matrices().ok_or(SynthesisError::MissingCS)?;
+        one_public_input(matrices.num_instance_variables)?;
+        Ok(CircuitMatrices { matrices })
+    }
+
+    pub(crate) fn assignment(&self) -> Result<Vec<Field>, RelationError> {
+        let cs = ConstraintSystem::new_ref();
+        cs.set_optimization_goal(OptimizationGoal::Constraints);
+        cs.set_mode(SynthesisMode::Prove {
+            construct_matrices: false,
+        });
+        self.generate_constraints(cs.clone())?;
+        let system = cs.borrow().ok_or(SynthesisError::MissingCS)?;
+        Ok([
+            system.instance_assignment.as_slice(),
+            system.witness_assignment.as_slice(),
+        ]
+        .concat())
     }
 }
 

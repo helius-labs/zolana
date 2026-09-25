@@ -5,6 +5,7 @@ use zk_program_sdk::{
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s13_counter_create::Counter,
     shared::{data_input, keypair},
 };
@@ -145,7 +146,7 @@ fn counter_decrement_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Decrement>::new_with_test_setup().expect("decrement setup");
-    let result = prover.prove(&decrement).expect("decrement proof");
+    let result = prove(&prover, &decrement, "decrement proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

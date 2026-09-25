@@ -801,6 +801,9 @@ bench-escrow: ensure-escrow-keys
         -- --features bpf-entrypoint,profile-program
     cargo test -p timelock-escrow-test --test bench_cu -- --ignored --nocapture
 
+bench-zk-program-sdk:
+    ZK_PROGRAM_SDK_BENCHMARK=1 cargo test --release -p zk-program-sdk --test scenarios -- --test-threads=1
+
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in
 # target/deploy either -- build the bench programs into their own dedicated

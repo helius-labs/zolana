@@ -2,6 +2,7 @@ use zk_program_sdk::{Groth16Prover, TxContext, ZkProgram};
 use zolana_transaction::Mint;
 
 use crate::{
+    benchmark::prove,
     s01_sol_payment::{Payment, PaymentPrivateInputs, PaymentPublicInputs},
     shared::{keypair, token_input, TREE_ID},
 };
@@ -64,7 +65,7 @@ fn another_output_tree_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Payment>::new_with_test_setup().expect("payment setup");
-    let result = prover.prove(&payment).expect("payment proof");
+    let result = prove(&prover, &payment, "payment proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

@@ -6,7 +6,10 @@ use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{dummy, keypair, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{dummy, keypair, token_input},
+};
 
 #[derive(Clone)]
 struct PrivateSweep {
@@ -113,7 +116,7 @@ fn no_public_fields_prove_and_verify() {
         .expect("private tx hash");
 
     let prover = Groth16Prover::<PrivateSweep>::new_with_test_setup().expect("sweep setup");
-    let result = prover.prove(&sweep).expect("sweep proof");
+    let result = prove(&prover, &sweep, "sweep proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

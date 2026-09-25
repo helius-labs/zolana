@@ -7,6 +7,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s19_typed_state_create::TypedState,
     shared::{data_input, keypair, poseidon_bytes, BONK, USDC},
 };
@@ -188,7 +189,7 @@ fn typed_state_update_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<TypedUpdate>::new_with_test_setup().expect("typed update setup");
-    let result = prover.prove(&update).expect("typed update proof");
+    let result = prove(&prover, &update, "typed update proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

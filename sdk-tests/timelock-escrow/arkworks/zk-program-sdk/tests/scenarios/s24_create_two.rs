@@ -7,6 +7,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s22_create_and_update::{Badge, Profile},
     shared::{dummy, keypair, token_input},
 };
@@ -176,7 +177,7 @@ fn create_two_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<CreateTwo>::new_with_test_setup().expect("create two setup");
-    let result = prover.prove(&create_two).expect("create two proof");
+    let result = prove(&prover, &create_two, "create two proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

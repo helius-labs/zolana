@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{data_input, keypair};
+use crate::{
+    benchmark::prove,
+    shared::{data_input, keypair},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Profile {
@@ -268,9 +271,7 @@ fn create_and_update_prove_and_verify() {
 
     let prover =
         Groth16Prover::<CreateAndUpdate>::new_with_test_setup().expect("create and update setup");
-    let result = prover
-        .prove(&create_and_update)
-        .expect("create and update proof");
+    let result = prove(&prover, &create_and_update, "create and update proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

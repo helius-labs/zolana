@@ -8,6 +8,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s31_order_make::{order_utxo, OrderTerms},
     shared::{data_input, keypair},
 };
@@ -241,7 +242,7 @@ fn settle_or_refund_prove_and_verify() {
     let settled_spp_proof_inputs = settled
         .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
         .expect("settle proof inputs");
-    let settled_result = prover.prove(&settled).expect("settle proof");
+    let settled_result = prove(&prover, &settled, "settle proof");
     prover
         .verify(&settled_result)
         .expect("the settle proof verifies");
@@ -250,7 +251,7 @@ fn settle_or_refund_prove_and_verify() {
     let refunded_spp_proof_inputs = refunded
         .create_proof_inputs_and_encrypt(&taker, payer, u64::MAX)
         .expect("refund proof inputs");
-    let refunded_result = prover.prove(&refunded).expect("refund proof");
+    let refunded_result = prove(&prover, &refunded, "refund proof");
     prover
         .verify(&refunded_result)
         .expect("the refund proof verifies");

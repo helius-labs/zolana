@@ -119,8 +119,12 @@ pub fn data_hash<S: ProofInput<Circuit: DataHash>>(state: &S) -> [u8; 32] {
 }
 
 pub fn on_large_stack(run: impl FnOnce() + Send + 'static) {
-    std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
+    let builder = std::thread::Builder::new().stack_size(64 * 1024 * 1024);
+    let builder = match std::thread::current().name() {
+        Some(name) => builder.name(name.to_string()),
+        None => builder,
+    };
+    builder
         .spawn(run)
         .expect("large stack thread")
         .join()

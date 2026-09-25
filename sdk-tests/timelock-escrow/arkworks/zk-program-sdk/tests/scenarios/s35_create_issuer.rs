@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Issuer {
@@ -273,7 +276,7 @@ fn create_issuer_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<CreateIssuer>::new_with_test_setup().expect("create issuer setup");
-    let result = prover.prove(&create).expect("create issuer proof");
+    let result = prove(&prover, &create, "create issuer proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

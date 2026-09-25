@@ -7,6 +7,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s39_airdrop_pool::{airdrop_authority, pool_utxo, Pool},
     shared::{keypair, poseidon_bytes, MerklePath, MerkleTree},
 };
@@ -235,7 +236,7 @@ fn airdrop_claim_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Claim>::new_with_test_setup().expect("claim setup");
-    let result = prover.prove(&claim).expect("claim proof");
+    let result = prove(&prover, &claim, "claim proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

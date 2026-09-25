@@ -6,6 +6,7 @@ use zolana_hasher::primitives::solana_owner_identity;
 use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
+    benchmark::prove,
     s27_escrow::{escrow_utxo, EscrowTerms},
     shared::keypair,
 };
@@ -157,7 +158,7 @@ fn escrow_withdraw_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Withdraw>::new_with_test_setup().expect("withdraw setup");
-    let result = prover.prove(&withdraw).expect("withdraw proof");
+    let result = prove(&prover, &withdraw, "withdraw proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

@@ -3,6 +3,7 @@ use zolana_interface::shape::Shape;
 use zolana_transaction::Mint;
 
 use crate::{
+    benchmark::prove,
     s04_payment_across_shapes::{Payment, PaymentPrivateInputs, PaymentPublicInputs},
     shared::{dummy, keypair, token_input_in, TREE_ID},
 };
@@ -63,7 +64,7 @@ fn inputs_from_two_trees_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<Payment<3, 3>>::new_with_test_setup().expect("payment setup");
-    let result = prover.prove(&payment).expect("payment proof");
+    let result = prove(&prover, &payment, "payment proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

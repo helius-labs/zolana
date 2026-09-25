@@ -6,7 +6,10 @@ use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input, USDC};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input, USDC},
+};
 
 #[derive(Clone)]
 struct TwoAssetPayment {
@@ -165,7 +168,7 @@ fn two_asset_payment_prove_and_verify() {
 
     let prover =
         Groth16Prover::<TwoAssetPayment>::new_with_test_setup().expect("two-asset payment setup");
-    let result = prover.prove(&payment).expect("two-asset payment proof");
+    let result = prove(&prover, &payment, "two-asset payment proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

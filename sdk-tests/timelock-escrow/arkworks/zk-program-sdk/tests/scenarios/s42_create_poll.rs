@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, token_input, ProgramOwner};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input, ProgramOwner},
+};
 
 pub(crate) const POLL_SLOT: usize = 1;
 
@@ -268,7 +271,7 @@ fn create_poll_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<CreatePoll>::new_with_test_setup().expect("create poll setup");
-    let result = prover.prove(&create).expect("create poll proof");
+    let result = prove(&prover, &create, "create poll proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

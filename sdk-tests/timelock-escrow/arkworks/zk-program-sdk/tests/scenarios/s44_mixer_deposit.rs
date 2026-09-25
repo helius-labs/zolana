@@ -6,7 +6,10 @@ use zk_program_sdk::{
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{keypair, poseidon_bytes, token_input, ProgramOwner};
+use crate::{
+    benchmark::prove,
+    shared::{keypair, poseidon_bytes, token_input, ProgramOwner},
+};
 
 pub(crate) const NOTE_SLOT: usize = 1;
 pub(crate) const DENOMINATION: u64 = 100;
@@ -267,7 +270,7 @@ fn mixer_deposit_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<MixerDeposit>::new_with_test_setup().expect("mixer deposit setup");
-    let result = prover.prove(&deposit).expect("mixer deposit proof");
+    let result = prove(&prover, &deposit, "mixer deposit proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");

@@ -5,7 +5,10 @@ use zk_program_sdk::{
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
-use crate::shared::{data_input, keypair};
+use crate::{
+    benchmark::prove,
+    shared::{data_input, keypair},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Account {
@@ -192,7 +195,7 @@ fn read_with_threshold_prove_and_verify() {
     );
 
     let prover = Groth16Prover::<ReadThreshold>::new_with_test_setup().expect("read setup");
-    let result = prover.prove(&read).expect("read proof");
+    let result = prove(&prover, &read, "read proof");
     prover
         .verify(&result)
         .expect("the compressed proof verifies");
