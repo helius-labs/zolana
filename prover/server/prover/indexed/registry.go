@@ -3,6 +3,7 @@ package indexed
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -79,6 +80,17 @@ func registryPlaceholder() json.RawMessage {
 	return value
 }
 
+var errMemberUnregistered = errors.New("registry member missing")
+
+type UnregisteredMemberError struct {
+	Member   Hash
+	mismatch bool
+}
+
+func (e *UnregisteredMemberError) Error() string {
+	return fmt.Sprintf("registry member %s missing", e.Member)
+}
+
 type registryEntry struct {
 	Context struct {
 		Slot uint64 `json:"slot"`
@@ -127,12 +139,15 @@ func (r *Resolver) registryKey(ctx context.Context, request Request, keys map[Ha
 	}
 	// 2. The membership leaf binds both the owner and its expected nullifier key.
 	if known := keys[member]; known != nil {
-		if err := verifyRegistryKey(member, nullifier, known, anchor.Root); err != nil {
-			return nil, err
+		if verifyRegistryKey(member, nullifier, known, anchor.Root) != nil {
+			return nil, &UnregisteredMemberError{Member: member, mismatch: true}
 		}
 		return known, nil
 	}
 	payload, err := r.rpc(ctx, "getRingKeyRegistryEntry", map[string]any{"ringProgramId": anchor.Ring, "member": member, "expectedRoot": anchor.Root, "expectedNextIndex": anchor.NextIndex})
+	if errors.Is(err, errMemberUnregistered) {
+		return nil, &UnregisteredMemberError{Member: member}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -155,8 +170,9 @@ func (r *Resolver) registryKey(ctx context.Context, request Request, keys map[Ha
 			return nil, err
 		}
 	}
-	if err := verifyRegistryKey(member, nullifier, key, anchor.Root); err != nil {
-		return nil, err
+	// A corrupt indexer path is indistinguishable from a key mismatch here.
+	if verifyRegistryKey(member, nullifier, key, anchor.Root) != nil {
+		return nil, &UnregisteredMemberError{Member: member, mismatch: true}
 	}
 	if entry.Context.Slot < request.MinContextSlot {
 		return nil, ErrIndexerNotReady

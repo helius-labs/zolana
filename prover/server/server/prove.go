@@ -13,7 +13,10 @@ import (
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 )
 
-var errCustomRingProof = errors.New("custom ring proof failed")
+var (
+	errCustomRingProof = errors.New("custom ring proof failed")
+	errIndexedProof    = errors.New("indexed proof failed")
+)
 
 type circuitProver struct {
 	keys  *common.LazyKeyManager

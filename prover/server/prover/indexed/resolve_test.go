@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"net/http"
@@ -198,8 +199,12 @@ func TestResolveRejectsUnboundAndStaleProofs(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(data))}, nil
 			})
-			if _, err := resolver.Resolve(context.Background(), encoded(t, request)); err == nil {
+			_, err := resolver.Resolve(context.Background(), encoded(t, request))
+			if err == nil {
 				t.Fatal("invalid indexer data was accepted")
+			}
+			if errors.Is(err, ErrIndexerNotReady) != (corruption == "stale") {
+				t.Fatalf("unexpected retry classification %v", err)
 			}
 			if len(resolver.permits) != 0 {
 				t.Fatal("failed resolution retained a permit")

@@ -4,6 +4,17 @@ package backend
 
 import "testing"
 
+func TestUnsetBackendIsCPUWithoutBuildSupport(t *testing.T) {
+	resetBackend(t)
+	t.Setenv("PROVER_BACKEND", "")
+	if err := Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.prover.(cpuProver); !ok {
+		t.Fatal("CPU backend was not selected")
+	}
+}
+
 func TestGPUSelectionRequiresBuildSupport(t *testing.T) {
 	resetBackend(t)
 	t.Setenv("PROVER_BACKEND", "aeglos")

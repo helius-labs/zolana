@@ -31,7 +31,7 @@ var SyncAdmissionWait = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Buckets: prometheus.ExponentialBuckets(0.001, 2, 15),
 }, []string{"outcome"})
 
-func capacityMetrics(execution *TransferExecution, readiness *Readiness) http.Handler {
+func capacityMetrics(execution *Execution, readiness *Readiness) http.Handler {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "prover_transfer_waiting", Help: "Synchronous transfer requests waiting for execution"}, func() float64 { return float64(execution.admission.waiting.Load()) }),
@@ -92,10 +92,16 @@ func observeProofHTTP(route string, handler http.Handler) http.Handler {
 		}
 		defer func() {
 			status := response.status
+			recovered := recover()
+			if recovered != nil {
+				status = http.StatusInternalServerError
+				ProofPanicsTotal.WithLabelValues("unknown").Inc()
+				defer panic(recovered)
+			}
 			if status == 0 {
 				status = http.StatusOK
 			}
-			ProofHTTPDuration.WithLabelValues(route, strconv.Itoa(status/100)+"xx").Observe(time.Since(start).Seconds())
+			ProofHTTPDuration.WithLabelValues(route, statusLabel(status, w.Header().Get("Retry-After") != "")).Observe(time.Since(start).Seconds())
 			if response.timing != nil {
 				logging.Logger().Info().
 					Str("request_id", w.Header().Get("X-Request-ID")).
@@ -107,4 +113,15 @@ func observeProofHTTP(route string, handler http.Handler) http.Handler {
 		}()
 		handler.ServeHTTP(response, request)
 	})
+}
+
+// Keeps retryable 503s and upstream 502s out of the 5xx failure alert.
+func statusLabel(status int, retryable bool) string {
+	switch {
+	case status == http.StatusServiceUnavailable && retryable:
+		return "unavailable"
+	case status == http.StatusBadGateway:
+		return "upstream"
+	}
+	return strconv.Itoa(status/100) + "xx"
 }

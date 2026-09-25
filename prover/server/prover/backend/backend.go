@@ -11,6 +11,7 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 
+	"zolana/prover/logging"
 	"zolana/prover/prover/timing"
 )
 
@@ -40,9 +41,12 @@ func Initialize() error {
 	}
 	state.prover = nil
 	name := os.Getenv("PROVER_BACKEND")
+	if name == "" {
+		name = defaultBackend
+	}
 	var selected prover = cpuProver{}
 	switch name {
-	case "", "gnark":
+	case "gnark":
 	case "aeglos":
 		var err error
 		selected, err = newGPU()
@@ -54,6 +58,7 @@ func Initialize() error {
 	}
 	state.prover = selected
 	state.initialized = true
+	logging.Logger().Info().Str("proof_backend", name).Msg("Proof backend initialized")
 	return nil
 }
 

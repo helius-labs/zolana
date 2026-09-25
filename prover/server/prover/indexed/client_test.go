@@ -2,6 +2,7 @@ package indexed
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -44,5 +45,28 @@ func TestIndexerResponseBoundary(t *testing.T) {
 				t.Fatal("invalid response accepted")
 			}
 		})
+	}
+}
+
+func TestResolverConfigErrorsHideCredentials(t *testing.T) {
+	for _, url := range []string{"ftp://user:secret@indexer.test/?api-key=secret", "http://user:secret@indexer.test/?api-key=secret"} {
+		_, err := NewResolver(Config{URL: url, Concurrency: 1})
+		if err == nil || strings.Contains(err.Error(), "secret") {
+			t.Fatalf("config error %v", err)
+		}
+	}
+}
+
+func TestPreparationOutcomes(t *testing.T) {
+	for err, outcome := range map[error]string{
+		nil:                                      "success",
+		ErrIndexerNotReady:                       "not_ready",
+		&UnregisteredMemberError{}:               "rejected",
+		&UnregisteredMemberError{mismatch: true}: "mismatch",
+		errors.New("upstream"):                   "error",
+	} {
+		if got := preparationOutcome(err); got != outcome {
+			t.Fatalf("%v labelled %s", err, got)
+		}
 	}
 }

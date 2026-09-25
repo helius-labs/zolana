@@ -58,3 +58,35 @@ tests:
       - eval_time: 10m
         alertname: ProverTransferSaturated
         exp_alerts: []
+  - name: key loading, projection lag and member refusals do not page
+    interval: 1m
+    input_series:
+      - series: 'prover_http_request_duration_seconds_count{job="prover",instance="one",route="/prove",status="unavailable"}'
+        values: '0+60x12'
+      - series: 'prover_indexer_preparation_duration_seconds_count{job="prover",instance="one",outcome="not_ready"}'
+        values: '0+60x12'
+      - series: 'prover_indexer_preparation_duration_seconds_count{job="prover",instance="one",outcome="rejected"}'
+        values: '0+60x12'
+      - series: 'prover_indexer_preparation_duration_seconds_count{job="prover",instance="one",outcome="mismatch"}'
+        values: '0+60x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProverHTTPFailures
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: ProverIndexerFailures
+        exp_alerts: []
+  - name: server errors page
+    interval: 1m
+    input_series:
+      - series: 'prover_http_request_duration_seconds_count{job="prover",instance="one",route="/prove",status="5xx"}'
+        values: '0+60x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProverHTTPFailures
+        exp_alerts:
+          - exp_labels:
+              job: prover
+              severity: critical
+            exp_annotations:
+              summary: Prover HTTP service is failing

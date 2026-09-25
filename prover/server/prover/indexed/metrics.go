@@ -2,6 +2,7 @@ package indexed
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -23,10 +24,21 @@ func (r *Resolver) Resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	preparationActive.Inc()
 	defer preparationActive.Dec()
 	result, err := r.resolve(ctx, data)
-	outcome := "success"
-	if err != nil {
-		outcome = "error"
-	}
-	preparationDuration.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
+	preparationDuration.WithLabelValues(preparationOutcome(err)).Observe(time.Since(start).Seconds())
 	return result, err
+}
+
+func preparationOutcome(err error) string {
+	var unregistered *UnregisteredMemberError
+	switch {
+	case err == nil:
+		return "success"
+	case errors.Is(err, ErrIndexerNotReady):
+		return "not_ready"
+	case errors.As(err, &unregistered) && unregistered.mismatch:
+		return "mismatch"
+	case errors.As(err, &unregistered):
+		return "rejected"
+	}
+	return "error"
 }

@@ -10,6 +10,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -176,7 +177,7 @@ func TestPolicyRegistryBindsOwnerKeyAndAnchor(t *testing.T) {
 	base["keyEscrow"], base["keyRegistryRoot"] = true, common.ToHex(root)
 	request.Prepared = encoded(t, base)
 	for _, circuit := range []common.CircuitType{common.CustomRingPolicyCircuitType, common.CustomRingDepositCircuitType} {
-		for _, mutation := range []string{"", "owner", "root", "count", "index", "path", "ciphertext", "nullifier", "stale"} {
+		for _, mutation := range []string{"", "owner", "root", "count", "index", "path", "ciphertext", "nullifier", "stale", "unregistered"} {
 			t.Run(string(circuit)+"/"+mutation, func(t *testing.T) {
 				resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
 				if err != nil {
@@ -243,11 +244,19 @@ func TestPolicyRegistryBindsOwnerKeyAndAnchor(t *testing.T) {
 					if query.Method != "getRingKeyRegistryEntry" || query.Params.Member != member || query.Params.ExpectedRoot != rootHash || query.Params.ExpectedNextIndex != 2 {
 						t.Fatal("registry query mismatch")
 					}
-					return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(bytes.NewReader(encoded(t, map[string]any{"jsonrpc": "2.0", "id": query.Method, "result": entry})))}, nil
+					reply := map[string]any{"jsonrpc": "2.0", "id": query.Method, "result": entry}
+					if mutation == "unregistered" {
+						reply = map[string]any{"jsonrpc": "2.0", "id": query.Method, "error": map[string]any{"code": -32072}}
+					}
+					return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(bytes.NewReader(encoded(t, reply)))}, nil
 				})
 				resolved, err := resolver.Resolve(context.Background(), encoded(t, current))
 				if (err == nil) != (mutation == "") {
 					t.Fatalf("unexpected registry validation result %v", err)
+				}
+				var unregistered *UnregisteredMemberError
+				if slices.Contains([]string{"path", "ciphertext", "nullifier", "unregistered"}, mutation) != errors.As(err, &unregistered) || (unregistered != nil && unregistered.Member != member) {
+					t.Fatalf("unexpected unregistered member classification %v", err)
 				}
 				if mutation == "stale" {
 					if !errors.Is(err, ErrIndexerNotReady) {

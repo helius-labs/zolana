@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
@@ -212,6 +213,11 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				response["message"] = fmt.Sprintf("Job processing failed: %s", errorMsg)
 				response["error"] = errorMsg
 			}
+			for _, field := range []string{"code", "member"} {
+				if value, ok := failureDetails[field].(string); ok {
+					response[field] = value
+				}
+			}
 			if failedAt, ok := failureDetails["failedAt"]; ok {
 				response["failedAt"] = failedAt
 			}
@@ -264,7 +270,7 @@ type QueueConfig struct {
 type EnhancedConfig struct {
 	Readiness         *Readiness
 	Indexer           *indexed.Resolver
-	TransferExecution *TransferExecution
+	TransferExecution *Execution
 	ProverAddress     string
 	MetricsAddress    string
 	Queue             *QueueConfig
@@ -275,7 +281,7 @@ type proveHandler struct {
 	readiness         *Readiness
 	indexer           *indexed.Resolver
 	indexed           bool
-	transferExecution *TransferExecution
+	transferExecution *Execution
 	keyManager        *common.LazyKeyManager
 	redisQueue        *RedisQueue
 	enableQueue       bool
@@ -377,7 +383,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	finishDecode := handler.timing.Start("decode")
 	defer finishDecode()
 	if !handler.readiness.Ready() {
-		http.Error(w, "Proving keys are not ready", http.StatusServiceUnavailable)
+		keysNotReady().send(w)
 		return
 	}
 
@@ -388,7 +394,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if handler.indexed {
 		if handler.indexer == nil {
-			(&Error{StatusCode: http.StatusServiceUnavailable, Code: "indexer_unconfigured", Message: "Indexer proving is not configured"}).send(w)
+			(&Error{StatusCode: http.StatusNotFound, Code: "indexer_unconfigured", Message: "Indexer proving is not configured"}).send(w)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -638,9 +644,6 @@ func handleBoth(mux *http.ServeMux, path string, h http.Handler) {
 
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	transferExecution := config.TransferExecution
-	if transferExecution == nil {
-		transferExecution = NewTransferExecution()
-	}
 	apiKey := getAPIKeyFromEnv()
 	if apiKey != "" {
 		logging.Logger().Info().Msg("API key authentication enabled for prover server")
@@ -674,6 +677,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	proverMux.Handle("/ready", config.Readiness)
 	proverMux.Handle("/health", healthHandler{
 		circuits: servedCircuits(),
+		indexed:  config.Indexer != nil,
 	})
 
 	handleBoth(proverMux, "/proving-keys", provingKeysHandler{keyManager: keyManager})
@@ -852,6 +856,31 @@ type Error struct {
 	StatusCode int
 	Code       string
 	Message    string
+	RetryAfter int
+	Member     string
+	cause      error
+}
+
+func notReady(code, message string) *Error {
+	return &Error{StatusCode: http.StatusServiceUnavailable, Code: code, Message: message, RetryAfter: notReadyRetryAfterSecs}
+}
+
+func keysNotReady() *Error {
+	return notReady("prover_not_ready", "Proving keys are not ready")
+}
+
+// indexedFailure keeps the resolution cause for queue redaction.
+func indexedFailure(err error) *Error {
+	var unregistered *indexed.UnregisteredMemberError
+	switch {
+	case errors.Is(err, indexed.ErrIndexerNotReady):
+		failure := notReady("indexer_not_ready", indexed.ErrIndexerNotReady.Error())
+		failure.cause = err
+		return failure
+	case errors.As(err, &unregistered):
+		return &Error{StatusCode: http.StatusUnprocessableEntity, Code: "registry_member_missing", Message: "Output owner has no registered key", Member: unregistered.Member.String(), cause: err}
+	}
+	return &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable", cause: err}
 }
 
 func malformedBodyError(err error) *Error {
@@ -867,17 +896,29 @@ func unexpectedError(err error) *Error {
 }
 
 func (error *Error) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]string{
+	body := map[string]string{
 		"code":    error.Code,
 		"message": error.Message,
-	})
+	}
+	if error.Member != "" {
+		body["member"] = error.Member
+	}
+	return json.Marshal(body)
 }
 
 func (error *Error) Error() string {
 	return error.Message
 }
 
+func (error *Error) Unwrap() error {
+	return error.cause
+}
+
 func (error *Error) send(w http.ResponseWriter) {
+	if error.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(error.RetryAfter))
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(error.StatusCode)
 	jsonBytes, err := error.MarshalJSON()
 	if err != nil {
@@ -892,7 +933,7 @@ func (error *Error) send(w http.ResponseWriter) {
 type Config struct {
 	Readiness         *Readiness
 	Indexer           *indexed.Resolver
-	TransferExecution *TransferExecution
+	TransferExecution *Execution
 	ProverAddress     string
 	MetricsAddress    string
 }
@@ -917,6 +958,7 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 
 type healthHandler struct {
 	circuits []common.CircuitType
+	indexed  bool
 }
 
 // provingKeysHandler serves GET /proving-keys: per key, the sha256 the
@@ -1091,6 +1133,13 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		Msg("Batch operation job queued successfully")
 }
 
+func sendShed(w http.ResponseWriter, meta common.ProofRequestMeta, shed *Error) {
+	logging.Logger().Warn().
+		Str("circuit_type", string(meta.CircuitType)).
+		Msg("Shedding synchronous proof at the concurrency limit")
+	shed.send(w)
+}
+
 func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
 	if handler.isBatchOperation(meta.CircuitType) {
 		warning := fmt.Sprintf("WARNING: %s is a heavy operation that should be processed asynchronously. Consider using X-Async: true header.", meta.CircuitType)
@@ -1104,16 +1153,23 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
+	admission := handler.admission
+	if isTransferCircuit(meta.CircuitType) {
+		admission = handler.transferExecution.admission
+	}
+	reserved, shed := admission.reserve()
+	if shed != nil {
+		sendShed(w, meta, shed)
+		return
+	}
+	defer reserved.cancel()
 	var resolution *common.ProofResolution
 	if handler.indexed {
 		resolved, err := handler.indexer.Resolve(ctx, buf)
 		if err != nil {
-			failure := &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable"}
-			if ctx.Err() != nil {
+			failure := indexedFailure(err)
+			if ctx.Err() != nil && !errors.Is(err, indexed.ErrIndexerNotReady) {
 				failure = &Error{StatusCode: http.StatusRequestTimeout, Code: "proof_timeout", Message: "Proof request expired"}
-			}
-			if errors.Is(err, indexed.ErrIndexerNotReady) {
-				failure = &Error{StatusCode: http.StatusServiceUnavailable, Code: "indexer_not_ready", Message: indexed.ErrIndexerNotReady.Error()}
 			}
 			failure.send(w)
 			return
@@ -1124,18 +1180,11 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	// Wait for a permit before starting work. Doing this here rather than around
 	// the whole handler keeps parsing and validation off the bound: a malformed
 	// request should be rejected while the prover is busy, not queued behind it.
-	admission := handler.admission
-	if isTransferCircuit(meta.CircuitType) && handler.transferExecution != nil {
-		admission = handler.transferExecution.admission
-	}
 	finishAdmission := handler.timing.Start("admission")
-	release, admitErr := admission.admit(ctx)
+	release, admitErr := reserved.admit(ctx)
 	finishAdmission()
 	if admitErr != nil {
-		logging.Logger().Warn().
-			Str("circuit_type", string(meta.CircuitType)).
-			Msg("Shedding synchronous proof at the concurrency limit")
-		sendOverloaded(w, admitErr)
+		sendShed(w, meta, admitErr)
 		return
 	}
 
@@ -1152,7 +1201,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		defer func() {
 			if r := recover(); r != nil {
 				if handler.indexed {
-					r = "indexed proof failed"
+					r = errIndexedProof
 				}
 				ProofPanicsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
 				logging.Logger().Error().
@@ -1175,7 +1224,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 		if proofError != nil {
 			if handler.indexed {
-				proofError = provingError(errors.New("indexed proof failed"))
+				proofError = provingError(errIndexedProof)
 			}
 			timer.ObserveError(proofError.Code)
 			RecordJobComplete(false)
@@ -1310,7 +1359,7 @@ func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logging.Logger().Info().Msg("received health check request")
-	responseBytes, err := json.Marshal(map[string]interface{}{"status": "ok", "circuits": handler.circuits})
+	responseBytes, err := json.Marshal(map[string]interface{}{"status": "ok", "circuits": handler.circuits, "indexed": handler.indexed})
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("error marshaling response")
 		w.WriteHeader(http.StatusInternalServerError)

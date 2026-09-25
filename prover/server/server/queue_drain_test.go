@@ -7,26 +7,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	redisserver "github.com/alicebob/miniredis/v2/server"
 )
 
 func TestQueueWorkersDrainBeforeWaitReturns(t *testing.T) {
+	ready := readyNow()
 	constructors := map[string]func(*RedisQueue) *BaseQueueWorker{
-		"append": func(q *RedisQueue) *BaseQueueWorker { return NewAddressAppendQueueWorker(q, nil).BaseQueueWorker },
-		"ring":   func(q *RedisQueue) *BaseQueueWorker { return NewCustomRingQueueWorker(q, nil).BaseQueueWorker },
+		"append": func(q *RedisQueue) *BaseQueueWorker {
+			return NewAddressAppendQueueWorker(WorkerConfig{Queue: q, Ready: ready})
+		},
+		"ring": func(q *RedisQueue) *BaseQueueWorker {
+			return NewCustomRingQueueWorker(WorkerConfig{Queue: q, Ready: ready})
+		},
 		"transfer": func(q *RedisQueue) *BaseQueueWorker {
-			return NewTransferQueueWorker(TransferWorkerConfig{Queue: q}).BaseQueueWorker
+			return NewTransferQueueWorker(WorkerConfig{Queue: q, Ready: ready}, NewExecution(1))
 		},
 	}
 	for name, create := range constructors {
 		t.Run(name, func(t *testing.T) {
-			redis := miniredis.RunT(t)
-			queue, err := NewRedisQueue("redis://" + redis.Addr())
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = queue.Client.Close() })
+			redis, queue := newTestQueue(t)
 			worker := create(queue)
 			entered, release := make(chan struct{}), make(chan struct{})
 			var releaseOnce sync.Once
@@ -43,7 +42,7 @@ func TestQueueWorkersDrainBeforeWaitReturns(t *testing.T) {
 			if err := queue.EnqueueProof(worker.queueName, job); err != nil {
 				t.Fatal(err)
 			}
-			worker.processJobs()
+			worker.processJobs(false)
 			select {
 			case <-entered:
 			case <-time.After(time.Second):

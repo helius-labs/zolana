@@ -9,20 +9,20 @@ import (
 )
 
 func TestTransferExecutionSharesHTTPAndQueueCapacity(t *testing.T) {
-	execution := &TransferExecution{admission: newSyncAdmission(1)}
+	execution := &Execution{admission: newSyncAdmission(1)}
 	queued, ok := execution.acquireQueued(make(chan struct{}))
 	if !ok {
 		t.Fatal("queue admission failed")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	if release, err := execution.admission.admit(ctx); err == nil {
+	if release, err := admit(execution.admission, ctx); err == nil {
 		release()
 		t.Fatal("HTTP request exceeded shared capacity")
 	}
 	queued()
 	queued()
-	held, err := execution.admission.admit(context.Background())
+	held, err := admit(execution.admission, context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,23 +44,6 @@ func TestTransferExecutionSharesHTTPAndQueueCapacity(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("queue admission ignored shutdown")
-	}
-}
-
-func TestTransferConcurrencyDoesNotUseForesterMemory(t *testing.T) {
-	for _, name := range []string{"PROVER_TRANSFER_CONCURRENCY", "PROVER_SYNC_CONCURRENCY", "TRANSFER_WORKER_CONCURRENCY"} {
-		t.Setenv(name, "")
-	}
-	t.Setenv("PROVER_MAX_CONCURRENCY", "90")
-	t.Setenv("PROVER_TOTAL_MEMORY_GB", "1024")
-	if got := transferConcurrency(); got != 1 {
-		t.Fatalf("unconfigured transfer capacity = %d", got)
-	}
-	t.Setenv("TRANSFER_WORKER_CONCURRENCY", "3")
-	t.Setenv("PROVER_SYNC_CONCURRENCY", "2")
-	t.Setenv("PROVER_TRANSFER_CONCURRENCY", "4")
-	if got := transferConcurrency(); got != 4 {
-		t.Fatalf("explicit transfer capacity = %d", got)
 	}
 }
 

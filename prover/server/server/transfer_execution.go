@@ -1,36 +1,20 @@
 package server
 
 import (
-	"os"
-	"strconv"
 	"sync"
 
-	"zolana/prover/logging"
 	"zolana/prover/prover/common"
-	"zolana/prover/prover/indexed"
 )
 
-type TransferExecution struct {
+type Execution struct {
 	admission *syncAdmission
 }
 
-func NewTransferExecution() *TransferExecution {
-	return &TransferExecution{admission: newSyncAdmission(transferConcurrency())}
+func NewExecution(permits int) *Execution {
+	return &Execution{admission: newSyncAdmission(permits)}
 }
 
-func transferConcurrency() int {
-	for _, name := range []string{"PROVER_TRANSFER_CONCURRENCY", "PROVER_SYNC_CONCURRENCY", "TRANSFER_WORKER_CONCURRENCY"} {
-		if value := os.Getenv(name); value != "" {
-			if count, err := strconv.Atoi(value); err == nil && count > 0 {
-				return count
-			}
-			logging.Logger().Warn().Str("setting", name).Msg("Invalid transfer concurrency")
-		}
-	}
-	return 1
-}
-
-func (e *TransferExecution) acquireQueued(stop <-chan struct{}) (func(), bool) {
+func (e *Execution) acquireQueued(stop <-chan struct{}) (func(), bool) {
 	select {
 	case <-stop:
 		return nil, false
@@ -46,11 +30,4 @@ func (e *TransferExecution) acquireQueued(stop <-chan struct{}) (func(), bool) {
 
 func isTransferCircuit(circuit common.CircuitType) bool {
 	return GetQueueNameForCircuit(circuit) == "zk_transfer_queue"
-}
-
-type TransferWorkerConfig struct {
-	Indexer   *indexed.Resolver
-	Queue     *RedisQueue
-	Keys      *common.LazyKeyManager
-	Execution *TransferExecution
 }

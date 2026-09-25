@@ -2,14 +2,31 @@ package server
 
 import (
 	"net/http"
-	"sync/atomic"
+	"sync"
 )
 
-type Readiness struct{ ready atomic.Bool }
+type Readiness struct {
+	done      chan struct{}
+	markReady func()
+}
 
-func (r *Readiness) MarkReady() { r.ready.Store(true) }
+func NewReadiness() *Readiness {
+	done := make(chan struct{})
+	return &Readiness{done: done, markReady: sync.OnceFunc(func() { close(done) })}
+}
 
-func (r *Readiness) Ready() bool { return r == nil || r.ready.Load() }
+func (r *Readiness) MarkReady() { r.markReady() }
+
+func (r *Readiness) Done() <-chan struct{} { return r.done }
+
+func (r *Readiness) Ready() bool {
+	select {
+	case <-r.done:
+		return true
+	default:
+		return false
+	}
+}
 
 func (r *Readiness) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
@@ -17,7 +34,7 @@ func (r *Readiness) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if !r.Ready() {
-		http.Error(w, "Proving keys are not ready", http.StatusServiceUnavailable)
+		keysNotReady().send(w)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

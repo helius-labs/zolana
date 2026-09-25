@@ -7,7 +7,7 @@ import (
 )
 
 func TestReadinessGate(t *testing.T) {
-	readiness := &Readiness{}
+	readiness := NewReadiness()
 	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	response := httptest.NewRecorder()
 	readiness.ServeHTTP(response, request)
@@ -29,7 +29,7 @@ func TestReadinessGate(t *testing.T) {
 }
 
 func TestReadinessIsPublic(t *testing.T) {
-	readiness := &Readiness{}
+	readiness := NewReadiness()
 	readiness.MarkReady()
 	handler := conditionalAuthMiddleware("test-key")(readiness)
 	response := httptest.NewRecorder()

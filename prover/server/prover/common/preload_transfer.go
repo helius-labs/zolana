@@ -42,16 +42,16 @@ func (m *LazyKeyManager) selectedTransferPaths(selector string) ([]string, bool,
 		return m.transferPreloadPaths([]CircuitType{circuit}), true, nil
 	}
 	if len(parts) != 3 {
-		return nil, true, fmt.Errorf("invalid preload shape")
+		return nil, true, fmt.Errorf("invalid preload shape %q", selector)
 	}
 	inputs, inputErr := strconv.ParseUint(parts[1], 10, 32)
 	outputs, outputErr := strconv.ParseUint(parts[2], 10, 32)
 	if inputErr != nil || outputErr != nil {
-		return nil, true, fmt.Errorf("invalid preload shape")
+		return nil, true, fmt.Errorf("invalid preload shape %q", selector)
 	}
 	path := m.determineTransferKeyPath(circuit, uint32(inputs), uint32(outputs))
 	if path == "" {
-		return nil, true, fmt.Errorf("unsupported preload shape")
+		return nil, true, fmt.Errorf("unsupported preload shape %q", selector)
 	}
 	return []string{path}, true, nil
 }

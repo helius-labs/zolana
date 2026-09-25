@@ -147,8 +147,10 @@ func (t *batchTree) append(value *big.Int, params *nullifiertree.BatchAddressApp
 }
 
 func (r *Resolver) resolveBatch(ctx context.Context, data []byte) (result *Resolved, err error) {
+	// Not ready only after this call stored a replay checkpoint.
+	var checkpointed bool
 	defer func() {
-		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if err != nil && checkpointed && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			err = ErrIndexerNotReady
 		}
 	}()
@@ -160,10 +162,10 @@ func (r *Resolver) resolveBatch(ctx context.Context, data []byte) (result *Resol
 		return nil, fmt.Errorf("batch replay exceeds configured leaf limit")
 	}
 	select {
-	case r.batchPermit <- struct{}{}:
-		defer func() { <-r.batchPermit }()
+	case r.batchLock <- struct{}{}:
+		defer func() { <-r.batchLock }()
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, ErrIndexerNotReady
 	}
 	finish := timing.FromContext(ctx).Start("indexer_batch_prepare")
 	defer finish()
@@ -271,6 +273,7 @@ func (r *Resolver) resolveBatch(ctx context.Context, data []byte) (result *Resol
 		}
 		if !anchored {
 			r.batchReplay = batchReplay{address: request.Tree, index: request.AnchorIndex, root: request.AnchorRoot, tree: tree.fork()}
+			checkpointed = true
 			replayed += limit
 			if replayed >= 4096 && next < request.AnchorIndex {
 				return nil, ErrIndexerNotReady

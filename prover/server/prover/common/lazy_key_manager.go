@@ -422,13 +422,22 @@ func (m *LazyKeyManager) PreloadCircuits(circuits []string) error {
 		Strs("circuits", circuits).
 		Msg("Preloading keys for circuits")
 
+	keyPaths, err := m.CircuitKeyPaths(circuits)
+	if err != nil {
+		return err
+	}
+	return m.preloadKeys(keyPaths)
+}
+
+// CircuitKeyPaths resolves preload selectors without touching the key files.
+func (m *LazyKeyManager) CircuitKeyPaths(circuits []string) ([]string, error) {
 	var keyPaths []string
 	seen := make(map[string]bool)
 
 	for _, circuit := range circuits {
 		paths, matched, err := m.selectedTransferPaths(circuit)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !matched {
 			if path := m.determineRingKeyPath(CircuitType(circuit)); path != "" {
@@ -454,7 +463,7 @@ func (m *LazyKeyManager) PreloadCircuits(circuits []string) error {
 
 		circuitKeys := GetKeys(m.keysDir, "", []string{circuit})
 		if len(circuitKeys) == 0 {
-			return fmt.Errorf("unknown preload circuit")
+			return nil, fmt.Errorf("unknown preload circuit %q", circuit)
 		}
 		for _, key := range circuitKeys {
 			if !seen[key] {
@@ -463,8 +472,7 @@ func (m *LazyKeyManager) PreloadCircuits(circuits []string) error {
 			}
 		}
 	}
-
-	return m.preloadKeys(keyPaths)
+	return keyPaths, nil
 }
 
 func (m *LazyKeyManager) tryParseSpecificConfig(config string) string {

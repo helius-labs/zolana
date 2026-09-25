@@ -13,13 +13,13 @@ import (
 )
 
 func TestCapacityMetricsMatchSharedPermits(t *testing.T) {
-	execution := &TransferExecution{admission: newSyncAdmission(2)}
+	execution := &Execution{admission: newSyncAdmission(2)}
 	release, ok := execution.acquireQueued(make(chan struct{}))
 	if !ok {
 		t.Fatal("admission failed")
 	}
 	defer release()
-	readiness := &Readiness{}
+	readiness := NewReadiness()
 	readiness.MarkReady()
 	response := httptest.NewRecorder()
 	capacityMetrics(execution, readiness).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -49,7 +49,7 @@ func TestMemoryMetricsExistBeforeFirstProof(t *testing.T) {
 
 func TestAdmissionWaitRecordsCancellationAndSuccess(t *testing.T) {
 	admission := newSyncAdmission(1)
-	release, err := admission.admit(context.Background())
+	release, err := admit(admission, context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestAdmissionWaitRecordsCancellationAndSuccess(t *testing.T) {
 	before := testutil.ToFloat64(SyncProofsShedTotal)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
-	if _, err := admission.admit(ctx); err == nil {
+	if _, err := admit(admission, ctx); err == nil {
 		t.Fatal("request exceeded capacity")
 	}
 	if testutil.ToFloat64(SyncProofsShedTotal) != before+1 {

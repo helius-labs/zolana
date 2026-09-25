@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"
@@ -353,4 +354,65 @@ func TestIndexedBatchResumesAfterCancelledRequest(t *testing.T) {
 	if _, err := resolver.Resolve(context.Background(), encoded(t, request)); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestIndexedBatchTimeoutClassification(t *testing.T) {
+	request, values := batchFixture(t)
+	t.Run("lock", func(t *testing.T) {
+		resolver := batchIndexer(t, values, "")
+		resolver.batchLock <- struct{}{}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		if _, err := resolver.Resolve(ctx, encoded(t, request)); !errors.Is(err, ErrIndexerNotReady) {
+			t.Fatalf("waiting for the replay lock returned %v", err)
+		}
+	})
+	t.Run("checkpoint", func(t *testing.T) {
+		request, _ := batchFixture(t)
+		values := make([]Hash, 110)
+		tree, err := newBatchTree(40)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range values {
+			value := big.NewInt(int64(100 + i))
+			values[i], _ = hashField(value)
+			if i < 100 {
+				if err := tree.append(value, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		root := tree.tree.Root.Value()
+		request.AnchorIndex, request.StartIndex, request.AnchorRoot = 101, 101, common.FeHex(&root)
+		request.HashchainHash = batchChain(t, values[100:])
+		resolver := batchIndexer(t, values, "")
+		transport := resolver.client.Transport
+		calls := 0
+		resolver.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			calls++
+			if calls == 2 {
+				<-request.Context().Done()
+				return nil, request.Context().Err()
+			}
+			return transport.RoundTrip(request)
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if _, err := resolver.Resolve(ctx, encoded(t, request)); !errors.Is(err, ErrIndexerNotReady) {
+			t.Fatalf("timeout after a checkpoint returned %v", err)
+		}
+	})
+	t.Run("no progress", func(t *testing.T) {
+		resolver := batchIndexer(t, values, "")
+		resolver.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			<-request.Context().Done()
+			return nil, request.Context().Err()
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		if _, err := resolver.Resolve(ctx, encoded(t, request)); err == nil || errors.Is(err, ErrIndexerNotReady) {
+			t.Fatalf("timeout without progress returned %v", err)
+		}
+	})
 }

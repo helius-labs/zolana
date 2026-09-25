@@ -6,21 +6,25 @@ Forester and custom proofs use the queue when Redis is configured.
 receives `429`. Queue fallback requires Redis.
 
 `PROVER_TRANSFER_CONCURRENCY` bounds direct and queued transfers together
-within one process. Its default is one. If unset, the service accepts the
-legacy `PROVER_SYNC_CONCURRENCY` setting, then `TRANSFER_WORKER_CONCURRENCY`.
-Forester memory settings do not determine transfer capacity.
+within one process. Its default is one. Forester memory settings do not
+determine transfer capacity.
 
-Waiting HTTP requests are bounded at four times the transfer capacity.
+Waiting HTTP requests, indexer resolution included, are bounded at four
+times the transfer capacity.
 A disconnected request retains its execution slot until proving stops.
 Increase capacity only after measuring throughput and latency together.
 Each additional service process has its own capacity limit.
 
 ## Indexer data
 
-Set `PROVER_INDEXER_URL` to enable `POST /prove/indexed`. The service sends
+Set `PROVER_INDEXER_URL` to enable `POST /prove/indexed`. Without it the
+route answers `404` with code `indexer_unconfigured`, and `/health` reports
+`indexed: false`. The service sends
 JSON-RPC requests to that configured URL only. `PROVER_INDEXER_API_KEY` sets
 its `api-key` query parameter. `PROVER_INDEXER_CONCURRENCY` bounds preparation requests.
 Both delivery paths resolve proofs before acquiring a transfer execution slot.
+Queued indexed jobs wait in their own Redis lists, read only by workers
+with `PROVER_INDEXER_URL`.
 
 Prover fetching is the SDK default. Select `proofDataSource: "client"` in
 TypeScript or `with_proof_data_source(ProofDataSource::Client)` in Rust to
@@ -45,6 +49,11 @@ responses. Each transfer or merge input tree must start with a non-dummy
 input. When all non-dummy inputs in a tree are cached, the resolver skips its
 state path request and uses the cache root sentinel.
 
+An output owner without a matching registry key fails with `422` and code
+`registry_member_missing`, which names the member. Indexer lag fails with
+`503` and code `indexer_not_ready`. A failed queued job reports the same
+`code` in its status.
+
 The returned proof includes `resolution` with the resolved trees, their roots
 and history positions, and `publicInputHash`. The caller must bind those trees
 to its request and recompute that hash from its intended public transcript
@@ -67,8 +76,9 @@ and compose overrides are available for experiments. See the
 [GPU deployment guide](../../tools/gpu/README.md) for Vast and EC2.
 
 Use `/health` for liveness and `/ready` for load balancer readiness.
-`/ready` returns `503` until configured preloads succeed. Proof requests
-also return `503` during preload. With `--preload-keys none`, keys load
+`/ready` returns `503` with code `prover_not_ready` and `Retry-After` until
+configured preloads succeed. Proof requests return the same response during
+preload. With `--preload-keys none`, keys load
 on demand and readiness does not guarantee a warm proof unless explicit
 preload circuits are set. `--preload-circuits transfer-confidential:2:3`
 selects one shape. A circuit name without a shape loads its supported shapes.
@@ -87,6 +97,8 @@ the prover outside the local machine.
 Scrape `/metrics` on the metrics port. Transfer capacity and active permits
 cover direct and queued execution together. Completion counters cover both
 delivery modes. HTTP duration includes indexer preparation and admission.
+Its `status` label is `unavailable` for a `503` with `Retry-After` and
+`upstream` for `502`, so the `5xx` failure alert counts neither.
 A queued `202` measures acceptance only. Use queue delay and generation
 duration to assess queued work. Network RTT and client polling need client
 measurements.

@@ -24,7 +24,7 @@ type Config struct {
 type Resolver struct {
 	maxBatchLeaves uint64
 	batchReplay    batchReplay
-	batchPermit    chan struct{}
+	batchLock      chan struct{}
 	batch          batchCache
 	client         *http.Client
 	url            string
@@ -32,16 +32,21 @@ type Resolver struct {
 	permits        chan struct{}
 }
 
+const DefaultMaxBatchLeaves = 1_000_000
+
 func NewResolver(config Config) (*Resolver, error) {
 	endpoint, err := url.Parse(config.URL)
-	if err != nil || endpoint.Host == "" || endpoint.User != nil || (endpoint.Scheme != "https" && endpoint.Scheme != "http") {
-		return nil, fmt.Errorf("invalid indexer URL")
+	if err != nil {
+		return nil, fmt.Errorf("unparseable indexer URL")
+	}
+	if endpoint.Host == "" || endpoint.User != nil || (endpoint.Scheme != "https" && endpoint.Scheme != "http") {
+		return nil, fmt.Errorf("invalid indexer URL %s://%s", endpoint.Scheme, endpoint.Host)
 	}
 	if config.Concurrency < 1 {
-		return nil, fmt.Errorf("invalid indexer concurrency")
+		return nil, fmt.Errorf("invalid indexer concurrency %d", config.Concurrency)
 	}
 	if config.MaxBatchLeaves == 0 {
-		config.MaxBatchLeaves = 1_000_000
+		config.MaxBatchLeaves = DefaultMaxBatchLeaves
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConnsPerHost = config.Concurrency * 2
@@ -49,8 +54,8 @@ func NewResolver(config Config) (*Resolver, error) {
 	return &Resolver{
 		maxBatchLeaves: config.MaxBatchLeaves,
 		url:            endpoint.String(), apiKey: config.APIKey,
-		permits:     make(chan struct{}, config.Concurrency),
-		batchPermit: make(chan struct{}, 1),
+		permits:   make(chan struct{}, config.Concurrency),
+		batchLock: make(chan struct{}, 1),
 		client: &http.Client{
 			Transport: transport,
 			Timeout:   15 * time.Second,
@@ -133,8 +138,13 @@ func (r *Resolver) rpc(ctx context.Context, method string, params any) (json.Raw
 		var failure struct {
 			Code int `json:"code"`
 		}
-		if json.Unmarshal(envelope.Error, &failure) == nil && (failure.Code == -32070 || failure.Code == -32071) {
-			return nil, ErrIndexerNotReady
+		if json.Unmarshal(envelope.Error, &failure) == nil {
+			switch failure.Code {
+			case -32070, -32071:
+				return nil, ErrIndexerNotReady
+			case -32072:
+				return nil, errMemberUnregistered
+			}
 		}
 	}
 	if len(envelope.Error) != 0 || len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) {

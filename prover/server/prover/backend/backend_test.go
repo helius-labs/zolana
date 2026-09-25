@@ -27,20 +27,16 @@ func resetBackend(t *testing.T) {
 }
 
 func TestInitializeCPU(t *testing.T) {
-	for _, name := range []string{"", "gnark"} {
-		t.Run(name, func(t *testing.T) {
-			resetBackend(t)
-			t.Setenv("PROVER_BACKEND", name)
-			if err := Initialize(); err != nil {
-				t.Fatal(err)
-			}
-			if _, ok := state.prover.(cpuProver); !ok {
-				t.Fatal("CPU backend was not selected")
-			}
-			if err := Initialize(); err == nil {
-				t.Fatal("backend was initialized twice")
-			}
-		})
+	resetBackend(t)
+	t.Setenv("PROVER_BACKEND", "gnark")
+	if err := Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.prover.(cpuProver); !ok {
+		t.Fatal("CPU backend was not selected")
+	}
+	if err := Initialize(); err == nil {
+		t.Fatal("backend was initialized twice")
 	}
 }
 

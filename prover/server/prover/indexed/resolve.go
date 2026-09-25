@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -147,7 +148,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	// 1. Fetch one nullifier snapshot per tree for real and dummy inputs together.
 	tasks, taskContext := errgroup.WithContext(ctx)
 	if prepared.registry != nil {
-		tasks.Go(func() error { return r.resolvePolicyRegistry(taskContext, request, prepared.registry) })
+		tasks.Go(recovered(func() error { return r.resolvePolicyRegistry(taskContext, request, prepared.registry) }))
 	}
 	for treeIndex, tree := range request.Trees {
 		group := &proofs[treeIndex]
@@ -160,28 +161,34 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 			prepared.inputs[input].nullifier.FillBytes(nullifiers[index][:])
 		}
 		if len(leaves) != 0 {
-			tasks.Go(func() error {
+			tasks.Go(recovered(func() error {
 				data, err := r.call(taskContext, proofQuery{Method: "getMerkleProofs", Tree: tree.Address, Leaves: leaves})
 				if err != nil {
 					return err
 				}
-				if json.Unmarshal(data, &group.state) != nil || group.state.Context.Slot < request.MinContextSlot {
+				if json.Unmarshal(data, &group.state) != nil {
 					return fmt.Errorf("invalid state proof response")
 				}
+				if group.state.Context.Slot < request.MinContextSlot {
+					return ErrIndexerNotReady
+				}
 				return nil
-			})
+			}))
 		}
 		if len(nullifiers) != 0 {
-			tasks.Go(func() error {
+			tasks.Go(recovered(func() error {
 				data, err := r.call(taskContext, proofQuery{Method: "getNonInclusionProofs", Tree: tree.Address, Leaves: nullifiers})
 				if err != nil {
 					return err
 				}
-				if json.Unmarshal(data, &group.exclusion) != nil || group.exclusion.Context.Slot < request.MinContextSlot {
+				if json.Unmarshal(data, &group.exclusion) != nil {
 					return fmt.Errorf("invalid nullifier proof response")
 				}
+				if group.exclusion.Context.Slot < request.MinContextSlot {
+					return ErrIndexerNotReady
+				}
 				return nil
-			})
+			}))
 		}
 	}
 	if err := tasks.Wait(); err != nil {
@@ -305,9 +312,15 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 
 func decodeEnvelope(data []byte) (Request, error) {
 	var request Request
+	if len(data) > 1<<20 {
+		return request, fmt.Errorf("invalid indexed request")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if len(data) > 1<<20 || decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF {
+	if err := decoder.Decode(&request); err != nil {
+		return request, fmt.Errorf("invalid indexed request: %w", err)
+	}
+	if decoder.Decode(new(any)) != io.EOF {
 		return request, fmt.Errorf("invalid indexed request")
 	}
 	return request, nil
@@ -349,4 +362,16 @@ func verifyPath(leaf Hash, path []Hash, index uint64, root Hash) error {
 		return fmt.Errorf("proof root mismatch")
 	}
 	return nil
+}
+
+// errgroup does not recover task panics.
+func recovered(task func() error) func() error {
+	return func() (err error) {
+		defer func() {
+			if recover() != nil {
+				err = errors.New("indexed task panicked")
+			}
+		}()
+		return task()
+	}
 }
