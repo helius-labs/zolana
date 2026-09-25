@@ -15,13 +15,15 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
 use zeroize::Zeroizing;
+use zolana_client::prover::indexed::{
+    IndexedTransferPreparation, IndexedTransferRail, PreparedIndexedTransfer, ProofDataSource,
+};
 use zolana_client::{
     input_utxos_from_nullifiers,
     prover::{Delivery, ExpectedProvingKey, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
     Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, ProverClient, RingTransferProofResult,
     RingTransferProver, Rpc, SettlementAccountValidation, SpendProof, TransferInputUtxo,
-    TransferInputs,
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
@@ -368,13 +370,16 @@ impl<'a> CustomRingTransfer<'a> {
         // after the indexer has served a full inclusion and non-inclusion proof
         // set that nothing can use.
         let trees = staged.tree_plan().read(environment.rpc)?;
-        let spends = SpendSet {
-            inputs: RingSpendInputs {
-                indexer: environment.indexer,
-                input_utxos: &staged.proof_inputs.input_utxos,
-            }
-            .load()?,
-            trees,
+        let inputs = if environment.prover.proof_data_source() == ProofDataSource::Client {
+            Some(
+                RingSpendInputs {
+                    indexer: environment.indexer,
+                    input_utxos: &staged.proof_inputs.input_utxos,
+                }
+                .load()?,
+            )
+        } else {
+            None
         };
         let tier = match &policy {
             Some(policy) => Tier::Policy(
@@ -384,10 +389,10 @@ impl<'a> CustomRingTransfer<'a> {
             ),
             None => Tier::Base,
         };
-        let witnessed = staged.witness(spends, tier)?;
-        let spp_proof =
-            ProofCompressed::try_from(environment.prover.prove_transfer_ring(witnessed.spp())?)?
-                .to_transact_proof();
+        let witnessed = staged.witness(inputs, trees, tier)?;
+        let spp_proof = witnessed
+            .spp
+            .prove(environment.prover, &witnessed.proof_inputs)?;
         let ring_proof = environment.prover.prove(&witnessed.request)?;
         witnessed.finish(spp_proof, ring_proof)
     }
@@ -433,14 +438,17 @@ impl<'a> CustomRingTransfer<'a> {
         // Same ordering reason as the blocking path: validate the trees before
         // asking the indexer for proofs against them.
         let trees = staged.tree_plan().read_async(environment.rpc).await?;
-        let spends = SpendSet {
-            inputs: RingSpendInputs {
-                indexer: environment.indexer,
-                input_utxos: &staged.proof_inputs.input_utxos,
-            }
-            .load_async()
-            .await?,
-            trees,
+        let inputs = if environment.prover.proof_data_source() == ProofDataSource::Client {
+            Some(
+                RingSpendInputs {
+                    indexer: environment.indexer,
+                    input_utxos: &staged.proof_inputs.input_utxos,
+                }
+                .load_async()
+                .await?,
+            )
+        } else {
+            None
         };
         let tier = match &policy {
             Some(policy) => Tier::Policy(
@@ -451,7 +459,7 @@ impl<'a> CustomRingTransfer<'a> {
             ),
             None => Tier::Base,
         };
-        let witnessed = staged.witness(spends, tier)?;
+        let witnessed = staged.witness(inputs, trees, tier)?;
         // Both witnesses are complete, and neither proof is an input to the
         // other: SPP proves the transfer, the ring circuit proves the auditor
         // encryption over the `private_tx_hash` the SPP witness already fixed.
@@ -462,11 +470,13 @@ impl<'a> CustomRingTransfer<'a> {
         // but that bound belongs there, not in a caller that cannot see the
         // fleet. The blocking path has no way to express this.
         let (spp, ring) = try_join(
-            environment.prover.prove_transfer_ring(witnessed.spp()),
+            witnessed
+                .spp
+                .prove_async(environment.prover, &witnessed.proof_inputs),
             environment.prover.prove(&witnessed.request),
         )
         .await?;
-        witnessed.finish(ProofCompressed::try_from(spp)?.to_transact_proof(), ring)
+        witnessed.finish(spp, ring)
     }
 
     /// `None` for an audit-only ring.
@@ -1157,45 +1167,47 @@ impl StagedTransfer {
     /// Both witnesses leave together because the second only ever needed the
     /// first's `private_tx_hash`, not its proof: a caller can then ask for both
     /// proofs at once.
-    fn witness(self, spends: SpendSet, tier: Tier) -> Result<WitnessedTransfer, TransferError> {
-        let SpendSet { inputs, trees } = spends;
-        let tx_shape = self.proof_inputs.check_shape()?;
-        let mut ring_result = RingTransferProver {
-            inputs,
-            outputs: self.proof_inputs.output_utxos.clone(),
-            blinding_seed: self.proof_inputs.blinding_seed,
-            output_tree_id: self.proof_inputs.output_tree_id,
-            external_data: self.proof_inputs.external_data.clone(),
-            public_transfers: self.proof_inputs.public_transfers()?,
-            signer_pk_hashes: self
-                .proof_inputs
-                .signer_pk_hashes(tx_shape.signer_width())?,
-            allow_dummy_inputs: trees.allow_dummy_inputs,
-            ring_program_id: Some(self.program_id),
-            shape: tx_shape,
-        }
-        .build()?;
-        // A windowed velocity transfer appends the namespace-owned spend
-        // record as its final input. Its fixed zero authority is distinct from
-        // the sender, so complete it first and let the sender authority skip
-        // the now-complete slot.
-        if self.compressed.is_some() {
-            let record = ring_result
-                .inputs
-                .inputs
-                .last_mut()
-                .ok_or(TransactionError::NoInputs)?;
-            zero_nullifier_key().complete_inputs(std::slice::from_mut(record))?;
-        }
-        // Proof assembly deliberately leaves every real input's nullifier secret
-        // absent. The caller's authority completes the inputs it owns and the
-        // prover request rejects anything still incomplete.
-        if let Some(authority) = self.nullifier_key.as_ref() {
+    fn witness(
+        self,
+        inputs: Option<Vec<TransferInputUtxo>>,
+        trees: SpendTrees,
+        tier: Tier,
+    ) -> Result<WitnessedTransfer, TransferError> {
+        let authority = TransferAuthority {
+            owner: self.nullifier_key.as_ref(),
+            spend_record: self.compressed.is_some(),
+        };
+        let spp = if let Some(inputs) = inputs {
+            let tx_shape = self.proof_inputs.check_shape()?;
+            let mut ring_result = RingTransferProver {
+                inputs,
+                outputs: self.proof_inputs.output_utxos.clone(),
+                blinding_seed: self.proof_inputs.blinding_seed,
+                output_tree_id: self.proof_inputs.output_tree_id,
+                external_data: self.proof_inputs.external_data.clone(),
+                public_transfers: self.proof_inputs.public_transfers()?,
+                signer_pk_hashes: self
+                    .proof_inputs
+                    .signer_pk_hashes(tx_shape.signer_width())?,
+                allow_dummy_inputs: trees.allow_dummy_inputs,
+                ring_program_id: Some(self.program_id),
+                shape: tx_shape,
+            }
+            .build()?;
             authority.complete_inputs(&mut ring_result.inputs.inputs)?;
-        }
+            SppWitness::Complete(Box::new(ring_result))
+        } else {
+            SppWitness::Indexed(Box::new(
+                IndexedTransferPreparation {
+                    transaction: self.proof_inputs.clone(),
+                    rail: IndexedTransferRail::Ring(self.program_id),
+                }
+                .prepare_with_dummy_policy(&authority, trees.allow_dummy_inputs)?,
+            ))
+        };
         let mut request = TierRequestInput {
             pending: self.pending_proof,
-            private_tx_hash: ring_result.private_tx_hash.try_into()?,
+            private_tx_hash: spp.private_tx_hash().try_into()?,
             external_data: &self.proof_inputs.external_data,
             private_tx_blinding: self.proof_inputs.private_tx_blinding()?,
         }
@@ -1209,7 +1221,7 @@ impl StagedTransfer {
             window: self.velocity.and_then(|velocity| velocity.window()),
             tx_viewing_key: self.tx_viewing_key,
             proof_inputs: self.proof_inputs,
-            ring_result,
+            spp,
             payer: self.payer,
             trees,
             interface_transfer_accounts: self.interface_transfer_accounts,
@@ -1447,7 +1459,7 @@ struct WitnessedTransfer {
     window: Option<ProvedWindow>,
     tx_viewing_key: ViewingKey,
     proof_inputs: SppProofInputs,
-    ring_result: RingTransferProofResult,
+    spp: SppWitness,
     payer: Address,
     trees: SpendTrees,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
@@ -1455,15 +1467,103 @@ struct WitnessedTransfer {
     cosigner: Option<Address>,
 }
 
-impl WitnessedTransfer {
-    /// The SPP transfer witness to prove.
-    fn spp(&self) -> &TransferInputs {
-        &self.ring_result.inputs
+struct TransferAuthority<'a> {
+    owner: Option<&'a NullifierKey>,
+    spend_record: bool,
+}
+
+impl ProofAuthority for TransferAuthority<'_> {
+    fn complete_inputs(
+        &self,
+        inputs: &mut [zolana_client::TransferInput],
+    ) -> Result<(), ClientError> {
+        if self.spend_record {
+            // 1. Only the final namespace record uses the zero authority.
+            let record = inputs.last_mut().ok_or(ClientError::NoInputs)?;
+            zero_nullifier_key().complete_inputs(std::slice::from_mut(record))?;
+        }
+        if let Some(owner) = self.owner {
+            owner.complete_inputs(inputs)?;
+        }
+        Ok(())
+    }
+}
+
+enum SppWitness {
+    Complete(Box<RingTransferProofResult>),
+    Indexed(Box<PreparedIndexedTransfer>),
+}
+
+impl SppWitness {
+    fn private_tx_hash(&self) -> [u8; 32] {
+        match self {
+            Self::Complete(result) => result.private_tx_hash,
+            Self::Indexed(prepared) => prepared.private_tx_hash(),
+        }
     }
 
+    fn complete(
+        &self,
+        proof: Proof,
+        transaction: &SppProofInputs,
+    ) -> Result<TransactIxData, ClientError> {
+        let Self::Complete(result) = self else {
+            return Err(ClientError::Prover("unexpected complete proof".into()));
+        };
+        let shape = transaction.check_shape()?;
+        RingInstructionData {
+            external_data: &transaction.external_data,
+            nullifiers: &result.nullifiers,
+            input_tree_indexes: &result.input_tree_indexes,
+            tree_contexts: &result.tree_contexts,
+            private_tx_hash: result.private_tx_hash,
+            proof: ProofCompressed::try_from(proof)?.to_transact_proof(),
+            circuit: CircuitId::RingEddsa(
+                shape.n_inputs() as u8,
+                shape.n_outputs() as u8,
+                N_PUBLIC_SLOTS as u8,
+            ),
+        }
+        .assemble()
+        .map_err(|error| ClientError::Prover(error.to_string()))
+    }
+
+    fn prove(
+        &self,
+        prover: &ProverClient,
+        transaction: &SppProofInputs,
+    ) -> Result<TransactIxData, ClientError> {
+        match self {
+            Self::Complete(result) => {
+                self.complete(prover.prove_transfer_ring(&result.inputs)?, transaction)
+            }
+            Self::Indexed(prepared) => Ok(prepared
+                .finish(prover.prove_indexed(prepared.request())?)?
+                .data),
+        }
+    }
+
+    async fn prove_async(
+        &self,
+        prover: &AsyncProverClient,
+        transaction: &SppProofInputs,
+    ) -> Result<TransactIxData, ClientError> {
+        match self {
+            Self::Complete(result) => self.complete(
+                prover.prove_transfer_ring(&result.inputs).await?,
+                transaction,
+            ),
+            Self::Indexed(prepared) => Ok(prepared
+                .finish(prover.prove_indexed(prepared.request()).await?)?
+                .data),
+        }
+    }
+}
+
+impl WitnessedTransfer {
     fn finish(
         self,
-        spp_proof: TransactProof,
+        spp_proof: TransactIxData,
         ring_proof: Proof,
     ) -> Result<ProvenTransfer, TransferError> {
         let TierBinding {
@@ -1471,25 +1571,11 @@ impl WitnessedTransfer {
             policy,
             approval_required,
         } = self.request.proven(ring_proof)?;
-        let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
         Ok(ProvenTransfer {
             #[cfg(feature = "solana-rpc")]
             window: self.window,
             tx_viewing_key: self.tx_viewing_key,
-            data: RingInstructionData {
-                external_data: &self.proof_inputs.external_data,
-                nullifiers: &self.ring_result.nullifiers,
-                input_tree_indexes: &self.ring_result.input_tree_indexes,
-                tree_contexts: &self.ring_result.tree_contexts,
-                private_tx_hash: self.ring_result.private_tx_hash,
-                proof: spp_proof,
-                circuit: CircuitId::RingEddsa(
-                    n_inputs as u8,
-                    self.proof_inputs.external_data.outputs.len() as u8,
-                    N_PUBLIC_SLOTS as u8,
-                ),
-            }
-            .assemble()?,
+            data: spp_proof,
             proof,
             owner_signers: self.proof_inputs.owner_signer_pubkeys()?,
             interface_transfer_accounts: self.interface_transfer_accounts,
