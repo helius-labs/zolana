@@ -1602,15 +1602,17 @@ impl ProofAuthority for TransferAuthority<'_> {
     }
 }
 
-enum SppWitness {
+pub(crate) enum SppWitness {
+    Authority(Box<zolana_client::RingAuthorityProofResult>),
     Complete(Box<RingTransferProofResult>),
     Indexed(Box<PreparedIndexedTransfer>),
 }
 
 impl SppWitness {
-    fn private_tx_hash(&self) -> [u8; 32] {
+    pub(crate) fn private_tx_hash(&self) -> [u8; 32] {
         match self {
             Self::Complete(result) => result.private_tx_hash,
+            Self::Authority(result) => result.private_tx_hash,
             Self::Indexed(prepared) => prepared.private_tx_hash(),
         }
     }
@@ -1620,33 +1622,51 @@ impl SppWitness {
         proof: Proof,
         transaction: &SppProofInputs,
     ) -> Result<TransactIxData, ClientError> {
-        let Self::Complete(result) = self else {
-            return Err(ClientError::Prover("unexpected complete proof".into()));
-        };
         let shape = transaction.check_shape()?;
+        let width = (
+            shape.n_inputs() as u8,
+            shape.n_outputs() as u8,
+            N_PUBLIC_SLOTS as u8,
+        );
+        let (nullifiers, input_tree_indexes, tree_contexts, circuit) = match self {
+            Self::Complete(result) => (
+                &result.nullifiers,
+                &result.input_tree_indexes,
+                &result.tree_contexts,
+                CircuitId::RingEddsa(width.0, width.1, width.2),
+            ),
+            Self::Authority(result) => (
+                &result.nullifiers,
+                &result.input_tree_indexes,
+                &result.tree_contexts,
+                CircuitId::RingAuthority(width.0, width.1, width.2),
+            ),
+            Self::Indexed(_) => {
+                return Err(ClientError::Prover("unexpected complete proof".into()))
+            }
+        };
         RingInstructionData {
             external_data: &transaction.external_data,
-            nullifiers: &result.nullifiers,
-            input_tree_indexes: &result.input_tree_indexes,
-            tree_contexts: &result.tree_contexts,
-            private_tx_hash: result.private_tx_hash,
+            nullifiers,
+            input_tree_indexes,
+            tree_contexts,
+            private_tx_hash: self.private_tx_hash(),
             proof: ProofCompressed::try_from(proof)?.to_transact_proof(),
-            circuit: CircuitId::RingEddsa(
-                shape.n_inputs() as u8,
-                shape.n_outputs() as u8,
-                N_PUBLIC_SLOTS as u8,
-            ),
+            circuit,
         }
         .assemble()
         .map_err(|error| ClientError::Prover(error.to_string()))
     }
 
-    fn prove(
+    pub(crate) fn prove(
         &self,
         prover: &ProverClient,
         transaction: &SppProofInputs,
     ) -> Result<TransactIxData, ClientError> {
         match self {
+            Self::Authority(result) => {
+                self.complete(prover.prove_ring_authority(&result.inputs)?, transaction)
+            }
             Self::Complete(result) => {
                 self.complete(prover.prove_transfer_ring(&result.inputs)?, transaction)
             }
@@ -1656,12 +1676,16 @@ impl SppWitness {
         }
     }
 
-    async fn prove_async(
+    pub(crate) async fn prove_async(
         &self,
         prover: &AsyncProverClient,
         transaction: &SppProofInputs,
     ) -> Result<TransactIxData, ClientError> {
         match self {
+            Self::Authority(result) => self.complete(
+                prover.prove_ring_authority(&result.inputs).await?,
+                transaction,
+            ),
             Self::Complete(result) => self.complete(
                 prover.prove_transfer_ring(&result.inputs).await?,
                 transaction,
@@ -2281,7 +2305,7 @@ pub(crate) fn frame_dummy_outputs(
 }
 
 pub(crate) struct SpendSet {
-    pub inputs: Vec<TransferInputUtxo>,
+    pub inputs: Option<Vec<TransferInputUtxo>>,
     pub trees: SpendTrees,
 }
 
