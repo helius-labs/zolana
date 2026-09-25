@@ -8,7 +8,7 @@ for tool in supervisorctl supervisord psql pg_restore curl nvidia-smi python3; d
     command -v "$tool" >/dev/null
 done
 (cd "$bundle" && sha256sum -c SHA256SUMS)
-"$bundle/light-prover" --version >/dev/null
+"$bundle/light-prover" --help >/dev/null
 "$bundle/photon" --version >/dev/null
 "$bundle/photon-migration" --help >/dev/null
 set -a
