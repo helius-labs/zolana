@@ -6,11 +6,15 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path("/opt/zolana-gpu")
-POSTGRES = "public.ecr.aws/docker/library/postgres:16-bookworm"
-NGINX = "public.ecr.aws/docker/library/nginx:1.28-alpine"
+POSTGRES = "public.ecr.aws/docker/library/postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67"
+NGINX = "public.ecr.aws/docker/library/nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236"
+CUDA_ARCH = "sm_89"
+GPUS = ("L4", "L40S")
+MIGRATION_SECONDS = 900
 
 
 def run(*args, data=None, timeout=300):
@@ -48,19 +52,17 @@ def secret(arn, region):
     )
 
 
-def write_private(name, contents):
-    path = ROOT / name
-    path.write_text(contents)
-    path.chmod(0o600)
-    return str(path)
-
-
+@contextmanager
 def environment(name, values):
     if any("\n" in str(value) or "\r" in str(value) for value in values.values()):
         raise ValueError("Environment values must fit on one line")
-    return write_private(
-        name, "".join(f"{key}={value}\n" for key, value in values.items())
-    )
+    path = ROOT / name
+    path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+    path.chmod(0o600)
+    try:
+        yield str(path)
+    finally:
+        path.unlink()
 
 
 def healthy(url, timeout=300, key=None):
@@ -133,8 +135,10 @@ def install(config):
     gpu = run(
         "nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"
     ).splitlines()
-    if not gpu or any(value.strip() != "8.9" for value in gpu):
-        raise RuntimeError("The published image requires an L4 or L40S GPU")
+    if not gpu or any(
+        "sm_" + value.strip().replace(".", "") != CUDA_ARCH for value in gpu
+    ):
+        raise RuntimeError(f"The published image requires an {' or '.join(GPUS)} GPU")
     run("nvidia-ctk", "runtime", "configure", "--runtime=docker")
     run("systemctl", "restart", "docker")
     registry = config["prover_image"].split("/")[0]
@@ -158,50 +162,52 @@ def install(config):
         run("docker", "pull", image, timeout=600)
     run("docker", "logout", registry)
 
-    def container(name, image, options=(), command=(), restart="unless-stopped"):
+    def container(
+        name, image, command=(), env=None, options=(), restart="unless-stopped"
+    ):
         result = subprocess.run(
             ["docker", "inspect", name], capture_output=True, check=False, timeout=30
         )
         if result.returncode == 0:
             run("docker", "rm", "-f", name)
-        run(
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            name,
-            "--restart",
-            restart,
-            "--network",
-            "host",
-            "--log-driver",
-            "awslogs",
-            "--log-opt",
-            f"awslogs-region={config['region']}",
-            "--log-opt",
-            f"awslogs-group={outputs['LogGroup']}",
-            "--log-opt",
-            f"awslogs-stream={name}",
-            *options,
-            image,
-            *command,
-        )
+        with environment(name + ".env", env or {}) as env_file:
+            run(
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                name,
+                "--restart",
+                restart,
+                "--network",
+                "host",
+                "--log-driver",
+                "awslogs",
+                "--log-opt",
+                f"awslogs-region={config['region']}",
+                "--log-opt",
+                f"awslogs-group={outputs['LogGroup']}",
+                "--log-opt",
+                f"awslogs-stream={name}",
+                "--env-file",
+                env_file,
+                *options,
+                image,
+                *command,
+            )
 
     if config["with_indexer"]:
         db_password = secret(outputs["DatabaseSecret"], config["region"])
-        pg_env = environment(
-            "postgres.env",
-            {
+        container(
+            "postgres",
+            POSTGRES,
+            ("-c", "listen_addresses=127.0.0.1"),
+            env={
                 "POSTGRES_DB": "photon",
                 "POSTGRES_USER": "photon",
                 "POSTGRES_PASSWORD": db_password,
             },
-        )
-        container(
-            "postgres",
-            POSTGRES,
-            ("--env-file", pg_env, "-v", f"{ROOT}/postgres:/var/lib/postgresql/data"),
-            ("-c", "listen_addresses=127.0.0.1"),
+            options=("-v", f"{ROOT}/postgres:/var/lib/postgresql/data"),
         )
         for _ in range(60):
             result = subprocess.run(
@@ -279,16 +285,24 @@ def install(config):
             Path(dump).unlink()
             run("docker", "exec", "postgres", "rm", "/tmp/cache.dump")
         database_url = f"postgres://photon:{db_password}@127.0.0.1:5432/photon"
-        migration_env = environment("migration.env", {"DATABASE_URL": database_url})
         container(
             "migration",
             config["photon_image"],
-            ("--env-file", migration_env),
-            ("timeout", "--kill-after=10s", "900", "photon-migration", "up"),
+            (
+                "timeout",
+                "--kill-after=10s",
+                f"{MIGRATION_SECONDS}s",
+                "photon-migration",
+                "up",
+            ),
+            env={"DATABASE_URL": database_url},
             restart="no",
         )
         try:
-            if run("docker", "wait", "migration", timeout=930) != "0":
+            if (
+                run("docker", "wait", "migration", timeout=MIGRATION_SECONDS + 30)
+                != "0"
+            ):
                 raise RuntimeError(
                     "Local database migration failed, inspect the migration log stream"
                 )
@@ -298,15 +312,14 @@ def install(config):
         container(
             "photon",
             config["photon_image"],
-            ("-e", "TOKIO_WORKER_THREADS=2"),
             (
                 "photon",
                 "--port",
                 "8784",
-                "--db-url",
-                database_url,
                 "--rpc-url",
                 rpc,
+                "--db-url",
+                database_url,
                 "--max-db-conn",
                 "20",
                 "--max-concurrent-block-fetches",
@@ -314,6 +327,7 @@ def install(config):
                 "--logging-format",
                 "json",
             ),
+            env={"TOKIO_WORKER_THREADS": "2"},
         )
         healthy("http://127.0.0.1:8784/readiness")
 
@@ -323,7 +337,6 @@ def install(config):
         "PROVER_REQUEST_TIMING": "true",
         "GOMAXPROCS": str(config["prover_cpus"]),
         "PROVER_TRANSFER_CONCURRENCY": "2",
-        "PROVER_INDEXER_URL": config["indexer_url"],
     }
     if config.get("indexer_key_secret"):
         prover_env["PROVER_INDEXER_API_KEY"] = secret(
@@ -336,33 +349,31 @@ def install(config):
         "prover",
         config["prover_image"],
         (
-            "--gpus",
-            "all",
-            "--env-file",
-            environment("prover.env", prover_env),
-            "-v",
-            f"{key_dir}:/proving-keys",
-        ),
-        (
             "start",
             "--require-optimized-build",
             "--server-only",
             "--auto-download",
-            "--keys-dir",
-            "/proving-keys",
             "--preload-keys",
             "none",
+            "--keys-dir",
+            "/proving-keys",
             "--prover-address",
             "127.0.0.1:3003",
             "--metrics-address",
             "127.0.0.1:9997",
+            "--indexer-url",
+            config["indexer_url"],
         ),
+        env=prover_env,
+        options=("--gpus", "all", "-v", f"{key_dir}:/proving-keys"),
     )
     healthy("http://127.0.0.1:3003/ready")
     gateway_path = ROOT / "nginx.conf"
     gateway_path.write_text(gateway(config["with_indexer"]))
     gateway_path.chmod(0o644)
-    container("gateway", NGINX, ("-v", f"{gateway_path}:/etc/nginx/nginx.conf:ro"))
+    container(
+        "gateway", NGINX, options=("-v", f"{gateway_path}:/etc/nginx/nginx.conf:ro")
+    )
     healthy("http://127.0.0.1:3001/ready", key=api_key)
     if config["with_indexer"]:
         healthy("http://127.0.0.1:3001/indexer/readiness", key=api_key)

@@ -253,13 +253,9 @@ def template(config):
             "SecretsManager::Secret",
             GenerateSecretString={"PasswordLength": 48, "ExcludePunctuation": True},
         )
-        resources["ExportRole"] = role(
+        resources["ExportExecutionRole"] = role(
             "ecs-tasks.amazonaws.com",
             [
-                policy(
-                    ["s3:PutObject", "s3:AbortMultipartUpload"],
-                    [sub("${Assets.Arn}/cache/*")],
-                ),
                 policy(
                     ["secretsmanager:GetSecretValue"],
                     [config["source"]["database_secret"]],
@@ -267,6 +263,15 @@ def template(config):
                 policy(
                     ["logs:CreateLogStream", "logs:PutLogEvents"], [attr("Logs", "Arn")]
                 ),
+            ],
+        )
+        resources["ExportTaskRole"] = role(
+            "ecs-tasks.amazonaws.com",
+            [
+                policy(
+                    ["s3:PutObject", "s3:AbortMultipartUpload"],
+                    [sub("${Assets.Arn}/cache/*")],
+                )
             ],
         )
     outputs = {
@@ -279,7 +284,9 @@ def template(config):
     }
     if config["with_indexer"]:
         outputs.update(
-            DatabaseSecret=ref("DatabasePassword"), ExportRole=attr("ExportRole", "Arn")
+            DatabaseSecret=ref("DatabasePassword"),
+            ExportExecutionRole=attr("ExportExecutionRole", "Arn"),
+            ExportTaskRole=attr("ExportTaskRole", "Arn"),
         )
     return {
         "AWSTemplateFormatVersion": "2010-09-09",

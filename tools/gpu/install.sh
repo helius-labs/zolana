@@ -11,16 +11,17 @@ done
 "$bundle/light-prover" --help >/dev/null
 "$bundle/photon" --version >/dev/null
 "$bundle/photon-migration" --help >/dev/null
-set -a
 # 1. Deployment files are trusted operator input.
 # shellcheck source=/dev/null
 source "$bundle/deployment.env"
-set +a
 [[ ${DEPLOYMENT_NAME:-} =~ ^[a-z][a-z0-9_]{0,23}$ ]]
 : "${PHOTON_RPC_URL:?Set PHOTON_RPC_URL}"
 : "${DATABASE_URL:?Set DATABASE_URL}"
 unset PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGSERVICE PGSERVICEFILE PGOPTIONS
-python3 "$bundle/validate.py" > "$bundle/database.identity"
+database() {
+    DATABASE_URL=$DATABASE_URL timeout 300s python3 "$bundle/validate.py" "$@"
+}
+database > "$bundle/database.identity"
 capability=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1)
 [[ $(cat "$bundle/cuda-arch") == "sm_${capability//./}" ]]
 revision=$(cat "$bundle/source-revision")
@@ -35,19 +36,18 @@ if [[ -f $deployment/managed ]]; then
 fi
 if [[ ! -f $deployment/managed ]]; then
     # 2. First deployment requires a dedicated empty local database.
-    objects=$(psql "$DATABASE_URL" -XAt -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM (SELECT relnamespace AS namespace FROM pg_class UNION ALL SELECT pronamespace FROM pg_proc UNION ALL SELECT typnamespace FROM pg_type UNION ALL SELECT oid FROM pg_namespace WHERE nspname <> 'public') objects JOIN pg_namespace n ON n.oid = objects.namespace WHERE left(n.nspname, 3) <> 'pg_' AND n.nspname <> 'information_schema'")
+    objects=$(database psql -XAt -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM (SELECT relnamespace AS namespace FROM pg_class UNION ALL SELECT pronamespace FROM pg_proc UNION ALL SELECT typnamespace FROM pg_type UNION ALL SELECT oid FROM pg_namespace WHERE nspname <> 'public') objects JOIN pg_namespace n ON n.oid = objects.namespace WHERE left(n.nspname, 3) <> 'pg_' AND n.nspname <> 'information_schema'")
     [[ $objects == 0 ]]
 elif [[ -f $bundle/cache.dump ]]; then
     echo 'Refusing to restore a cache over an existing deployment' >&2
     exit 1
 fi
 if [[ -f $bundle/cache.dump ]]; then
-    timeout 300s pg_restore --single-transaction --no-owner --no-privileges --exit-on-error \
-        --dbname="$DATABASE_URL" "$bundle/cache.dump"
+    database pg_restore --single-transaction --no-owner --no-privileges --exit-on-error "$bundle/cache.dump"
 fi
 id zolana_gpu >/dev/null 2>&1 || useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin zolana_gpu
-install -d -m 0750 -o root -g zolana_gpu "$deployment" "$deployment/releases"
-install -d -m 0750 -o zolana_gpu -g zolana_gpu "$deployment/keys" "$deployment/logs"
+install -d -m 0750 -o root -g zolana_gpu "$deployment" "$deployment/releases" "$deployment/logs"
+install -d -m 0750 -o zolana_gpu -g zolana_gpu "$deployment/keys"
 release="$deployment/releases/$revision"
 if [[ -d $release ]]; then
     cmp "$bundle/SHA256SUMS" "$release/SHA256SUMS"
@@ -88,14 +88,18 @@ if supervisorctl -c "$deployment/supervisord.conf" pid >/dev/null 2>&1; then
 else
     supervisord -c "$deployment/supervisord.conf"
 fi
-deadline=$((SECONDS + 360))
-for service in "http://127.0.0.1:${PHOTON_PORT:-8784}/readiness" "http://${PROVER_ADDRESS:-127.0.0.1:3003}/ready"; do
+# Photon readiness includes its migration timeout.
+deadline=$((SECONDS + 900 + 360))
+for check in "photon http://127.0.0.1:${PHOTON_PORT:-8784}/readiness" "prover http://${PROVER_ADDRESS:-127.0.0.1:3003}/ready"; do
+    read -r service url <<< "$check"
     ready=false
     while ((SECONDS < deadline)); do
-        if curl -fsS --max-time 2 "$service" >/dev/null 2>&1; then
+        if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
             ready=true
             break
         fi
+        state=$(supervisorctl -c "$deployment/supervisord.conf" status "$service" || true)
+        [[ $state != *FATAL* ]] || break
         sleep 1
     done
     if [[ $ready == false ]]; then

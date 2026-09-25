@@ -1,6 +1,8 @@
 # Proof backend
 
-Gnark on CPU is the default. Set `PROVER_BACKEND=aeglos` to select the GPU engine.
+A build with the `aeglos` tag proves on the GPU engine by default. Other builds
+prove with Gnark on CPU. `PROVER_BACKEND` set to `gnark` or `aeglos` overrides
+the default, and startup logs the selected backend.
 The `start` and `prove` commands reject an unknown backend or an unavailable GPU.
 Transfers, P256 transfers, merges, custom rings, and forester proofs use the same
 backend boundary.
@@ -19,15 +21,18 @@ Run from the Zolana repository with Git access to Aeglos.
 tools/gpu/fetch-aeglos.sh target/aeglos-source
 docker buildx build --platform linux/amd64 \
   --build-context aeglos_source=target/aeglos-source \
+  --build-context repository=. \
   --build-arg CUDA_ARCH=sm_89 \
   --file prover/server/Dockerfile.aeglos \
   --tag zolana-prover:aeglos --load prover/server
 ```
 
-`CUDA_ARCH` defaults to `sm_89` for AWS L40S. Set it to `sm_120` for RTX 5090.
-The architecture must match the deployment GPU. Run the image with GPU access
-and mount the existing proving keys at `/proving-keys`. The mounted keys must
-be readable by UID 65532. The CPU Dockerfile remains independent of CUDA.
+`CUDA_ARCH` is required and must match the deployment GPU, `sm_89` for L4 or
+L40S and `sm_120` for RTX 5090. The `repository` context supplies the root
+license and third-party notices. Run the image with GPU access
+and mount the existing proving keys at `/proving-keys`. UID 65532 must be able
+to write that directory, because the default command downloads missing keys on
+first use. The CPU Dockerfile remains independent of CUDA.
 The [deployment guide](../../../../tools/gpu/README.md) also covers native builds
 and colocated Photon deployments on Vast and EC2.
 

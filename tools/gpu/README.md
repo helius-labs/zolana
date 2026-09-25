@@ -10,8 +10,10 @@ AWS_PROFILE=YOUR_PROFILE tools/gpu/aws.py deploy my-prover --with-indexer
 
 This creates an L4 `g6.2xlarge` in Frankfurt with the Aeglos prover, Photon,
 and PostgreSQL on one host. Photon starts from a copy of devnet-c and resumes
-indexing through its RPC. The command prints the HTTPS prover URL, `/indexer`
-URL, API key secret ARN, instance ID, and CloudWatch log group.
+indexing through the RPC URL in the `zolana-gpu/photon-rpc-url` secret in
+`--source-region`. Create that secret before the first indexer deployment. The
+command prints the HTTPS prover URL, `/indexer` URL, API key secret ARN,
+instance ID, and CloudWatch log group.
 
 The profile must use account `558215002830` and permit CloudFormation, EC2/VPC,
 IAM role creation and passing, CloudFront, SSM, S3, Secrets Manager, ECR reads,
@@ -24,8 +26,11 @@ required in the selected region.
 role and `PRIVATE_LIBS_TOKEN`, with read access to Aeglos. Wait for that workflow
 to finish. Deployment selects the newest complete release, pins both images by
 digest, and requires the same source commit. `--revision FULL_SHA` selects a
-specific published commit. Local CUDA, Docker, Go, Rust, and Aeglos access are
-not required. Manual workflow runs on other branches publish preview images.
+specific published commit. Release commits must be on the local `origin/main`,
+so fetch it before deploying. The GitHub CLI checks that each image carries a
+`publish-gpu` attestation from its commit, made on `main` for a release, so
+install `gh` and log in with `gh auth login`. Local CUDA, Docker, Go, Rust, and Aeglos
+access are not required. Manual workflow runs on other branches publish preview images.
 Select them with `--preview --revision FULL_SHA`. Default deployments exclude
 previews.
 
@@ -88,10 +93,14 @@ CUDA_ARCH=sm_120 tools/gpu/build.sh target/gpu-bundle
 
 Use `sm_89` for L4 or L40S, `sm_120` for RTX 5090, and `sm_100` for B200.
 Without `CUDA_ARCH`, the build reads the first local GPU. Installation checks
-the target GPU against the bundle. `GOAMD64` defaults to `v3` and can be set to
-`v1` for CPUs without AVX2. Build from a clean checkout. The bundle records the
-Zolana commit and file digests. Build and target hosts need compatible system
-libraries. Each release directory accepts one bundle digest.
+the target GPU against the bundle. `prover/server/build-aeglos.sh` builds the
+prover for this bundle and for `Dockerfile.aeglos`. It fails before the CUDA
+build when Aeglos changes the gnark or gnark-crypto version of the prover
+module. It compiles through `build-release.sh` with `GOAMD64` from
+`PROVER_GPU_GOAMD64` in `release-build.env`. Set `GOAMD64=v1` for a host CPU
+without AVX2. Build from a clean checkout. The bundle records the Zolana commit
+and file digests. Build and target hosts need compatible system libraries. Each
+release directory accepts one bundle digest.
 
 ## Deploy
 
@@ -102,6 +111,12 @@ trusted shell input. Keep the same `DEPLOYMENT_NAME` for upgrades.
 Database URLs require a loopback IP and cannot contain connection query options.
 Upgrades preserve the database host, port, name, and user. Password rotation is
 allowed.
+
+The prover receives every `PROVER_*` and `AEGLOS_*` variable from the file,
+plus `GOMAXPROCS`, `GOMEMLIMIT`, `GOGC`, `GODEBUG`, and `CUDA_VISIBLE_DEVICES`.
+Photon receives `TOKIO_WORKER_THREADS` and `RUST_LOG`, and its migration
+receives `DATABASE_URL`. The service scripts read the other variables without
+exporting them.
 
 ```sh
 SSH_PORT=40056 SSH_KEY=~/.ssh/vast_key \

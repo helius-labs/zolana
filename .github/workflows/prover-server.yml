@@ -6,6 +6,8 @@ on:
     paths:
       - "prover/**"
       - "tools/gpu/**"
+      - "tools/check-photon-image.sh"
+      - ".github/workflows/publish-gpu.yml"
       - "xtask/**"
       - ".github/workflows/prover-server.yml"
       - ".github/actions/setup-rust/**"
@@ -14,6 +16,8 @@ on:
     paths:
       - "prover/**"
       - "tools/gpu/**"
+      - "tools/check-photon-image.sh"
+      - ".github/workflows/publish-gpu.yml"
       - "xtask/**"
       - ".github/workflows/prover-server.yml"
       - ".github/actions/setup-rust/**"
@@ -34,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck tools/gpu/*.sh
+      - run: shellcheck tools/gpu/*.sh tools/check-photon-image.sh prover/server/build-aeglos.sh
       - run: python3 -m unittest discover -s tools/gpu -p 'test_*.py'
         env:
           GPU_GATEWAY_TEST: '1'

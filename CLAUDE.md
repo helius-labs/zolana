@@ -619,6 +619,16 @@ alias, refuses to overwrite either, and does not publish `latest`. The imported
 crate version in `services/photon/Cargo.toml` is upstream source provenance, not
 the Zolana fork's release identifier.
 
+`publish-gpu.yml` is a second Photon channel, for GPU deployments only. A push
+to `main` that changes its inputs publishes `zolana-photon:gpu-<commit>` and
+the Aeglos prover `zolana-prover:gpu-sm89-<commit>` from the same commit. A
+dispatch from another branch publishes `gpu-preview-` tags. These images are
+not Photon releases. `tools/gpu/aws.py` pins the prover, and Photon with
+`--with-indexer`, by digest from one commit and, without `--preview`, accepts
+only a commit on `main`. A `publish-image.yml` preview refuses `gpu-` tags.
+Both workflows run `tools/check-photon-image.sh` before they push and attest
+what they push.
+
 Before archiving the standalone Photon repository, update external deployment
 configuration that consumes its old `<run>-<sha>` or `latest` tags to use a new
 immutable `photon-zolana-*` or `sha-*` tag from this repository. Keep the

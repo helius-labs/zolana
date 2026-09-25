@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,12 +15,14 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from aws_host import POSTGRES
+from aws_host import CUDA_ARCH, GPUS, POSTGRES
 from aws_stack import template
 
 HERE = Path(__file__).resolve().parent
 REGISTRY_ACCOUNT = "558215002830"
 IMAGE_REGION = "eu-north-1"
+RPC_SECRET = "zolana-gpu/photon-rpc-url"
+REPOSITORY = "helius-labs/zolana"
 OWNER = {"Key": "zolana-tool", "Value": "gpu-deploy"}
 
 
@@ -148,9 +152,9 @@ def image_pair(aws, revision=None, with_indexer=False, preview=False):
                     found[tag[len(prefix) :]] = image
         return found
 
-    prefix = "gpu-preview" if preview else "gpu"
-    provers = entries("zolana-prover", prefix + "-sm89-")
-    photons = entries("zolana-photon", prefix + "-") if with_indexer else {}
+    channel = "gpu-preview" if preview else "gpu"
+    provers = entries("zolana-prover", tag_prefix(channel, CUDA_ARCH))
+    photons = entries("zolana-photon", tag_prefix(channel)) if with_indexer else {}
     candidates = set(provers) & set(photons) if with_indexer else set(provers)
     if revision:
         candidates &= {revision}
@@ -159,16 +163,87 @@ def image_pair(aws, revision=None, with_indexer=False, preview=False):
             "No published GPU release found. Wait for publish-gpu on main to finish"
         )
     selected = max(candidates, key=lambda sha: provers[sha]["imagePushedAt"])
+    if not preview and not on_main(selected):
+        raise RuntimeError(
+            f"Release {selected} is not on origin/main. Fetch origin main and retry"
+        )
     registry = f"{REGISTRY_ACCOUNT}.dkr.ecr.{IMAGE_REGION}.amazonaws.com"
-    result = {
-        "revision": selected,
-        "prover_image": f"{registry}/zolana-prover@{provers[selected]['imageDigest']}",
+    images = {
+        "prover_image": f"{registry}/zolana-prover@{provers[selected]['imageDigest']}"
     }
     if with_indexer:
-        result["photon_image"] = (
+        images["photon_image"] = (
             f"{registry}/zolana-photon@{photons[selected]['imageDigest']}"
         )
-    return result
+    verify_attestations(
+        aws,
+        list(images.values()),
+        selected,
+        source_ref=None if preview else "refs/heads/main",
+    )
+    return {"revision": selected, **images}
+
+
+def tag_prefix(channel, cuda_arch=None):
+    return f"{channel}-{cuda_arch.replace('_', '')}-" if cuda_arch else f"{channel}-"
+
+
+def verify_attestations(aws, images, revision, source_ref=None):
+    gh = shutil.which("gh")
+    if gh is None:
+        raise RuntimeError(
+            "Deployments verify image attestations with the GitHub CLI. Install gh and run gh auth login"
+        )
+    token = aws.command("ecr", "get-login-password").strip()
+    auth = base64.b64encode(f"AWS:{token}".encode()).decode()
+    with tempfile.TemporaryDirectory() as config:
+        Path(config, "config.json").write_text(
+            json.dumps({"auths": {images[0].split("/")[0]: {"auth": auth}}})
+        )
+        for image in images:
+            result = subprocess.run(
+                [
+                    gh,
+                    "attestation",
+                    "verify",
+                    "oci://" + image,
+                    "--repo",
+                    REPOSITORY,
+                    "--signer-workflow",
+                    f"{REPOSITORY}/.github/workflows/publish-gpu.yml",
+                    "--source-digest",
+                    revision,
+                    *(["--source-ref", source_ref] if source_ref else []),
+                ],
+                env={**os.environ, "DOCKER_CONFIG": config},
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            if result.returncode:
+                origin = "main commit" if source_ref else "commit"
+                raise RuntimeError(
+                    f"Could not verify a publish-gpu attestation for {image} from {origin} {revision}. {result.stderr.strip()}"
+                )
+
+
+def on_main(revision):
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(HERE),
+            "merge-base",
+            "--is-ancestor",
+            revision,
+            "origin/main",
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def discover_source(aws, cluster, service):
@@ -184,22 +259,20 @@ def discover_source(aws, cluster, service):
             item["name"]: item["valueFrom"] for item in container.get("secrets", [])
         }
         if {"DATABASE_URL", "PHOTON_RPC_URL"} <= secrets.keys():
-            if any(
-                len(secrets[key].split(":")) != 7
-                or ":secretsmanager:" not in secrets[key]
-                for key in ("DATABASE_URL", "PHOTON_RPC_URL")
-            ):
+            database = secrets["DATABASE_URL"]
+            if len(database.split(":")) != 7 or ":secretsmanager:" not in database:
                 raise RuntimeError(
-                    "Source must use Secrets Manager string secrets without JSON selectors"
+                    "Source database must use a Secrets Manager string secret without a JSON selector"
                 )
             return {
                 "cluster": cluster,
                 "service": service,
                 "network": source["networkConfiguration"],
-                "database_secret": secrets["DATABASE_URL"],
-                "rpc_secret": secrets["PHOTON_RPC_URL"],
+                "database_secret": database,
             }
-    raise RuntimeError("Source task has no Photon database and RPC secrets")
+    raise RuntimeError(
+        "Source task has no container with DATABASE_URL and PHOTON_RPC_URL secrets"
+    )
 
 
 def configuration(args, aws):
@@ -227,10 +300,10 @@ def configuration(args, aws):
     gpus = info.get("GpuInfo", {}).get("Gpus", [])
     if (
         not gpus
-        or any(gpu["Name"] not in ("L4", "L40S") for gpu in gpus)
+        or any(gpu["Name"] not in GPUS for gpu in gpus)
         or "x86_64" not in info["ProcessorInfo"]["SupportedArchitectures"]
     ):
-        raise ValueError("Select an x86 EC2 instance with L4 or L40S GPUs")
+        raise ValueError(f"Select an x86 EC2 instance with {' or '.join(GPUS)} GPUs")
     offers = aws.call(
         "ec2",
         "describe-instance-type-offerings",
@@ -288,13 +361,25 @@ def configuration(args, aws):
         )
     )
     if with_indexer:
+        source = Aws(source_region, args.profile)
         config["source"] = discover_source(
-            Aws(source_region, args.profile),
+            source,
             args.source_cluster or "zolnet-devnet-c",
             args.source_service or "zolnet-devnet-c-photon-api",
         )
-        config["rpc_secret"] = config["source"]["rpc_secret"]
+        config["rpc_secret"] = rpc_secret(source)
     return config
+
+
+def rpc_secret(aws):
+    try:
+        return aws.call("secretsmanager", "describe-secret", SecretId=RPC_SECRET)["ARN"]
+    except AwsError as error:
+        if "ResourceNotFoundException" not in str(error):
+            raise
+        raise RuntimeError(
+            f"Create the {RPC_SECRET} secret in {aws.region} with the Photon RPC URL"
+        ) from None
 
 
 def export_cache(aws, config, out, name):
@@ -303,9 +388,9 @@ def export_cache(aws, config, out, name):
     command = """set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends awscli ca-certificates >/dev/null
+apt-get install -y -qq --no-install-recommends awscli ca-certificates python3 >/dev/null
 export PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=120000 -c lock_timeout=1000'
-timeout 300 pg_dump "$DATABASE_URL" --format=custom --compress=1 --no-owner --no-privileges --lock-wait-timeout=1s --file=/tmp/photon.dump
+timeout 300 python3 -c "$VALIDATE" pg_dump --format=custom --compress=1 --no-owner --no-privileges --lock-wait-timeout=1s --file=/tmp/photon.dump
 unset DATABASE_URL PGOPTIONS
 timeout 300 aws s3 cp /tmp/photon.dump "$DESTINATION" --region "$DESTINATION_REGION" --only-show-errors
 """
@@ -317,8 +402,8 @@ timeout 300 aws s3 cp /tmp/photon.dump "$DESTINATION" --region "$DESTINATION_REG
         RequiresCompatibilities=["FARGATE"],
         Cpu="1024",
         Memory="2048",
-        ExecutionRoleArn=out["ExportRole"],
-        TaskRoleArn=out["ExportRole"],
+        ExecutionRoleArn=out["ExportExecutionRole"],
+        TaskRoleArn=out["ExportTaskRole"],
         RuntimePlatform={"cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX"},
         ContainerDefinitions=[
             {
@@ -344,6 +429,7 @@ timeout 300 aws s3 cp /tmp/photon.dump "$DESTINATION" --region "$DESTINATION_REG
                         "value": f"s3://{out['Bucket']}/cache/photon.dump",
                     },
                     {"name": "DESTINATION_REGION", "value": config["region"]},
+                    {"name": "VALIDATE", "value": (HERE / "validate.py").read_text()},
                 ],
             }
         ],

@@ -1,5 +1,7 @@
 import argparse
+import base64
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -10,6 +12,10 @@ from unittest.mock import Mock, patch
 import aws
 import aws_host
 import aws_stack
+
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/publish-gpu.yml"
+PROVER = aws.tag_prefix("gpu", aws_host.CUDA_ARCH)
+PREVIEW = aws.tag_prefix("gpu-preview", aws_host.CUDA_ARCH)
 
 
 def config(with_indexer=True):
@@ -39,12 +45,13 @@ def config(with_indexer=True):
     }
     if with_indexer:
         result["rpc_secret"] = (
-            "arn:aws:secretsmanager:eu-north-1:558215002830:secret:rpc-123456"
+            "arn:aws:secretsmanager:eu-north-1:558215002830:secret:"
+            + aws.RPC_SECRET
+            + "-123456"
         )
         result["source"] = {
             "cluster": "zolnet-devnet-c",
             "service": "photon",
-            "rpc_secret": result["rpc_secret"],
             "database_secret": "arn:aws:secretsmanager:eu-north-1:558215002830:secret:database-123456",
             "network": {
                 "awsvpcConfiguration": {
@@ -59,7 +66,8 @@ def config(with_indexer=True):
 
 def stack_outputs():
     return {
-        "ExportRole": "arn:aws:iam::558215002830:role/isolated-export",
+        "ExportExecutionRole": "arn:aws:iam::558215002830:role/isolated-export-execution",
+        "ExportTaskRole": "arn:aws:iam::558215002830:role/isolated-export-task",
         "Bucket": "isolated-assets",
         "LogGroup": "isolated-logs",
         "ApiKeySecret": "isolated-api-key",
@@ -69,17 +77,95 @@ def stack_outputs():
     }
 
 
+def host_install(
+    directory, calls, secret=lambda arn, region: "secret", migration="0", objects="0"
+):
+    (directory / "cache.dump").touch()
+
+    def run(*args, **kwargs):
+        env_file = (
+            Path(args[args.index("--env-file") + 1]) if "--env-file" in args else None
+        )
+        calls.append(
+            {
+                "argv": list(args),
+                "env": dict(
+                    line.split("=", 1) for line in env_file.read_text().splitlines()
+                )
+                if env_file
+                else {},
+            }
+        )
+        if args[0] == "nvidia-smi":
+            return f"{aws_host.CUDA_ARCH[3:-1]}.{aws_host.CUDA_ARCH[-1]}"
+        if "psql" in args:
+            return objects
+        if args[:3] == ("docker", "wait", "migration"):
+            return migration
+        return ""
+
+    with (
+        patch.object(aws_host, "ROOT", directory),
+        patch.object(aws_host, "run", side_effect=run),
+        patch.object(aws_host, "secret", side_effect=secret),
+        patch.object(aws_host, "healthy"),
+        patch.object(aws_host.os, "chown"),
+        patch.object(
+            aws_host.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ),
+    ):
+        aws_host.install(dict(config(), outputs=stack_outputs()))
+
+
+def workflow_step(name):
+    lines = WORKFLOW.read_text().splitlines()
+    start = lines.index(f"      - name: {name}")
+    run = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    indent = len(lines[run]) - len(lines[run].lstrip()) + 2
+    body = []
+    for line in lines[run + 1 :]:
+        if line.strip() and not line.startswith(" " * indent):
+            break
+        body.append(line[indent:])
+    return "\n".join(body)
+
+
 class StackTests(unittest.TestCase):
-    def test_target_cannot_read_source_database(self):
+    def test_target_cannot_read_source_secrets(self):
         settings = config()
         resources = aws_stack.template(settings)["Resources"]
-        host = json.dumps(resources["HostRole"])
-        self.assertNotIn(settings["source"]["database_secret"], host)
-        self.assertIn(settings["rpc_secret"], host)
-        self.assertIn(
-            settings["source"]["database_secret"], json.dumps(resources["ExportRole"])
+        statements = resources["HostRole"]["Properties"]["Policies"][0][
+            "PolicyDocument"
+        ]["Statement"]
+        secrets = next(
+            s["Resource"]
+            for s in statements
+            if s["Action"] == ["secretsmanager:GetSecretValue"]
         )
+        self.assertEqual(
+            secrets,
+            [{"Ref": "ApiKey"}, settings["rpc_secret"], {"Ref": "DatabasePassword"}],
+        )
+        database = settings["source"]["database_secret"]
+        self.assertIn(database, json.dumps(resources["ExportExecutionRole"]))
+        self.assertNotIn(database, json.dumps(resources["ExportTaskRole"]))
+        self.assertNotIn("s3:", json.dumps(resources["ExportExecutionRole"]))
         self.assertLess(len(json.dumps(settings, sort_keys=True)), 4096)
+
+    def test_rpc_secret_resolves_dedicated_name(self):
+        client = Mock(region="eu-north-1")
+        client.call.return_value = {"ARN": config()["rpc_secret"]}
+        self.assertEqual(aws.rpc_secret(client), config()["rpc_secret"])
+        client.call.assert_called_once_with(
+            "secretsmanager", "describe-secret", SecretId="zolana-gpu/photon-rpc-url"
+        )
+        client.call.side_effect = aws.AwsError("ResourceNotFoundException")
+        with self.assertRaisesRegex(
+            RuntimeError, "Create the zolana-gpu/photon-rpc-url"
+        ):
+            aws.rpc_secret(client)
 
     def test_only_gateway_accepts_ingress(self):
         resources = aws_stack.template(config())["Resources"]
@@ -112,19 +198,21 @@ class StackTests(unittest.TestCase):
         self.assertNotIn("database", json.dumps(resources["HostRole"]).lower())
 
 
-class DeployTests(unittest.TestCase):
-    def test_preview_images_require_explicit_selection(self):
+@patch.object(aws, "verify_attestations")
+@patch.object(aws, "on_main", return_value=True)
+class ImageTests(unittest.TestCase):
+    def test_preview_images_require_explicit_selection(self, *_):
         revision, preview_revision = "a" * 40, "b" * 40
         client = Mock()
         client.call.return_value = {
             "imageDetails": [
                 {
-                    "imageTags": ["gpu-sm89-" + revision],
+                    "imageTags": [PROVER + revision],
                     "imageDigest": "sha256:release",
                     "imagePushedAt": 1,
                 },
                 {
-                    "imageTags": ["gpu-preview-sm89-" + preview_revision],
+                    "imageTags": [PREVIEW + preview_revision],
                     "imageDigest": "sha256:preview",
                     "imagePushedAt": 2,
                 },
@@ -137,6 +225,164 @@ class DeployTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "No published"):
             aws.image_pair(client, preview_revision)
+
+    def test_images_share_revision_and_pin_digests(self, _, verify):
+        client = Mock()
+        old, new = "a" * 40, "b" * 40
+        client.call.side_effect = [
+            {
+                "imageDetails": [
+                    {
+                        "imageTags": [PROVER + old],
+                        "imageDigest": "sha256:old",
+                        "imagePushedAt": 1,
+                    },
+                    {
+                        "imageTags": [PROVER + new],
+                        "imageDigest": "sha256:new",
+                        "imagePushedAt": 2,
+                    },
+                ]
+            },
+            {
+                "imageDetails": [
+                    {
+                        "imageTags": [aws.tag_prefix("gpu") + old],
+                        "imageDigest": "sha256:photon",
+                        "imagePushedAt": 1,
+                    }
+                ]
+            },
+        ]
+        result = aws.image_pair(client, with_indexer=True)
+        self.assertEqual(result["revision"], old)
+        self.assertTrue(result["prover_image"].endswith("@sha256:old"))
+        self.assertTrue(result["photon_image"].endswith("@sha256:photon"))
+        verify.assert_called_once_with(
+            client,
+            [result["prover_image"], result["photon_image"]],
+            old,
+            source_ref="refs/heads/main",
+        )
+
+    def test_release_must_be_on_main(self, on_main, verify):
+        revision = "a" * 40
+        client = Mock()
+        client.call.return_value = {
+            "imageDetails": [
+                {
+                    "imageTags": [
+                        PROVER + revision,
+                        PREVIEW + revision,
+                    ],
+                    "imageDigest": "sha256:branch",
+                    "imagePushedAt": 1,
+                }
+            ]
+        }
+        on_main.return_value = False
+        for selected in (None, revision):
+            with self.assertRaisesRegex(RuntimeError, "not on origin/main"):
+                aws.image_pair(client, selected)
+        self.assertEqual(
+            aws.image_pair(client, revision, preview=True)["revision"], revision
+        )
+        self.assertEqual(on_main.call_count, 2)
+        verify.assert_called_once()
+        self.assertEqual(verify.call_args.args[2], revision)
+        self.assertIsNone(verify.call_args.kwargs["source_ref"])
+
+
+class AttestationTests(unittest.TestCase):
+    image = (
+        "558215002830.dkr.ecr.eu-north-1.amazonaws.com/zolana-prover@sha256:" + "a" * 64
+    )
+
+    def verify(self, calls, source_ref=None, returncode=0):
+        def gh(argv, env, **kwargs):
+            config = Path(env["DOCKER_CONFIG"])
+            calls.append(
+                {
+                    "argv": argv,
+                    "config": config,
+                    "auths": json.loads((config / "config.json").read_text())["auths"],
+                }
+            )
+            return subprocess.CompletedProcess(argv, returncode, "", "denied")
+
+        client = Mock()
+        client.command.return_value = "ecr-token\n"
+        with (
+            patch.object(aws.shutil, "which", return_value="/usr/bin/gh"),
+            patch.object(aws.subprocess, "run", side_effect=gh),
+        ):
+            aws.verify_attestations(
+                client, [self.image], "c" * 40, source_ref=source_ref
+            )
+        return client
+
+    def test_release_attestation_binds_main_commit(self):
+        calls = []
+        client = self.verify(calls, source_ref="refs/heads/main")
+        client.command.assert_called_once_with("ecr", "get-login-password")
+        (call,) = calls
+        argv = call["argv"]
+        self.assertEqual(
+            argv[:4], ["/usr/bin/gh", "attestation", "verify", "oci://" + self.image]
+        )
+        for flag, value in (
+            ("--repo", "helius-labs/zolana"),
+            (
+                "--signer-workflow",
+                "helius-labs/zolana/.github/workflows/publish-gpu.yml",
+            ),
+            ("--source-ref", "refs/heads/main"),
+            ("--source-digest", "c" * 40),
+        ):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        self.assertNotIn("ecr-token", " ".join(argv))
+        auth = call["auths"][self.image.split("/")[0]]["auth"]
+        self.assertEqual(base64.b64decode(auth), b"AWS:ecr-token")
+        self.assertFalse(call["config"].exists())
+
+    def test_preview_attestation_binds_commit(self):
+        calls = []
+        self.verify(calls)
+        argv = calls[0]["argv"]
+        self.assertEqual(
+            argv[argv.index("--signer-workflow") + 1],
+            "helius-labs/zolana/.github/workflows/publish-gpu.yml",
+        )
+        self.assertEqual(argv[argv.index("--source-digest") + 1], "c" * 40)
+        self.assertNotIn("--source-ref", argv)
+
+    def test_unattested_image_is_rejected(self):
+        calls = []
+        with self.assertRaisesRegex(
+            RuntimeError, "Could not verify a publish-gpu attestation"
+        ):
+            self.verify(calls, source_ref="refs/heads/main", returncode=1)
+        self.assertFalse(calls[0]["config"].exists())
+
+    def test_verification_requires_github_cli(self):
+        with (
+            patch.object(aws.shutil, "which", return_value=None),
+            self.assertRaisesRegex(RuntimeError, "Install gh"),
+        ):
+            aws.verify_attestations(Mock(), [self.image], "c" * 40)
+
+
+class DeployTests(unittest.TestCase):
+    def test_main_ancestry_uses_git(self):
+        revision = "a" * 40
+        with patch.object(
+            aws.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)
+        ) as git:
+            self.assertFalse(aws.on_main(revision))
+        self.assertEqual(
+            git.call_args.args[0][3:],
+            ["merge-base", "--is-ancestor", revision, "origin/main"],
+        )
 
     def test_api_input_casing(self):
         client = aws.Aws("eu-central-1")
@@ -155,43 +401,11 @@ class DeployTests(unittest.TestCase):
                 json.loads(command.call_args.args[3]), {"StackName": "target"}
             )
 
-    def test_images_share_revision_and_pin_digests(self):
-        client = Mock()
-        old, new = "a" * 40, "b" * 40
-        client.call.side_effect = [
-            {
-                "imageDetails": [
-                    {
-                        "imageTags": ["gpu-sm89-" + old],
-                        "imageDigest": "sha256:old",
-                        "imagePushedAt": 1,
-                    },
-                    {
-                        "imageTags": ["gpu-sm89-" + new],
-                        "imageDigest": "sha256:new",
-                        "imagePushedAt": 2,
-                    },
-                ]
-            },
-            {
-                "imageDetails": [
-                    {
-                        "imageTags": ["gpu-" + old],
-                        "imageDigest": "sha256:photon",
-                        "imagePushedAt": 1,
-                    }
-                ]
-            },
-        ]
-        result = aws.image_pair(client, with_indexer=True)
-        self.assertEqual(result["revision"], old)
-        self.assertTrue(result["prover_image"].endswith("@sha256:old"))
-        self.assertTrue(result["photon_image"].endswith("@sha256:photon"))
-
     def test_source_discovery_reads_only_metadata(self):
         client = Mock()
         settings = config()
         source = settings["source"]
+        devnet_rpc = "arn:aws:secretsmanager:eu-north-1:558215002830:secret:rpc-123456"
         client.call.side_effect = [
             {
                 "services": [
@@ -212,7 +426,7 @@ class DeployTests(unittest.TestCase):
                                 },
                                 {
                                     "name": "PHOTON_RPC_URL",
-                                    "valueFrom": source["rpc_secret"],
+                                    "valueFrom": devnet_rpc,
                                 },
                             ]
                         }
@@ -306,11 +520,15 @@ class DeployTests(unittest.TestCase):
         def call(service, operation, **parameters):
             if operation == "register-task-definition":
                 self.assertEqual(
-                    parameters["ExecutionRoleArn"], stack_outputs()["ExportRole"]
+                    parameters["ExecutionRoleArn"],
+                    stack_outputs()["ExportExecutionRole"],
+                )
+                self.assertEqual(
+                    parameters["TaskRoleArn"], stack_outputs()["ExportTaskRole"]
                 )
                 script = parameters["ContainerDefinitions"][0]["command"][0]
                 self.assertIn("default_transaction_read_only=on", script)
-                self.assertIn("timeout 300 pg_dump", script)
+                self.assertIn('timeout 300 python3 -c "$VALIDATE" pg_dump', script)
                 self.assertIn("--lock-wait-timeout=1s", script)
                 return {"taskDefinition": {"taskDefinitionArn": "owned-definition"}}
             if operation == "run-task":
@@ -386,90 +604,47 @@ class HostTests(unittest.TestCase):
                 self.subTest(migration_status=migration_status),
                 tempfile.TemporaryDirectory() as directory,
             ):
-                settings = dict(config(), outputs=stack_outputs())
                 calls = []
-                (Path(directory) / "cache.dump").touch()
-
-                def run(
-                    *args, calls=calls, migration_status=migration_status, **kwargs
-                ):
-                    calls.append(args)
-                    if args[0] == "nvidia-smi":
-                        return "8.9"
-                    if "psql" in args:
-                        return "0"
-                    if args[:3] == ("docker", "wait", "migration"):
-                        return migration_status
-                    return ""
-
-                with (
-                    patch.object(aws_host, "ROOT", Path(directory)),
-                    patch.object(aws_host, "run", side_effect=run),
-                    patch.object(aws_host, "secret", return_value="secret"),
-                    patch.object(aws_host, "healthy"),
-                    patch.object(aws_host.os, "chown"),
-                    patch.object(
-                        aws_host.subprocess,
-                        "run",
-                        return_value=subprocess.CompletedProcess([], 0),
-                    ),
-                ):
-                    if migration_status == "0":
-                        aws_host.install(settings)
-                    else:
-                        with self.assertRaisesRegex(RuntimeError, "migration failed"):
-                            aws_host.install(settings)
+                if migration_status == "0":
+                    host_install(Path(directory), calls)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "migration failed"):
+                        host_install(Path(directory), calls, migration="1")
+                commands = [call["argv"] for call in calls]
                 restore = next(
-                    i for i, call in enumerate(calls) if "pg_restore" in call
+                    i for i, argv in enumerate(commands) if "pg_restore" in argv
                 )
                 migrate = next(
-                    i for i, call in enumerate(calls) if "photon-migration" in call
+                    i for i, argv in enumerate(commands) if "photon-migration" in argv
                 )
                 self.assertLess(restore, migrate)
-                photon = [i for i, call in enumerate(calls) if "--db-url" in call]
+                photon = [i for i, argv in enumerate(commands) if "--db-url" in argv]
                 self.assertEqual(len(photon), int(migration_status == "0"))
                 if photon:
                     self.assertLess(migrate, photon[0])
-                    prover = next(call for call in calls if "--prover-address" in call)
-                    self.assertIn("--auto-download", prover)
-                migration_env = Path(directory, "migration.env").read_text()
                 self.assertEqual(
-                    migration_env,
-                    "DATABASE_URL=postgres://photon:secret@127.0.0.1:5432/photon\n",
+                    calls[migrate]["env"],
+                    {"DATABASE_URL": "postgres://photon:secret@127.0.0.1:5432/photon"},
                 )
+                self.assertEqual(list(Path(directory).glob("*.env")), [])
                 self.assertTrue((Path(directory) / "restored").exists())
 
     def test_restore_rejects_nonempty_target_without_marker(self):
-        settings = dict(config(), outputs=stack_outputs())
         calls = []
-
-        def run(*args, **kwargs):
-            calls.append(args)
-            if args[0] == "nvidia-smi":
-                return "8.9"
-            if "psql" in args:
-                return "1"
-            return ""
-
         with (
             tempfile.TemporaryDirectory() as directory,
-            patch.object(aws_host, "ROOT", Path(directory)),
-            patch.object(aws_host, "run", side_effect=run),
-            patch.object(aws_host, "secret", return_value="password"),
-            patch.object(
-                aws_host.subprocess,
-                "run",
-                return_value=subprocess.CompletedProcess([], 0),
-            ),
             self.assertRaisesRegex(RuntimeError, "not empty"),
         ):
-            aws_host.install(settings)
-        self.assertFalse(any("pg_restore" in call for call in calls))
-        self.assertFalse(any("s3" in call for call in calls))
+            host_install(Path(directory), calls, objects="1")
+        self.assertFalse(any("pg_restore" in call["argv"] for call in calls))
+        self.assertFalse(any("s3" in call["argv"] for call in calls))
 
     def test_environment_rejects_line_injection(self):
-        with self.assertRaisesRegex(ValueError, "one line"):
-            aws_host.environment("secrets.env", {"KEY": "value\nINJECTED=1"})
+        with (
+            self.assertRaisesRegex(ValueError, "one line"),
+            aws_host.environment("secrets.env", {"KEY": "value\nINJECTED=1"}),
+        ):
+            pass
 
     def test_gateway_keeps_auth_internal_for_both_routes(self):
         text = aws_host.gateway(True)
@@ -478,6 +653,53 @@ class HostTests(unittest.TestCase):
         self.assertIn("proxy_pass http://127.0.0.1:3003/auth", text)
         self.assertIn("proxy_pass http://127.0.0.1:8784/", text)
         self.assertNotIn("8784", aws_host.gateway(False))
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_published_tags_match_deployment_selection(self):
+        self.assertEqual(
+            re.findall(r"^\s+cuda-arch: (\S+)$", WORKFLOW.read_text(), re.M),
+            [aws_host.CUDA_ARCH],
+        )
+        script = workflow_step("Resolve immutable image")
+        revision = "c" * 40
+        for service, cuda_arch, ref, prefix in (
+            ("prover", aws_host.CUDA_ARCH, "refs/heads/main", PROVER),
+            ("prover", aws_host.CUDA_ARCH, "refs/heads/feature", PREVIEW),
+            ("photon", "", "refs/heads/main", aws.tag_prefix("gpu")),
+        ):
+            with (
+                self.subTest(service=service, ref=ref),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                registry = root / "aws"
+                registry.write_text("#!/bin/sh\necho ImageNotFoundException\nexit 1\n")
+                registry.chmod(0o755)
+                output = root / "output"
+                subprocess.run(
+                    ["bash", "-eo", "pipefail", "-c", script],
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                    env={
+                        "PATH": f"{root}:/usr/bin:/bin",
+                        "SERVICE": service,
+                        "CUDA_ARCH": cuda_arch,
+                        "GITHUB_REF": ref,
+                        "GITHUB_SHA": revision,
+                        "GITHUB_OUTPUT": str(output),
+                        "REGISTRY": "registry.invalid",
+                    },
+                )
+                values = dict(
+                    line.split("=", 1) for line in output.read_text().splitlines()
+                )
+                self.assertEqual(
+                    values["tag"],
+                    f"registry.invalid/zolana-{service}:{prefix}{revision}",
+                )
+                self.assertEqual(values["exists"], "false")
 
 
 if __name__ == "__main__":

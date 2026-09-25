@@ -12,21 +12,11 @@ output=$(cd "$1" && pwd)
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 "$root/tools/gpu/fetch-aeglos.sh" "$scratch"
-read -r _ archive < "$root/prover/server/prover/backend/aeglos-source.lock"
-mkdir "$scratch/aeglos"
-tar -xf "$scratch/$archive" -C "$scratch/aeglos"
 if [[ -z ${CUDA_ARCH:-} ]]; then
     capability=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1)
     CUDA_ARCH="sm_${capability//./}"
 fi
-[[ $CUDA_ARCH =~ ^sm_[0-9]+$ ]]
-make -C "$scratch/aeglos" -j "${BUILD_JOBS:-4}" ARCH="$CUDA_ARCH" PREFIX="$scratch/native" install
-export GOWORK="$scratch/go.work"
-(cd "$scratch" && go work init "$root/prover/server" "$scratch/aeglos")
-[[ -z $(go env GOFLAGS) ]]
-(cd "$root/prover/server" && CGO_ENABLED=1 GOAMD64="${GOAMD64:-v3}" \
-    CGO_LDFLAGS="-L$scratch/native/lib -L/usr/local/cuda/lib64" \
-    go build -tags aeglos -trimpath -pgo=auto -ldflags='-s -w -buildid=' -o "$output/light-prover" .)
+"$root/prover/server/build-aeglos.sh" "$scratch" "$CUDA_ARCH" "$output/light-prover"
 (cd "$root" && cargo build --locked --release -p photon-indexer --bin photon --bin photon-migration)
 target_dir=${CARGO_TARGET_DIR:-$root/target}
 [[ $target_dir == /* ]] || target_dir="$root/$target_dir"

@@ -1,6 +1,7 @@
 import json
 import os
-from urllib.parse import unquote, urlsplit
+import sys
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 
 def database_identity(value):
@@ -15,8 +16,25 @@ def database_identity(value):
     return json.dumps([url.hostname, url.port or 5432, unquote(url.path[1:]), unquote(url.username)])
 
 
+def without_password(value):
+    url = urlsplit(value)
+    user = "" if url.username is None else url.username + "@"
+    return urlunsplit(url._replace(netloc=user + url.netloc.rpartition("@")[2]))
+
+
+def run_libpq(tool, arguments):
+    value = os.environ.pop("DATABASE_URL")
+    password = urlsplit(value).password
+    if password is not None:
+        os.environ["PGPASSWORD"] = unquote(password)
+    os.execvp(tool, [tool, "--dbname=" + without_password(value), *arguments])
+
+
 if __name__ == "__main__":
-    try:
-        print(database_identity(os.environ["DATABASE_URL"]))
-    except (KeyError, ValueError):
-        raise SystemExit("Invalid local database configuration") from None
+    if len(sys.argv) > 1:
+        run_libpq(sys.argv[1], sys.argv[2:])
+    else:
+        try:
+            print(database_identity(os.environ["DATABASE_URL"]))
+        except (KeyError, ValueError):
+            raise SystemExit("Invalid local database configuration") from None
