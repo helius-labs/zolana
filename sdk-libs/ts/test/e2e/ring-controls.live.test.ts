@@ -350,6 +350,7 @@ describe("fresh ring controls", () => {
         if (record === null) throw new Error("spend record missing");
         return record;
       };
+      await expect.poll(senderRecord, { timeout: 120_000, interval: 250 }).toBeDefined();
       expect(
         (
           await indexedKeys(() =>
