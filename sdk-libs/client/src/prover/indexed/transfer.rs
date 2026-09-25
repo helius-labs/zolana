@@ -1,6 +1,6 @@
 use super::{
     hex_field, IndexedCircuit, IndexedLookup, IndexedProof, IndexedProofData, IndexedProofRequest,
-    IndexedTree,
+    IndexedTree, Request,
 };
 use crate::{
     authority::ProofAuthority,
@@ -9,7 +9,7 @@ use crate::{
         json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
         transact::assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
         verify::TransferProofStatement,
-        ProofCompressed, ProofInputUtxo, TransferInput,
+        ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo, TransferInput,
     },
     ClientError,
 };
@@ -385,32 +385,39 @@ impl PreparedIndexedTransfer {
         self
     }
 
-    pub fn request(&self) -> &IndexedProofRequest {
-        &self.request
-    }
-
     pub fn private_tx_hash(&self) -> [u8; 32] {
         self.data.private_tx_hash
     }
+}
 
-    pub fn finish(&self, proof: IndexedProof) -> Result<ProvenIndexedTransfer, ClientError> {
-        let proof = self.request.validate(proof)?;
+impl Request for PreparedIndexedTransfer {
+    type Output = ProvenIndexedTransfer;
+
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        self.request.body()
+    }
+
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        self.request.proving_key()
+    }
+
+    fn finish(
+        &self,
+        proof: Proof,
+        resolution: serde_json::Value,
+    ) -> Result<ProvenIndexedTransfer, ClientError> {
+        let IndexedProof { proof, resolution } = self.request.finish(proof, resolution)?;
         let mut data = self.data.clone();
-        let public_input_hash = proof.resolution.public_input_hash;
+        let public_input_hash = resolution.public_input_hash;
         // 2. Verify the resolved statement before exposing transaction bytes.
         TransferProofStatement {
             circuit: data.circuit,
             public_input_hash,
         }
-        .verify(&proof.proof)?;
-        data.tree_contexts = proof
-            .resolution
-            .trees
-            .iter()
-            .map(|tree| tree.context)
-            .collect();
-        let input_tree_ids = proof.resolution.trees.iter().map(|tree| tree.id).collect();
-        let proof = ProofCompressed::try_from(proof.proof)?;
+        .verify(&proof)?;
+        data.tree_contexts = resolution.trees.iter().map(|tree| tree.context).collect();
+        let input_tree_ids = resolution.trees.iter().map(|tree| tree.id).collect();
+        let proof = ProofCompressed::try_from(proof)?;
         match &mut data.circuit {
             CircuitId::RingP256(_, _, _, authorization)
             | CircuitId::RingP256Cached(_, _, _, authorization, _) => {

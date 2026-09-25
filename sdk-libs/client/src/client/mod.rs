@@ -18,7 +18,7 @@ use crate::{
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
-        indexed::{PreparedIndexedTransfer, ProvenIndexedTransfer},
+        indexed::{PreparedIndexedTransfer, ProofDataSource, ProvenIndexedTransfer},
         AsyncProverClient, ProverClient,
     },
     rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
@@ -40,8 +40,6 @@ use validation::check_service_url;
 /// carries its own ceiling and does not come through here.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
-pub use crate::prover::indexed::ProofDataSource;
-
 /// Unified client for private transaction proving and submission helpers.
 ///
 /// The caller should not have to thread Solana RPC, Photon, and prover handles
@@ -59,7 +57,6 @@ pub struct ZolanaClient<R> {
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
     indexer_config: IndexerRpcConfig,
-    proof_data_source: ProofDataSource,
 }
 
 impl<R> ZolanaClient<R> {
@@ -81,7 +78,6 @@ impl<R> ZolanaClient<R> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
-            proof_data_source: ProofDataSource::default(),
         }
     }
 
@@ -126,7 +122,6 @@ impl<R> ZolanaClient<R> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
-            proof_data_source: ProofDataSource::default(),
         }
     }
 
@@ -156,7 +151,10 @@ impl<R> ZolanaClient<R> {
 
     #[must_use]
     pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
-        self.proof_data_source = source;
+        self.async_prover = self.async_prover.with_proof_data_source(source);
+        if let Some(prover) = self.prover.take() {
+            self.prover = OnceLock::from(prover.with_proof_data_source(source));
+        }
         self
     }
 
@@ -165,9 +163,8 @@ impl<R> ZolanaClient<R> {
         preparation: TransferPreparation,
         authority: &dyn ProofAuthority,
     ) -> Result<ProvenIndexedTransfer, ClientError> {
-        let prepared = preparation.prepare(authority)?;
-        let proof = self.blocking_prover().prove_indexed(prepared.request())?;
-        prepared.finish(proof)
+        self.blocking_prover()
+            .prove_indexed(&preparation.prepare(authority)?)
     }
 
     async fn indexed_transfer_async(
@@ -175,9 +172,9 @@ impl<R> ZolanaClient<R> {
         preparation: TransferPreparation,
         authority: &dyn ProofAuthority,
     ) -> Result<ProvenIndexedTransfer, ClientError> {
-        let prepared = preparation.prepare(authority)?;
-        let proof = self.async_prover.prove_indexed(prepared.request()).await?;
-        prepared.finish(proof)
+        self.async_prover
+            .prove_indexed(&preparation.prepare(authority)?)
+            .await
     }
 
     pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
@@ -210,6 +207,7 @@ impl<R> ZolanaClient<R> {
                     .clone()
                     .expect("blocking prover URL is set when the client is deferred"),
             )
+            .with_proof_data_source(self.async_prover.proof_data_source())
         })
     }
 }

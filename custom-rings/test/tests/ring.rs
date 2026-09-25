@@ -2459,10 +2459,8 @@ fn advance_local_clock(rpc: &SolanaRpc, slot: u64) -> Result<()> {
         std::path::Path::new(&scope).is_dir(),
         "process scope is absent"
     );
-    let url = rpc.client().url();
-    let port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".into());
     anyhow::ensure!(
-        url == format!("http://127.0.0.1:{port}"),
+        rpc.client().url() == zolana_program_test::localnet::LocalnetPorts::checkout()?.rpc_url(),
         "RPC must match the scoped runtime port"
     );
     let _: serde_json::Value = rpc.client().send(

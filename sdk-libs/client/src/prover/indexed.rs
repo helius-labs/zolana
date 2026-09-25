@@ -2,10 +2,10 @@ mod deposit;
 pub use deposit::IndexedDepositRequest;
 mod policy;
 pub use policy::{IndexedPolicyData, IndexedPolicyLookup, IndexedPolicyRequest, IndexedRegistry};
-pub(crate) mod batch;
+mod batch;
 pub use batch::{BatchAnchor, IndexedBatchRequest, ProvenIndexedBatch};
 mod merge;
-pub use merge::{IndexedMergePreparation, PreparedIndexedMerge};
+pub use merge::{IndexedMergePreparation, PreparedIndexedMerge, ProvenIndexedMerge};
 
 mod transfer;
 pub use transfer::{
@@ -36,6 +36,36 @@ pub enum ProofDataSource {
     Client,
     #[default]
     Prover,
+}
+
+pub(crate) use sealed::Request;
+
+mod sealed {
+    use zeroize::Zeroizing;
+
+    use crate::{
+        prover::{Delivery, ExpectedProvingKey, Proof},
+        ClientError,
+    };
+
+    pub trait Request {
+        type Output;
+
+        fn body(&self) -> Result<Zeroizing<String>, ClientError>;
+
+        fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError>;
+
+        /// `None` takes the client's transfer rail.
+        fn delivery(&self) -> Option<Delivery> {
+            None
+        }
+
+        fn finish(
+            &self,
+            proof: Proof,
+            resolution: serde_json::Value,
+        ) -> Result<Self::Output, ClientError>;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -163,7 +193,8 @@ impl IndexedProofRequest {
             let slot = usize::from(lookup.tree_slot);
             if slot >= data.trees.len()
                 || input.paths_supplied()
-                || decode_field(&input.tree_slot)? != right_align_slice(&[lookup.tree_slot])?
+                || decode_field(&input.tree_slot).map_err(|_| invalid())?
+                    != right_align_slice(&[lookup.tree_slot])?
             {
                 return Err(invalid());
             }
@@ -238,10 +269,6 @@ impl IndexedProofRequest {
         })
     }
 
-    pub(crate) fn proving_key(&self) -> &ExpectedProvingKey {
-        &self.proving_key
-    }
-
     pub fn input_trees(&self) -> &[IndexedTree] {
         &self.data.trees
     }
@@ -251,8 +278,12 @@ impl IndexedProofRequest {
         self.min_context_slot = Some(slot);
         self
     }
+}
 
-    pub(crate) fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+impl Request for IndexedProofRequest {
+    type Output = IndexedProof;
+
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Envelope<'a> {
@@ -278,24 +309,32 @@ impl IndexedProofRequest {
         Ok(body)
     }
 
-    pub(crate) fn validate(&self, proof: IndexedProof) -> Result<IndexedProof, ClientError> {
-        let resolution = &proof.resolution;
-        if resolution.trees.len() != self.data.trees.len() {
-            return Err(invalid_resolution());
-        }
-        for (index, (expected, resolved)) in
-            self.data.trees.iter().zip(&resolution.trees).enumerate()
-        {
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        Ok(self.proving_key.clone())
+    }
+
+    fn finish(
+        &self,
+        proof: Proof,
+        resolution: serde_json::Value,
+    ) -> Result<IndexedProof, ClientError> {
+        let resolution = decode_resolution(resolution)?;
+        self.check(&resolution)?;
+        Ok(IndexedProof { proof, resolution })
+    }
+}
+
+impl IndexedProofRequest {
+    fn check(&self, resolution: &ProofResolution) -> Result<(), ClientError> {
+        resolution.check_trees(self.data.trees.iter().map(|tree| (tree.tree, tree.id)))?;
+        for (index, resolved) in resolution.trees.iter().enumerate() {
             let needs_state =
                 self.data.inputs.iter().any(|input| {
                     usize::from(input.tree_slot) == index && input.commitment.is_some()
                 });
             let no_state = resolved.context.utxo_tree_root_index
                 == zolana_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
-            if expected.tree != resolved.tree
-                || expected.id != resolved.id
-                || needs_state == no_state
-            {
+            if needs_state == no_state {
                 return Err(invalid_resolution());
             }
         }
@@ -303,7 +342,7 @@ impl IndexedProofRequest {
         if resolution.public_input_hash != resolution.hash(&self.data.public_inputs)? {
             return Err(invalid_resolution());
         }
-        Ok(proof)
+        Ok(())
     }
 }
 
@@ -343,6 +382,22 @@ impl ProofResolution {
         let mut transcript = public_inputs.to_vec();
         transcript.insert(2, tree_slots_hash_chain(&self.tree_slots()?)?);
         Ok(create_hash_chain_4_from_slice(&transcript)?)
+    }
+
+    fn check_trees(
+        &self,
+        expected: impl IntoIterator<Item = (Address, u16)>,
+    ) -> Result<(), ClientError> {
+        if self
+            .trees
+            .iter()
+            .map(|tree| (tree.tree, tree.id))
+            .eq(expected)
+        {
+            Ok(())
+        } else {
+            Err(invalid_resolution())
+        }
     }
 }
 
@@ -416,9 +471,8 @@ struct ResolvedTreeJson {
     nullifier_root_index: u16,
 }
 
-pub(crate) fn decode_resolution(value: &serde_json::Value) -> Result<ProofResolution, ClientError> {
-    let raw: ResolutionJson =
-        serde_json::from_value(value.clone()).map_err(|_| invalid_resolution())?;
+fn decode_resolution(value: serde_json::Value) -> Result<ProofResolution, ClientError> {
+    let raw: ResolutionJson = serde_json::from_value(value).map_err(|_| invalid_resolution())?;
     let trees = raw
         .trees
         .into_iter()
@@ -435,12 +489,10 @@ pub(crate) fn decode_resolution(value: &serde_json::Value) -> Result<ProofResolu
             })
         })
         .collect::<Result<Vec<_>, ClientError>>()?;
-    let resolution = ProofResolution {
+    Ok(ProofResolution {
         trees,
         public_input_hash: decode_field(&raw.public_input_hash)?,
-    };
-    resolution.tree_slots()?;
-    Ok(resolution)
+    })
 }
 
 fn serialize_address<S: serde::Serializer>(
@@ -487,7 +539,7 @@ pub(crate) fn decode_field(value: &str) -> Result<[u8; 32], ClientError> {
 }
 
 fn invalid() -> ClientError {
-    ClientError::ProverServer("invalid indexed proof request".to_owned())
+    ClientError::InvalidIndexedRequest
 }
 fn invalid_resolution() -> ClientError {
     ClientError::ProofParse("invalid proof resolution".to_owned())
@@ -624,15 +676,7 @@ mod tests {
                     resolution.public_input_hash = resolution
                         .hash(&request.data.public_inputs)
                         .unwrap_or_default();
-                    let result = request.validate(IndexedProof {
-                        proof: Proof {
-                            a: [0; 64],
-                            b: [0; 128],
-                            c: [0; 64],
-                            commitment: None,
-                        },
-                        resolution,
-                    });
+                    let result = request.check(&resolution);
                     assert_eq!(
                         result.is_ok(),
                         if cached {
@@ -660,15 +704,28 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_resolution() {
+        let request = IndexedProofRequest::new(request_data()).unwrap();
         let mut wire = json!({"trees":[{"tree":zolana_interface::pda::tree(3).to_string(),"id":3,
-            "utxoRoot":"0x1","nullifierRoot":"0x2","utxoRootIndex":0,"nullifierRootIndex":0}],
-            "publicInputHash":"0x1"});
-        assert!(decode_resolution(&wire).is_ok());
+            "utxoRoot":"0x1","nullifierRoot":"0x2","utxoRootIndex":0,"nullifierRootIndex":0}]});
+        let hash = decode_resolution(json!({"trees": wire["trees"], "publicInputHash": "0x1"}))
+            .and_then(|resolution| resolution.hash(&request.data.public_inputs))
+            .unwrap();
+        wire["publicInputHash"] = json!(hex_field(&hash));
+        let finish = |wire: &serde_json::Value| {
+            let proof = Proof {
+                a: [0; 64],
+                b: [0; 128],
+                c: [0; 64],
+                commitment: None,
+            };
+            request.finish(proof, wire.clone())
+        };
+        assert!(finish(&wire).is_ok());
         wire["trees"][0]["nullifierRootIndex"] = json!(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY);
-        assert!(decode_resolution(&wire).is_err());
+        assert!(finish(&wire).is_err());
         wire["trees"][0]["nullifierRootIndex"] = json!(0);
         wire["trees"][0]["utxoRootIndex"] = json!(STATE_ROOT_HISTORY_CAPACITY);
-        assert!(decode_resolution(&wire).is_err());
+        assert!(finish(&wire).is_err());
         assert!(decode_field("0X01").is_err());
         assert!(decode_field(&format!("0x{}", "f".repeat(64))).is_err());
     }

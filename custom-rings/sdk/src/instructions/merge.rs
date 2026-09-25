@@ -3,7 +3,9 @@
 use solana_address::Address;
 use solana_instruction::Instruction;
 use thiserror::Error;
-use zolana_client::prover::indexed::{IndexedMergePreparation, ProofDataSource};
+use zolana_client::prover::indexed::{
+    IndexedMergePreparation, ProofDataSource, ProvenIndexedMerge,
+};
 use zolana_client::{
     AsyncProverClient, AsyncRpc, ClientError, MergeProofResult, NonInclusionProof, Proof,
     ProofCompressed, ProverClient, Rpc, SpendProof,
@@ -182,8 +184,7 @@ impl PreparedCustomRingMerge {
                 nullifier_key: input.nullifier_key.clone(),
             }
             .prepare()?;
-            let response = env.prover.prove_indexed(prepared.request())?;
-            return self.finish_indexed(input, prepared.finish_ring(response)?);
+            return self.finish_indexed(input, env.prover.prove_indexed(&prepared)?);
         }
         let commitments = self.input_utxo_hashes()?;
         let proofs = fetch_spend_proofs(env.indexer, input.input_tree, &commitments)?;
@@ -221,8 +222,7 @@ impl PreparedCustomRingMerge {
                 nullifier_key: input.nullifier_key.clone(),
             }
             .prepare()?;
-            let response = env.prover.prove_indexed(prepared.request()).await?;
-            return self.finish_indexed(input, prepared.finish_ring(response)?);
+            return self.finish_indexed(input, env.prover.prove_indexed(&prepared).await?);
         }
         let commitments = self.input_utxo_hashes()?;
         let (state, nullifier) = futures::try_join!(
@@ -264,8 +264,11 @@ impl PreparedCustomRingMerge {
     fn finish_indexed(
         self,
         input: MergeProofInput,
-        data: MergeRingIxData,
+        proven: ProvenIndexedMerge,
     ) -> Result<ProvenCustomRingMerge, MergeError> {
+        let ProvenIndexedMerge::Ring(data) = proven else {
+            return Err(ClientError::InvalidIndexedRequest.into());
+        };
         Ok(ProvenCustomRingMerge {
             input_tree: input.input_tree,
             output_tree: input.output_tree,

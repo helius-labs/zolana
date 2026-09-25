@@ -9,6 +9,7 @@ use crate::{
     authority::ProofAuthority,
     error::ClientError,
     prover::{
+        indexed::ProofDataSource,
         transact::witness::{assemble, AssembledTransfer},
         verify_confidential_transfer_inputs, verify_confidential_transfer_proof,
         witness::{AsyncWitnessReader, WitnessReader},
@@ -20,9 +21,7 @@ use crate::{
     },
 };
 
-use super::{
-    validation::validate_fee_payer_pubkey, ProofDataSource, TransferPreparation, ZolanaClient,
-};
+use super::{validation::validate_fee_payer_pubkey, TransferPreparation, ZolanaClient};
 
 /// A signed shielded transaction ready for proof assembly and submission.
 ///
@@ -59,7 +58,7 @@ impl<R: Rpc> ZolanaClient<R> {
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        if self.proof_data_source == ProofDataSource::Prover {
+        if self.blocking_prover().proof_data_source() == ProofDataSource::Prover {
             return Ok(self
                 .indexed_transfer(
                     TransferPreparation {
@@ -108,7 +107,7 @@ impl<R: Rpc> ZolanaClient<R> {
             return Err(ClientError::CacheWriteNeedsWriter);
         }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.proof_data_source == ProofDataSource::Prover {
+        if self.blocking_prover().proof_data_source() == ProofDataSource::Prover {
             let proved = self.indexed_transfer(
                 TransferPreparation {
                     transaction: signed.transaction.clone(),
@@ -177,7 +176,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             return Err(ClientError::CacheWriteNeedsWriter);
         }
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
-        if self.proof_data_source == ProofDataSource::Prover {
+        if self.async_prover.proof_data_source() == ProofDataSource::Prover {
             let proved = self
                 .indexed_transfer_async(
                     TransferPreparation {

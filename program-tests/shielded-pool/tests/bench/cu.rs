@@ -542,7 +542,7 @@ fn bench_transfer_shape(
     bench: &mut CuBenchmark,
 ) {
     let (pt, _authority, tree, tree_id) = bench_setup();
-    spawn_workspace_prover();
+    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
 
     let payer = pt.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
@@ -722,7 +722,7 @@ fn bench_ring_transfer_shape(
 ) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
     let mut pool = Pool::initialized();
-    spawn_workspace_prover();
+    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
 
     let ring_program = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
     let proof = RealRingTransact {
@@ -758,7 +758,7 @@ fn bench_merge_shape(
 ) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
     let mut pool = Pool::initialized();
-    spawn_workspace_prover();
+    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
 
     let merge = RealMergeProof {
         input_count,
@@ -788,7 +788,7 @@ fn bench_merge_shape(
 // full amount to an external account. Mirrors `shield_withdraw::shield_then_withdraw_sol`.
 fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
     let (mut pt, _authority, tree, tree_id) = bench_setup();
-    spawn_workspace_prover();
+    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
 
     const AMOUNT: u64 = 1_000_000_000;
     let payer = pt.payer.insecure_clone();
@@ -973,7 +973,7 @@ fn bench_withdrawal_spl(
     bench: &mut CuBenchmark,
 ) {
     let (mut pt, authority, tree, _tree_id) = bench_setup();
-    spawn_workspace_prover();
+    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
 
     const AMOUNT: u64 = 1_000;
     let withdrawal =

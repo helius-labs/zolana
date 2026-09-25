@@ -17,8 +17,6 @@ use zolana_user_registry_interface::user_registry_program_id;
 /// Arbitrary, the shared binary serves any genesis address.
 pub const CUSTOM_RING_PROGRAM_ADDRESS: &str = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh";
 
-pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
-pub const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub const ZERO: [u8; 32] = [0u8; 32];
 // Blinding positions in the fixed-position output layout
 // `[spl_change, sol_change, recipients...]`.
@@ -211,7 +209,7 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
     LocalnetValidator {
         cli_bin: cli.into(),
         working_dir: artifacts.root().into(),
-        ports: env_localnet_ports(),
+        ports: LocalnetPorts::checkout().expect("read this checkout's localnet ports"),
         account_dir: account_dir.into(),
         log_dir: artifacts.path("test-ledger").into(),
         programs,
@@ -227,29 +225,29 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
     .expect("start the shielded-pool localnet");
 }
 
+/// `ZOLANA_LOCALNET_URL`, else this checkout's validator.
+#[track_caller]
+pub fn localnet_rpc_url() -> String {
+    std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| {
+        LocalnetPorts::checkout()
+            .expect("read this checkout's localnet ports")
+            .rpc_url()
+    })
+}
+
+/// `ZOLANA_INDEXER_URL`, else this checkout's Photon.
+#[track_caller]
+pub fn localnet_indexer_url() -> String {
+    std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| {
+        LocalnetPorts::checkout_photon_url().expect("resolve this checkout's Photon URL")
+    })
+}
+
 #[track_caller]
 fn parse_pubkey(value: &str) -> Pubkey {
     value
         .parse()
         .unwrap_or_else(|error| panic!("{value} is not a pubkey: {error}"))
-}
-
-/// The ports this checkout's recipes export for the localnet
-/// (`ZOLANA_LOCALNET_RPC_PORT`, `ZOLANA_LOCALNET_PHOTON_PORT`).
-#[track_caller]
-pub fn env_localnet_ports() -> LocalnetPorts {
-    LocalnetPorts {
-        rpc: env_port("ZOLANA_LOCALNET_RPC_PORT", 8899),
-        photon: env_port("ZOLANA_LOCALNET_PHOTON_PORT", 8784),
-    }
-}
-
-#[track_caller]
-pub fn env_port(name: &str, default: u16) -> u16 {
-    std::env::var(name).map_or(default, |port| {
-        port.parse()
-            .unwrap_or_else(|error| panic!("{name}={port} is not a port: {error}"))
-    })
 }
 
 #[cfg(test)]

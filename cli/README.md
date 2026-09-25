@@ -105,6 +105,10 @@ zolana dev start --local --sbf-program <ID> target/deploy/<program>.so
 Passing any explicit `--sbf-program` also implies local mode. Override the
 release download host with `ZOLANA_RELEASE_URL`.
 
+In local mode the prover fetches indexed proof data from the Photon that
+`dev start` launches. The pinned release prover predates indexed proofs, so SDK
+clients against a release localnet select client proof data.
+
 Maintainers publish the release with
 `just release <tag> --upload --prerelease` (omit the flags for a dry run that only
 stages assets and regenerates the lockfile). It builds the programs, the host +

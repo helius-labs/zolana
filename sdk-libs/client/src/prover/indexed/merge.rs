@@ -3,8 +3,9 @@ use zeroize::Zeroizing;
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::{
     instruction::{
-        instruction_data::merge_transact::{
-            MergeExternalDataHash, MergeProof, MergeTransactIxData,
+        instruction_data::{
+            merge_ring::MergeRingIxData,
+            merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
@@ -19,14 +20,14 @@ use zolana_transaction::instructions::{
 };
 
 use super::{
-    hex_field, invalid, scalar_one, transfer::SecretField, IndexedCircuit, IndexedLookup,
-    IndexedProof, IndexedProofData, IndexedProofRequest, IndexedTree,
+    hex_field, invalid, invalid_resolution, scalar_one, transfer::SecretField, IndexedCircuit,
+    IndexedLookup, IndexedProof, IndexedProofData, IndexedProofRequest, IndexedTree, Request,
 };
 use crate::{
     prover::{
         field::right_align_slice, json::MergeOutputParamsJson,
-        transact::assembly::assemble_outputs, verify::MergeProofStatement, ProofCompressed,
-        ProofInputUtxo,
+        transact::assembly::assemble_outputs, verify::MergeProofStatement, ExpectedProvingKey,
+        Proof, ProofCompressed, ProofInputUtxo,
     },
     ClientError,
 };
@@ -40,6 +41,11 @@ pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
     data: MergeTransactIxData,
     ring_data_hash: Option<[u8; 32]>,
+}
+
+pub enum ProvenIndexedMerge {
+    Merge(MergeTransactIxData),
+    Ring(MergeRingIxData),
 }
 
 impl IndexedMergePreparation {
@@ -256,55 +262,55 @@ impl IndexedMergePreparation {
 }
 
 impl PreparedIndexedMerge {
-    pub fn request(&self) -> &IndexedProofRequest {
-        &self.request
-    }
-
     #[must_use]
     pub fn with_min_context_slot(mut self, slot: u64) -> Self {
         self.request = self.request.with_min_context_slot(slot);
         self
     }
+}
 
-    pub fn finish(self, proof: IndexedProof) -> Result<MergeTransactIxData, ClientError> {
-        if self.ring_data_hash.is_some() {
-            return Err(invalid());
-        }
-        self.complete(proof)
+impl Request for PreparedIndexedMerge {
+    type Output = ProvenIndexedMerge;
+
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        self.request.body()
     }
 
-    pub fn finish_ring(
-        self,
-        proof: IndexedProof,
-    ) -> Result<
-        zolana_interface::instruction::instruction_data::merge_ring::MergeRingIxData,
-        ClientError,
-    > {
-        let output_ring_data_hash = self.ring_data_hash.ok_or_else(invalid)?;
-        Ok(
-            zolana_interface::instruction::instruction_data::merge_ring::MergeRingIxData {
-                output_ring_data_hash,
-                merge: self.complete(proof)?,
-            },
-        )
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        self.request.proving_key()
     }
 
-    fn complete(mut self, proof: IndexedProof) -> Result<MergeTransactIxData, ClientError> {
-        let proof = self.request.validate(proof)?;
+    fn finish(
+        &self,
+        proof: Proof,
+        resolution: serde_json::Value,
+    ) -> Result<ProvenIndexedMerge, ClientError> {
+        let IndexedProof { proof, resolution } = self.request.finish(proof, resolution)?;
         let statement = MergeProofStatement {
             n_inputs: self.data.nullifiers.len(),
-            public_input_hash: proof.resolution.public_input_hash,
+            public_input_hash: resolution.public_input_hash,
         };
         if self.ring_data_hash.is_some() {
-            statement.verify_ring(&proof.proof)?;
+            statement.verify_ring(&proof)?;
         } else {
-            statement.verify(&proof.proof)?;
+            statement.verify(&proof)?;
         }
-        let context = proof.resolution.trees.first().ok_or_else(invalid)?.context;
-        self.data.utxo_tree_root_index = context.utxo_tree_root_index;
-        self.data.nullifier_tree_root_index = context.nullifier_tree_root_index;
-        self.data.proof = ProofCompressed::try_from(proof.proof)?.to_merge_proof()?;
-        Ok(self.data)
+        let context = resolution
+            .trees
+            .first()
+            .ok_or_else(invalid_resolution)?
+            .context;
+        let mut data = self.data.clone();
+        data.utxo_tree_root_index = context.utxo_tree_root_index;
+        data.nullifier_tree_root_index = context.nullifier_tree_root_index;
+        data.proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
+        Ok(match self.ring_data_hash {
+            Some(output_ring_data_hash) => ProvenIndexedMerge::Ring(MergeRingIxData {
+                output_ring_data_hash,
+                merge: data,
+            }),
+            None => ProvenIndexedMerge::Merge(data),
+        })
     }
 }
 
@@ -394,8 +400,7 @@ mod tests {
             assert_eq!(prepared.data.output_utxo_hash, output);
             assert_eq!(&prepared.data.nullifiers[1..], expected);
             assert_eq!(prepared.request.input_trees()[0].id, 3);
-            let body: serde_json::Value =
-                serde_json::from_str(&prepared.request.body().unwrap()).unwrap();
+            let body: serde_json::Value = serde_json::from_str(&prepared.body().unwrap()).unwrap();
             assert!(body["prepared"].get("treeSlots").is_none());
             assert!(body["prepared"]["inputs"][0]
                 .get("statePathElements")

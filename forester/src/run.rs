@@ -198,6 +198,14 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         .check_proving_keys()
         .map_err(|e| anyhow!("prover proving keys do not match this build: {e}"))?;
     tracing::info!(prefix = %keys.prefix, "prover proving keys match the verifying keys");
+    if prover.proof_data_source() == ProofDataSource::Prover {
+        prover.check_indexed().map_err(|error| match error {
+            zolana_client::ClientError::ProverIndexerUnconfigured => anyhow!(
+                "prover serves no indexed proofs, restart it with an indexer or pass --client-proof-data"
+            ),
+            other => other.into(),
+        })?;
+    }
 
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 
@@ -595,7 +603,7 @@ enum PendingBatch {
 impl PendingBatch {
     fn prove(self, prover: &ProverClient) -> Result<ProvenIndexedBatch> {
         match self {
-            Self::Prover(request) => Ok(prover.prove_indexed_batch(&request)?),
+            Self::Prover(request) => Ok(prover.prove_indexed(&request)?),
             Self::Client {
                 inputs,
                 old_root,

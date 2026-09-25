@@ -15,6 +15,7 @@ use crate::{
     authority::ProofAuthority,
     error::ClientError,
     prover::{
+        indexed::ProofDataSource,
         transact::witness::{assemble, SpendProof},
         verify_confidential_transfer_inputs, ProofCompressed,
     },
@@ -28,7 +29,7 @@ use crate::{
     },
 };
 
-use super::{ProofDataSource, TransferPreparation, ZolanaClient};
+use super::{TransferPreparation, ZolanaClient};
 
 #[async_trait]
 impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
@@ -282,7 +283,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         transaction: SppProofInputs,
         authority: &dyn ProofAuthority,
     ) -> Result<ProveResult, ClientError> {
-        if self.proof_data_source == ProofDataSource::Prover {
+        if self.async_prover.proof_data_source() == ProofDataSource::Prover {
             let proved = self
                 .indexed_transfer_async(
                     TransferPreparation {

@@ -1,5 +1,3 @@
-#[path = "../../../sdk-libs/client/tests/prover_bootstrap.rs"]
-mod prover_bootstrap;
 #[path = "../../../sdk-libs/client/tests/test_indexer.rs"]
 mod test_indexer;
 
@@ -28,7 +26,7 @@ const TEST_TREE_ID: u16 = 0;
 
 #[test]
 fn prepared_authority_proves_and_verifies() {
-    prover_bootstrap::start_prover();
+    zolana_test_utils::prover::spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
     let ring = Address::new_from_array([9u8; 32]);
     let mut indexer = TestIndexer::new();
     let owner = ShieldedKeypair::new_ed25519().expect("owner keypair");

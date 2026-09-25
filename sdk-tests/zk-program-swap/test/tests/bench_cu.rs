@@ -351,7 +351,7 @@ fn bench_cu_swap() {
         ..Default::default()
     });
 
-    zolana_test_utils::prover::spawn_workspace_prover();
+    zolana_test_utils::prover::spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
     PROVER.preload(CircuitId::Make).expect("preload make keys");
     PROVER.preload(CircuitId::Take).expect("preload take keys");
     PROVER

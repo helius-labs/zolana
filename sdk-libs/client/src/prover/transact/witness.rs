@@ -514,11 +514,10 @@ mod tests {
             .unwrap();
         let proof_inputs = transfer.encrypt(&sender).expect("encrypt");
 
-        let indexed =
-            crate::prover::indexed::PreparedIndexedTransfer::new(proof_inputs.clone(), &sender)
-                .unwrap();
+        use crate::prover::indexed::{PreparedIndexedTransfer, Request};
+        let indexed = PreparedIndexedTransfer::new(proof_inputs.clone(), &sender).unwrap();
         let indexed_body: serde_json::Value =
-            serde_json::from_str(&indexed.request().body().unwrap()).unwrap();
+            serde_json::from_str(&indexed.body().unwrap()).unwrap();
         let requested = proof_inputs.dummy_nullifiers();
         let real = &proof_inputs.input_utxos[0];
         let mut proof = fake_spend_proof();

@@ -1,4 +1,5 @@
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
+use zolana_client::prover::PROVER_INDEXER_URL_ENV;
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -494,6 +495,14 @@ pub(crate) struct StartProverOptions {
         help = "Allow the prover to download missing proving keys"
     )]
     pub(crate) auto_download: bool,
+
+    #[arg(
+        long = "indexer-url",
+        env = PROVER_INDEXER_URL_ENV,
+        hide_env_values = true,
+        help = "Photon URL the prover fetches indexed proof data from"
+    )]
+    pub(crate) indexer_url: Option<String>,
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
@@ -842,6 +851,12 @@ impl TestValidatorOptions {
         self.rpc_port.saturating_add(1)
     }
 
+    /// The pinned release prover predates indexed proofs.
+    pub(crate) fn prover_indexer_url(&self) -> Option<String> {
+        (!self.use_release() && self.start_indexer())
+            .then(|| format!("http://127.0.0.1:{}", self.photon_port))
+    }
+
     /// Fetch programs, account snapshots, and helper binaries from the pinned
     /// release unless the user opted into local builds or passed explicit
     /// programs (in which case those local artifacts take precedence).
@@ -1130,6 +1145,8 @@ mod tests {
             "3002",
             "--redis-url",
             "redis://localhost:6379/15",
+            "--indexer-url",
+            "http://127.0.0.1:8784",
         ])
         .command
         .expect("command");
@@ -1145,6 +1162,20 @@ mod tests {
 
         assert_eq!(opts.prover_port, 3002);
         assert_eq!(opts.redis_url.as_deref(), Some("redis://localhost:6379/15"));
+        assert_eq!(opts.indexer_url.as_deref(), Some("http://127.0.0.1:8784"));
+    }
+
+    #[test]
+    fn only_a_local_localnet_binds_the_prover_to_photon() {
+        assert_eq!(parse_validator(&[]).prover_indexer_url(), None);
+        assert_eq!(
+            parse_validator(&["--local", "--photon-port", "8790"]).prover_indexer_url(),
+            Some("http://127.0.0.1:8790".to_owned())
+        );
+        assert_eq!(
+            parse_validator(&["--local", "--skip-indexer"]).prover_indexer_url(),
+            None
+        );
     }
 
     #[test]

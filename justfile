@@ -38,6 +38,9 @@ custom-ring-keys := `python3 -c "import json;print(' '.join(sorted(k for k in js
 # client both connects here and starts the spawned server on this URL's port, so
 # this single var is the source of truth for the prover.
 export ZOLANA_PROVER_URL := localnet-prover-url
+# Read by the prover as `--indexer-url`, binding every prover a recipe starts
+# to this checkout's Photon.
+export PROVER_INDEXER_URL := localnet-photon-url
 
 default:
     @just --list

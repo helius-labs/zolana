@@ -71,6 +71,16 @@ impl KeyRegistrationError {
             ClientError::RingKeyRegistryOutOfSync | ClientError::RingKeyRegistryRootChanged
         ))
     }
+
+    /// The registry error a prover refusal stands for.
+    pub(crate) fn claim(error: &ClientError) -> Option<Self> {
+        match error {
+            ClientError::RegistryMemberMissing { member } => Member::from_bytes(*member)
+                .ok()
+                .map(|owner| Self::UnregisteredOutputKey { owner }),
+            _ => None,
+        }
+    }
 }
 
 impl ProjectionLag for KeyRegistrationError {
@@ -81,7 +91,10 @@ impl ProjectionLag for KeyRegistrationError {
 
 impl From<ClientError> for KeyRegistrationError {
     fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
+        match Self::claim(&error) {
+            Some(claimed) => claimed,
+            None => Self::Client(Box::new(error)),
+        }
     }
 }
 

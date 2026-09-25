@@ -7,10 +7,13 @@ use zolana_hasher::{
 use zolana_interface::{tree_slot::tree_slots_hash_chain, INPUT_TREES};
 
 use super::{
-    hex_field, invalid, invalid_resolution, serialize_commitment, IndexedProof, ProofResolution,
-    ResolvedProofTree,
+    decode_resolution, hex_field, invalid, invalid_resolution, serialize_commitment, IndexedProof,
+    ProofResolution, Request, ResolvedProofTree,
 };
-use crate::{prover::ExpectedProvingKey, ClientError};
+use crate::{
+    prover::{ExpectedProvingKey, Proof},
+    ClientError,
+};
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,25 +163,34 @@ impl IndexedPolicyRequest {
             key,
         })
     }
+}
 
-    pub(crate) fn body(&self) -> &str {
-        &self.body
-    }
-    pub(crate) fn key(&self) -> &ExpectedProvingKey {
-        &self.key
+impl Request for IndexedPolicyRequest {
+    type Output = IndexedProof;
+
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        Ok(self.body.clone())
     }
 
-    pub(crate) fn validate(&self, proof: IndexedProof) -> Result<IndexedProof, ClientError> {
-        if proof.resolution.trees.len() != self.data.trees.len() {
-            return Err(invalid_resolution());
-        }
-        for (slot, (tree, expected)) in proof
-            .resolution
-            .trees
-            .iter()
-            .zip(&self.data.trees)
-            .enumerate()
-        {
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        Ok(self.key.clone())
+    }
+
+    fn finish(
+        &self,
+        proof: Proof,
+        resolution: serde_json::Value,
+    ) -> Result<IndexedProof, ClientError> {
+        let resolution = decode_resolution(resolution)?;
+        self.check(&resolution)?;
+        Ok(IndexedProof { proof, resolution })
+    }
+}
+
+impl IndexedPolicyRequest {
+    fn check(&self, resolution: &ProofResolution) -> Result<(), ClientError> {
+        resolution.check_trees(self.data.trees.iter().map(|tree| (tree.tree, tree.id)))?;
+        for (slot, (tree, expected)) in resolution.trees.iter().zip(&self.data.trees).enumerate() {
             let has_state =
                 self.data.inputs.iter().any(|lookup| {
                     usize::from(lookup.tree_slot) == slot && lookup.commitment.is_some()
@@ -187,12 +199,9 @@ impl IndexedPolicyRequest {
                 self.data.inputs.iter().any(|lookup| {
                     usize::from(lookup.tree_slot) == slot && lookup.nullifier.is_some()
                 });
-            if tree.tree != expected.tree
-                || tree.id != expected.id
-                || (!has_state
-                    && (tree.utxo_root != expected.utxo_root
-                        || tree.context.utxo_tree_root_index
-                            != expected.context.utxo_tree_root_index))
+            if (!has_state
+                && (tree.utxo_root != expected.utxo_root
+                    || tree.context.utxo_tree_root_index != expected.context.utxo_tree_root_index))
                 || (!has_nullifier
                     && (tree.nullifier_root != expected.nullifier_root
                         || tree.context.nullifier_tree_root_index
@@ -202,11 +211,11 @@ impl IndexedPolicyRequest {
             }
         }
         let mut transcript = self.data.public_inputs.clone();
-        transcript.insert(1, tree_slots_hash_chain(&proof.resolution.tree_slots()?)?);
-        if create_hash_chain_from_slice(&transcript)? != proof.resolution.public_input_hash {
+        transcript.insert(1, tree_slots_hash_chain(&resolution.tree_slots()?)?);
+        if create_hash_chain_from_slice(&transcript)? != resolution.public_input_hash {
             return Err(invalid_resolution());
         }
-        Ok(proof)
+        Ok(())
     }
 }
 
@@ -326,23 +335,9 @@ mod tests {
                     6 => changed.trees[0].context.nullifier_tree_root_index += 1,
                     _ => {}
                 }
-                let proof = crate::Proof {
-                    a: [0; 64],
-                    b: [0; 128],
-                    c: [0; 64],
-                    commitment: None,
-                };
-                assert_eq!(
-                    request
-                        .validate(IndexedProof {
-                            proof,
-                            resolution: changed
-                        })
-                        .is_ok(),
-                    mutation == 0
-                );
+                assert_eq!(request.check(&changed).is_ok(), mutation == 0);
             }
-            let body: serde_json::Value = serde_json::from_str(request.body()).unwrap();
+            let body: serde_json::Value = serde_json::from_str(&request.body().unwrap()).unwrap();
             let prepared = if circuit == "custom-ring-policy" {
                 &body["prepared"]
             } else {

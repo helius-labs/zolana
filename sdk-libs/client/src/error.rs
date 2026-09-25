@@ -275,6 +275,15 @@ pub enum ClientError {
     #[error("indexer proof data not ready")]
     IndexerProofDataNotReady,
 
+    #[error("the prover has no indexer for indexed proofs")]
+    ProverIndexerUnconfigured,
+
+    #[error("the ring key registry holds no matching nullifier key for member {member:?}")]
+    RegistryMemberMissing { member: [u8; 32] },
+
+    #[error("invalid indexed proof request")]
+    InvalidIndexedRequest,
+
     #[error("proof parse error: {0}")]
     ProofParse(String),
 

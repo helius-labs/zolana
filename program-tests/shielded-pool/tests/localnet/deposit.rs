@@ -27,15 +27,13 @@ use shielded_pool_tests::support::localnet::{
     initialize_indexed_pool, print_signature, send_indexed, LocalnetPool,
 };
 
-const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
-const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEPOSIT_LAMPORTS: u64 = 750_000_000;
 
 type TestResult<T = ()> = anyhow::Result<T>;
 
 #[test]
 fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
-    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
+    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let ring_program_id = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);

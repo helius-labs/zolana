@@ -4,8 +4,8 @@ use solana_address::Address;
 use zeroize::Zeroizing;
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 
-use super::{decode_field, hex_field, invalid, invalid_resolution};
-use crate::prover::ExpectedProvingKey;
+use super::{decode_field, hex_field, invalid, invalid_resolution, Request};
+use crate::prover::{Delivery, ExpectedProvingKey};
 use crate::{ClientError, Proof, ProofCompressed};
 
 pub struct BatchAnchor {
@@ -29,29 +29,27 @@ pub struct ProvenIndexedBatch {
     pub proof: zolana_interface::instruction::NullifierTreeProof,
 }
 
-pub(crate) struct IndexedBatchResponse {
-    pub proof: Proof,
-    pub resolution: BatchResolution,
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BatchResolution {
+    tree: String,
+    start_index: u64,
+    old_root: String,
+    new_root: String,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct BatchResolution {
-    pub tree: String,
-    pub start_index: u64,
-    pub old_root: String,
-    pub new_root: String,
-    #[serde(skip)]
-    pub public_input_hash: [u8; 32],
+#[serde(rename_all = "camelCase")]
+struct BatchResolutionJson {
+    batch: BatchResolution,
+    public_input_hash: String,
 }
 
-impl IndexedBatchRequest {
-    pub(crate) fn key(&self) -> Result<ExpectedProvingKey, ClientError> {
-        ExpectedProvingKey::batch_address_append(self.tree_height, self.batch_size)
-    }
+impl Request for IndexedBatchRequest {
+    type Output = ProvenIndexedBatch;
 
-    pub(crate) fn body(&self) -> Result<Zeroizing<String>, ClientError> {
-        self.key()?;
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        self.proving_key()?;
         if self.anchor.next_index == 0
             || self.start_index < self.anchor.next_index
             || self.start_index > (1u64 << self.tree_height) - u64::from(self.batch_size)
@@ -96,15 +94,27 @@ impl IndexedBatchRequest {
         .map_err(|_| invalid())
     }
 
-    pub(crate) fn finish(
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
+        ExpectedProvingKey::batch_address_append(self.tree_height, self.batch_size)
+    }
+
+    fn delivery(&self) -> Option<Delivery> {
+        Some(Delivery::Queued)
+    }
+
+    fn finish(
         &self,
-        response: IndexedBatchResponse,
+        proof: Proof,
+        resolution: serde_json::Value,
     ) -> Result<ProvenIndexedBatch, ClientError> {
-        let resolution = response.resolution;
-        let old_root = decode_field(&resolution.old_root)?;
-        let new_root = decode_field(&resolution.new_root)?;
-        if resolution.tree != self.tree.to_string()
-            || resolution.start_index != self.start_index
+        let BatchResolutionJson {
+            batch,
+            public_input_hash,
+        } = serde_json::from_value(resolution).map_err(|_| invalid_resolution())?;
+        let old_root = decode_field(&batch.old_root)?;
+        let new_root = decode_field(&batch.new_root)?;
+        if batch.tree != self.tree.to_string()
+            || batch.start_index != self.start_index
             || (self.start_index == self.anchor.next_index && old_root != self.anchor.root)
         {
             return Err(invalid_resolution());
@@ -113,10 +123,10 @@ impl IndexedBatchRequest {
         index[24..].copy_from_slice(&self.start_index.to_be_bytes());
         let expected =
             create_hash_chain_4_from_slice(&[old_root, new_root, self.leaves_hash_chain, index])?;
-        if expected != resolution.public_input_hash {
+        if expected != decode_field(&public_input_hash)? {
             return Err(invalid_resolution());
         }
-        let proof = ProofCompressed::try_from(response.proof)?.to_nullifier_tree_proof()?;
+        let proof = ProofCompressed::try_from(proof)?.to_nullifier_tree_proof()?;
         // 1. Returned roots remain untrusted until proof verification.
         zolana_tree::nullifier_tree::verify::verify_batch_update(
             u64::from(self.batch_size),
@@ -155,49 +165,55 @@ mod tests {
         }
     }
 
-    fn response(request: &IndexedBatchRequest) -> IndexedBatchResponse {
+    fn proof() -> Proof {
+        Proof {
+            a: [0; 64],
+            b: [0; 128],
+            c: [0; 64],
+            commitment: None,
+        }
+    }
+
+    fn resolution(request: &IndexedBatchRequest) -> serde_json::Value {
         let mut index = [0; 32];
         index[24..].copy_from_slice(&request.start_index.to_be_bytes());
-        IndexedBatchResponse {
-            proof: Proof {
-                a: [0; 64],
-                b: [0; 128],
-                c: [0; 64],
-                commitment: None,
+        let hash = create_hash_chain_4_from_slice(&[
+            request.anchor.root,
+            super::super::scalar_one(),
+            request.leaves_hash_chain,
+            index,
+        ])
+        .unwrap();
+        serde_json::json!({
+            "batch": {
+                "tree": request.tree.to_string(),
+                "startIndex": request.start_index,
+                "oldRoot": hex_field(&request.anchor.root),
+                "newRoot": "0x1",
             },
-            resolution: BatchResolution {
-                tree: request.tree.to_string(),
-                start_index: request.start_index,
-                old_root: hex_field(&request.anchor.root),
-                new_root: "0x1".into(),
-                public_input_hash: create_hash_chain_4_from_slice(&[
-                    request.anchor.root,
-                    super::super::scalar_one(),
-                    request.leaves_hash_chain,
-                    index,
-                ])
-                .unwrap(),
-            },
-        }
+            "trees": [],
+            "publicInputHash": hex_field(&hash),
+        })
     }
 
     #[test]
     fn rejects_unbound_batch_responses() {
         let request = request();
         for corrupt in 0..6 {
-            let mut response = response(&request);
+            let mut resolution = resolution(&request);
+            let batch = &mut resolution["batch"];
             match corrupt {
-                0 => response.resolution.tree = Address::default().to_string(),
-                1 => response.resolution.start_index += 10,
-                2 => response.resolution.old_root = "0x2".into(),
-                3 => response.resolution.new_root = "0x2".into(),
-                4 => response.resolution.public_input_hash = [0; 32],
-                _ => response.resolution.new_root = format!("0x{}", "ff".repeat(32)),
+                0 => batch["tree"] = Address::default().to_string().into(),
+                1 => batch["startIndex"] = (request.start_index + 10).into(),
+                2 => batch["oldRoot"] = "0x2".into(),
+                3 => batch["newRoot"] = "0x2".into(),
+                4 => resolution["publicInputHash"] = "0x0".into(),
+                _ => batch["newRoot"] = format!("0x{}", "ff".repeat(32)).into(),
             }
-            assert!(request.finish(response).is_err());
+            assert!(request.finish(proof(), resolution).is_err());
         }
         assert!(matches!(
-            request.finish(response(&request)),
+            request.finish(proof(), resolution(&request)),
             Err(ClientError::ProofVerification(_))
         ));
     }

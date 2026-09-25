@@ -179,7 +179,7 @@ pub enum TransferError {
     #[error(transparent)]
     Transaction(#[from] TransactionError),
     #[error(transparent)]
-    Client(#[from] ClientError),
+    Client(ClientError),
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
@@ -280,6 +280,15 @@ impl From<PolicyMatchError> for TransferError {
     }
 }
 
+impl From<ClientError> for TransferError {
+    fn from(error: ClientError) -> Self {
+        match KeyRegistrationError::claim(&error) {
+            Some(claimed) => Self::KeyRegistration(claimed),
+            None => Self::Client(error),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum DepositError {
     #[error(transparent)]
@@ -297,7 +306,7 @@ pub enum DepositError {
     #[error(transparent)]
     DepositInstruction(#[from] DepositInstructionError),
     #[error(transparent)]
-    Client(#[from] ClientError),
+    Client(ClientError),
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error("custom ring config does not exist")]
@@ -317,6 +326,15 @@ pub enum DepositError {
 impl crate::projection::ProjectionLag for DepositError {
     fn is_projection_lag(&self) -> bool {
         matches!(self, Self::Client(ClientError::IndexerProofDataNotReady))
+    }
+}
+
+impl From<ClientError> for DepositError {
+    fn from(error: ClientError) -> Self {
+        match KeyRegistrationError::claim(&error) {
+            Some(claimed) => Self::KeyRegistration(claimed),
+            None => Self::Client(error),
+        }
     }
 }
 
@@ -1514,7 +1532,7 @@ impl PolicyRequest {
 
     pub(crate) fn prove(&mut self, prover: &ProverClient) -> Result<Proof, ClientError> {
         match self.indexed_request()? {
-            Some(request) => self.accept_indexed(prover.prove_indexed_policy(&request)?),
+            Some(request) => self.accept_indexed(prover.prove_indexed(&request)?),
             None => Ok(prover.prove(self)?),
         }
     }
@@ -1524,7 +1542,7 @@ impl PolicyRequest {
         prover: &AsyncProverClient,
     ) -> Result<Proof, ClientError> {
         match self.indexed_request()? {
-            Some(request) => self.accept_indexed(prover.prove_indexed_policy(&request).await?),
+            Some(request) => self.accept_indexed(prover.prove_indexed(&request).await?),
             None => Ok(prover.prove(self).await?),
         }
     }
@@ -1676,9 +1694,7 @@ impl SppWitness {
             Self::Complete(result) => {
                 self.complete(prover.prove_transfer_ring(&result.inputs)?, transaction)
             }
-            Self::Indexed(prepared) => Ok(prepared
-                .finish(prover.prove_indexed(prepared.request())?)?
-                .data),
+            Self::Indexed(prepared) => Ok(prover.prove_indexed(prepared.as_ref())?.data),
         }
     }
 
@@ -1696,9 +1712,7 @@ impl SppWitness {
                 prover.prove_transfer_ring(&result.inputs).await?,
                 transaction,
             ),
-            Self::Indexed(prepared) => Ok(prepared
-                .finish(prover.prove_indexed(prepared.request()).await?)?
-                .data),
+            Self::Indexed(prepared) => Ok(prover.prove_indexed(prepared.as_ref()).await?.data),
         }
     }
 }
@@ -1970,7 +1984,9 @@ impl PreparedRingDeposit {
             escrow.as_ref(),
             env.prover.proof_data_source(),
         )? {
-            Some(request) => disclosure.verify_deposit(env.prover.prove(&request)?, &statement)?,
+            Some(request) => {
+                disclosure.verify_deposit(env.prover.prove_indexed(&request)?, &statement)?
+            }
             None => env.prover.prove(&disclosure.request(&statement))?,
         };
         self.instruction(Some(to_instruction_proof(proof)?), escrow)
@@ -2014,7 +2030,7 @@ impl PreparedRingDeposit {
             env.prover.proof_data_source(),
         )? {
             Some(request) => {
-                disclosure.verify_deposit(env.prover.prove(&request).await?, &statement)?
+                disclosure.verify_deposit(env.prover.prove_indexed(&request).await?, &statement)?
             }
             None => env.prover.prove(&disclosure.request(&statement)).await?,
         };
