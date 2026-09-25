@@ -6,7 +6,7 @@ import {
 import { getBase58Decoder } from "@solana/kit";
 import { wireDecoder } from "../../interface/decode.js";
 import { treeAddress } from "../../interface/pda/index.js";
-import { inputTreeSlots } from "../../interface/tree-slot.js";
+import { inputTreeSlots, NO_UTXO_ROOT } from "../../interface/tree-slot.js";
 import { selectSppShape } from "../../interface/shape.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
 import type {
@@ -56,7 +56,13 @@ const requestDecoder = wireDecoder(invalid);
 export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
   const request = requestDecoder.record(value, "request");
   const circuit = request["circuit"];
-  if (circuit !== "transfer" && circuit !== "transferRing" && circuit !== "merge") throw invalid();
+  if (
+    circuit !== "transfer" &&
+    circuit !== "transferRing" &&
+    circuit !== "transferRingAuthority" &&
+    circuit !== "merge"
+  )
+    throw invalid();
   const payload = requestDecoder.record(request["payload"], "payload");
   if ("treeSlots" in payload || "publicInputHash" in payload) throw invalid();
   const field = (name: string): Field => requestField(payload[name]);
@@ -223,7 +229,7 @@ function decodeAuthorityResult(value: unknown, inputs: IndexedProofInputs): Inde
         id: u16(tree["id"]),
         utxoRoot: checkedBytes(tree["utxoRoot"], 32, "utxo root"),
         nullifierRoot: checkedBytes(tree["nullifierRoot"], 32, "nullifier root"),
-        utxoRootIndex: rootIndex(tree["utxoRootIndex"], STATE_ROOT_HISTORY_CAPACITY),
+        utxoRootIndex: stateRootIndex(tree["utxoRootIndex"]),
         nullifierRootIndex: rootIndex(
           tree["nullifierRootIndex"],
           NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
@@ -242,6 +248,7 @@ export function indexedRequestEnvelope(
   if (
     inputs.circuit !== "transfer" &&
     inputs.circuit !== "transferRing" &&
+    inputs.circuit !== "transferRingAuthority" &&
     inputs.circuit !== "merge"
   )
     throw invalid();
@@ -249,12 +256,18 @@ export function indexedRequestEnvelope(
     inputs.trees.length < 1 ||
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
-    inputs.publicInputs.length !== (inputs.circuit === "merge" ? 8 : 17)
+    inputs.publicInputs.length !==
+      (inputs.circuit === "merge" ? 8 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {
     if (inputs.payload.inputs.length !== 8 && inputs.payload.inputs.length !== 36) throw invalid();
   } else {
+    if (
+      inputs.payload.cacheIsCached.length !== 0 &&
+      inputs.payload.cacheIsCached.length !== inputs.payload.inputs.length
+    )
+      throw invalid();
     const shape = selectSppShape(inputs.payload.inputs.length, inputs.payload.outputs.length);
     if (
       shape.inputs !== inputs.payload.inputs.length ||
@@ -277,6 +290,12 @@ export function indexedRequestEnvelope(
   let previous = -1;
   const lookups = inputs.lookups.map((lookup, index) => {
     const input = inputs.payload.inputs[index];
+    const cached = inputs.circuit === "merge" ? 0n : (inputs.payload.cacheIsCached[index] ?? 0n);
+    if (
+      (cached !== 0n && cached !== 1n) ||
+      (cached === 1n && (input?.isDummy !== 0n || inputs.circuit === "transferRingAuthority"))
+    )
+      throw invalid();
     if (
       input === undefined ||
       !Number.isInteger(lookup.treeSlot) ||
@@ -285,10 +304,10 @@ export function indexedRequestEnvelope(
       lookup.treeSlot >= trees.length ||
       BigInt(lookup.treeSlot) !== input.treeSlot ||
       (input.isDummy !== 0n && input.isDummy !== 1n) ||
-      (lookup.commitment === null) !== (input.isDummy === 1n)
+      (lookup.commitment === null) !== (input.isDummy === 1n || cached === 1n)
     )
       throw invalid();
-    if (lookup.treeSlot !== previous && lookup.commitment === null) throw invalid();
+    if (lookup.treeSlot !== previous && input.isDummy === 1n) throw invalid();
     if (
       "statePathElements" in input ||
       "treeSlots" in inputs.payload ||
@@ -330,6 +349,18 @@ export function parseIndexedResult(
   key: ExpectedProvingKey,
 ): IndexedProofResult {
   const parsedProof = parseCheckedProof(value, key);
+  const resolution = parseProofResolution(value, inputs.trees);
+  validateResolution(inputs, resolution);
+  return Object.freeze({ proof: parsedProof, resolution });
+}
+
+export function parseProofResolution(
+  value: unknown,
+  requestedTrees: readonly Readonly<{
+    tree: import("../../interface/types.js").Address;
+    id: number;
+  }>[],
+): ProofResolution {
   const envelope = decoder.record(value, "proof");
   const proof = Object.hasOwn(envelope, "proof")
     ? decoder.record(envelope["proof"], "proof")
@@ -337,7 +368,7 @@ export function parseIndexedResult(
   const raw = decoder.record(proof["resolution"], "resolution");
   const trees = decoder.list(raw["trees"], "trees").map((value, index) => {
     const tree = decoder.record(value, "tree");
-    const requested = inputs.trees[index];
+    const requested = requestedTrees[index];
     const id = u16(tree["id"]);
     const address = decoder.address(tree["tree"], "tree");
     if (requested === undefined || id !== requested.id || address !== requested.tree)
@@ -347,7 +378,7 @@ export function parseIndexedResult(
       id,
       utxoRoot: fieldBytes(tree["utxoRoot"]),
       nullifierRoot: fieldBytes(tree["nullifierRoot"]),
-      utxoRootIndex: rootIndex(tree["utxoRootIndex"], STATE_ROOT_HISTORY_CAPACITY),
+      utxoRootIndex: stateRootIndex(tree["utxoRootIndex"]),
       nullifierRootIndex: rootIndex(
         tree["nullifierRootIndex"],
         NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
@@ -358,8 +389,9 @@ export function parseIndexedResult(
     trees: Object.freeze(trees),
     publicInputHash: fieldBytes(raw["publicInputHash"]),
   });
-  validateResolution(inputs, resolution);
-  return Object.freeze({ proof: parsedProof, resolution });
+  if (trees.length !== requestedTrees.length)
+    throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
+  return resolution;
 }
 
 export function validateResolution(
@@ -372,6 +404,14 @@ export function validateResolution(
     const requested = inputs.trees[index];
     if (requested === undefined || tree.id !== requested.id || tree.tree !== requested.tree)
       throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
+    const needsState = inputs.lookups.some(
+      (lookup) => lookup.treeSlot === index && lookup.commitment !== null,
+    );
+    if (
+      needsState === (tree.utxoRootIndex === NO_UTXO_ROOT) ||
+      (!needsState && bytesField(tree.utxoRoot, "utxo root") !== 0n)
+    )
+      throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
     return Object.freeze({
       treeId: tree.id,
       slot: {
@@ -379,7 +419,7 @@ export function validateResolution(
         utxoRoot: checkedBytes(tree.utxoRoot, 32, "utxo root"),
         nullifierRoot: checkedBytes(tree.nullifierRoot, 32, "nullifier root"),
       },
-      utxoRootIndex: rootIndex(tree.utxoRootIndex, STATE_ROOT_HISTORY_CAPACITY),
+      utxoRootIndex: stateRootIndex(tree.utxoRootIndex),
       nullifierRootIndex: rootIndex(tree.nullifierRootIndex, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY),
     });
   });
@@ -411,4 +451,8 @@ function rootIndex(value: unknown, capacity: number): number {
   const index = u16(value);
   if (index >= capacity) throw new ClientError("CLIENT_PROOF_PARSE", { details: {} });
   return index;
+}
+
+function stateRootIndex(value: unknown): number {
+  return value === NO_UTXO_ROOT ? NO_UTXO_ROOT : rootIndex(value, STATE_ROOT_HISTORY_CAPACITY);
 }

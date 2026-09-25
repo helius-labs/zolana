@@ -174,9 +174,7 @@ export function assemble(
   }
 }
 
-interface PreparedTransferAssembly<
-  C extends ProverInputs["circuit"] = "transfer" | "transferRing",
-> {
+interface PreparedTransferAssembly<C extends ProverInputs["circuit"] = ProverInputs["circuit"]> {
   readonly inputs: Omit<IndexedProofInputs, "circuit" | "payload"> & {
     readonly circuit: C;
     readonly payload: PreparedTransferInputs;
@@ -186,22 +184,15 @@ interface PreparedTransferAssembly<
 
 export function prepareTransfer(
   proofInputs: SppProofInputs,
-  ring?: Address,
+  circuit: TransferCircuit = { kind: "confidential" },
 ): PreparedTransferAssembly {
   try {
-    const checked = checkedTransferPlan(
-      proofInputs,
-      ring === undefined ? { kind: "confidential" } : { kind: "ring", ring },
-    );
-    if (checked.cache !== undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    const checked = checkedTransferPlan(proofInputs, circuit);
     const slots = prepareSlots(proofInputs.inputUtxos, (input) =>
       bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
     );
     const prepared = prepareTransferUnchecked(proofInputs, slots, checked);
     const { inputs } = prepared;
-    if (inputs.circuit === "transferRingAuthority") {
-      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    }
     return Object.freeze({
       ...prepared,
       inputs: Object.freeze({ ...inputs, circuit: inputs.circuit }),
@@ -415,7 +406,7 @@ function prepareTransferUnchecked(
       lookups: proofInputs.inputUtxos.map((input, index) =>
         Object.freeze({
           treeSlot: treeIndexes[index] ?? 0,
-          commitment: input.isDummy() ? null : input.hash(),
+          commitment: input.isDummy() || input.cacheSlot !== undefined ? null : input.hash(),
         }),
       ),
       publicInputs: Object.freeze(publicInputs.map(asField)),

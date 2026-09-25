@@ -167,14 +167,13 @@ endpoint configuration.
 const client = await createZolanaClient({});
 ```
 
-To let the prover fetch Merkle data, set `proofDataSource: "prover"` in the
-client config. The prover must have `PROVER_INDEXER_URL` configured for the
-same network. Client fetching remains the default. `LocalKeys` supports both
-modes. A remote key holder must implement `IndexedProofAuthority.proveIndexed`
-for prover fetching. Responses bind the returned tree roots to the requested
-public transcript before transaction assembly.
-Ring authority transfers, ring merges and transactions reading or writing a cache fetch
-their proof paths through the client.
+The prover fetches Merkle data by default. Configure its `PROVER_INDEXER_URL`
+for the same network. Set `proofDataSource: "client"` to fetch proof data in
+the SDK instead. Both routes support ring transfers, merges and caches.
+`LocalKeys` supports both modes. A remote key holder must implement
+`IndexedProofAuthority.proveIndexed` for prover fetching. Policy proofs also
+fetch list paths and escrow memberships through the prover. Returned roots
+must reproduce the requested public statement before transaction assembly.
 
 ## Common transactions
 

@@ -100,8 +100,29 @@ describe("ring merge", () => {
     async (proofDataSource) => {
       const inputs = [input(3n), input(5n)];
       const prepared = merge(inputs, 9).prepare();
+      const expected = assembleMergeWithProofs(
+        prepared,
+        inputs.map(spendProof),
+        treeAddress(7),
+        prepared.dummyNullifiers().map(nonInclusion),
+      );
       const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-        Response.json(proofFor({ circuitType: "merge-ring", inputs: Array(8) })),
+        Response.json({
+          ...proofFor({ circuitType: "merge-ring", inputs: Array(8) }),
+          resolution: {
+            publicInputHash: `0x${expected.proverInputs.publicInputHash.toString(16)}`,
+            trees: [
+              {
+                tree: treeAddress(7),
+                id: 7,
+                utxoRoot: "0x1",
+                nullifierRoot: "0x2",
+                utxoRootIndex: 0,
+                nullifierRootIndex: 0,
+              },
+            ],
+          },
+        }),
       );
       const client = new ZolanaClient({ treeId: 7, proofDataSource, fetch });
       const state = vi
@@ -116,15 +137,19 @@ describe("ring merge", () => {
       try {
         const result = await client.proveMerge({ prepared, keys });
         expect(result.outputHash).toEqual(prepared.output.hash(9));
-        expect(state).toHaveBeenCalledOnce();
-        expect(nullifier).toHaveBeenCalledOnce();
-        expect(indexed).not.toHaveBeenCalled();
+        expect(state).toHaveBeenCalledTimes(proofDataSource === "client" ? 1 : 0);
+        expect(nullifier).toHaveBeenCalledTimes(proofDataSource === "client" ? 1 : 0);
+        expect(indexed).toHaveBeenCalledTimes(proofDataSource === "prover" ? 1 : 0);
         expect(fetch).toHaveBeenCalledOnce();
-        expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove$/u);
-        expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+        expect(String(fetch.mock.calls[0]?.[0])).toMatch(
+          proofDataSource === "prover" ? /\/prove\/indexed$/u : /\/prove$/u,
+        );
+        const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+        expect(proofDataSource === "prover" ? body.prepared : body).toMatchObject({
           circuitType: "merge-ring",
-          treeSlots: expect.any(Array),
         });
+        if (proofDataSource === "prover") expect(body.prepared).not.toHaveProperty("treeSlots");
+        else expect(body).toHaveProperty("treeSlots");
       } finally {
         keys.destroy();
       }

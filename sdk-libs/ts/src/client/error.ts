@@ -42,6 +42,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_UNSUPPORTED_RPC_METHOD",
   "CLIENT_INDEXER_TIMEOUT",
   "CLIENT_INDEXER_NOT_CAUGHT_UP",
+  "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
   "CLIENT_POLL_TIMED_OUT",
   "CLIENT_PROOF_PATH_LENGTH",
   "CLIENT_PROOF_INPUT_COUNT_MISMATCH",
@@ -50,6 +51,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
 export type CanonicalClientErrorCode = (typeof CANONICAL_CLIENT_ERROR_CODES)[number];
 
 export interface ClientErrorDetailsMap {
+  readonly CLIENT_INDEXER_PROOF_DATA_NOT_READY: NoDetails;
   readonly CLIENT_KEY_REGISTRY_OUT_OF_SYNC: MethodDetails;
   readonly CLIENT_KEY_REGISTRY_ROOT_CHANGED: MethodDetails;
   readonly CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: MethodDetails;
@@ -356,6 +358,7 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_UNUSED_READ_CACHE",
   "CLIENT_UNUSED_WRITE_CACHE",
   "CLIENT_UNEXPECTED",
+  "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
 ]);
 
 const OPTIONAL_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([

@@ -36,6 +36,7 @@ export type RingPolicyAnswerClient = Pick<ChainReader, "getAccount"> &
   Pick<ProofReader, "getMerkleProofs" | "getNonInclusionProofs">;
 
 export interface PolicyAnswerInput {
+  readonly proofDataSource?: "client" | "prover";
   readonly table: RuleTable;
   readonly config: RingPolicyConfig;
   readonly inputs: readonly ProofInputUtxo[];
@@ -43,6 +44,7 @@ export interface PolicyAnswerInput {
 }
 
 export interface PolicyAnswers {
+  readonly indexedLookups?: readonly import("../client/ports.js").IndexedPolicyLookup[];
   readonly answers: readonly CustomRingRuleAnswer[];
   /** One account per `treeSlots` entry, the policy trees the transact instruction lists. */
   readonly policyTrees: readonly Address[];
@@ -79,9 +81,29 @@ export async function provePolicyAnswers(
         }
       : { absence: fact.address },
   );
-  const trees = await provePolicyTrees({ client: input.client, addressTree, facts }, context);
+  const trees = await provePolicyTrees(
+    {
+      client: input.client,
+      addressTree,
+      facts,
+      ...(input.proofDataSource === undefined ? {} : { proofDataSource: input.proofDataSource }),
+    },
+    context,
+  );
   return Object.freeze({
-    answers: assemblePolicyAnswers(resolved, trees),
+    ...(input.proofDataSource === "prover"
+      ? {
+          indexedLookups: padded(
+            facts.map((fact, index) => ({
+              treeSlot: trees.factSlots[index]!,
+              commitment: fact.state ?? null,
+              nullifier: fact.absence as Bytes32 | null,
+            })),
+            () => ({ treeSlot: 0, commitment: null, nullifier: null }),
+          ),
+        }
+      : {}),
+    answers: assemblePolicyAnswers(resolved, trees, input.proofDataSource === "prover"),
     policyTrees: Object.freeze(trees.trees.map(({ tree }) => tree)),
     treeSlots: trees.slots,
     treeContexts: trees.contexts,
@@ -315,11 +337,12 @@ function sameQuestion(left: ResolvedAnswer, right: ResolvedAnswer): boolean {
 function assemblePolicyAnswers(
   answers: readonly ResolvedAnswer[],
   trees: ProvenPolicyTrees,
+  indexed: boolean,
 ): readonly CustomRingRuleAnswer[] {
   const assembled = answers.map((answer, index) => {
     const absence = trees.absences[index];
     const treeSlot = trees.factSlots[index];
-    if (absence === undefined || treeSlot === undefined) {
+    if ((!indexed && absence === undefined) || treeSlot === undefined) {
       throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
     }
     const base = {
@@ -329,14 +352,18 @@ function assemblePolicyAnswers(
       mode: answer.mode === "present" ? 1 : 2,
       listId: answer.listId,
       member: answer.member,
-      low: absence.lowElement,
-      next: absence.highElement,
-      nullifierPath: absence.path,
-      nullifierPathIndex: absence.lowElementIndex,
+      ...(absence === undefined
+        ? {}
+        : {
+            low: absence.lowElement,
+            next: absence.highElement,
+            nullifierPath: absence.path,
+            nullifierPathIndex: absence.lowElementIndex,
+          }),
     };
     if (answer.fact.kind === "unclaimed") return Object.freeze({ ...base, absentBranch: 1 });
     const state = trees.states[index];
-    if (state === undefined) throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
+    if (!indexed && state === undefined) throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
     const { entry } = answer.fact.live;
     return Object.freeze({
       ...base,
@@ -345,8 +372,7 @@ function assemblePolicyAnswers(
       version: entry.version,
       blinding: entry.blinding,
       contentHash: entry.contentHash,
-      statePath: state.path,
-      statePathIndex: state.leafIndex,
+      ...(state === undefined ? {} : { statePath: state.path, statePathIndex: state.leafIndex }),
     });
   });
   return Object.freeze([

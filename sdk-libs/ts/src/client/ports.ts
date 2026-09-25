@@ -249,9 +249,40 @@ export type IndexedProofInputs = Readonly<{
   readonly minContextSlot?: bigint;
 }> &
   (
-    | Readonly<{ circuit: "transfer" | "transferRing"; payload: PreparedTransferInputs }>
+    | Readonly<{
+        circuit: "transfer" | "transferRing" | "transferRingAuthority";
+        payload: PreparedTransferInputs;
+      }>
     | Readonly<{ circuit: "merge"; payload: PreparedMergeInputs }>
   );
+
+export interface IndexedPolicyLookup {
+  readonly treeSlot: number;
+  readonly commitment: Bytes32 | null;
+  readonly nullifier: Bytes32 | null;
+}
+
+export interface IndexedPolicyInputs {
+  readonly minContextSlot?: bigint;
+  readonly circuit:
+    | "custom-ring-policy"
+    | "custom-ring-compressed-policy"
+    | "custom-ring-delegate-policy";
+  readonly policy: CustomRingPolicyProofRequest;
+  readonly transactionSalt?: Uint8Array;
+  readonly trees: readonly ResolvedProofTree[];
+  readonly lookups: readonly IndexedPolicyLookup[];
+  readonly publicInputs: readonly Bytes32[];
+  readonly registry?: Readonly<{ ringProgramId: Address; root: Bytes32; nextIndex: bigint }>;
+}
+
+export interface IndexedPolicyClient {
+  readonly proofDataSource?: "client" | "prover";
+  proveIndexedRingPolicy?(
+    inputs: IndexedPolicyInputs,
+    context?: RequestContext,
+  ): Promise<Readonly<{ proof: Uint8Array; resolution: ProofResolution }>>;
+}
 
 export interface IndexedProofResult {
   readonly proof: Proof;

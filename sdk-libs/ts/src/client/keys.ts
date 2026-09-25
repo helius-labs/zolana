@@ -104,24 +104,7 @@ export class LocalKeys implements WalletKeys {
   ): Promise<IndexedProofResult> {
     const inputs = decodeIndexedInputs(request);
     const service = indexedAuthority(this.#proofs);
-    const complete = this.#keys.withNullifierKey((key): IndexedProofInputs => {
-      if (inputs.circuit === "merge") {
-        if (inputs.payload.userNullifierSecret !== undefined) return inputs;
-        if (
-          bytesField(key.publicKey(), "nullifier public key") !==
-          inputs.payload.userNullifierPublicKey
-        )
-          throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
-        return { ...inputs, payload: { ...inputs.payload, userNullifierSecret: secretField(key) } };
-      }
-      return {
-        ...inputs,
-        payload: {
-          ...inputs.payload,
-          inputs: inputs.payload.inputs.map((input) => completeInput(input, key)),
-        },
-      };
-    });
+    const complete = this.#keys.withNullifierKey((key) => completeIndexedInputs(inputs, key));
     return service.proveIndexed(complete, context);
   }
 
@@ -150,6 +133,13 @@ export class NullifierKeyProofAuthority implements ProofAuthority {
 
   proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     return this.#proofs.proveMerge(completeMergeInputs(inputs, this.#key), context);
+  }
+
+  proveIndexed(request: IndexedProofInputs, context?: RequestContext): Promise<IndexedProofResult> {
+    return indexedAuthority(this.#proofs).proveIndexed(
+      completeIndexedInputs(decodeIndexedInputs(request), this.#key),
+      context,
+    );
   }
 
   destroy(): void {
@@ -204,4 +194,22 @@ function checkProofService(proofs: ProofService): ProofService {
     throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofs" } });
   }
   return proofs;
+}
+
+function completeIndexedInputs(inputs: IndexedProofInputs, key: NullifierKey): IndexedProofInputs {
+  if (inputs.circuit === "merge") {
+    if (inputs.payload.userNullifierSecret !== undefined) return inputs;
+    if (
+      bytesField(key.publicKey(), "nullifier public key") !== inputs.payload.userNullifierPublicKey
+    )
+      throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
+    return { ...inputs, payload: { ...inputs.payload, userNullifierSecret: secretField(key) } };
+  }
+  return {
+    ...inputs,
+    payload: {
+      ...inputs.payload,
+      inputs: inputs.payload.inputs.map((input) => completeInput(input, key)),
+    },
+  };
 }

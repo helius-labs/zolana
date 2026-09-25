@@ -15,6 +15,10 @@ spend it from there before the tree holds it.
 
 Breaking
 
+- `ZolanaClient` now defaults to `proofDataSource: "prover"` for transfers,
+  merges, caches and ring policy proofs → configure `PROVER_INDEXER_URL` on
+  the prover or select `proofDataSource: "client"` to keep SDK fetching.
+  Remote key holders must implement `IndexedProofAuthority.proveIndexed`.
 - `buildRegistrationTransaction` adds the `payer` account the user-registry
   program now requires for a first registration → rebuild any unsigned
   registration transaction an earlier release built, the program rejects it.

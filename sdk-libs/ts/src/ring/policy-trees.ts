@@ -79,7 +79,7 @@ export interface ProvenPolicyTrees {
   readonly contexts: readonly TreeContext[];
   readonly factSlots: readonly number[];
   readonly states: readonly (MerkleProof | undefined)[];
-  readonly absences: readonly NonInclusionProof[];
+  readonly absences: readonly (NonInclusionProof | undefined)[];
 }
 
 export type PolicyTreeClient = Pick<ChainReader, "getAccount"> &
@@ -113,6 +113,7 @@ export async function provePolicyTrees(
     client: PolicyTreeClient;
     addressTree: LeafTree;
     facts: readonly PolicyTreeFact[];
+    proofDataSource?: "client" | "prover";
   }>,
   context?: RequestContext,
 ): Promise<ProvenPolicyTrees> {
@@ -124,6 +125,16 @@ export async function provePolicyTrees(
   const absences: (NonInclusionProof | undefined)[] = input.facts.map(() => undefined);
   const reads = await Promise.all(
     trees.map(async ({ tree, treeId }, slot) => {
+      if (input.proofDataSource === "prover") {
+        const roots = await readTreeHeads(input.client, { tree, treeId }, context);
+        return {
+          slot: { id: treeId, utxoRoot: roots.stateRoot, nullifierRoot: roots.nullifierRoot },
+          context: {
+            utxoTreeRootIndex: roots.stateRootIndex,
+            nullifierTreeRootIndex: roots.nullifierRootIndex,
+          },
+        };
+      }
       const members = input.facts.flatMap((fact, index) =>
         factSlots[index] === slot ? [{ fact, index }] : [],
       );
@@ -197,7 +208,8 @@ export async function provePolicyTrees(
     states: Object.freeze(states),
     absences: Object.freeze(
       absences.map((proof) => {
-        if (proof === undefined) throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
+        if (proof === undefined && input.proofDataSource !== "prover")
+          throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
         return proof;
       }),
     ),

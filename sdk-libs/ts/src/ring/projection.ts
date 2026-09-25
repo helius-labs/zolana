@@ -32,9 +32,10 @@ export async function waitForRingProjection<T>(
   retryable: ReadonlySet<ClientErrorCode>,
   context?: RequestContext,
   poll: IndexerPollConfig = PROJECTION_POLL,
+  maxWaitMs: number = PROJECTION_TIMEOUT_MS,
 ): Promise<T> {
   let last: ClientError | undefined;
-  const operation = composeSignal(overallContext(context), "waitForRingProjection");
+  const operation = composeSignal(overallContext(context, maxWaitMs), "waitForRingProjection");
   const attemptContext = Object.freeze({ signal: operation.signal });
   let rejectAborted: ((error: ClientError) => void) | undefined;
   const aborted = new Promise<never>((_resolve, reject) => {
@@ -73,11 +74,11 @@ export async function waitForRingProjection<T>(
   }
 }
 
-function overallContext(context?: RequestContext): RequestContext {
+function overallContext(context: RequestContext | undefined, maxWaitMs: number): RequestContext {
   const requested = context?.timeoutMs;
   const timeoutMs =
     requested === undefined || (Number.isSafeInteger(requested) && requested > 0)
-      ? Math.min(requested ?? PROJECTION_TIMEOUT_MS, PROJECTION_TIMEOUT_MS)
+      ? Math.min(requested ?? maxWaitMs, maxWaitMs)
       : requested;
   return {
     ...(context?.signal === undefined ? {} : { signal: context.signal }),

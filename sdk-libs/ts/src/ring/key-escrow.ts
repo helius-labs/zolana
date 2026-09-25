@@ -19,6 +19,7 @@ export interface RingKeyOwner {
 }
 
 export interface RingEscrowedKeys {
+  readonly nextIndex?: bigint;
   readonly root: Bytes32;
   readonly rootIndex: number;
   /** Per owner, absent for an owner that needs none. */
@@ -45,6 +46,7 @@ export async function openRingEscrowedKeys(
     ringProgramId: Address;
     /** `undefined` for a slot the circuit does not check or a namespace-owned record. */
     owners: readonly (RingKeyOwner | undefined)[];
+    proofDataSource?: "client" | "prover";
   }>,
   context?: RequestContext,
 ): Promise<RingEscrowedKeys> {
@@ -55,6 +57,13 @@ export async function openRingEscrowedKeys(
         input.ringProgramId,
         attemptContext,
       );
+      if (input.proofDataSource === "prover")
+        return Object.freeze({
+          root: registry.root,
+          rootIndex: registry.historyCursor,
+          nextIndex: registry.nextIndex,
+          keys: [],
+        });
       const opened = new Map<string, Promise<CustomRingRegistryKey>>();
       const keys = await Promise.all(
         input.owners.map((owner) => {

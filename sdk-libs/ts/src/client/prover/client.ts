@@ -1,10 +1,17 @@
 import type {
+  IndexedPolicyInputs,
   IndexedProofInputs,
   IndexedProofResult,
   PreparedTransferInput,
   PreparedMergeInputs,
 } from "../ports.js";
-import { decodeIndexedInputs, indexedRequestEnvelope, parseIndexedResult } from "./indexed.js";
+import { indexedPolicyEnvelope, snapshotPolicyInputs, validatePolicyResolution } from "./policy.js";
+import {
+  decodeIndexedInputs,
+  parseProofResolution,
+  indexedRequestEnvelope,
+  parseIndexedResult,
+} from "./indexed.js";
 import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../../interface/key-registry.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
@@ -211,6 +218,22 @@ export class ProverClient {
     );
   }
 
+  async proveIndexedPolicy(
+    request: IndexedPolicyInputs,
+    context?: RequestContext,
+  ): Promise<IndexedProofResult> {
+    const inputs = snapshotPolicyInputs(request);
+    const body = indexedPolicyEnvelope(inputs, customRingPolicyProofRequest(inputs.policy));
+    const key = provingKeyFor({ circuit: inputs.circuit });
+    const url = new URL(this.#url);
+    url.pathname += "/indexed";
+    const result = await this.#send(JSON.stringify(body), "queued", context, url);
+    const proof = parseCheckedProof(result, key);
+    const resolution = parseProofResolution(result, inputs.trees);
+    validatePolicyResolution(inputs, resolution);
+    return Object.freeze({ proof, resolution });
+  }
+
   async proveCustomRingPolicy(
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
@@ -386,6 +409,11 @@ export class ProverClient {
             }
             // Rust fails fast on any non-success status; only a transport failure retries.
             if (!response.ok) {
+              if (url !== this.#url) {
+                const failure: unknown = await decodeResponse(response);
+                if (isObject(failure) && failure["code"] === "indexer_not_ready")
+                  throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
+              }
               throw new ClientError("CLIENT_PROVER_HTTP", {
                 details: {
                   method: "prove",
@@ -505,6 +533,8 @@ export class ProverClient {
         }
         const status = isObject(value) ? value["status"] : undefined;
         if (status === "failed") {
+          if (isObject(value) && value["error"] === "indexer proof data not ready")
+            throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
           throw new ClientError("CLIENT_PROVER_SERVER", {
             details: { method: "proveStatus", status: "failed" },
           });

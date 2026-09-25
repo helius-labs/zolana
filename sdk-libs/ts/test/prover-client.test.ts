@@ -3,6 +3,8 @@ import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
+import { ZolanaClient } from "../src/client/client.js";
+import { wireDecoder } from "../src/interface/decode.js";
 import { parseProof } from "../src/client/prover/proof.js";
 import {
   asField,
@@ -27,7 +29,14 @@ import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
 import { disabledRuleAnswer, velocityProofInputOff } from "../src/client/prover/types.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
+import { hashChain } from "../src/transaction/internal.js";
+import type { IndexedPolicyInputs } from "../src/client/ports.js";
+import {
+  inputTreeSlots,
+  treeSlotsHashChain,
+  INPUT_TREES,
+  ZERO_TREE_SLOT,
+} from "../src/interface/tree-slot.js";
 import type {
   CustomRingBaseProofRequest,
   CustomRingOpening,
@@ -1285,5 +1294,97 @@ describe("dummy prover inputs", () => {
       ringDataHash: 0n,
       ringProgramId: 0n,
     });
+  });
+});
+
+describe("indexed policy proofs", () => {
+  it.each([
+    "custom-ring-policy",
+    "custom-ring-compressed-policy",
+    "custom-ring-delegate-policy",
+  ] as const)("binds returned roots for %s", async (circuit) => {
+    const policy = ringRequest(p256.getPublicKey(bytes(4), false));
+    const tree = {
+      tree: treeAddress(3),
+      id: 3,
+      utxoRoot: bytes(8),
+      nullifierRoot: bytes(9),
+      utxoRootIndex: 7,
+      nullifierRootIndex: 8,
+    };
+    const inputs: IndexedPolicyInputs = {
+      circuit,
+      policy,
+      minContextSlot: 123n,
+      trees: [tree],
+      lookups: Array.from({ length: 10 }, () => ({
+        treeSlot: 0,
+        commitment: null,
+        nullifier: null,
+      })),
+      publicInputs: Array.from(
+        { length: circuit === "custom-ring-compressed-policy" ? 20 : 19 },
+        () => bytes(1),
+      ),
+      ...(circuit === "custom-ring-compressed-policy"
+        ? { transactionSalt: new Uint8Array(16) }
+        : {}),
+    };
+    const hash = hashChain([
+      inputs.publicInputs[0]!,
+      treeSlotsHashChain(inputTreeSlots(policy.treeSlots)),
+      ...inputs.publicInputs.slice(1),
+    ]);
+    const toHex = (value: Uint8Array) => `0x${Buffer.from(value).toString("hex")}`;
+    const resolution = {
+      trees: [
+        { ...tree, utxoRoot: toHex(tree.utxoRoot), nullifierRoot: toHex(tree.nullifierRoot) },
+      ],
+      publicInputHash: toHex(hash),
+    };
+    const proof = {
+      ...proofFor({ circuitType: circuit }),
+      proofCommitment: ["0x1", "0x2"],
+      proofCommitmentPok: ["0x0", "0x0"],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({ ...proof, resolution }),
+    );
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const result = await prover.proveIndexedPolicy(inputs);
+    expect(result.resolution.publicInputHash).toEqual(hash);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("/prove/indexed");
+    const wire: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    const decoder = wireDecoder(() => new Error("invalid body"));
+    const body = decoder.record(wire, "body");
+    const wrapped = decoder.record(body["prepared"], "prepared");
+    const prepared =
+      circuit === "custom-ring-policy" ? wrapped : decoder.record(wrapped["policy"], "policy");
+    expect(body["minContextSlot"]).toBe(123);
+    expect(wrapped["minContextSlot"]).toBeUndefined();
+    expect(prepared["treeSlots"]).toBeUndefined();
+    expect(
+      decoder.record(decoder.list(prepared["answers"], "answers")[0], "answer")["nfPathElements"],
+    ).toBeUndefined();
+    const client = new ZolanaClient({
+      fetch,
+      indexerConfig: { requireSlot: 456n, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
+    });
+    for (const minContextSlot of [123n, 1000n]) {
+      await client.proveIndexedRingPolicy({ ...inputs, minContextSlot });
+      const clientWire: unknown = JSON.parse(String(fetch.mock.lastCall?.[1]?.body));
+      expect(decoder.record(clientWire, "client body")["minContextSlot"]).toBe(
+        Number(minContextSlot < 456n ? 456n : minContextSlot),
+      );
+    }
+    for (const changed of [
+      { ...resolution, publicInputHash: toHex(bytes(2)) },
+      { ...resolution, trees: [{ ...resolution.trees[0], utxoRootIndex: 9 }] },
+      { ...resolution, trees: [{ ...resolution.trees[0], utxoRoot: toHex(bytes(10)) }] },
+      { ...resolution, trees: [{ ...resolution.trees[0], tree: treeAddress(4) }] },
+    ]) {
+      fetch.mockResolvedValueOnce(Response.json({ ...proof, resolution: changed }));
+      await expect(prover.proveIndexedPolicy(inputs)).rejects.toBeInstanceOf(ClientError);
+    }
   });
 });

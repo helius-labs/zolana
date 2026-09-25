@@ -1,4 +1,5 @@
 import { p256 } from "@noble/curves/nist.js";
+import { ClientError } from "../src/client/error.js";
 import {
   address,
   getAddressDecoder,
@@ -1328,85 +1329,120 @@ describe("ring proof folded fields", () => {
     );
   }
 
-  it("resolves the answers a rules-bearing table needs before the SPP proof", async () => {
-    const { prepared, sender, recipient } = preparedTransfer(4n, [1n]);
-    const accounts = await ringAccounts(ViewingKey.generate(), true, [requireAllow]);
-    const entries = await allowEntries([sender, recipient, actor(5)]);
-    const reads = entryProofReads({
-      tree: ACTIVE_TREE,
-      spenders: entries.flatMap((entry) => entry.spenders),
-      stateRoots: [{ value: new Uint8Array(32).fill(0x17) as Bytes32, index: 7 }],
-      nullifierRoots: [{ value: new Uint8Array(32).fill(0x28) as Bytes32, index: 8 }],
-    });
-    const order: string[] = [];
-    const lineages = reads.getShieldedTransactionsByNullifiers.getMockImplementation();
-    reads.getShieldedTransactionsByNullifiers.mockImplementation(async (request) => {
-      order.push("lineage");
-      if (lineages === undefined) throw new Error("unreachable");
-      return lineages(request);
-    });
-    const proveRingTransact = vi.fn(async () => {
-      order.push("spp");
-      return { data: ringInstructionData(scalar(91)), roots: SPP_ROOTS };
-    });
-    let request: CustomRingPolicyProofRequest | undefined;
-    const proveCustomRingPolicy = vi.fn(async (input: CustomRingPolicyProofRequest) => {
-      request = input;
-      return new Uint8Array(192);
-    });
-    const proven = await proveCustomRingTransfer({
-      client: ringTransferClient({
+  it.each([
+    { proofDataSource: "client", lag: false },
+    { proofDataSource: "prover", lag: false },
+    { proofDataSource: "prover", lag: true },
+  ] as const)(
+    "resolves policy answers with $proofDataSource proof data and lag=$lag",
+    async ({ proofDataSource, lag }) => {
+      const { prepared, sender, recipient } = preparedTransfer(4n, [1n]);
+      const accounts = await ringAccounts(ViewingKey.generate(), true, [requireAllow]);
+      const entries = await allowEntries([sender, recipient, actor(5)]);
+      const reads = entryProofReads({
+        tree: ACTIVE_TREE,
+        spenders: entries.flatMap((entry) => entry.spenders),
+        stateRoots: [{ value: new Uint8Array(32).fill(0x17) as Bytes32, index: 7 }],
+        nullifierRoots: [{ value: new Uint8Array(32).fill(0x28) as Bytes32, index: 8 }],
+      });
+      const order: string[] = [];
+      const lineages = reads.getShieldedTransactionsByNullifiers.getMockImplementation();
+      reads.getShieldedTransactionsByNullifiers.mockImplementation(async (request) => {
+        order.push("lineage");
+        if (lineages === undefined) throw new Error("unreachable");
+        return lineages(request);
+      });
+      const proveRingTransact = vi.fn(async () => {
+        order.push("spp");
+        return { data: ringInstructionData(scalar(91)), roots: SPP_ROOTS };
+      });
+      let request: CustomRingPolicyProofRequest | undefined;
+      const proveCustomRingPolicy = vi.fn(async (input: CustomRingPolicyProofRequest) => {
+        request = input;
+        return new Uint8Array(192);
+      });
+      let policyCalls = 0;
+      const proven = await proveCustomRingTransfer({
+        client: ringTransferClient({
+          tree: RING,
+          getAccount: accounts.getAccount,
+          proveRingTransact,
+          proveCustomRingPolicy,
+          proofDataSource,
+          proveIndexedRingPolicy: async (indexed) => {
+            policyCalls++;
+            if (lag && policyCalls === 1)
+              throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
+            request = indexed.policy;
+            expect(indexed.lookups.filter((lookup) => lookup.nullifier !== null)).toHaveLength(3);
+            return {
+              proof: new Uint8Array(192),
+              resolution: {
+                trees: indexed.trees.map((tree) => ({
+                  ...tree,
+                  utxoRootIndex: 12,
+                  nullifierRootIndex: 13,
+                })),
+                publicInputHash: scalar(91),
+              },
+            };
+          },
+          getShieldedTransactionsByNullifiers: reads.getShieldedTransactionsByNullifiers,
+          getMerkleProofs: reads.getMerkleProofs,
+          getNonInclusionProofs: reads.getNonInclusionProofs,
+        }),
+        ringProgramId: RING,
+        prepared,
+        keys: walletKeys(sender),
+        assets: new AssetRegistry(),
         tree: RING,
-        getAccount: accounts.getAccount,
-        proveRingTransact,
-        proveCustomRingPolicy,
-        getShieldedTransactionsByNullifiers: reads.getShieldedTransactionsByNullifiers,
-        getMerkleProofs: reads.getMerkleProofs,
-        getNonInclusionProofs: reads.getNonInclusionProofs,
-      }),
-      ringProgramId: RING,
-      prepared,
-      keys: walletKeys(sender),
-      assets: new AssetRegistry(),
-      tree: RING,
-      outputTree: ACTIVE_TREE,
-    });
-    expect(order[0]).toBe("lineage");
-    expect(order.at(-1)).toBe("spp");
-    const enabled = request?.answers.filter((answer) => answer.enabled) ?? [];
-    expect(enabled).toHaveLength(3);
-    expect(enabled.every((answer) => answer.mode === 1 && answer.absentBranch === 2)).toBe(true);
-    expect(request?.treeSlots).toEqual([
-      {
-        id: 0,
-        utxoRoot: new Uint8Array(32).fill(0x17),
-        nullifierRoot: new Uint8Array(32).fill(0x28),
-      },
-    ]);
-    expect(enabled.every((answer) => answer.treeSlot === 0)).toBe(true);
-    expect(proven.policy?.treeContexts).toEqual([
-      { utxoTreeRootIndex: 7, nullifierTreeRootIndex: 8 },
-    ]);
-    expect(proven.policy?.revocationTreeIndexes).toEqual(Array.from({ length: 10 }, () => 0));
-    expect(reads.getMerkleProofs).toHaveBeenCalledTimes(1);
-    expect(reads.getNonInclusionProofs).toHaveBeenCalledTimes(1);
-    // The account rows travel verbatim.
-    const policy = accounts.policy;
-    expect(request?.policyLen).toBe(1);
-    expect(request?.rules.slice(0, 1)).toEqual(policy.rules);
-    expect(request?.rules.slice(1).every((row) => row.every((byte) => byte === 0))).toBe(true);
-    expect(request?.inlineCount).toBe(0);
-    expect(request?.sources.map((slot) => slot.listId)).toEqual([
-      ListId.allow,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-    ]);
-  });
+        outputTree: ACTIVE_TREE,
+      });
+      expect(order[0]).toBe("lineage");
+      expect(order.at(-1)).toBe("spp");
+      const enabled = request?.answers.filter((answer) => answer.enabled) ?? [];
+      expect(enabled).toHaveLength(3);
+      expect(enabled.every((answer) => answer.mode === 1 && answer.absentBranch === 2)).toBe(true);
+      expect(request?.treeSlots).toEqual([
+        {
+          id: 0,
+          utxoRoot: new Uint8Array(32).fill(0x17),
+          nullifierRoot: new Uint8Array(32).fill(0x28),
+        },
+      ]);
+      expect(enabled.every((answer) => answer.treeSlot === 0)).toBe(true);
+      expect(proven.policy?.treeContexts).toEqual([
+        {
+          utxoTreeRootIndex: proofDataSource === "prover" ? 12 : 7,
+          nullifierTreeRootIndex: proofDataSource === "prover" ? 13 : 8,
+        },
+      ]);
+      expect(proven.policy?.revocationTreeIndexes).toEqual(Array.from({ length: 10 }, () => 0));
+      expect(reads.getMerkleProofs).toHaveBeenCalledTimes(proofDataSource === "prover" ? 0 : 1);
+      expect(reads.getNonInclusionProofs).toHaveBeenCalledTimes(
+        proofDataSource === "prover" ? 0 : 1,
+      );
+      expect(proveCustomRingPolicy).toHaveBeenCalledTimes(proofDataSource === "prover" ? 0 : 1);
+      expect(proveRingTransact).toHaveBeenCalledTimes(lag ? 2 : 1);
+      expect(order.filter((step) => step === "lineage")).toHaveLength(lag ? 4 : 2);
+      // The account rows travel verbatim.
+      const policy = accounts.policy;
+      expect(request?.policyLen).toBe(1);
+      expect(request?.rules.slice(0, 1)).toEqual(policy.rules);
+      expect(request?.rules.slice(1).every((row) => row.every((byte) => byte === 0))).toBe(true);
+      expect(request?.inlineCount).toBe(0);
+      expect(request?.sources.map((slot) => slot.listId)).toEqual([
+        ListId.allow,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+      ]);
+    },
+  );
 
   it("refuses a transfer no entry admits before any prover call", async () => {
     const { prepared, sender } = preparedTransfer(4n, [1n]);

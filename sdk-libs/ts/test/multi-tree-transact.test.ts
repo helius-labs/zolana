@@ -294,6 +294,7 @@ describe("a client proving from two trees", () => {
       Response.json(proofFor(String(init?.body))),
     );
     const client = new ZolanaClient({
+      proofDataSource: "client",
       solanaRpcUrl: "http://127.0.0.1:8899",
       indexerUrl: "http://127.0.0.1:8784",
       proverUrl: "http://127.0.0.1:3001",
@@ -347,6 +348,7 @@ describe("a client proving from two trees", () => {
   it("asks a tree holding only padding for no state proofs", async () => {
     const fixture = twoTreeFixture();
     const client = new ZolanaClient({
+      proofDataSource: "client",
       solanaRpcUrl: "http://127.0.0.1:8899",
       indexerUrl: "http://127.0.0.1:8784",
       proverUrl: "http://127.0.0.1:3001",

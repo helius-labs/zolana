@@ -1,5 +1,6 @@
 import { prepareMerge } from "./prover/merge.js";
-import { prepareTransfer } from "./prover/assembly.js";
+import { policyContextSlot } from "./prover/policy.js";
+import { prepareTransfer, checkedTransferCache } from "./prover/assembly.js";
 import { indexedAuthority, validateResolution } from "./prover/indexed.js";
 import {
   assertIsAddress,
@@ -71,7 +72,7 @@ import {
   type SolanaRpc,
   type SolanaRpcSubscriptions,
 } from "./kit.js";
-import { assemble, checkedProverInputs, checkedTransferCache } from "./prover/assembly.js";
+import { assemble, checkedProverInputs } from "./prover/assembly.js";
 import {
   ProverClient,
   type AsyncPollConfig,
@@ -221,7 +222,7 @@ export class ZolanaClient
       input.proofDataSource !== "prover"
     )
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
-    this.#proofDataSource = input.proofDataSource ?? "client";
+    this.#proofDataSource = input.proofDataSource ?? "prover";
     const treeId = input.treeId ?? DEFAULT_TREE_ID;
     if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "treeId" } });
@@ -811,6 +812,32 @@ export class ZolanaClient
     }
   }
 
+  get proofDataSource(): "client" | "prover" {
+    return this.#proofDataSource;
+  }
+
+  async proveIndexedRingPolicy(
+    inputs: import("./ports.js").IndexedPolicyInputs,
+    context?: RequestContext,
+  ): Promise<Readonly<{ proof: Uint8Array; resolution: import("./ports.js").ProofResolution }>> {
+    try {
+      const minContextSlot = policyContextSlot(
+        inputs.minContextSlot,
+        this.#indexerConfig.requireSlot,
+      );
+      const result = await this.#prover.proveIndexedPolicy(
+        { ...inputs, ...(minContextSlot === undefined ? {} : { minContextSlot }) },
+        context,
+      );
+      return Object.freeze({
+        proof: compressProof(result.proof).toCustomRingProof(),
+        resolution: result.resolution,
+      });
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
   async proveCustomRingPolicy(
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
@@ -929,6 +956,7 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
     checkProofAuthority(keys);
+    checkedTransferCache(proofInputs);
     if (treeAddress(outputTree.treeId) !== outputTree.tree)
       throw new ClientError("CLIENT_TREE_MISMATCH", {
         details: { transactionTree: outputTree.tree, clientTree: treeAddress(outputTree.treeId) },
@@ -940,16 +968,8 @@ export class ZolanaClient
       });
     }
     try {
-      const cache = checkedTransferCache(proofInputs);
-      if (
-        this.#proofDataSource === "prover" &&
-        circuit.kind !== "ringAuthority" &&
-        cache === undefined
-      ) {
-        const prepared = prepareTransfer(
-          proofInputs,
-          circuit.kind === "ring" ? circuit.ring : undefined,
-        );
+      if (this.#proofDataSource === "prover") {
+        const prepared = prepareTransfer(proofInputs, circuit);
         const slot = (config ?? this.#indexerConfig).requireSlot;
         const inputs = {
           ...prepared.inputs,
@@ -991,12 +1011,8 @@ export class ZolanaClient
     if (!(input.prepared instanceof PreparedMerge)) {
       throw new ClientError("CLIENT_INVALID_MERGE");
     }
-    if (
-      this.#proofDataSource === "prover" &&
-      input.prepared.output.ringProgramId === undefined &&
-      input.cache === undefined
-    ) {
-      const prepared = prepareMerge(input.prepared, this.tree);
+    if (this.#proofDataSource === "prover") {
+      const prepared = prepareMerge(input.prepared, this.tree, input.cache);
       const slot = this.#indexerConfig.requireSlot;
       const inputs = {
         ...prepared.inputs,
