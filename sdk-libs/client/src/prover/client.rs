@@ -25,6 +25,7 @@ use crate::{
         },
         proof::{proof_from_gnark_json, Proof},
         proving_key::{parse_sha256_hex, ExpectedProvingKey, ProverKeys, ProvingKeyReport},
+        timing::{emit, prover_spans, ProverTiming, ProverTimingSink, PROVER_TIMING_HEADER},
     },
 };
 
@@ -213,6 +214,7 @@ pub struct ProverClient {
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
     proof_data_source: ProofDataSource,
+    timing: Option<ProverTimingSink>,
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -223,6 +225,7 @@ pub struct AsyncProverClient {
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
     proof_data_source: ProofDataSource,
+    timing: Option<ProverTimingSink>,
 }
 
 impl Default for ProverClient {
@@ -259,6 +262,7 @@ impl ProverClient {
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
+            timing: None,
         }
     }
 
@@ -292,6 +296,13 @@ impl ProverClient {
     /// the rail the queue's own tests have to exercise.
     pub fn with_queued_proofs(mut self) -> Self {
         self.delivery = Delivery::Queued;
+        self
+    }
+
+    /// Asks the prover for its stage spans and hands every proof request's timing to `sink`.
+    #[must_use]
+    pub fn with_timing(mut self, sink: ProverTimingSink) -> Self {
+        self.timing = Some(sink);
         self
     }
 
@@ -430,7 +441,7 @@ impl ProverClient {
         delivery: Delivery,
     ) -> Result<(StatusCode, String), ClientError> {
         let mut attempt = 0;
-        let response = loop {
+        let (response, started) = loop {
             attempt += 1;
             let mut request = self
                 .http
@@ -441,6 +452,10 @@ impl ProverClient {
             } else {
                 request = request.header("X-Async", "true");
             }
+            if self.timing.is_some() {
+                request = request.header(PROVER_TIMING_HEADER, "true");
+            }
+            let started = Instant::now();
             match request.body(body.to_string()).send() {
                 // A prover without a queue proves a queued request in the
                 // response too, and sheds it the same way while it is busy.
@@ -451,7 +466,7 @@ impl ProverClient {
                 {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
-                Ok(response) => break response,
+                Ok(response) => break (response, started),
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
@@ -464,9 +479,16 @@ impl ProverClient {
             }
         };
         let status = response.status();
+        let spans = prover_spans(response.headers());
         let text = response.text().map_err(|e| {
             ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
         })?;
+        emit(self.timing.as_ref(), || ProverTiming {
+            path: url.path().to_owned(),
+            status: status.as_u16(),
+            elapsed: started.elapsed(),
+            spans,
+        });
         Ok((status, text))
     }
 
@@ -876,6 +898,7 @@ impl AsyncProverClient {
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
             proof_data_source: ProofDataSource::default(),
+            timing: None,
         }
     }
 
@@ -912,6 +935,13 @@ impl AsyncProverClient {
     /// the rail the queue's own tests have to exercise.
     pub fn with_queued_proofs(mut self) -> Self {
         self.delivery = Delivery::Queued;
+        self
+    }
+
+    /// Asks the prover for its stage spans and hands every proof request's timing to `sink`.
+    #[must_use]
+    pub fn with_timing(mut self, sink: ProverTimingSink) -> Self {
+        self.timing = Some(sink);
         self
     }
 
@@ -1084,6 +1114,10 @@ impl AsyncProverClient {
             } else {
                 request = request.header("X-Async", "true");
             }
+            if self.timing.is_some() {
+                request = request.header(PROVER_TIMING_HEADER, "true");
+            }
+            let started = Instant::now();
             match request.body(body.to_string()).send().await {
                 Ok(response)
                     if response.status() == StatusCode::TOO_MANY_REQUESTS
@@ -1094,12 +1128,19 @@ impl AsyncProverClient {
                 }
                 Ok(response) => {
                     let status = response.status();
+                    let spans = prover_spans(response.headers());
                     let text = response.text().await.map_err(|e| {
                         ClientError::ProverServer(format!(
                             "failed to read response body: {}",
                             scrub(e)
                         ))
                     })?;
+                    emit(self.timing.as_ref(), || ProverTiming {
+                        path: url.path().to_owned(),
+                        status: status.as_u16(),
+                        elapsed: started.elapsed(),
+                        spans,
+                    });
                     return Ok((status, text));
                 }
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
@@ -1423,7 +1464,7 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
-        sync::{mpsc, Arc},
+        sync::{mpsc, Arc, Mutex},
         thread,
     };
 
@@ -1606,6 +1647,76 @@ mod tests {
             "collecting a ready proof took {elapsed:?}; the poll interval is a \
              ceiling, not a floor"
         );
+    }
+
+    type SeenTimings = Arc<Mutex<Vec<ProverTiming>>>;
+
+    fn timed_proof_server() -> MockServer {
+        MockServer::respond_with(vec![MockResponse::Timed {
+            status: 200,
+            body: gnark_proof().to_string(),
+            spans:
+                json!([{ "name": "prove", "start_ms": 1.5, "duration_ms": 25.0, "complete": true }])
+                    .to_string(),
+        }])
+    }
+
+    fn recording_sink(seen: &SeenTimings) -> ProverTimingSink {
+        let seen = Arc::clone(seen);
+        Arc::new(move |timing| seen.lock().expect("timing sink lock").push(timing))
+    }
+
+    fn assert_prove_timing(seen: &SeenTimings) {
+        let seen = seen.lock().expect("timing sink lock");
+        let [timing] = seen.as_slice() else {
+            panic!("expected one timing, got {}", seen.len());
+        };
+        assert_eq!(timing.path, "/v1/zolana/prove");
+        assert_eq!(timing.status, 200);
+        let [span] = timing.spans.as_slice() else {
+            panic!("expected one span, got {:?}", timing.spans);
+        };
+        assert_eq!((span.name.as_str(), span.duration_ms), ("prove", 25.0));
+    }
+
+    #[test]
+    fn a_timing_sink_asks_for_spans_and_receives_them_without_the_query() {
+        let server = timed_proof_server();
+        let seen = SeenTimings::default();
+        ProverClient::new(format!("{}/v1/zolana?api-key=secret", server.url()))
+            .with_timing(recording_sink(&seen))
+            .send("{}", Delivery::InResponse, &test_key())
+            .expect("timed proof");
+        assert!(server
+            .requests()
+            .iter()
+            .all(|request| request.timing_requested));
+        assert_prove_timing(&seen);
+
+        let untimed = timed_proof_server();
+        ProverClient::new(untimed.url().to_string())
+            .send("{}", Delivery::InResponse, &test_key())
+            .expect("untimed proof");
+        assert!(!untimed
+            .requests()
+            .iter()
+            .any(|request| request.timing_requested));
+    }
+
+    #[tokio::test]
+    async fn an_async_timing_sink_asks_for_spans_and_receives_them() {
+        let server = timed_proof_server();
+        let seen = SeenTimings::default();
+        AsyncProverClient::new(format!("{}/v1/zolana?api-key=secret", server.url()))
+            .with_timing(recording_sink(&seen))
+            .send("{}", Delivery::InResponse, &test_key())
+            .await
+            .expect("timed proof");
+        assert!(server
+            .requests()
+            .iter()
+            .all(|request| request.timing_requested));
+        assert_prove_timing(&seen);
     }
 
     #[test]
@@ -2553,6 +2664,7 @@ mod tests {
         /// Whether the request asked for the proof in the response.
         sync_requested: bool,
         async_requested: bool,
+        timing_requested: bool,
     }
 
     enum MockResponse {
@@ -2567,6 +2679,11 @@ mod tests {
             status: u16,
             body: String,
             delay: Duration,
+        },
+        Timed {
+            status: u16,
+            body: String,
+            spans: String,
         },
         Disconnect,
     }
@@ -2648,6 +2765,16 @@ mod tests {
                             thread::sleep(delay);
                             write_http_response(&mut stream, status, &body);
                         }
+                        MockResponse::Timed {
+                            status,
+                            body,
+                            spans,
+                        } => HttpReply {
+                            status,
+                            body: &body,
+                            spans: Some(&spans),
+                        }
+                        .write(&mut stream),
                         MockResponse::Disconnect => {}
                     }
                 }
@@ -2703,6 +2830,19 @@ mod tests {
                         }) => {
                             thread::sleep(delay);
                             write_http_response(&mut stream, status, &body);
+                            last = Some((status, body));
+                        }
+                        Some(MockResponse::Timed {
+                            status,
+                            body,
+                            spans,
+                        }) => {
+                            HttpReply {
+                                status,
+                                body: &body,
+                                spans: Some(&spans),
+                            }
+                            .write(&mut stream);
                             last = Some((status, body));
                         }
                         Some(MockResponse::Disconnect) => {}
@@ -2812,18 +2952,16 @@ mod tests {
             .and_then(|line| line.split_whitespace().nth(1))
             .expect("request line should include a path")
             .to_string();
+        let header_is_true = |name: &str| {
+            header.lines().any(|line| {
+                line.to_ascii_lowercase().strip_prefix(name).map(str::trim) == Some("true")
+            })
+        };
         RecordedRequest {
             path,
-            async_requested: header.lines().any(|line| {
-                line.to_ascii_lowercase()
-                    .strip_prefix("x-async:")
-                    .map(str::trim)
-                    == Some("true")
-            }),
-            sync_requested: header.lines().any(|line| {
-                let lower = line.to_ascii_lowercase();
-                lower.strip_prefix("x-sync:").map(str::trim) == Some("true")
-            }),
+            async_requested: header_is_true("x-async:"),
+            sync_requested: header_is_true("x-sync:"),
+            timing_requested: header_is_true("x-prover-timing:"),
         }
     }
 
@@ -2838,14 +2976,39 @@ mod tests {
     }
 
     fn write_http_response(stream: &mut TcpStream, status: u16, body: &str) {
-        write!(
-            stream,
-            "HTTP/1.1 {status} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-            reason_phrase(status),
-            body.len(),
-            body
-        )
-        .expect("mock server should write response");
+        HttpReply {
+            status,
+            body,
+            spans: None,
+        }
+        .write(stream);
+    }
+
+    struct HttpReply<'a> {
+        status: u16,
+        body: &'a str,
+        spans: Option<&'a str>,
+    }
+
+    impl HttpReply<'_> {
+        fn write(self, stream: &mut TcpStream) {
+            let Self {
+                status,
+                body,
+                spans,
+            } = self;
+            let timing = spans
+                .map(|spans| format!("x-prover-timing: {spans}\r\n"))
+                .unwrap_or_default();
+            write!(
+                stream,
+                "HTTP/1.1 {status} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n{timing}connection: close\r\n\r\n{}",
+                reason_phrase(status),
+                body.len(),
+                body
+            )
+            .expect("mock server should write response");
+        }
     }
 
     fn reason_phrase(status: u16) -> &'static str {
