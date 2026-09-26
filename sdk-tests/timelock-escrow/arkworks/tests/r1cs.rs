@@ -10,9 +10,9 @@ mod shared;
 
 use iden3::{read_r1cs, read_wtns, scalar_prime, R1csHeader};
 
-const ESCROW_R1CS_SHA256: &str = "fa3063fbffc209a793823f3f076ca388512073d8b8031967eb3afebb536e8862";
+const ESCROW_R1CS_SHA256: &str = "5229b4aa9e1a50b07354099c946794294dbb5afa5fa7c44c99848a85b4e372b6";
 const WITHDRAW_R1CS_SHA256: &str =
-    "1dba93b33e7b69a18b62953753f64b38a5435f6cd16eb5ff6e7cd057c58684ca";
+    "445ed180978778aa84663aff1edb2d761a5db5d67de92edc0471368762c08524";
 
 fn exported_r1cs_matches_the_circuit<P: ZkProgram>(program: &P) {
     let r1cs = read_r1cs(&P::export_r1cs().expect("r1cs export"));

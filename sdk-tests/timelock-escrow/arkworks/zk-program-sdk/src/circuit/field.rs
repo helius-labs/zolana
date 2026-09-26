@@ -3,7 +3,6 @@ use ark_r1cs_std::{
     boolean::Boolean,
     eq::EqGadget,
     fields::{fp::FpVar, FieldVar},
-    select::CondSelectGadget,
     R1CSVar,
 };
 use ark_relations::r1cs::SynthesisError;
@@ -80,18 +79,6 @@ impl CircuitVar {
 
     pub(crate) fn power(&self, exponent: u64) -> Result<Self, RelationError> {
         Ok(Self(self.0.pow_by_constant([exponent])?))
-    }
-
-    pub(crate) fn choose(
-        condition: &Boolean<Field>,
-        if_true: &Self,
-        if_false: &Self,
-    ) -> Result<Self, RelationError> {
-        Ok(Self(FpVar::conditionally_select(
-            condition,
-            &if_true.0,
-            &if_false.0,
-        )?))
     }
 
     #[track_caller]

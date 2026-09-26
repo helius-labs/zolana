@@ -6,7 +6,7 @@ use crate::{
         constant,
         labels::Scope,
         var::{assert_equal_unless, system_of},
-        zero, Assert, Asset, CircuitVar, Owner, PublicTransfer, Uint,
+        zero, Assert, Asset, Bool, CircuitVar, Owner, PublicTransfer, Uint,
     },
     RelationError,
 };
@@ -125,12 +125,10 @@ impl TokenUtxo {
                     .owner
                     .assert_no_nullifier_key_if(&dummy, "a dummy input carries a nullifier key")?;
             }
-            amounts.push(CircuitVar::choose(&dummy, &zero(), &input.amount.var())?);
-            spent_inputs.push(input.spent(CircuitVar::choose(
-                &dummy,
-                &zero(),
-                &input.hash_with(&owner, &asset)?,
-            )?));
+            let dummy = Bool::from_checked(CircuitVar::from_boolean(dummy));
+            amounts.push(dummy.select(&zero(), &input.amount.var()));
+            spent_inputs
+                .push(input.spent(dummy.select(&zero(), &input.hash_with(&owner, &asset)?)));
         }
         Ok(Self {
             ledger: Ledger::new(

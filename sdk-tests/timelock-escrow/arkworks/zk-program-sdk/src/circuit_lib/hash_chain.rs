@@ -2,7 +2,7 @@ use ark_r1cs_std::boolean::Boolean;
 
 use super::poseidon;
 use crate::{
-    circuit::{labels::Scope, var::system_of, zero, CircuitVar},
+    circuit::{labels::Scope, var::system_of, zero, Bool, CircuitVar},
     RelationError,
 };
 
@@ -19,6 +19,6 @@ pub fn nonzero_hash_chain(values: &[CircuitVar]) -> Result<CircuitVar, RelationE
             };
         }
         let next = poseidon(&[chain.clone(), value.clone()])?;
-        CircuitVar::choose(&skip, &chain, &next)
+        Ok(Bool::from_checked(CircuitVar::from_boolean(skip)).select(&chain, &next))
     })
 }
