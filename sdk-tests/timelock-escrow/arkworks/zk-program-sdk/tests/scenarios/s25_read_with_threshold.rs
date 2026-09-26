@@ -99,26 +99,29 @@ impl Placeholder for ReadThreshold {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Bits, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, PublicInputs, TxContext, Utxo, UtxoData,
+            poseidon, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
+            UtxoData,
         },
         RelationError,
     };
 
     #[derive(Clone, Debug)]
     pub struct Account {
-        pub balance: CircuitVar,
+        pub balance: Uint<64>,
     }
 
     impl Default for Account {
         fn default() -> Self {
-            Self { balance: zero() }
+            Self {
+                balance: Uint::zero(),
+            }
         }
     }
 
     impl DataHash for Account {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
-            poseidon(std::slice::from_ref(&self.balance))
+            poseidon(&[self.balance.var()])
         }
     }
 
@@ -138,7 +141,7 @@ pub(crate) mod circuit {
     }
 
     pub struct ReadThresholdPublicInputs {
-        pub threshold: CircuitVar,
+        pub threshold: Uint<64>,
     }
 
     impl Circuit for ReadThreshold {
@@ -147,7 +150,9 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;
-            (account.balance.clone() - &self.public.threshold).check_bits(64)?;
+            self.public
+                .threshold
+                .assert_less_or_equal(&account.balance, "the balance is below the threshold")?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_data_utxo(account)
@@ -157,7 +162,7 @@ pub(crate) mod circuit {
 
     impl PublicInputs for ReadThresholdPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.threshold.clone(), transaction_hash.clone()])
+            poseidon(&[self.threshold.var(), transaction_hash.clone()])
         }
     }
 }

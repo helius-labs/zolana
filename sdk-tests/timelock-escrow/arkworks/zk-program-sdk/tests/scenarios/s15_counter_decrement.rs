@@ -66,8 +66,8 @@ impl Placeholder for Decrement {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Bits, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Utxo,
+            poseidon, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -86,7 +86,7 @@ mod circuit {
     }
 
     pub struct DecrementPublicInputs {
-        pub step: CircuitVar,
+        pub step: Uint<64>,
     }
 
     impl Circuit for Decrement {
@@ -95,8 +95,9 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
-            counter.count = counter.count.clone() - &self.public.step;
-            counter.count.check_bits(64)?;
+            counter.count = counter
+                .count
+                .checked_sub(&self.public.step, "the counter goes below zero")?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_data_utxo(counter)
@@ -106,7 +107,7 @@ mod circuit {
 
     impl PublicInputs for DecrementPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.step.clone(), transaction_hash.clone()])
+            poseidon(&[self.step.var(), transaction_hash.clone()])
         }
     }
 }

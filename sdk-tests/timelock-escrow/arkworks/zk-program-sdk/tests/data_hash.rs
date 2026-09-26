@@ -1,6 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
-    circuit::{self, checked_utxo_data, poseidon, CircuitType, CircuitVar, DataHash, UtxoData},
+    circuit::{
+        self, checked_utxo_data, poseidon, CircuitType, CircuitVar, DataHash, Uint, UtxoData,
+    },
     conversion::{to_bytes, Allocator, FromCircuit, ProofInput},
     hasher::{DataHasher, Hasher, HasherError, ToByteArray},
     Bytes, Owner, RelationError,
@@ -81,7 +83,7 @@ struct Tally {
 
 #[derive(Clone, Debug)]
 struct TallyCircuit {
-    count: CircuitVar,
+    count: Uint<64>,
 }
 
 impl CircuitType for TallyCircuit {}
@@ -106,7 +108,7 @@ impl FromCircuit for Tally {
 
 impl DataHash for TallyCircuit {
     fn hash(&self) -> Result<CircuitVar, RelationError> {
-        poseidon(core::slice::from_ref(&self.count))
+        poseidon(&[self.count.var()])
     }
 }
 
@@ -127,7 +129,7 @@ struct SkewedTally {
 
 #[derive(Clone, Debug)]
 struct SkewedTallyCircuit {
-    count: CircuitVar,
+    count: Uint<64>,
 }
 
 impl CircuitType for SkewedTallyCircuit {}
@@ -152,7 +154,7 @@ impl FromCircuit for SkewedTally {
 
 impl DataHash for SkewedTallyCircuit {
     fn hash(&self) -> Result<CircuitVar, RelationError> {
-        poseidon(core::slice::from_ref(&self.count))
+        poseidon(&[self.count.var()])
     }
 }
 

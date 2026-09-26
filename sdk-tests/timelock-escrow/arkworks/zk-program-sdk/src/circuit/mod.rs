@@ -4,13 +4,16 @@ mod boolean;
 mod bytes;
 mod circuit_type;
 mod compare;
+pub(crate) mod field;
+pub(crate) mod labels;
 mod membership;
 mod owner;
 mod select;
 mod transaction;
 mod transfer;
+mod uint;
 mod utxo;
-mod var;
+pub(crate) mod var;
 
 pub use arithmetic::Arithmetic;
 pub use asset::Asset;
@@ -18,11 +21,13 @@ pub use boolean::Bool;
 pub use bytes::Bytes;
 pub use circuit_type::{CircuitDefault, CircuitMarker, CircuitType};
 pub use compare::Compare;
+pub use labels::{ConstraintLabel, LabelKind, SynthesisShape, UnsatisfiedRow, VariableRole};
 pub use membership::{assert_in, is_in};
 pub use owner::{Owner, OwnerKey};
 pub use select::{one_hot, select_index, Select};
 pub use transaction::{CheckedTransaction, ConfidentialTransaction, PublicInputs, TxContext};
 pub(crate) use transfer::PublicTransfer;
+pub use uint::{Uint, Unsigned};
 pub use utxo::{checked_utxo_data, Balance, DataHash, DataUtxo, TokenUtxo, Utxo, UtxoData};
 pub use var::{
     constant, from_bits_le, value, zero, Assert, Bits, CircuitSystem, CircuitVar, ConstraintSystem,

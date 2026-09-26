@@ -130,7 +130,7 @@ pub(crate) mod circuit {
         circuit::{
             poseidon, zero, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -139,8 +139,8 @@ pub(crate) mod circuit {
     pub struct OrderTerms {
         pub maker_hash: CircuitVar,
         pub ask_asset_hash: CircuitVar,
-        pub ask_amount: CircuitVar,
-        pub expiry: CircuitVar,
+        pub ask_amount: Uint<64>,
+        pub expiry: Uint<64>,
     }
 
     impl Default for OrderTerms {
@@ -148,8 +148,8 @@ pub(crate) mod circuit {
             Self {
                 maker_hash: zero(),
                 ask_asset_hash: zero(),
-                ask_amount: zero(),
-                expiry: zero(),
+                ask_amount: Uint::zero(),
+                expiry: Uint::zero(),
             }
         }
     }
@@ -159,8 +159,8 @@ pub(crate) mod circuit {
             poseidon(&[
                 self.maker_hash.clone(),
                 self.ask_asset_hash.clone(),
-                self.ask_amount.clone(),
-                self.expiry.clone(),
+                self.ask_amount.var(),
+                self.expiry.var(),
             ])
         }
     }
@@ -177,14 +177,14 @@ pub(crate) mod circuit {
     pub struct MakePrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 2],
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
         pub ask_mint: Asset,
-        pub ask_amount: CircuitVar,
+        pub ask_amount: Uint<64>,
     }
 
     pub struct MakePublicInputs {
         pub order_owner: Owner,
-        pub expiry: CircuitVar,
+        pub expiry: Uint<64>,
     }
 
     impl Circuit for Make {
@@ -212,7 +212,7 @@ pub(crate) mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.order_owner.hash()?,
-                self.expiry.clone(),
+                self.expiry.var(),
                 transaction_hash.clone(),
             ])
         }

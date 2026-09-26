@@ -91,7 +91,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
+            Utxo,
         },
         RelationError,
     };
@@ -114,10 +115,10 @@ mod circuit {
 
     pub struct ClaimPublicInputs {
         pub root: CircuitVar,
-        pub airdrop_id: CircuitVar,
+        pub airdrop_id: Uint<64>,
         pub nullifier: CircuitVar,
         pub recipient: Owner,
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
     }
 
     impl Circuit for Claim {
@@ -137,13 +138,13 @@ mod circuit {
                 .assert_equal(&public.airdrop_id, "the airdrop is not the pool's")?;
             let leaf = poseidon(&[
                 poseidon(std::slice::from_ref(&private.secret_key))?,
-                public.amount.clone(),
+                public.amount.var(),
             ])?;
             private
                 .path
                 .root(&leaf)?
                 .assert_equal(&public.root, "the claim is not in the airdrop")?;
-            poseidon(&[public.airdrop_id.clone(), private.secret_key.clone()])?
+            poseidon(&[public.airdrop_id.var(), private.secret_key.clone()])?
                 .assert_equal(&public.nullifier, "the nullifier is not the claim's")?;
             let mut claim = TokenUtxo::new_init(&public.recipient, &pool.asset());
             pool.transfer(&mut claim, &public.amount)?;
@@ -164,10 +165,10 @@ mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.root.clone(),
-                self.airdrop_id.clone(),
+                self.airdrop_id.var(),
                 self.nullifier.clone(),
                 self.recipient.hash()?,
-                self.amount.clone(),
+                self.amount.var(),
                 transaction_hash.clone(),
             ])
         }

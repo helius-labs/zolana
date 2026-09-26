@@ -1,15 +1,14 @@
 use zk_program_sdk::{
-    circuit::{constant, poseidon, value, CircuitVar, ConstraintSystem, Field},
-    conversion::{field_bytes, to_bytes, Allocator, ProofInput},
+    circuit::{constant, poseidon, value, Assert, CircuitVar, ConstraintSystem, Field},
+    conversion::{field, field_bytes, to_bytes, Allocator, ProofInput},
 };
 use zolana_hasher::{Hasher, Poseidon};
 
 #[test]
 fn poseidon_matches_zolana_hasher_on_constants_and_in_r1cs() {
     for arity in 1..=7u64 {
-        let inputs: Vec<CircuitVar> = (0..arity)
-            .map(|i| constant(Field::from(1_000 * arity + i)))
-            .collect();
+        let values: Vec<Field> = (0..arity).map(|i| Field::from(1_000 * arity + i)).collect();
+        let inputs: Vec<CircuitVar> = values.iter().copied().map(constant).collect();
         let input_bytes: Vec<[u8; 32]> = inputs
             .iter()
             .map(|input| field_bytes(&value(input).unwrap()))
@@ -24,18 +23,24 @@ fn poseidon_matches_zolana_hasher_on_constants_and_in_r1cs() {
 
         let cs = ConstraintSystem::new_ref();
         let allocator = Allocator::R1cs(cs.clone());
-        let allocated: Vec<CircuitVar> = inputs
+        let allocated: Vec<CircuitVar> = values
             .iter()
-            .map(|input| input.instantiate(&allocator).unwrap())
+            .map(|value| value.instantiate(&allocator).unwrap())
             .collect();
+        poseidon(&allocated)
+            .unwrap()
+            .assert_equal(
+                &constant(field(&expected, "expected hash").unwrap()),
+                "the circuit hash is the byte hash",
+            )
+            .unwrap();
 
         assert_eq!(
             (
                 to_bytes(&poseidon(&inputs).unwrap()).unwrap(),
-                to_bytes(&poseidon(&allocated).unwrap()).unwrap(),
                 cs.is_satisfied().unwrap(),
             ),
-            (expected, expected, true),
+            (expected, true),
             "arity {arity}"
         );
     }

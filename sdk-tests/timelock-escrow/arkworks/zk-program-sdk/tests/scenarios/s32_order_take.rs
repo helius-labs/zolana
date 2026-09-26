@@ -79,7 +79,7 @@ mod circuit {
         circuit::{
             poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker,
             CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo,
-            TxContext, Utxo,
+            TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -101,7 +101,7 @@ mod circuit {
 
     pub struct TakePublicInputs {
         pub ask_asset: Asset,
-        pub ask_amount: CircuitVar,
+        pub ask_amount: Uint<64>,
     }
 
     impl Circuit for Take {
@@ -141,7 +141,7 @@ mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.ask_asset.hash()?,
-                self.ask_amount.clone(),
+                self.ask_amount.var(),
                 transaction_hash.clone(),
             ])
         }

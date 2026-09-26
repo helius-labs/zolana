@@ -6,6 +6,8 @@ mod error;
 pub mod hasher;
 pub mod program;
 mod prover;
+#[cfg(feature = "client")]
+pub mod testing;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 

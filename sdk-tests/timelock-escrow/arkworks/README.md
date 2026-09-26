@@ -50,11 +50,11 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `TxContext` | The transaction settings: the blinding seed, from the OS RNG in `new`, and the output tree, `Some(0)` by default and the first spent input's `latest_tree_id` when `None`. The first nullifier comes from the first spent input and the sender from the keys. |
 | `Owner` | An owner preimage: the tag (`S` for Ed25519 and PDA keys, `P` for P256), the key bytes and the nullifier key. From a `ShieldedAddress`, or a signing key and nullifier key. |
 | `Bytes<N>` | A byte string the circuit sees byte by byte. |
-| `ZkProgram` | Feature `client`. Implemented with an empty `impl` on inputs that implement `Placeholder`. Its `create_proof_inputs_and_encrypt` borrows the inputs, runs `circuit` natively, resolves the slots against the records, and encrypts through `zolana_transaction::ConfidentialTransaction` with the sender's `ShieldedKeys`. It picks the smallest SPP shape the real inputs and outputs fit and returns the `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints` runs the circuit natively and in R1CS without proving. `export_r1cs` (feature `setup`) writes the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony, and `export_assignment` writes an input's full variable assignment as a snarkjs `.wtns` file. |
+| `ZkProgram` | Feature `client`. Implemented with an empty `impl` on inputs that implement `Placeholder`. Its `create_proof_inputs_and_encrypt` borrows the inputs, runs `circuit` natively, resolves the slots against the records, and encrypts through `zolana_transaction::ConfidentialTransaction` with the sender's `ShieldedKeys`. It picks the smallest SPP shape the real inputs and outputs fit and returns the `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `export_r1cs` (feature `setup`) writes the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony, and `export_assignment` writes an input's full variable assignment as a snarkjs `.wtns` file. |
 | `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
 | `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
 | `SolanaProof`, `CompressedProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`, and the 128-byte form an instruction contains, from `CompressedProof::try_from(&proof)`. `CompressedProof::verify` decompresses and verifies it. |
-| `RelationError` | Names the broken rule, the misused slot, the value out of range or the failed resolution. |
+| `RelationError` | Names the broken rule, the misused slot, the value out of range or the failed resolution. An unsatisfied constraint carries its row, the rule of the check that made it and the circuit's `file:line`. |
 | `ProvingKey`, `VerifyingKey`, `Proof` | Features `client` or `setup`. The arkworks Groth16 types over BN254, without the curve parameter. |
 
 **Setup** (feature `setup`)
@@ -72,15 +72,16 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | Name | What it is good for |
 | --- | --- |
 | `Field` | The BN254 scalar field that UTXO hashes and the public hash live in. |
-| `CircuitVar` | The value type inside `circuit`: a constant in the native run, a variable in R1CS. |
+| `CircuitVar` | The value type inside `circuit`: a constant in the native run, a variable in R1CS. It is opaque: arithmetic and comparison operators do not compile, with a message that points to `Uint`, and a circuit cannot allocate one. |
 | `CircuitSystem`, `ConstraintSystem` | The constraint system R1CS instantiation allocates into. `ConstraintSystem::new_ref()` makes one. |
-| `constant`, `zero`, `value` | Build a constant `CircuitVar`, or read a `CircuitVar`'s value. |
-| `Assert` | Equality with a named rule on `CircuitVar`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays: `assert_equal`, `assert_not_equal`, `assert_equal_if(condition)`, and `is_equal`, which returns a `Bool`. |
+| `constant`, `zero`, `value` | Build a constant `CircuitVar`, or read a constant's value. Reading a variable fails in every run with `ValueOfVariable` and the line of the read, so a circuit cannot branch on a value. |
+| `Assert` | Equality with a named rule on `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays: `assert_equal`, `assert_not_equal`, `assert_equal_if(condition)`, and `is_equal`, which returns a `Bool`. |
+| `Uint<BITS>` | A value below `2^BITS`, 1 to 253 bits. `from_var` range-checks a `CircuitVar`; `add`, `mul`, `sum` and `widen` return a wider type at no cost, and `narrow`, `checked_sub`, the `assert_less_*` and `is_less_*` comparisons, `assert_equal`, `assert_not_zero` and `div_rem` check a named rule. Widths are checked when the circuit is built: a sum or product that could wrap does not compile. |
 | `Bits` | `check_bits(bits)`, `check_is_bool`, and `to_bits_le::<N>()`, which returns the bits as `Bool`s. `from_bits_le` recomposes them. |
 | `Compare` | `is_zero`, `assert_zero`, `assert_nonzero`; `is_less_than`, `is_less_or_equal`, `is_greater_than`, `is_greater_or_equal` and their `assert_*` forms over `bits`-wide unsigned integers; `assert_in_range(low, high)` (inclusive), `min`, `max`. The `is_*` forms range-check both operands; the asserts check the smaller operand and the gap, which is enough for the integer relation to hold. |
 | `Arithmetic` | `checked_add`, `checked_sub` and `checked_mul` over `bits`-wide integers, refusing overflow and underflow; `div_rem` up to 126 bits; `inverse`, `div` and `pow` in the field, refusing a zero divisor. |
-| `Bool` | A 0 or 1 value, from a `bool` input, `Bool::from_var` or a comparison: `select(if_true, if_false)` for any `Select` type, `not`, `and`, `or`, `xor`, `nand`, `implies`, `Bool::all`, `Bool::any`, `assert_true`, `assert_false`, `assert_true_if(condition)`, and `var` for hashing. A circuit needs no arkworks import to branch on one. |
-| `Select` | Selection by a `Bool`, for `CircuitVar`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays. `one_hot::<N>(index)` and `select_index(&items, index)` index an array by a variable and refuse an index outside it. |
+| `Bool` | A 0 or 1 value, from a `bool` input, `Bool::from_var`, `is_equal` or a comparison: `select(if_true, if_false)` for any `Select` type, `not`, `and`, `or`, `xor`, `nand`, `implies`, `Bool::all`, `Bool::any`, `assert_true`, `assert_false`, `assert_true_if(condition)`, `to_uint`, and `var` for hashing. A circuit needs no arkworks import to branch on one. |
+| `Select` | Selection by a `Bool`, for `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays. `one_hot::<N>(index)` and `select_index(&items, index)` index an array by a variable and refuse an index outside it. |
 | `is_in`, `assert_in` | Membership of a value in a set of `CircuitVar`s. |
 | `poseidon` | The circom Poseidon that zolana hashes with natively, built from light-poseidon's parameters. |
 | `nonzero_hash_chain` | The chain `private_tx_hash` folds input and output hashes with. It skips zeros, so dummies do not enter it. |
@@ -94,22 +95,38 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `Asset` | A mint as bytes. `hash()` is the asset hash; `Asset::sol()` and `Asset::constant(&mint)` are constants. |
 | `OwnerKey` | The tag and key bytes. `identity()` is `hash_bytes(tag \|\| key)`, the value the program sees as `owner_identity`. |
 | `Owner` | An `OwnerKey` and the nullifier key. `hash()` is the owner hash. Owners compare by their packed preimage. |
-| `Utxo` | The circuit form of a spent UTXO, with its `Owner` and `Asset`. `Utxo::dummy()` pads a `TokenUtxo`. |
+| `Utxo` | The circuit form of a spent UTXO, with its `Owner` and `Asset`. Its amount is crate-private: the SPP proof range-checks it, and a circuit reads it through `Balance`. `Utxo::dummy()` pads a `TokenUtxo`. A dummy carries no nullifier key. |
 | `DataHash` | The hash of a state: Poseidon over its fields, each contributing its own `hash`. |
 | `UtxoData` | Names a state's client form. The borsh bytes of that form are the data a new data UTXO contains. |
 | `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner, asset)`, `new_mut` or `new_burn`. It moves value through `Balance` like a token UTXO; what is left is its output, or must be zero once burned. |
 | `TokenUtxo` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` from `new_mut` or `new_burn`, with dummies after the first. It moves value through `Balance`, and its lifecycle decides whether what is left becomes an output. |
-| `Balance` | The value operations both UTXO types share: `owner`, `asset`, `balance`, `transfer` and `transfer_all` into a destination UTXO of either type, `deposit`, `withdraw` and `withdraw_all`. A transfer refuses a burned destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` checks that its amount fits in 64 bits, and `transfer` and `withdraw` that what remains does: a named error natively, a range check in R1CS. A public transfer of zero is refused. They are default methods over a crate-private `Ledger`. |
+| `Balance` | The value operations both UTXO types share: `owner`, `asset`, `balance`, `transfer` and `transfer_all` into a destination UTXO of either type, `deposit`, `withdraw` and `withdraw_all`. Amounts are `Uint<64>`. A transfer refuses a burned destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` and `withdraw` check that what remains fits in 64 bits: a named error natively, a range check in R1CS. A public transfer of zero is refused by a constraint. `balance` is a `Uint<64>`, range-checked only when the balance could exceed 64 bits, as for a token with several inputs. They are default methods over a crate-private `Ledger`. |
 
 **Transaction and circuit**
 
 | Name | What it is good for |
 | --- | --- |
-| `TxContext` | The transaction settings as `CircuitVar`s. `check` derives the output blindings and `private_tx_blinding` from them and the first spent input's nullifier, and selects the output tree. |
+| `TxContext` | The transaction settings in circuit form, the output tree as a `Uint<16>`. `check` derives the output blindings and `private_tx_blinding` from them and the first spent input's nullifier, and selects the output tree. |
 | `PublicInputs` | Hashes a circuit's public fields, then `private_tx_hash`, into the public hash. |
 | `ConfidentialTransaction<P>` | The transaction's inputs and outputs, in call order of `with_token_utxos` and `with_data_utxo`, with no SPP shape. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, and computes `private_tx_hash` and the public hash. |
 | `CheckedTransaction` | What `check` returns: the public hash, `private_tx_hash` and the slots. |
 | `Circuit` | The `circuit` method of a circuit type. |
+
+**Diagnostics**
+
+| Name | What it is good for |
+| --- | --- |
+| `ConstraintLabel`, `LabelKind`, `VariableRole` | What a synthesis records: the rows of each check and scope and the private variables of each allocation, with the rule and the circuit's `file:line`. |
+| `UnsatisfiedRow` | The first failing row and its innermost label. |
+| `SynthesisShape` | Constraints and public and private variables, for comparing a proof's synthesis with the placeholder's. |
+
+### `zk_program_sdk::testing` (feature `client`)
+
+| Name | What it is good for |
+| --- | --- |
+| `constraint_labels` | The labels of a proof input's synthesis. |
+| `check_tampered`, `Tamper` | Changes the public hash or one private variable and reports the labelled row that refuses it. |
+| `check_private_variables`, `PrivateVariableReport`, `FreeVariable` | Perturbs each private variable in turn and lists the ones no constraint refuses. A free variable is an under-constrained circuit, except equality hints (`Multiplier`) and the unused inputs' nullifier and latest tree, which the SPP proof constrains (`Carried`). Both scenario suites and the escrow run it on every proof. |
 
 ### `zk_program_sdk::conversion`: between the two
 
@@ -117,10 +134,10 @@ Everything a future macro derives goes through these, and each can be written by
 
 | Name | What it is good for |
 | --- | --- |
-| `ProofInput` | Turns a client value into its circuit type. Plain Rust types implement it: `u64`, `u32`, `u16`, `bool`, `[u8; 32]`, `Bytes<N>`, `Owner`, `ShieldedAddress`, `Mint`, `WalletUtxo`, and arrays. |
+| `ProofInput` | Turns a client value into its circuit type. Plain Rust types implement it: `u64`, `u32` and `u16` become range-checked `Uint<64>`, `Uint<32>` and `Uint<16>`; `bool`, `[u8; 32]`, `Bytes<N>`, `Owner`, `ShieldedAddress`, `Mint`, `WalletUtxo`, and arrays. `Field` is an unchecked private value. |
 | `FromCircuit` | The way back in the native run, with the same range checks: `u64`, `u32`, `u16`, `bool`, `[u8; 32]`, `Bytes<N>`, `Owner`, arrays, and a state's client form. |
 | `Placeholder` | A value of the type that instantiates, so setup synthesizes the circuit from the type alone. The SDK types above implement it; a program implements it field by field. |
-| `Allocator` | Chooses the run. `Native` keeps constants and fills `Records`, and `R1cs` allocates variables. |
+| `Allocator` | Chooses the run. `Native` keeps constants and fills `Records`, and `R1cs` allocates variables, each labelled with what it is. Allocation stays inside the SDK: a hand-written `ProofInput` builds on the SDK's implementations. |
 | `Records` | What a `CircuitVar` cannot hold, keyed by hash: addresses, `Mint`s and spent UTXOs. |
 | `field`, `var`, `field_bytes`, `to_bytes` | SDK bytes to circuit values and back. |
 

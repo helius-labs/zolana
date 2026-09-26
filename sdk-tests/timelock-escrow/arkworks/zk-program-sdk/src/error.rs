@@ -1,4 +1,21 @@
+use core::panic::Location;
+
 use ark_relations::r1cs::SynthesisError;
+
+use crate::circuit::{ConstraintLabel, SynthesisShape, UnsatisfiedRow};
+
+fn at(location: &Option<&'static Location<'static>>) -> String {
+    location
+        .map(|location| format!(" at {}:{}", location.file(), location.line()))
+        .unwrap_or_default()
+}
+
+fn apart(label: &Option<Box<ConstraintLabel>>) -> String {
+    label
+        .as_ref()
+        .map(|label| format!("; they part at {label}"))
+        .unwrap_or_default()
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum RelationError {
@@ -40,7 +57,28 @@ pub enum RelationError {
     #[error("an index is outside an array of {0} items")]
     IndexOutOfBounds(usize),
     #[error("the constraint system is unsatisfied at {0}")]
-    Unsatisfied(String),
+    Unsatisfied(UnsatisfiedRow),
+    #[error("the circuit has no private variable {0}")]
+    NoSuchVariable(usize),
+    #[error(
+        "the circuit reads the value of a variable at {}:{}; only constants have a value in a circuit",
+        .0.file(),
+        .0.line()
+    )]
+    ValueOfVariable(&'static Location<'static>),
+    #[error("the circuit reads a value while its shape is built{}", at(.0))]
+    ReadsValueDuringSetup(Option<&'static Location<'static>>),
+    #[error(
+        "the proof inputs build {proof}, the placeholder builds {setup}{}",
+        apart(.first_apart)
+    )]
+    ShapeDiffers {
+        setup: SynthesisShape,
+        proof: SynthesisShape,
+        first_apart: Option<Box<ConstraintLabel>>,
+    },
+    #[error("the proof inputs build another constraint than the placeholder at {0}")]
+    ConstraintsDiffer(UnsatisfiedRow),
     #[error("the proof does not verify under these keys")]
     ProofRejected,
     #[error("the proof holds a point that is not on the curve")]
@@ -87,6 +125,11 @@ impl RelationError {
             Self::DivisionByZero => "DivisionByZero",
             Self::IndexOutOfBounds(_) => "IndexOutOfBounds",
             Self::Unsatisfied(_) => "Unsatisfied",
+            Self::NoSuchVariable(_) => "NoSuchVariable",
+            Self::ValueOfVariable(_) => "ValueOfVariable",
+            Self::ReadsValueDuringSetup(_) => "ReadsValueDuringSetup",
+            Self::ShapeDiffers { .. } => "ShapeDiffers",
+            Self::ConstraintsDiffer(_) => "ConstraintsDiffer",
             Self::ProofRejected => "ProofRejected",
             Self::InvalidProofPoint => "InvalidProofPoint",
             Self::Keys(_) => "Keys",

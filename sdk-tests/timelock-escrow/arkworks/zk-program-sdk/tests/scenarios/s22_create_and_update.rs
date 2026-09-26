@@ -139,27 +139,29 @@ impl Placeholder for CreateAndUpdate {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Asset, Bits, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
-            TxContext, Utxo, UtxoData,
+            constant, poseidon, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Uint,
+            Utxo, UtxoData,
         },
         RelationError,
     };
 
     #[derive(Clone, Debug)]
     pub struct Profile {
-        pub score: CircuitVar,
+        pub score: Uint<64>,
     }
 
     impl Default for Profile {
         fn default() -> Self {
-            Self { score: zero() }
+            Self {
+                score: Uint::zero(),
+            }
         }
     }
 
     impl DataHash for Profile {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
-            poseidon(std::slice::from_ref(&self.score))
+            poseidon(&[self.score.var()])
         }
     }
 
@@ -169,18 +171,20 @@ pub(crate) mod circuit {
 
     #[derive(Clone, Debug)]
     pub struct Badge {
-        pub level: CircuitVar,
+        pub level: Uint<16>,
     }
 
     impl Default for Badge {
         fn default() -> Self {
-            Self { level: zero() }
+            Self {
+                level: Uint::zero(),
+            }
         }
     }
 
     impl DataHash for Badge {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
-            poseidon(&[constant(1u64), self.level.clone()])
+            poseidon(&[constant(1u64), self.level.var()])
         }
     }
 
@@ -197,7 +201,7 @@ pub(crate) mod circuit {
         pub tx_context: TxContext,
         pub profile_utxo: Utxo,
         pub profile: Profile,
-        pub level: CircuitVar,
+        pub level: Uint<16>,
     }
 
     pub struct CreateAndUpdatePublicInputs {
@@ -210,8 +214,10 @@ pub(crate) mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;
-            profile.score = profile.score.clone() + constant(1u64);
-            profile.score.check_bits(64)?;
+            profile.score = profile
+                .score
+                .add::<65>(&Uint::<64>::constant(1)?)
+                .narrow::<64>("the score overflows")?;
             let mut badge = DataUtxo::<Badge>::new_init(&self.public.badge_owner, &Asset::sol());
             badge.level = private.level.clone();
 

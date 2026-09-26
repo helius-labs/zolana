@@ -1,0 +1,18 @@
+error: usage of an `unsafe` block
+  --> tests/ui/fail/module_lint_levels.rs:10:9
+   |
+10 |         unsafe { core::hint::unreachable_unchecked() }
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> tests/ui/fail/module_lint_levels.rs:3:1
+   |
+ 3 | #[circuit]
+   | ^^^^^^^^^^
+   = note: this error originates in the attribute macro `circuit` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: unused variable: `ignored`
+ --> tests/ui/fail/module_lint_levels.rs:6:13
+  |
+6 |         let ignored = 1u64;
+  |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ignored`

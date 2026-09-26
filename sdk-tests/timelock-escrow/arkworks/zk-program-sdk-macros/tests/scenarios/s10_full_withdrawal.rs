@@ -2,8 +2,7 @@ use solana_address::Address;
 use zk_program_sdk::{
     circuit,
     circuit::{
-        Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs,
-        TokenUtxo,
+        Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -39,10 +38,10 @@ impl Circuit for Withdrawal {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
         let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
-        tokens.withdraw_all(&private.destination)?.assert_equal(
-            &self.public.amount,
-            "the withdrawal is not the public amount",
-        )?;
+        let withdrawn = tokens.withdraw_all(&private.destination)?;
+        self.public
+            .amount
+            .assert_equal(&withdrawn, "the withdrawal is not the public amount")?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_token_utxos(tokens)

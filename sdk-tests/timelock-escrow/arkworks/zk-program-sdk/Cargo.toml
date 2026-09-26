@@ -72,3 +72,6 @@ required-features = ["client", "setup", "encrypt"]
 [dev-dependencies]
 groth16-solana = { workspace = true, features = ["gnark-vk"] }
 serde_json = { workspace = true }
+
+[lints.clippy]
+disallowed_types = "allow"

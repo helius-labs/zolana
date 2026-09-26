@@ -75,7 +75,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
+            Utxo,
         },
         RelationError,
     };
@@ -95,7 +96,7 @@ mod circuit {
     }
 
     pub struct CancelPublicInputs {
-        pub expiry: CircuitVar,
+        pub expiry: Uint<64>,
         pub maker_identity: CircuitVar,
     }
 
@@ -130,7 +131,7 @@ mod circuit {
     impl PublicInputs for CancelPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
-                self.expiry.clone(),
+                self.expiry.var(),
                 self.maker_identity.clone(),
                 transaction_hash.clone(),
             ])

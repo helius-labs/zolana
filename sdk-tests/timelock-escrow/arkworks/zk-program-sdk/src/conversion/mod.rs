@@ -7,17 +7,18 @@ mod var;
 
 use std::{cell::RefCell, collections::HashMap};
 
-use ark_r1cs_std::{alloc::AllocVar, R1CSVar};
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
 
 #[cfg(any(feature = "client", feature = "setup"))]
 pub(crate) use var::be_bytes;
+#[cfg(feature = "client")]
+pub(crate) use var::u16_value;
 pub use var::{field, field_bytes, to_bytes, var};
 pub use zk_program_sdk_macros::ProofInput;
 
 use crate::{
-    circuit::{CircuitSystem, CircuitType, CircuitVar},
+    circuit::{constant, labels, CircuitSystem, CircuitType, CircuitVar, Field, VariableRole},
     RelationError,
 };
 
@@ -52,10 +53,25 @@ impl Allocator {
         Self::Native(RefCell::default())
     }
 
-    pub fn private_input(&self, value: &CircuitVar) -> Result<CircuitVar, RelationError> {
+    #[track_caller]
+    pub(crate) fn witness(
+        &self,
+        value: Field,
+        text: &'static str,
+        role: VariableRole,
+    ) -> Result<CircuitVar, RelationError> {
         match self {
-            Self::Native(_) => Ok(value.clone()),
-            Self::R1cs(cs) => Ok(CircuitVar::new_witness(cs.clone(), || value.value())?),
+            Self::Native(_) => Ok(constant(value)),
+            Self::R1cs(cs) => {
+                labels::allocate(cs, text, role, || CircuitVar::witness(cs, || Ok(value)))
+            }
+        }
+    }
+
+    pub(crate) fn cs(&self) -> CircuitSystem {
+        match self {
+            Self::Native(_) => CircuitSystem::None,
+            Self::R1cs(cs) => cs.clone(),
         }
     }
 

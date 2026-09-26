@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, Asset, Bits, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
-        DataUtxo, PublicInputs,
+        Asset, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
+        PublicInputs, Uint,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -50,8 +50,10 @@ impl Circuit for CreateAndUpdate {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
         let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;
-        profile.score = profile.score.clone() + constant(1u64);
-        profile.score.check_bits(64)?;
+        profile.score = profile
+            .score
+            .add::<65>(&Uint::<64>::constant(1)?)
+            .narrow::<64>("the score overflows")?;
         let mut badge = DataUtxo::<BadgeCircuit>::new_init(&self.public.badge_owner, &Asset::sol());
         badge.level = private.level.clone();
 

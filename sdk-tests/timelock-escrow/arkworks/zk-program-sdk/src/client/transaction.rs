@@ -8,7 +8,7 @@ use zolana_transaction::{instructions::transact::SppProofInputs, keys::ShieldedK
 
 use crate::{
     circuit::{value, CheckedTransaction, Circuit},
-    conversion::{field_bytes, to_bytes, Allocator, FromCircuit, Placeholder, ProofInput, Records},
+    conversion::{field_bytes, to_bytes, u16_value, Allocator, Placeholder, ProofInput, Records},
     program::{transaction_hash, PublicTransfer},
     prover::{ArkworksCircuit, ProofInputs},
     RelationError,
@@ -16,7 +16,7 @@ use crate::{
 
 pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
     fn check_constraints(&self) -> Result<usize, RelationError> {
-        ArkworksCircuit::new(self)?.check_constraints()
+        ArkworksCircuit::new(self)?.check_constraints(&Self::placeholder()?)
     }
 
     #[cfg(feature = "setup")]
@@ -108,7 +108,7 @@ impl SppTransactionBuilder<'_> {
     fn build(self, sender: &ShieldedAddress) -> Result<FinalizedTransaction, RelationError> {
         let first_nullifier = to_bytes(&self.checked.first_nullifier)?;
         let blinding_seed = to_bytes(&self.checked.blinding_seed)?;
-        let output_tree_id = u16::from_circuit(&self.checked.output_tree_id)
+        let output_tree_id = u16_value(&self.checked.output_tree_id)
             .map_err(|_| RelationError::Conversion("the output tree id does not fit in u16"))?;
         let inputs = self.input_utxos(&first_nullifier)?;
         let outputs = self.output_utxos(sender)?;

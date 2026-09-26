@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit::{self, constant, Bits, ConstraintSystem, Field},
+    circuit::{self, Assert, ConstraintSystem, Field, Uint},
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
     Bytes, Owner,
 };
@@ -20,26 +20,36 @@ fn pattern<const N: usize>() -> [u8; N] {
     bytes
 }
 
-fn bytes_hashes<const N: usize>() -> ([u8; 32], [u8; 32], bool, [u8; 32]) {
+fn bytes_hashes<const N: usize>() -> (bool, bool) {
     let bytes = Bytes(pattern::<N>());
     let native = bytes.instantiate(&Allocator::native()).unwrap();
+    let native_hash = native.hash_bytes().unwrap();
     let cs = ConstraintSystem::new_ref();
     let allocated = bytes.instantiate(&Allocator::R1cs(cs.clone())).unwrap();
+    allocated
+        .hash_bytes()
+        .unwrap()
+        .assert_equal(&native_hash, "the circuit hash is the native hash")
+        .unwrap();
     (
-        to_bytes(&native.hash_bytes().unwrap()).unwrap(),
-        to_bytes(&allocated.hash_bytes().unwrap()).unwrap(),
+        to_bytes(&native_hash).unwrap() == hash_bytes(&bytes.0).unwrap(),
         cs.is_satisfied().unwrap(),
-        hash_bytes(&bytes.0).unwrap(),
     )
 }
 
 fn owner_hashes(owner: &Owner) -> ([u8; 32], [u8; 32], bool, Owner) {
     let native = owner.instantiate(&Allocator::native()).unwrap();
+    let native_hash = native.hash().unwrap();
     let cs = ConstraintSystem::new_ref();
     let allocated = owner.instantiate(&Allocator::R1cs(cs.clone())).unwrap();
+    allocated
+        .hash()
+        .unwrap()
+        .assert_equal(&native_hash, "the circuit hash is the native hash")
+        .unwrap();
     (
         to_bytes(&native.key().identity().unwrap()).unwrap(),
-        to_bytes(&allocated.hash().unwrap()).unwrap(),
+        to_bytes(&native_hash).unwrap(),
         cs.is_satisfied().unwrap(),
         Owner::from_circuit(&native).unwrap(),
     )
@@ -47,24 +57,20 @@ fn owner_hashes(owner: &Owner) -> ([u8; 32], [u8; 32], bool, Owner) {
 
 #[test]
 fn bytes_hash_like_the_native_hash_bytes() {
-    let check = |(native, allocated, satisfied, expected): ([u8; 32], [u8; 32], bool, [u8; 32])| {
-        (native == expected, allocated == expected, satisfied)
-    };
-
     assert_eq!(
         (
-            check(bytes_hashes::<5>()),
-            check(bytes_hashes::<31>()),
-            check(bytes_hashes::<32>()),
-            check(bytes_hashes::<33>()),
-            check(bytes_hashes::<63>()),
+            bytes_hashes::<5>(),
+            bytes_hashes::<31>(),
+            bytes_hashes::<32>(),
+            bytes_hashes::<33>(),
+            bytes_hashes::<63>(),
         ),
         (
-            (true, true, true),
-            (true, true, true),
-            (true, true, true),
-            (true, true, true),
-            (true, true, true),
+            (true, true),
+            (true, true),
+            (true, true),
+            (true, true),
+            (true, true),
         )
     );
 }
@@ -139,10 +145,10 @@ fn a_tag_outside_s_and_p_and_a_byte_above_255_are_refused() {
     };
     let wide_byte_in_r1cs = {
         let cs = ConstraintSystem::new_ref();
-        let byte = Allocator::R1cs(cs.clone())
-            .private_input(&constant(256u64))
+        let byte = Field::from(256u64)
+            .instantiate(&Allocator::R1cs(cs.clone()))
             .unwrap();
-        byte.check_bits(8).unwrap();
+        let _byte = Uint::<8>::from_var(&byte, "a byte fits in 8 bits").unwrap();
         cs.is_satisfied().unwrap()
     };
 
@@ -153,7 +159,7 @@ fn a_tag_outside_s_and_p_and_a_byte_above_255_are_refused() {
                 .err()
                 .map(|e| e.to_string()),
             other_tag_in_r1cs,
-            constant(256u64).check_bits(8).err().map(|e| e.to_string()),
+            Uint::<8>::constant(256).err().map(|e| e.to_string()),
             wide_byte_in_r1cs,
         ),
         (

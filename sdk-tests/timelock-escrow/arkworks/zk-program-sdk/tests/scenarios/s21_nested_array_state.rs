@@ -179,28 +179,28 @@ mod circuit {
         circuit::{
             poseidon, zero, Asset, Bool, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
 
     #[derive(Clone, Debug)]
     pub struct Limits {
-        pub daily: CircuitVar,
-        pub weekly: CircuitVar,
-        pub per_transfer: CircuitVar,
+        pub daily: Uint<64>,
+        pub weekly: Uint<64>,
+        pub per_transfer: Uint<64>,
         pub frozen: Bool,
-        pub tier: CircuitVar,
+        pub tier: Uint<16>,
     }
 
     impl Default for Limits {
         fn default() -> Self {
             Self {
-                daily: zero(),
-                weekly: zero(),
-                per_transfer: zero(),
+                daily: Uint::zero(),
+                weekly: Uint::zero(),
+                per_transfer: Uint::zero(),
                 frozen: Bool::constant(false),
-                tier: zero(),
+                tier: Uint::zero(),
             }
         }
     }
@@ -208,11 +208,11 @@ mod circuit {
     impl DataHash for Limits {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
             poseidon(&[
-                self.daily.clone(),
-                self.weekly.clone(),
-                self.per_transfer.clone(),
+                self.daily.var(),
+                self.weekly.var(),
+                self.per_transfer.var(),
                 self.frozen.var(),
-                self.tier.clone(),
+                self.tier.var(),
             ])
         }
     }
@@ -220,20 +220,20 @@ mod circuit {
     #[derive(Clone, Debug)]
     pub struct Portfolio {
         pub owner_hash: CircuitVar,
-        pub nonce: CircuitVar,
+        pub nonce: Uint<32>,
         pub limits: Limits,
-        pub balances: [CircuitVar; 4],
-        pub labels: [CircuitVar; 2],
+        pub balances: [Uint<64>; 4],
+        pub labels: [Uint<16>; 2],
     }
 
     impl Default for Portfolio {
         fn default() -> Self {
             Self {
                 owner_hash: zero(),
-                nonce: zero(),
+                nonce: Uint::zero(),
                 limits: Limits::default(),
-                balances: core::array::from_fn(|_| zero()),
-                labels: core::array::from_fn(|_| zero()),
+                balances: core::array::from_fn(|_| Uint::zero()),
+                labels: core::array::from_fn(|_| Uint::zero()),
             }
         }
     }
@@ -242,10 +242,10 @@ mod circuit {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.owner_hash.clone(),
-                self.nonce.clone(),
+                self.nonce.var(),
                 self.limits.hash()?,
-                poseidon(&self.balances)?,
-                poseidon(&self.labels)?,
+                self.balances.hash()?,
+                self.labels.hash()?,
             ])
         }
     }
@@ -262,10 +262,10 @@ mod circuit {
     pub struct PortfolioCreatePrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 1],
-        pub nonce: CircuitVar,
+        pub nonce: Uint<32>,
         pub limits: Limits,
-        pub balances: [CircuitVar; 4],
-        pub labels: [CircuitVar; 2],
+        pub balances: [Uint<64>; 4],
+        pub labels: [Uint<16>; 2],
     }
 
     pub struct PortfolioCreatePublicInputs {

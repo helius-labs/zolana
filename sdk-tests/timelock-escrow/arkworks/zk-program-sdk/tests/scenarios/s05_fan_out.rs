@@ -71,8 +71,8 @@ impl Placeholder for FanOut {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -88,11 +88,11 @@ mod circuit {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 1],
         pub recipients: [Owner; RECIPIENTS],
-        pub amounts: [CircuitVar; RECIPIENTS],
+        pub amounts: [Uint<64>; RECIPIENTS],
     }
 
     pub struct FanOutPublicInputs {
-        pub total: CircuitVar,
+        pub total: Uint<64>,
     }
 
     impl Circuit for FanOut {
@@ -100,10 +100,7 @@ mod circuit {
 
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
-            private
-                .amounts
-                .iter()
-                .fold(zero(), |sum, amount| sum + amount)
+            Uint::<64>::sum::<67, _>(&private.amounts)
                 .assert_equal(&self.public.total, "the payments do not sum to the total")?;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut payments = private
@@ -128,7 +125,7 @@ mod circuit {
 
     impl PublicInputs for FanOutPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.total.clone(), transaction_hash.clone()])
+            poseidon(&[self.total.var(), transaction_hash.clone()])
         }
     }
 }

@@ -113,9 +113,9 @@ impl Placeholder for Escrow {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
-            TokenUtxo, TxContext, Utxo, UtxoData,
+            poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -123,14 +123,14 @@ pub(crate) mod circuit {
     #[derive(Clone, Debug)]
     pub struct EscrowTerms {
         pub creator: Owner,
-        pub unlock: CircuitVar,
+        pub unlock: Uint<64>,
     }
 
     impl Default for EscrowTerms {
         fn default() -> Self {
             Self {
                 creator: Owner::default(),
-                unlock: zero(),
+                unlock: Uint::zero(),
             }
         }
     }
@@ -153,8 +153,8 @@ pub(crate) mod circuit {
     pub struct EscrowPrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 2],
-        pub unlock: CircuitVar,
-        pub amount: CircuitVar,
+        pub unlock: Uint<64>,
+        pub amount: Uint<64>,
     }
 
     pub struct EscrowPublicInputs {
@@ -166,9 +166,7 @@ pub(crate) mod circuit {
 
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
-            private
-                .amount
-                .assert_not_equal(&zero(), "the escrow locks nothing")?;
+            private.amount.assert_not_zero("the escrow locks nothing")?;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
             let mut escrow =
                 DataUtxo::<EscrowTerms>::new_init(&self.public.escrow_owner, &tokens.asset());

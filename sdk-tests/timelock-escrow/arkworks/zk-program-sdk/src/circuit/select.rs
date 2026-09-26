@@ -1,4 +1,4 @@
-use super::{constant, var::collect_array, zero, Assert, Bool, CircuitVar, Field};
+use super::{constant, field, var::collect_array, Assert, Bool, CircuitVar, Field};
 use crate::RelationError;
 
 pub trait Select: Clone {
@@ -7,7 +7,7 @@ pub trait Select: Clone {
 
 impl Select for CircuitVar {
     fn select(condition: &Bool, if_true: &Self, if_false: &Self) -> Self {
-        if_false.clone() + condition.var() * (if_true.clone() - if_false)
+        if_false.plus(&condition.var().times(&if_true.minus(if_false)))
     }
 }
 
@@ -21,15 +21,15 @@ impl<T: Select, const N: usize> Select for [T; N] {
     }
 }
 
+#[track_caller]
 pub fn one_hot<const N: usize>(index: &CircuitVar) -> Result<[Bool; N], RelationError> {
-    let flags: [Bool; N] = collect_array(
-        (0..N)
-            .map(|position| index.is_equal(&constant(Field::from(position as u64))))
-            .collect::<Result<Vec<_>, _>>()?,
-    )?;
-    flags
-        .iter()
-        .fold(zero(), |count, flag| count + flag.var())
+    let mut flags = Vec::with_capacity(N);
+    for position in 0..N {
+        flags.push(index.is_equal(&constant(Field::from(position as u64)))?);
+    }
+    let flags: [Bool; N] = collect_array(flags)?;
+    let vars: Vec<CircuitVar> = flags.iter().map(Bool::var).collect();
+    field::sum(&vars)
         .assert_equal(&constant(1u64), "the index is inside the array")
         .map_err(|error| match error {
             RelationError::Violated(_) => RelationError::IndexOutOfBounds(N),
@@ -38,6 +38,7 @@ pub fn one_hot<const N: usize>(index: &CircuitVar) -> Result<[Bool; N], Relation
     Ok(flags)
 }
 
+#[track_caller]
 pub fn select_index<T: Select, const N: usize>(
     items: &[T; N],
     index: &CircuitVar,

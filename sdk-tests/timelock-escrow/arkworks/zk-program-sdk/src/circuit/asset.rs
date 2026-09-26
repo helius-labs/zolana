@@ -40,6 +40,7 @@ impl Asset {
         Rc::ptr_eq(&self.hash, &other.hash)
     }
 
+    #[track_caller]
     pub(crate) fn assert_same_unless(
         &self,
         other: &Self,

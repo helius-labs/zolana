@@ -87,8 +87,8 @@ impl Placeholder for CastVote {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Balance, Bits, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -105,13 +105,13 @@ mod circuit {
         pub poll: Utxo,
         pub state: Poll,
         pub poll_owner: Owner,
-        pub choice: CircuitVar,
+        pub choice: Uint<64>,
         pub secret_key: CircuitVar,
         pub path: CircuitMerklePath,
     }
 
     pub struct CastVotePublicInputs {
-        pub poll_id: CircuitVar,
+        pub poll_id: Uint<64>,
         pub root: CircuitVar,
         pub nullifier: CircuitVar,
     }
@@ -133,21 +133,19 @@ mod circuit {
             public
                 .root
                 .assert_equal(&poll.root, "the voter root is not the poll's")?;
-            private.choice.check_bits(2)?;
-            private
-                .choice
-                .assert_not_equal(&constant(3u64), "the choice is not an option")?;
+            let choice = private.choice.narrow::<2>("the choice is not an option")?;
+            choice.assert_not_equal(&Uint::<2>::constant(3)?, "the choice is not an option")?;
             private
                 .path
                 .root(&poseidon(std::slice::from_ref(&private.secret_key))?)?
                 .assert_equal(&public.root, "the voter is not registered")?;
-            poseidon(&[public.poll_id.clone(), private.secret_key.clone()])?
+            poseidon(&[public.poll_id.var(), private.secret_key.clone()])?
                 .assert_equal(&public.nullifier, "the nullifier is not the voter's")?;
             for (tally, option) in poll.tally.iter_mut().zip(0u64..) {
-                *tally = private
-                    .choice
-                    .is_equal(&constant(option))?
-                    .select(&(tally.clone() + constant(1u64)), tally);
+                let voted = choice.is_equal(&Uint::<2>::constant(option)?)?;
+                *tally = tally
+                    .add::<65>(&voted.to_uint().widen::<64>())
+                    .narrow::<64>("a tally overflows")?;
             }
 
             ConfidentialTransaction::new(&private.tx_context, public)
@@ -159,7 +157,7 @@ mod circuit {
     impl PublicInputs for CastVotePublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
-                self.poll_id.clone(),
+                self.poll_id.var(),
                 self.root.clone(),
                 self.nullifier.clone(),
                 transaction_hash.clone(),

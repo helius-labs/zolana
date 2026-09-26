@@ -1,8 +1,8 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, poseidon, Assert, Balance, Bits, CheckedTransaction, Circuit,
-        ConfidentialTransaction, DataUtxo, PublicInputs,
+        poseidon, Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
+        PublicInputs, Uint,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -57,21 +57,19 @@ impl Circuit for CastVote {
         public
             .root
             .assert_equal(&poll.root, "the voter root is not the poll's")?;
-        private.choice.check_bits(2)?;
-        private
-            .choice
-            .assert_not_equal(&constant(3u64), "the choice is not an option")?;
+        let choice = private.choice.narrow::<2>("the choice is not an option")?;
+        choice.assert_not_equal(&Uint::<2>::constant(3)?, "the choice is not an option")?;
         private
             .path
             .root(&poseidon(std::slice::from_ref(&private.secret_key))?)?
             .assert_equal(&public.root, "the voter is not registered")?;
-        poseidon(&[public.poll_id.clone(), private.secret_key.clone()])?
+        poseidon(&[public.poll_id.var(), private.secret_key.clone()])?
             .assert_equal(&public.nullifier, "the nullifier is not the voter's")?;
         for (tally, option) in poll.tally.iter_mut().zip(0u64..) {
-            *tally = private
-                .choice
-                .is_equal(&constant(option))?
-                .select(&(tally.clone() + constant(1u64)), tally);
+            let voted = choice.is_equal(&Uint::<2>::constant(option)?)?;
+            *tally = tally
+                .add::<65>(&voted.to_uint().widen::<64>())
+                .narrow::<64>("a tally overflows")?;
         }
 
         ConfidentialTransaction::new(&private.tx_context, public)

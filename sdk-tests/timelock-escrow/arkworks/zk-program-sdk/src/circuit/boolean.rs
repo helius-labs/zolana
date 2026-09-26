@@ -1,4 +1,6 @@
-use super::{constant, Assert, Bits, CircuitVar, Compare, Field, Select};
+use super::{
+    constant, field, labels::Scope, Assert, Bits, CircuitVar, Compare, Field, Select, Uint,
+};
 use crate::RelationError;
 
 #[derive(Clone, Debug)]
@@ -9,6 +11,7 @@ impl Bool {
         Self(constant(u64::from(value)))
     }
 
+    #[track_caller]
     pub fn from_var(var: &CircuitVar) -> Result<Self, RelationError> {
         var.check_is_bool()?;
         Ok(Self(var.clone()))
@@ -18,24 +21,41 @@ impl Bool {
         Self(var)
     }
 
+    #[track_caller]
+    pub(crate) fn of_equality(
+        left: &CircuitVar,
+        right: &CircuitVar,
+    ) -> Result<Self, RelationError> {
+        let _scope = Scope::open(&left.cs().or(right.cs()), "an equality test");
+        Ok(Self(CircuitVar::from_boolean(left.equals(right)?)))
+    }
+
     pub fn var(&self) -> CircuitVar {
         self.0.clone()
     }
 
+    pub fn to_uint(&self) -> Uint<1> {
+        Uint::trusted(self.0.clone())
+    }
+
     pub fn not(&self) -> Self {
-        Self(constant(1u64) - &self.0)
+        Self(constant(1u64).minus(&self.0))
     }
 
     pub fn and(&self, other: &Self) -> Self {
-        Self(self.0.clone() * &other.0)
+        Self(self.0.times(&other.0))
     }
 
     pub fn or(&self, other: &Self) -> Self {
-        Self(self.0.clone() + &other.0 - self.0.clone() * &other.0)
+        Self(self.0.plus(&other.0).minus(&self.0.times(&other.0)))
     }
 
     pub fn xor(&self, other: &Self) -> Self {
-        Self(self.0.clone() + &other.0 - (self.0.clone() * &other.0) * Field::from(2u64))
+        Self(
+            self.0
+                .plus(&other.0)
+                .minus(&self.0.times(&other.0).scaled(Field::from(2u64))),
+        )
     }
 
     pub fn nand(&self, other: &Self) -> Self {
@@ -43,9 +63,10 @@ impl Bool {
     }
 
     pub fn implies(&self, other: &Self) -> Self {
-        Self(constant(1u64) - &self.0 + self.0.clone() * &other.0)
+        Self(constant(1u64).minus(&self.0).plus(&self.0.times(&other.0)))
     }
 
+    #[track_caller]
     pub fn all(flags: &[Self]) -> Result<Self, RelationError> {
         match flags {
             [] => Ok(Self::constant(true)),
@@ -54,6 +75,7 @@ impl Bool {
         }
     }
 
+    #[track_caller]
     pub fn any(flags: &[Self]) -> Result<Self, RelationError> {
         match flags {
             [] => Ok(Self::constant(false)),
@@ -66,14 +88,17 @@ impl Bool {
         T::select(self, if_true, if_false)
     }
 
+    #[track_caller]
     pub fn assert_true(&self, rule: &'static str) -> Result<(), RelationError> {
         self.0.assert_equal(&constant(1u64), rule)
     }
 
+    #[track_caller]
     pub fn assert_false(&self, rule: &'static str) -> Result<(), RelationError> {
         self.0.assert_equal(&constant(0u64), rule)
     }
 
+    #[track_caller]
     pub fn assert_true_if(
         &self,
         condition: &Self,
@@ -84,7 +109,7 @@ impl Bool {
 }
 
 fn sum(flags: &[Bool]) -> CircuitVar {
-    flags.iter().fold(constant(0u64), |sum, flag| sum + &flag.0)
+    field::sum(flags.iter().map(|flag| &flag.0))
 }
 
 impl Assert for Bool {
@@ -92,10 +117,12 @@ impl Assert for Bool {
         Ok(self.xor(other).not())
     }
 
+    #[track_caller]
     fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
         self.0.assert_equal(&other.0, rule)
     }
 
+    #[track_caller]
     fn assert_equal_if(
         &self,
         other: &Self,

@@ -72,8 +72,8 @@ impl Placeholder for CompareTwo {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Utxo,
+            poseidon, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -94,7 +94,7 @@ mod circuit {
     }
 
     pub struct CompareTwoPublicInputs {
-        pub total: CircuitVar,
+        pub total: Uint<64>,
     }
 
     impl Circuit for CompareTwo {
@@ -104,7 +104,9 @@ mod circuit {
             let private = &self.private;
             let first = DataUtxo::new_mut(&private.first_utxo, &private.first)?;
             let second = DataUtxo::new_mut(&private.second_utxo, &private.second)?;
-            (first.balance.clone() + &second.balance)
+            first
+                .balance
+                .add::<65>(&second.balance)
                 .assert_equal(&self.public.total, "the balances do not sum to the total")?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
@@ -116,7 +118,7 @@ mod circuit {
 
     impl PublicInputs for CompareTwoPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.total.clone(), transaction_hash.clone()])
+            poseidon(&[self.total.var(), transaction_hash.clone()])
         }
     }
 }

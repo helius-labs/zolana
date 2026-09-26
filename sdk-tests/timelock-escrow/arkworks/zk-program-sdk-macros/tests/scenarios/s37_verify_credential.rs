@@ -1,8 +1,8 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        poseidon, Assert, Bits, CheckedTransaction, Circuit, ConfidentialTransaction, DataHash,
-        DataUtxo, PublicInputs,
+        poseidon, Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataHash, DataUtxo,
+        PublicInputs,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -50,13 +50,15 @@ impl Circuit for VerifyCredential {
         credential
             .issuer_hash
             .assert_equal(&public.issuer.hash()?, "the credential is another issuer's")?;
-        poseidon(&[private.attribute.clone(), private.salt.clone()])?.assert_equal(
+        poseidon(&[private.attribute.var(), private.salt.clone()])?.assert_equal(
             &credential.attribute_commitment,
             "the attribute is not the committed one",
         )?;
-        (private.attribute.clone() - &public.threshold).check_bits(64)?;
+        public
+            .threshold
+            .assert_less_or_equal(&private.attribute, "the attribute is below the threshold")?;
         poseidon(&[
-            public.verification_id.clone(),
+            public.verification_id.var(),
             private.secret.clone(),
             DataHash::hash(&*credential)?,
         ])?

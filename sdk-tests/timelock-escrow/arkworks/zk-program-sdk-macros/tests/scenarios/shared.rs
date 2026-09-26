@@ -3,9 +3,9 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zk_program_sdk::{
     circuit,
-    circuit::{poseidon, CircuitVar, DataHash},
+    circuit::{poseidon, Circuit, CircuitVar, ConstraintSystem, DataHash},
     conversion::{to_bytes, Allocator, ProofInput},
-    RelationError,
+    RelationError, ZkProgram,
 };
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::{random_blinding, P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey};
@@ -103,6 +103,19 @@ fn wallet_utxo(
         tx_signature: Signature::default(),
         slot_index: 0,
     }
+}
+
+pub fn refused<P: ZkProgram>(proof_inputs: &P) -> (Option<String>, bool) {
+    let native = proof_inputs
+        .check_constraints()
+        .err()
+        .map(|error| error.to_string());
+    let cs = ConstraintSystem::new_ref();
+    let satisfied = proof_inputs
+        .instantiate(&Allocator::R1cs(cs.clone()))
+        .and_then(|circuit| circuit.circuit())
+        .is_ok_and(|_| cs.is_satisfied().unwrap_or(false));
+    (native, !satisfied)
 }
 
 pub fn dummy() -> WalletUtxo {

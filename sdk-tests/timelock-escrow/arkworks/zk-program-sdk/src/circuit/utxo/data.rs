@@ -2,9 +2,12 @@ use core::ops::{Deref, DerefMut};
 
 use borsh::BorshSerialize;
 
-use super::{utxo_domain, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
+use super::{utxo_domain, Accumulator, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
 use crate::{
-    circuit::{poseidon, zero, Assert, Asset, Bool, Bytes, CircuitVar, Owner, PublicTransfer},
+    circuit::{
+        labels::Scope, poseidon, zero, Assert, Asset, Bool, Bytes, CircuitVar, Owner,
+        PublicTransfer, Uint,
+    },
     conversion::{to_bytes, FromCircuit},
     hasher::{DataHasher, Poseidon},
     RelationError,
@@ -42,6 +45,12 @@ impl DataHash for CircuitVar {
 }
 
 impl DataHash for Bool {
+    fn hash(&self) -> Result<CircuitVar, RelationError> {
+        Ok(self.var())
+    }
+}
+
+impl<const BITS: u32> DataHash for Uint<BITS> {
     fn hash(&self) -> Result<CircuitVar, RelationError> {
         Ok(self.var())
     }
@@ -98,7 +107,7 @@ impl<S> Balance for DataUtxo<S> {}
 impl<S: Default> DataUtxo<S> {
     pub fn new_init(owner: &Owner, asset: &Asset) -> Self {
         Self {
-            ledger: Ledger::new(owner.clone(), asset.clone(), zero()),
+            ledger: Ledger::new(owner.clone(), asset.clone(), Accumulator::zero()),
             state: S::default(),
             spent: None,
             burn: false,
@@ -107,15 +116,19 @@ impl<S: Default> DataUtxo<S> {
 }
 
 impl<S: DataHash + Clone> DataUtxo<S> {
+    #[track_caller]
     pub fn new_mut(input: &Utxo, state: &S) -> Result<Self, RelationError> {
         Self::spend(input, state, false)
     }
 
+    #[track_caller]
     pub fn new_burn(input: &Utxo, state: &S) -> Result<Self, RelationError> {
         Self::spend(input, state, true)
     }
 
+    #[track_caller]
     fn spend(input: &Utxo, state: &S, burn: bool) -> Result<Self, RelationError> {
+        let _scope = Scope::open(&input.domain.cs(), "a data utxo's input");
         input
             .domain
             .assert_equal(&utxo_domain(), "the utxo is not a spendable utxo")?;
@@ -128,7 +141,7 @@ impl<S: DataHash + Clone> DataUtxo<S> {
             ledger: Ledger::new(
                 input.owner.clone(),
                 input.asset.clone(),
-                input.amount.clone(),
+                Accumulator::amount(&input.amount),
             ),
             state: state.clone(),
             spent: Some(input.spent(input.hash()?)),
@@ -152,16 +165,17 @@ impl<S> DataUtxo<S> {
 }
 
 impl<S: DataHash> DataUtxo<S> {
+    #[track_caller]
     pub(crate) fn output(&self) -> Result<Option<Output>, RelationError> {
+        let balance = self.ledger.balance_var();
         if self.burn {
-            self.balance()
-                .assert_equal(&zero(), "a burned data utxo leaves a balance")?;
+            balance.assert_equal(&zero(), "a burned data utxo leaves a balance")?;
             return Ok(None);
         }
         Ok(Some(Output {
             owner: self.owner(),
             asset: self.asset(),
-            amount: self.balance(),
+            amount: Uint::trusted(balance),
             data_hash: self.state.hash()?,
             data: None,
         }))

@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     circuit,
-    circuit::{Bits, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs},
+    circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs},
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
 };
@@ -9,7 +9,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 use crate::{
     benchmark::prove,
     s13_counter_create::Counter,
-    shared::{data_input, keypair},
+    shared::{data_input, keypair, refused},
 };
 
 #[derive(Clone, ProofInput)]
@@ -35,8 +35,10 @@ impl Circuit for Increment {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
         let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
-        counter.count = counter.count.clone() + &self.public.step;
-        counter.count.check_bits(64)?;
+        counter.count = counter
+            .count
+            .add::<65>(&self.public.step)
+            .narrow::<64>("the counter overflows")?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(counter)
@@ -87,4 +89,23 @@ fn counter_increment_prove_and_verify() {
     prover
         .verify(&result)
         .expect("the compressed proof verifies");
+}
+
+#[test]
+fn a_counter_that_overflows_is_refused() {
+    let owner = keypair(5);
+    let state = Counter { count: u64::MAX };
+    let increment = Increment {
+        private: IncrementPrivateInputs {
+            tx_context: TxContext::new(),
+            counter: data_input(&owner, 0, &state, 0),
+            state,
+        },
+        public: IncrementPublicInputs { step: 1 },
+    };
+
+    assert_eq!(
+        refused(&increment),
+        (Some("the counter overflows".to_string()), true)
+    );
 }

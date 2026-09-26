@@ -2,7 +2,7 @@ use ark_ff::{BigInteger, PrimeField};
 
 use super::{Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{constant, value, zero, Bits, Bool, CircuitVar, Field},
+    circuit::{constant, value, var::assert_bool, Bool, CircuitVar, Field, Uint, VariableRole},
     RelationError,
 };
 
@@ -32,15 +32,28 @@ pub(crate) fn be_bytes(element: &impl PrimeField) -> [u8; 32] {
     bytes
 }
 
+#[track_caller]
 pub fn to_bytes(var: &CircuitVar) -> Result<[u8; 32], RelationError> {
     Ok(field_bytes(&value(var)?))
 }
 
-impl ProofInput for CircuitVar {
+impl ProofInput for Field {
     type Circuit = CircuitVar;
 
     fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, RelationError> {
-        allocator.private_input(self)
+        allocator.witness(*self, "a field proof input", VariableRole::Constrained)
+    }
+}
+
+impl FromCircuit for Field {
+    fn from_circuit(circuit: &CircuitVar) -> Result<Field, RelationError> {
+        value(circuit)
+    }
+}
+
+impl Placeholder for Field {
+    fn placeholder() -> Result<Self, RelationError> {
+        Ok(Field::from(0u64))
     }
 }
 
@@ -58,33 +71,55 @@ impl<T: ProofInput, const N: usize> ProofInput for [T; N] {
     }
 }
 
-fn integer(allocator: &Allocator, value: u64, bits: usize) -> Result<CircuitVar, RelationError> {
-    let value = allocator.private_input(&constant(value))?;
-    value.check_bits(bits)?;
-    Ok(value)
+#[track_caller]
+fn integer<const BITS: u32>(
+    allocator: &Allocator,
+    value: u64,
+    text: &'static str,
+    rule: &'static str,
+) -> Result<Uint<BITS>, RelationError> {
+    Uint::from_var(
+        &allocator.witness(Field::from(value), text, VariableRole::Constrained)?,
+        rule,
+    )
 }
 
 impl ProofInput for u64 {
-    type Circuit = CircuitVar;
+    type Circuit = Uint<64>;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, RelationError> {
-        integer(allocator, *self, 64)
+    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<64>, RelationError> {
+        integer(
+            allocator,
+            *self,
+            "a u64 proof input",
+            "a u64 proof input does not fit in 64 bits",
+        )
     }
 }
 
 impl ProofInput for u32 {
-    type Circuit = CircuitVar;
+    type Circuit = Uint<32>;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, RelationError> {
-        integer(allocator, u64::from(*self), 32)
+    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<32>, RelationError> {
+        integer(
+            allocator,
+            u64::from(*self),
+            "a u32 proof input",
+            "a u32 proof input does not fit in 32 bits",
+        )
     }
 }
 
 impl ProofInput for u16 {
-    type Circuit = CircuitVar;
+    type Circuit = Uint<16>;
 
-    fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, RelationError> {
-        integer(allocator, u64::from(*self), 16)
+    fn instantiate(&self, allocator: &Allocator) -> Result<Uint<16>, RelationError> {
+        integer(
+            allocator,
+            u64::from(*self),
+            "a u16 proof input",
+            "a u16 proof input does not fit in 16 bits",
+        )
     }
 }
 
@@ -92,8 +127,12 @@ impl ProofInput for bool {
     type Circuit = Bool;
 
     fn instantiate(&self, allocator: &Allocator) -> Result<Bool, RelationError> {
-        let value = allocator.private_input(&constant(u64::from(*self)))?;
-        value.check_is_bool()?;
+        let value = allocator.witness(
+            Field::from(*self),
+            "a bool proof input",
+            VariableRole::Constrained,
+        )?;
+        assert_bool(&value, "a bool proof input is neither 0 nor 1")?;
         Ok(Bool::from_checked(value))
     }
 }
@@ -102,7 +141,11 @@ impl ProofInput for [u8; 32] {
     type Circuit = CircuitVar;
 
     fn instantiate(&self, allocator: &Allocator) -> Result<CircuitVar, RelationError> {
-        allocator.private_input(&var(self, "32-byte input")?)
+        allocator.witness(
+            field(self, "32-byte input")?,
+            "a 32-byte proof input",
+            VariableRole::Constrained,
+        )
     }
 }
 
@@ -130,21 +173,29 @@ pub(super) fn integer_value(var: &CircuitVar, bits: usize) -> Result<u64, Relati
         .ok_or(RelationError::OutOfRange(bits))
 }
 
+pub(crate) fn u16_value(var: &CircuitVar) -> Result<u16, RelationError> {
+    u16::try_from(integer_value(var, 16)?).map_err(|_| RelationError::OutOfRange(16))
+}
+
+pub(crate) fn u64_value(var: &CircuitVar) -> Result<u64, RelationError> {
+    integer_value(var, 64)
+}
+
 impl FromCircuit for u64 {
-    fn from_circuit(circuit: &CircuitVar) -> Result<u64, RelationError> {
-        integer_value(circuit, 64)
+    fn from_circuit(circuit: &Uint<64>) -> Result<u64, RelationError> {
+        u64_value(&circuit.var())
     }
 }
 
 impl FromCircuit for u32 {
-    fn from_circuit(circuit: &CircuitVar) -> Result<u32, RelationError> {
-        u32::try_from(integer_value(circuit, 32)?).map_err(|_| RelationError::OutOfRange(32))
+    fn from_circuit(circuit: &Uint<32>) -> Result<u32, RelationError> {
+        u32::try_from(integer_value(&circuit.var(), 32)?).map_err(|_| RelationError::OutOfRange(32))
     }
 }
 
 impl FromCircuit for u16 {
-    fn from_circuit(circuit: &CircuitVar) -> Result<u16, RelationError> {
-        u16::try_from(integer_value(circuit, 16)?).map_err(|_| RelationError::OutOfRange(16))
+    fn from_circuit(circuit: &Uint<16>) -> Result<u16, RelationError> {
+        u16_value(&circuit.var())
     }
 }
 
@@ -161,12 +212,6 @@ impl FromCircuit for bool {
 impl FromCircuit for [u8; 32] {
     fn from_circuit(circuit: &CircuitVar) -> Result<[u8; 32], RelationError> {
         to_bytes(circuit)
-    }
-}
-
-impl Placeholder for CircuitVar {
-    fn placeholder() -> Result<Self, RelationError> {
-        Ok(zero())
     }
 }
 

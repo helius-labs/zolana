@@ -1,10 +1,12 @@
-use ark_r1cs_std::{eq::EqGadget, select::CondSelectGadget};
 use zolana_interface::DUMMY_DOMAIN;
 
-use super::{utxo_domain, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
+use super::{utxo_domain, Accumulator, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
 use crate::{
     circuit::{
-        constant, var::assert_equal_unless, zero, Assert, Asset, CircuitVar, Owner, PublicTransfer,
+        constant,
+        labels::Scope,
+        var::{assert_equal_unless, system_of},
+        zero, Assert, Asset, CircuitVar, Owner, PublicTransfer, Uint,
     },
     RelationError,
 };
@@ -36,16 +38,18 @@ impl Balance for TokenUtxo {}
 impl TokenUtxo {
     pub fn new_init(owner: &Owner, asset: &Asset) -> Self {
         Self {
-            ledger: Ledger::new(owner.clone(), asset.clone(), zero()),
+            ledger: Ledger::new(owner.clone(), asset.clone(), Accumulator::zero()),
             spent_inputs: Vec::new(),
             burn: false,
         }
     }
 
+    #[track_caller]
     pub fn new_mut<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
         Self::spend(inputs, false)
     }
 
+    #[track_caller]
     pub fn new_burn<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, RelationError> {
         Self::spend(inputs, true)
     }
@@ -62,22 +66,28 @@ impl TokenUtxo {
         self.ledger.transferred()
     }
 
+    #[track_caller]
     pub(crate) fn change(&self) -> Result<Option<Output>, RelationError> {
+        let balance = self.ledger.balance_var();
         if self.burn {
-            self.balance()
-                .assert_equal(&zero(), "a burned token utxo leaves a balance")?;
+            balance.assert_equal(&zero(), "a burned token utxo leaves a balance")?;
             return Ok(None);
         }
         Ok(Some(Output {
             owner: self.owner(),
             asset: self.asset(),
-            amount: self.balance(),
+            amount: Uint::trusted(balance),
             data_hash: zero(),
             data: None,
         }))
     }
 
+    #[track_caller]
     fn spend(inputs: &[Utxo], burn: bool) -> Result<Self, RelationError> {
+        let _scope = Scope::open(
+            &system_of(inputs.iter().map(|input| &input.domain)),
+            "a token utxo's inputs",
+        );
         let first = inputs.first().ok_or(RelationError::Violated(
             "a token utxo spends at least one input",
         ))?;
@@ -86,10 +96,10 @@ impl TokenUtxo {
             .assert_equal(&utxo_domain(), "the first input of a token utxo is a dummy")?;
         let owner = first.owner.hash()?;
         let asset = first.asset.hash()?;
-        let mut balance = zero();
+        let mut amounts = Vec::with_capacity(inputs.len());
         let mut spent_inputs = Vec::with_capacity(inputs.len());
         for (index, input) in inputs.iter().enumerate() {
-            let dummy = input.domain.is_eq(&constant(u64::from(DUMMY_DOMAIN)))?;
+            let dummy = input.domain.equals(&constant(u64::from(DUMMY_DOMAIN)))?;
             input.assert_default_ring()?;
             input
                 .data_hash
@@ -111,16 +121,23 @@ impl TokenUtxo {
                     &dummy,
                     "the inputs belong to different owners",
                 )?;
+                input
+                    .owner
+                    .assert_no_nullifier_key_if(&dummy, "a dummy input carries a nullifier key")?;
             }
-            balance += CircuitVar::conditionally_select(&dummy, &zero(), &input.amount)?;
-            spent_inputs.push(input.spent(CircuitVar::conditionally_select(
+            amounts.push(CircuitVar::choose(&dummy, &zero(), &input.amount.var())?);
+            spent_inputs.push(input.spent(CircuitVar::choose(
                 &dummy,
                 &zero(),
                 &input.hash_with(&owner, &asset)?,
             )?));
         }
         Ok(Self {
-            ledger: Ledger::new(first.owner.clone(), first.asset.clone(), balance),
+            ledger: Ledger::new(
+                first.owner.clone(),
+                first.asset.clone(),
+                Accumulator::sum(&amounts),
+            ),
             spent_inputs,
             burn,
         })

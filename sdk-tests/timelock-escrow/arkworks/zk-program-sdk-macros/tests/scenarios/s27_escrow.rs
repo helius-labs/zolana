@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit,
     circuit::{
-        zero, Assert, Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
-        DataUtxo, PublicInputs, TokenUtxo,
+        Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
+        PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
     Groth16Prover, Owner, RelationError, TxContext, ZkProgram,
@@ -84,9 +84,7 @@ pub(crate) fn escrow_utxo(
 impl Circuit for Escrow {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
-        private
-            .amount
-            .assert_not_equal(&zero(), "the escrow locks nothing")?;
+        private.amount.assert_not_zero("the escrow locks nothing")?;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut escrow =
             DataUtxo::<EscrowTermsCircuit>::new_init(&self.public.escrow_owner, &tokens.asset());

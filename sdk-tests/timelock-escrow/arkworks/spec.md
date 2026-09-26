@@ -142,7 +142,8 @@ pub struct WithdrawPrivateInputs {
 ### Types and range checks
 
 Instantiating a circuit transforms its types. Proof inputs go in, and the types of the same
-name in the `circuit` module come out, with every field a `CircuitVar` or a struct of them:
+name in the `circuit` module come out, with every field a circuit type: a `CircuitVar`, a
+`Uint<BITS>`, a `Bool` or a struct of them:
 
 | Proof input | Circuit type |
 | --- | --- |
@@ -156,7 +157,7 @@ Proof inputs use plain Rust types that implement `ProofInput`:
 
 | Type | Becomes | Check |
 | --- | --- | --- |
-| `u64`, `u32`, `u16` | the number | fits the width |
+| `u64`, `u32`, `u16` | a `Uint<64>`, `Uint<32>`, `Uint<16>` | fits the width |
 | `bool` | 0 or 1 | is 0 or 1 |
 | `[u8; 32]` | the value | is canonical |
 | `Bytes<N>` | `N` byte variables | each byte fits 8 bits |
@@ -173,7 +174,8 @@ Proof inputs use plain Rust types that implement `ProofInput`:
   them with the first input's owner and asset hashes.
 - The SPP proof checks dummy inputs. A dummy slot contributes 0 to the input chain, and its
   preimage is all zeros: the byte checks pass for zeros, and only the tag check is skipped
-  for a slot whose domain is the dummy domain.
+  for a slot whose domain is the dummy domain. Nothing hashes a dummy's owner, so a
+  `TokenUtxo` asserts that a dummy's nullifier key is zero, one constraint per later input.
 
 - `circuit` is a method of the circuit type, so inside it every value is a `CircuitVar`.
 - Instantiation is the only way from a proof input to its circuit type, and it runs the
@@ -181,17 +183,25 @@ Proof inputs use plain Rust types that implement `ProofInput`:
   constraints, for example a bit decomposition for a `u64`.
 - A state has two forms, written by hand for now: the client form, for example
   `EscrowTerms { creator: Owner, unlock: u64 }`, and the circuit form with `circuit::Owner`
-  and `CircuitVar` fields.
+  and `Uint<64>` fields.
 - `FromCircuit` is the way back, `from_circuit(&circuit) -> Result<Self>`. It reads the
   values of the native run and checks the same ranges. `u64`, `u32`, `u16`, `bool`,
   `[u8; 32]`, `Bytes<N>`, `Owner` and arrays of them implement it, and a state's client form
   implements it field by field. A `ShieldedAddress`, a `Mint` or a spent UTXO cannot come
   back: the viewing key, the asset id and the indexer context are not in the circuit.
-- A computed value that needs a bound gets an explicit check in `circuit`:
+- Integers are `Uint<BITS>`, a value below `2^BITS`. `add`, `mul`, `sum` and `widen` return
+  a wider type, and the width checks run when the circuit is built, so a sum or a product
+  that could wrap around the field does not compile. A computed value that must fit a width
+  gets `narrow`, `checked_sub` or a comparison, each with a named rule.
+- A computed `CircuitVar` that needs a bound gets an explicit check in `circuit`:
   `check_bits(bits)` or `check_is_bool` from `Bits`, or a `Compare` or `Arithmetic`
   gadget, which range-checks its operands itself.
-- The SPP proof range-checks UTXO amounts. The circuit range-checks its inputs and the
-  computed values its logic relies on, such as the operands of a comparison.
+- `CircuitVar` is opaque: it has no arithmetic or comparison operators, a circuit cannot
+  allocate one, and `value` reads only a constant. Reading a variable fails in both runs with
+  the line of the read.
+- The SPP proof range-checks UTXO amounts, so a spent UTXO's amount is a trusted `Uint<64>`
+  that a circuit reads through `Balance`. The circuit range-checks its inputs and the computed
+  values its logic relies on, such as the operands of a comparison.
 
 ## UTXO types
 
@@ -204,8 +214,8 @@ and `Balance::transfer` moves value from one to the other:
 | `TokenUtxo` | `LightAccount` without data: UTXOs of one owner and one asset, none from `new_init(owner, asset)`, `N` from `new_mut` or `new_burn`. |
 
 - A state `S` implements `DataHash`, a Poseidon hash over its fields in declaration order.
-  Each field contributes its own `hash`: a `CircuitVar` is itself, and a nested struct is its
-  `DataHash`.
+  Each field contributes its own `hash`: a `CircuitVar` or a `Uint` is its value, and a
+  nested struct is its `DataHash`.
 
   ```rust
   impl DataHash for circuit::EscrowTerms {
@@ -239,18 +249,20 @@ and `Balance::transfer` moves value from one to the other:
      constraints, skipped when the destination's asset is a clone of the source's, as when it
      was built from `source.asset()`. That identity comes from how the circuit is written, so
      the prover cannot influence it;
-  3. the amount fits in 64 bits. Without it, a field-negative amount would move value out of a
-     destination that holds some into the source, and both balances would still pass SPP's
-     range checks;
+  3. the amount fits in 64 bits, which its type `Uint<64>` guarantees. Without it, a
+     field-negative amount would move value out of a destination that holds some into the
+     source, and both balances would still pass SPP's range checks;
   4. what remains of the source's balance fits in 64 bits, so the transfer does not exceed
      the balance. A mint's total supply is a u64.
 
   Natively each rule is a named `RelationError`, so the mistake stops while the proof inputs
-  are built; in R1CS rules 2 to 4 are constraints. `transfer_all(&mut destination)?` checks
+  are built; in R1CS rules 2 and 4 are constraints. `transfer_all(&mut destination)?` checks
   rules 1 and 2 and moves the whole balance: a balance cannot go negative, because SPP
   range-checks the input amounts and every debit passes rules 3 and 4. `withdraw` checks rule
-  4 for what remains. The native run refuses a public transfer of zero.
-  `withdraw_all(&destination)?` returns the amount it withdraws.
+  4 for what remains. A public transfer of zero is refused by a constraint, "a public
+  transfer moves a nonzero amount". `withdraw_all(&destination)?` returns the amount it
+  withdraws. `balance()` is a `Uint<64>`: free while the balance is known to fit 64 bits, one
+  range check when it could exceed them, as for a token with several inputs.
 - Each UTXO records its net transfers: what it received minus what it sent. `check` sums them
   over every UTXO added to the transaction and asserts the sum is zero, rule "value leaves the
   transaction: a utxo was not added". Forgetting to add a destination compiles, because the
@@ -291,7 +303,7 @@ and `Balance::transfer` moves value from one to the other:
 impl Circuit for Escrow {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
-        private.amount.assert_not_equal(&zero(), "the escrow locks nothing")?;
+        private.amount.assert_not_zero("the escrow locks nothing")?;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut escrow =
             DataUtxo::<EscrowTerms>::new_init(&self.public.escrow_owner, &tokens.asset());
@@ -330,8 +342,15 @@ impl Circuit for Escrow {
   `ConfidentialTransaction` is `#[must_use]`, so a circuit cannot skip `check`.
 - The same method runs natively on constants, where a broken rule is a named
   `RelationError`, and in R1CS on allocated variables, where it is an unsatisfied
-  constraint.
-- The logic does not branch on values, so both runs build the same slots.
+  constraint. Every check labels its rows with its rule and the circuit's `file:line`, so an
+  unsatisfied row names both.
+- The logic cannot branch on values, since `value` reads only constants, so both runs build
+  the same slots. `check_constraints` also synthesizes the placeholder the keys come from
+  and names a shape or a constraint that differs from it.
+- `testing::check_private_variables` perturbs every private variable of a proof and lists
+  the ones no constraint refuses. Both scenario suites and the escrow tests require that
+  list to be empty, apart from equality hints and the unused inputs' nullifier and latest
+  tree, which the SPP proof constrains.
 - `TokenUtxo` and `DataUtxo` move value through the same `Balance` trait: `transfer`,
   `transfer_all`, `deposit`, `withdraw` and `withdraw_all`, in every lifecycle. Every
   movement of value between UTXOs is a `transfer` or a `transfer_all`. The lifecycle only
@@ -404,7 +423,8 @@ zk-program-sdk follows the same split:
 | Path | Contents |
 | --- | --- |
 | `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `RelationError`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Compare`, `Arithmetic`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Uint`, `Unsigned`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Compare`, `Arithmetic`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`, and the diagnostics `ConstraintLabel`, `LabelKind`, `VariableRole`, `UnsatisfiedRow`, `SynthesisShape`. |
+| `zk_program_sdk::testing` | Feature `client`: `constraint_labels`, `check_tampered` and `check_private_variables`. |
 | `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Allocator`, `Records`, and bytes to fields and back. |
 
 Everything a future macro derives can also be written by hand, so `conversion` stays public.

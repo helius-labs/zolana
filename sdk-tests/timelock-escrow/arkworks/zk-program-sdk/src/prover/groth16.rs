@@ -327,6 +327,7 @@ impl<P: ZkProgram> Groth16Prover<P> {
         use super::reduction::CircomReduction;
 
         let placeholder = P::placeholder()?;
+        let matrices = ArkworksCircuit::for_setup(&placeholder).matrices()?;
         let proving_key =
             Groth16::<Bn254, CircomReduction>::generate_random_parameters_with_reduction(
                 ArkworksCircuit::for_setup(&placeholder),
@@ -334,7 +335,7 @@ impl<P: ZkProgram> Groth16Prover<P> {
             )?;
         Ok(Self {
             keys: Groth16Keys::from(proving_key),
-            matrices: ArkworksCircuit::for_setup(&placeholder).matrices()?,
+            matrices,
             program: PhantomData,
         })
     }

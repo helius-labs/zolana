@@ -1,8 +1,6 @@
 use zk_program_sdk::{
     circuit,
-    circuit::{
-        Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
-    },
+    circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs},
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
 };
@@ -40,7 +38,9 @@ impl Circuit for CompareTwo {
         let private = &self.private;
         let first = DataUtxo::new_mut(&private.first_utxo, &private.first)?;
         let second = DataUtxo::new_mut(&private.second_utxo, &private.second)?;
-        (first.balance.clone() + &second.balance)
+        first
+            .balance
+            .add::<65>(&second.balance)
             .assert_equal(&self.public.total, "the balances do not sum to the total")?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)

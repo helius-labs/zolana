@@ -25,7 +25,7 @@ impl<const N: usize> Bytes<N> {
             chunk
                 .iter()
                 .rev()
-                .fold(zero(), |byte, bit| byte * Field::from(2u64) + bit)
+                .fold(zero(), |byte, bit| byte.scaled(Field::from(2u64)).plus(bit))
         });
         Ok(Self {
             bytes: collect_array(bytes)?,

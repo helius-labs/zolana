@@ -118,9 +118,9 @@ impl Placeholder for Settle {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Assert, Balance, Bits, Bool, CheckedTransaction, Circuit,
-            CircuitMarker, CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner,
-            PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
+            poseidon, Assert, Balance, Bool, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
+            TokenUtxo, TxContext, Uint, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -129,22 +129,22 @@ mod circuit {
 
     #[derive(Clone, Debug)]
     pub struct Reservation {
-        pub limit_price: CircuitVar,
-        pub fill_price: CircuitVar,
+        pub limit_price: Uint<64>,
+        pub fill_price: Uint<64>,
     }
 
     impl Default for Reservation {
         fn default() -> Self {
             Self {
-                limit_price: zero(),
-                fill_price: zero(),
+                limit_price: Uint::zero(),
+                fill_price: Uint::zero(),
             }
         }
     }
 
     impl DataHash for Reservation {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.limit_price.clone(), self.fill_price.clone()])
+            poseidon(&[self.limit_price.var(), self.fill_price.var()])
         }
     }
 
@@ -168,7 +168,7 @@ mod circuit {
     }
 
     pub struct SettlePublicInputs {
-        pub execution_price: CircuitVar,
+        pub execution_price: Uint<64>,
     }
 
     impl Circuit for Settle {
@@ -185,16 +185,14 @@ mod circuit {
             let mut reservation =
                 DataUtxo::new_mut(&private.reservation_utxo, &private.reservation)?;
             let settles = &private.settles;
-            settles
-                .select(
-                    &(reservation.limit_price.clone() - price),
-                    &(price.clone() - &reservation.limit_price - constant(1u64)),
-                )
-                .check_bits(64)?;
-            let value = order.balance();
-            let taker_amount = settles.select(&value, &zero());
-            let maker_amount = value - &taker_amount;
-            reservation.fill_price = settles.select(price, &zero());
+            settles.assert_equal(
+                &price.is_less_or_equal(&reservation.limit_price)?,
+                "the settle flag does not match the price",
+            )?;
+            let value = order.balance()?;
+            let taker_amount = settles.select(&value, &Uint::zero());
+            let maker_amount = settles.select(&Uint::zero(), &value);
+            reservation.fill_price = settles.select(price, &Uint::zero());
             let taker = reservation.owner();
             let mut to_taker = TokenUtxo::new_init(&taker, &order.asset());
             order.transfer(&mut to_taker, &taker_amount)?;
@@ -212,7 +210,7 @@ mod circuit {
 
     impl PublicInputs for SettlePublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.execution_price.clone(), transaction_hash.clone()])
+            poseidon(&[self.execution_price.var(), transaction_hash.clone()])
         }
     }
 }

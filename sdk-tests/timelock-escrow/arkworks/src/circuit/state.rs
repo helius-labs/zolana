@@ -1,19 +1,19 @@
 use zk_program_sdk::{
-    circuit::{poseidon, zero, CircuitVar, DataHash, Owner, UtxoData},
+    circuit::{poseidon, CircuitVar, DataHash, Owner, Uint, UtxoData},
     RelationError,
 };
 
 #[derive(Clone, Debug)]
 pub struct EscrowTerms {
     pub creator: Owner,
-    pub unlock: CircuitVar,
+    pub unlock: Uint<64>,
 }
 
 impl Default for EscrowTerms {
     fn default() -> Self {
         Self {
             creator: Owner::default(),
-            unlock: zero(),
+            unlock: Uint::zero(),
         }
     }
 }

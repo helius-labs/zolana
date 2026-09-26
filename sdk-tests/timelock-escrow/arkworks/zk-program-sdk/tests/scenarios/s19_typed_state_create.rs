@@ -142,16 +142,16 @@ pub(crate) mod circuit {
         circuit::{
             poseidon, zero, Asset, Bool, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
 
     #[derive(Clone, Debug)]
     pub struct TypedState {
-        pub amount: CircuitVar,
-        pub count: CircuitVar,
-        pub kind: CircuitVar,
+        pub amount: Uint<64>,
+        pub count: Uint<32>,
+        pub kind: Uint<16>,
         pub active: Bool,
         pub tag: CircuitVar,
         pub owner_hash: CircuitVar,
@@ -161,9 +161,9 @@ pub(crate) mod circuit {
     impl Default for TypedState {
         fn default() -> Self {
             Self {
-                amount: zero(),
-                count: zero(),
-                kind: zero(),
+                amount: Uint::zero(),
+                count: Uint::zero(),
+                kind: Uint::zero(),
                 active: Bool::constant(false),
                 tag: zero(),
                 owner_hash: zero(),
@@ -175,9 +175,9 @@ pub(crate) mod circuit {
     impl DataHash for TypedState {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
             poseidon(&[
-                self.amount.clone(),
-                self.count.clone(),
-                self.kind.clone(),
+                self.amount.var(),
+                self.count.var(),
+                self.kind.var(),
                 self.active.var(),
                 self.tag.clone(),
                 self.owner_hash.clone(),
@@ -200,14 +200,14 @@ pub(crate) mod circuit {
         pub token_utxos_asset_a: [Utxo; 1],
         pub owner: Owner,
         pub mint: Asset,
-        pub count: CircuitVar,
-        pub kind: CircuitVar,
+        pub count: Uint<32>,
+        pub kind: Uint<16>,
         pub active: Bool,
         pub tag: CircuitVar,
     }
 
     pub struct TypedCreatePublicInputs {
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
     }
 
     impl Circuit for TypedCreate {
@@ -234,7 +234,7 @@ pub(crate) mod circuit {
 
     impl PublicInputs for TypedCreatePublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.amount.clone(), transaction_hash.clone()])
+            poseidon(&[self.amount.var(), transaction_hash.clone()])
         }
     }
 }

@@ -1,8 +1,8 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        zero, Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
-        PublicInputs,
+        Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
+        PublicInputs, Uint,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -43,7 +43,7 @@ impl Circuit for Reset {
             .owner()
             .hash()?
             .assert_equal(&self.public.owner.hash()?, "the counter has another owner")?;
-        counter.count = zero();
+        counter.count = Uint::zero();
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(counter)

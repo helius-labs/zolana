@@ -1,4 +1,3 @@
-use ark_r1cs_std::R1CSVar;
 use zolana_interface::UTXO_DOMAIN;
 use zolana_program::{
     DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
@@ -6,20 +5,24 @@ use zolana_program::{
 };
 
 use super::{
-    constant, nonzero_hash_chain, poseidon,
+    constant,
+    labels::Scope,
+    nonzero_hash_chain, poseidon,
     utxo::{Output, SpentInput},
-    zero, Assert, Bool, CircuitVar, DataUtxo, PublicTransfer, TokenUtxo, Utxo, UtxoData,
+    var::system_of,
+    zero, Assert, Bool, CircuitVar, DataUtxo, PublicTransfer, TokenUtxo, Uint, Utxo, UtxoData,
 };
 use crate::RelationError;
 
 #[derive(Clone, Debug)]
 pub struct TxContext {
     pub blinding_seed: CircuitVar,
-    pub output_tree_id: CircuitVar,
+    pub output_tree_id: Uint<16>,
     pub uses_output_tree_id: Bool,
 }
 
 impl TxContext {
+    #[track_caller]
     fn output_tree_id(&self, first: &SpentInput) -> Result<CircuitVar, RelationError> {
         self.uses_output_tree_id
             .or(&first.has_latest_tree_id)
@@ -30,7 +33,7 @@ impl TxContext {
             )?;
         Ok(self
             .uses_output_tree_id
-            .select(&self.output_tree_id, &first.latest_tree_id))
+            .select(&self.output_tree_id.var(), &first.latest_tree_id))
     }
 
     fn is_native(&self) -> bool {
@@ -141,11 +144,12 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         }
     }
 
+    #[track_caller]
     pub fn with_token_utxos(mut self, token: TokenUtxo) -> Self {
         self.inputs.extend(token.spent_inputs().iter().cloned());
         self.public_transfers
             .extend(token.public_transfers().iter().cloned());
-        self.transferred += token.transferred();
+        self.transferred = self.transferred.plus(token.transferred());
         match token.change() {
             Ok(Some(change)) => self.outputs.push(change),
             Ok(None) => {}
@@ -154,13 +158,14 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         self
     }
 
+    #[track_caller]
     pub fn with_data_utxo<S: UtxoData>(mut self, utxo: DataUtxo<S>) -> Self {
         if let Some(spent) = utxo.spent_input() {
             self.inputs.push(spent);
         }
         self.public_transfers
             .extend(utxo.public_transfers().iter().cloned());
-        self.transferred += utxo.transferred();
+        self.transferred = self.transferred.plus(utxo.transferred());
         let output = utxo.output().and_then(|output| {
             output
                 .map(|mut output| {
@@ -179,10 +184,19 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         self
     }
 
+    #[track_caller]
     pub fn check(self) -> Result<CheckedTransaction, RelationError> {
         if let Some(error) = self.error {
             return Err(error);
         }
+        let _scope = Scope::open(
+            &system_of(
+                [&self.tx_context.blinding_seed, &self.transferred]
+                    .into_iter()
+                    .chain(self.inputs.iter().map(|input| &input.hash)),
+            ),
+            "the transaction's outputs and hashes",
+        );
         self.transferred.assert_equal(
             &zero(),
             "value leaves the transaction: a utxo was not added",

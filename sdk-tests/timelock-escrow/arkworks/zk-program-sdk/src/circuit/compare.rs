@@ -1,8 +1,7 @@
 use ark_ff::{One, PrimeField};
-use ark_r1cs_std::fields::FieldVar;
 
 use super::{
-    constant,
+    labels::Scope,
     var::{bits_le, fits_or},
     zero, Assert, Bits, Bool, CircuitVar, Field, Select,
 };
@@ -65,45 +64,54 @@ pub trait Compare: Sized {
 }
 
 impl Compare for CircuitVar {
+    #[track_caller]
     fn is_zero(&self) -> Result<Bool, RelationError> {
-        Ok(Bool::from_checked(CircuitVar::from(FieldVar::is_zero(
-            self,
-        )?)))
+        Ok(Bool::from_checked(CircuitVar::from_boolean(
+            self.equals_zero()?,
+        )))
     }
 
+    #[track_caller]
     fn assert_zero(&self, rule: &'static str) -> Result<(), RelationError> {
         self.assert_equal(&zero(), rule)
     }
 
+    #[track_caller]
     fn assert_nonzero(&self, rule: &'static str) -> Result<(), RelationError> {
         self.assert_not_equal(&zero(), rule)
     }
 
+    #[track_caller]
     fn is_less_than(&self, other: &Self, bits: usize) -> Result<Bool, RelationError> {
         if bits + 1 >= Field::MODULUS_BIT_SIZE as usize {
             return Err(RelationError::RangeTooWide(bits));
         }
         self.check_bits(bits)?;
         other.check_bits(bits)?;
-        let shifted = self.clone() - other + constant(power_of_two(bits));
+        let shifted = self.minus(other).offset(power_of_two(bits));
+        let _scope = Scope::open(&shifted.cs(), "a comparison");
         let at_least = bits_le(&shifted, bits + 1)?
             .pop()
             .ok_or(RelationError::RangeTooWide(bits))?;
         Ok(Bool::from_checked(at_least).not())
     }
 
+    #[track_caller]
     fn is_less_or_equal(&self, other: &Self, bits: usize) -> Result<Bool, RelationError> {
         Ok(other.is_less_than(self, bits)?.not())
     }
 
+    #[track_caller]
     fn is_greater_than(&self, other: &Self, bits: usize) -> Result<Bool, RelationError> {
         other.is_less_than(self, bits)
     }
 
+    #[track_caller]
     fn is_greater_or_equal(&self, other: &Self, bits: usize) -> Result<Bool, RelationError> {
         Ok(self.is_less_than(other, bits)?.not())
     }
 
+    #[track_caller]
     fn assert_less_than(
         &self,
         other: &Self,
@@ -112,12 +120,14 @@ impl Compare for CircuitVar {
     ) -> Result<(), RelationError> {
         self.check_bits(bits)?;
         fits_or(
-            &(other.clone() - self - constant(1u64)),
+            &other.minus(self).offset(-Field::one()),
             bits,
+            rule,
             RelationError::Violated(rule),
         )
     }
 
+    #[track_caller]
     fn assert_less_or_equal(
         &self,
         other: &Self,
@@ -125,9 +135,15 @@ impl Compare for CircuitVar {
         rule: &'static str,
     ) -> Result<(), RelationError> {
         self.check_bits(bits)?;
-        fits_or(&(other.clone() - self), bits, RelationError::Violated(rule))
+        fits_or(
+            &other.minus(self),
+            bits,
+            rule,
+            RelationError::Violated(rule),
+        )
     }
 
+    #[track_caller]
     fn assert_greater_than(
         &self,
         other: &Self,
@@ -137,6 +153,7 @@ impl Compare for CircuitVar {
         other.assert_less_than(self, bits, rule)
     }
 
+    #[track_caller]
     fn assert_greater_or_equal(
         &self,
         other: &Self,
@@ -146,6 +163,7 @@ impl Compare for CircuitVar {
         other.assert_less_or_equal(self, bits, rule)
     }
 
+    #[track_caller]
     fn assert_in_range(
         &self,
         low: &Self,
@@ -157,6 +175,7 @@ impl Compare for CircuitVar {
         self.assert_less_or_equal(high, bits, rule)
     }
 
+    #[track_caller]
     fn min(&self, other: &Self, bits: usize) -> Result<Self, RelationError> {
         Ok(CircuitVar::select(
             &self.is_less_than(other, bits)?,
@@ -165,6 +184,7 @@ impl Compare for CircuitVar {
         ))
     }
 
+    #[track_caller]
     fn max(&self, other: &Self, bits: usize) -> Result<Self, RelationError> {
         Ok(CircuitVar::select(
             &self.is_less_than(other, bits)?,

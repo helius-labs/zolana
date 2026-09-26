@@ -90,8 +90,9 @@ impl Placeholder for VerifyCredential {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Bits, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Uint,
+            Utxo,
         },
         RelationError,
     };
@@ -107,16 +108,16 @@ mod circuit {
         pub tx_context: TxContext,
         pub credential_utxo: Utxo,
         pub credential: Credential,
-        pub attribute: CircuitVar,
+        pub attribute: Uint<64>,
         pub salt: CircuitVar,
         pub secret: CircuitVar,
     }
 
     pub struct VerifyCredentialPublicInputs {
         pub issuer: Owner,
-        pub verification_id: CircuitVar,
+        pub verification_id: Uint<64>,
         pub nullifier: CircuitVar,
-        pub threshold: CircuitVar,
+        pub threshold: Uint<64>,
     }
 
     impl Circuit for VerifyCredential {
@@ -129,13 +130,15 @@ mod circuit {
             credential
                 .issuer_hash
                 .assert_equal(&public.issuer.hash()?, "the credential is another issuer's")?;
-            poseidon(&[private.attribute.clone(), private.salt.clone()])?.assert_equal(
+            poseidon(&[private.attribute.var(), private.salt.clone()])?.assert_equal(
                 &credential.attribute_commitment,
                 "the attribute is not the committed one",
             )?;
-            (private.attribute.clone() - &public.threshold).check_bits(64)?;
+            public
+                .threshold
+                .assert_less_or_equal(&private.attribute, "the attribute is below the threshold")?;
             poseidon(&[
-                public.verification_id.clone(),
+                public.verification_id.var(),
                 private.secret.clone(),
                 DataHash::hash(&*credential)?,
             ])?
@@ -151,9 +154,9 @@ mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.issuer.hash()?,
-                self.verification_id.clone(),
+                self.verification_id.var(),
                 self.nullifier.clone(),
-                self.threshold.clone(),
+                self.threshold.var(),
                 transaction_hash.clone(),
             ])
         }

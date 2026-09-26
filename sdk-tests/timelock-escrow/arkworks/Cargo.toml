@@ -43,3 +43,6 @@ solana-address = { workspace = true }
 solana-signature = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
+
+[lints.clippy]
+disallowed_types = "allow"

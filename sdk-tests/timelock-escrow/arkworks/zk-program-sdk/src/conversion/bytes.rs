@@ -2,7 +2,7 @@ use solana_address::Address;
 
 use super::{var::integer_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{self, constant, Bits},
+    circuit::{self, var::range_check, Field, VariableRole},
     client, RelationError,
 };
 
@@ -14,8 +14,12 @@ impl<const N: usize> ProofInput for client::Bytes<N> {
             .0
             .iter()
             .map(|byte| {
-                let var = allocator.private_input(&constant(u64::from(*byte)))?;
-                var.check_bits(8)?;
+                let var = allocator.witness(
+                    Field::from(*byte),
+                    "a byte proof input",
+                    VariableRole::Constrained,
+                )?;
+                range_check(&var, 8, "a byte proof input does not fit in 8 bits")?;
                 Ok(var)
             })
             .collect::<Result<Vec<_>, RelationError>>()?;

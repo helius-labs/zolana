@@ -1,14 +1,16 @@
-use ark_r1cs_std::{boolean::Boolean, fields::FieldVar, select::CondSelectGadget};
+use ark_r1cs_std::boolean::Boolean;
 
 use super::poseidon;
 use crate::{
-    circuit::{zero, CircuitVar},
+    circuit::{labels::Scope, var::system_of, zero, CircuitVar},
     RelationError,
 };
 
+#[track_caller]
 pub fn nonzero_hash_chain(values: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
+    let _scope = Scope::open(&system_of(values), "a hash chain of the nonzero values");
     values.iter().try_fold(zero(), |chain, value| {
-        let skip = value.is_zero()?;
+        let skip = value.equals_zero()?;
         if let Boolean::Constant(skip) = skip {
             return if skip {
                 Ok(chain)
@@ -17,6 +19,6 @@ pub fn nonzero_hash_chain(values: &[CircuitVar]) -> Result<CircuitVar, RelationE
             };
         }
         let next = poseidon(&[chain.clone(), value.clone()])?;
-        Ok(CircuitVar::conditionally_select(&skip, &chain, &next)?)
+        CircuitVar::choose(&skip, &chain, &next)
     })
 }

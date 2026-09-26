@@ -1,0 +1,23 @@
+error: this item is inside a `#[circuit]` module, which already applies the attribute
+ --> tests/ui/fail/module_misuse.rs:5:5
+  |
+5 |     #[circuit]
+  |     ^^^^^^^^^^
+
+error: this item is inside a `#[circuit]` module, which already applies the attribute
+ --> tests/ui/fail/module_misuse.rs:9:9
+  |
+9 |         #[zk_program_sdk::circuit]
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `#[circuit]` needs the client type's name as the self type, not a projection
+  --> tests/ui/fail/module_misuse.rs:16:10
+   |
+16 |     impl <u8 as Clone>::Target {}
+   |          ^^^^^^^^^^^^^^^^^^^^^
+
+error: `#[circuit]` needs the client type's name as the self type
+  --> tests/ui/fail/module_misuse.rs:18:10
+   |
+18 |     impl [u8; 4] {}
+   |          ^^^^^^^

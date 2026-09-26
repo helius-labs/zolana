@@ -140,7 +140,7 @@ pub(crate) mod circuit {
         circuit::{
             constant, poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitMarker,
             CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
-            TokenUtxo, TxContext, Utxo, UtxoData,
+            TokenUtxo, TxContext, Uint, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -148,25 +148,21 @@ pub(crate) mod circuit {
     #[derive(Clone, Debug)]
     pub struct Issuer {
         pub issuer_hash: CircuitVar,
-        pub issued: CircuitVar,
+        pub issued: Uint<64>,
     }
 
     impl Default for Issuer {
         fn default() -> Self {
             Self {
                 issuer_hash: zero(),
-                issued: zero(),
+                issued: Uint::zero(),
             }
         }
     }
 
     impl DataHash for Issuer {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
-            poseidon(&[
-                constant(1u64),
-                self.issuer_hash.clone(),
-                self.issued.clone(),
-            ])
+            poseidon(&[constant(1u64), self.issuer_hash.clone(), self.issued.var()])
         }
     }
 

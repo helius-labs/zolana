@@ -1,4 +1,4 @@
-use super::{zero, Asset, Bool, Bytes, CircuitVar, Owner, OwnerKey, TxContext, Utxo};
+use super::{zero, Asset, Bool, Bytes, CircuitVar, Owner, OwnerKey, TxContext, Uint, Utxo};
 
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a circuit type",
@@ -10,6 +10,8 @@ pub trait CircuitType {}
 impl CircuitType for CircuitVar {}
 
 impl CircuitType for Bool {}
+
+impl<const BITS: u32> CircuitType for Uint<BITS> {}
 
 impl CircuitType for Owner {}
 
@@ -41,6 +43,12 @@ impl CircuitDefault for CircuitVar {
 impl CircuitDefault for Bool {
     fn circuit_default() -> Self {
         Bool::constant(false)
+    }
+}
+
+impl<const BITS: u32> CircuitDefault for Uint<BITS> {
+    fn circuit_default() -> Self {
+        Uint::zero()
     }
 }
 

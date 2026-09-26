@@ -67,8 +67,8 @@ impl Placeholder for Withdrawal {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Utxo,
+            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -85,7 +85,7 @@ mod circuit {
     }
 
     pub struct WithdrawalPublicInputs {
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
     }
 
     impl Circuit for Withdrawal {
@@ -94,10 +94,10 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
-            tokens.withdraw_all(&private.destination)?.assert_equal(
-                &self.public.amount,
-                "the withdrawal is not the public amount",
-            )?;
+            let withdrawn = tokens.withdraw_all(&private.destination)?;
+            self.public
+                .amount
+                .assert_equal(&withdrawn, "the withdrawal is not the public amount")?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_token_utxos(tokens)
@@ -107,7 +107,7 @@ mod circuit {
 
     impl PublicInputs for WithdrawalPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.amount.clone(), transaction_hash.clone()])
+            poseidon(&[self.amount.var(), transaction_hash.clone()])
         }
     }
 }

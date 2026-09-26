@@ -1,7 +1,7 @@
 use zolana_interface::DUMMY_DOMAIN;
 
 use crate::{
-    circuit::{constant, poseidon, zero, Assert, Asset, Bool, CircuitVar, Owner},
+    circuit::{constant, poseidon, zero, Assert, Asset, Bool, CircuitVar, Owner, Uint},
     RelationError,
 };
 
@@ -10,7 +10,7 @@ pub struct Utxo {
     pub domain: CircuitVar,
     pub owner: Owner,
     pub asset: Asset,
-    pub amount: CircuitVar,
+    pub(crate) amount: Uint<64>,
     pub blinding: CircuitVar,
     pub data_hash: CircuitVar,
     pub ring_data_hash: CircuitVar,
@@ -35,7 +35,7 @@ impl Default for Utxo {
             domain: zero(),
             owner: Owner::default(),
             asset: Asset::default(),
-            amount: zero(),
+            amount: Uint::zero(),
             blinding: zero(),
             data_hash: zero(),
             ring_data_hash: zero(),
@@ -56,6 +56,7 @@ impl Utxo {
         }
     }
 
+    #[track_caller]
     pub fn hash(&self) -> Result<CircuitVar, RelationError> {
         self.hash_with(&self.owner.hash()?, &self.asset.hash()?)
     }
@@ -69,6 +70,7 @@ impl Utxo {
         }
     }
 
+    #[track_caller]
     pub(super) fn hash_with(
         &self,
         owner_hash: &CircuitVar,
@@ -80,13 +82,14 @@ impl Utxo {
             self.domain.clone(),
             self.tree_id.clone(),
             asset_hash.clone(),
-            self.amount.clone(),
+            self.amount.var(),
             self.data_hash.clone(),
             ring,
             owner,
         ])
     }
 
+    #[track_caller]
     pub(super) fn assert_default_ring(&self) -> Result<(), RelationError> {
         self.ring_data_hash
             .assert_equal(&zero(), "the utxo is in a ring")?;

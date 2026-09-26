@@ -1,8 +1,8 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, poseidon, Bits, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo,
-        PublicInputs,
+        poseidon, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
+        Uint,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -43,12 +43,15 @@ impl Circuit for TypedUpdate {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
         let mut state = DataUtxo::new_mut(&private.state_utxo, &private.state)?;
-        state.amount = state.amount.clone() + &private.delta;
-        state.amount.check_bits(64)?;
+        state.amount = state
+            .amount
+            .add::<65>(&private.delta)
+            .narrow::<64>("the amount overflows")?;
         state.count = self.public.count.clone();
-        state.count.check_bits(32)?;
-        state.kind = state.kind.clone() + constant(1u64);
-        state.kind.check_bits(16)?;
+        state.kind = state
+            .kind
+            .add::<17>(&Uint::<16>::constant(1)?)
+            .narrow::<16>("the kind overflows")?;
         state.active = state.active.not();
         state.tag = poseidon(&[state.tag.clone()])?;
         state.owner_hash = private.new_owner.hash()?;

@@ -1,8 +1,8 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, poseidon, Assert, Asset, Balance, Bits, CheckedTransaction, Circuit,
-        ConfidentialTransaction, DataUtxo, PublicInputs,
+        poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, ConfidentialTransaction,
+        DataUtxo, PublicInputs, Uint,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -53,12 +53,14 @@ impl Circuit for IssueCredential {
         issuer
             .issuer_hash
             .assert_equal(&issuer_hash, "the issuer state is another issuer's")?;
-        issuer.issued = issuer.issued.clone() + constant(1u64);
-        issuer.issued.check_bits(64)?;
+        issuer.issued = issuer
+            .issued
+            .add::<65>(&Uint::<64>::constant(1)?)
+            .narrow::<64>("the issued count overflows")?;
         let mut credential = DataUtxo::<CredentialCircuit>::new_init(&private.user, &Asset::sol());
         credential.issuer_hash = issuer_hash;
         credential.attribute_commitment =
-            poseidon(&[private.attribute.clone(), private.salt.clone()])?;
+            poseidon(&[private.attribute.var(), private.salt.clone()])?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(issuer)

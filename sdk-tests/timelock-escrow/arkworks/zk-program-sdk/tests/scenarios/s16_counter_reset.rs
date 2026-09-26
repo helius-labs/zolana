@@ -67,8 +67,8 @@ impl Placeholder for Reset {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -100,7 +100,7 @@ mod circuit {
                 .owner()
                 .hash()?
                 .assert_equal(&self.public.owner.hash()?, "the counter has another owner")?;
-            counter.count = zero();
+            counter.count = Uint::zero();
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_data_utxo(counter)

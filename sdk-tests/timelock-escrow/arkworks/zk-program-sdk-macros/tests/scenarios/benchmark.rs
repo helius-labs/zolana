@@ -7,7 +7,7 @@ use std::{
     time::Instant,
 };
 
-use zk_program_sdk::{Groth16Prover, ProofResult, ZkProgram};
+use zk_program_sdk::{testing::check_private_variables, Groth16Prover, ProofResult, ZkProgram};
 
 const ENABLED_BY: &str = "ZK_PROGRAM_SDK_BENCHMARK";
 const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/scenarios/BENCHMARK.md");
@@ -40,6 +40,12 @@ pub fn prove<P: ZkProgram>(
     proof_inputs: &P,
     proof: &'static str,
 ) -> ProofResult {
+    let report = check_private_variables(proof_inputs).expect(proof);
+    assert!(
+        report.free.is_empty(),
+        "{proof} leaves private variables unconstrained: {:?}",
+        report.free
+    );
     let start = Instant::now();
     let result = prover.prove(proof_inputs).expect(proof);
     let prove_ms = start.elapsed().as_millis();

@@ -1,4 +1,4 @@
-error: `#[circuit]` goes on an impl block or a function
+error: `#[circuit]` goes on an impl block, a function or an inline module
  --> tests/ui/fail/attribute_misuse.rs:4:1
   |
 4 | struct NotAnImplBlock;

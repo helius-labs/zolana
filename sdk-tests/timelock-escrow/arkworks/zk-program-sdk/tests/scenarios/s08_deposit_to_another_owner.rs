@@ -71,7 +71,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Asset, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
+            Utxo,
         },
         RelationError,
     };
@@ -89,7 +90,7 @@ mod circuit {
 
     pub struct DepositPublicInputs {
         pub recipient: Owner,
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
     }
 
     impl Circuit for Deposit {
@@ -112,7 +113,7 @@ mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.recipient.hash()?,
-                self.amount.clone(),
+                self.amount.var(),
                 transaction_hash.clone(),
             ])
         }

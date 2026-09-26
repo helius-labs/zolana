@@ -7,6 +7,7 @@ use timelock_escrow_arkworks::{
 use zk_program_sdk::{
     circuit::{Circuit, ConstraintSystem},
     conversion::{to_bytes, Allocator, ProofInput},
+    testing::check_private_variables,
     Owner, RelationError, TxContext, ZkProgram,
 };
 use zolana_hasher::primitives::solana_owner_identity;
@@ -69,12 +70,11 @@ fn encrypt<P: ZkProgram>(keys: &ShieldedKeypair, proof_inputs: P) -> Option<Stri
         .map(|e| e.to_string())
 }
 
-#[test]
-fn escrow_names_every_broken_rule() {
+fn honest_escrow() -> Escrow {
     let creator = keypair(5);
     let address = creator.shielded_address().expect("creator address");
     let first = token_input(&creator, 600, 0);
-    let honest = Escrow {
+    Escrow {
         private: EscrowPrivateInputs {
             tx_context: TxContext::new(),
             token_utxos_asset_a: token_inputs([first, token_input(&creator, 400, 1)]),
@@ -86,7 +86,50 @@ fn escrow_names_every_broken_rule() {
                 .address(address.viewing_pubkey)
                 .expect("escrow owner"),
         },
-    };
+    }
+}
+
+fn honest_withdraw() -> Withdraw {
+    let creator = keypair(5);
+    let address = creator.shielded_address().expect("creator address");
+    Withdraw {
+        private: WithdrawPrivateInputs {
+            tx_context: TxContext::new(),
+            escrow: escrow_utxo(&creator, 250, 1_700_000_000),
+            terms: EscrowTerms {
+                creator: Owner::try_from(&address).expect("creator owner"),
+                unlock: 1_700_000_000,
+            },
+        },
+        public: WithdrawPublicInputs {
+            unlock: 1_700_000_000,
+            owner_identity: solana_owner_identity(
+                address.solana_address().expect("creator").as_array(),
+            )
+            .expect("owner identity"),
+        },
+    }
+}
+
+#[test]
+fn escrow_and_withdraw_leave_no_private_variable_unconstrained() {
+    assert_eq!(
+        (
+            check_private_variables(&honest_escrow())
+                .expect("escrow report")
+                .free,
+            check_private_variables(&honest_withdraw())
+                .expect("withdraw report")
+                .free,
+        ),
+        (Vec::new(), Vec::new())
+    );
+}
+
+#[test]
+fn escrow_names_every_broken_rule() {
+    let creator = keypair(5);
+    let honest = honest_escrow();
 
     let mut zero_amount = honest.clone();
     zero_amount.private.amount = 0;
@@ -128,26 +171,7 @@ fn escrow_names_every_broken_rule() {
 
 #[test]
 fn withdraw_names_every_broken_rule() {
-    let creator = keypair(5);
-    let address = creator.shielded_address().expect("creator address");
-    let escrow = escrow_utxo(&creator, 250, 1_700_000_000);
-    let honest = Withdraw {
-        private: WithdrawPrivateInputs {
-            tx_context: TxContext::new(),
-            escrow,
-            terms: EscrowTerms {
-                creator: Owner::try_from(&address).expect("creator owner"),
-                unlock: 1_700_000_000,
-            },
-        },
-        public: WithdrawPublicInputs {
-            unlock: 1_700_000_000,
-            owner_identity: solana_owner_identity(
-                address.solana_address().expect("creator").as_array(),
-            )
-            .expect("owner identity"),
-        },
-    };
+    let honest = honest_withdraw();
 
     let other_signer = keypair(6)
         .shielded_address()

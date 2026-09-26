@@ -83,7 +83,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
+            Utxo,
         },
         RelationError,
     };
@@ -103,9 +104,9 @@ mod circuit {
 
     pub struct SwapPublicInputs {
         pub mint_a: Asset,
-        pub amount_a: CircuitVar,
+        pub amount_a: Uint<64>,
         pub mint_b: Asset,
-        pub amount_b: CircuitVar,
+        pub amount_b: Uint<64>,
     }
 
     fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxo, RelationError> {
@@ -143,9 +144,9 @@ mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.mint_a.hash()?,
-                self.amount_a.clone(),
+                self.amount_a.var(),
                 self.mint_b.hash()?,
-                self.amount_b.clone(),
+                self.amount_b.var(),
                 transaction_hash.clone(),
             ])
         }

@@ -1,0 +1,78 @@
+error[E0277]: a circuit does no field arithmetic on `CircuitVar`
+ --> tests/ui/fail/opaque_var.rs:4:28
+  |
+4 |     let sum = left.clone() + right;
+  |                            ^ field arithmetic wraps around the modulus, so it proves nothing about integers
+  |
+  = help: the trait `circuit::var::rules::ArithmeticNeedsUint` is not implemented for `&CircuitVar`
+  = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the named operations of `Arithmetic` and `Compare`
+  = note: required for `CircuitVar` to implement `Add<&CircuitVar>`
+
+error[E0277]: a circuit does no field arithmetic on `CircuitVar`
+ --> tests/ui/fail/opaque_var.rs:5:23
+  |
+5 |     let scaled = &sum * Field::from(2u64);
+  |                       ^ field arithmetic wraps around the modulus, so it proves nothing about integers
+  |
+  = help: the trait `circuit::var::rules::ArithmeticNeedsUint` is not implemented for `ark_ff::fields::models::fp::Fp<ark_ff::fields::models::fp::montgomery_backend::MontBackend<ark_bn254::fields::fr::FrConfig, 4>, 4>`
+  = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the named operations of `Arithmetic` and `Compare`
+  = note: required for `&CircuitVar` to implement `Mul<ark_ff::fields::models::fp::Fp<ark_ff::fields::models::fp::montgomery_backend::MontBackend<ark_bn254::fields::fr::FrConfig, 4>, 4>>`
+
+error[E0277]: a circuit does no field arithmetic on `CircuitVar`
+ --> tests/ui/fail/opaque_var.rs:6:28
+  |
+6 |     let mut total = scaled - right.clone();
+  |                            ^ field arithmetic wraps around the modulus, so it proves nothing about integers
+  |
+  = help: the trait `circuit::var::rules::ArithmeticNeedsUint` is not implemented for `CircuitVar`
+  = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the named operations of `Arithmetic` and `Compare`
+  = note: required for `CircuitVar` to implement `Sub`
+
+error[E0277]: cannot add-assign `CircuitVar` to `CircuitVar`
+ --> tests/ui/fail/opaque_var.rs:7:11
+  |
+7 |     total += right.clone();
+  |           ^^ no implementation for `CircuitVar += CircuitVar`
+  |
+  = help: the trait `circuit::var::rules::ArithmeticNeedsUint` is not implemented for `CircuitVar`
+  = note: required for `CircuitVar` to implement `AddAssign`
+
+error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
+  --> tests/ui/fail/opaque_var.rs:12:10
+   |
+12 |     left == right || left < right
+   |          ^^ no implementation for `&CircuitVar == &CircuitVar`
+   |
+   = help: the trait `circuit::var::rules::ComparisonNeedsAssertOrUint` is not implemented for `CircuitVar`
+   = note: required for `CircuitVar` to implement `PartialEq`
+   = note: 1 redundant requirement hidden
+   = note: required for `&CircuitVar` to implement `PartialEq<&CircuitVar>`
+
+error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
+  --> tests/ui/fail/opaque_var.rs:12:27
+   |
+12 |     left == right || left < right
+   |                           ^ no implementation for `&CircuitVar < &CircuitVar` and `&CircuitVar > &CircuitVar`
+   |
+   = help: the trait `circuit::var::rules::ComparisonNeedsAssertOrUint` is not implemented for `CircuitVar`
+   = note: required for `CircuitVar` to implement `PartialOrd`
+   = note: 1 redundant requirement hidden
+   = note: required for `&CircuitVar` to implement `PartialOrd<&CircuitVar>`
+
+error[E0599]: no method named `value` found for reference `&CircuitVar` in the current scope
+  --> tests/ui/fail/opaque_var.rs:16:9
+   |
+16 |     var.value().unwrap()
+   |         ^^^^^ method not found in `&CircuitVar`
+
+error[E0599]: no associated function or constant named `new_witness` found for struct `CircuitVar` in the current scope
+  --> tests/ui/fail/opaque_var.rs:20:17
+   |
+20 |     CircuitVar::new_witness(cs, || Ok(Field::from(1u64))).unwrap()
+   |                 ^^^^^^^^^^^ associated function or constant not found in `CircuitVar`
+
+error[E0599]: no associated function or constant named `Constant` found for struct `CircuitVar` in the current scope
+  --> tests/ui/fail/opaque_var.rs:25:21
+   |
+25 |         CircuitVar::Constant(value) => value,
+   |                     ^^^^^^^^ associated function or constant not found in `CircuitVar`

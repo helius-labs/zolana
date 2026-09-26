@@ -72,7 +72,8 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
+            Utxo,
         },
         RelationError,
     };
@@ -87,8 +88,8 @@ mod circuit {
     pub struct CreateTwoPrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 2],
-        pub score: CircuitVar,
-        pub level: CircuitVar,
+        pub score: Uint<64>,
+        pub level: Uint<16>,
     }
 
     pub struct CreateTwoPublicInputs {

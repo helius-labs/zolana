@@ -67,7 +67,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Utxo,
+            ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -84,7 +84,7 @@ mod circuit {
     }
 
     pub struct TopUpPublicInputs {
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
     }
 
     impl Circuit for TopUp {
@@ -103,7 +103,7 @@ mod circuit {
 
     impl PublicInputs for TopUpPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.amount.clone(), transaction_hash.clone()])
+            poseidon(&[self.amount.var(), transaction_hash.clone()])
         }
     }
 }

@@ -77,8 +77,6 @@ struct VestingClaimPrivateInputs {
     state: Vesting,
     beneficiary: ShieldedAddress,
     vesting_owner: ShieldedAddress,
-    unlocked: u64,
-    remainder: u64,
 }
 
 #[derive(Clone)]
@@ -103,8 +101,6 @@ impl ProofInput for VestingClaim {
                 state: private.state.instantiate(allocator)?,
                 beneficiary: private.beneficiary.instantiate(allocator)?,
                 vesting_owner: private.vesting_owner.instantiate(allocator)?,
-                unlocked: private.unlocked.instantiate(allocator)?,
-                remainder: private.remainder.instantiate(allocator)?,
             },
             public: circuit::VestingClaimPublicInputs {
                 now: public.now.instantiate(allocator)?,
@@ -124,8 +120,6 @@ impl Placeholder for VestingClaim {
                 state: Placeholder::placeholder()?,
                 beneficiary: Placeholder::placeholder()?,
                 vesting_owner: Placeholder::placeholder()?,
-                unlocked: Placeholder::placeholder()?,
-                remainder: Placeholder::placeholder()?,
             },
             public: VestingClaimPublicInputs {
                 now: Placeholder::placeholder()?,
@@ -139,9 +133,9 @@ impl Placeholder for VestingClaim {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Assert, Balance, Bits, CheckedTransaction, Circuit,
-            CircuitMarker, CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner,
-            PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
+            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
+            TokenUtxo, TxContext, Uint, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -149,20 +143,20 @@ mod circuit {
     #[derive(Clone, Debug)]
     pub struct Vesting {
         pub beneficiary_hash: CircuitVar,
-        pub total: CircuitVar,
-        pub claimed: CircuitVar,
-        pub start: CircuitVar,
-        pub end: CircuitVar,
+        pub total: Uint<64>,
+        pub claimed: Uint<64>,
+        pub start: Uint<64>,
+        pub end: Uint<64>,
     }
 
     impl Default for Vesting {
         fn default() -> Self {
             Self {
                 beneficiary_hash: zero(),
-                total: zero(),
-                claimed: zero(),
-                start: zero(),
-                end: zero(),
+                total: Uint::zero(),
+                claimed: Uint::zero(),
+                start: Uint::zero(),
+                end: Uint::zero(),
             }
         }
     }
@@ -171,10 +165,10 @@ mod circuit {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.beneficiary_hash.clone(),
-                self.total.clone(),
-                self.claimed.clone(),
-                self.start.clone(),
-                self.end.clone(),
+                self.total.var(),
+                self.claimed.var(),
+                self.start.var(),
+                self.end.var(),
             ])
         }
     }
@@ -194,14 +188,12 @@ mod circuit {
         pub state: Vesting,
         pub beneficiary: Owner,
         pub vesting_owner: Owner,
-        pub unlocked: CircuitVar,
-        pub remainder: CircuitVar,
     }
 
     pub struct VestingClaimPublicInputs {
-        pub now: CircuitVar,
-        pub start: CircuitVar,
-        pub end: CircuitVar,
+        pub now: Uint<64>,
+        pub start: Uint<64>,
+        pub end: Uint<64>,
     }
 
     impl Circuit for VestingClaim {
@@ -225,23 +217,28 @@ mod circuit {
             public
                 .end
                 .assert_equal(&vesting.end, "the end is not the schedule's")?;
-            let elapsed = public.now.clone() - &public.start;
-            elapsed.check_bits(64)?;
-            (public.end.clone() - &public.now).check_bits(64)?;
-            let duration = public.end.clone() - &public.start;
-            (private.unlocked.clone() * &duration + &private.remainder).assert_equal(
-                &(vesting.total.clone() * &elapsed),
+            let elapsed = public
+                .now
+                .checked_sub(&public.start, "the vesting has not started")?;
+            let remaining = public
+                .end
+                .checked_sub(&public.now, "the vesting has ended")?;
+            let duration = elapsed.add::<65>(&remaining);
+            let (unlocked, _remainder) = vesting.total.mul::<128>(&elapsed).div_rem::<64, _>(
+                &duration,
                 "the unlocked amount is not total * elapsed / duration",
             )?;
-            (duration - &private.remainder - constant(1u64)).check_bits(64)?;
-            let payout = private.unlocked.clone() - &vesting.claimed;
+            let payout = unlocked.checked_sub(
+                &vesting.claimed,
+                "the claim is below what was already claimed",
+            )?;
             let mut paid = TokenUtxo::new_init(&private.beneficiary, &vesting.asset());
             vesting.transfer(&mut paid, &payout)?;
             let mut next = DataUtxo::<Vesting>::new_init(&private.vesting_owner, &vesting.asset());
             vesting.transfer_all(&mut next)?;
             next.beneficiary_hash = vesting.beneficiary_hash.clone();
             next.total = vesting.total.clone();
-            next.claimed = private.unlocked.clone();
+            next.claimed = unlocked;
             next.start = vesting.start.clone();
             next.end = vesting.end.clone();
 
@@ -256,9 +253,9 @@ mod circuit {
     impl PublicInputs for VestingClaimPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
-                self.now.clone(),
-                self.start.clone(),
-                self.end.clone(),
+                self.now.var(),
+                self.start.var(),
+                self.end.var(),
                 transaction_hash.clone(),
             ])
         }
@@ -287,8 +284,6 @@ fn vesting_claim_prove_and_verify() {
             state: state.clone(),
             beneficiary: address,
             vesting_owner,
-            unlocked: 428,
-            remainder: 400,
         },
         public: VestingClaimPublicInputs {
             now: 1_300,

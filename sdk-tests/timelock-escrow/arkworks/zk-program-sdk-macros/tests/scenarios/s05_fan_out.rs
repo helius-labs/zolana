@@ -1,8 +1,8 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        zero, Assert, Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs,
-        TokenUtxo,
+        Balance, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxo,
+        Uint,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -40,10 +40,7 @@ struct FanOutPublicInputs {
 impl Circuit for FanOut {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
-        private
-            .amounts
-            .iter()
-            .fold(zero(), |sum, amount| sum + amount)
+        Uint::<64>::sum::<67, _>(&private.amounts)
             .assert_equal(&self.public.total, "the payments do not sum to the total")?;
         let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
         let mut payments = private

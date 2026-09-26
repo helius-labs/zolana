@@ -1,11 +1,11 @@
-use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
 use ark_relations::r1cs::SynthesisError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use groth16_solana::{groth16::Groth16Verifier, vk::gnark::parse_gnark_vk_bytes};
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit::{constant, Circuit, CircuitVar, ConstraintSystem, Field},
+    circuit::{Circuit, ConstraintSystem, Field},
     conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput},
+    testing::{check_tampered, Tamper},
     Groth16Keys, Groth16Prover, ProofInputs, RelationError, SetupKind, TxContext,
     VerifyingKeyExport, ZkProgram,
 };
@@ -120,7 +120,7 @@ impl ProofInput for ReshapedPayment {
 
     fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Payment, RelationError> {
         if self.extra_input {
-            let _extra = allocator.private_input(&constant(0u64))?;
+            let _extra = Field::from(0u64).instantiate(allocator)?;
         }
         self.payment.instantiate(allocator)
     }
@@ -260,9 +260,9 @@ impl Placeholder for Register {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -275,7 +275,7 @@ mod circuit {
     pub struct PaymentPrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 2],
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
     }
 
     pub struct RecipientPublicInputs {
@@ -311,7 +311,7 @@ mod circuit {
     pub struct SweepPrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 2],
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
     }
 
     impl Circuit for Sweep {
@@ -331,12 +331,14 @@ mod circuit {
 
     #[derive(Clone, Debug)]
     pub struct Label {
-        pub value: CircuitVar,
+        pub value: Uint<64>,
     }
 
     impl Default for Label {
         fn default() -> Self {
-            Self { value: zero() }
+            Self {
+                value: Uint::zero(),
+            }
         }
     }
 
@@ -362,12 +364,12 @@ mod circuit {
     }
 
     pub struct RegisterPublicInputs {
-        pub label: CircuitVar,
+        pub label: Uint<64>,
     }
 
     impl PublicInputs for RegisterPublicInputs {
         fn hash(&self, private_tx_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.label.clone(), private_tx_hash.clone()])
+            poseidon(&[self.label.var(), private_tx_hash.clone()])
         }
     }
 
@@ -410,17 +412,11 @@ where
     P: ProofInput,
     P::Circuit: Circuit,
 {
-    let cs = ConstraintSystem::new_ref();
-    let public_input =
-        CircuitVar::new_input(cs.clone(), || Ok(public_hash)).expect("public hash input");
-    proof_inputs
-        .instantiate(&Allocator::R1cs(cs.clone()))
-        .and_then(|circuit| circuit.circuit())
-        .expect("r1cs circuit")
-        .public_hash()
-        .enforce_equal(&public_input)
-        .expect("public hash constraint");
-    cs.is_satisfied().expect("satisfiability")
+    match check_tampered(proof_inputs, Tamper::PublicHash(public_hash)) {
+        Ok(()) => true,
+        Err(RelationError::Unsatisfied(_)) => false,
+        Err(error) => panic!("unexpected error: {error}"),
+    }
 }
 
 fn encrypt<P: ZkProgram>(proof_inputs: &P) -> Result<SppProofInputs, String> {

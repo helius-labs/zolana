@@ -118,7 +118,7 @@ pub(crate) mod circuit {
         circuit::{
             poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -126,21 +126,21 @@ pub(crate) mod circuit {
     #[derive(Clone, Debug)]
     pub struct Pool {
         pub root: CircuitVar,
-        pub airdrop_id: CircuitVar,
+        pub airdrop_id: Uint<64>,
     }
 
     impl Default for Pool {
         fn default() -> Self {
             Self {
                 root: zero(),
-                airdrop_id: zero(),
+                airdrop_id: Uint::zero(),
             }
         }
     }
 
     impl DataHash for Pool {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.root.clone(), self.airdrop_id.clone()])
+            poseidon(&[self.root.clone(), self.airdrop_id.var()])
         }
     }
 
@@ -156,13 +156,13 @@ pub(crate) mod circuit {
     pub struct CreatePoolPrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 1],
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
         pub pool_owner: Owner,
     }
 
     pub struct CreatePoolPublicInputs {
         pub root: CircuitVar,
-        pub airdrop_id: CircuitVar,
+        pub airdrop_id: Uint<64>,
     }
 
     impl Circuit for CreatePool {
@@ -187,7 +187,7 @@ pub(crate) mod circuit {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
                 self.root.clone(),
-                self.airdrop_id.clone(),
+                self.airdrop_id.var(),
                 transaction_hash.clone(),
             ])
         }

@@ -1,15 +1,20 @@
-use ark_ff::Zero;
-use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
+use ark_ff::{UniformRand, Zero};
 use ark_relations::r1cs::{
     ConstraintMatrices, ConstraintSynthesizer, OptimizationGoal, SynthesisError, SynthesisMode,
 };
-use ark_std::cfg_iter;
+use ark_std::{
+    cfg_iter,
+    rand::{rngs::StdRng, SeedableRng},
+};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use super::ProofInputs;
 use crate::{
-    circuit::{value, Circuit, CircuitSystem, CircuitVar, ConstraintSystem, Field},
+    circuit::{
+        labels, value, Circuit, CircuitSystem, CircuitVar, ConstraintLabel, ConstraintSystem,
+        Field, SynthesisShape,
+    },
     conversion::{Allocator, ProofInput},
     RelationError,
 };
@@ -22,6 +27,7 @@ pub(crate) struct CircuitShape {
 
 pub(crate) struct CircuitMatrices {
     matrices: ConstraintMatrices<Field>,
+    labels: Vec<ConstraintLabel>,
 }
 
 impl CircuitMatrices {
@@ -36,6 +42,20 @@ impl CircuitMatrices {
         self.matrices.num_constraints
     }
 
+    fn synthesis_shape(&self) -> SynthesisShape {
+        SynthesisShape {
+            constraints: self.matrices.num_constraints,
+            public_variables: self.matrices.num_instance_variables,
+            private_variables: self.matrices.num_witness_variables,
+        }
+    }
+
+    fn first_differing_row(&self, other: &Self) -> Option<usize> {
+        rows(&self.matrices)
+            .zip(rows(&other.matrices))
+            .position(|(left, right)| left != right)
+    }
+
     pub(crate) fn matrices(&self) -> &ConstraintMatrices<Field> {
         &self.matrices
     }
@@ -45,17 +65,91 @@ impl CircuitMatrices {
         super::snarkjs::r1cs(&self.matrices)
     }
 
+    pub(crate) fn labels(&self) -> &[ConstraintLabel] {
+        &self.labels
+    }
+
+    pub(crate) fn into_labels(self) -> Vec<ConstraintLabel> {
+        self.labels
+    }
+
+    pub(crate) fn unconstrained_private_variables(
+        &self,
+        assignment: &[Field],
+        seed: u64,
+    ) -> Result<Vec<usize>, RelationError> {
+        let instance = self.matrices.num_instance_variables;
+        let private = self.matrices.num_witness_variables;
+        if assignment.len() != instance + private {
+            return Err(RelationError::ProofInputsForAnotherCircuit);
+        }
+        let mut rows_of = vec![Vec::new(); private];
+        let mut honest = Vec::with_capacity(self.matrices.num_constraints);
+        for (row, (a, b, c)) in rows(&self.matrices).enumerate() {
+            for (_, variable) in a.iter().chain(b).chain(c) {
+                let Some(private_index) = variable.checked_sub(instance) else {
+                    continue;
+                };
+                let rows = rows_of
+                    .get_mut(private_index)
+                    .ok_or(RelationError::ProofInputsForAnotherCircuit)?;
+                if rows.last() != Some(&row) {
+                    rows.push(row);
+                }
+            }
+            honest.push((
+                evaluate(a, assignment)?,
+                evaluate(b, assignment)?,
+                evaluate(c, assignment)?,
+            ));
+        }
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut unconstrained = Vec::new();
+        for (private_index, rows) in rows_of.iter().enumerate() {
+            let delta = match Field::rand(&mut rng) {
+                delta if delta.is_zero() => Field::from(1u64),
+                delta => delta,
+            };
+            let variable = instance + private_index;
+            let mut constrained = false;
+            for row in rows {
+                let (Some((a, b, c)), Some(row_a), Some(row_b), Some(row_c)) = (
+                    honest.get(*row),
+                    self.matrices.a.get(*row),
+                    self.matrices.b.get(*row),
+                    self.matrices.c.get(*row),
+                ) else {
+                    return Err(RelationError::ProofInputsForAnotherCircuit);
+                };
+                let shifted = |value: &Field, entries: &[(Field, usize)]| {
+                    *value + delta * coefficient(entries, variable)
+                };
+                if shifted(a, row_a) * shifted(b, row_b) != shifted(c, row_c) {
+                    constrained = true;
+                    break;
+                }
+            }
+            if !constrained {
+                unconstrained.push(private_index);
+            }
+        }
+        Ok(unconstrained)
+    }
+
     pub(crate) fn check(&self, assignment: &[Field]) -> Result<(), RelationError> {
         let variables = self.matrices.num_instance_variables + self.matrices.num_witness_variables;
         if assignment.len() != variables {
             return Err(RelationError::ProofInputsForAnotherCircuit);
         }
-        let check = |(constraint, ((a, b), c)): (usize, ((&Vec<_>, &Vec<_>), &Vec<_>))| {
+        let check = |(row, ((a, b), c)): (usize, ((&Vec<_>, &Vec<_>), &Vec<_>))| {
             let satisfied = evaluate(a, assignment)
                 .and_then(|a| Ok(a * evaluate(b, assignment)? == evaluate(c, assignment)?));
             match satisfied {
                 Ok(true) => None,
-                Ok(false) => Some(RelationError::Unsatisfied(constraint.to_string())),
+                Ok(false) => Some(RelationError::Unsatisfied(labels::report(
+                    &self.labels,
+                    row,
+                ))),
                 Err(error) => Some(error),
             }
         };
@@ -69,6 +163,28 @@ impl CircuitMatrices {
         let failure = rows.map(check).find_map(|failure| failure);
         failure.map_or(Ok(()), Err)
     }
+}
+
+type Row<'a> = (
+    &'a [(Field, usize)],
+    &'a [(Field, usize)],
+    &'a [(Field, usize)],
+);
+
+fn rows(matrices: &ConstraintMatrices<Field>) -> impl Iterator<Item = Row<'_>> {
+    matrices
+        .a
+        .iter()
+        .zip(&matrices.b)
+        .zip(&matrices.c)
+        .map(|((a, b), c)| (a.as_slice(), b.as_slice(), c.as_slice()))
+}
+
+fn coefficient(entries: &[(Field, usize)], variable: usize) -> Field {
+    entries
+        .iter()
+        .filter(|(_, index)| *index == variable)
+        .fold(Field::zero(), |sum, (coefficient, _)| sum + coefficient)
 }
 
 fn evaluate(row: &[(Field, usize)], assignment: &[Field]) -> Result<Field, RelationError> {
@@ -88,6 +204,37 @@ fn one_public_input(instance_variables: usize) -> Result<(), RelationError> {
         ));
     }
     Ok(())
+}
+
+fn constraint_system(mode: SynthesisMode) -> CircuitSystem {
+    let cs = ConstraintSystem::new_ref();
+    cs.set_optimization_goal(OptimizationGoal::Constraints);
+    cs.set_mode(mode);
+    cs
+}
+
+fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, RelationError> {
+    cs.finalize();
+    let matrices = cs.to_matrices().ok_or(SynthesisError::MissingCS)?;
+    one_public_input(matrices.num_instance_variables)?;
+    Ok(CircuitMatrices {
+        matrices,
+        labels: labels::take(cs),
+    })
+}
+
+fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Field>, RelationError> {
+    let system = cs.borrow().ok_or(SynthesisError::MissingCS)?;
+    Ok([
+        system.instance_assignment.as_slice(),
+        system.witness_assignment.as_slice(),
+    ]
+    .concat())
+}
+
+pub(crate) struct Synthesized {
+    pub(crate) matrices: CircuitMatrices,
+    pub(crate) assignment: Vec<Field>,
 }
 
 pub(crate) struct ArkworksCircuit<'a, P> {
@@ -132,31 +279,51 @@ where
         }
     }
 
-    fn synthesize(&self, mode: SynthesisMode) -> Result<CircuitSystem, RelationError> {
-        let cs = ConstraintSystem::new_ref();
-        cs.set_optimization_goal(OptimizationGoal::Constraints);
-        cs.set_mode(mode);
-        self.generate_constraints(cs.clone())?;
-        Ok(cs)
-    }
-
-    pub(crate) fn check_constraints(&self) -> Result<usize, RelationError> {
-        let cs = self.synthesize(SynthesisMode::Prove {
-            construct_matrices: true,
-        })?;
-        one_public_input(cs.num_instance_variables())?;
-        match cs.which_is_unsatisfied()? {
-            Some(constraint) => Err(RelationError::Unsatisfied(constraint)),
-            None => Ok(cs.num_constraints()),
+    pub(crate) fn check_constraints(&self, placeholder: &P) -> Result<usize, RelationError> {
+        let setup = ArkworksCircuit::for_setup(placeholder).matrices()?;
+        let synthesized = self.synthesized()?;
+        let (setup_shape, proof_shape) = (
+            setup.synthesis_shape(),
+            synthesized.matrices.synthesis_shape(),
+        );
+        if setup_shape != proof_shape {
+            return Err(RelationError::ShapeDiffers {
+                setup: setup_shape,
+                proof: proof_shape,
+                first_apart: labels::first_apart(&setup.labels, &synthesized.matrices.labels),
+            });
         }
+        if let Some(row) = setup.first_differing_row(&synthesized.matrices) {
+            return Err(RelationError::ConstraintsDiffer(labels::report(
+                &synthesized.matrices.labels,
+                row,
+            )));
+        }
+        setup.check(&synthesized.assignment)?;
+        Ok(setup.constraint_count())
     }
 
     pub(crate) fn matrices(&self) -> Result<CircuitMatrices, RelationError> {
-        let cs = self.synthesize(SynthesisMode::Setup)?;
-        cs.finalize();
-        let matrices = cs.to_matrices().ok_or(SynthesisError::MissingCS)?;
-        one_public_input(matrices.num_instance_variables)?;
-        Ok(CircuitMatrices { matrices })
+        let cs = constraint_system(SynthesisMode::Setup);
+        self.synthesize(&cs).map_err(|error| match error {
+            RelationError::Synthesis(SynthesisError::AssignmentMissing) => {
+                RelationError::ReadsValueDuringSetup(None)
+            }
+            error => error,
+        })?;
+        circuit_matrices(&cs)
+    }
+
+    pub(crate) fn synthesized(&self) -> Result<Synthesized, RelationError> {
+        let cs = constraint_system(SynthesisMode::Prove {
+            construct_matrices: true,
+        });
+        self.synthesize(&cs)?;
+        let assignment = assignment_of(&cs)?;
+        Ok(Synthesized {
+            matrices: circuit_matrices(&cs)?,
+            assignment,
+        })
     }
 
     pub(crate) fn proof_inputs(&self) -> Result<ProofInputs, RelationError> {
@@ -164,15 +331,24 @@ where
     }
 
     fn assignment(&self) -> Result<Vec<Field>, RelationError> {
-        let cs = self.synthesize(SynthesisMode::Prove {
+        let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: false,
-        })?;
-        let system = cs.borrow().ok_or(SynthesisError::MissingCS)?;
-        Ok([
-            system.instance_assignment.as_slice(),
-            system.witness_assignment.as_slice(),
-        ]
-        .concat())
+        });
+        self.synthesize(&cs)?;
+        assignment_of(&cs)
+    }
+
+    fn synthesize(&self, cs: &CircuitSystem) -> Result<(), RelationError> {
+        let public_input = CircuitVar::input(cs, || Ok(self.public_hash))?;
+        let checked = self
+            .proof_inputs
+            .instantiate(&Allocator::R1cs(cs.clone()))?
+            .circuit()?;
+        labels::check(
+            cs,
+            "the circuit's public hash is not the proof's public input",
+            || checked.public_hash().enforce_equal(&public_input),
+        )
     }
 }
 
@@ -182,11 +358,6 @@ where
     P::Circuit: Circuit,
 {
     fn generate_constraints(self, cs: CircuitSystem) -> Result<(), SynthesisError> {
-        let public_hash = CircuitVar::new_input(cs.clone(), || Ok(self.public_hash))?;
-        self.proof_inputs
-            .instantiate(&Allocator::R1cs(cs))?
-            .circuit()?
-            .public_hash()
-            .enforce_equal(&public_hash)
+        Ok(self.synthesize(&cs)?)
     }
 }

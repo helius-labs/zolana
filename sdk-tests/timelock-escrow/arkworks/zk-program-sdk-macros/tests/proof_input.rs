@@ -33,7 +33,10 @@ fn instantiation_maps_every_field_to_its_circuit_form() {
         flags: [true, false],
         label: [9u8; 32],
     });
-    assert_eq!(value(&circuit.amount).expect("amount"), Field::from(7u64));
+    assert_eq!(
+        value(&circuit.amount.var()).expect("amount"),
+        Field::from(7u64)
+    );
     assert_eq!(
         circuit
             .flags
@@ -59,7 +62,7 @@ fn a_generic_struct_instantiates_with_its_shape() {
         circuit
             .amounts
             .each_ref()
-            .map(|amount| value(amount).expect("amount")),
+            .map(|amount| value(&amount.var()).expect("amount")),
         [Field::from(1u64), Field::from(2u64), Field::from(3u64)]
     );
 }

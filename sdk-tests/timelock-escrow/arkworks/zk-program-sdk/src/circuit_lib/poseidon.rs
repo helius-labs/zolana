@@ -1,17 +1,18 @@
-use ark_r1cs_std::fields::FieldVar;
 use light_poseidon::{parameters::bn254_x5::get_poseidon_parameters, PoseidonParameters};
 
 use crate::{
-    circuit::{CircuitVar, Field},
+    circuit::{labels::Scope, var::system_of, zero, CircuitVar, Field},
     RelationError,
 };
 
+#[track_caller]
 pub fn poseidon(inputs: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
+    let _scope = Scope::open(&system_of(inputs), "a poseidon hash");
     let params = parameters(inputs.len())?;
     let width = params.width;
     let half_full_rounds = params.full_rounds / 2;
     let partial_rounds_end = half_full_rounds + params.partial_rounds;
-    let mut state: Vec<CircuitVar> = core::iter::once(CircuitVar::zero())
+    let mut state: Vec<CircuitVar> = core::iter::once(zero())
         .chain(inputs.iter().cloned())
         .collect();
     for round in 0..params.full_rounds + params.partial_rounds {
@@ -20,7 +21,7 @@ pub fn poseidon(inputs: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
             .get(round * width..(round + 1) * width)
             .ok_or(RelationError::PoseidonArity(inputs.len()))?;
         for (element, round_constant) in state.iter_mut().zip(round_constants) {
-            *element += *round_constant;
+            *element = element.offset(*round_constant);
         }
         if round < half_full_rounds || round >= partial_rounds_end {
             for element in state.iter_mut() {
@@ -35,8 +36,8 @@ pub fn poseidon(inputs: &[CircuitVar]) -> Result<CircuitVar, RelationError> {
             .map(|row| {
                 row.iter()
                     .zip(&state)
-                    .fold(CircuitVar::zero(), |sum, (factor, element)| {
-                        sum + element * *factor
+                    .fold(zero(), |sum, (factor, element)| {
+                        sum.plus(&element.scaled(*factor))
                     })
             })
             .collect();
@@ -58,6 +59,6 @@ fn parameters(inputs: usize) -> Result<PoseidonParameters<Field>, RelationError>
 }
 
 fn sbox(element: &CircuitVar) -> Result<CircuitVar, RelationError> {
-    let square = element.square()?;
-    Ok(square.square()? * element)
+    let square = element.squared()?;
+    Ok(square.squared()?.times(element))
 }

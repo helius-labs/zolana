@@ -70,7 +70,7 @@ mod circuit {
     use zk_program_sdk::{
         circuit::{
             poseidon, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
+            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -83,7 +83,7 @@ mod circuit {
     pub struct SplPaymentPrivateInputs {
         pub tx_context: TxContext,
         pub token_utxos_asset_a: [Utxo; 1],
-        pub amount: CircuitVar,
+        pub amount: Uint<64>,
     }
 
     pub struct SplPaymentPublicInputs {

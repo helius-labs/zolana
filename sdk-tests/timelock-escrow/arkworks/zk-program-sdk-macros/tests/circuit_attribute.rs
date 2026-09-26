@@ -1,10 +1,10 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, value, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-        ConfidentialTransaction, Field, PublicInputs,
+        value, CheckedTransaction, Circuit, CircuitMarker, ConfidentialTransaction, Field,
+        PublicInputs, Uint,
     },
-    conversion::{Allocator, ProofInput},
+    conversion::{to_bytes, Allocator, ProofInput},
     RelationError, TxContext,
 };
 
@@ -15,8 +15,8 @@ struct Doubler {
 
 #[circuit]
 impl Doubler {
-    fn doubled(&self) -> CircuitVar {
-        self.value.clone() + &self.value
+    fn doubled(&self) -> Uint<65> {
+        self.value.add::<65>(&self.value)
     }
 }
 
@@ -42,14 +42,14 @@ impl Circuit for Empty {
 }
 
 #[circuit]
-fn shaped_sum<const N: usize>(values: &[CircuitVar; N]) -> Result<CircuitVar, RelationError> {
-    let total = values.iter().fold(constant(0u64), |sum, value| sum + value);
+fn shaped_sum<const N: usize>(values: &[Uint<16>; N]) -> Result<Uint<32>, RelationError> {
+    let total = Uint::<16>::sum::<24, N>(values);
     let scaled = if const { N > 2 } {
-        total.clone() + &total
+        total.add::<25>(&total)
     } else if const { N > 1 } {
-        total.clone()
+        total.widen::<25>()
     } else {
-        constant(0u64)
+        Uint::zero()
     };
     let label = match const { N } {
         0 => 0u64,
@@ -59,7 +59,106 @@ fn shaped_sum<const N: usize>(values: &[CircuitVar; N]) -> Result<CircuitVar, Re
     for _ in values {
         count += 1;
     }
-    Ok(scaled + constant(label + count))
+    Ok(scaled
+        .add::<26>(&Uint::<25>::constant(label + count)?)
+        .widen::<32>())
+}
+
+#[derive(Clone, ProofInput)]
+struct Keyed {
+    key: [u8; 32],
+}
+
+#[circuit]
+mod keyed {
+    use zk_program_sdk::circuit::CircuitVar;
+
+    use super::KeyedCircuit;
+
+    pub struct Label(pub u64);
+
+    pub fn label() -> Label {
+        Label(7)
+    }
+
+    impl Keyed {
+        pub fn key(&self) -> CircuitVar {
+            self.key.clone()
+        }
+    }
+
+    pub mod nested {
+        use zk_program_sdk::circuit::CircuitVar;
+
+        use super::super::KeyedCircuit;
+
+        impl Keyed {
+            pub fn key_again(&self) -> CircuitVar {
+                self.key.clone()
+            }
+        }
+    }
+}
+
+#[circuit]
+mod whole {
+    use zk_program_sdk::{
+        circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs},
+        conversion::ProofInput,
+        RelationError, TxContext,
+    };
+
+    #[derive(Clone, ProofInput)]
+    pub struct Solo {
+        pub private: SoloPrivateInputs,
+        pub public: SoloPublicInputs,
+    }
+
+    #[derive(Clone, ProofInput)]
+    pub struct SoloPrivateInputs {
+        pub tx_context: TxContext,
+    }
+
+    #[derive(Clone, ProofInput, PublicInputs)]
+    pub struct SoloPublicInputs;
+
+    impl Circuit for Solo {
+        fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
+            ConfidentialTransaction::new(&self.private.tx_context, &self.public).check()
+        }
+    }
+}
+
+#[test]
+fn a_module_renames_its_impls_and_leaves_other_items_alone() {
+    let keyed = Keyed { key: [3u8; 32] }
+        .instantiate(&Allocator::native())
+        .expect("native instantiation");
+    assert_eq!(
+        (
+            keyed::label().0,
+            to_bytes(&keyed.key()).expect("key"),
+            to_bytes(&keyed.key_again()).expect("key again"),
+        ),
+        (7, [3u8; 32], [3u8; 32])
+    );
+}
+
+#[test]
+fn a_module_writes_the_circuit_marker_on_each_circuit_twin() {
+    assert_eq!(<whole::SoloCircuit as Circuit>::MARKER, CircuitMarker);
+    let solo = whole::Solo {
+        private: whole::SoloPrivateInputs {
+            tx_context: TxContext::new(),
+        },
+        public: whole::SoloPublicInputs,
+    }
+    .instantiate(&Allocator::native())
+    .expect("native instantiation");
+    assert!(matches!(
+        solo.circuit(),
+        Err(RelationError::Violated(rule)) if rule.contains("input")
+    ));
 }
 
 #[test]
@@ -68,7 +167,7 @@ fn an_inherent_impl_is_written_against_the_circuit_twin() {
         .instantiate(&Allocator::native())
         .expect("native instantiation");
     assert_eq!(
-        value(&doubler.doubled()).expect("doubled"),
+        value(&doubler.doubled().var()).expect("doubled"),
         Field::from(8u64)
     );
 }
@@ -92,9 +191,9 @@ fn the_attribute_writes_the_circuit_marker_on_the_twin() {
 
 #[test]
 fn compile_time_branches_loops_and_closures_run() {
-    let values = [constant(1u64), constant(2u64), constant(3u64)];
+    let values = [1, 2, 3].map(|value| Uint::<16>::constant(value).expect("constant"));
     assert_eq!(
-        value(&shaped_sum(&values).expect("sum")).expect("value"),
+        value(&shaped_sum(&values).expect("sum").var()).expect("value"),
         Field::from(16u64)
     );
 }

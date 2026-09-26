@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, Assert, Balance, Bits, CheckedTransaction, Circuit, CircuitType,
-        ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo,
+        Assert, Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
+        DataUtxo, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -13,7 +13,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
-    shared::{keypair, ProgramOwner},
+    shared::{keypair, refused, ProgramOwner},
 };
 
 fn vesting_authority() -> ProgramOwner {
@@ -42,8 +42,6 @@ struct VestingClaimPrivateInputs {
     state: Vesting,
     beneficiary: ShieldedAddress,
     vesting_owner: ShieldedAddress,
-    unlocked: u64,
-    remainder: u64,
 }
 
 #[derive(Clone, ProofInput, PublicInputs)]
@@ -73,16 +71,21 @@ impl Circuit for VestingClaim {
         public
             .end
             .assert_equal(&vesting.end, "the end is not the schedule's")?;
-        let elapsed = public.now.clone() - &public.start;
-        elapsed.check_bits(64)?;
-        (public.end.clone() - &public.now).check_bits(64)?;
-        let duration = public.end.clone() - &public.start;
-        (private.unlocked.clone() * &duration + &private.remainder).assert_equal(
-            &(vesting.total.clone() * &elapsed),
+        let elapsed = public
+            .now
+            .checked_sub(&public.start, "the vesting has not started")?;
+        let remaining = public
+            .end
+            .checked_sub(&public.now, "the vesting has ended")?;
+        let duration = elapsed.add::<65>(&remaining);
+        let (unlocked, _remainder) = vesting.total.mul::<128>(&elapsed).div_rem::<64, _>(
+            &duration,
             "the unlocked amount is not total * elapsed / duration",
         )?;
-        (duration - &private.remainder - constant(1u64)).check_bits(64)?;
-        let payout = private.unlocked.clone() - &vesting.claimed;
+        let payout = unlocked.checked_sub(
+            &vesting.claimed,
+            "the claim is below what was already claimed",
+        )?;
         let mut paid = TokenUtxo::new_init(&private.beneficiary, &vesting.asset());
         vesting.transfer(&mut paid, &payout)?;
         let mut next =
@@ -90,7 +93,7 @@ impl Circuit for VestingClaim {
         vesting.transfer_all(&mut next)?;
         next.beneficiary_hash = vesting.beneficiary_hash.clone();
         next.total = vesting.total.clone();
-        next.claimed = private.unlocked.clone();
+        next.claimed = unlocked;
         next.start = vesting.start.clone();
         next.end = vesting.end.clone();
 
@@ -124,8 +127,6 @@ fn vesting_claim_prove_and_verify() {
             state: state.clone(),
             beneficiary: address,
             vesting_owner,
-            unlocked: 428,
-            remainder: 400,
         },
         public: VestingClaimPublicInputs {
             now: 1_300,
@@ -169,4 +170,45 @@ fn vesting_claim_prove_and_verify() {
     prover
         .verify(&result)
         .expect("the compressed proof verifies");
+}
+
+#[test]
+fn a_claim_outside_the_schedule_or_over_an_empty_one_is_refused() {
+    let beneficiary = keypair(5);
+    let address = beneficiary.shielded_address().expect("beneficiary address");
+    let claim = |start: u64, end: u64, now: u64| {
+        let state = Vesting {
+            beneficiary_hash: address.owner_hash().expect("beneficiary hash"),
+            total: 1_000,
+            claimed: 0,
+            start,
+            end,
+        };
+        VestingClaim {
+            private: VestingClaimPrivateInputs {
+                tx_context: TxContext::new(),
+                vesting: vesting_authority().data_input(&address, Mint::SOL, 1_000, &state, 0),
+                state,
+                beneficiary: address,
+                vesting_owner: vesting_authority().address(&address),
+            },
+            public: VestingClaimPublicInputs { now, start, end },
+        }
+    };
+
+    assert_eq!(
+        [
+            refused(&claim(1_000, 1_700, 900)),
+            refused(&claim(1_000, 1_700, 1_800)),
+            refused(&claim(1_000, 1_000, 1_000)),
+        ],
+        [
+            (Some("the vesting has not started".to_string()), true),
+            (Some("the vesting has ended".to_string()), true),
+            (
+                Some("the unlocked amount is not total * elapsed / duration".to_string()),
+                true
+            ),
+        ]
+    );
 }

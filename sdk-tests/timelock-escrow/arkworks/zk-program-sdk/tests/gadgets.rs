@@ -3,7 +3,7 @@ use zk_program_sdk::{
         assert_in, constant, from_bits_le, is_in, one_hot, select_index, value, Arithmetic, Assert,
         Asset, Bits, Bool, Bytes, CircuitVar, Compare, ConstraintSystem, Field,
     },
-    conversion::Allocator,
+    conversion::{Allocator, ProofInput},
     RelationError,
 };
 
@@ -26,24 +26,37 @@ fn fs(values: &[u64]) -> Vec<Field> {
 fn run(inputs: &[Field], gadget: Gadget) -> Outcome {
     let constants: Vec<CircuitVar> = inputs.iter().copied().map(constant).collect();
     let native = gadget(&constants)
-        .and_then(|outputs| outputs.iter().map(value).collect())
-        .map_err(|error| error.to_string());
+        .and_then(|outputs| outputs.iter().map(value).collect::<Result<Vec<_>, _>>());
     let cs = ConstraintSystem::new_ref();
     let allocator = Allocator::R1cs(cs.clone());
     let r1cs = (|| {
-        let witnesses = inputs
+        let allocated = inputs
             .iter()
-            .map(|input| allocator.private_input(&constant(*input)))
+            .map(|input| input.instantiate(&allocator))
             .collect::<Result<Vec<_>, _>>()?;
-        let outputs = gadget(&witnesses)?
-            .iter()
-            .map(value)
-            .collect::<Result<Vec<_>, _>>()?;
-        let satisfied = cs.is_satisfied()?;
-        Ok::<_, RelationError>((if satisfied { outputs } else { vec![] }, satisfied))
+        let outputs = gadget(&allocated)?;
+        let expected = native.as_ref().ok();
+        if let Some(expected) = expected {
+            for (output, expected) in outputs.iter().zip(expected) {
+                output.assert_equal(
+                    &constant(*expected),
+                    "the constraints compute the native output",
+                )?;
+            }
+        }
+        let same_length = expected.is_none_or(|expected| expected.len() == outputs.len());
+        let satisfied = cs.is_satisfied()? && same_length;
+        let computed = match expected {
+            Some(expected) if satisfied => expected.clone(),
+            _ => vec![],
+        };
+        Ok::<_, RelationError>((computed, satisfied))
     })()
     .map_err(|error| error.to_string());
-    Outcome { native, r1cs }
+    Outcome {
+        native: native.map_err(|error| error.to_string()),
+        r1cs,
+    }
 }
 
 fn holds(values: &[Field]) -> Outcome {
@@ -222,7 +235,7 @@ fn comparison_asserts_reject_wrapped_operands() {
             }),
             run(&[f(u64::MAX), f(u64::MAX)], &|inputs| {
                 let (left, right) = operands(inputs);
-                left.assert_less_than(&(right + constant(1u64)), 64, "below")?;
+                left.assert_less_than(&right.checked_add(&constant(1u64), 65)?, 64, "below")?;
                 Ok(vec![])
             }),
         ),
@@ -261,8 +274,8 @@ fn comparisons_cost_one_decomposition_per_range() {
         let cs = ConstraintSystem::new_ref();
         let allocator = Allocator::R1cs(cs.clone());
         let inputs = [
-            allocator.private_input(&constant(3u64)).unwrap(),
-            allocator.private_input(&constant(5u64)).unwrap(),
+            f(3).instantiate(&allocator).unwrap(),
+            f(5).instantiate(&allocator).unwrap(),
         ];
         gadget(&inputs).unwrap();
         (cs.is_satisfied().unwrap(), cs.num_constraints())
@@ -313,14 +326,7 @@ fn zero_checks() {
     assert_eq!(
         (zero_checks(0), zero_checks(7)),
         (
-            (
-                holds(&[f(1)]),
-                holds(&[]),
-                Outcome {
-                    native: Err("is nonzero".to_string()),
-                    r1cs: Err("an assignment for a variable could not be computed".to_string()),
-                },
-            ),
+            (holds(&[f(1)]), holds(&[]), violated("is nonzero")),
             (holds(&[f(0)]), violated("is zero"), holds(&[])),
         )
     );
@@ -564,7 +570,7 @@ fn field_arithmetic() {
         run(&fs(&[input]), &move |inputs| {
             let input = only(inputs);
             Ok(match operation {
-                0 => vec![input.inverse()? * &input],
+                0 => vec![input.div(&input)?],
                 1 => vec![constant(21u64).div(&input)?],
                 _ => vec![input.pow(5)?],
             })

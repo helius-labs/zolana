@@ -1,4 +1,3 @@
-use ark_r1cs_std::eq::EqGadget;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::DUMMY_DOMAIN;
 use zolana_transaction::{
@@ -6,9 +5,9 @@ use zolana_transaction::{
     WalletUtxo,
 };
 
-use super::{asset::asset, owner::owner, var, Allocator, Placeholder, ProofInput};
+use super::{asset::asset, owner::owner, Allocator, Placeholder, ProofInput};
 use crate::{
-    circuit::{self, constant, CircuitVar},
+    circuit::{self, constant, labels::Scope, CircuitVar, Field, Uint, VariableRole},
     client, RelationError,
 };
 
@@ -16,10 +15,16 @@ impl ProofInput for WalletUtxo {
     type Circuit = circuit::Utxo;
 
     fn instantiate(&self, allocator: &Allocator) -> Result<circuit::Utxo, RelationError> {
+        let _scope = Scope::open(&allocator.cs(), "a utxo proof input");
         let spp_input = SppProofInputUtxo::from(self);
         let fields = ProofInputUtxo::try_from(&spp_input).map_err(RelationError::input)?;
-        let domain = field(allocator, &fields.domain, "utxo domain")?;
-        let dummy = domain.is_eq(&constant(u64::from(DUMMY_DOMAIN)))?;
+        let domain = field(
+            allocator,
+            &fields.domain,
+            "utxo domain",
+            VariableRole::Constrained,
+        )?;
+        let dummy = domain.equals(&constant(u64::from(DUMMY_DOMAIN)))?;
         let owner_preimage = if spp_input.is_dummy() {
             client::Owner {
                 tag: 0,
@@ -38,26 +43,66 @@ impl ProofInput for WalletUtxo {
             domain,
             owner: owner(allocator, &owner_preimage, &dummy)?,
             asset: asset(allocator, &self.utxo.asset.asset)?,
-            amount: field(allocator, &fields.amount, "utxo amount")?,
-            blinding: field(allocator, &fields.blinding, "utxo blinding")?,
-            data_hash: field(allocator, &fields.data_hash, "utxo data hash")?,
-            ring_data_hash: field(allocator, &fields.ring_data_hash, "utxo ring data hash")?,
-            ring_program_id: field(allocator, &fields.ring_program_id, "utxo ring program id")?,
-            tree_id: field(allocator, &fields.tree_id, "utxo tree id")?,
-            nullifier: field(allocator, &self.nullifier, "utxo nullifier")?,
-            latest_tree_id: allocator
-                .private_input(&constant(u64::from(self.latest_tree_id.unwrap_or(0))))?,
+            amount: Uint::trusted(field(
+                allocator,
+                &fields.amount,
+                "utxo amount",
+                VariableRole::Constrained,
+            )?),
+            blinding: field(
+                allocator,
+                &fields.blinding,
+                "utxo blinding",
+                VariableRole::Constrained,
+            )?,
+            data_hash: field(
+                allocator,
+                &fields.data_hash,
+                "utxo data hash",
+                VariableRole::Constrained,
+            )?,
+            ring_data_hash: field(
+                allocator,
+                &fields.ring_data_hash,
+                "utxo ring data hash",
+                VariableRole::Constrained,
+            )?,
+            ring_program_id: field(
+                allocator,
+                &fields.ring_program_id,
+                "utxo ring program id",
+                VariableRole::Constrained,
+            )?,
+            tree_id: field(
+                allocator,
+                &fields.tree_id,
+                "utxo tree id",
+                VariableRole::Constrained,
+            )?,
+            nullifier: field(
+                allocator,
+                &self.nullifier,
+                "utxo nullifier",
+                VariableRole::Carried,
+            )?,
+            latest_tree_id: allocator.witness(
+                Field::from(self.latest_tree_id.unwrap_or(0)),
+                "utxo latest tree id",
+                VariableRole::Carried,
+            )?,
             has_latest_tree_id: self.latest_tree_id.is_some().instantiate(allocator)?,
         })
     }
 }
 
+#[track_caller]
 fn field(
     allocator: &Allocator,
     bytes: &[u8; 32],
     name: &'static str,
+    role: VariableRole,
 ) -> Result<CircuitVar, RelationError> {
-    allocator.private_input(&var(bytes, name)?)
+    allocator.witness(super::field(bytes, name)?, name, role)
 }
 
 impl Placeholder for WalletUtxo {

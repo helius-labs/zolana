@@ -119,35 +119,31 @@ pub(crate) mod circuit {
         circuit::{
             poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
 
     #[derive(Clone, Debug)]
     pub struct Poll {
-        pub poll_id: CircuitVar,
+        pub poll_id: Uint<64>,
         pub root: CircuitVar,
-        pub tally: [CircuitVar; 3],
+        pub tally: [Uint<64>; 3],
     }
 
     impl Default for Poll {
         fn default() -> Self {
             Self {
-                poll_id: zero(),
+                poll_id: Uint::zero(),
                 root: zero(),
-                tally: core::array::from_fn(|_| zero()),
+                tally: core::array::from_fn(|_| Uint::zero()),
             }
         }
     }
 
     impl DataHash for Poll {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
-            poseidon(&[
-                self.poll_id.clone(),
-                self.root.clone(),
-                poseidon(&self.tally)?,
-            ])
+            poseidon(&[self.poll_id.var(), self.root.clone(), self.tally.hash()?])
         }
     }
 
@@ -167,7 +163,7 @@ pub(crate) mod circuit {
     }
 
     pub struct CreatePollPublicInputs {
-        pub poll_id: CircuitVar,
+        pub poll_id: Uint<64>,
         pub root: CircuitVar,
     }
 
@@ -191,7 +187,7 @@ pub(crate) mod circuit {
     impl PublicInputs for CreatePollPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
-                self.poll_id.clone(),
+                self.poll_id.var(),
                 self.root.clone(),
                 transaction_hash.clone(),
             ])

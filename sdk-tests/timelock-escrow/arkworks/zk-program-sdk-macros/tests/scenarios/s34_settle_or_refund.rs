@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, zero, Assert, Balance, Bits, CheckedTransaction, Circuit, CircuitType,
-        ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo,
+        Assert, Balance, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction,
+        DataUtxo, PublicInputs, TokenUtxo, Uint,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -58,16 +58,14 @@ impl Circuit for Settle {
             .assert_equal(&order.maker_hash, "the maker is not the order's")?;
         let mut reservation = DataUtxo::new_mut(&private.reservation_utxo, &private.reservation)?;
         let settles = &private.settles;
-        settles
-            .select(
-                &(reservation.limit_price.clone() - price),
-                &(price.clone() - &reservation.limit_price - constant(1u64)),
-            )
-            .check_bits(64)?;
-        let value = order.balance();
-        let taker_amount = settles.select(&value, &zero());
-        let maker_amount = value - &taker_amount;
-        reservation.fill_price = settles.select(price, &zero());
+        settles.assert_equal(
+            &price.is_less_or_equal(&reservation.limit_price)?,
+            "the settle flag does not match the price",
+        )?;
+        let value = order.balance()?;
+        let taker_amount = settles.select(&value, &Uint::zero());
+        let maker_amount = settles.select(&Uint::zero(), &value);
+        reservation.fill_price = settles.select(price, &Uint::zero());
         let taker = reservation.owner();
         let mut to_taker = TokenUtxo::new_init(&taker, &order.asset());
         order.transfer(&mut to_taker, &taker_amount)?;

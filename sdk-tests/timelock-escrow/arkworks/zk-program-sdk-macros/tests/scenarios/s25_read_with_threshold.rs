@@ -2,8 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit,
     circuit::{
-        Bits, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs,
+        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
     },
     conversion::ProofInput,
     Groth16Prover, RelationError, TxContext, ZkProgram,
@@ -12,7 +11,7 @@ use zolana_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
-    shared::{data_input, keypair},
+    shared::{data_input, keypair, refused},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
@@ -43,7 +42,9 @@ impl Circuit for ReadThreshold {
     fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
         let private = &self.private;
         let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;
-        (account.balance.clone() - &self.public.threshold).check_bits(64)?;
+        self.public
+            .threshold
+            .assert_less_or_equal(&account.balance, "the balance is below the threshold")?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(account)
@@ -94,4 +95,23 @@ fn read_with_threshold_prove_and_verify() {
     prover
         .verify(&result)
         .expect("the compressed proof verifies");
+}
+
+#[test]
+fn a_balance_below_the_threshold_is_refused() {
+    let owner = keypair(5);
+    let account = Account { balance: 499 };
+    let read = ReadThreshold {
+        private: ReadThresholdPrivateInputs {
+            tx_context: TxContext::new(),
+            account_utxo: data_input(&owner, 0, &account, 0),
+            account,
+        },
+        public: ReadThresholdPublicInputs { threshold: 500 },
+    };
+
+    assert_eq!(
+        refused(&read),
+        (Some("the balance is below the threshold".to_string()), true)
+    );
 }

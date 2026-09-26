@@ -77,8 +77,8 @@ impl Placeholder for TypedUpdate {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Asset, Bits, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            poseidon, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
         RelationError,
     };
@@ -94,13 +94,13 @@ mod circuit {
         pub tx_context: TxContext,
         pub state_utxo: Utxo,
         pub state: TypedState,
-        pub delta: CircuitVar,
+        pub delta: Uint<64>,
         pub new_owner: Owner,
         pub new_mint: Asset,
     }
 
     pub struct TypedUpdatePublicInputs {
-        pub count: CircuitVar,
+        pub count: Uint<32>,
     }
 
     impl Circuit for TypedUpdate {
@@ -109,12 +109,15 @@ mod circuit {
         fn circuit(&self) -> Result<CheckedTransaction, RelationError> {
             let private = &self.private;
             let mut state = DataUtxo::new_mut(&private.state_utxo, &private.state)?;
-            state.amount = state.amount.clone() + &private.delta;
-            state.amount.check_bits(64)?;
+            state.amount = state
+                .amount
+                .add::<65>(&private.delta)
+                .narrow::<64>("the amount overflows")?;
             state.count = self.public.count.clone();
-            state.count.check_bits(32)?;
-            state.kind = state.kind.clone() + constant(1u64);
-            state.kind.check_bits(16)?;
+            state.kind = state
+                .kind
+                .add::<17>(&Uint::<16>::constant(1)?)
+                .narrow::<16>("the kind overflows")?;
             state.active = state.active.not();
             state.tag = poseidon(&[state.tag.clone()])?;
             state.owner_hash = private.new_owner.hash()?;
@@ -128,7 +131,7 @@ mod circuit {
 
     impl PublicInputs for TypedUpdatePublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.count.clone(), transaction_hash.clone()])
+            poseidon(&[self.count.var(), transaction_hash.clone()])
         }
     }
 }

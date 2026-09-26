@@ -4,7 +4,7 @@ use ark_r1cs_std::boolean::Boolean;
 use zolana_hasher::primitives::{P256_OWNER_TAG, SOLANA_OWNER_TAG};
 
 use super::{
-    constant, hash_bytes, poseidon,
+    hash_bytes, poseidon,
     var::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless, cached},
     zero, Assert, Bool, Bytes, CircuitVar, DataHash, Field, Select,
 };
@@ -18,15 +18,16 @@ pub struct OwnerKey {
 }
 
 impl OwnerKey {
+    #[track_caller]
     pub(crate) fn new(
         tag: CircuitVar,
         bytes: Bytes<32>,
         skip_tag_check: &Boolean<Field>,
     ) -> Result<Self, RelationError> {
-        let solana = tag.clone() - constant(u64::from(SOLANA_OWNER_TAG));
-        let p256 = tag.clone() - constant(u64::from(P256_OWNER_TAG));
+        let solana = tag.offset(-Field::from(SOLANA_OWNER_TAG));
+        let p256 = tag.offset(-Field::from(P256_OWNER_TAG));
         assert_equal_unless(
-            &(solana * p256),
+            &solana.times(&p256),
             &zero(),
             skip_tag_check,
             "the owner tag is neither S nor P",
@@ -50,6 +51,7 @@ impl OwnerKey {
         cached(&self.identity, || hash_bytes(&self.tagged()))
     }
 
+    #[track_caller]
     pub(crate) fn assert_same_unless(
         &self,
         other: &Self,
@@ -109,6 +111,7 @@ impl Owner {
         })
     }
 
+    #[track_caller]
     pub(crate) fn assert_same_unless(
         &self,
         other: &Self,
@@ -117,6 +120,15 @@ impl Owner {
     ) -> Result<(), RelationError> {
         self.key.assert_same_unless(&other.key, skip, rule)?;
         assert_equal_unless(&self.nullifier_pk, &other.nullifier_pk, skip, rule)
+    }
+
+    #[track_caller]
+    pub(crate) fn assert_no_nullifier_key_if(
+        &self,
+        condition: &Boolean<Field>,
+        rule: &'static str,
+    ) -> Result<(), RelationError> {
+        assert_equal_unless(&self.nullifier_pk, &zero(), &!condition, rule)
     }
 }
 

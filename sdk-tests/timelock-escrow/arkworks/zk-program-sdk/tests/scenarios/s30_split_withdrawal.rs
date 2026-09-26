@@ -78,9 +78,9 @@ impl Placeholder for SplitWithdraw {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo,
-            TxContext, Utxo,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
+            Utxo,
         },
         RelationError,
     };
@@ -99,10 +99,10 @@ mod circuit {
     }
 
     pub struct SplitWithdrawPublicInputs {
-        pub unlock: CircuitVar,
+        pub unlock: Uint<64>,
         pub owner_identity: CircuitVar,
         pub fee_recipient: Owner,
-        pub fee: CircuitVar,
+        pub fee: Uint<64>,
     }
 
     impl Circuit for SplitWithdraw {
@@ -113,8 +113,8 @@ mod circuit {
             let public = &self.public;
             let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;
             escrow
-                .balance()
-                .assert_not_equal(&zero(), "the escrow utxo holds nothing")?;
+                .balance()?
+                .assert_not_zero("the escrow utxo holds nothing")?;
             escrow.creator.key().identity()?.assert_equal(
                 &public.owner_identity,
                 "the signer is not the escrow creator",
@@ -138,10 +138,10 @@ mod circuit {
     impl PublicInputs for SplitWithdrawPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
             poseidon(&[
-                self.unlock.clone(),
+                self.unlock.var(),
                 self.owner_identity.clone(),
                 self.fee_recipient.hash()?,
-                self.fee.clone(),
+                self.fee.var(),
                 transaction_hash.clone(),
             ])
         }

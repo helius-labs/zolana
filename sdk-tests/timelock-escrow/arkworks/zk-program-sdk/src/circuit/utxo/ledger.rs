@@ -1,22 +1,104 @@
-use ark_ff::Zero;
 use ark_r1cs_std::boolean::Boolean;
 
 use crate::{
-    circuit::{zero, Asset, Bits, Bytes, CircuitVar, Owner, PublicTransfer},
+    circuit::{
+        field, labels::Scope, var::range_check, zero, Asset, Bytes, CircuitSystem, CircuitVar,
+        Owner, PublicTransfer, Uint,
+    },
     RelationError,
 };
+
+const AMOUNT_BITS: u32 = 64;
+const MAX_BOUNDED_BITS: u32 = 253;
+const NONZERO: &str = "a public transfer moves a nonzero amount";
+const BALANCE_FITS: &str = "the balance does not fit in 64 bits";
+
+#[derive(Clone, Debug)]
+pub(crate) struct Accumulator {
+    var: CircuitVar,
+    bits: u32,
+}
+
+impl Accumulator {
+    pub(crate) fn zero() -> Self {
+        Self {
+            var: zero(),
+            bits: 0,
+        }
+    }
+
+    pub(crate) fn amount(amount: &Uint<64>) -> Self {
+        Self {
+            var: amount.var(),
+            bits: AMOUNT_BITS,
+        }
+    }
+
+    pub(crate) fn sum(amounts: &[CircuitVar]) -> Self {
+        let growth = match u32::try_from(amounts.len()) {
+            Ok(0 | 1) => 0,
+            Ok(count) => (count - 1).ilog2() + 1,
+            Err(_) => u32::MAX,
+        };
+        Self {
+            var: field::sum(amounts),
+            bits: AMOUNT_BITS.saturating_add(growth),
+        }
+    }
+
+    pub(crate) fn var(&self) -> CircuitVar {
+        self.var.clone()
+    }
+
+    fn add(&mut self, other: &Self) {
+        self.var = self.var.plus(&other.var);
+        self.bits = match (self.bits, other.bits) {
+            (0, bits) | (bits, 0) => bits,
+            (left, right) => left.max(right).saturating_add(1),
+        };
+    }
+
+    fn bounded(&self) -> Result<(), RelationError> {
+        if self.bits > MAX_BOUNDED_BITS {
+            return Err(RelationError::RangeTooWide(self.bits as usize));
+        }
+        Ok(())
+    }
+
+    #[track_caller]
+    fn narrow(&self, rule: &'static str) -> Result<Uint<64>, RelationError> {
+        if self.bits <= AMOUNT_BITS {
+            return Ok(Uint::trusted(self.var.clone()));
+        }
+        self.bounded()?;
+        Uint::from_var(&self.var, rule)
+    }
+
+    #[track_caller]
+    fn debit(&mut self, amount: &Uint<64>, rule: &'static str) -> Result<(), RelationError> {
+        self.bounded()?;
+        let remaining = self.var.minus(&amount.var());
+        range_check(&remaining, AMOUNT_BITS as usize, rule).map_err(|error| match error {
+            RelationError::OutOfRange(_) => RelationError::Violated(rule),
+            error => error,
+        })?;
+        self.var = remaining;
+        self.bits = AMOUNT_BITS;
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
 pub struct Ledger {
     owner: Owner,
     asset: Asset,
-    balance: CircuitVar,
+    balance: Accumulator,
     transferred: CircuitVar,
     public_transfers: Vec<PublicTransfer>,
 }
 
 impl Ledger {
-    pub(super) fn new(owner: Owner, asset: Asset, balance: CircuitVar) -> Self {
+    pub(super) fn new(owner: Owner, asset: Asset, balance: Accumulator) -> Self {
         Self {
             owner,
             asset,
@@ -34,24 +116,20 @@ impl Ledger {
         &self.transferred
     }
 
-    fn debit(&mut self, amount: &CircuitVar, rule: &'static str) -> Result<(), RelationError> {
-        let remaining = self.balance.clone() - amount;
-        assert_u64(&remaining, rule)?;
-        self.balance = remaining;
-        Ok(())
+    pub(super) fn balance_var(&self) -> CircuitVar {
+        self.balance.var()
     }
 
-    fn credit(&mut self, amount: &CircuitVar) {
-        self.balance += amount;
-        self.transferred += amount;
+    fn cs(&self, amount: &Uint<64>) -> CircuitSystem {
+        amount.var().cs().or(self.balance.var.cs())
     }
 
-    fn record_public_transfer(
-        &mut self,
-        is_deposit: bool,
-        amount: &CircuitVar,
-        account: &Bytes<32>,
-    ) {
+    fn credit(&mut self, amount: &Accumulator) {
+        self.balance.add(amount);
+        self.transferred = self.transferred.plus(&amount.var);
+    }
+
+    fn record_public_transfer(&mut self, is_deposit: bool, amount: &Uint<64>, account: &Bytes<32>) {
         self.public_transfers.push(PublicTransfer {
             asset: self.asset.clone(),
             is_deposit,
@@ -61,22 +139,7 @@ impl Ledger {
     }
 }
 
-fn refuse_zero(amount: &CircuitVar) -> Result<(), RelationError> {
-    match amount {
-        CircuitVar::Constant(value) if value.is_zero() => Err(RelationError::Violated(
-            "a public transfer moves a nonzero amount",
-        )),
-        _ => Ok(()),
-    }
-}
-
-fn assert_u64(value: &CircuitVar, rule: &'static str) -> Result<(), RelationError> {
-    value.check_bits(64).map_err(|error| match error {
-        RelationError::OutOfRange(_) => RelationError::Violated(rule),
-        error => error,
-    })
-}
-
+#[track_caller]
 fn check_destination(asset: &Asset, destination: &impl HasLedger) -> Result<(), RelationError> {
     if destination.is_burned() {
         return Err(RelationError::Violated(
@@ -107,57 +170,75 @@ pub trait Balance: HasLedger {
         self.ledger().asset.clone()
     }
 
-    fn balance(&self) -> CircuitVar {
-        self.ledger().balance.clone()
+    #[track_caller]
+    fn balance(&self) -> Result<Uint<64>, RelationError> {
+        self.ledger().balance.narrow(BALANCE_FITS)
     }
 
+    #[track_caller]
     fn transfer(
         &mut self,
         destination: &mut impl Balance,
-        amount: &CircuitVar,
+        amount: &Uint<64>,
     ) -> Result<(), RelationError> {
+        let _scope = Scope::open(&self.ledger().cs(amount), "a transfer");
         check_destination(&self.ledger().asset, &*destination)?;
-        assert_u64(amount, "the transfer amount is not a u64")?;
         let source = self.ledger_mut();
-        source.debit(amount, "the transfer exceeds the balance")?;
-        source.transferred -= amount;
-        destination.ledger_mut().credit(amount);
+        source
+            .balance
+            .debit(amount, "the transfer exceeds the balance")?;
+        source.transferred = source.transferred.minus(&amount.var());
+        destination
+            .ledger_mut()
+            .credit(&Accumulator::amount(amount));
         Ok(())
     }
 
+    #[track_caller]
     fn transfer_all(&mut self, destination: &mut impl Balance) -> Result<(), RelationError> {
+        let _scope = Scope::open(
+            &self.ledger().balance.var.cs(),
+            "a transfer of the whole balance",
+        );
         check_destination(&self.ledger().asset, &*destination)?;
         let source = self.ledger_mut();
-        let amount = core::mem::replace(&mut source.balance, zero());
-        source.transferred -= &amount;
+        let amount = core::mem::replace(&mut source.balance, Accumulator::zero());
+        source.transferred = source.transferred.minus(&amount.var);
         destination.ledger_mut().credit(&amount);
         Ok(())
     }
 
-    fn deposit(&mut self, amount: &CircuitVar, source: &Bytes<32>) -> Result<(), RelationError> {
-        refuse_zero(amount)?;
+    #[track_caller]
+    fn deposit(&mut self, amount: &Uint<64>, source: &Bytes<32>) -> Result<(), RelationError> {
+        amount.assert_not_zero(NONZERO)?;
         let ledger = self.ledger_mut();
-        ledger.balance += amount;
+        ledger.balance.add(&Accumulator::amount(amount));
         ledger.record_public_transfer(true, amount, source);
         Ok(())
     }
 
+    #[track_caller]
     fn withdraw(
         &mut self,
-        amount: &CircuitVar,
+        amount: &Uint<64>,
         destination: &Bytes<32>,
     ) -> Result<(), RelationError> {
-        refuse_zero(amount)?;
+        let _scope = Scope::open(&self.ledger().cs(amount), "a withdrawal");
+        amount.assert_not_zero(NONZERO)?;
         let ledger = self.ledger_mut();
-        ledger.debit(amount, "the withdrawal exceeds the balance")?;
+        ledger
+            .balance
+            .debit(amount, "the withdrawal exceeds the balance")?;
         ledger.record_public_transfer(false, amount, destination);
         Ok(())
     }
 
-    fn withdraw_all(&mut self, destination: &Bytes<32>) -> Result<CircuitVar, RelationError> {
+    #[track_caller]
+    fn withdraw_all(&mut self, destination: &Bytes<32>) -> Result<Uint<64>, RelationError> {
+        let amount = self.ledger().balance.narrow(BALANCE_FITS)?;
+        amount.assert_not_zero(NONZERO)?;
         let ledger = self.ledger_mut();
-        refuse_zero(&ledger.balance)?;
-        let amount = core::mem::replace(&mut ledger.balance, zero());
+        ledger.balance = Accumulator::zero();
         ledger.record_public_transfer(false, &amount, destination);
         Ok(amount)
     }

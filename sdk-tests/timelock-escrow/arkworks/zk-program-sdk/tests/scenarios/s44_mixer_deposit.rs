@@ -118,7 +118,7 @@ pub(crate) mod circuit {
         circuit::{
             poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
@@ -158,7 +158,7 @@ pub(crate) mod circuit {
     }
 
     pub struct MixerDepositPublicInputs {
-        pub denomination: CircuitVar,
+        pub denomination: Uint<64>,
     }
 
     impl Circuit for MixerDeposit {
@@ -181,7 +181,7 @@ pub(crate) mod circuit {
 
     impl PublicInputs for MixerDepositPublicInputs {
         fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, RelationError> {
-            poseidon(&[self.denomination.clone(), transaction_hash.clone()])
+            poseidon(&[self.denomination.var(), transaction_hash.clone()])
         }
     }
 }

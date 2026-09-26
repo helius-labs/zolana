@@ -4,7 +4,7 @@ use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
 
 use super::{bytes::byte_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{self, constant, Field},
+    circuit::{self, Field, VariableRole},
     client, RelationError,
 };
 
@@ -43,7 +43,11 @@ pub(super) fn owner(
     owner: &client::Owner,
     skip_tag_check: &Boolean<Field>,
 ) -> Result<circuit::Owner, RelationError> {
-    let tag = allocator.private_input(&constant(u64::from(owner.tag)))?;
+    let tag = allocator.witness(
+        Field::from(owner.tag),
+        "an owner tag",
+        VariableRole::Constrained,
+    )?;
     let key = circuit::OwnerKey::new(
         tag,
         client::Bytes(owner.key).instantiate(allocator)?,

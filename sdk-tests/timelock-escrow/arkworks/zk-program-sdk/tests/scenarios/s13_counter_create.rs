@@ -97,27 +97,29 @@ impl Placeholder for CounterCreate {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Utxo, UtxoData,
+            Uint, Utxo, UtxoData,
         },
         RelationError,
     };
 
     #[derive(Clone, Debug)]
     pub struct Counter {
-        pub count: CircuitVar,
+        pub count: Uint<64>,
     }
 
     impl Default for Counter {
         fn default() -> Self {
-            Self { count: zero() }
+            Self {
+                count: Uint::zero(),
+            }
         }
     }
 
     impl DataHash for Counter {
         fn hash(&self) -> Result<CircuitVar, RelationError> {
-            poseidon(std::slice::from_ref(&self.count))
+            poseidon(&[self.count.var()])
         }
     }
 
