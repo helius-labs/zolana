@@ -9,7 +9,7 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? Number.NaN;
 }
 
-test("witness generation, key load and proof time against snarkjs @bench", async ({ harness }) => {
+test("proof input generation, key load and proof time against snarkjs @bench", async ({ harness }) => {
   const rows: string[] = [];
   const moduleLoadMs = await harness.page.evaluate(() => window.escrow.moduleLoadMs);
   rows.push(`module load: ${moduleLoadMs.toFixed(0)} ms, prover threads: ${harness.threads}`);
@@ -23,9 +23,9 @@ test("witness generation, key load and proof time against snarkjs @bench", async
           data.sender,
           data.payer,
         );
-        const witnessMs: number[] = [];
+        const proofInputsMs: number[] = [];
         for (let run = 0; run < runs; run += 1) {
-          witnessMs.push(
+          proofInputsMs.push(
             window.escrow.timeTransaction(program, data.inputs, data.sender, data.payer),
           );
         }
@@ -47,7 +47,7 @@ test("witness generation, key load and proof time against snarkjs @bench", async
         const verifyMs = performance.now() - verifyStart;
         return {
           verifyMs,
-          witnessMs,
+          proofInputsMs,
           keyLoadMs,
           proofMs,
           snarkjsMs: snarkjs.proofMs,
@@ -67,12 +67,12 @@ test("witness generation, key load and proof time against snarkjs @bench", async
       `0x${timings.publicHash.map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
     ).toString();
     expect(timings.snarkjsPublicSignal).toBe(publicHash);
-    const witness = median(timings.witnessMs);
+    const proofInputs = median(timings.proofInputsMs);
     const proof = median(timings.proofMs);
     const snarkjsProof = median(timings.snarkjsMs);
     rows.push(
-      `${program}: proving ${(witness + proof).toFixed(0)} ms (witness ${witness.toFixed(0)} + proof ${proof.toFixed(0)}), ` +
-        `snarkjs ${(witness + snarkjsProof).toFixed(0)} ms (Rust witness + snarkjs proof ${snarkjsProof.toFixed(0)}), ` +
+      `${program}: proving ${(proofInputs + proof).toFixed(0)} ms (proof inputs ${proofInputs.toFixed(0)} + proof ${proof.toFixed(0)}), ` +
+        `snarkjs ${(proofInputs + snarkjsProof).toFixed(0)} ms (Rust proof inputs + snarkjs proof ${snarkjsProof.toFixed(0)}), ` +
         `key load ${timings.keyLoadMs.arkworks.toFixed(0)} ms arkworks / ${timings.keyLoadMs.zkey.toFixed(0)} ms zkey, ` +
         `standalone verify ${timings.verifyMs.toFixed(0)} ms (medians of ${RUNS})`,
     );

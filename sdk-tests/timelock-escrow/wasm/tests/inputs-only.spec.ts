@@ -11,7 +11,7 @@ type InputsOnlyRun = {
   verified: boolean;
   publicSignals: string[];
   publicHash: string;
-  witnessMs: number[];
+  proofInputsMs: number[];
   proofMs: number[];
   totalMs: number[];
 };
@@ -119,7 +119,7 @@ test("proof inputs module size and speed with snarkjs proving @bench", async ({ 
     const result = await run(inputsPage, program, RUNS);
     expect(result.verified).toBe(true);
     rows.push(
-      `${program}: proof inputs ${median(result.witnessMs).toFixed(1)} ms, snarkjs proof ${median(result.proofMs).toFixed(0)} ms, total ${median(result.totalMs).toFixed(0)} ms (medians of ${RUNS})`,
+      `${program}: proof inputs ${median(result.proofInputsMs).toFixed(1)} ms, snarkjs proof ${median(result.proofMs).toFixed(0)} ms, total ${median(result.totalMs).toFixed(0)} ms (medians of ${RUNS})`,
     );
   }
   console.log(rows.join("\n"));

@@ -44,11 +44,11 @@ impl<P: ZkProgram + Serialize> Fixture<P> {
             .create_program_transaction(&sender, payer)
             .expect("program transaction");
         let proof_inputs = transaction.proof_inputs.to_bytes().expect("proof inputs");
-        let mut wire = serde_json::to_value(
+        let mut transaction_json = serde_json::to_value(
             wasm::ProgramTransaction::try_from(&transaction).expect("wasm transaction"),
         )
         .expect("transaction json");
-        if let Some(object) = wire.as_object_mut() {
+        if let Some(object) = transaction_json.as_object_mut() {
             object.remove("proofInputs");
         }
         let external_data = transaction
@@ -61,7 +61,7 @@ impl<P: ZkProgram + Serialize> Fixture<P> {
             "inputs": serde_json::to_value(&self.program).expect("inputs json"),
             "sender": sender.to_bytes().to_vec(),
             "payer": payer.to_string(),
-            "transaction": wire,
+            "transaction": transaction_json,
             "proofInputsSha256": hex::encode(Sha256::digest(&proof_inputs)),
             "verifyingKey": prover.keys().gnark_verifying_key().expect("verifying key"),
             "encrypted": {

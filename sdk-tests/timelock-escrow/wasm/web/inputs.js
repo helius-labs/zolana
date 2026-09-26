@@ -28,12 +28,12 @@ window.inputsOnly = {
   exports: Object.keys(wasm).sort(),
   async proveWithSnarkjs(program, inputs, sender, payer, zkeyUrl, vkeyUrl, runs) {
     const build = TRANSACTIONS[program];
-    const witnessMs = [];
+    const proofInputsMs = [];
     let transaction = build(inputs, toBytes(sender), payer);
     for (let run = 0; run < runs; run += 1) {
       const start = performance.now();
       transaction = build(inputs, toBytes(sender), payer);
-      witnessMs.push(performance.now() - start);
+      proofInputsMs.push(performance.now() - start);
     }
     const zkey = await fetchBytes(zkeyUrl);
     const vkey = await fetchJson(vkeyUrl);
@@ -54,7 +54,7 @@ window.inputsOnly = {
       verified: await window.snarkjs.groth16.verify(vkey, publicSignals, proof),
       publicSignals,
       publicHash: publicHashDecimal(transaction.publicHash),
-      witnessMs,
+      proofInputsMs,
       proofMs,
       totalMs,
     };
