@@ -15,12 +15,18 @@ class GatewayTest(unittest.TestCase):
         backend = """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from urllib.parse import parse_qs, urlsplit
 import hmac
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        key = self.headers.get('X-API-Key') or self.headers.get('Authorization', '').removeprefix('Bearer ')
-        code = 204 if self.path == '/auth' else 200
-        public = self.path in ('/proving-keys', '/v1/zolana/proving-keys')
+        url = urlsplit(self.path)
+        key = (
+            self.headers.get('X-API-Key')
+            or self.headers.get('Authorization', '').removeprefix('Bearer ')
+            or parse_qs(url.query).get('api-key', [''])[0]
+        )
+        code = 204 if url.path == '/auth' else 200
+        public = url.path in ('/proving-keys', '/v1/zolana/proving-keys')
         if self.server.server_port == 3003 and not public and not hmac.compare_digest(key, 'secret'):
             code = 401
         self.send_response(code)
@@ -37,8 +43,10 @@ __import__('time').sleep(120)
 """
         checks = """
 import time, urllib.request, urllib.error
-def request(path, key=None, data=None, method=None):
-    headers = {'X-API-Key': key} if key else {}
+def request(path, key=None, data=None, method=None, query=False):
+    headers = {'X-API-Key': key} if key and not query else {}
+    if key and query:
+        path += '?api-key=' + key
     try:
         with urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:3001' + path, data=data, headers=headers, method=method), timeout=5) as response:
             return response.status, response.read(), response.headers.get_all('Access-Control-Allow-Origin')
@@ -55,6 +63,8 @@ for path in ('/ready', '/indexer', '/indexer/readiness', '/prove/indexed', '/v1/
     assert request(path, 'wrong')[0] == 401, path
     code, _, cors = request(path, 'secret')
     assert code == 200 and cors == ['*'], (path, code, cors)
+    assert request(path, 'wrong', query=True)[0] == 401, path
+    assert request(path, 'secret', query=True)[0] == 200, path
 for path in ('/proving-keys', '/v1/zolana/proving-keys'):
     for key in (None, 'wrong', 'secret'):
         assert request(path, key)[0] == 200, path
@@ -99,6 +109,8 @@ assert request('/indexer', method='OPTIONS')[0] == 204
                     NGINX,
                 )
                 docker("exec", name, "python", "-c", checks)
+                logs = docker("logs", name + "-nginx")
+                self.assertNotIn("api-key", logs.stdout + logs.stderr)
             finally:
                 subprocess.run(
                     ["docker", "rm", "-f", name + "-nginx", name],

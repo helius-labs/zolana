@@ -33,7 +33,7 @@ func (m *authMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		unauthorizedError := &Error{
 			StatusCode: http.StatusUnauthorized,
 			Code:       "unauthorized",
-			Message:    "Invalid or missing API key. Please provide a valid API key in the Authorization header as 'Bearer <api-key>' or in the X-API-Key header.",
+			Message:    "Invalid or missing API key. Please provide a valid API key in the Authorization header as 'Bearer <api-key>', in the X-API-Key header, or as the api-key query parameter.",
 		}
 		unauthorizedError.send(w)
 		return
@@ -66,7 +66,7 @@ func (m *authMiddleware) extractAPIKey(r *http.Request) string {
 		}
 	}
 
-	return ""
+	return r.URL.Query().Get("api-key")
 }
 
 func getAPIKeyFromEnv() string {

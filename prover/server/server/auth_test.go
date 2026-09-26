@@ -9,17 +9,22 @@ import (
 func TestGatewayAuthentication(t *testing.T) {
 	for _, test := range []struct {
 		name   string
+		target string
 		header string
 		value  string
 		status int
 	}{
-		{"missing", "", "", http.StatusUnauthorized},
-		{"wrong", "X-API-Key", "wrong", http.StatusUnauthorized},
-		{"api key", "X-API-Key", "secret", http.StatusNoContent},
-		{"bearer", "Authorization", "Bearer secret", http.StatusNoContent},
+		{"missing", "/auth", "", "", http.StatusUnauthorized},
+		{"wrong", "/auth", "X-API-Key", "wrong", http.StatusUnauthorized},
+		{"api key", "/auth", "X-API-Key", "secret", http.StatusNoContent},
+		{"bearer", "/auth", "Authorization", "Bearer secret", http.StatusNoContent},
+		{"query", "/auth?api-key=secret", "", "", http.StatusNoContent},
+		{"wrong query", "/auth?api-key=wrong", "", "", http.StatusUnauthorized},
+		{"other query", "/auth?api-keys=secret", "", "", http.StatusUnauthorized},
+		{"header over query", "/auth?api-key=secret", "X-API-Key", "wrong", http.StatusUnauthorized},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodGet, "/auth", nil)
+			request := httptest.NewRequest(http.MethodGet, test.target, nil)
 			if test.header != "" {
 				request.Header.Set(test.header, test.value)
 			}

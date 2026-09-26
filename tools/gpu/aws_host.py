@@ -94,8 +94,14 @@ def gateway(with_indexer):
         """
 events {}
 http {
-    access_log /dev/stdout;
-    error_log /dev/stderr warn;
+    # Neither log may carry the query, where SDK clients send the key.
+    log_format gateway '$remote_addr [$time_local] "$request_method $uri" $status $body_bytes_sent $request_time';
+    access_log /dev/stdout gateway;
+    error_log /dev/stderr crit;
+    map $request_uri $request_query {
+        "~^[^?]*[?](?<query>.*)" $query;
+        default "";
+    }
     server {
         listen 3001;
         client_max_body_size 16m;
@@ -115,7 +121,7 @@ http {
         location = /_authorize {
             internal;
             auth_request off;
-            proxy_pass http://127.0.0.1:3003/auth;
+            proxy_pass http://127.0.0.1:3003/auth?$request_query;
             proxy_pass_request_body off;
             proxy_set_header Content-Length "";
         }

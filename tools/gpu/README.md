@@ -42,8 +42,9 @@ AWS_PROFILE=YOUR_PROFILE tools/gpu/aws.py deploy my-prover --indexer-url https:/
 
 Use `--indexer-key-secret ARN` if the external indexer requires a key. The secret
 must contain the raw key in `--source-region`. The deployment generates its own
-API key. Read it through Secrets Manager and send it in `X-API-Key` or as a
-Bearer token. Both public APIs require it. Only CloudFront can reach the gateway;
+API key. Read it through Secrets Manager and send it in `X-API-Key`, as a
+Bearer token, or as the `api-key` query parameter the SDKs use. Both public
+APIs require it. Only CloudFront can reach the gateway;
 SSH, PostgreSQL, Photon, and prover metrics have no public ingress. Use SSM for
 host access and port forwarding.
 

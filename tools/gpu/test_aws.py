@@ -654,6 +654,28 @@ class HostTests(unittest.TestCase):
         self.assertIn("proxy_pass http://127.0.0.1:8784/", text)
         self.assertNotIn("8784", aws_host.gateway(False))
 
+    def test_gateway_hands_the_query_key_to_the_prover_and_logs_no_query(self):
+        text = aws_host.gateway(True)
+        self.assertIn("proxy_pass http://127.0.0.1:3003/auth?$request_query;", text)
+        self.assertEqual(
+            re.findall(r"access_log .*", text), ["access_log /dev/stdout gateway;"]
+        )
+        self.assertEqual(
+            re.findall(r"error_log .*", text), ["error_log /dev/stderr crit;"]
+        )
+        log_format = re.search(r"log_format gateway (.*)", text).group(1)
+        self.assertFalse(
+            set(re.findall(r"\$\w+", log_format))
+            & {
+                "$request",
+                "$request_uri",
+                "$args",
+                "$query_string",
+                "$request_query",
+                "$query",
+            }
+        )
+
 
 class WorkflowTests(unittest.TestCase):
     def test_published_tags_match_deployment_selection(self):
