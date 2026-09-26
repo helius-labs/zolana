@@ -2,7 +2,7 @@ use ark_ff::{BigInteger, PrimeField};
 
 use super::{Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{constant, value, zero, Assert, Bool, CircuitVar, Field},
+    circuit::{constant, value, zero, Bits, Bool, CircuitVar, Field},
     RelationError,
 };
 

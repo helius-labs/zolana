@@ -4,9 +4,10 @@ use ark_relations::r1cs::{
     ConstraintMatrices, ConstraintSynthesizer, OptimizationGoal, SynthesisError, SynthesisMode,
 };
 
+use super::ProofInputs;
 use crate::{
     circuit::{value, Circuit, CircuitSystem, CircuitVar, ConstraintSystem, Field},
-    conversion::{field_bytes, Allocator, ProofInput},
+    conversion::{Allocator, ProofInput},
     RelationError,
 };
 
@@ -105,10 +106,14 @@ where
                 .circuit()?
                 .public_hash(),
         )?;
-        Ok(Self {
+        Ok(Self::with_public_hash(proof_inputs, public_hash))
+    }
+
+    pub(crate) fn with_public_hash(proof_inputs: &'a P, public_hash: Field) -> Self {
+        Self {
             proof_inputs,
             public_hash,
-        })
+        }
     }
 
     pub(crate) fn for_setup(placeholder: &'a P) -> Self {
@@ -116,10 +121,6 @@ where
             proof_inputs: placeholder,
             public_hash: Field::zero(),
         }
-    }
-
-    pub(crate) fn public_hash_bytes(&self) -> [u8; 32] {
-        field_bytes(&self.public_hash)
     }
 
     fn synthesize(&self, mode: SynthesisMode) -> Result<CircuitSystem, RelationError> {
@@ -149,11 +150,11 @@ where
         Ok(CircuitMatrices { matrices })
     }
 
-    pub(crate) fn wtns(&self) -> Result<Vec<u8>, RelationError> {
-        super::snarkjs::wtns(&self.assignment()?)
+    pub(crate) fn proof_inputs(&self) -> Result<ProofInputs, RelationError> {
+        ProofInputs::new(self.assignment()?)
     }
 
-    pub(crate) fn assignment(&self) -> Result<Vec<Field>, RelationError> {
+    fn assignment(&self) -> Result<Vec<Field>, RelationError> {
         let cs = self.synthesize(SynthesisMode::Prove {
             construct_matrices: false,
         })?;

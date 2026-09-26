@@ -63,6 +63,7 @@ members = [
     "sdk-tests/timelock-escrow/prover",
     "sdk-tests/timelock-escrow/sdk",
     "sdk-tests/timelock-escrow/test",
+    "sdk-tests/timelock-escrow/wasm",
     "xtask",
 ]
 default-members = [
@@ -263,6 +264,14 @@ yellowstone-grpc-proto = "12.5.0"
 tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-native-roots"] }
 tokio-stream = "0.1.18"
 zerocopy = "0.8.25"
+
+# Browser (wasm) bindings.
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6.5"
+serde_bytes = "0.11.19"
+tsify = { version = "0.5.8", default-features = false, features = ["js"] }
+wasm-bindgen = "0.2.104"
 
 # Prover math/crypto.
 ark-bn254 = "0.5"

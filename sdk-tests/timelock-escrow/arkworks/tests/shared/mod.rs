@@ -1,9 +1,9 @@
 use solana_signature::Signature;
+use timelock_escrow_arkworks::escrow_authority;
 use timelock_escrow_arkworks::{
     escrow_input, Escrow, EscrowPrivateInputs, EscrowPublicInputs, ESCROW_TOKEN_INPUTS,
 };
 use timelock_escrow_program::instructions::escrow::slot;
-use timelock_escrow_sdk::escrow_authority;
 use zk_program_sdk::{TxContext, ZkProgram};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::{utxo::Utxo, Data, Mint, WalletUtxo};

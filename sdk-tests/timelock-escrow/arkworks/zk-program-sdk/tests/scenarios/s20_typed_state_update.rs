@@ -77,7 +77,7 @@ impl Placeholder for TypedUpdate {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Asset, CheckedTransaction, Circuit, CircuitMarker,
+            constant, poseidon, Asset, Bits, CheckedTransaction, Circuit, CircuitMarker,
             CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,

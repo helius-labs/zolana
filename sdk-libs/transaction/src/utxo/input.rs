@@ -10,16 +10,59 @@ use crate::{Data, Mint, TransactionError};
 /// already computed, so nothing downstream holds key material. Convert from
 /// [`WalletUtxo`](crate::WalletUtxo) when finalizing a transaction.
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(
+    feature = "tsify",
+    derive(tsify::Tsify),
+    tsify(large_number_types_as_bigints)
+)]
 pub struct SppProofInputUtxo {
     /// Includes the resolved [`Mint`], carrying both the address and compact ID.
     pub utxo: Utxo,
     /// The owner's nullifier pubkey, which the commitment folds in through
     /// `owner_hash`. Padding carries zeros: a dummy commits to no owner.
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub nullifier_pubkey: [u8; 32],
     /// Commitment under [`Self::tree_id`].
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub utxo_hash: [u8; 32],
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub nullifier: [u8; 32],
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub data_hash: Option<[u8; 32]>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub ring_data_hash: Option<[u8; 32]>,
     /// Raw id of the tree this UTXO is spent from. Both [`Self::utxo_hash`] and
     /// [`Self::nullifier`] fold it in, so it must match the tree the inclusion
@@ -31,6 +74,11 @@ pub struct SppProofInputUtxo {
     pub tree_id: u16,
     /// Position of the commitment in its tree. Unused for dummy inputs.
     pub leaf_index: u64,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub cache_slot: Option<u8>,
 }
 

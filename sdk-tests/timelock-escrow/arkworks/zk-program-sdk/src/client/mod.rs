@@ -1,5 +1,6 @@
 mod bytes;
 mod owner;
+mod program_owner;
 #[cfg(feature = "client")]
 mod transaction;
 #[cfg(feature = "client")]
@@ -11,13 +12,30 @@ use zolana_keypair::random_blinding;
 
 pub use bytes::Bytes;
 pub use owner::Owner;
+pub use program_owner::ProgramOwner;
 
 #[cfg(feature = "client")]
-pub use transaction::ZkProgram;
+pub use transaction::{ProgramTransaction, ZkProgram};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub struct TxContext {
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding_seed: [u8; 32],
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub output_tree_id: Option<u16>,
 }
 

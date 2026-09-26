@@ -813,6 +813,37 @@ test-zk-program-sdk-macros:
 test-arkworks-snarkjs:
     cargo test --release -p timelock-escrow-arkworks --features snarkjs --test snarkjs
 
+# Checks that the ZK program SDK, the escrow circuits and the escrow wasm
+# module build for wasm32-unknown-unknown. Kept out of check-all: CI installs
+# no wasm target.
+check-wasm:
+    cargo check -p zk-program-sdk --no-default-features --features client --target wasm32-unknown-unknown
+    cargo check -p timelock-escrow-arkworks --no-default-features --features wasm --target wasm32-unknown-unknown
+    cargo check -p timelock-escrow-wasm --features test-exports --target wasm32-unknown-unknown
+
+# Builds the escrow wasm module (escrowTransaction, withdrawTransaction and
+# their provers) into sdk-tests/timelock-escrow/wasm/web/pkg. Needs wasm-pack.
+build-escrow-wasm:
+    cd sdk-tests/timelock-escrow/wasm && wasm-pack build --release --target web --out-dir web/pkg
+
+# Writes the escrow wasm fixtures: the seeded proving keys and a throwaway
+# snarkjs zkey under target/escrow-wasm-fixtures (not committed), and the
+# committed JSON fixtures the Playwright and TS SDK tests compare against.
+# Needs `snarkjs` on PATH.
+regen-escrow-wasm-fixtures:
+    cargo test --release -p timelock-escrow-arkworks --features snarkjs,wasm --test wasm_fixtures -- --ignored --nocapture
+
+# Runs the escrow wasm module's Playwright tests in Chromium: builds the
+# module with its test-only verifier, checks the generated types, proves in
+# the page and in a worker, and compares against the native fixtures.
+test-escrow-wasm: regen-escrow-wasm-fixtures
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run check:dts && npm test
+
+# Measures module load, key load and proof time of the escrow wasm module in
+# Chromium.
+bench-escrow-wasm: regen-escrow-wasm-fixtures
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run bench
+
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in
 # target/deploy either -- build the bench programs into their own dedicated

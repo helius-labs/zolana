@@ -90,7 +90,7 @@ impl Placeholder for VerifyCredential {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Assert, Bits, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,

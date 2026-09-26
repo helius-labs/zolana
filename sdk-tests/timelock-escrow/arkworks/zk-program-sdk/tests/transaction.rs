@@ -10,13 +10,12 @@ use zk_program_sdk::{
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
     RelationError, TxContext,
 };
-use zolana_client::ProofInputUtxo;
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
 use zolana_program::{
     derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
 };
-use zolana_transaction::{Data, Mint, WalletUtxo};
+use zolana_transaction::{utxo::ProofInputUtxo, Data, Mint, WalletUtxo};
 
 const TREE_ID: u16 = 2;
 const BLINDING_SEED: u64 = 23;

@@ -8,10 +8,7 @@ use zk_program_sdk::{
     RelationError,
 };
 use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::{
-    constants::BLINDING_LEN, random_blinding, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
-    ShieldedKeypair, SigningKey,
-};
+use zolana_keypair::{random_blinding, P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
     decrypt,
     instructions::transact::SppProofInputs,
@@ -232,29 +229,19 @@ fn placed(keys: &ShieldedKeypair, mut utxo: WalletUtxo, data_hash: [u8; 32]) -> 
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ProgramOwner {
-    pda: Address,
-}
+pub struct ProgramOwner(zk_program_sdk::ProgramOwner);
 
 impl ProgramOwner {
     pub fn new(seed: u8) -> Self {
-        Self {
-            pda: Address::new_from_array([seed; 32]),
-        }
-    }
-
-    fn nullifier_key() -> NullifierKey {
-        NullifierKey::from_secret([0u8; BLINDING_LEN])
+        Self(zk_program_sdk::ProgramOwner::new(Address::new_from_array(
+            [seed; 32],
+        )))
     }
 
     pub fn address(&self, viewer: &ShieldedAddress) -> ShieldedAddress {
-        ShieldedAddress::for_pda(
-            &self.pda,
-            Self::nullifier_key()
-                .pubkey()
-                .expect("program nullifier pubkey"),
-            viewer.viewing_pubkey,
-        )
+        self.0
+            .address(viewer.viewing_pubkey)
+            .expect("program address")
     }
 
     pub fn data_input<S>(
@@ -275,43 +262,9 @@ impl ProgramOwner {
     }
 
     pub fn input(&self, output: &SppProofOutputUtxo, tree_id: u16, leaf_index: u64) -> WalletUtxo {
-        let key = Self::nullifier_key();
-        let nullifier_pubkey = key.pubkey().expect("program nullifier pubkey");
-        let utxo = Utxo {
-            owner: PublicKey::from_pda(&self.pda),
-            asset: output.asset,
-            amount: output.amount,
-            blinding: output.blinding,
-            ring_program_id: None,
-            data: output.data.clone(),
-        };
-        let utxo_hash = utxo
-            .hash(
-                &nullifier_pubkey,
-                &output.data_hash.unwrap_or_default(),
-                &[0u8; 32],
-                tree_id,
-            )
-            .expect("program utxo hash");
-        assert_eq!(
-            utxo_hash,
-            output.hash(tree_id).expect("output hash"),
-            "the output is owned by the program"
-        );
-        WalletUtxo {
-            nullifier: utxo.nullifier(&utxo_hash, &key).expect("nullifier"),
-            utxo,
-            nullifier_pubkey,
-            utxo_hash,
-            data_hash: output.data_hash,
-            ring_data_hash: None,
-            tree_id,
-            leaf_index,
-            latest_tree_id: None,
-            slot: 0,
-            tx_signature: Signature::default(),
-            slot_index: 0,
-        }
+        self.0
+            .input(output, tree_id, leaf_index)
+            .expect("the output is owned by the program")
     }
 }
 

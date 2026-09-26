@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zk_program_sdk::{
-    circuit::{self, constant, Assert, ConstraintSystem, Field},
+    circuit::{self, constant, Bits, ConstraintSystem, Field},
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
     Bytes, Owner,
 };

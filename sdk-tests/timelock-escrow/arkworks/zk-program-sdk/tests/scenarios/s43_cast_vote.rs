@@ -87,7 +87,7 @@ impl Placeholder for CastVote {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
+            constant, poseidon, Assert, Balance, Bits, CheckedTransaction, Circuit, CircuitMarker,
             CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
         },
         RelationError,

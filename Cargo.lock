@@ -1779,6 +1779,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3153,9 +3163,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -6356,6 +6368,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_bytes"
 version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6383,6 +6406,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.5",
+]
+
+[[package]]
+name = "serde_derive_internals"
+version = "0.29.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -9653,14 +9687,17 @@ dependencies = [
  "ark-relations",
  "borsh",
  "hex",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-signature",
  "timelock-escrow-program",
- "timelock-escrow-sdk",
+ "tsify",
+ "wasm-bindgen",
  "zk-program-sdk",
  "zolana-hasher",
+ "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",
 ]
@@ -9746,6 +9783,16 @@ dependencies = [
  "zolana-transaction",
  "zolana-tree",
  "zolana-wallet",
+]
+
+[[package]]
+name = "timelock-escrow-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "timelock-escrow-arkworks",
+ "wasm-bindgen",
+ "zk-program-sdk",
 ]
 
 [[package]]
@@ -10226,6 +10273,30 @@ dependencies = [
  "target-tuple",
  "termcolor",
  "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
+name = "tsify"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea3af6b48c5c5624f7eb3c2f578d1335fadac433321980cae0063e8eb0acaa44"
+dependencies = [
+ "serde",
+ "serde-wasm-bindgen",
+ "tsify-macros",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "tsify-macros"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1e2e93369379d0a527c7d6632b58c55d52db7a106d8afbde3b354f3a57a9f1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -11223,13 +11294,18 @@ dependencies = [
  "ark-std 0.5.0",
  "borsh",
  "groth16-solana",
+ "js-sys",
  "light-poseidon 0.4.0",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
  "solana-address 2.6.1",
  "solana-bn254",
  "solana-signature",
  "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
  "zk-program-sdk-macros",
- "zolana-client",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -11482,11 +11558,14 @@ dependencies = [
  "ctr",
  "ed25519-dalek 2.2.0",
  "ed25519-dalek-bip32",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "hex",
  "hkdf",
  "p256",
  "rand 0.8.8",
  "serde",
+ "serde_bytes",
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
@@ -11496,6 +11575,8 @@ dependencies = [
  "solana-signer",
  "thiserror 2.0.20",
  "tokio",
+ "tsify",
+ "wasm-bindgen",
  "zeroize",
  "zolana-hasher",
 ]
@@ -11754,6 +11835,8 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-signature",
  "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
  "wincode",
  "zolana-event",
  "zolana-hasher",

@@ -75,12 +75,17 @@ inputs, and the files of the same names in `circuit/` hold the circuits.
 | `CircuitVar` | The value type inside `circuit`: a constant in the native run, a variable in R1CS. |
 | `CircuitSystem`, `ConstraintSystem` | The constraint system R1CS instantiation allocates into. `ConstraintSystem::new_ref()` makes one. |
 | `constant`, `zero`, `value` | Build a constant `CircuitVar`, or read a `CircuitVar`'s value. |
-| `Assert` | Named rules on `CircuitVar`: `assert_equal`, `assert_not_equal`, `check_bits`, `check_is_bool`, and `is_equal`, which returns a `Bool`. |
-| `Bool` | A 0 or 1 value, from a `bool` input or `is_equal`: `select(if_true, if_false)`, `not`, `and`, `or`, and `var` for hashing. A circuit needs no arkworks import to branch on one. |
+| `Assert` | Equality with a named rule on `CircuitVar`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays: `assert_equal`, `assert_not_equal`, `assert_equal_if(condition)`, and `is_equal`, which returns a `Bool`. |
+| `Bits` | `check_bits(bits)`, `check_is_bool`, and `to_bits_le::<N>()`, which returns the bits as `Bool`s. `from_bits_le` recomposes them. |
+| `Compare` | `is_zero`, `assert_zero`, `assert_nonzero`; `is_less_than`, `is_less_or_equal`, `is_greater_than`, `is_greater_or_equal` and their `assert_*` forms over `bits`-wide unsigned integers; `assert_in_range(low, high)` (inclusive), `min`, `max`. The `is_*` forms range-check both operands; the asserts check the smaller operand and the gap, which is enough for the integer relation to hold. |
+| `Arithmetic` | `checked_add`, `checked_sub` and `checked_mul` over `bits`-wide integers, refusing overflow and underflow; `div_rem` up to 126 bits; `inverse`, `div` and `pow` in the field, refusing a zero divisor. |
+| `Bool` | A 0 or 1 value, from a `bool` input, `Bool::from_var` or a comparison: `select(if_true, if_false)` for any `Select` type, `not`, `and`, `or`, `xor`, `nand`, `implies`, `Bool::all`, `Bool::any`, `assert_true`, `assert_false`, `assert_true_if(condition)`, and `var` for hashing. A circuit needs no arkworks import to branch on one. |
+| `Select` | Selection by a `Bool`, for `CircuitVar`, `Bool`, `Bytes<N>`, `Asset`, `OwnerKey`, `Owner` and arrays. `one_hot::<N>(index)` and `select_index(&items, index)` index an array by a variable and refuse an index outside it. |
+| `is_in`, `assert_in` | Membership of a value in a set of `CircuitVar`s. |
 | `poseidon` | The circom Poseidon that zolana hashes with natively, built from light-poseidon's parameters. |
 | `nonzero_hash_chain` | The chain `private_tx_hash` folds input and output hashes with. It skips zeros, so dummies do not enter it. |
 | `hash_bytes` | The zolana `hash_bytes` over byte variables: 31-byte big-endian chunks folded with Poseidon. |
-| `Bytes<N>` | `N` byte variables, each range-checked to 8 bits when allocated. |
+| `Bytes<N>` | `N` byte variables, each range-checked to 8 bits when allocated. `Bytes::from_var` splits a variable into big-endian bytes and `to_var` packs them back, for `N` up to 31. |
 
 **UTXOs**
 

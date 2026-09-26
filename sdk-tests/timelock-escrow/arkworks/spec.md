@@ -188,7 +188,8 @@ Proof inputs use plain Rust types that implement `ProofInput`:
   implements it field by field. A `ShieldedAddress`, a `Mint` or a spent UTXO cannot come
   back: the viewing key, the asset id and the indexer context are not in the circuit.
 - A computed value that needs a bound gets an explicit check in `circuit`:
-  `check_bits(bits)` or `check_is_bool` on `CircuitVar`.
+  `check_bits(bits)` or `check_is_bool` from `Bits`, or a `Compare` or `Arithmetic`
+  gadget, which range-checks its operands itself.
 - The SPP proof range-checks UTXO amounts. The circuit range-checks its inputs and the
   computed values its logic relies on, such as the operands of a comparison.
 
@@ -403,7 +404,7 @@ zk-program-sdk follows the same split:
 | Path | Contents |
 | --- | --- |
 | `zk_program_sdk` | What the client and the prover use: `TxContext`, `Owner`, `Bytes`, `ZkProgram`, `Groth16Prover`, `ProofResult`, the Groth16 types and their `ProvingKey`, `VerifyingKey` and `Proof` aliases, `RelationError`. |
-| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`. |
+| `zk_program_sdk::circuit` | The DSL: `CircuitVar`, `Bool`, `Field`, `CircuitSystem`, `ConstraintSystem`, `Assert`, `Bits`, `Compare`, `Arithmetic`, `Select`, `one_hot`, `select_index`, `is_in`, `assert_in`, `from_bits_le`, `constant`, `zero`, `value`, `poseidon`, `hash_bytes`, `Bytes`, `Asset`, `OwnerKey`, `Owner`, `TxContext`, `Utxo`, `TokenUtxo`, `DataUtxo`, `Balance`, `ConfidentialTransaction`, `CheckedTransaction`, `PublicInputs`, `DataHash`, `UtxoData`, `Circuit`. |
 | `zk_program_sdk::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Allocator`, `Records`, and bytes to fields and back. |
 
 Everything a future macro derives can also be written by hand, so `conversion` stays public.

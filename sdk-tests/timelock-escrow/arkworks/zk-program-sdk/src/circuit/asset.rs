@@ -5,8 +5,8 @@ use solana_address::Address;
 use zolana_transaction::SOL_MINT;
 
 use super::{
-    var::{assert_equal_unless, cached},
-    Bytes, CircuitVar, Field,
+    var::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless, cached},
+    Assert, Bool, Bytes, CircuitVar, Field, Select,
 };
 use crate::{circuit_lib::packed, RelationError};
 
@@ -59,5 +59,39 @@ impl Asset {
 impl Default for Asset {
     fn default() -> Self {
         Self::sol()
+    }
+}
+
+impl Assert for Asset {
+    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+        all_equal(&packed(self.bytes.bytes()), &packed(other.bytes.bytes()))
+    }
+
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+        assert_all_equal(
+            &packed(self.bytes.bytes()),
+            &packed(other.bytes.bytes()),
+            rule,
+        )
+    }
+
+    fn assert_equal_if(
+        &self,
+        other: &Self,
+        condition: &Bool,
+        rule: &'static str,
+    ) -> Result<(), RelationError> {
+        assert_all_equal_if(
+            &packed(self.bytes.bytes()),
+            &packed(other.bytes.bytes()),
+            condition,
+            rule,
+        )
+    }
+}
+
+impl Select for Asset {
+    fn select(condition: &Bool, if_true: &Self, if_false: &Self) -> Self {
+        Self::new(Bytes::select(condition, &if_true.bytes, &if_false.bytes))
     }
 }

@@ -10,12 +10,29 @@ use crate::circuit;
 pub const ESCROW_TOKEN_INPUTS: usize = 5;
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "wasm", derive(zk_program_sdk::wasm::ZkProgramWasm))]
 pub struct Escrow {
     pub private: EscrowPrivateInputs,
     pub public: EscrowPublicInputs,
 }
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(
+    feature = "tsify",
+    derive(tsify::Tsify),
+    tsify(large_number_types_as_bigints)
+)]
 pub struct EscrowPrivateInputs {
     pub tx_context: TxContext,
     pub token_utxos_asset_a: [WalletUtxo; ESCROW_TOKEN_INPUTS],
@@ -24,6 +41,12 @@ pub struct EscrowPrivateInputs {
 }
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub struct EscrowPublicInputs {
     pub escrow_owner: ShieldedAddress,
 }

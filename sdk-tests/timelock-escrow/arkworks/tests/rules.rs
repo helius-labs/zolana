@@ -1,9 +1,9 @@
 use ark_relations::r1cs::SynthesisError;
+use timelock_escrow_arkworks::escrow_authority;
 use timelock_escrow_arkworks::{
     Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw, WithdrawPrivateInputs,
     WithdrawPublicInputs,
 };
-use timelock_escrow_sdk::escrow_authority;
 use zk_program_sdk::{
     circuit::{Circuit, ConstraintSystem},
     conversion::{to_bytes, Allocator, ProofInput},

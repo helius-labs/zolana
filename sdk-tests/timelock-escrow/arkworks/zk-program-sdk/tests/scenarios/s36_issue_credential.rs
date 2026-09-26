@@ -80,8 +80,9 @@ impl Placeholder for IssueCredential {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Utxo,
+            constant, poseidon, Assert, Asset, Balance, Bits, CheckedTransaction, Circuit,
+            CircuitMarker, CircuitVar, ConfidentialTransaction, DataUtxo, Owner, PublicInputs,
+            TxContext, Utxo,
         },
         RelationError,
     };

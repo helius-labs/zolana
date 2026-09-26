@@ -7,10 +7,10 @@ use zolana_transaction::instructions::transact::{
 use zolana_transaction::{instructions::transact::SppProofInputs, keys::ShieldedKeys};
 
 use crate::{
-    circuit::{CheckedTransaction, Circuit},
-    conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput, Records},
+    circuit::{value, CheckedTransaction, Circuit},
+    conversion::{field_bytes, to_bytes, Allocator, FromCircuit, Placeholder, ProofInput, Records},
     program::{transaction_hash, PublicTransfer},
-    prover::ArkworksCircuit,
+    prover::{ArkworksCircuit, ProofInputs},
     RelationError,
 };
 
@@ -25,8 +25,12 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
         ArkworksCircuit::for_setup(&placeholder).matrices()?.r1cs()
     }
 
+    fn proof_inputs(&self) -> Result<ProofInputs, RelationError> {
+        ArkworksCircuit::new(self)?.proof_inputs()
+    }
+
     fn export_assignment(&self) -> Result<Vec<u8>, RelationError> {
-        ArkworksCircuit::new(self)?.wtns()
+        self.proof_inputs()?.to_bytes()
     }
 
     fn create_finalized_transaction(
@@ -34,15 +38,21 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
         sender: &ShieldedAddress,
         payer: Address,
     ) -> Result<FinalizedTransaction, RelationError> {
-        let allocator = Allocator::native();
-        let checked = self.instantiate(&allocator)?.circuit()?;
-        let records = allocator.into_records();
-        SppTransactionBuilder {
-            checked: &checked,
-            records: &records,
-            payer,
-        }
-        .build(sender)
+        Ok(finalize(self, sender, payer)?.1)
+    }
+
+    fn create_program_transaction(
+        &self,
+        sender: &ShieldedAddress,
+        payer: Address,
+    ) -> Result<ProgramTransaction, RelationError> {
+        let (checked, finalized) = finalize(self, sender, payer)?;
+        let public_hash = value(checked.public_hash())?;
+        Ok(ProgramTransaction {
+            finalized,
+            proof_inputs: ArkworksCircuit::with_public_hash(self, public_hash).proof_inputs()?,
+            public_hash: field_bytes(&public_hash),
+        })
     }
 
     #[cfg(feature = "encrypt")]
@@ -63,6 +73,30 @@ pub trait ZkProgram: ProofInput<Circuit: Circuit> + Placeholder {
 }
 
 impl<T: ProofInput<Circuit: Circuit> + Placeholder> ZkProgram for T {}
+
+#[derive(Clone)]
+pub struct ProgramTransaction {
+    pub finalized: FinalizedTransaction,
+    pub proof_inputs: ProofInputs,
+    pub public_hash: [u8; 32],
+}
+
+fn finalize<P: ZkProgram>(
+    program: &P,
+    sender: &ShieldedAddress,
+    payer: Address,
+) -> Result<(CheckedTransaction, FinalizedTransaction), RelationError> {
+    let allocator = Allocator::native();
+    let checked = program.instantiate(&allocator)?.circuit()?;
+    let records = allocator.into_records();
+    let finalized = SppTransactionBuilder {
+        checked: &checked,
+        records: &records,
+        payer,
+    }
+    .build(sender)?;
+    Ok((checked, finalized))
+}
 
 pub(super) struct SppTransactionBuilder<'a> {
     pub(super) checked: &'a CheckedTransaction,

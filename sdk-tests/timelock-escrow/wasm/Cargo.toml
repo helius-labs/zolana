@@ -1,0 +1,20 @@
+[package]
+name = "timelock-escrow-wasm"
+version = "0.1.0"
+description = "Browser bindings for the timelock escrow ZK program: builds its transactions and proves them."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+console_error_panic_hook = { workspace = true }
+timelock-escrow-arkworks = { path = "../arkworks", default-features = false, features = ["wasm"] }
+wasm-bindgen = { workspace = true }
+zk-program-sdk = { path = "../arkworks/zk-program-sdk", default-features = false, features = ["wasm"] }
+
+[features]
+test-exports = ["zk-program-sdk/wasm-verify"]

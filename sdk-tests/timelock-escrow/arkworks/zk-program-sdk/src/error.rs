@@ -31,6 +31,14 @@ pub enum RelationError {
     RangeTooWide(usize),
     #[error("a value is neither 0 nor 1")]
     NotBool,
+    #[error("an operation on {0}-bit integers overflows")]
+    Overflow(usize),
+    #[error("a subtraction on {0}-bit integers underflows")]
+    Underflow(usize),
+    #[error("a division by zero")]
+    DivisionByZero,
+    #[error("an index is outside an array of {0} items")]
+    IndexOutOfBounds(usize),
     #[error("the constraint system is unsatisfied at {0}")]
     Unsatisfied(String),
     #[error("the proof does not verify under these keys")]
@@ -49,6 +57,10 @@ pub enum RelationError {
     KeysForAnotherCircuit,
     #[error("the proof inputs build another circuit than the prover's")]
     ProofInputsForAnotherCircuit,
+    #[error("the proof inputs are malformed: {0}")]
+    InvalidProofInputs(&'static str),
+    #[error("a result cannot be converted to a JavaScript value: {0}")]
+    ToJs(String),
     #[error(transparent)]
     Hasher(#[from] zolana_hasher::HasherError),
     #[error(transparent)]
@@ -56,6 +68,40 @@ pub enum RelationError {
 }
 
 impl RelationError {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Violated(_) => "Violated",
+            Self::Slot { .. } => "Slot",
+            Self::PoseidonArity(_) => "PoseidonArity",
+            Self::NonCanonical(_) => "NonCanonical",
+            Self::InvalidInput(_) => "InvalidInput",
+            Self::Spp(_) => "Spp",
+            Self::Conversion(_) => "Conversion",
+            Self::StateEncoding(_) => "StateEncoding",
+            Self::DataHashMismatch => "DataHashMismatch",
+            Self::OutOfRange(_) => "OutOfRange",
+            Self::RangeTooWide(_) => "RangeTooWide",
+            Self::NotBool => "NotBool",
+            Self::Overflow(_) => "Overflow",
+            Self::Underflow(_) => "Underflow",
+            Self::DivisionByZero => "DivisionByZero",
+            Self::IndexOutOfBounds(_) => "IndexOutOfBounds",
+            Self::Unsatisfied(_) => "Unsatisfied",
+            Self::ProofRejected => "ProofRejected",
+            Self::InvalidProofPoint => "InvalidProofPoint",
+            Self::Keys(_) => "Keys",
+            Self::InvalidZkey(_) => "InvalidZkey",
+            Self::InvalidKeyPoint(_) => "InvalidKeyPoint",
+            Self::UncontributedZkey => "UncontributedZkey",
+            Self::KeysForAnotherCircuit => "KeysForAnotherCircuit",
+            Self::ProofInputsForAnotherCircuit => "ProofInputsForAnotherCircuit",
+            Self::InvalidProofInputs(_) => "InvalidProofInputs",
+            Self::ToJs(_) => "ToJs",
+            Self::Hasher(_) => "Hasher",
+            Self::Synthesis(_) => "Synthesis",
+        }
+    }
+
     pub(crate) fn input(error: impl core::fmt::Display) -> Self {
         Self::InvalidInput(error.to_string())
     }

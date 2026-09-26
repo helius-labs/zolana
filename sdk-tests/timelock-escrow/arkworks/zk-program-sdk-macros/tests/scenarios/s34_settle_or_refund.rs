@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitType,
+        constant, zero, Assert, Balance, Bits, CheckedTransaction, Circuit, CircuitType,
         ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo,
     },
     conversion::ProofInput,

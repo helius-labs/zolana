@@ -6,13 +6,15 @@ mod error;
 pub mod hasher;
 pub mod program;
 mod prover;
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
+pub use client::{Bytes, Owner, ProgramOwner, TxContext};
 #[cfg(feature = "client")]
-pub use client::ZkProgram;
-pub use client::{Bytes, Owner, TxContext};
+pub use client::{ProgramTransaction, ZkProgram};
 pub use error::RelationError;
 #[cfg(feature = "client")]
-pub use prover::{CompressedProof, Groth16Prover, ProofResult, SolanaProof};
+pub use prover::{CompressedProof, Groth16Prover, ProofInputs, ProofResult, SolanaProof};
 #[cfg(any(feature = "client", feature = "setup"))]
 pub use prover::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
 #[cfg(feature = "setup")]

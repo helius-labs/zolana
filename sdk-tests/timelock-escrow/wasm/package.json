@@ -1,0 +1,18 @@
+{
+  "name": "timelock-escrow-wasm-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wasm-pack build --release --target web --out-dir web/pkg",
+    "build:test": "wasm-pack build --release --target web --out-dir web/pkg -- --features test-exports",
+    "check:dts": "node tools/check-dts.mjs",
+    "test": "playwright test --grep-invert @bench",
+    "bench": "playwright test --grep @bench --reporter=list",
+    "serve": "node tools/serve.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "snarkjs": "0.7.6"
+  }
+}

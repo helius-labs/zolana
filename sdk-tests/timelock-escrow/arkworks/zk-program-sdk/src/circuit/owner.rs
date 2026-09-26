@@ -5,8 +5,8 @@ use zolana_hasher::primitives::{P256_OWNER_TAG, SOLANA_OWNER_TAG};
 
 use super::{
     constant, hash_bytes, poseidon,
-    var::{assert_equal_unless, cached},
-    zero, Bytes, CircuitVar, DataHash, Field,
+    var::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless, cached},
+    zero, Assert, Bool, Bytes, CircuitVar, DataHash, Field, Select,
 };
 use crate::{circuit_lib::packed, RelationError};
 
@@ -129,5 +129,73 @@ impl Default for Owner {
 impl DataHash for Owner {
     fn hash(&self) -> Result<CircuitVar, RelationError> {
         Owner::hash(self)
+    }
+}
+
+impl Assert for OwnerKey {
+    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+        all_equal(&packed(&self.tagged()), &packed(&other.tagged()))
+    }
+
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+        assert_all_equal(&packed(&self.tagged()), &packed(&other.tagged()), rule)
+    }
+
+    fn assert_equal_if(
+        &self,
+        other: &Self,
+        condition: &Bool,
+        rule: &'static str,
+    ) -> Result<(), RelationError> {
+        assert_all_equal_if(
+            &packed(&self.tagged()),
+            &packed(&other.tagged()),
+            condition,
+            rule,
+        )
+    }
+}
+
+impl Select for OwnerKey {
+    fn select(condition: &Bool, if_true: &Self, if_false: &Self) -> Self {
+        Self {
+            tag: CircuitVar::select(condition, &if_true.tag, &if_false.tag),
+            bytes: Bytes::select(condition, &if_true.bytes, &if_false.bytes),
+            identity: Rc::new(OnceCell::new()),
+        }
+    }
+}
+
+impl Assert for Owner {
+    fn is_equal(&self, other: &Self) -> Result<Bool, RelationError> {
+        Ok(self
+            .key
+            .is_equal(&other.key)?
+            .and(&self.nullifier_pk.is_equal(&other.nullifier_pk)?))
+    }
+
+    fn assert_equal(&self, other: &Self, rule: &'static str) -> Result<(), RelationError> {
+        self.key.assert_equal(&other.key, rule)?;
+        self.nullifier_pk.assert_equal(&other.nullifier_pk, rule)
+    }
+
+    fn assert_equal_if(
+        &self,
+        other: &Self,
+        condition: &Bool,
+        rule: &'static str,
+    ) -> Result<(), RelationError> {
+        self.key.assert_equal_if(&other.key, condition, rule)?;
+        self.nullifier_pk
+            .assert_equal_if(&other.nullifier_pk, condition, rule)
+    }
+}
+
+impl Select for Owner {
+    fn select(condition: &Bool, if_true: &Self, if_false: &Self) -> Self {
+        Self::new(
+            OwnerKey::select(condition, &if_true.key, &if_false.key),
+            CircuitVar::select(condition, &if_true.nullifier_pk, &if_false.nullifier_pk),
+        )
     }
 }

@@ -6,7 +6,8 @@ use solana_address::Address;
 use zk_program_sdk::{
     circuit::{constant, Circuit, CircuitVar, ConstraintSystem, Field},
     conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput},
-    Groth16Keys, Groth16Prover, RelationError, SetupKind, TxContext, VerifyingKeyExport, ZkProgram,
+    Groth16Keys, Groth16Prover, ProofInputs, RelationError, SetupKind, TxContext,
+    VerifyingKeyExport, ZkProgram,
 };
 use zolana_interface::instruction::instruction_data::transact::OwnerTag;
 use zolana_keypair::ShieldedAddress;
@@ -552,6 +553,178 @@ fn the_prover_refuses_a_witness_its_circuit_does_not_accept() {
             true,
             true,
             Some("the proof inputs build another circuit than the prover's".to_string()),
+        )
+    );
+}
+
+fn two_input_payment() -> Payment {
+    let sender = keypair(5);
+    Payment {
+        private: PaymentPrivateInputs {
+            tx_context: TxContext::new(),
+            token_utxos_asset_a: [
+                spendable(&sender, Mint::SOL, 300, 0),
+                spendable(&sender, Mint::SOL, 200, 1),
+            ],
+            amount: 400,
+        },
+        public: RecipientPublicInputs {
+            recipient: keypair(6).shielded_address().unwrap(),
+        },
+    }
+}
+
+#[test]
+fn a_program_transaction_carries_proof_inputs_the_prover_accepts() {
+    let payment = two_input_payment();
+    let sender_address = keypair(5).shielded_address().unwrap();
+    let payer = sender_address.solana_address().unwrap();
+    let transaction = payment
+        .create_program_transaction(&sender_address, payer)
+        .unwrap();
+    let bytes = transaction.proof_inputs.to_bytes().unwrap();
+    let decoded = ProofInputs::from_bytes(&bytes).unwrap();
+    let prover = Groth16Prover::<Payment>::new_with_test_setup().unwrap();
+    let first = prover.prove_inputs(&decoded).unwrap();
+    let second = prover.prove_inputs(&decoded).unwrap();
+    let native = payment
+        .instantiate(&Allocator::native())
+        .unwrap()
+        .circuit()
+        .unwrap();
+
+    assert_eq!(
+        (
+            bytes == payment.export_assignment().unwrap(),
+            decoded == transaction.proof_inputs,
+            transaction.public_hash,
+            first.public_hash,
+            prover.verify(&first).is_ok(),
+            prover.verify(&second).is_ok(),
+            first.proof == second.proof,
+            transaction.finalized.output_hashes().unwrap()
+                == payment
+                    .create_finalized_transaction(&sender_address, payer)
+                    .unwrap()
+                    .output_hashes()
+                    .unwrap(),
+        ),
+        (
+            true,
+            true,
+            to_bytes(native.public_hash()).unwrap(),
+            to_bytes(native.public_hash()).unwrap(),
+            true,
+            true,
+            false,
+            true,
+        )
+    );
+}
+
+#[cfg(feature = "wasm")]
+#[test]
+fn the_wasm_transaction_carries_every_slot_and_owner_tag() {
+    use zk_program_sdk::wasm;
+    use zolana_transaction::instructions::transact::ResolvedOwnerTag;
+
+    let payment = two_input_payment();
+    let sender_address = keypair(5).shielded_address().unwrap();
+    let transaction = payment
+        .create_program_transaction(&sender_address, sender_address.solana_address().unwrap())
+        .unwrap();
+    let json =
+        serde_json::to_value(wasm::ProgramTransaction::try_from(&transaction).unwrap()).unwrap();
+    let bytes_of = |hash: &[u8; 32]| serde_json::json!(hash.to_vec());
+    let tag_json = |owner_tag: &ResolvedOwnerTag| {
+        serde_json::to_value(wasm::ResolvedOwnerTag::from(owner_tag)).unwrap()
+    };
+    let finalized = &transaction.finalized;
+    let (ones, twos, threes) = (vec![1u8; 32], vec![2u8; 32], vec![3u8; 32]);
+
+    assert_eq!(
+        (
+            json["finalizedTx"]["outputHashes"].clone(),
+            json["finalizedTx"]["ownerTags"].clone(),
+            json["finalizedTx"]["outputUtxos"].as_array().map(Vec::len),
+            json["proofInputs"].clone(),
+            json["publicHash"].clone(),
+            tag_json(&ResolvedOwnerTag {
+                tag: OwnerTag::Inline([1; 32]),
+                resolved: [2; 32],
+            }),
+            tag_json(&ResolvedOwnerTag {
+                tag: OwnerTag::Account(0),
+                resolved: [3; 32],
+            }),
+        ),
+        (
+            serde_json::Value::Array(
+                finalized
+                    .output_hashes()
+                    .unwrap()
+                    .iter()
+                    .map(bytes_of)
+                    .collect()
+            ),
+            serde_json::Value::Array(finalized.owner_tags().iter().map(tag_json).collect()),
+            Some(finalized.output_utxos().len()),
+            serde_json::json!(transaction.proof_inputs.to_bytes().unwrap()),
+            bytes_of(&transaction.public_hash),
+            serde_json::json!({ "tag": { "kind": "inline", "value": ones }, "resolved": twos }),
+            serde_json::json!({ "tag": { "kind": "account", "index": 0 }, "resolved": threes }),
+        )
+    );
+}
+
+#[test]
+fn malformed_proof_inputs_are_rejected_with_named_errors() {
+    const VALUES_OFFSET: usize = 76;
+    let payment = two_input_payment();
+    let bytes = payment.export_assignment().unwrap();
+    let edited = |edit: &dyn Fn(&mut Vec<u8>)| {
+        let mut bytes = bytes.clone();
+        edit(&mut bytes);
+        ProofInputs::from_bytes(&bytes).err().map(|e| e.name())
+    };
+    let prover = Groth16Prover::<Payment>::new_with_test_setup().unwrap();
+    let other_circuit = Groth16Prover::<Register>::new_with_test_setup().unwrap();
+    let mut tampered = bytes.clone();
+    if let Some(public_hash) = tampered.get_mut(VALUES_OFFSET + 32..VALUES_OFFSET + 64) {
+        public_hash.fill(0);
+    }
+    let tampered = ProofInputs::from_bytes(&tampered).unwrap();
+    let valid = ProofInputs::from_bytes(&bytes).unwrap();
+
+    assert_eq!(
+        (
+            edited(&|bytes| bytes.truncate(bytes.len() - 1)),
+            edited(&|bytes| {
+                if let Some(magic) = bytes.first_mut() {
+                    *magic = b'x';
+                }
+            }),
+            edited(&|bytes| {
+                if let Some(first) = bytes.get_mut(VALUES_OFFSET) {
+                    *first = 2;
+                }
+            }),
+            edited(&|bytes| {
+                let len = bytes.len();
+                if let Some(last) = bytes.get_mut(len - 32..) {
+                    last.fill(0xff);
+                }
+            }),
+            prover.prove_inputs(&tampered).err().map(|e| e.name()),
+            other_circuit.prove_inputs(&valid).err().map(|e| e.name()),
+        ),
+        (
+            Some("InvalidProofInputs"),
+            Some("InvalidProofInputs"),
+            Some("InvalidProofInputs"),
+            Some("NonCanonical"),
+            Some("Unsatisfied"),
+            Some("ProofInputsForAnotherCircuit"),
         )
     );
 }

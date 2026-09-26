@@ -6,19 +6,29 @@ publish = false
 
 [dependencies]
 borsh = { workspace = true }
-solana-signature = { workspace = true }
+serde = { workspace = true, optional = true }
 timelock-escrow-program = { path = "../program" }
-timelock-escrow-sdk = { path = "../sdk" }
-zk-program-sdk = { path = "zk-program-sdk" }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+zk-program-sdk = { path = "zk-program-sdk", default-features = false, features = ["client"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [features]
+default = ["native"]
+native = ["zk-program-sdk/setup", "zk-program-sdk/encrypt", "zk-program-sdk/parallel"]
+serde = ["dep:serde", "zk-program-sdk/serde", "zolana-keypair/serde", "zolana-transaction/serde"]
 snarkjs = []
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "zk-program-sdk/tsify"]
+wasm = ["tsify", "zk-program-sdk/wasm"]
 
 [[test]]
 name = "snarkjs"
 required-features = ["snarkjs"]
+
+[[test]]
+name = "wasm_fixtures"
+required-features = ["wasm"]
 
 [dev-dependencies]
 ark-bn254 = { workspace = true }
@@ -30,4 +40,6 @@ hex = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true }
+solana-signature = { workspace = true }
 zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true }

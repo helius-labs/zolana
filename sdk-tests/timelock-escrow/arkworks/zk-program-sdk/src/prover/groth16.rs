@@ -1,5 +1,6 @@
 #[cfg(feature = "client")]
 use core::marker::PhantomData;
+#[cfg(any(feature = "setup", not(target_arch = "wasm32")))]
 use std::path::Path;
 
 use ark_bn254::{Bn254, G1Affine, G2Affine};
@@ -15,6 +16,7 @@ pub use groth16_solana::vk::setup::SetupKind;
 
 #[cfg(feature = "client")]
 use super::{
+    proof_inputs::ProofInputs,
     reduction::CircomReduction,
     synthesis::{ArkworksCircuit, CircuitMatrices, CircuitShape},
     zkey::Zkey,
@@ -70,21 +72,32 @@ impl Groth16Keys {
     }
 
     #[cfg(feature = "client")]
-    pub fn load(path: &Path) -> Result<Self, RelationError> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, RelationError> {
         use ark_serialize::CanonicalDeserialize;
 
-        let bytes = std::fs::read(path).map_err(RelationError::keys)?;
         let proving_key =
-            ProvingKey::deserialize_uncompressed(bytes.as_slice()).map_err(RelationError::keys)?;
+            ProvingKey::deserialize_uncompressed(bytes).map_err(RelationError::keys)?;
         Ok(Self::from(proving_key))
     }
 
+    #[cfg(all(feature = "client", not(target_arch = "wasm32")))]
+    pub fn load(path: &Path) -> Result<Self, RelationError> {
+        Self::from_bytes(&std::fs::read(path).map_err(RelationError::keys)?)
+    }
+
     #[cfg(feature = "client")]
+    pub fn from_zkey_bytes<P: ZkProgram>(bytes: &[u8]) -> Result<Self, RelationError> {
+        Self::from_zkey_for(bytes, &circuit_matrices::<P>()?)
+    }
+
+    #[cfg(all(feature = "client", not(target_arch = "wasm32")))]
     pub fn load_zkey<P: ZkProgram>(path: &Path) -> Result<Self, RelationError> {
-        let bytes = std::fs::read(path).map_err(RelationError::keys)?;
-        let zkey = Zkey::read(&bytes)?;
-        let placeholder = P::placeholder()?;
-        let matrices = ArkworksCircuit::for_setup(&placeholder).matrices()?;
+        Self::from_zkey_bytes::<P>(&std::fs::read(path).map_err(RelationError::keys)?)
+    }
+
+    #[cfg(feature = "client")]
+    fn from_zkey_for(bytes: &[u8], matrices: &CircuitMatrices) -> Result<Self, RelationError> {
+        let zkey = Zkey::read(bytes)?;
         zkey.check_circuit(matrices.matrices())?;
         Ok(Self::from(zkey.proving_key))
     }
@@ -272,6 +285,13 @@ pub struct ProofResult {
 }
 
 #[cfg(feature = "client")]
+impl ProofResult {
+    pub fn compressed(&self) -> Result<CompressedProof, RelationError> {
+        CompressedProof::try_from(&self.proof)
+    }
+}
+
+#[cfg(feature = "client")]
 pub struct Groth16Prover<P> {
     keys: Groth16Keys,
     matrices: CircuitMatrices,
@@ -281,8 +301,16 @@ pub struct Groth16Prover<P> {
 #[cfg(feature = "client")]
 impl<P: ZkProgram> Groth16Prover<P> {
     pub fn new(keys: Groth16Keys) -> Result<Self, RelationError> {
-        let placeholder = P::placeholder()?;
-        let matrices = ArkworksCircuit::for_setup(&placeholder).matrices()?;
+        Self::with_matrices(keys, circuit_matrices::<P>()?)
+    }
+
+    pub fn from_zkey_bytes(zkey: &[u8]) -> Result<Self, RelationError> {
+        let matrices = circuit_matrices::<P>()?;
+        let keys = Groth16Keys::from_zkey_for(zkey, &matrices)?;
+        Self::with_matrices(keys, matrices)
+    }
+
+    fn with_matrices(keys: Groth16Keys, matrices: CircuitMatrices) -> Result<Self, RelationError> {
         if matrices.shape() != keys.circuit_shape() {
             return Err(RelationError::KeysForAnotherCircuit);
         }
@@ -319,9 +347,12 @@ impl<P: ZkProgram> Groth16Prover<P> {
     }
 
     pub fn prove(&self, proof_inputs: &P) -> Result<ProofResult, RelationError> {
-        let circuit = ArkworksCircuit::new(proof_inputs)?;
-        let assignment = circuit.assignment()?;
-        self.matrices.check(&assignment)?;
+        self.prove_inputs(&ArkworksCircuit::new(proof_inputs)?.proof_inputs()?)
+    }
+
+    pub fn prove_inputs(&self, proof_inputs: &ProofInputs) -> Result<ProofResult, RelationError> {
+        let assignment = proof_inputs.values();
+        self.matrices.check(assignment)?;
         let matrices = self.matrices.matrices();
         let proof = SolanaProof::from(
             &Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
@@ -331,10 +362,10 @@ impl<P: ZkProgram> Groth16Prover<P> {
                 matrices,
                 matrices.num_instance_variables,
                 matrices.num_constraints,
-                &assignment,
+                assignment,
             )?,
         );
-        let public_hash = circuit.public_hash_bytes();
+        let public_hash = proof_inputs.public_hash()?;
         proof.verify(&self.keys.verifying_key, public_hash)?;
         Ok(ProofResult { proof, public_hash })
     }
@@ -347,6 +378,12 @@ impl<P: ZkProgram> Groth16Prover<P> {
 
 #[cfg(all(feature = "client", feature = "setup"))]
 const TEST_SETUP_SEED: u64 = 0;
+
+#[cfg(feature = "client")]
+fn circuit_matrices<P: ZkProgram>() -> Result<CircuitMatrices, RelationError> {
+    let placeholder = P::placeholder()?;
+    ArkworksCircuit::for_setup(&placeholder).matrices()
+}
 
 fn g1_bytes(point: &G1Affine) -> [u8; 64] {
     let mut bytes = [0u8; 64];

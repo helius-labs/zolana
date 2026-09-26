@@ -99,7 +99,7 @@ impl Placeholder for ReadThreshold {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, zero, Bits, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, PublicInputs, TxContext, Utxo, UtxoData,
         },
         RelationError,

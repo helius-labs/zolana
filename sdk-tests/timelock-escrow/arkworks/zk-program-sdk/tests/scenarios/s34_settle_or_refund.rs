@@ -118,7 +118,7 @@ impl Placeholder for Settle {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Assert, Balance, Bool, CheckedTransaction, Circuit,
+            constant, poseidon, zero, Assert, Balance, Bits, Bool, CheckedTransaction, Circuit,
             CircuitMarker, CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner,
             PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
         },

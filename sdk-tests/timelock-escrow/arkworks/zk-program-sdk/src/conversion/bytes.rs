@@ -2,7 +2,7 @@ use solana_address::Address;
 
 use super::{var::integer_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{self, constant, Assert},
+    circuit::{self, constant, Bits},
     client, RelationError,
 };
 

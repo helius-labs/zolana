@@ -8,6 +8,7 @@ mod paths;
 mod proof_input;
 mod public_inputs;
 mod shape;
+mod zk_program_wasm;
 
 #[proc_macro_derive(ProofInput)]
 pub fn derive_proof_input(input: TokenStream) -> TokenStream {
@@ -25,6 +26,12 @@ pub fn derive_public_inputs(input: TokenStream) -> TokenStream {
 pub fn derive_circuit_type(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     into_token_stream(circuit_type::expand(&input))
+}
+
+#[proc_macro_derive(ZkProgramWasm)]
+pub fn derive_zk_program_wasm(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    into_token_stream(zk_program_wasm::expand(&input))
 }
 
 #[proc_macro_attribute]

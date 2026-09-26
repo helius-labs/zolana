@@ -21,6 +21,18 @@ solana-address = { workspace = true }
 solana-keypair = { workspace = true }
 solana-signer = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+serde_bytes = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[features]
+serde = ["dep:serde", "dep:serde_bytes"]
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen"]
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
 hex = { workspace = true }
@@ -50,3 +62,8 @@ path = "tests/seed_based_keypair.rs"
 [[test]]
 name = "vectors"
 path = "tests/vectors.rs"
+
+[[test]]
+name = "serde"
+path = "tests/serde.rs"
+required-features = ["serde"]

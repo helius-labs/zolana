@@ -66,7 +66,7 @@ impl Placeholder for Decrement {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Bits, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
             ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Utxo,
         },
         RelationError,

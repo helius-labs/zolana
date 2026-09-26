@@ -64,3 +64,11 @@ pub(crate) fn constant() -> TokenStream {
 pub(crate) fn hasher() -> TokenStream {
     quote!(::zk_program_sdk::hasher)
 }
+
+pub(crate) fn wasm() -> TokenStream {
+    quote!(::zk_program_sdk::wasm)
+}
+
+pub(crate) fn groth16_prover() -> TokenStream {
+    quote!(::zk_program_sdk::Groth16Prover)
+}

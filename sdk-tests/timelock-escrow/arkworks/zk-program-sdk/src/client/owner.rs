@@ -8,9 +8,25 @@ use zolana_keypair::{Curve, PublicKey, ShieldedAddress};
 use crate::{hasher::ToByteArray, RelationError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub struct Owner {
     pub tag: u8,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub key: [u8; 32],
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub nullifier_pk: [u8; 32],
 }
 

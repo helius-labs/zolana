@@ -1,8 +1,10 @@
 use ark_r1cs_std::eq::EqGadget;
-use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::DUMMY_DOMAIN;
-use zolana_transaction::{utxo::SppProofInputUtxo, WalletUtxo};
+use zolana_transaction::{
+    utxo::{ProofInputUtxo, SppProofInputUtxo},
+    WalletUtxo,
+};
 
 use super::{asset::asset, owner::owner, var, Allocator, Placeholder, ProofInput};
 use crate::{

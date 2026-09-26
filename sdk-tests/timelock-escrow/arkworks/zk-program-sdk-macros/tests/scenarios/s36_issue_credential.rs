@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        constant, poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit,
+        constant, poseidon, Assert, Asset, Balance, Bits, CheckedTransaction, Circuit,
         ConfidentialTransaction, DataUtxo, PublicInputs,
     },
     conversion::ProofInput,

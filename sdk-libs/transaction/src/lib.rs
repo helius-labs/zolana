@@ -18,6 +18,8 @@ pub mod error;
 pub mod indexer_types;
 pub mod instructions;
 pub mod keys;
+#[cfg(feature = "serde")]
+mod serde_helpers;
 pub mod serialization;
 pub mod signature;
 pub mod utxo;

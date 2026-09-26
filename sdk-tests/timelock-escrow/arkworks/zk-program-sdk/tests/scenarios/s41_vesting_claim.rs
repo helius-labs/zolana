@@ -139,9 +139,9 @@ impl Placeholder for VestingClaim {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
-            TokenUtxo, TxContext, Utxo, UtxoData,
+            constant, poseidon, zero, Assert, Balance, Bits, CheckedTransaction, Circuit,
+            CircuitMarker, CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner,
+            PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
         },
         RelationError,
     };

@@ -2,7 +2,7 @@ use ark_ff::Zero;
 use ark_r1cs_std::boolean::Boolean;
 
 use crate::{
-    circuit::{zero, Assert, Asset, Bytes, CircuitVar, Owner, PublicTransfer},
+    circuit::{zero, Asset, Bits, Bytes, CircuitVar, Owner, PublicTransfer},
     RelationError,
 };
 

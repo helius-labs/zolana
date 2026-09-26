@@ -1,5 +1,5 @@
 use zk_program_sdk::{
-    circuit::{constant, value, Assert, Bool, CircuitVar, ConstraintSystem, Field},
+    circuit::{constant, value, Assert, Bits, Bool, CircuitVar, ConstraintSystem, Field},
     conversion::{field_bytes, to_bytes, Allocator, FromCircuit, ProofInput},
 };
 use zolana_hasher::primitives::hash_bytes;

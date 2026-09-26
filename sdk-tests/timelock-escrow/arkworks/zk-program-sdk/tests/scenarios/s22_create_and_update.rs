@@ -139,7 +139,7 @@ impl Placeholder for CreateAndUpdate {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            constant, poseidon, zero, Assert, Asset, CheckedTransaction, Circuit, CircuitMarker,
+            constant, poseidon, zero, Asset, Bits, CheckedTransaction, Circuit, CircuitMarker,
             CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
             TxContext, Utxo, UtxoData,
         },
