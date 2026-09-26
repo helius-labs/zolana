@@ -13,6 +13,7 @@ use crate::{
     authority::ProofAuthority,
     error::ClientError,
     prover::{
+        indexed::ProofDataSource,
         transact::witness::{assemble, SpendProof},
         verify_confidential_transfer_inputs, ProofCompressed,
     },
@@ -26,7 +27,7 @@ use crate::{
     },
 };
 
-use super::ZolanaClient;
+use super::{TransferPreparation, ZolanaClient};
 
 impl<R: Rpc> Rpc for ZolanaClient<R> {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
@@ -255,6 +256,20 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         transaction: SppProofInputs,
         authority: &dyn ProofAuthority,
     ) -> Result<ProveResult, ClientError> {
+        if self.blocking_prover().proof_data_source() == ProofDataSource::Prover {
+            let proved = self.indexed_transfer(
+                TransferPreparation {
+                    transaction,
+                    config: self.indexer_config,
+                },
+                authority,
+            )?;
+            return Ok(ProveResult {
+                proof: proved.proof,
+                public_inputs: vec![proved.public_input_hash],
+                circuit_id: 0,
+            });
+        }
         let commitments = transaction.input_utxo_hashes()?;
         let witnesses = self.blocking_indexer().input_witnesses(
             &commitments,

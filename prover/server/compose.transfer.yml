@@ -1,0 +1,37 @@
+services:
+  prover:
+    build:
+      context: .
+      dockerfile: Dockerfile.light
+      args:
+        GOAMD64: ${GOAMD64:-}
+        PROVER_PGO: ${PROVER_PGO:-}
+    image: zolana-prover:local
+    ports:
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:9998:9998"
+    volumes:
+      - ./proving-keys:/proving-keys:ro
+    environment:
+      PROVER_TRANSFER_CONCURRENCY: ${PROVER_TRANSFER_CONCURRENCY:-2}
+      PROVER_INDEXER_URL: ${PROVER_INDEXER_URL:-}
+      PROVER_INDEXER_API_KEY: ${PROVER_INDEXER_API_KEY:-}
+      PROVER_API_KEY: ${PROVER_API_KEY:-}
+      GOGC: ${GOGC:-100}
+      GOMEMLIMIT: ${GOMEMLIMIT:-off}
+      GOMAXPROCS: ${GOMAXPROCS:-}
+    command: [start, --require-optimized-build, --preload-circuits, "transfer-confidential:2:3,transfer-ring:2:3,transfer-p256-ring:2:3,merge:8:1", --keys-dir, /proving-keys, --redis-url, "redis://redis:6379"]
+    depends_on: [redis]
+    restart: unless-stopped
+  redis:
+    image: redis:7.4.4-alpine3.21
+    restart: unless-stopped
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    depends_on: [prover]
+    restart: unless-stopped

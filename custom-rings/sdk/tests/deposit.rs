@@ -6,10 +6,15 @@ use custom_ring_sdk::{
     CustomRing, DepositAsset, DepositError, DepositProofEnvironment, KeyRegistrationError,
     RingDeposit,
 };
+use std::{
+    io::{BufRead, BufReader, Read, Write},
+    net::TcpListener,
+};
+
 use solana_account::Account;
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{ClientError, ComputeBudgetConfig, ProverClient, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, ProofDataSource, ProverClient, Rpc};
 use zolana_indexer_api::{GetRingKeyRegistryEntryResponse, RingMemberProofRequest};
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_transaction::RingDepositPlaintext;
@@ -131,7 +136,7 @@ impl Rpc for EscrowRpc {
 }
 
 #[test]
-fn an_escrowed_ring_refuses_an_unregistered_recipient_before_proving() {
+fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_source() {
     let ring = CustomRing::new(Address::new_from_array([42; 32]));
     let recipient = ShieldedKeypair::new_ed25519().unwrap();
     let account = |data: Vec<u8>| Account {
@@ -156,8 +161,7 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_before_proving() {
         history_cursor: 0,
         history,
     };
-    let unreachable = ProverClient::new("http://127.0.0.1:1".to_owned());
-    let send = |registry: Option<Account>| {
+    let send = |registry: Option<Account>, prover: &ProverClient| {
         let rpc = EscrowRpc {
             ring,
             config: account(bytemuck::bytes_of(&config).to_vec()),
@@ -176,21 +180,73 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_before_proving() {
         .prove(DepositProofEnvironment {
             indexer: &rpc,
             rpc: &rpc,
-            prover: &unreachable,
+            prover,
         })
     };
+    let owner = zolana_ring_policy::Member::owner_tag(recipient.pubkey().as_array()).unwrap();
+    let refused = |result: Result<_, DepositError>| {
+        matches!(
+            result,
+            Err(DepositError::KeyRegistration(
+                KeyRegistrationError::UnregisteredOutputKey { owner: refused }
+            )) if refused == owner
+        )
+    };
+    let registry_account = || Some(account(bytemuck::bytes_of(&registry).to_vec()));
+
+    let unreachable = ProverClient::new("http://127.0.0.1:1".to_owned())
+        .with_proof_data_source(ProofDataSource::Client);
     assert!(matches!(
-        send(None),
+        send(None, &unreachable),
         Err(DepositError::KeyRegistration(
             KeyRegistrationError::MissingKeyRegistry
         ))
     ));
-    let refused = send(Some(account(bytemuck::bytes_of(&registry).to_vec())));
-    let owner = zolana_ring_policy::Member::owner_tag(recipient.pubkey().as_array()).unwrap();
-    assert!(matches!(
-        refused,
-        Err(DepositError::KeyRegistration(
-            KeyRegistrationError::UnregisteredOutputKey { owner: refused }
-        )) if refused == owner
-    ));
+    assert!(refused(send(registry_account(), &unreachable)));
+
+    let prover = refusing_prover(owner.as_bytes());
+    assert!(refused(send(
+        registry_account(),
+        &ProverClient::new(prover.url.clone())
+    )));
+    prover.handle.join().unwrap();
+}
+
+struct RefusingProver {
+    url: String,
+    handle: std::thread::JoinHandle<()>,
+}
+
+fn refusing_prover(member: &[u8; 32]) -> RefusingProver {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let body = serde_json::json!({
+        "code": "registry_member_missing",
+        "message": "registry member missing",
+        "member": Address::new_from_array(*member).to_string(),
+    })
+    .to_string();
+    let handle = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" {
+                break;
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap();
+            }
+        }
+        reader.read_exact(&mut vec![0; length]).unwrap();
+        write!(
+            reader.get_mut(),
+            "HTTP/1.1 422 Unprocessable Entity\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+    });
+    RefusingProver { url, handle }
 }

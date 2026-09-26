@@ -77,10 +77,6 @@ use zolana_test_utils::transact::{
     transfer_output,
 };
 
-const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
-const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
-const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
-const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 400_000_000;

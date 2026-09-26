@@ -16,8 +16,8 @@ import (
 func TestQueueWaitTracksMeanAndMax(t *testing.T) {
 	queueWaits.byCircuit = map[string]*window{}
 
-	queueWaits.observe("zk_transfer_queue", 2, 0)
-	mean, max, _ := queueWaits.observe("zk_transfer_queue", 4, 0)
+	queueWaits.observe("zk_transfer_queue", 2)
+	mean, max := queueWaits.observe("zk_transfer_queue", 4)
 
 	if mean != 3 {
 		t.Errorf("mean = %v, want 3", mean)
@@ -32,13 +32,13 @@ func TestQueueWaitTracksMeanAndMax(t *testing.T) {
 func TestQueueWaitKeepsQueuesApart(t *testing.T) {
 	queueWaits.byCircuit = map[string]*window{}
 
-	queueWaits.observe("zk_transfer_queue", 1, 0)
-	mean, max, _ := queueWaits.observe("zk_update_queue", 30, 0)
+	queueWaits.observe("zk_transfer_queue", 1)
+	mean, max := queueWaits.observe("zk_update_queue", 30)
 
 	if mean != 30 || max != 30 {
 		t.Errorf("update queue mean/max = %v/%v, want 30/30", mean, max)
 	}
-	transferMean, _, _ := queueWaits.observe("zk_transfer_queue", 1, 0)
+	transferMean, _ := queueWaits.observe("zk_transfer_queue", 1)
 	if transferMean != 1 {
 		t.Errorf("transfer queue mean = %v, want 1 -- queues must not share a window", transferMean)
 	}

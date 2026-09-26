@@ -2,6 +2,7 @@ mod cache;
 mod client;
 mod endpoint;
 pub mod field;
+pub mod indexed;
 mod inputs;
 mod json;
 pub mod merge;
@@ -16,8 +17,9 @@ mod verify;
 pub mod witness;
 
 pub use client::{
-    spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, Delivery,
-    ProveRequest, ProverClient, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
+    spawn_prover, AsyncPollConfig, AsyncProverClient, Delivery, IndexerRequirement, ProveRequest,
+    ProverClient, ProverLaunch, PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH,
+    SERVER_ADDRESS,
 };
 pub use endpoint::redact_api_key;
 pub use inputs::{
@@ -37,5 +39,7 @@ pub use transact::{
     RingTransferProver, TransferInputUtxo, TransferProofResult, TransferProver,
 };
 pub use utxo::ProofInputUtxo;
-pub use verify::{verify_confidential_transfer_inputs, verify_confidential_transfer_proof};
+pub use verify::{
+    verify_confidential_transfer_inputs, verify_confidential_transfer_proof, verify_proof_statement,
+};
 pub use zolana_transaction::instructions::transact::{Shape, SPP_SUPPORTED_SHAPES};

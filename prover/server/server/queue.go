@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
@@ -14,6 +15,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
+
+var pendingQueues = []string{
+	"zk_address_append_queue",
+	"zk_transfer_queue",
+	"zk_custom_ring_queue",
+}
 
 const (
 	// ResultsIndexKey is the Redis hash that maps inputHash → jobID
@@ -66,8 +73,27 @@ func NewRedisQueue(redisURL string) (*RedisQueue, error) {
 }
 
 func (rq *RedisQueue) EnqueueProof(queueName string, job *ProofJob) error {
-	_, err := rq.EnqueueProofReturning(queueName, job)
+	_, err := rq.push(queueName, job, false)
 	return err
+}
+
+// Requeue returns a dequeued job to the head of the list it was popped from.
+func (rq *RedisQueue) Requeue(queueName string, job *ProofJob) error {
+	_, err := rq.push(queueName, job, true)
+	return err
+}
+
+// indexedQueue keeps indexed jobs away from workers that cannot resolve them.
+func indexedQueue(queueName string) string {
+	return queueVariant(queueName, "indexed")
+}
+
+func processingQueue(queueName string) string {
+	return queueVariant(queueName, "processing")
+}
+
+func queueVariant(queueName, kind string) string {
+	return strings.TrimSuffix(queueName, "_queue") + "_" + kind + "_queue"
 }
 
 // EnqueueProofReturning enqueues a job and returns the exact bytes stored.
@@ -76,6 +102,10 @@ func (rq *RedisQueue) EnqueueProof(queueName string, job *ProofJob) error {
 // serialization. Handing it back lets a caller that will later remove the entry
 // do it with one LREM instead of walking the list to find what it pushed.
 func (rq *RedisQueue) EnqueueProofReturning(queueName string, job *ProofJob) (string, error) {
+	return rq.push(queueName, job, false)
+}
+
+func (rq *RedisQueue) push(queueName string, job *ProofJob, front bool) (string, error) {
 	data, err := json.Marshal(job)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal job: %w", err)
@@ -83,14 +113,20 @@ func (rq *RedisQueue) EnqueueProofReturning(queueName string, job *ProofJob) (st
 
 	// Use tree-specific sub-queue for fair queuing if TreeID is set
 	actualQueueName := queueName
-	if job.TreeID != "" && isFairQueueEnabled(queueName) {
+	if job.Indexed {
+		actualQueueName = indexedQueue(queueName)
+	} else if job.TreeID != "" && isFairQueueEnabled(queueName) {
 		actualQueueName = fmt.Sprintf("%s:%s", queueName, job.TreeID)
 		// Track this tree in the trees set for round-robin
 		treesSetKey := fmt.Sprintf("%s:trees", queueName)
 		rq.Client.SAdd(rq.Ctx, treesSetKey, job.TreeID)
 	}
 
-	if err := rq.Client.RPush(rq.Ctx, actualQueueName, data).Err(); err != nil {
+	pushList := rq.Client.RPush
+	if front {
+		pushList = rq.Client.LPush
+	}
+	if err := pushList(rq.Ctx, actualQueueName, data).Err(); err != nil {
 		return "", fmt.Errorf("failed to enqueue job: %w", err)
 	}
 
@@ -274,7 +310,18 @@ func (rq *RedisQueue) DequeueProof(queueName string, timeout time.Duration) (*Pr
 		return rq.dequeueWithFairQueuing(queueName, timeout)
 	}
 
-	// Standard dequeue for non-fair queues
+	return rq.blockingPop(queueName, timeout)
+}
+
+func (rq *RedisQueue) DequeueIndexedProof(queueName string, timeout time.Duration) (*ProofJob, error) {
+	job, err := rq.blockingPop(indexedQueue(queueName), timeout)
+	if job != nil {
+		job.Indexed = true
+	}
+	return job, err
+}
+
+func (rq *RedisQueue) blockingPop(queueName string, timeout time.Duration) (*ProofJob, error) {
 	result, err := rq.Client.BLPop(rq.Ctx, timeout, queueName).Result()
 	if err != nil {
 		if err == redis.Nil {
@@ -310,22 +357,7 @@ func (rq *RedisQueue) dequeueWithFairQueuing(queueName string, timeout time.Dura
 
 	// If no trees with jobs, fall back to main queue (for jobs without tree_id)
 	if len(trees) == 0 {
-		result, err := rq.Client.BLPop(rq.Ctx, timeout, queueName).Result()
-		if err != nil {
-			if err == redis.Nil {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("failed to dequeue job: %w", err)
-		}
-		if len(result) < 2 {
-			return nil, fmt.Errorf("invalid result from Redis")
-		}
-		var job ProofJob
-		err = json.Unmarshal([]byte(result[1]), &job)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal job: %w", err)
-		}
-		return &job, nil
+		return rq.blockingPop(queueName, timeout)
 	}
 
 	// Get the last processed tree to start round-robin from next
@@ -382,22 +414,7 @@ func (rq *RedisQueue) dequeueWithFairQueuing(queueName string, timeout time.Dura
 	}
 
 	// All tree queues were empty, try main queue as fallback
-	result, err := rq.Client.BLPop(rq.Ctx, timeout, queueName).Result()
-	if err != nil {
-		if err == redis.Nil {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to dequeue job: %w", err)
-	}
-	if len(result) < 2 {
-		return nil, fmt.Errorf("invalid result from Redis")
-	}
-	var job ProofJob
-	err = json.Unmarshal([]byte(result[1]), &job)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal job: %w", err)
-	}
-	return &job, nil
+	return rq.blockingPop(queueName, timeout)
 }
 
 // BatchIndexScanLimit is the maximum number of items to scan when looking for the lowest batch_index.
@@ -500,15 +517,9 @@ func (rq *RedisQueue) dequeueLowestBatchIndex(queueName string) (*ProofJob, erro
 func (rq *RedisQueue) GetQueueStats() (map[string]int64, error) {
 	stats := make(map[string]int64)
 
-	queues := []string{
-		"zk_address_append_queue",
-		"zk_address_append_processing_queue",
-		"zk_transfer_queue",
-		"zk_transfer_processing_queue",
-		"zk_custom_ring_queue",
-		"zk_custom_ring_processing_queue",
-		"zk_failed_queue",
-		"zk_results_queue",
+	queues := []string{"zk_failed_queue", "zk_results_queue"}
+	for _, queue := range pendingQueues {
+		queues = append(queues, queue, processingQueue(queue))
 	}
 
 	for _, queue := range queues {
@@ -534,6 +545,14 @@ func (rq *RedisQueue) GetQueueStats() (map[string]int64, error) {
 				stats[queue+"_tree_count"] = int64(len(trees))
 			}
 		}
+	}
+
+	for _, queue := range pendingQueues {
+		indexed, err := rq.Client.LLen(rq.Ctx, indexedQueue(queue)).Result()
+		if err != nil {
+			logging.Logger().Warn().Err(err).Str("queue", indexedQueue(queue)).Msg("Failed to get queue length")
+		}
+		stats[queue] += indexed
 	}
 
 	return stats, nil
@@ -728,25 +747,20 @@ func (rq *RedisQueue) CleanupOldResults() error {
 func (rq *RedisQueue) CleanupOldRequests() error {
 	cutoffTime := time.Now().Add(-30 * time.Minute)
 
-	// Queues to clean up old requests from
-	queuesToClean := []string{
-		"zk_address_append_queue",
-		"zk_transfer_queue",
-		"zk_custom_ring_queue",
-	}
-
 	totalRemoved := int64(0)
 
-	for _, queueName := range queuesToClean {
+	for _, queueName := range pendingQueues {
 		// Clean main queue
-		removed, err := rq.cleanupOldRequestsFromQueue(queueName, cutoffTime)
-		if err != nil {
-			logging.Logger().Error().
-				Err(err).
-				Str("queue", queueName).
-				Msg("Failed to cleanup old requests from queue")
-		} else {
-			totalRemoved += removed
+		for _, key := range []string{queueName, indexedQueue(queueName)} {
+			removed, err := rq.cleanupOldRequestsFromQueue(key, cutoffTime)
+			if err != nil {
+				logging.Logger().Error().
+					Err(err).
+					Str("queue", key).
+					Msg("Failed to cleanup old requests from queue")
+			} else {
+				totalRemoved += removed
+			}
 		}
 
 		// Clean tree sub-queues for fair-queued queues

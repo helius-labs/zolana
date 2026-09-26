@@ -11,7 +11,7 @@ pub use super::fixtures::Pool;
 
 /// Start the workspace prover and return an initialized pool backend.
 pub fn proof_env() -> Pool {
-    spawn_workspace_prover();
+    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
     Pool::initialized()
 }
 

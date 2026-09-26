@@ -1,6 +1,7 @@
+use super::indexed::{ProofDataSource, Request};
 use std::{
     env,
-    path::Path,
+    path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
@@ -9,6 +10,7 @@ use std::{
 
 use reqwest::redirect::Policy;
 use reqwest::{StatusCode, Url};
+use serde::Deserialize;
 use tokio::time::sleep as async_sleep;
 use zeroize::Zeroizing;
 
@@ -30,6 +32,8 @@ pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";
 pub const PROVE_PATH: &str = "/prove";
 pub const PROVING_KEYS_PATH: &str = "/proving-keys";
+/// Carries the indexer URL to the prover and the CLI, off argv.
+pub const PROVER_INDEXER_URL_ENV: &str = "PROVER_INDEXER_URL";
 
 /// Default prover port, mirrored from the CLI's `DEFAULT_PROVER_PORT`. Used as
 /// the fallback when a custom [`server_address`] has no parseable port.
@@ -79,6 +83,13 @@ pub enum Delivery {
     InResponse,
     /// Let the prover queue it and poll for the result.
     Queued,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum IndexerRequirement {
+    #[default]
+    Optional,
+    Required,
 }
 
 /// A `/prove` body from a downstream crate, sent through the client's retry,
@@ -201,6 +212,7 @@ pub struct ProverClient {
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
+    proof_data_source: ProofDataSource,
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -210,6 +222,7 @@ pub struct AsyncProverClient {
     async_poll: AsyncPollConfig,
     /// Rail for transfer-shaped proofs. Batch proofs are always queued.
     delivery: Delivery,
+    proof_data_source: ProofDataSource,
 }
 
 impl Default for ProverClient {
@@ -225,6 +238,16 @@ impl Default for AsyncProverClient {
 }
 
 impl ProverClient {
+    #[must_use]
+    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
+        self.proof_data_source = source;
+        self
+    }
+
+    pub fn proof_data_source(&self) -> ProofDataSource {
+        self.proof_data_source
+    }
+
     pub fn local() -> Self {
         Self::new(server_address())
     }
@@ -235,6 +258,7 @@ impl ProverClient {
             http: build_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
+            proof_data_source: ProofDataSource::default(),
         }
     }
 
@@ -324,6 +348,20 @@ impl ProverClient {
         self.send(request.body()?, request.delivery(), &key)
     }
 
+    pub fn prove_indexed<R: Request>(&self, request: &R) -> Result<R::Output, ClientError> {
+        let key = request.proving_key()?;
+        let body = request.body()?;
+        let IndexedResponse { proof, resolution } = self
+            .send_response(ProofRequest {
+                body: &body,
+                delivery: request.delivery().unwrap_or(self.delivery),
+                route: ProofRoute::Indexed,
+                key: &key,
+            })
+            .map_err(indexed_failure)?;
+        request.finish(proof, resolution)
+    }
+
     /// Prove a nullifier-tree batch address-append update, returning the
     /// uncompressed negated proof. Call [`ProofCompressed::try_from`] for the
     /// SPP instruction wire format.
@@ -339,20 +377,47 @@ impl ProverClient {
     /// proving-key sha256 each committed verifying key pins, so a prover on
     /// another key set fails before the first proof instead of on-chain.
     pub fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
-        let url = self.endpoint.url(PROVING_KEYS_PATH)?;
+        let (status, text) = self.get(PROVING_KEYS_PATH)?;
+        prover_keys_from_response(status, &text)?.check()
+    }
+
+    pub fn check_indexed(&self) -> Result<(), ClientError> {
+        let (status, text) = self.get(HEALTH_CHECK)?;
+        indexed_from_health(status, &text)
+    }
+
+    pub fn check_setup(
+        &self,
+        indexer: IndexerRequirement,
+    ) -> Result<ProvingKeyReport, ClientError> {
+        let report = self.check_proving_keys()?;
+        if indexer == IndexerRequirement::Required {
+            self.check_indexed().map_err(|error| match error {
+                ClientError::ProverIndexerUnconfigured => ClientError::Prover(format!(
+                    "prover {} serves no indexed proofs, restart it with {PROVER_INDEXER_URL_ENV} set",
+                    self.endpoint.redacted()
+                )),
+                error => error,
+            })?;
+        }
+        Ok(report)
+    }
+
+    fn get(&self, path: &str) -> Result<(StatusCode, String), ClientError> {
+        let url = self.endpoint.url(path)?;
         let response = self
             .http
             .get(url)
             .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
             .send()
             .map_err(|e| {
-                ClientError::ProverServer(format!("proving keys request failed: {}", scrub(e)))
+                ClientError::ProverServer(format!("{} failed: {}", get_label(path), scrub(e)))
             })?;
         let status = response.status();
         let text = response.text().map_err(|e| {
             ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
         })?;
-        prover_keys_from_response(status, &text)?.check()
+        Ok((status, text))
     }
 
     /// One POST to `/prove`, retried for transport failures and for a queued
@@ -373,6 +438,8 @@ impl ProverClient {
                 .header("Content-Type", "application/json");
             if delivery == Delivery::InResponse {
                 request = request.header("X-Sync", "true");
+            } else {
+                request = request.header("X-Async", "true");
             }
             match request.body(body.to_string()).send() {
                 // A prover without a queue proves a queued request in the
@@ -409,13 +476,31 @@ impl ProverClient {
         delivery: Delivery,
         key: &ExpectedProvingKey,
     ) -> Result<Proof, ClientError> {
-        let url = self.endpoint.url(PROVE_PATH)?;
-        crate::prover::timing::note(0, "prover_request_bytes", body.as_ref().len());
+        self.send_response(ProofRequest {
+            body: body.as_ref(),
+            delivery,
+            route: ProofRoute::Complete,
+            key,
+        })
+    }
+
+    fn send_response<T: ProverResponse>(
+        &self,
+        request: ProofRequest<'_>,
+    ) -> Result<T, ClientError> {
+        let ProofRequest {
+            body,
+            delivery,
+            route,
+            key,
+        } = request;
+        let url = self.endpoint.url(route.path())?;
+        crate::prover::timing::note(0, "prover_request_bytes", body.len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
         let mut delivery = delivery;
         let (status, text) = loop {
-            let (status, text) = self.post(&url, body.as_ref(), delivery)?;
+            let (status, text) = self.post(&url, body, delivery)?;
             if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
                 // Retrying synchronously would compete for the same permit that
                 // was just refused; queueing waits for it once instead.
@@ -425,9 +510,7 @@ impl ProverClient {
             break (status, text);
         };
         if !status.is_success() {
-            return Err(ClientError::ProverServer(format!(
-                "status {status}: {text}"
-            )));
+            return Err(route.failure(status, &text));
         }
 
         let value: serde_json::Value = serde_json::from_str(&text)
@@ -442,11 +525,15 @@ impl ProverClient {
                 return self.poll_async(job_id, key);
             }
         }
-        Self::proof_from_value(&value, &text, key)
+        T::decode(&value, &text, key)
     }
 
     /// Poll the async job status endpoint until the queued proof completes.
-    fn poll_async(&self, job_id: &str, key: &ExpectedProvingKey) -> Result<Proof, ClientError> {
+    fn poll_async<T: ProverResponse>(
+        &self,
+        job_id: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<T, ClientError> {
         let url = self.endpoint.status_url(job_id)?;
         // The configured interval caps the backoff rather than setting it. This
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
@@ -520,12 +607,14 @@ impl ProverClient {
                 // nested under `result`.
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return Self::proof_from_value(result, &text, key);
+                    return T::decode(result, &text, key);
                 }
                 Some("failed") => {
-                    return Err(ClientError::ProverServer(format!(
-                        "async proof failed (job {job_id}): {text}"
-                    )));
+                    return Err(typed_failure(&value).unwrap_or_else(|| {
+                        ClientError::ProverServer(format!(
+                            "async proof failed (job {job_id}): {text}"
+                        ))
+                    }));
                 }
                 // queued / processing / unknown: keep polling until the bound.
                 _ => {
@@ -566,6 +655,140 @@ impl ProverClient {
         proof_from_gnark_json(&proof_json)
             .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
     }
+}
+
+enum ProofRoute {
+    Complete,
+    Indexed,
+}
+
+impl ProofRoute {
+    fn path(&self) -> &'static str {
+        match self {
+            Self::Complete => PROVE_PATH,
+            Self::Indexed => "/prove/indexed",
+        }
+    }
+
+    fn failure(&self, status: StatusCode, text: &str) -> ClientError {
+        if let Some(error) = serde_json::from_str(text)
+            .ok()
+            .as_ref()
+            .and_then(typed_failure)
+        {
+            return error;
+        }
+        match self {
+            // Any 404 here means the prover serves no indexed route.
+            Self::Indexed if status == StatusCode::NOT_FOUND => {
+                ClientError::ProverIndexerUnconfigured
+            }
+            _ => ClientError::ProverServer(format!("status {status}: {text}")),
+        }
+    }
+}
+
+/// Branches on the error body's `code`, never on its message.
+fn typed_failure(body: &serde_json::Value) -> Option<ClientError> {
+    Some(match body.get("code")?.as_str()? {
+        "indexer_not_ready" => ClientError::IndexerProofDataNotReady,
+        "indexer_unconfigured" => ClientError::ProverIndexerUnconfigured,
+        "registry_member_missing" => ClientError::RegistryMemberMissing {
+            member: body
+                .get("member")?
+                .as_str()?
+                .parse::<solana_address::Address>()
+                .ok()?
+                .to_bytes(),
+        },
+        _ => return None,
+    })
+}
+
+struct ProofRequest<'a> {
+    body: &'a str,
+    delivery: Delivery,
+    route: ProofRoute,
+    key: &'a ExpectedProvingKey,
+}
+
+trait ProverResponse: Sized {
+    fn decode(
+        value: &serde_json::Value,
+        raw: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<Self, ClientError>;
+}
+
+impl ProverResponse for Proof {
+    fn decode(
+        value: &serde_json::Value,
+        raw: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<Self, ClientError> {
+        ProverClient::proof_from_value(value, raw, key)
+    }
+}
+
+struct IndexedResponse {
+    proof: Proof,
+    resolution: serde_json::Value,
+}
+
+impl ProverResponse for IndexedResponse {
+    fn decode(
+        value: &serde_json::Value,
+        raw: &str,
+        key: &ExpectedProvingKey,
+    ) -> Result<Self, ClientError> {
+        let proof = ProverClient::proof_from_value(value, raw, key)?;
+        let resolution = value
+            .get("proof")
+            .unwrap_or(value)
+            .get("resolution")
+            .cloned()
+            .ok_or_else(|| ClientError::ProofParse("missing proof resolution".to_owned()))?;
+        Ok(Self { proof, resolution })
+    }
+}
+
+fn indexed_failure(error: ClientError) -> ClientError {
+    match error {
+        ClientError::ProofParse(_) => {
+            ClientError::ProofParse("invalid indexed proof response".to_owned())
+        }
+        ClientError::ProverServer(_) => {
+            ClientError::ProverServer("indexed proof request failed".to_owned())
+        }
+        error => error,
+    }
+}
+
+fn indexed_from_health(status: StatusCode, text: &str) -> Result<(), ClientError> {
+    #[derive(Deserialize)]
+    struct Health {
+        indexed: bool,
+    }
+    if !status.is_success() {
+        return Err(ClientError::ProverServer(format!(
+            "health status {status}, {text}"
+        )));
+    }
+    let health: Health = serde_json::from_str(text).map_err(|_| {
+        ClientError::ProverServer(
+            "prover health reports no indexed flag, rebuild and restart the prover".to_owned(),
+        )
+    })?;
+    if health.indexed {
+        Ok(())
+    } else {
+        Err(ClientError::ProverIndexerUnconfigured)
+    }
+}
+
+/// `/proving-keys` reads as "proving keys request" in transport errors.
+fn get_label(path: &str) -> String {
+    format!("{} request", path.trim_start_matches('/').replace('-', " "))
 }
 
 fn prover_keys_from_response(status: StatusCode, text: &str) -> Result<ProverKeys, ClientError> {
@@ -632,6 +855,16 @@ fn wait_or_timeout(
 }
 
 impl AsyncProverClient {
+    #[must_use]
+    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
+        self.proof_data_source = source;
+        self
+    }
+
+    pub fn proof_data_source(&self) -> ProofDataSource {
+        self.proof_data_source
+    }
+
     pub fn local() -> Self {
         Self::new(server_address())
     }
@@ -642,6 +875,7 @@ impl AsyncProverClient {
             http: build_async_http_client(None).expect("failed to build HTTP client"),
             async_poll: AsyncPollConfig::default(),
             delivery: Delivery::InResponse,
+            proof_data_source: ProofDataSource::default(),
         }
     }
 
@@ -730,6 +964,21 @@ impl AsyncProverClient {
         self.send(request.body()?, request.delivery(), &key).await
     }
 
+    pub async fn prove_indexed<R: Request>(&self, request: &R) -> Result<R::Output, ClientError> {
+        let key = request.proving_key()?;
+        let body = request.body()?;
+        let IndexedResponse { proof, resolution } = self
+            .send_response(ProofRequest {
+                body: &body,
+                delivery: request.delivery().unwrap_or(self.delivery),
+                route: ProofRoute::Indexed,
+                key: &key,
+            })
+            .await
+            .map_err(indexed_failure)?;
+        request.finish(proof, resolution)
+    }
+
     pub async fn prove_batch_address_append(
         &self,
         inputs: &BatchAddressAppendInputs,
@@ -741,7 +990,17 @@ impl AsyncProverClient {
 
     /// Async counterpart of [`ProverClient::check_proving_keys`].
     pub async fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
-        let url = self.endpoint.url(PROVING_KEYS_PATH)?;
+        let (status, text) = self.get(PROVING_KEYS_PATH).await?;
+        prover_keys_from_response(status, &text)?.check()
+    }
+
+    pub async fn check_indexed(&self) -> Result<(), ClientError> {
+        let (status, text) = self.get(HEALTH_CHECK).await?;
+        indexed_from_health(status, &text)
+    }
+
+    async fn get(&self, path: &str) -> Result<(StatusCode, String), ClientError> {
+        let url = self.endpoint.url(path)?;
         let response = self
             .http
             .get(url)
@@ -749,13 +1008,13 @@ impl AsyncProverClient {
             .send()
             .await
             .map_err(|e| {
-                ClientError::ProverServer(format!("proving keys request failed: {}", scrub(e)))
+                ClientError::ProverServer(format!("{} failed: {}", get_label(path), scrub(e)))
             })?;
         let status = response.status();
         let text = response.text().await.map_err(|e| {
             ClientError::ProverServer(format!("failed to read response body: {}", scrub(e)))
         })?;
-        prover_keys_from_response(status, &text)?.check()
+        Ok((status, text))
     }
 
     async fn send(
@@ -764,10 +1023,29 @@ impl AsyncProverClient {
         delivery: Delivery,
         key: &ExpectedProvingKey,
     ) -> Result<Proof, ClientError> {
-        let url = self.endpoint.url(PROVE_PATH)?;
+        self.send_response(ProofRequest {
+            body: body.as_ref(),
+            delivery,
+            route: ProofRoute::Complete,
+            key,
+        })
+        .await
+    }
+
+    async fn send_response<T: ProverResponse>(
+        &self,
+        request: ProofRequest<'_>,
+    ) -> Result<T, ClientError> {
+        let ProofRequest {
+            body,
+            delivery,
+            route,
+            key,
+        } = request;
+        let url = self.endpoint.url(route.path())?;
         let mut delivery = delivery;
         let (status, text) = loop {
-            let (status, text) = self.post(&url, body.as_ref(), delivery).await?;
+            let (status, text) = self.post(&url, body, delivery).await?;
             if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
                 delivery = Delivery::Queued;
                 continue;
@@ -775,9 +1053,7 @@ impl AsyncProverClient {
             break (status, text);
         };
         if !status.is_success() {
-            return Err(ClientError::ProverServer(format!(
-                "status {status}: {text}"
-            )));
+            return Err(route.failure(status, &text));
         }
 
         let value: serde_json::Value = serde_json::from_str(&text)
@@ -787,7 +1063,7 @@ impl AsyncProverClient {
                 return self.poll_async(job_id, key).await;
             }
         }
-        ProverClient::proof_from_value(&value, &text, key)
+        T::decode(&value, &text, key)
     }
 
     async fn post(
@@ -805,6 +1081,8 @@ impl AsyncProverClient {
                 .header("Content-Type", "application/json");
             if delivery == Delivery::InResponse {
                 request = request.header("X-Sync", "true");
+            } else {
+                request = request.header("X-Async", "true");
             }
             match request.body(body.to_string()).send().await {
                 Ok(response)
@@ -837,11 +1115,11 @@ impl AsyncProverClient {
         }
     }
 
-    async fn poll_async(
+    async fn poll_async<T: ProverResponse>(
         &self,
         job_id: &str,
         key: &ExpectedProvingKey,
-    ) -> Result<Proof, ClientError> {
+    ) -> Result<T, ClientError> {
         let url = self.endpoint.status_url(job_id)?;
         let poll_cap_ms = self
             .async_poll
@@ -896,12 +1174,14 @@ impl AsyncProverClient {
             match value.get("status").and_then(|v| v.as_str()) {
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return ProverClient::proof_from_value(result, &text, key);
+                    return T::decode(result, &text, key);
                 }
                 Some("failed") => {
-                    return Err(ClientError::ProverServer(format!(
-                        "async proof failed (job {job_id}): {text}"
-                    )));
+                    return Err(typed_failure(&value).unwrap_or_else(|| {
+                        ClientError::ProverServer(format!(
+                            "async proof failed (job {job_id}): {text}"
+                        ))
+                    }));
                 }
                 _ => {
                     async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
@@ -931,120 +1211,131 @@ async fn async_wait_or_timeout(
 /// Block until a prover server is reachable, starting one via the `zolana` CLI if
 /// none is already running. Intended for tests.
 pub fn spawn_prover() -> Result<(), ClientError> {
-    spawn_prover_inner(None, None)
+    ProverLaunch {
+        cli: None,
+        keys_dir: None,
+        indexer: None,
+    }
+    .spawn()
 }
 
-/// A reused prover may be another clone's or an older build's, so its proving
-/// keys are checked against this build's verifying keys before any test uses it.
-fn spawn_prover_inner(
-    cli_override: Option<String>,
-    keys_dir: Option<&Path>,
-) -> Result<(), ClientError> {
-    start_prover_unless_healthy(cli_override, keys_dir)?;
-    ProverClient::new(server_address())
-        .check_proving_keys()
-        .map(|_| ())
+#[must_use]
+pub struct ProverLaunch {
+    /// Discovered at start when `None`.
+    cli: Option<String>,
+    keys_dir: Option<PathBuf>,
+    indexer: Option<(String, IndexerRequirement)>,
 }
 
-fn start_prover_unless_healthy(
-    cli_override: Option<String>,
-    keys_dir: Option<&Path>,
-) -> Result<(), ClientError> {
-    // One probe: a prover that is not up yet is started below, and the CLI
-    // reuses one a parallel start brought up in the meantime.
-    if health_check(1, 1) {
-        return Ok(());
+impl ProverLaunch {
+    /// Start the test prover from an explicit CLI binary and key-cache directory.
+    /// Repository tests use this entry point so neither artifact is discovered
+    /// from Git or `PATH`. A healthy server is reused so separate test binaries keep
+    /// its lazily loaded proving keys warm.
+    pub fn new_with_cli(cli_bin: impl AsRef<Path>) -> Result<Self, ClientError> {
+        let cli_bin = cli_bin.as_ref();
+        if !cli_bin.is_file() {
+            return Err(ClientError::Prover(format!(
+                "zolana CLI is missing: {}; build it before starting the prover",
+                cli_bin.display()
+            )));
+        }
+        Ok(Self {
+            cli: Some(shell_quote(&cli_bin.to_string_lossy())),
+            keys_dir: None,
+            indexer: None,
+        })
     }
 
-    if IS_LOADING
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
-        // Another caller is already starting it; wait for that to finish.
-        if health_check(STARTUP_HEALTH_CHECK_RETRIES, 1) {
+    pub fn with_keys_dir(mut self, keys_dir: impl AsRef<Path>) -> Result<Self, ClientError> {
+        let keys_dir = keys_dir.as_ref();
+        let parent = keys_dir.parent().ok_or_else(|| {
+            ClientError::Prover(format!(
+                "prover keys path has no parent: {}",
+                keys_dir.display()
+            ))
+        })?;
+        if !parent.is_dir() {
+            return Err(ClientError::Prover(format!(
+                "prover keys parent is missing: {}",
+                parent.display()
+            )));
+        }
+        self.keys_dir = Some(keys_dir.to_path_buf());
+        Ok(self)
+    }
+
+    pub fn with_indexer(mut self, url: impl Into<String>, indexer: IndexerRequirement) -> Self {
+        self.indexer = Some((url.into(), indexer));
+        self
+    }
+
+    /// A reused prover may be another clone's or an older build's, so its proving
+    /// keys are checked against this build's verifying keys before any test uses it.
+    pub fn spawn(self) -> Result<(), ClientError> {
+        self.start()?;
+        let indexer = self
+            .indexer
+            .as_ref()
+            .map_or(IndexerRequirement::Optional, |(_, indexer)| *indexer);
+        ProverClient::new(server_address())
+            .check_setup(indexer)
+            .map(drop)
+    }
+
+    fn start(&self) -> Result<(), ClientError> {
+        // One probe: a prover that is not up yet is started below, and the CLI
+        // reuses one a parallel start brought up in the meantime.
+        if health_check(1, 1) {
             return Ok(());
         }
-        return Err(ClientError::Prover(
-            "prover failed to start (health check failed)".to_string(),
-        ));
-    }
 
-    let Some(cli) = cli_override.or_else(get_cli_command) else {
-        IS_LOADING.store(false, Ordering::Release);
-        return Err(ClientError::Prover(
-            "could not locate the `zolana` CLI; set ZOLANA_CLI_BIN or build target/debug/zolana"
-                .to_string(),
-        ));
-    };
-
-    let port = prover_port(&server_address());
-    let redis_url = env::var("ZOLANA_PROVER_REDIS_URL").ok();
-    let command = prover_start_command(&cli, port, redis_url.as_deref());
-    let mut child_command = Command::new("sh");
-    child_command.arg("-c").arg(command);
-    if let Some(keys_dir) = keys_dir {
-        child_command.env("ZOLANA_PROVER_KEYS_DIR", keys_dir);
-    }
-    let spawn_result = child_command.spawn();
-
-    let result = match spawn_result {
-        Ok(mut child) => {
-            let healthy = health_check(STARTUP_HEALTH_CHECK_RETRIES, 1);
-            if !healthy {
-                let _ = child.kill();
-                let _ = child.wait();
+        if IS_LOADING
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            // Another caller is already starting it; wait for that to finish.
+            if health_check(STARTUP_HEALTH_CHECK_RETRIES, 1) {
+                return Ok(());
             }
-            healthy
+            return Err(ClientError::Prover(
+                "prover failed to start (health check failed)".to_string(),
+            ));
         }
-        Err(e) => {
-            IS_LOADING.store(false, Ordering::Release);
-            return Err(ClientError::Prover(format!("failed to start prover: {e}")));
+        let started = self.run_cli();
+        IS_LOADING.store(false, Ordering::Release);
+        started
+    }
+
+    fn run_cli(&self) -> Result<(), ClientError> {
+        let Some(cli) = self.cli.clone().or_else(get_cli_command) else {
+            return Err(ClientError::Prover(
+                "could not locate the `zolana` CLI; set ZOLANA_CLI_BIN or build target/debug/zolana"
+                    .to_string(),
+            ));
+        };
+        let redis_url = env::var("ZOLANA_PROVER_REDIS_URL").ok();
+        let port = prover_port(&server_address());
+        let command = prover_start_command(&cli, port, redis_url.as_deref());
+        let mut child_command = Command::new("sh");
+        child_command.arg("-c").arg(command);
+        if let Some(keys_dir) = &self.keys_dir {
+            child_command.env("ZOLANA_PROVER_KEYS_DIR", keys_dir);
         }
-    };
-
-    IS_LOADING.store(false, Ordering::Release);
-
-    if result {
-        Ok(())
-    } else {
-        Err(ClientError::Prover(
-            "prover failed to start (health check failed)".to_string(),
-        ))
+        if let Some((indexer_url, _)) = &self.indexer {
+            child_command.env(PROVER_INDEXER_URL_ENV, indexer_url);
+        }
+        let status = child_command
+            .status()
+            .map_err(|e| ClientError::Prover(format!("failed to start prover: {e}")))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ClientError::Prover(format!(
+                "prover start exited with {status}"
+            )))
+        }
     }
-}
-
-/// Start the test prover from an explicit CLI binary and key-cache directory.
-/// Repository tests use this entry point so neither artifact is discovered
-/// from Git or `PATH`. A healthy server is reused so separate test binaries keep
-/// its lazily loaded proving keys warm.
-pub fn spawn_prover_with_artifacts(
-    cli_bin: impl AsRef<Path>,
-    keys_dir: impl AsRef<Path>,
-) -> Result<(), ClientError> {
-    let cli_bin = cli_bin.as_ref();
-    if !cli_bin.is_file() {
-        return Err(ClientError::Prover(format!(
-            "zolana CLI is missing: {}; build it before starting the prover",
-            cli_bin.display()
-        )));
-    }
-    let keys_dir = keys_dir.as_ref();
-    let parent = keys_dir.parent().ok_or_else(|| {
-        ClientError::Prover(format!(
-            "prover keys path has no parent: {}",
-            keys_dir.display()
-        ))
-    })?;
-    if !parent.is_dir() {
-        return Err(ClientError::Prover(format!(
-            "prover keys parent is missing: {}",
-            parent.display()
-        )));
-    }
-    spawn_prover_inner(
-        Some(shell_quote(&cli_bin.to_string_lossy())),
-        Some(keys_dir),
-    )
 }
 
 fn health_check(retries: usize, timeout_secs: u64) -> bool {
@@ -1138,6 +1429,7 @@ mod tests {
 
     use serde_json::{json, Value};
 
+    use super::super::indexed::IndexedProofRequest;
     use super::*;
 
     #[test]
@@ -1511,6 +1803,79 @@ mod tests {
             ProverClient::new(server.url().to_string()).check_proving_keys(),
             Err(ClientError::ProverServer(_))
         ));
+    }
+
+    #[test]
+    fn check_indexed_reads_the_health_flag() {
+        let check = |body: Value| {
+            let server = MockServer::respond_with(vec![MockResponse::json(200, body)]);
+            let result = ProverClient::new(server.url().to_string()).check_indexed();
+            assert_paths(&server.requests(), ["/health"]);
+            result
+        };
+        assert!(check(json!({"status": "ok", "indexed": true})).is_ok());
+        assert!(matches!(
+            check(json!({"status": "ok", "indexed": false})),
+            Err(ClientError::ProverIndexerUnconfigured)
+        ));
+        assert!(matches!(
+            check(json!({"status": "ok"})),
+            Err(ClientError::ProverServer(message)) if message.contains("restart")
+        ));
+    }
+
+    #[tokio::test]
+    async fn async_check_indexed_reads_the_health_flag() {
+        let server = MockServer::respond_with(vec![MockResponse::json(
+            200,
+            json!({"status": "ok", "indexed": false}),
+        )]);
+        assert!(matches!(
+            AsyncProverClient::new(server.url().to_string())
+                .check_indexed()
+                .await,
+            Err(ClientError::ProverIndexerUnconfigured)
+        ));
+        assert_paths(&server.requests(), ["/health"]);
+    }
+
+    #[test]
+    fn check_setup_requires_an_indexer_only_when_asked() {
+        let server = MockServer::respond_with(vec![MockResponse::json(200, prover_keys_body())]);
+        assert!(ProverClient::new(server.url().to_string())
+            .check_setup(IndexerRequirement::Optional)
+            .is_ok());
+        assert_paths(&server.requests(), ["/proving-keys"]);
+
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(200, prover_keys_body()),
+            MockResponse::json(200, json!({"status": "ok", "indexed": false})),
+        ]);
+        let base = server.url().to_string();
+        let result = ProverClient::new(format!("{base}/?api-key=secret"))
+            .check_setup(IndexerRequirement::Required);
+        assert_paths(
+            &server.requests(),
+            ["/proving-keys?api-key=secret", "/health?api-key=secret"],
+        );
+        match result {
+            Err(ClientError::Prover(message)) => {
+                assert!(message.contains(&base), "{message}");
+                assert!(message.contains("restart"), "{message}");
+                assert!(!message.contains("secret"), "{message}");
+            }
+            other => panic!("expected a restart hint, got {other:?}"),
+        }
+
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(200, prover_keys_body()),
+            MockResponse::json(200, json!({"status": "ok"})),
+        ]);
+        assert!(matches!(
+            ProverClient::new(server.url().to_string()).check_setup(IndexerRequirement::Required),
+            Err(ClientError::ProverServer(_))
+        ));
+        assert_paths(&server.requests(), ["/proving-keys", "/health"]);
     }
 
     #[tokio::test]
@@ -1903,6 +2268,224 @@ mod tests {
                 .sync_requested,
             "the retry must queue rather than ask again for a permit just refused"
         );
+        assert!(requests.get(1).expect("queued retry").async_requested);
+    }
+
+    fn indexed_fixture() -> (IndexedProofRequest, Value) {
+        use super::super::indexed::{
+            IndexedLookup, IndexedProofData, IndexedTree, ProofResolution, ResolvedProofTree,
+        };
+        use zolana_interface::instruction::instruction_data::transact::TreeContext;
+        let tree = IndexedTree {
+            tree: zolana_interface::pda::tree(3).to_bytes().into(),
+            id: 3,
+        };
+        let fields = vec![[0; 32]; 17];
+        let resolution = ProofResolution {
+            trees: vec![ResolvedProofTree {
+                tree: tree.tree,
+                id: 3,
+                utxo_root: [0; 32],
+                nullifier_root: [0; 32],
+                context: TreeContext {
+                    utxo_tree_root_index: 0,
+                    nullifier_tree_root_index: 0,
+                },
+            }],
+            public_input_hash: [0; 32],
+        };
+        let hash = resolution.hash(&fields).unwrap();
+        let request = IndexedProofRequest::new(IndexedProofData {
+            witness: zeroize::Zeroizing::new(
+                json!({"circuitType":"transfer-confidential", "nInputs":1,
+                "nOutputs":1, "inputs":[{"treeSlot":"0x0","isDummy":"0x0"}], "outputs":[{}]})
+                .to_string(),
+            ),
+            inputs: vec![IndexedLookup {
+                tree_slot: 0,
+                commitment: Some([0; 32]),
+            }],
+            trees: vec![tree.clone()],
+            public_inputs: fields,
+        })
+        .unwrap();
+        let mut proof = gnark_proof();
+        proof["provingKeySha256"] = json!(super::super::proving_key::hex(
+            &request.proving_key().unwrap().sha256
+        ));
+        proof["resolution"] = json!({"trees":[{"tree":tree.tree.to_string(),"id":3,
+            "utxoRoot":"0x0","nullifierRoot":"0x0","utxoRootIndex":0,"nullifierRootIndex":0}],
+            "publicInputHash":super::super::indexed::hex_field(&hash)});
+        (request, proof)
+    }
+
+    #[test]
+    fn indexed_overload_retains_route_and_resolution() {
+        let (request, proof) = indexed_fixture();
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(429, json!({"error":"busy"})),
+            MockResponse::json(202, json!({"jobId":"indexed-queued", "status":"queued"})),
+            MockResponse::json(200, json!({"status":"completed", "result":{"proof":proof}})),
+        ]);
+        let proof = queued_prover_client(&format!("{}/v1/zolana?api-key=secret", server.url()))
+            .prove_indexed(&request)
+            .unwrap();
+        assert_eq!(proof.resolution.trees[0].id, 3);
+        let requests = server.requests();
+        assert_paths(
+            &requests,
+            [
+                "/v1/zolana/prove/indexed?api-key=secret",
+                "/v1/zolana/prove/indexed?api-key=secret",
+                "/v1/zolana/prove/status?api-key=secret&jobId=indexed-queued",
+            ],
+        );
+        assert!(requests[0].sync_requested);
+        assert!(requests[1].async_requested);
+    }
+
+    #[tokio::test]
+    async fn indexed_async_binds_response_to_request() {
+        let (request, mut proof) = indexed_fixture();
+        proof["resolution"]["publicInputHash"] = json!("0x1");
+        let server = MockServer::respond_with(vec![MockResponse::json(200, proof)]);
+        assert!(async_prover_client(server.url())
+            .prove_indexed(&request)
+            .await
+            .is_err());
+        assert_paths(&server.requests(), ["/prove/indexed"]);
+    }
+
+    #[test]
+    fn indexed_proofs_require_the_pinned_key() {
+        for missing in [true, false] {
+            let (request, mut proof) = indexed_fixture();
+            if missing {
+                proof.as_object_mut().unwrap().remove("provingKeySha256");
+            } else {
+                proof["provingKeySha256"] = json!("00".repeat(32));
+            }
+            let server = MockServer::respond_with(vec![MockResponse::json(200, proof.clone())]);
+            let result = queued_prover_client(server.url()).prove_indexed(&request);
+            assert!(matches!(result, Err(ClientError::MissingProvingKeySha256 { .. })) == missing);
+            assert!(matches!(result, Err(ClientError::ProvingKeyMismatch { .. })) != missing);
+            let server = MockServer::respond_with(vec![MockResponse::json(200, proof)]);
+            let result = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async_prover_client(server.url()).prove_indexed(&request));
+            assert!(matches!(result, Err(ClientError::MissingProvingKeySha256 { .. })) == missing);
+            assert!(matches!(result, Err(ClientError::ProvingKeyMismatch { .. })) != missing);
+        }
+    }
+
+    fn refusal(member: [u8; 32]) -> Value {
+        json!({
+            "code": "registry_member_missing",
+            "message": "registry member missing",
+            "member": solana_address::Address::new_from_array(member).to_string(),
+        })
+    }
+
+    #[test]
+    fn error_codes_map_to_typed_failures() {
+        let member = [9; 32];
+        let mut malformed = refusal(member);
+        malformed["member"] = json!("0x09");
+        for (status, body, expected) in [
+            (422, refusal(member), "RegistryMemberMissing"),
+            (
+                503,
+                json!({"code": "indexer_not_ready"}),
+                "IndexerProofDataNotReady",
+            ),
+            (
+                404,
+                json!({"code": "indexer_unconfigured"}),
+                "ProverIndexerUnconfigured",
+            ),
+            (422, malformed, "ProverServer"),
+            (409, json!({"code": "unknown_code"}), "ProverServer"),
+        ] {
+            let server = MockServer::respond_with(vec![MockResponse::json(status, body)]);
+            let error = queued_prover_client(server.url())
+                .send("{}", Delivery::InResponse, &test_key())
+                .unwrap_err();
+            assert!(format!("{error:?}").starts_with(expected), "{error:?}");
+            if let ClientError::RegistryMemberMissing { member: reported } = error {
+                assert_eq!(reported, member);
+            }
+        }
+    }
+
+    #[test]
+    fn a_404_on_the_indexed_route_means_no_indexer() {
+        let (request, _) = indexed_fixture();
+        let not_found = || vec![MockResponse::json(404, json!({}))];
+        let server = MockServer::respond_with(not_found());
+        assert!(matches!(
+            queued_prover_client(server.url()).prove_indexed(&request),
+            Err(ClientError::ProverIndexerUnconfigured)
+        ));
+        let server = MockServer::respond_with(not_found());
+        assert!(matches!(
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async_prover_client(server.url()).prove_indexed(&request)),
+            Err(ClientError::ProverIndexerUnconfigured)
+        ));
+        let server = MockServer::respond_with(not_found());
+        assert!(matches!(
+            queued_prover_client(server.url()).send("{}", Delivery::InResponse, &test_key()),
+            Err(ClientError::ProverServer(_))
+        ));
+    }
+
+    #[test]
+    fn indexed_requests_keep_typed_refusals() {
+        let (request, _) = indexed_fixture();
+        let server = MockServer::respond_with(vec![MockResponse::json(422, refusal([9; 32]))]);
+        assert!(matches!(
+            queued_prover_client(server.url()).prove_indexed(&request),
+            Err(ClientError::RegistryMemberMissing { member: [9, ..] })
+        ));
+    }
+
+    fn failed_job(mut status: Value) -> Vec<MockResponse> {
+        status["status"] = json!("failed");
+        status["error"] = json!("indexer proof data not ready");
+        vec![
+            MockResponse::json(202, json!({"jobId": "job-failed"})),
+            MockResponse::json(200, status),
+        ]
+    }
+
+    #[test]
+    fn failed_jobs_map_codes_on_both_clients() {
+        for (code, expected) in [
+            (refusal([9; 32]), "RegistryMemberMissing"),
+            (
+                json!({"code": "indexer_not_ready"}),
+                "IndexerProofDataNotReady",
+            ),
+            (json!({}), "ProverServer"),
+        ] {
+            let server = MockServer::respond_with(failed_job(code.clone()));
+            let blocking = queued_prover_client(server.url())
+                .send("{}", Delivery::Queued, &test_key())
+                .unwrap_err();
+            let server = MockServer::respond_with(failed_job(code));
+            let nonblocking = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async_prover_client(server.url()).send(
+                    "{}",
+                    Delivery::Queued,
+                    &test_key(),
+                ))
+                .unwrap_err();
+            for error in [blocking, nonblocking] {
+                assert!(format!("{error:?}").starts_with(expected), "{error:?}");
+            }
+        }
     }
 
     #[test]
@@ -1969,6 +2552,7 @@ mod tests {
         path: String,
         /// Whether the request asked for the proof in the response.
         sync_requested: bool,
+        async_requested: bool,
     }
 
     enum MockResponse {
@@ -2230,6 +2814,12 @@ mod tests {
             .to_string();
         RecordedRequest {
             path,
+            async_requested: header.lines().any(|line| {
+                line.to_ascii_lowercase()
+                    .strip_prefix("x-async:")
+                    .map(str::trim)
+                    == Some("true")
+            }),
             sync_requested: header.lines().any(|line| {
                 let lower = line.to_ascii_lowercase();
                 lower.strip_prefix("x-sync:").map(str::trim) == Some("true")

@@ -33,6 +33,8 @@ import type {
   ProverInputs,
   RingTransactRoots,
   TransferInputs,
+  TransferInput,
+  Field,
 } from "./prover/types.js";
 import type {
   GetByNullifiersRequest,
@@ -200,6 +202,119 @@ export interface ProofReader {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<readonly SpendProof[]>;
+}
+
+export type PreparedTransferInput = Omit<
+  TransferInput,
+  | "statePathElements"
+  | "statePathIndex"
+  | "nullifierLowValue"
+  | "nullifierNextValue"
+  | "nullifierLowPathElements"
+  | "nullifierLowPathIndex"
+>;
+
+export type PreparedTransferInputs = Omit<
+  TransferInputs,
+  "inputs" | "treeSlots" | "publicInputHash"
+> & {
+  readonly inputs: readonly PreparedTransferInput[];
+};
+
+export type PreparedMergeInputs = Omit<MergeInputs, "inputs" | "treeSlots" | "publicInputHash"> & {
+  readonly inputs: readonly PreparedTransferInput[];
+};
+
+export interface IndexedTree {
+  readonly tree: Address;
+  readonly id: number;
+}
+
+export interface ResolvedProofTree extends IndexedTree {
+  readonly utxoRoot: Bytes32;
+  readonly nullifierRoot: Bytes32;
+  readonly utxoRootIndex: number;
+  readonly nullifierRootIndex: number;
+}
+
+export interface ProofResolution {
+  readonly trees: readonly ResolvedProofTree[];
+  readonly publicInputHash: Bytes32;
+}
+
+export type IndexedProofInputs = Readonly<{
+  readonly trees: readonly IndexedTree[];
+  readonly lookups: readonly Readonly<{ treeSlot: number; commitment: Bytes32 | null }>[];
+  readonly publicInputs: readonly Field[];
+  readonly minContextSlot?: bigint;
+}> &
+  (
+    | Readonly<{
+        circuit: "transfer" | "transferRing" | "transferRingAuthority";
+        payload: PreparedTransferInputs;
+      }>
+    | Readonly<{ circuit: "merge"; payload: PreparedMergeInputs }>
+  );
+
+export interface IndexedPolicyLookup {
+  readonly treeSlot: number;
+  readonly commitment: Bytes32 | null;
+  readonly nullifier: Bytes32 | null;
+}
+
+export interface IndexedRegistry {
+  readonly ringProgramId: Address;
+  readonly root: Bytes32;
+  readonly nextIndex: bigint;
+}
+
+export interface IndexedDepositInputs {
+  readonly deposit: CustomRingDepositProofRequest;
+  readonly registry: IndexedRegistry;
+  readonly minContextSlot?: bigint;
+}
+
+export type ProofDataSource = "client" | "prover";
+
+export interface ProofDataSourceContext {
+  readonly proofDataSource: ProofDataSource;
+}
+
+export interface IndexedDepositClient extends ProofDataSourceContext {
+  proveIndexedRingDeposit?(
+    inputs: IndexedDepositInputs,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+}
+
+export interface IndexedPolicyInputs {
+  readonly minContextSlot?: bigint;
+  readonly circuit:
+    | "custom-ring-policy"
+    | "custom-ring-compressed-policy"
+    | "custom-ring-delegate-policy";
+  readonly policy: CustomRingPolicyProofRequest;
+  readonly transactionSalt?: Uint8Array;
+  readonly trees: readonly ResolvedProofTree[];
+  readonly lookups: readonly IndexedPolicyLookup[];
+  readonly publicInputs: readonly Bytes32[];
+  readonly registry?: IndexedRegistry;
+}
+
+export interface IndexedPolicyClient extends ProofDataSourceContext {
+  proveIndexedRingPolicy?(
+    inputs: IndexedPolicyInputs,
+    context?: RequestContext,
+  ): Promise<Readonly<{ proof: Uint8Array; resolution: ProofResolution }>>;
+}
+
+export interface IndexedProofResult {
+  readonly proof: Proof;
+  readonly resolution: ProofResolution;
+}
+
+export interface IndexedProofAuthority {
+  proveIndexed(inputs: IndexedProofInputs, context?: RequestContext): Promise<IndexedProofResult>;
 }
 
 /**
@@ -409,7 +524,6 @@ export interface MergeAssembler {
     input: Readonly<{
       prepared: PreparedMerge;
       keys: ProofAuthority;
-      indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
       cache?: MergeCacheTarget;
     }>,
     context?: RequestContext,
@@ -427,4 +541,5 @@ export interface MergeAssembler {
 export type RingMergeClient = TreeContext &
   BlockhashProvider &
   Pick<ChainReader, "getAccount"> &
-  Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+  Pick<MergeAssembler, "proveMerge"> &
+  ProofDataSourceContext;

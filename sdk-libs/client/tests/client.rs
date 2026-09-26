@@ -297,7 +297,8 @@ fn submit_validation_binds_fee_payer() {
         ProverClient::new("http://unused.invalid".to_string()),
         AsyncZolanaIndexer::new(server.url()),
         AsyncProverClient::new("http://unused.invalid".to_string()),
-    );
+    )
+    .with_proof_data_source(zolana_client::ProofDataSource::Client);
 
     assert!(matches!(
         client.finish_submission_unsigned_sync(
@@ -977,4 +978,175 @@ impl<R: Rpc> TestSubmission for ZolanaClient<R> {
             self.compute_budget(),
         )
     }
+}
+
+#[test]
+fn default_transfer_routes_skip_client_indexer_reads() {
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+    let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let server = MockIndexerServer::respond_with(vec![json!({}), json!({}), json!({})]);
+    let client = ZolanaClient::from_urls(
+        MockSubmitRpc::new(Signature::default()),
+        server.url(),
+        server.url(),
+    )
+    .unwrap();
+    assert!(matches!(
+        Rpc::prove(&client, transaction.clone(), &owner),
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert!(matches!(
+        client.prove_transact(transaction.clone(), None, &owner),
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert!(matches!(
+        client.finish_submission_unsigned_sync(
+            &SignedPrivateTransaction {
+                transaction,
+                settlement_transfers: Vec::new(),
+            },
+            payer.pubkey(),
+            &owner,
+        ),
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert_eq!(server.requests(), ["/prove/indexed"; 3]);
+}
+
+#[tokio::test]
+async fn default_async_transfer_routes_skip_client_indexer_reads() {
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+    let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let server = MockIndexerServer::respond_with(vec![json!({}), json!({})]);
+    let client = ZolanaClient::from_urls(
+        MockSubmitRpc::new(Signature::default()),
+        server.url(),
+        server.url(),
+    )
+    .unwrap();
+    assert!(matches!(
+        AsyncRpc::prove(&client, transaction.clone(), &owner).await,
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert!(matches!(
+        client
+            .finish_submission_unsigned(
+                &SignedPrivateTransaction {
+                    transaction,
+                    settlement_transfers: Vec::new(),
+                },
+                payer.pubkey(),
+                Hash::default(),
+                &owner,
+            )
+            .await,
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert_eq!(server.requests(), ["/prove/indexed"; 2]);
+}
+
+#[test]
+fn client_proof_data_opt_in_fetches_paths_before_proving() {
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+    let input = funded_utxo(&owner, 10);
+    let server = client_proof_data_server(&input);
+    let transaction = ConfidentialTransaction::new(vec![input], payer.pubkey())
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let client = ZolanaClient::from_urls(
+        MockSubmitRpc::new(Signature::default()),
+        server.url(),
+        server.url(),
+    )
+    .unwrap()
+    .with_proof_data_source(zolana_client::ProofDataSource::Client);
+    assert!(matches!(
+        Rpc::prove(&client, transaction, &owner),
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert_client_proof_data_requests(server.requests());
+}
+
+#[tokio::test]
+async fn client_proof_data_opt_in_fetches_paths_before_proving_async() {
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+    let input = funded_utxo(&owner, 10);
+    let server = client_proof_data_server(&input);
+    let transaction = ConfidentialTransaction::new(vec![input], payer.pubkey())
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let client = ZolanaClient::from_urls(
+        MockSubmitRpc::new(Signature::default()),
+        server.url(),
+        server.url(),
+    )
+    .unwrap()
+    .with_proof_data_source(zolana_client::ProofDataSource::Client);
+    assert!(matches!(
+        AsyncRpc::prove(&client, transaction, &owner).await,
+        Err(ClientError::MissingProvingKeySha256 { .. })
+    ));
+    assert_client_proof_data_requests(server.requests());
+}
+
+fn client_proof_data_server(input: &WalletUtxo) -> MockIndexerServer {
+    let tree = pda::tree(input.tree_id);
+    MockIndexerServer::respond_by_path(vec![
+        ("/getMerkleProofs", merkle_response(tree, input.utxo_hash)),
+        (
+            "/getNonInclusionProofs",
+            nullifier_response(tree, input.nullifier),
+        ),
+        ("/prove", json!({})),
+    ])
+}
+
+fn assert_client_proof_data_requests(requests: Vec<String>) {
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[2], "/prove");
+    let mut reads = requests[..2].to_vec();
+    reads.sort();
+    assert_eq!(reads, ["/getMerkleProofs", "/getNonInclusionProofs"]);
+}
+
+#[test]
+fn indexed_preparation_rejects_changed_inputs_and_wrong_authority() {
+    use zolana_client::prover::indexed::PreparedIndexedTransfer;
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+    let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let other = ShieldedKeypair::new_ed25519().unwrap();
+    assert!(matches!(
+        PreparedIndexedTransfer::new(transaction.clone(), &other),
+        Err(ClientError::InputNullifierMismatch { index: 0 })
+    ));
+    let mut changed = transaction.clone();
+    changed.input_utxos[0].nullifier[31] ^= 1;
+    assert!(matches!(
+        PreparedIndexedTransfer::new(changed, &owner),
+        Err(ClientError::InputNullifierMismatch { index: 0 })
+    ));
+    let mut changed = transaction;
+    changed.input_utxos[0].utxo_hash[31] ^= 1;
+    assert!(matches!(
+        PreparedIndexedTransfer::new(changed, &owner),
+        Err(ClientError::Transaction(
+            zolana_transaction::TransactionError::InputCommitmentMismatch { index: 0 }
+        ))
+    ));
 }

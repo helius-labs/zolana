@@ -11,7 +11,7 @@ use zolana_test_utils::smart_account::settings_member_keys;
 use zolana_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
     lifecycle::{randomized::Workload, LifecycleHarness},
-    localnet::{start_shielded_pool_localnet, DEFAULT_RPC_URL},
+    localnet::{localnet_rpc_url, start_shielded_pool_localnet},
 };
 use zolana_transaction::SOL_MINT;
 
@@ -32,8 +32,7 @@ use zolana_transaction::SOL_MINT;
 #[serial]
 fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
     start_shielded_pool_localnet("spp-settings", &[]);
-    let rpc_url = std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
-    let mut rpc = SolanaRpc::new(rpc_url);
+    let mut rpc = SolanaRpc::new(localnet_rpc_url());
     let config = BootstrapConfig {
         label: "spp-settings",
         extra_programs: Vec::new(),

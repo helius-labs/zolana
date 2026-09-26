@@ -79,7 +79,9 @@ func TestInputHashIncludesTheProvingKeyVersion(t *testing.T) {
 }
 
 func TestProvingKeysEndpointIsPublic(t *testing.T) {
-	if requiresAuthentication("/proving-keys") {
-		t.Fatal("/proving-keys requires authentication")
+	for _, path := range []string{"/proving-keys", gatewayPrefix + "/proving-keys"} {
+		if requiresAuthentication(path) {
+			t.Fatalf("%s requires authentication", path)
+		}
 	}
 }

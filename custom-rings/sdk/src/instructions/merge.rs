@@ -3,6 +3,9 @@
 use solana_address::Address;
 use solana_instruction::Instruction;
 use thiserror::Error;
+use zolana_client::prover::indexed::{
+    IndexedMergePreparation, ProofDataSource, ProvenIndexedMerge,
+};
 use zolana_client::{
     AsyncProverClient, AsyncRpc, ClientError, MergeProofResult, NonInclusionProof, Proof,
     ProofCompressed, ProverClient, Rpc, SpendProof,
@@ -175,6 +178,14 @@ impl PreparedCustomRingMerge {
             .ok_or(MergeError::MissingRingConfig)?;
         self.validate_source(tree_id(env.rpc, input.input_tree)?)?;
         self.inner.output_tree_id = tree_id(env.rpc, input.output_tree)?;
+        if env.prover.proof_data_source() == ProofDataSource::Prover {
+            let prepared = IndexedMergePreparation {
+                merge: self.inner.clone(),
+                nullifier_key: input.nullifier_key.clone(),
+            }
+            .prepare()?;
+            return self.finish_indexed(input, env.prover.prove_indexed(&prepared)?);
+        }
         let commitments = self.input_utxo_hashes()?;
         let proofs = fetch_spend_proofs(env.indexer, input.input_tree, &commitments)?;
         let dummy_nullifiers = self.dummy_nullifiers();
@@ -205,6 +216,14 @@ impl PreparedCustomRingMerge {
             .ok_or(MergeError::MissingRingConfig)?;
         self.validate_source(tree_id_async(env.rpc, input.input_tree).await?)?;
         self.inner.output_tree_id = tree_id_async(env.rpc, input.output_tree).await?;
+        if env.prover.proof_data_source() == ProofDataSource::Prover {
+            let prepared = IndexedMergePreparation {
+                merge: self.inner.clone(),
+                nullifier_key: input.nullifier_key.clone(),
+            }
+            .prepare()?;
+            return self.finish_indexed(input, env.prover.prove_indexed(&prepared).await?);
+        }
         let commitments = self.input_utxo_hashes()?;
         let (state, nullifier) = futures::try_join!(
             env.indexer.get_merkle_proofs(
@@ -240,6 +259,34 @@ impl PreparedCustomRingMerge {
         })?;
         let proof = env.prover.prove_merge_ring(&staged.result.inputs).await?;
         staged.finish(proof)
+    }
+
+    fn finish_indexed(
+        self,
+        input: MergeProofInput,
+        proven: ProvenIndexedMerge,
+    ) -> Result<ProvenCustomRingMerge, MergeError> {
+        let ProvenIndexedMerge::Ring(data) = proven else {
+            return Err(ClientError::InvalidIndexedRequest.into());
+        };
+        Ok(ProvenCustomRingMerge {
+            input_tree: input.input_tree,
+            output_tree: input.output_tree,
+            ring: self.ring,
+            cosigner: None,
+            output_hash: self.inner.output_hash()?,
+            input_count: self
+                .inner
+                .input_utxos
+                .iter()
+                .filter(|input| !input.is_dummy())
+                .count(),
+            merged_amount: self.inner.output_utxo.amount,
+            tx_viewing_pk: self.inner.tx_viewing_pk,
+            salt: self.inner.salt,
+            output_data: self.inner.output_data,
+            data,
+        })
     }
 
     fn validate_source(&self, tree_id: u16) -> Result<(), MergeError> {

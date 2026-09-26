@@ -16,8 +16,8 @@ import (
 func TestDispatchStageTracksMeanAndMax(t *testing.T) {
 	dispatchStages.byCircuit = map[string]*window{}
 
-	dispatchStages.observe("zk_transfer_queue|dedup", 1, 0)
-	mean, max, _ := dispatchStages.observe("zk_transfer_queue|dedup", 3, 0)
+	dispatchStages.observe("zk_transfer_queue|dedup", 1)
+	mean, max := dispatchStages.observe("zk_transfer_queue|dedup", 3)
 
 	if mean != 2 {
 		t.Errorf("mean = %v, want 2", mean)

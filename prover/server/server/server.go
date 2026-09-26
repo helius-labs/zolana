@@ -7,19 +7,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
-	mergeprover "zolana/prover/prover/merge"
-	nullifiertree "zolana/prover/prover/nullifier_tree"
-	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
+	"zolana/prover/prover/indexed"
+	"zolana/prover/prover/timing"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gorilla/handlers"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type proofStatusHandler struct {
@@ -214,6 +213,11 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				response["message"] = fmt.Sprintf("Job processing failed: %s", errorMsg)
 				response["error"] = errorMsg
 			}
+			for _, field := range []string{"code", "member"} {
+				if value, ok := failureDetails[field].(string); ok {
+					response[field] = value
+				}
+			}
 			if failedAt, ok := failureDetails["failedAt"]; ok {
 				response["failedAt"] = failedAt
 			}
@@ -264,15 +268,23 @@ type QueueConfig struct {
 }
 
 type EnhancedConfig struct {
-	ProverAddress  string
-	MetricsAddress string
-	Queue          *QueueConfig
+	Readiness         *Readiness
+	Indexer           *indexed.Resolver
+	TransferExecution *Execution
+	ProverAddress     string
+	MetricsAddress    string
+	Queue             *QueueConfig
 }
 
 type proveHandler struct {
-	keyManager  *common.LazyKeyManager
-	redisQueue  *RedisQueue
-	enableQueue bool
+	timing            *timing.Trace
+	readiness         *Readiness
+	indexer           *indexed.Resolver
+	indexed           bool
+	transferExecution *Execution
+	keyManager        *common.LazyKeyManager
+	redisQueue        *RedisQueue
+	enableQueue       bool
 	// Bounds proving done inside a request. Shared across requests, so it must
 	// be the same instance for every one of them.
 	admission *syncAdmission
@@ -367,11 +379,26 @@ func (handler proofStatusHandler) checkJobExistsDetailed(
 }
 
 func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	handler.timing = timing.FromContext(r.Context())
+	finishDecode := handler.timing.Start("decode")
+	defer finishDecode()
+	if !handler.readiness.Ready() {
+		keysNotReady().send(w)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
+	if handler.indexed {
+		if handler.indexer == nil {
+			(&Error{StatusCode: http.StatusNotFound, Code: "indexer_unconfigured", Message: "Indexer proving is not configured"}).send(w)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	}
 	buf, err := io.ReadAll(r.Body)
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("Error reading request body")
@@ -379,12 +406,19 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if handler.indexed {
+		if err := indexed.Validate(buf); err != nil {
+			malformedBodyError(err).send(w)
+			return
+		}
+	}
 	proofRequestMeta, err := common.ParseProofRequestMeta(buf)
 	if err != nil {
 		malformedBodyError(err).send(w)
 		return
 	}
 
+	finishDecode()
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
@@ -393,7 +427,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// `use_queue` is the decision, not the circuit's queueability: logging the
 	// latter under that name said use_queue=true on requests that were proved in
 	// the response, which is exactly the question the line exists to answer.
-	queued := useQueue(forceSync, forceAsync, circuitQueued, queueAvailable)
+	queued := useQueue(forceSync || isTransferCircuit(proofRequestMeta.CircuitType), forceAsync, circuitQueued, queueAvailable)
 
 	logging.Logger().Info().
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
@@ -575,8 +609,11 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 
 func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	return RunEnhanced(&EnhancedConfig{
-		ProverAddress:  config.ProverAddress,
-		MetricsAddress: config.MetricsAddress,
+		Readiness:         config.Readiness,
+		Indexer:           config.Indexer,
+		TransferExecution: config.TransferExecution,
+		ProverAddress:     config.ProverAddress,
+		MetricsAddress:    config.MetricsAddress,
 		Queue: &QueueConfig{
 			Enabled: redisQueue != nil,
 		},
@@ -606,6 +643,7 @@ func handleBoth(mux *http.ServeMux, path string, h http.Handler) {
 }
 
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
+	transferExecution := config.TransferExecution
 	apiKey := getAPIKeyFromEnv()
 	if apiKey != "" {
 		logging.Logger().Info().Msg("API key authentication enabled for prover server")
@@ -613,25 +651,36 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		logging.Logger().Warn().Msg("No API key configured - server will accept all requests. Set PROVER_API_KEY environment variable to enable authentication.")
 	}
 	metricsMux := http.NewServeMux()
-	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsMux.Handle("/metrics", capacityMetrics(transferExecution, config.Readiness))
 	metricsServer := &http.Server{Addr: config.MetricsAddress, Handler: metricsMux}
 	metricsJob := spawnServerJob(metricsServer, "metrics server")
 	logging.Logger().Info().Str("addr", config.MetricsAddress).Msg("metrics server started")
 
 	proverMux := http.NewServeMux()
-
-	handleBoth(proverMux, "/prove", proveHandler{
-		keyManager:  keyManager,
-		redisQueue:  redisQueue,
-		enableQueue: config.Queue != nil && config.Queue.Enabled,
-		admission:   newSyncAdmission(syncPermits()),
+	proverMux.HandleFunc("/auth", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
 	})
 
+	handler := proveHandler{
+		readiness:         config.Readiness,
+		indexer:           config.Indexer,
+		transferExecution: transferExecution,
+		keyManager:        keyManager,
+		redisQueue:        redisQueue,
+		enableQueue:       config.Queue != nil && config.Queue.Enabled,
+		admission:         newSyncAdmission(syncPermits()),
+	}
+	handleBoth(proverMux, "/prove", observeProofHTTP("complete", handler))
+	handler.indexed = true
+	handleBoth(proverMux, "/prove/indexed", observeProofHTTP("indexed", handler))
+
+	proverMux.Handle("/ready", config.Readiness)
 	proverMux.Handle("/health", healthHandler{
 		circuits: servedCircuits(),
+		indexed:  config.Indexer != nil,
 	})
 
-	proverMux.Handle("/proving-keys", provingKeysHandler{keyManager: keyManager})
+	handleBoth(proverMux, "/proving-keys", provingKeysHandler{keyManager: keyManager})
 
 	if redisQueue != nil {
 		handleBoth(proverMux, "/prove/status", proofStatusHandler{redisQueue: redisQueue})
@@ -764,6 +813,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	}
 
 	corsHandler := handlers.CORS(
+		handlers.MaxAge(600),
 		handlers.AllowedHeaders([]string{
 			"X-Requested-With",
 			"Content-Type",
@@ -771,8 +821,11 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			"X-API-Key",
 			"X-Async",
 			"X-Sync",
+			"X-Prover-Timing",
+			"X-Request-ID",
 		}),
 		handlers.AllowedOrigins([]string{"*"}),
+		handlers.ExposedHeaders([]string{"Server-Timing", "X-Prover-Timing", "X-Request-ID"}),
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 	)
 
@@ -803,6 +856,31 @@ type Error struct {
 	StatusCode int
 	Code       string
 	Message    string
+	RetryAfter int
+	Member     string
+	cause      error
+}
+
+func notReady(code, message string) *Error {
+	return &Error{StatusCode: http.StatusServiceUnavailable, Code: code, Message: message, RetryAfter: notReadyRetryAfterSecs}
+}
+
+func keysNotReady() *Error {
+	return notReady("prover_not_ready", "Proving keys are not ready")
+}
+
+// indexedFailure keeps the resolution cause for queue redaction.
+func indexedFailure(err error) *Error {
+	var unregistered *indexed.UnregisteredMemberError
+	switch {
+	case errors.Is(err, indexed.ErrIndexerNotReady):
+		failure := notReady("indexer_not_ready", indexed.ErrIndexerNotReady.Error())
+		failure.cause = err
+		return failure
+	case errors.As(err, &unregistered):
+		return &Error{StatusCode: http.StatusUnprocessableEntity, Code: "registry_member_missing", Message: "Output owner has no registered key", Member: unregistered.Member.String(), cause: err}
+	}
+	return &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable", cause: err}
 }
 
 func malformedBodyError(err error) *Error {
@@ -818,13 +896,29 @@ func unexpectedError(err error) *Error {
 }
 
 func (error *Error) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]string{
+	body := map[string]string{
 		"code":    error.Code,
 		"message": error.Message,
-	})
+	}
+	if error.Member != "" {
+		body["member"] = error.Member
+	}
+	return json.Marshal(body)
+}
+
+func (error *Error) Error() string {
+	return error.Message
+}
+
+func (error *Error) Unwrap() error {
+	return error.cause
 }
 
 func (error *Error) send(w http.ResponseWriter) {
+	if error.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(error.RetryAfter))
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(error.StatusCode)
 	jsonBytes, err := error.MarshalJSON()
 	if err != nil {
@@ -837,8 +931,11 @@ func (error *Error) send(w http.ResponseWriter) {
 }
 
 type Config struct {
-	ProverAddress  string
-	MetricsAddress string
+	Readiness         *Readiness
+	Indexer           *indexed.Resolver
+	TransferExecution *Execution
+	ProverAddress     string
+	MetricsAddress    string
 }
 
 func spawnServerJob(server *http.Server, label string) RunningJob {
@@ -861,6 +958,7 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 
 type healthHandler struct {
 	circuits []common.CircuitType
+	indexed  bool
 }
 
 // provingKeysHandler serves GET /proving-keys: per key, the sha256 the
@@ -960,6 +1058,7 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 	jobID := dedupResult.JobID
 
 	job := &ProofJob{
+		Indexed:    handler.indexed,
 		ID:         jobID,
 		Type:       "zk_proof",
 		Payload:    json.RawMessage(buf),
@@ -1034,6 +1133,13 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		Msg("Batch operation job queued successfully")
 }
 
+func sendShed(w http.ResponseWriter, meta common.ProofRequestMeta, shed *Error) {
+	logging.Logger().Warn().
+		Str("circuit_type", string(meta.CircuitType)).
+		Msg("Shedding synchronous proof at the concurrency limit")
+	shed.send(w)
+}
+
 func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
 	if handler.isBatchOperation(meta.CircuitType) {
 		warning := fmt.Sprintf("WARNING: %s is a heavy operation that should be processed asynchronously. Consider using X-Async: true header.", meta.CircuitType)
@@ -1047,16 +1153,38 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
+	admission := handler.admission
+	if isTransferCircuit(meta.CircuitType) {
+		admission = handler.transferExecution.admission
+	}
+	reserved, shed := admission.reserve()
+	if shed != nil {
+		sendShed(w, meta, shed)
+		return
+	}
+	defer reserved.cancel()
+	var resolution *common.ProofResolution
+	if handler.indexed {
+		resolved, err := handler.indexer.Resolve(ctx, buf)
+		if err != nil {
+			failure := indexedFailure(err)
+			if ctx.Err() != nil && !errors.Is(err, indexed.ErrIndexerNotReady) {
+				failure = &Error{StatusCode: http.StatusRequestTimeout, Code: "proof_timeout", Message: "Proof request expired"}
+			}
+			failure.send(w)
+			return
+		}
+		buf, resolution = resolved.Payload, resolved.Resolution
+	}
 
 	// Wait for a permit before starting work. Doing this here rather than around
 	// the whole handler keeps parsing and validation off the bound: a malformed
 	// request should be rejected while the prover is busy, not queued behind it.
-	release, admitErr := handler.admission.admit(ctx)
+	finishAdmission := handler.timing.Start("admission")
+	release, admitErr := reserved.admit(ctx)
+	finishAdmission()
 	if admitErr != nil {
-		logging.Logger().Warn().
-			Str("circuit_type", string(meta.CircuitType)).
-			Msg("Shedding synchronous proof at the concurrency limit")
-		sendOverloaded(w, admitErr)
+		sendShed(w, meta, admitErr)
 		return
 	}
 
@@ -1072,6 +1200,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		// Recover from panics to prevent server crash from malformed input
 		defer func() {
 			if r := recover(); r != nil {
+				if handler.indexed {
+					r = errIndexedProof
+				}
 				ProofPanicsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
 				logging.Logger().Error().
 					Interface("panic", r).
@@ -1086,9 +1217,15 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 		timer := StartProofTimer(string(meta.CircuitType))
 
-		proof, proofError := handler.processProofSync(buf)
+		proof, proofError := circuitProver{keys: handler.keyManager, trace: handler.timing}.prove(buf)
+		if proof != nil {
+			proof.Resolution = resolution
+		}
 
 		if proofError != nil {
+			if handler.indexed {
+				proofError = provingError(errIndexedProof)
+			}
 			timer.ObserveError(proofError.Code)
 			RecordJobComplete(false)
 		} else {
@@ -1110,7 +1247,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
+		finishEncode := handler.timing.Start("encode")
 		responseBytes, err := json.Marshal(result.proof)
+		finishEncode()
 		if err != nil {
 			unexpectedError(err).send(w)
 			return
@@ -1214,175 +1353,13 @@ func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) tim
 	return min(maxSyncProofTimeout, max(10*time.Second, 2*estimate))
 }
 
-func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error) {
-	proofRequestMeta, err := common.ParseProofRequestMeta(buf)
-	if err != nil {
-		return nil, malformedBodyError(err)
-	}
-
-	if proofRequestMeta.CircuitType.IsRing() {
-		return handler.customRingProof(buf, proofRequestMeta.CircuitType)
-	}
-	switch proofRequestMeta.CircuitType {
-	case common.BatchAddressAppendCircuitType:
-		return handler.batchAddressAppendProof(buf)
-	case common.TransferConfidentialCircuitType,
-		common.TransferRingCircuitType,
-		common.TransferRingAuthorityCircuitType:
-		return handler.transferEddsaProof(buf)
-	case common.TransferP256RingCircuitType:
-		return handler.transferP256Proof(buf)
-	case common.MergeCircuitType:
-		return handler.mergeProof(buf)
-	case common.MergeRingCircuitType:
-		return handler.mergeRingProof(buf)
-	default:
-		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
-	}
-}
-
-func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
-	var params mergeprover.MergeParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	// Merge parameters carry no shape field; the declared input count is the
-	// shape. Validate it before a key lookup so an unsupported count fails as a
-	// bad request rather than a missing key.
-	if err := params.ValidateShape(); err != nil {
-		return nil, malformedBodyError(err)
-	}
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeCircuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("merge: %w", err))
-	}
-
-	proof, err := mergeprover.ProveMerge(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
-	var params mergeprover.MergeParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	if err := params.ValidateShape(); err != nil {
-		return nil, malformedBodyError(err)
-	}
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeRingCircuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("merge-ring: %w", err))
-	}
-
-	proof, err := mergeprover.ProveMerge(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) customRingProof(buf []byte, circuitType common.CircuitType) (*common.Proof, *Error) {
-	request, err := customring.DecodeRequest(circuitType, buf)
-	if err != nil {
-		return nil, malformedBodyError(err)
-	}
-	ps, err := handler.keyManager.GetRingSystem(circuitType)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("%s: %w", circuitType, err))
-	}
-	proof, err := customring.Prove(ps, request)
-	if err != nil {
-		return nil, provingError(errors.New("custom ring proof failed"))
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, *Error) {
-	var params nullifiertree.BatchAddressAppendParameters
-	err := json.Unmarshal(buf, &params)
-	if err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	treeHeight := params.TreeHeight
-	batchSize := params.BatchSize
-
-	ps, err := handler.keyManager.GetBatchSystem(common.BatchAddressAppendCircuitType, treeHeight, batchSize)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("batch address append: %w", err))
-	}
-
-	proof, err := nullifiertree.ProveBatchAddressAppend(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Error) {
-	var params transfereddsaonly.TransferParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	circuitType := params.Variant.CircuitType()
-	ps, err := handler.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
-	}
-
-	proof, err := transfereddsaonly.ProveTransfer(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) transferP256Proof(buf []byte) (*common.Proof, *Error) {
-	var params transfereddsaonly.P256TransferParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		return nil, malformedBodyError(err)
-	}
-	ps, err := handler.keyManager.GetTransferSystem(
-		common.TransferP256RingCircuitType,
-		params.NInputs,
-		params.NOutputs,
-	)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
-	}
-	proof, err := transfereddsaonly.ProveP256Transfer(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
 func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 	logging.Logger().Info().Msg("received health check request")
-	responseBytes, err := json.Marshal(map[string]interface{}{"status": "ok", "circuits": handler.circuits})
+	responseBytes, err := json.Marshal(map[string]interface{}{"status": "ok", "circuits": handler.circuits, "indexed": handler.indexed})
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("error marshaling response")
 		w.WriteHeader(http.StatusInternalServerError)

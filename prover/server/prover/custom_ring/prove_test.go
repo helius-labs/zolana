@@ -20,7 +20,7 @@ import (
 func TestCustomRingProofVerifies(t *testing.T) {
 	loadedSystem := loadRingSystem(t, common.CustomRingPolicyKeyFile)
 	params := rulesFreeParams(t)
-	proof, err := Prove(loadedSystem, params)
+	proof, err := RingProof{System: loadedSystem, Parameters: params}.Prove()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestCustomRingProofVerifies(t *testing.T) {
 func TestAuditProofVerifies(t *testing.T) {
 	ps := loadRingSystem(t, common.CustomRingBaseKeyFile)
 	params := baseParams(t)
-	proof, err := Prove(ps, params)
+	proof, err := RingProof{System: ps, Parameters: params}.Prove()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +86,10 @@ func baseParams(t *testing.T) *BaseParameters {
 // rulesFreeParams opens a one input one output transfer against a length zero
 // rule table with every list fact slot disabled.
 func rulesFreeParams(t *testing.T) *PolicyParameters {
+	return rulesFreeParamsAtRoot(t, big.NewInt(0x0d))
+}
+
+func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParameters {
 	t.Helper()
 	p := &PolicyParameters{
 		NIn:                1,
@@ -100,7 +104,7 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		KeyEscrow:          KeyEscrow{Root: big.NewInt(0)},
 		Record:             zeroedRecord(),
 	}
-	p.TreeSlots[0] = TreeSlot{ID: p.AddressTreeID, UtxoRoot: big.NewInt(0x0d), NullifierRoot: big.NewInt(0x0e)}
+	p.TreeSlots[0] = TreeSlot{ID: p.AddressTreeID, UtxoRoot: root, NullifierRoot: big.NewInt(0x0e)}
 	for i := range p.Sources {
 		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
 	}

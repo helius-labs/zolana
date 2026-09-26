@@ -1,8 +1,14 @@
+import { compressProof, parseProof } from "../src/client/prover/proof.js";
+import { wireDecoder } from "../src/interface/decode.js";
+import { resolvedTrees } from "../src/client/prover/indexed.js";
+import { NO_UTXO_ROOT } from "../src/interface/tree-slot.js";
+import { prepareTransfer } from "../src/client/prover/assembly.js";
 import {
   SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND,
   SolanaError,
   address,
   getBase58Decoder,
+  type Address,
   type Signature,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ClientError,
   LocalKeys,
+  NullifierKeyProofAuthority,
   ZolanaClient,
   proverRequestBody,
   type GetMerkleProofsResponse,
@@ -18,12 +25,13 @@ import {
   type ZolanaClientConfig,
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
-import { bytesField } from "../src/client/internal.js";
+import { BN254_MODULUS, bigintToBytes, bytesField, checkedBytes } from "../src/client/internal.js";
 import { asField, assemble } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
-import type { Bytes16, Bytes32 } from "../src/interface/index.js";
+import type { Bytes16, Bytes31, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { ShieldedKeypair } from "../src/keypair/index.js";
+import { NullifierKey, ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
+import { withRecordSlotSecret } from "../src/ring/velocity.js";
 import { proofFor } from "./helpers/proofs.js";
 import {
   ProofInputUtxo,
@@ -70,7 +78,7 @@ type ProofFixture = Readonly<{
  * circuit checks it.
  */
 function proofFixture(
-  options: Readonly<{ dummyInputs?: number; outputTreeId?: number }> = {},
+  options: Readonly<{ dummyInputs?: number; outputTreeId?: number; ring?: Address }> = {},
 ): ProofFixture {
   const outputTreeId = options.outputTreeId ?? TREE_ID;
   const keypair = ShieldedKeypair.generate();
@@ -80,6 +88,7 @@ function proofFixture(
       asset: SOL_MINT,
       amount: 7n,
       blinding: bytes(1),
+      ...(options.ring === undefined ? {} : { ringProgramId: options.ring }),
     }),
     keypair,
   );
@@ -97,6 +106,7 @@ function proofFixture(
     asset: SOL_MINT,
     amount: 7n,
     blinding: slotBlinding(0),
+    ...(options.ring === undefined ? {} : { ringProgramId: options.ring }),
   });
   const outputs = [
     output,
@@ -195,6 +205,7 @@ async function serviceRequestUrls(
   }) as typeof globalThis.fetch;
   const instance = new ZolanaClient({
     solanaRpcUrl,
+    proofDataSource: "client",
     ...overrides,
     tree: TREE,
     fetch,
@@ -235,6 +246,7 @@ function proverFetch(): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
 function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
   return new ZolanaClient({
     solanaRpcUrl: "http://127.0.0.1:8899",
+    proofDataSource: "client",
     indexerUrl: "http://127.0.0.1:8784",
     proverUrl: "http://127.0.0.1:3001",
     tree: TREE,
@@ -395,6 +407,7 @@ describe("ZolanaClient", () => {
       () =>
         new ZolanaClient({
           solanaRpcUrl: "http://127.0.0.1:8899",
+          proofDataSource: "client",
           indexerUrl: serviceUrl,
           proverUrl: serviceUrl,
         }),
@@ -807,4 +820,490 @@ describe("ZolanaClient", () => {
     });
     expect(fetch).not.toHaveBeenCalled();
   });
+});
+
+describe("prover indexer fetching", () => {
+  it("decodes a key holder's indexed request before its secret joins", async () => {
+    const fixture = proofFixture();
+    const prepared = prepareTransfer(fixture.proofInputs);
+    const nullifierKey = fixture.keypair.nullifierKey();
+    const service = { prove: vi.fn(), proveMerge: vi.fn(), proveIndexed: vi.fn() };
+    const holders = [
+      LocalKeys.fromKeypair(fixture.keypair, service),
+      new NullifierKeyProofAuthority(nullifierKey, service),
+    ];
+    const bare = [
+      LocalKeys.fromKeypair(fixture.keypair, { prove: vi.fn(), proveMerge: vi.fn() }),
+      new NullifierKeyProofAuthority(nullifierKey, { prove: vi.fn(), proveMerge: vi.fn() }),
+    ];
+    nullifierKey.destroy();
+    try {
+      for (const holder of holders) {
+        for (const request of [
+          { circuit: "transfer", payload: { inputs: 5 } },
+          { circuit: "bogus" },
+        ]) {
+          await expect(Reflect.apply(holder.proveIndexed, holder, [request])).rejects.toMatchObject(
+            {
+              code: "CLIENT_INVALID_PROOF_INPUTS",
+            },
+          );
+        }
+      }
+      expect(service.proveIndexed).not.toHaveBeenCalled();
+      for (const holder of bare) {
+        await expect(holder.proveIndexed(prepared.inputs)).rejects.toMatchObject({
+          code: "CLIENT_INVALID_CONFIG",
+          details: { field: "proofs" },
+        });
+      }
+    } finally {
+      [...holders, ...bare].forEach((holder) => holder.destroy());
+      fixture.keypair.destroy();
+    }
+  });
+
+  it("refuses a key holder's root at the field modulus as unparsable", async () => {
+    const fixture = proofFixture();
+    const expected = assemble(fixture.proofInputs, [fixture.spendProof]);
+    const modulus = checkedBytes(bigintToBytes(BN254_MODULUS, "root"), 32, "root");
+    const tree = {
+      tree: TREE,
+      id: TREE_ID,
+      utxoRoot: fixture.spendProof.state.root,
+      nullifierRoot: fixture.spendProof.nullifier.root,
+      utxoRootIndex: fixture.spendProof.state.rootIndex,
+      nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
+    };
+    const hash = expected.publicInputHash;
+    const resolutions = [
+      { publicInputHash: hash, trees: [tree] },
+      { publicInputHash: hash, trees: [{ ...tree, utxoRoot: modulus }] },
+      { publicInputHash: hash, trees: [{ ...tree, nullifierRoot: modulus }] },
+      { publicInputHash: modulus, trees: [tree] },
+    ];
+    const proof = parseProof(
+      proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 1 }),
+    );
+    const instance = new ZolanaClient({ proofDataSource: "prover", fetch: vi.fn() });
+    try {
+      for (const [index, resolution] of resolutions.entries()) {
+        const keys = {
+          prove: vi.fn(),
+          proveMerge: vi.fn(),
+          proveIndexed: async () => ({ proof, resolution }),
+        };
+        const proving = instance.proveTransact(fixture.proofInputs, keys);
+        if (index === 0) await expect(proving).resolves.toBeDefined();
+        else await expect(proving).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
+      }
+    } finally {
+      fixture.keypair.destroy();
+    }
+  });
+
+  it.each([false, true])("binds state root omission to cached inputs %s", async (cached) => {
+    const fixture = proofFixture({ dummyInputs: 1 });
+    try {
+      const source = fixture.proofInputs;
+      const transaction = new SppProofInputs({
+        ...source,
+        inputUtxos: source.inputUtxos.map((input) =>
+          cached && !input.isDummy() ? input.withCacheSlot(0) : input,
+        ),
+        cacheAccounts: cached ? { read: FOREIGN_TREE } : {},
+      });
+      const prepared = prepareTransfer(transaction);
+      for (const utxoRootIndex of [0, NO_UTXO_ROOT]) {
+        for (const utxoRoot of [bytes(0), bytes(1)]) {
+          const resolved = {
+            tree: TREE,
+            id: TREE_ID,
+            utxoRoot,
+            utxoRootIndex,
+            nullifierRoot: fixture.spendProof.nullifier.root,
+            nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
+          };
+          const complete = prepared.finish([
+            {
+              treeId: TREE_ID,
+              slot: resolved,
+              utxoRootIndex,
+              nullifierRootIndex: resolved.nullifierRootIndex,
+            },
+          ]);
+          const resolution = { trees: [resolved], publicInputHash: complete.publicInputHash };
+          const validate = () => resolvedTrees(prepared.inputs, resolution);
+          if (
+            cached
+              ? utxoRootIndex === NO_UTXO_ROOT && utxoRoot.every((byte) => byte === 0)
+              : utxoRootIndex !== NO_UTXO_ROOT
+          )
+            expect(validate).not.toThrow();
+          else expect(validate).toThrow(expect.objectContaining({ code: "CLIENT_PROOF_PARSE" }));
+        }
+      }
+      const root = cached ? bytes(0) : fixture.spendProof.state.root;
+      const rootIndex = cached ? NO_UTXO_ROOT : fixture.spendProof.state.rootIndex;
+      const complete = prepared.finish([
+        {
+          treeId: TREE_ID,
+          slot: { id: TREE_ID, utxoRoot: root, nullifierRoot: fixture.spendProof.nullifier.root },
+          utxoRootIndex: rootIndex,
+          nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
+        },
+      ]);
+      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+        Response.json({
+          ...proofFor({ circuitType: "transfer-confidential", nInputs: 2, nOutputs: 2 }),
+          resolution: {
+            publicInputHash: `0x${bytesField(complete.publicInputHash, "hash").toString(16)}`,
+            trees: [
+              {
+                tree: TREE,
+                id: TREE_ID,
+                utxoRoot: `0x${bytesField(root, "root").toString(16)}`,
+                utxoRootIndex: rootIndex,
+                nullifierRoot: `0x${bytesField(fixture.spendProof.nullifier.root, "root").toString(16)}`,
+                nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
+              },
+            ],
+          },
+        }),
+      );
+      const client = new ZolanaClient({ fetch });
+      const keys = LocalKeys.fromKeypair(fixture.keypair, client.proofService);
+      try {
+        const result = await client.proveTransact(transaction, keys);
+        expect(result.treeContexts[0]?.utxoTreeRootIndex).toBe(rootIndex);
+        expect(fetch).toHaveBeenCalledOnce();
+        expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove\/indexed$/u);
+      } finally {
+        keys.destroy();
+      }
+    } finally {
+      fixture.keypair.destroy();
+    }
+  });
+
+  it.each([
+    { proofDataSource: "client", recovered: false },
+    { proofDataSource: "prover", recovered: false },
+    { proofDataSource: "client", recovered: true },
+    { proofDataSource: "prover", recovered: true },
+  ] as const)(
+    "keeps ring authority proving complete with $proofDataSource fetching and recovered=$recovered",
+    async ({ proofDataSource, recovered }) => {
+      const fixture = proofFixture({ dummyInputs: 1, ring: FOREIGN_TREE });
+      const assembled = assemble(fixture.proofInputs, [fixture.spendProof], fixture.dummyProofs, {
+        kind: "ringAuthority",
+        ring: FOREIGN_TREE,
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+        Response.json({
+          ...proofFor({ circuitType: "transfer-ring-authority", nInputs: 2, nOutputs: 2 }),
+          resolution: {
+            publicInputHash: `0x${assembled.proverInputs.payload.publicInputHash.toString(16)}`,
+            trees: [
+              {
+                tree: TREE,
+                id: TREE_ID,
+                utxoRoot: `0x${bytesField(fixture.spendProof.state.root, "root").toString(16)}`,
+                nullifierRoot: `0x${bytesField(fixture.spendProof.nullifier.root, "root").toString(16)}`,
+                utxoRootIndex: fixture.spendProof.state.rootIndex,
+                nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
+              },
+            ],
+          },
+        }),
+      );
+      const instance = new ZolanaClient({ proofDataSource, fetch });
+      const state = vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
+        context: { blockTime: 1n, slot: 1n },
+        proofs: [fixture.spendProof.state],
+      });
+      const nullifier = vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
+        context: { blockTime: 1n, slot: 1n },
+        proofs: [fixture.spendProof.nullifier, ...fixture.dummyProofs],
+      });
+      const nullifierKey = fixture.keypair.nullifierKey();
+      const keys = recovered
+        ? new NullifierKeyProofAuthority(nullifierKey, instance.proofService)
+        : LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
+      nullifierKey.destroy();
+      const indexed = vi.spyOn(keys, "proveIndexed");
+      try {
+        const result = await instance.proveRingAuthorityTransact(
+          fixture.proofInputs,
+          FOREIGN_TREE,
+          keys,
+        );
+        expect(result.data.circuit.kind).toBe("ringAuthority");
+        expect(state).toHaveBeenCalledTimes(proofDataSource === "client" ? 1 : 0);
+        expect(nullifier).toHaveBeenCalledTimes(proofDataSource === "client" ? 1 : 0);
+        expect(indexed).toHaveBeenCalledTimes(proofDataSource === "prover" ? 1 : 0);
+        expect(fetch).toHaveBeenCalledOnce();
+        expect(String(fetch.mock.calls[0]?.[0])).toMatch(
+          proofDataSource === "prover" ? /\/prove\/indexed$/u : /\/prove$/u,
+        );
+        const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+        const decoded = wireDecoder(() => new Error("invalid body")).record(body, "body");
+        expect(proofDataSource === "prover" ? decoded["prepared"] : body).toMatchObject({
+          circuitType: "transfer-ring-authority",
+          publishedOutputOwnerPkHashes: [],
+        });
+      } finally {
+        keys.destroy();
+        fixture.keypair.destroy();
+      }
+    },
+  );
+
+  it("completes the indexed record slot without fetching client proofs", async () => {
+    const fixture = proofFixture({ dummyInputs: 1, ring: FOREIGN_TREE });
+    const zeroKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
+    const record = ProofInputUtxo.fromNullifierKey(
+      new Utxo({
+        owner: ShieldedPublicKey.fromEd25519(bytes(44)),
+        asset: SOL_MINT,
+        amount: 0n,
+        blinding: bytes(2),
+        ringProgramId: FOREIGN_TREE,
+      }),
+      zeroKey,
+    );
+    zeroKey.destroy();
+    const transaction = new SppProofInputs({
+      ...fixture.proofInputs,
+      inputUtxos: [fixture.proofInputs.inputUtxos[0]!, record],
+    });
+    const tree = {
+      tree: TREE,
+      id: TREE_ID,
+      utxoRoot: fixture.spendProof.state.root,
+      nullifierRoot: fixture.spendProof.nullifier.root,
+      utxoRootIndex: fixture.spendProof.state.rootIndex,
+      nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
+    };
+    const prepared = prepareTransfer(transaction, { kind: "ring", ring: FOREIGN_TREE });
+    const complete = prepared.finish([
+      {
+        treeId: TREE_ID,
+        slot: tree,
+        utxoRootIndex: tree.utxoRootIndex,
+        nullifierRootIndex: tree.nullifierRootIndex,
+      },
+    ]);
+    const hex = (value: Bytes32) => `0x${bytesField(value, "field").toString(16)}`;
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({
+        ...proofFor({ circuitType: "transfer-ring", nInputs: 2, nOutputs: 2 }),
+        resolution: {
+          publicInputHash: hex(complete.publicInputHash),
+          trees: [
+            { ...tree, utxoRoot: hex(tree.utxoRoot), nullifierRoot: hex(tree.nullifierRoot) },
+          ],
+        },
+      }),
+    );
+    const instance = new ZolanaClient({ fetch });
+    const state = vi.spyOn(instance, "getMerkleProofs");
+    const nullifier = vi.spyOn(instance, "getNonInclusionProofs");
+    const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
+    try {
+      const result = await instance.proveRingTransact(
+        transaction,
+        FOREIGN_TREE,
+        withRecordSlotSecret(keys, record.nullifier()),
+      );
+      expect(result.data.circuit.kind).toBe("ringEddsa");
+      expect(state).not.toHaveBeenCalled();
+      expect(nullifier).not.toHaveBeenCalled();
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove\/indexed$/u);
+      const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      const decoder = wireDecoder(() => new Error("invalid body"));
+      const payload = decoder.record(decoder.record(body, "body")["prepared"], "prepared");
+      const inputs = decoder.list(payload["inputs"], "inputs");
+      expect(decoder.record(inputs[0], "input")["nullifierSecret"]).toMatch(
+        /^0x[1-9a-f][0-9a-f]*$/u,
+      );
+      expect(decoder.record(inputs[1], "record")["nullifierSecret"]).toBe("0x0");
+    } finally {
+      keys.destroy();
+      fixture.keypair.destroy();
+    }
+  });
+
+  for (const ring of [undefined, FOREIGN_TREE]) {
+    it(`matches locally resolved transfer data for ${ring === undefined ? "pool" : "ring"}`, async () => {
+      const fixture = proofFixture({ dummyInputs: 1 });
+      const expected = assemble(
+        fixture.proofInputs,
+        [fixture.spendProof],
+        fixture.dummyProofs,
+        ring === undefined ? { kind: "confidential" } : { kind: "ring", ring },
+      );
+      const prepared = prepareTransfer(
+        fixture.proofInputs,
+        ring === undefined ? { kind: "confidential" } : { kind: "ring", ring },
+      );
+      const proof = proofFor({
+        circuitType: ring === undefined ? "transfer-confidential" : "transfer-ring",
+        nInputs: 2,
+        nOutputs: 2,
+      });
+      const resultBody = {
+        ...proof,
+        resolution: {
+          publicInputHash: `0x${expected.proverInputs.payload.publicInputHash.toString(16)}`,
+          trees: [
+            {
+              tree: TREE,
+              id: TREE_ID,
+              utxoRoot: `0x${bytesField(fixture.spendProof.state.root, "root").toString(16)}`,
+              nullifierRoot: `0x${bytesField(fixture.spendProof.nullifier.root, "root").toString(16)}`,
+              utxoRootIndex: fixture.spendProof.state.rootIndex,
+              nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
+            },
+          ],
+        },
+      };
+      let calls = 0;
+      const fallback = ring !== undefined;
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+        calls++;
+        fixture.proofInputs.externalData.salt.fill(77);
+        for (const message of fixture.proofInputs.externalData.messages) message.data.fill(88);
+
+        if (fallback && calls === 1) return new Response(null, { status: 429 });
+        if (fallback && calls === 2)
+          return new Response(JSON.stringify({ jobId: "indexed-job", status: "queued" }), {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          });
+        return new Response(
+          JSON.stringify(
+            fallback ? { status: "completed", result: { proof: resultBody } } : resultBody,
+          ),
+          { headers: { "content-type": "application/json" } },
+        );
+      });
+      const instance = new ZolanaClient({
+        proofDataSource: "prover",
+        proverUrl: "https://prover.test/v1/zolana?api-key=secret",
+        fetch,
+      });
+      const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
+      try {
+        const result =
+          ring === undefined
+            ? await instance.proveTransact(fixture.proofInputs, keys)
+            : (await instance.proveRingTransact(fixture.proofInputs, ring, keys)).data;
+        expect(result).toEqual(
+          expected.withProof(compressProof(parseProof(proof)).toTransactProof()),
+        );
+        expect(fetch).toHaveBeenCalledTimes(fallback ? 3 : 1);
+        if (fallback) {
+          expect(String(fetch.mock.calls[1]?.[0])).toBe(
+            "https://prover.test/v1/zolana/prove/indexed?api-key=secret",
+          );
+          expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("X-Async")).toBe("true");
+          expect(String(fetch.mock.calls[2]?.[0])).toBe(
+            "https://prover.test/v1/zolana/prove/status?api-key=secret&jobId=indexed-job",
+          );
+        }
+        expect(String(fetch.mock.calls[0]?.[0])).toBe(
+          "https://prover.test/v1/zolana/prove/indexed?api-key=secret",
+        );
+        const decoder = wireDecoder(() => new Error("bad request"));
+        const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+        const envelope = decoder.record(body, "request");
+        const payload = decoder.record(envelope["prepared"], "prepared");
+        expect(payload).not.toHaveProperty("treeSlots");
+        expect(payload).not.toHaveProperty("publicInputHash");
+        const first = decoder.record(decoder.list(payload["inputs"], "inputs")[0], "input");
+        expect(first).not.toHaveProperty("statePathElements");
+        expect(typeof first["nullifierSecret"]).toBe("string");
+        expect(envelope["publicInputs"]).toEqual(
+          prepared.inputs.publicInputs.map((value) => `0x${value.toString(16)}`),
+        );
+      } finally {
+        keys.destroy();
+        fixture.keypair.destroy();
+      }
+    });
+  }
+
+  it.each(["hash", "tree", "index", "nullifierIndex", "modulus", "missing"])(
+    "rejects a mismatched %s before returning a transaction",
+    async (corruption) => {
+      const fixture = proofFixture();
+      const expected = assemble(fixture.proofInputs, [fixture.spendProof]);
+      const resolution = {
+        publicInputHash: `0x${expected.proverInputs.payload.publicInputHash.toString(16)}`,
+        trees: [
+          {
+            tree: TREE,
+            id: TREE_ID,
+            utxoRoot: `0x${bytesField(fixture.spendProof.state.root, "root").toString(16)}`,
+            nullifierRoot: `0x${bytesField(fixture.spendProof.nullifier.root, "root").toString(16)}`,
+            utxoRootIndex: 0,
+            nullifierRootIndex: 0,
+          },
+        ],
+      };
+      if (corruption === "hash") resolution.publicInputHash = "0x1";
+      if (corruption === "tree")
+        resolution.trees[0] = { ...resolution.trees[0]!, tree: FOREIGN_TREE };
+      if (corruption === "index")
+        resolution.trees[0] = { ...resolution.trees[0]!, utxoRootIndex: 500 };
+      if (corruption === "nullifierIndex")
+        resolution.trees[0] = { ...resolution.trees[0]!, nullifierRootIndex: 100 };
+      if (corruption === "modulus")
+        resolution.trees[0] = {
+          ...resolution.trees[0]!,
+          nullifierRoot: `0x${BN254_MODULUS.toString(16)}`,
+        };
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ...proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 1 }),
+              ...(corruption === "missing" ? {} : { resolution }),
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+      );
+      const instance = new ZolanaClient({ proofDataSource: "prover", fetch });
+      const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
+      try {
+        await expect(instance.proveTransact(fixture.proofInputs, keys)).rejects.toMatchObject({
+          code: "CLIENT_PROOF_PARSE",
+        });
+        expect(fetch).toHaveBeenCalledTimes(1);
+      } finally {
+        keys.destroy();
+        fixture.keypair.destroy();
+      }
+    },
+  );
+});
+
+it("copies resolved roots before client proof data can change", () => {
+  const fixture = proofFixture();
+  try {
+    const assembled = assemble(fixture.proofInputs, [fixture.spendProof]);
+    const roots = {
+      state: new Uint8Array(assembled.roots.stateRoot),
+      nullifier: new Uint8Array(assembled.roots.nullifierRoot),
+    };
+    fixture.spendProof.state.root.fill(0);
+    fixture.spendProof.nullifier.root.fill(0);
+    expect(assembled.roots.stateRoot).toEqual(roots.state);
+    expect(assembled.roots.nullifierRoot).toEqual(roots.nullifier);
+    expect(Object.isFrozen(assembled.proverInputs.payload.treeSlots)).toBe(true);
+  } finally {
+    fixture.keypair.destroy();
+  }
 });

@@ -15,13 +15,15 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
 use zeroize::Zeroizing;
+use zolana_client::prover::indexed::{
+    IndexedTransferPreparation, IndexedTransferRail, PreparedIndexedTransfer, ProofDataSource,
+};
 use zolana_client::{
     input_utxos_from_nullifiers,
     prover::{Delivery, ExpectedProvingKey, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
     Proof, ProofAuthority, ProofCompressed, ProofInputUtxo, ProverClient, RingTransferProofResult,
     RingTransferProver, Rpc, SettlementAccountValidation, SpendProof, TransferInputUtxo,
-    TransferInputs,
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
@@ -177,7 +179,7 @@ pub enum TransferError {
     #[error(transparent)]
     Transaction(#[from] TransactionError),
     #[error(transparent)]
-    Client(#[from] ClientError),
+    Client(ClientError),
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
@@ -266,9 +268,24 @@ pub enum TransferError {
     KeyRegistration(#[from] KeyRegistrationError),
 }
 
+impl crate::projection::ProjectionLag for TransferError {
+    fn is_projection_lag(&self) -> bool {
+        matches!(self, Self::Client(ClientError::IndexerProofDataNotReady))
+    }
+}
+
 impl From<PolicyMatchError> for TransferError {
     fn from(error: PolicyMatchError) -> Self {
         Self::PolicyMatch(Box::new(error))
+    }
+}
+
+impl From<ClientError> for TransferError {
+    fn from(error: ClientError) -> Self {
+        match KeyRegistrationError::claim(&error) {
+            Some(claimed) => Self::KeyRegistration(claimed),
+            None => Self::Client(error),
+        }
     }
 }
 
@@ -289,7 +306,7 @@ pub enum DepositError {
     #[error(transparent)]
     DepositInstruction(#[from] DepositInstructionError),
     #[error(transparent)]
-    Client(#[from] ClientError),
+    Client(ClientError),
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error("custom ring config does not exist")]
@@ -304,6 +321,21 @@ pub enum DepositError {
         signature: Signature,
         error: solana_transaction_error::TransactionError,
     },
+}
+
+impl crate::projection::ProjectionLag for DepositError {
+    fn is_projection_lag(&self) -> bool {
+        matches!(self, Self::Client(ClientError::IndexerProofDataNotReady))
+    }
+}
+
+impl From<ClientError> for DepositError {
+    fn from(error: ClientError) -> Self {
+        match KeyRegistrationError::claim(&error) {
+            Some(claimed) => Self::KeyRegistration(claimed),
+            None => Self::Client(error),
+        }
+    }
 }
 
 #[cfg(feature = "solana-rpc")]
@@ -345,6 +377,13 @@ impl<'a> CustomRingTransfer<'a> {
         self,
         environment: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenTransfer, TransferError> {
+        crate::projection::retry_projection_lag(|| self.clone().prove_once(&environment))
+    }
+
+    fn prove_once<I: Rpc, R: Rpc>(
+        self,
+        environment: &TransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenTransfer, TransferError> {
         let config = self
             .ring
             .read_config(environment.rpc)?
@@ -368,27 +407,30 @@ impl<'a> CustomRingTransfer<'a> {
         // after the indexer has served a full inclusion and non-inclusion proof
         // set that nothing can use.
         let trees = staged.tree_plan().read(environment.rpc)?;
-        let spends = SpendSet {
-            inputs: RingSpendInputs {
-                indexer: environment.indexer,
-                input_utxos: &staged.proof_inputs.input_utxos,
-            }
-            .load()?,
-            trees,
+        let inputs = if environment.prover.proof_data_source() == ProofDataSource::Client {
+            Some(
+                RingSpendInputs {
+                    indexer: environment.indexer,
+                    input_utxos: &staged.proof_inputs.input_utxos,
+                }
+                .load()?,
+            )
+        } else {
+            None
         };
         let tier = match &policy {
-            Some(policy) => Tier::Policy(
-                staged
-                    .policy_tier(&policy.pinned, key_registry)?
-                    .build(environment.indexer, environment.rpc)?,
-            ),
+            Some(policy) => Tier::Policy(staged.policy_tier(&policy.pinned, key_registry)?.build(
+                environment.indexer,
+                environment.rpc,
+                environment.prover.proof_data_source(),
+            )?),
             None => Tier::Base,
         };
-        let witnessed = staged.witness(spends, tier)?;
-        let spp_proof =
-            ProofCompressed::try_from(environment.prover.prove_transfer_ring(witnessed.spp())?)?
-                .to_transact_proof();
-        let ring_proof = environment.prover.prove(&witnessed.request)?;
+        let mut witnessed = staged.witness(inputs, trees, tier)?;
+        let spp_proof = witnessed
+            .spp
+            .prove(environment.prover, &witnessed.proof_inputs)?;
+        let ring_proof = witnessed.request.prove(environment.prover)?;
         witnessed.finish(spp_proof, ring_proof)
     }
 
@@ -406,6 +448,16 @@ impl<'a> CustomRingTransfer<'a> {
     pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         environment: AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenTransfer, TransferError> {
+        crate::projection::retry_projection_lag_async(|| {
+            self.clone().prove_once_async(&environment)
+        })
+        .await
+    }
+
+    async fn prove_once_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        environment: &AsyncTransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenTransfer, TransferError> {
         let config = self
             .ring
@@ -433,25 +485,32 @@ impl<'a> CustomRingTransfer<'a> {
         // Same ordering reason as the blocking path: validate the trees before
         // asking the indexer for proofs against them.
         let trees = staged.tree_plan().read_async(environment.rpc).await?;
-        let spends = SpendSet {
-            inputs: RingSpendInputs {
-                indexer: environment.indexer,
-                input_utxos: &staged.proof_inputs.input_utxos,
-            }
-            .load_async()
-            .await?,
-            trees,
+        let inputs = if environment.prover.proof_data_source() == ProofDataSource::Client {
+            Some(
+                RingSpendInputs {
+                    indexer: environment.indexer,
+                    input_utxos: &staged.proof_inputs.input_utxos,
+                }
+                .load_async()
+                .await?,
+            )
+        } else {
+            None
         };
         let tier = match &policy {
             Some(policy) => Tier::Policy(
                 staged
                     .policy_tier(&policy.pinned, key_registry)?
-                    .build_async(environment.indexer, environment.rpc)
+                    .build_async(
+                        environment.indexer,
+                        environment.rpc,
+                        environment.prover.proof_data_source(),
+                    )
                     .await?,
             ),
             None => Tier::Base,
         };
-        let witnessed = staged.witness(spends, tier)?;
+        let mut witnessed = staged.witness(inputs, trees, tier)?;
         // Both witnesses are complete, and neither proof is an input to the
         // other: SPP proves the transfer, the ring circuit proves the auditor
         // encryption over the `private_tx_hash` the SPP witness already fixed.
@@ -462,11 +521,13 @@ impl<'a> CustomRingTransfer<'a> {
         // but that bound belongs there, not in a caller that cannot see the
         // fleet. The blocking path has no way to express this.
         let (spp, ring) = try_join(
-            environment.prover.prove_transfer_ring(witnessed.spp()),
-            environment.prover.prove(&witnessed.request),
+            witnessed
+                .spp
+                .prove_async(environment.prover, &witnessed.proof_inputs),
+            witnessed.request.prove_async(environment.prover),
         )
         .await?;
-        witnessed.finish(ProofCompressed::try_from(spp)?.to_transact_proof(), ring)
+        witnessed.finish(spp, ring)
     }
 
     /// `None` for an audit-only ring.
@@ -989,17 +1050,20 @@ impl PolicyTierInput<'_> {
     pub fn read<I: Rpc, R: Rpc>(
         self,
         env: ReadEnvironment<'_, I, R>,
+        source: ProofDataSource,
     ) -> Result<PolicyStatement, TransferError> {
         let pinned = self
             .ring
             .read_pinned_policy(env.rpc)?
             .ok_or(TransferError::MissingPolicyConfig)?;
-        self.with_config(&pinned)?.build(env.indexer, env.rpc)
+        self.with_config(&pinned)?
+            .build(env.indexer, env.rpc, source)
     }
 
     pub async fn read_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         env: ReadEnvironment<'_, I, R>,
+        source: ProofDataSource,
     ) -> Result<PolicyStatement, TransferError> {
         let pinned = self
             .ring
@@ -1007,7 +1071,7 @@ impl PolicyTierInput<'_> {
             .await?
             .ok_or(TransferError::MissingPolicyConfig)?;
         self.with_config(&pinned)?
-            .build_async(env.indexer, env.rpc)
+            .build_async(env.indexer, env.rpc, source)
             .await
     }
 
@@ -1058,8 +1122,9 @@ impl PolicyTier<'_> {
         self,
         indexer: &I,
         rpc: &R,
+        source: ProofDataSource,
     ) -> Result<PolicyStatement, TransferError> {
-        let mut witness = self.witness.build(indexer, rpc)?;
+        let mut witness = self.witness.build_with_source(indexer, rpc, source)?;
         if let Some(velocity) = self.committed_velocity {
             witness.velocity = velocity;
         }
@@ -1070,8 +1135,12 @@ impl PolicyTier<'_> {
         self,
         indexer: &I,
         rpc: &R,
+        source: ProofDataSource,
     ) -> Result<PolicyStatement, TransferError> {
-        let mut witness = self.witness.build_async(indexer, rpc).await?;
+        let mut witness = self
+            .witness
+            .build_async_with_source(indexer, rpc, source)
+            .await?;
         if let Some(velocity) = self.committed_velocity {
             witness.velocity = velocity;
         }
@@ -1157,45 +1226,47 @@ impl StagedTransfer {
     /// Both witnesses leave together because the second only ever needed the
     /// first's `private_tx_hash`, not its proof: a caller can then ask for both
     /// proofs at once.
-    fn witness(self, spends: SpendSet, tier: Tier) -> Result<WitnessedTransfer, TransferError> {
-        let SpendSet { inputs, trees } = spends;
-        let tx_shape = self.proof_inputs.check_shape()?;
-        let mut ring_result = RingTransferProver {
-            inputs,
-            outputs: self.proof_inputs.output_utxos.clone(),
-            blinding_seed: self.proof_inputs.blinding_seed,
-            output_tree_id: self.proof_inputs.output_tree_id,
-            external_data: self.proof_inputs.external_data.clone(),
-            public_transfers: self.proof_inputs.public_transfers()?,
-            signer_pk_hashes: self
-                .proof_inputs
-                .signer_pk_hashes(tx_shape.signer_width())?,
-            allow_dummy_inputs: trees.allow_dummy_inputs,
-            ring_program_id: Some(self.program_id),
-            shape: tx_shape,
-        }
-        .build()?;
-        // A windowed velocity transfer appends the namespace-owned spend
-        // record as its final input. Its fixed zero authority is distinct from
-        // the sender, so complete it first and let the sender authority skip
-        // the now-complete slot.
-        if self.compressed.is_some() {
-            let record = ring_result
-                .inputs
-                .inputs
-                .last_mut()
-                .ok_or(TransactionError::NoInputs)?;
-            zero_nullifier_key().complete_inputs(std::slice::from_mut(record))?;
-        }
-        // Proof assembly deliberately leaves every real input's nullifier secret
-        // absent. The caller's authority completes the inputs it owns and the
-        // prover request rejects anything still incomplete.
-        if let Some(authority) = self.nullifier_key.as_ref() {
+    fn witness(
+        self,
+        inputs: Option<Vec<TransferInputUtxo>>,
+        trees: SpendTrees,
+        tier: Tier,
+    ) -> Result<WitnessedTransfer, TransferError> {
+        let authority = TransferAuthority {
+            owner: self.nullifier_key.as_ref(),
+            spend_record: self.compressed.is_some(),
+        };
+        let spp = if let Some(inputs) = inputs {
+            let tx_shape = self.proof_inputs.check_shape()?;
+            let mut ring_result = RingTransferProver {
+                inputs,
+                outputs: self.proof_inputs.output_utxos.clone(),
+                blinding_seed: self.proof_inputs.blinding_seed,
+                output_tree_id: self.proof_inputs.output_tree_id,
+                external_data: self.proof_inputs.external_data.clone(),
+                public_transfers: self.proof_inputs.public_transfers()?,
+                signer_pk_hashes: self
+                    .proof_inputs
+                    .signer_pk_hashes(tx_shape.signer_width())?,
+                allow_dummy_inputs: trees.allow_dummy_inputs,
+                ring_program_id: Some(self.program_id),
+                shape: tx_shape,
+            }
+            .build()?;
             authority.complete_inputs(&mut ring_result.inputs.inputs)?;
-        }
+            SppWitness::Complete(Box::new(ring_result))
+        } else {
+            SppWitness::Indexed(Box::new(
+                IndexedTransferPreparation {
+                    transaction: self.proof_inputs.clone(),
+                    rail: IndexedTransferRail::Ring(self.program_id),
+                }
+                .prepare_with_dummy_policy(&authority, trees.allow_dummy_inputs)?,
+            ))
+        };
         let mut request = TierRequestInput {
             pending: self.pending_proof,
-            private_tx_hash: ring_result.private_tx_hash.try_into()?,
+            private_tx_hash: spp.private_tx_hash().try_into()?,
             external_data: &self.proof_inputs.external_data,
             private_tx_blinding: self.proof_inputs.private_tx_blinding()?,
         }
@@ -1209,7 +1280,7 @@ impl StagedTransfer {
             window: self.velocity.and_then(|velocity| velocity.window()),
             tx_viewing_key: self.tx_viewing_key,
             proof_inputs: self.proof_inputs,
-            ring_result,
+            spp,
             payer: self.payer,
             trees,
             interface_transfer_accounts: self.interface_transfer_accounts,
@@ -1367,6 +1438,20 @@ impl TierRequestInput<'_> {
 }
 
 impl TierRequest {
+    fn prove(&mut self, prover: &ProverClient) -> Result<Proof, ClientError> {
+        match self {
+            Self::Base(request) => Ok(prover.prove(request)?),
+            Self::Policy(request) => request.prove(prover),
+        }
+    }
+
+    async fn prove_async(&mut self, prover: &AsyncProverClient) -> Result<Proof, ClientError> {
+        match self {
+            Self::Base(request) => Ok(prover.prove(request).await?),
+            Self::Policy(request) => request.prove_async(prover).await,
+        }
+    }
+
     fn with_compressed(self, compressed: CompressedDisclosure) -> Result<Self, TransferError> {
         match self {
             Self::Base(_) => Err(TransferError::CompressedWithoutWindow),
@@ -1398,6 +1483,70 @@ impl TierRequest {
 }
 
 impl PolicyRequest {
+    fn indexed_request(
+        &self,
+    ) -> Result<Option<zolana_client::prover::indexed::IndexedPolicyRequest>, ClientError> {
+        let Some(mut data) = self.request.indexed.clone() else {
+            return Ok(None);
+        };
+        if let PolicyProofKind::Compressed(compressed) = &self.kind {
+            data.public_inputs.push(compressed.counters_disclosure_hash);
+        }
+        zolana_client::prover::indexed::IndexedPolicyRequest::new(
+            self.body()?,
+            self.proving_key()?,
+            data,
+        )
+        .map(Some)
+    }
+
+    fn accept_indexed(
+        &mut self,
+        indexed: zolana_client::prover::indexed::IndexedProof,
+    ) -> Result<Proof, ClientError> {
+        use custom_ring_interface::{
+            compressed_policy_verifying_key, delegate_policy_verifying_key, policy_verifying_key,
+        };
+        let key = match self.kind {
+            PolicyProofKind::Ordinary => &policy_verifying_key::VERIFYINGKEY,
+            PolicyProofKind::Compressed(_) => &compressed_policy_verifying_key::VERIFYINGKEY,
+            PolicyProofKind::Delegate => &delegate_policy_verifying_key::VERIFYINGKEY,
+        };
+        // 2. Root contexts enter the transaction only after statement verification.
+        zolana_client::prover::verify_proof_statement(
+            &indexed.proof,
+            indexed.resolution.public_input_hash,
+            key,
+        )?;
+        self.reads.trees = indexed
+            .resolution
+            .trees
+            .into_iter()
+            .map(|tree| crate::PolicyTreeContext {
+                tree: tree.tree,
+                context: tree.context,
+            })
+            .collect();
+        Ok(indexed.proof)
+    }
+
+    pub(crate) fn prove(&mut self, prover: &ProverClient) -> Result<Proof, ClientError> {
+        match self.indexed_request()? {
+            Some(request) => self.accept_indexed(prover.prove_indexed(&request)?),
+            None => Ok(prover.prove(self)?),
+        }
+    }
+
+    pub(crate) async fn prove_async(
+        &mut self,
+        prover: &AsyncProverClient,
+    ) -> Result<Proof, ClientError> {
+        match self.indexed_request()? {
+            Some(request) => self.accept_indexed(prover.prove_indexed(&request).await?),
+            None => Ok(prover.prove(self).await?),
+        }
+    }
+
     /// The compressed circuit folds the disclosure after the policy chain.
     fn with_compressed(mut self, compressed: CompressedDisclosure) -> Result<Self, TransferError> {
         if self.request.velocity.window_slots == 0 {
@@ -1447,7 +1596,7 @@ struct WitnessedTransfer {
     window: Option<ProvedWindow>,
     tx_viewing_key: ViewingKey,
     proof_inputs: SppProofInputs,
-    ring_result: RingTransferProofResult,
+    spp: SppWitness,
     payer: Address,
     trees: SpendTrees,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
@@ -1455,15 +1604,123 @@ struct WitnessedTransfer {
     cosigner: Option<Address>,
 }
 
-impl WitnessedTransfer {
-    /// The SPP transfer witness to prove.
-    fn spp(&self) -> &TransferInputs {
-        &self.ring_result.inputs
+struct TransferAuthority<'a> {
+    owner: Option<&'a NullifierKey>,
+    spend_record: bool,
+}
+
+impl ProofAuthority for TransferAuthority<'_> {
+    fn complete_inputs(
+        &self,
+        inputs: &mut [zolana_client::TransferInput],
+    ) -> Result<(), ClientError> {
+        if self.spend_record {
+            // 1. Only the final namespace record uses the zero authority.
+            let record = inputs.last_mut().ok_or(ClientError::NoInputs)?;
+            zero_nullifier_key().complete_inputs(std::slice::from_mut(record))?;
+        }
+        if let Some(owner) = self.owner {
+            owner.complete_inputs(inputs)?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) enum SppWitness {
+    Authority(Box<zolana_client::RingAuthorityProofResult>),
+    Complete(Box<RingTransferProofResult>),
+    Indexed(Box<PreparedIndexedTransfer>),
+}
+
+impl SppWitness {
+    pub(crate) fn private_tx_hash(&self) -> [u8; 32] {
+        match self {
+            Self::Complete(result) => result.private_tx_hash,
+            Self::Authority(result) => result.private_tx_hash,
+            Self::Indexed(prepared) => prepared.private_tx_hash(),
+        }
     }
 
+    fn complete(
+        &self,
+        proof: Proof,
+        transaction: &SppProofInputs,
+    ) -> Result<TransactIxData, ClientError> {
+        let shape = transaction.check_shape()?;
+        let width = (
+            shape.n_inputs() as u8,
+            shape.n_outputs() as u8,
+            N_PUBLIC_SLOTS as u8,
+        );
+        let (nullifiers, input_tree_indexes, tree_contexts, circuit) = match self {
+            Self::Complete(result) => (
+                &result.nullifiers,
+                &result.input_tree_indexes,
+                &result.tree_contexts,
+                CircuitId::RingEddsa(width.0, width.1, width.2),
+            ),
+            Self::Authority(result) => (
+                &result.nullifiers,
+                &result.input_tree_indexes,
+                &result.tree_contexts,
+                CircuitId::RingAuthority(width.0, width.1, width.2),
+            ),
+            Self::Indexed(_) => {
+                return Err(ClientError::Prover("unexpected complete proof".into()))
+            }
+        };
+        RingInstructionData {
+            external_data: &transaction.external_data,
+            nullifiers,
+            input_tree_indexes,
+            tree_contexts,
+            private_tx_hash: self.private_tx_hash(),
+            proof: ProofCompressed::try_from(proof)?.to_transact_proof(),
+            circuit,
+        }
+        .assemble()
+        .map_err(|error| ClientError::Prover(error.to_string()))
+    }
+
+    pub(crate) fn prove(
+        &self,
+        prover: &ProverClient,
+        transaction: &SppProofInputs,
+    ) -> Result<TransactIxData, ClientError> {
+        match self {
+            Self::Authority(result) => {
+                self.complete(prover.prove_ring_authority(&result.inputs)?, transaction)
+            }
+            Self::Complete(result) => {
+                self.complete(prover.prove_transfer_ring(&result.inputs)?, transaction)
+            }
+            Self::Indexed(prepared) => Ok(prover.prove_indexed(prepared.as_ref())?.data),
+        }
+    }
+
+    pub(crate) async fn prove_async(
+        &self,
+        prover: &AsyncProverClient,
+        transaction: &SppProofInputs,
+    ) -> Result<TransactIxData, ClientError> {
+        match self {
+            Self::Authority(result) => self.complete(
+                prover.prove_ring_authority(&result.inputs).await?,
+                transaction,
+            ),
+            Self::Complete(result) => self.complete(
+                prover.prove_transfer_ring(&result.inputs).await?,
+                transaction,
+            ),
+            Self::Indexed(prepared) => Ok(prover.prove_indexed(prepared.as_ref()).await?.data),
+        }
+    }
+}
+
+impl WitnessedTransfer {
     fn finish(
         self,
-        spp_proof: TransactProof,
+        spp_proof: TransactIxData,
         ring_proof: Proof,
     ) -> Result<ProvenTransfer, TransferError> {
         let TierBinding {
@@ -1471,25 +1728,11 @@ impl WitnessedTransfer {
             policy,
             approval_required,
         } = self.request.proven(ring_proof)?;
-        let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
         Ok(ProvenTransfer {
             #[cfg(feature = "solana-rpc")]
             window: self.window,
             tx_viewing_key: self.tx_viewing_key,
-            data: RingInstructionData {
-                external_data: &self.proof_inputs.external_data,
-                nullifiers: &self.ring_result.nullifiers,
-                input_tree_indexes: &self.ring_result.input_tree_indexes,
-                tree_contexts: &self.ring_result.tree_contexts,
-                private_tx_hash: self.ring_result.private_tx_hash,
-                proof: spp_proof,
-                circuit: CircuitId::RingEddsa(
-                    n_inputs as u8,
-                    self.proof_inputs.external_data.outputs.len() as u8,
-                    N_PUBLIC_SLOTS as u8,
-                ),
-            }
-            .assemble()?,
+            data: spp_proof,
             proof,
             owner_signers: self.proof_inputs.owner_signer_pubkeys()?,
             interface_transfer_accounts: self.interface_transfer_accounts,
@@ -1709,6 +1952,13 @@ impl PreparedRingDeposit {
         &self,
         env: DepositProofEnvironment<'_, I, R>,
     ) -> Result<Instruction, DepositError> {
+        crate::projection::retry_projection_lag(|| self.prove_once(&env))
+    }
+
+    fn prove_once<I: Rpc, R: Rpc>(
+        &self,
+        env: &DepositProofEnvironment<'_, I, R>,
+    ) -> Result<Instruction, DepositError> {
         let Some(disclosure) = &self.disclosure else {
             return self.instruction(None, None);
         };
@@ -1716,6 +1966,9 @@ impl PreparedRingDeposit {
         let escrow = disclosure
             .key_registry
             .map(|registry| {
+                if env.prover.proof_data_source() == ProofDataSource::Prover {
+                    return registry.pending(env.rpc);
+                }
                 registry.openings(
                     ReadEnvironment {
                         indexer: env.indexer,
@@ -1726,7 +1979,16 @@ impl PreparedRingDeposit {
             })
             .transpose()?;
         let statement = disclosure.statement(escrow.as_ref())?;
-        let proof = env.prover.prove(&disclosure.request(&statement))?;
+        let proof = match disclosure.indexed_request(
+            &statement,
+            escrow.as_ref(),
+            env.prover.proof_data_source(),
+        )? {
+            Some(request) => {
+                disclosure.verify_deposit(env.prover.prove_indexed(&request)?, &statement)?
+            }
+            None => env.prover.prove(&disclosure.request(&statement))?,
+        };
         self.instruction(Some(to_instruction_proof(proof)?), escrow)
     }
 
@@ -1734,10 +1996,20 @@ impl PreparedRingDeposit {
         &self,
         env: AsyncTransferProofEnvironment<'_, I, R>,
     ) -> Result<Instruction, DepositError> {
+        crate::projection::retry_projection_lag_async(|| self.prove_once_async(&env)).await
+    }
+
+    async fn prove_once_async<I: AsyncRpc, R: AsyncRpc>(
+        &self,
+        env: &AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<Instruction, DepositError> {
         let Some(disclosure) = &self.disclosure else {
             return self.instruction(None, None);
         };
         let escrow = match disclosure.key_registry {
+            Some(registry) if env.prover.proof_data_source() == ProofDataSource::Prover => {
+                Some(registry.pending_async(env.rpc).await?)
+            }
             Some(registry) => Some(
                 registry
                     .openings_async(
@@ -1752,7 +2024,16 @@ impl PreparedRingDeposit {
             None => None,
         };
         let statement = disclosure.statement(escrow.as_ref())?;
-        let proof = env.prover.prove(&disclosure.request(&statement)).await?;
+        let proof = match disclosure.indexed_request(
+            &statement,
+            escrow.as_ref(),
+            env.prover.proof_data_source(),
+        )? {
+            Some(request) => {
+                disclosure.verify_deposit(env.prover.prove_indexed(&request).await?, &statement)?
+            }
+            None => env.prover.prove(&disclosure.request(&statement)).await?,
+        };
         self.instruction(Some(to_instruction_proof(proof)?), escrow)
     }
 
@@ -1783,6 +2064,42 @@ struct DepositStatement {
 }
 
 impl DepositDisclosure {
+    fn indexed_request(
+        &self,
+        statement: &DepositStatement,
+        escrow: Option<&EscrowedKeys>,
+        source: ProofDataSource,
+    ) -> Result<Option<zolana_client::prover::indexed::IndexedDepositRequest>, ClientError> {
+        if source == ProofDataSource::Client {
+            return Ok(None);
+        }
+        let (Some(escrow), Some(registry)) = (escrow, self.key_registry) else {
+            return Ok(None);
+        };
+        zolana_client::prover::indexed::IndexedDepositRequest::new(
+            &self.request(statement),
+            zolana_client::prover::indexed::IndexedRegistry {
+                ring_program_id: registry.ring.program_id(),
+                root: escrow.root.root,
+                next_index: escrow.root.next_index,
+            },
+        )
+        .map(Some)
+    }
+
+    fn verify_deposit(
+        &self,
+        proof: Proof,
+        statement: &DepositStatement,
+    ) -> Result<Proof, ClientError> {
+        zolana_client::prover::verify_proof_statement(
+            &proof,
+            statement.public_input_hash,
+            &custom_ring_interface::deposit_verifying_key::VERIFYINGKEY,
+        )?;
+        Ok(proof)
+    }
+
     fn statement(&self, escrow: Option<&EscrowedKeys>) -> Result<DepositStatement, DepositError> {
         let key_registry_root = escrow.map(|escrow| escrow.root.root);
         let public_input_hash = custom_ring_interface::DepositPublicInput {
@@ -2082,7 +2399,7 @@ pub(crate) fn frame_dummy_outputs(
 }
 
 pub(crate) struct SpendSet {
-    pub inputs: Vec<TransferInputUtxo>,
+    pub inputs: Option<Vec<TransferInputUtxo>>,
     pub trees: SpendTrees,
 }
 

@@ -140,6 +140,30 @@ mod tests {
         assert_eq!(json["keyRegistryRoot"], format!("0x{}", "09".repeat(32)));
         assert_eq!(json["auditorPk"].as_str().unwrap().len(), 132);
 
+        use zolana_client::prover::indexed::{IndexedDepositRequest, IndexedRegistry};
+        let registry = IndexedRegistry {
+            ring_program_id: solana_address::Address::from([3; 32]),
+            root: [9; 32],
+            next_index: 2,
+        };
+        assert!(IndexedDepositRequest::new(&request, registry.clone()).is_ok());
+        for changed in [
+            IndexedRegistry {
+                root: [8; 32],
+                ..registry.clone()
+            },
+            IndexedRegistry {
+                next_index: 0,
+                ..registry.clone()
+            },
+            IndexedRegistry {
+                next_index: (1 << 40) + 1,
+                ..registry
+            },
+        ] {
+            assert!(IndexedDepositRequest::new(&request, changed).is_err());
+        }
+
         let mut padded = owners;
         padded[7][0] = 1;
         let unused = |request: RingDepositProofRequest<'_>| {

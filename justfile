@@ -38,6 +38,9 @@ custom-ring-keys := `python3 -c "import json;print(' '.join(sorted(k for k in js
 # client both connects here and starts the spawned server on this URL's port, so
 # this single var is the source of truth for the prover.
 export ZOLANA_PROVER_URL := localnet-prover-url
+# Read by the prover as `--indexer-url`, binding every prover a recipe starts
+# to this checkout's Photon.
+export PROVER_INDEXER_URL := localnet-photon-url
 
 default:
     @just --list
@@ -279,7 +282,9 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
     fetch() {
         name="$1" url="$2"
         want="$(pinned "$name")"
-        curl -fsSL "$url" -o "$temp_dir/$name"
+        echo "Downloading $name" >&2
+        curl -fsSL --retry 3 --retry-max-time 60 --connect-timeout 10 --max-time 300 \
+            "$url" -o "$temp_dir/$name"
         got="$(digest "$temp_dir/$name")"
         if [[ "$got" != "$want" ]]; then
             echo "$url hashes to $got, proving-keys.lock pins $want" >&2
@@ -1413,7 +1418,7 @@ build-prover-server:
     #!/usr/bin/env bash
     [[ -z "${ZOLANA_PREBUILT:-}" ]] || exit 0
     mkdir -p target
-    cd prover/server && go build -o ../../target/prover-server .
+    cd prover/server && sh build-release.sh ../../target/prover-server
 
 # Everything the CI localnet matrix runs with; CI builds the three parts in
 # parallel. With ZOLANA_PREBUILT and ZOLANA_NEXTEST_ARCHIVE_DIR set, the suite

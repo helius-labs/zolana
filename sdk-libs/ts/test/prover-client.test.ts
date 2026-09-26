@@ -1,16 +1,20 @@
 import { p256 } from "@noble/curves/nist.js";
-import { address } from "@solana/kit";
+import { address, getBase58Decoder } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
+import { ZolanaClient } from "../src/client/client.js";
+import { wireDecoder } from "../src/interface/decode.js";
+import { parseProof } from "../src/client/prover/proof.js";
 import {
   asField,
+  asInteger,
   createDummyTransferInput,
   createOutput,
   treeSlotFields,
 } from "../src/client/prover/assembly.js";
 import { LocalKeys } from "../src/client/keys.js";
-import { bytesField } from "../src/client/internal.js";
+import { BN254_MODULUS, bytesField } from "../src/client/internal.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   ProverClient,
@@ -18,6 +22,7 @@ import {
   customRingPolicyProofRequest,
   customRingRegisterKeyProofRequest,
   mergeProverRequestBody,
+  proverRequestBody,
 } from "../src/client/prover/client.js";
 import { proofFor } from "./helpers/proofs.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
@@ -26,7 +31,14 @@ import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
 import { disabledRuleAnswer, velocityProofInputOff } from "../src/client/prover/types.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
+import { hashChain } from "../src/transaction/internal.js";
+import type { IndexedPolicyInputs } from "../src/client/ports.js";
+import {
+  inputTreeSlots,
+  treeSlotsHashChain,
+  INPUT_TREES,
+  ZERO_TREE_SLOT,
+} from "../src/interface/tree-slot.js";
 import type {
   CustomRingBaseProofRequest,
   CustomRingOpening,
@@ -158,6 +170,27 @@ function auditRequest(auditorPublicKey: Uint8Array): CustomRingBaseProofRequest 
 }
 
 describe("compressed ring prover contracts", () => {
+  it.each(["compressed", "delegate"] as const)(
+    "decodes %s proofs and refuses malformed responses",
+    async (kind) => {
+      const proof = proofFor({ circuitType: `custom-ring-${kind}-policy` });
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
+      const prover = new ProverClient({ url: "https://prover.example", fetch });
+      const policy = ringRequest(p256.getPublicKey(bytes(4), false));
+      const prove = () =>
+        kind === "compressed"
+          ? prover.proveCustomRingCompressedPolicy({
+              policy,
+              transactionSalt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
+            })
+          : prover.proveCustomRingDelegatePolicy(policy);
+      await expect(prove()).resolves.toEqual(parseProof(proof));
+      fetch.mockResolvedValueOnce(Response.json({ ...proof, ar: [] }));
+      await expect(prove()).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("nests the member policy beside the transaction salt only", () => {
     const request = {
       policy: ringRequest(p256.getPublicKey(bytes(4), false)),
@@ -171,7 +204,7 @@ describe("compressed ring prover contracts", () => {
     expect(Object.keys(body).sort()).toEqual(["circuitType", "policy", "transactionSalt"]);
   });
 
-  it("serializes the key registration like Rust `RegisterKeyProofRequest::body`", () => {
+  it("serializes the key registration like Rust `RegisterKeyProofRequest::body`", async () => {
     const nullifierSecret = bytes(0);
     nullifierSecret[31] = 7;
     const request = {
@@ -212,6 +245,15 @@ describe("compressed ring prover contracts", () => {
     expect(() => customRingRegisterKeyProofRequest({ ...request, newIndex: 1n << 40n })).toThrow(
       "CLIENT_INVALID_INTEGER",
     );
+    const proof = proofFor({ circuitType: "custom-ring-register-key" });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    await expect(prover.proveCustomRingRegisterKey(request)).resolves.toEqual(parseProof(proof));
+    fetch.mockResolvedValueOnce(Response.json({ ...proof, ar: [] }));
+    await expect(prover.proveCustomRingRegisterKey(request)).rejects.toMatchObject({
+      code: "CLIENT_PROOF_PARSE",
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("keeps delegate policy rows but sends no velocity charge", async () => {
@@ -904,10 +946,12 @@ describe("prover request routing", () => {
 
   it("queues a transfer after sync admission is refused", async () => {
     const deliveries: (string | null)[] = [];
+    const queued: (string | null)[] = [];
     const refusal = new Response("busy", { status: 429 });
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       if (init?.method === "POST") {
         deliveries.push(new Headers(init.headers).get("X-Sync"));
+        queued.push(new Headers(init.headers).get("X-Async"));
         if (deliveries.length === 1) return refusal;
         return new Response(JSON.stringify({ jobId: "job-123" }), {
           status: 202,
@@ -923,6 +967,7 @@ describe("prover request routing", () => {
     await prover.prove(transferInputs());
 
     expect(deliveries).toEqual(["true", null]);
+    expect(queued).toEqual([null, "true"]);
     expect(refusal.bodyUsed).toBe(true);
   });
 
@@ -1252,4 +1297,236 @@ describe("dummy prover inputs", () => {
       ringProgramId: 0n,
     });
   });
+});
+
+/** A policy request whose `resolution` the prover would answer with. */
+function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
+  const policy = ringRequest(p256.getPublicKey(bytes(4), false));
+  const tree = {
+    tree: treeAddress(3),
+    id: 3,
+    utxoRoot: bytes(8),
+    nullifierRoot: bytes(9),
+    utxoRootIndex: 7,
+    nullifierRootIndex: 8,
+  };
+  const inputs: IndexedPolicyInputs = {
+    circuit,
+    policy,
+    minContextSlot: 123n,
+    trees: [tree],
+    lookups: Array.from({ length: 10 }, () => ({
+      treeSlot: 0,
+      commitment: null,
+      nullifier: null,
+    })),
+    publicInputs: Array.from(
+      { length: circuit === "custom-ring-compressed-policy" ? 20 : 19 },
+      () => bytes(1),
+    ),
+    ...(circuit === "custom-ring-compressed-policy" ? { transactionSalt: new Uint8Array(16) } : {}),
+  };
+  const hash = hashChain([
+    inputs.publicInputs[0]!,
+    treeSlotsHashChain(inputTreeSlots(policy.treeSlots)),
+    ...inputs.publicInputs.slice(1),
+  ]);
+  const toHex = (value: Uint8Array) => `0x${Buffer.from(value).toString("hex")}`;
+  const resolution = {
+    trees: [{ ...tree, utxoRoot: toHex(tree.utxoRoot), nullifierRoot: toHex(tree.nullifierRoot) }],
+    publicInputHash: toHex(hash),
+  };
+  const proof = {
+    ...proofFor({ circuitType: circuit }),
+    proofCommitment: ["0x1", "0x2"],
+    proofCommitmentPok: ["0x0", "0x0"],
+  };
+  return { inputs, hash, resolution, proof, toHex };
+}
+
+describe("indexed policy proofs", () => {
+  it.each([
+    "custom-ring-policy",
+    "custom-ring-compressed-policy",
+    "custom-ring-delegate-policy",
+  ] as const)("binds returned roots for %s", async (circuit) => {
+    const { inputs, hash, resolution, proof, toHex } = indexedPolicy(circuit);
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({ ...proof, resolution }),
+    );
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const result = await prover.proveIndexedPolicy(inputs);
+    expect(result.resolution.publicInputHash).toEqual(hash);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("/prove/indexed");
+    const wire: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    const decoder = wireDecoder(() => new Error("invalid body"));
+    const body = decoder.record(wire, "body");
+    const wrapped = decoder.record(body["prepared"], "prepared");
+    const prepared =
+      circuit === "custom-ring-policy" ? wrapped : decoder.record(wrapped["policy"], "policy");
+    expect(body["minContextSlot"]).toBe(123);
+    expect(wrapped["minContextSlot"]).toBeUndefined();
+    expect(prepared["treeSlots"]).toBeUndefined();
+    expect(
+      decoder.record(decoder.list(prepared["answers"], "answers")[0], "answer")["nfPathElements"],
+    ).toBeUndefined();
+    const client = new ZolanaClient({
+      fetch,
+      indexerConfig: { requireSlot: 456n, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
+    });
+    await expect(
+      client.proveIndexedRingPolicy({ ...inputs, minContextSlot: -1n }),
+    ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
+    for (const minContextSlot of [123n, 1000n]) {
+      await client.proveIndexedRingPolicy({ ...inputs, minContextSlot });
+      const clientWire: unknown = JSON.parse(String(fetch.mock.lastCall?.[1]?.body));
+      expect(decoder.record(clientWire, "client body")["minContextSlot"]).toBe(
+        Number(minContextSlot < 456n ? 456n : minContextSlot),
+      );
+    }
+    for (const changed of [
+      { ...resolution, publicInputHash: toHex(bytes(2)) },
+      { ...resolution, trees: [{ ...resolution.trees[0], utxoRootIndex: 9 }] },
+      { ...resolution, trees: [{ ...resolution.trees[0], utxoRoot: toHex(bytes(10)) }] },
+      { ...resolution, trees: [{ ...resolution.trees[0], tree: treeAddress(4) }] },
+    ]) {
+      fetch.mockResolvedValueOnce(Response.json({ ...proof, resolution: changed }));
+      await expect(prover.proveIndexedPolicy(inputs)).rejects.toMatchObject({
+        code: "CLIENT_PROOF_PARSE",
+      });
+    }
+  });
+});
+
+describe("indexed prover failures", () => {
+  const MEMBER = new Uint8Array(32).fill(0x2a);
+  const SERVER_TEXT = "photon echoed caller data";
+
+  function prove(fetch: typeof globalThis.fetch): Promise<unknown> {
+    const prover = new ProverClient({
+      url: "https://prover.example",
+      fetch,
+      asyncPoll: { pollIntervalCapMs: 1, maxWaitMs: 1_000 },
+    });
+    return prover.proveIndexedPolicy(indexedPolicy("custom-ring-policy").inputs);
+  }
+
+  /** Refuses sync admission, queues, then reports `status` for the job. */
+  function queued(status: Readonly<Record<string, unknown>>) {
+    return vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      if (init?.method !== "POST") return Response.json({ status: "failed", ...status });
+      if (new Headers(init.headers).get("X-Sync") === "true")
+        return new Response(null, { status: 429 });
+      return Response.json({ jobId: "job-1" }, { status: 202 });
+    });
+  }
+
+  it.each([
+    [
+      404,
+      new Response("404 page not found", { status: 404 }),
+      "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+    ],
+    [
+      404,
+      Response.json({ code: "indexer_unconfigured", message: SERVER_TEXT }, { status: 404 }),
+      "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+    ],
+    [
+      503,
+      Response.json({ code: "indexer_not_ready", message: SERVER_TEXT }, { status: 503 }),
+      "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+    ],
+    [
+      502,
+      Response.json({ code: "indexer_unavailable", message: SERVER_TEXT }, { status: 502 }),
+      "CLIENT_PROVER_HTTP",
+    ],
+  ] as const)("maps a %i indexed answer to %s", async (_status, response, code) => {
+    const error = await prove(vi.fn<typeof globalThis.fetch>(async () => response)).catch(
+      (cause: unknown) => cause,
+    );
+    expect(error).toMatchObject({ code });
+    expect(JSON.stringify(error)).not.toContain(SERVER_TEXT);
+  });
+
+  it("names the refused registry member whether proved in the response or queued", async () => {
+    const refusal = {
+      code: "registry_member_missing",
+      message: SERVER_TEXT,
+      member: getBase58Decoder().decode(MEMBER),
+    };
+    for (const fetch of [
+      vi.fn<typeof globalThis.fetch>(async () => Response.json(refusal, { status: 422 })),
+      queued({ ...refusal, error: SERVER_TEXT }),
+    ]) {
+      const error = await prove(fetch).catch((cause: unknown) => cause);
+      expect(error).toMatchObject({
+        code: "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED",
+        details: { method: "prove", member: Buffer.from(MEMBER).toString("hex") },
+      });
+      expect(JSON.stringify(error)).not.toContain(SERVER_TEXT);
+    }
+    for (const member of ["0x2a", getBase58Decoder().decode(MEMBER.subarray(1))]) {
+      await expect(
+        prove(
+          vi.fn<typeof globalThis.fetch>(async () =>
+            Response.json({ ...refusal, member }, { status: 422 }),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "CLIENT_PROVER_JSON" });
+    }
+  });
+
+  it("branches a failed job on its code, never on its error text", async () => {
+    await expect(prove(queued({ code: "indexer_not_ready" }))).rejects.toMatchObject({
+      code: "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+    });
+    await expect(prove(queued({ error: "indexer proof data not ready" }))).rejects.toMatchObject({
+      code: "CLIENT_PROVER_SERVER",
+    });
+  });
+});
+
+describe("error details", () => {
+  it("keeps an out-of-range secret out of the error and its JSON", () => {
+    const secret = BN254_MODULUS + 0x5ec2e7n;
+    const [input] = transferInputs().payload.inputs;
+    if (input === undefined) throw new Error("missing fixture input");
+    const transfer = transferInputs();
+    const requests = [
+      () =>
+        proverRequestBody({
+          ...transfer,
+          payload: {
+            ...transfer.payload,
+            inputs: [{ ...input, nullifierSecret: asInteger(secret) }],
+          },
+        }),
+      () => mergeProverRequestBody({ ...mergeInputs(), userNullifierSecret: asInteger(secret) }),
+    ];
+    for (const [index, request] of requests.entries()) {
+      let error: unknown;
+      try {
+        request();
+      } catch (cause) {
+        error = cause;
+      }
+      expect(error).toMatchObject({
+        code: "CLIENT_INVALID_FIELD",
+        details: { field: index === 0 ? "nullifierSecret" : "userNullifierSecret" },
+      });
+      const json = JSON.stringify(error);
+      expect(json).not.toContain(secret.toString());
+      expect(json).not.toContain(secret.toString(16));
+    }
+  });
+
+  it.each(["CLIENT_INVALID_FIELD", "CLIENT_INVALID_INTEGER"] as const)(
+    "refuses a %s that carries the value",
+    (code) => {
+      const details = { field: "nullifierSecret", value: "7" };
+      expect(() => new ClientError(code, { details })).toThrow(TypeError);
+    },
+  );
 });

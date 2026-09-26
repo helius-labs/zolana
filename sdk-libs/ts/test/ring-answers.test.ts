@@ -104,7 +104,7 @@ function input(
     sources: ownSources(table, namespace),
     addressTree: TREE,
   });
-  return { table, config, inputs: [], outputs };
+  return { proofDataSource: "client", table, config, inputs: [], outputs };
 }
 
 const HEADS = FIXTURE_HEADS;
@@ -215,7 +215,13 @@ describe("answer planning", () => {
       windowSlots: 0n,
       velocity: [],
     };
-    const plan = planPolicyAnswers({ table: guarded, config, inputs: [spend], outputs: [] });
+    const plan = planPolicyAnswers({
+      proofDataSource: "client",
+      table: guarded,
+      config,
+      inputs: [spend],
+      outputs: [],
+    });
     expect(plan.demands).toHaveLength(1);
     expect(plan.lookups[0]?.member).toEqual(
       memberOfTag(keypair.signingPublicKey().confidentialViewTag()),

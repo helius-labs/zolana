@@ -23,6 +23,10 @@
 //! So `drain_once` serialises witness construction alone and runs
 //! `proof_concurrency` prove-and-submit workers alongside it.
 
+use zolana_client::prover::indexed::{
+    BatchAnchor, IndexedBatchRequest, ProofDataSource, ProvenIndexedBatch,
+};
+
 use std::{
     collections::VecDeque,
     fmt,
@@ -94,6 +98,7 @@ pub struct RunOptions {
     /// batch address-append proof needs on the order of 15GB, so raising it
     /// past what the fleet can hold just moves the queueing into the prover.
     pub proof_concurrency: usize,
+    pub client_proof_data: bool,
 }
 
 /// Zkp-batch proofs in flight at once when unset.
@@ -150,6 +155,7 @@ impl fmt::Display for PhotonIndexNotReady {
 impl std::error::Error for PhotonIndexNotReady {}
 
 enum DrainOutcome {
+    ProverNotReady { submitted: u64 },
     Drained(u64),
     NotReady(PhotonIndexNotReady),
 }
@@ -181,13 +187,25 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         .settings
         .ok_or_else(|| anyhow!("--settings (forester smart-account) is required to submit"))?;
     let member = config.signer()?;
-    let prover = ProverClient::new(prover_url);
+    let prover = ProverClient::new(prover_url).with_proof_data_source(if opts.client_proof_data {
+        ProofDataSource::Client
+    } else {
+        ProofDataSource::Prover
+    });
     // A prover on another proving-key set would burn a batch proof that the
     // program's verifying key then rejects; refuse it before draining.
     let keys = prover
         .check_proving_keys()
         .map_err(|e| anyhow!("prover proving keys do not match this build: {e}"))?;
     tracing::info!(prefix = %keys.prefix, "prover proving keys match the verifying keys");
+    if prover.proof_data_source() == ProofDataSource::Prover {
+        prover.check_indexed().map_err(|error| match error {
+            zolana_client::ClientError::ProverIndexerUnconfigured => anyhow!(
+                "prover serves no indexed proofs, restart it with an indexer or pass --client-proof-data"
+            ),
+            other => other.into(),
+        })?;
+    }
 
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 
@@ -222,6 +240,17 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         )?;
         let submitted = match outcome {
             DrainOutcome::Drained(submitted) => submitted,
+            DrainOutcome::ProverNotReady { submitted } => {
+                crate::metrics::count_batches_submitted(&opts.tree.to_string(), submitted);
+                submitted_total += submitted;
+                crate::metrics::count_failure("prover_indexer_not_ready");
+                if !opts.watch {
+                    return Err(zolana_client::ClientError::IndexerProofDataNotReady.into());
+                }
+                tracing::warn!(submitted, "prover indexer preparation pending");
+                thread::sleep(Duration::from_secs(opts.poll_secs));
+                continue;
+            }
             DrainOutcome::NotReady(not_ready) => {
                 crate::metrics::count_failure("photon_index_not_ready");
                 if opts.watch {
@@ -562,6 +591,36 @@ fn join_proof(handle: ScopedJoinHandle<'_, Result<()>>) -> Result<()> {
         .unwrap_or_else(|_| bail!("proving thread panicked"))
 }
 
+enum PendingBatch {
+    Client {
+        inputs: Box<BatchAddressAppendInputs>,
+        old_root: [u8; 32],
+        new_root: [u8; 32],
+    },
+    Prover(IndexedBatchRequest),
+}
+
+impl PendingBatch {
+    fn prove(self, prover: &ProverClient) -> Result<ProvenIndexedBatch> {
+        match self {
+            Self::Prover(request) => Ok(prover.prove_indexed(&request)?),
+            Self::Client {
+                inputs,
+                old_root,
+                new_root,
+            } => {
+                let proof = ProofCompressed::try_from(prover.prove_batch_address_append(&inputs)?)?
+                    .to_nullifier_tree_proof()?;
+                Ok(ProvenIndexedBatch {
+                    old_root,
+                    new_root,
+                    proof,
+                })
+            }
+        }
+    }
+}
+
 /// One drain pass: prove+submit the pending batch's ready zkp-batches (capped by
 /// `limit`). Returns how many were submitted.
 #[allow(clippy::too_many_arguments)]
@@ -590,20 +649,24 @@ fn drain_once(
 
     let applied = applied_count(&snapshot)?;
     let needed = applied + snapshot.ready * snapshot.zkp_batch_size;
-    let values = match reconstruct_and_verify(photon, tree, &snapshot, needed, cache) {
-        Ok(values) => values,
-        Err(err) => {
-            let not_ready = err.downcast::<PhotonIndexNotReady>()?;
+    let values = if prover.proof_data_source() == ProofDataSource::Client {
+        let values = match reconstruct_and_verify(photon, tree, &snapshot, needed, cache) {
+            Ok(values) => values,
+            Err(err) => {
+                return Ok(DrainOutcome::NotReady(
+                    err.downcast::<PhotonIndexNotReady>()?,
+                ))
+            }
+        };
+        if let Some(not_ready) =
+            indexed_value_shortage(values.len(), needed, format!("applied {applied}"))
+        {
             return Ok(DrainOutcome::NotReady(not_ready));
         }
+        Some(values)
+    } else {
+        None
     };
-    if let Some(not_ready) = indexed_value_shortage(
-        values.len(),
-        needed,
-        format!("applied {applied} + {} ready zkp-batch(es)", snapshot.ready),
-    ) {
-        return Ok(DrainOutcome::NotReady(not_ready));
-    }
 
     let cap = limit
         .map(|limit| limit.min(snapshot.ready))
@@ -658,9 +721,8 @@ fn drain_once(
     // one at a time: building a group's witnesses pegged the forester's single
     // core while the prover idled, then the prover ran while the forester idled.
     // Overlapping them is the entire point.
-    let reference = cache.tree_mut()?;
     let submitted = AtomicU64::new(0);
-    thread::scope(|scope| -> Result<()> {
+    let result = thread::scope(|scope| -> Result<()> {
         let mut in_flight = VecDeque::with_capacity(concurrency);
         for i in 0..cap {
             // Bound the window by retiring the oldest proof before starting
@@ -674,16 +736,6 @@ fn drain_once(
 
             let zkp_index = snapshot.already_applied + i;
             let batch_next_index = snapshot.next_index + i * snapshot.zkp_batch_size;
-            let start = usize::try_from(applied + i * snapshot.zkp_batch_size)
-                .map_err(|_| anyhow!("zkp-batch {zkp_index} start exceeds usize"))?;
-            let end = start
-                .checked_add(usize::try_from(snapshot.zkp_batch_size).map_err(|_| {
-                    anyhow!("zkp_batch_size {} exceeds usize", snapshot.zkp_batch_size)
-                })?)
-                .ok_or_else(|| anyhow!("zkp-batch {zkp_index} end overflows usize"))?;
-            let batch_values = values
-                .get(start..end)
-                .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
             let hash_chain = snapshot
                 .hash_chains
                 .get(
@@ -692,27 +744,56 @@ fn drain_once(
                 )
                 .copied()
                 .ok_or_else(|| anyhow!("missing hash chain for ready zkp-batch {i}"))?;
-            let old_root = reference.root();
-
-            let (inputs, new_root) = build_inputs(
-                reference,
-                batch_next_index,
-                snapshot.height,
-                hash_chain,
-                old_root,
-                batch_values,
-            )?;
+            let batch = if let Some(values) = &values {
+                let start = usize::try_from(applied + i * snapshot.zkp_batch_size)
+                    .map_err(|_| anyhow!("zkp-batch {zkp_index} start exceeds usize"))?;
+                let end = start
+                    .checked_add(usize::try_from(snapshot.zkp_batch_size).map_err(|_| {
+                        anyhow!("zkp_batch_size {} exceeds usize", snapshot.zkp_batch_size)
+                    })?)
+                    .ok_or_else(|| anyhow!("zkp-batch {zkp_index} end overflows usize"))?;
+                let batch_values = values
+                    .get(start..end)
+                    .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
+                let reference = cache.tree_mut()?;
+                let old_root = reference.root();
+                let (inputs, new_root) = build_inputs(
+                    reference,
+                    batch_next_index,
+                    snapshot.height,
+                    hash_chain,
+                    old_root,
+                    batch_values,
+                )?;
+                PendingBatch::Client {
+                    inputs: Box::new(inputs),
+                    old_root,
+                    new_root,
+                }
+            } else {
+                PendingBatch::Prover(IndexedBatchRequest {
+                    previous_batches: snapshot.hash_chains[..usize::try_from(i)?].to_vec(),
+                    tree: tree.to_bytes().into(),
+                    tree_height: snapshot.height,
+                    batch_size: u32::try_from(snapshot.zkp_batch_size)?,
+                    start_index: batch_next_index,
+                    anchor: BatchAnchor {
+                        next_index: snapshot.next_index,
+                        root: snapshot.on_chain_root,
+                    },
+                    leaves_hash_chain: hash_chain,
+                })
+            };
 
             // Scoped threads rather than an async runtime: the prover client is
             // blocking, and `run` is documented to hold no Tokio runtime.
             let submitted = &submitted;
             in_flight.push_back(scope.spawn(move || {
-                let proof = prover
-                    .prove_batch_address_append(&inputs)
-                    .map_err(|err| anyhow!("prove zkp-batch {zkp_index}: {err}"))?;
-                let batch_update_proof = ProofCompressed::try_from(proof)
-                    .and_then(|proof| proof.to_nullifier_tree_proof())
-                    .map_err(|err| anyhow!("encode proof for zkp-batch {zkp_index}: {err:?}"))?;
+                let ProvenIndexedBatch {
+                    old_root,
+                    new_root,
+                    proof: batch_update_proof,
+                } = batch.prove(prover)?;
 
                 let signature = batch_update_nullifier_tree_once(ForestParams {
                     rpc_url,
@@ -744,13 +825,30 @@ fn drain_once(
         }
 
         in_flight.into_iter().try_for_each(join_proof)
-    })?;
+    });
 
     // Every witness built advanced the tree, whether or not its batch landed.
     // Recording that is what lets the next pass tell "extend" from "rebuild".
-    cache.advanced_by(cap * snapshot.zkp_batch_size);
+    if values.is_some() {
+        cache.advanced_by(cap * snapshot.zkp_batch_size);
+    }
 
-    Ok(DrainOutcome::Drained(submitted.into_inner()))
+    drain_result(result, submitted.into_inner())
+}
+
+fn drain_result(result: Result<()>, submitted: u64) -> Result<DrainOutcome> {
+    match result {
+        Ok(()) => Ok(DrainOutcome::Drained(submitted)),
+        Err(error)
+            if matches!(
+                error.downcast_ref::<zolana_client::ClientError>(),
+                Some(zolana_client::ClientError::IndexerProofDataNotReady)
+            ) =>
+        {
+            Ok(DrainOutcome::ProverNotReady { submitted })
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// Preflight: validate the tree-read / photon / reconstruct / root-match path
@@ -883,6 +981,17 @@ fn path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn indexer_retry_preserves_completed_submissions() {
+        use super::*;
+        let result = Err(zolana_client::ClientError::IndexerProofDataNotReady.into());
+        assert!(matches!(
+            drain_result(result, 2).unwrap(),
+            DrainOutcome::ProverNotReady { submitted: 2 }
+        ));
+        assert!(drain_result(Err(anyhow!("permanent proving failure")), 2).is_err());
+    }
+
     use super::*;
     use zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 

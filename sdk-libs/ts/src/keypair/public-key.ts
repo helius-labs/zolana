@@ -68,6 +68,7 @@ export class P256PublicKey {
 
 export class ShieldedPublicKey {
   readonly #bytes: Uint8Array;
+  #ownerHash: Uint8Array | undefined;
 
   private constructor(bytes: Uint8Array) {
     this.#bytes = bytes;
@@ -149,11 +150,12 @@ export class ShieldedPublicKey {
    * x-coordinate. Mirrors Rust `owner_proof_input_hash`.
    */
   ownerProofInputHash(): Bytes32 {
-    return (
+    // 1. The cached identity depends only on owned public key bytes.
+    this.#ownerHash ??=
       this.signatureType() === "p256"
         ? p256OwnerIdentity(this.p256().x())
-        : solanaOwnerIdentity(this.confidentialViewTag())
-    ) as Bytes32;
+        : solanaOwnerIdentity(this.confidentialViewTag());
+    return copyBytes(this.#ownerHash) as Bytes32;
   }
 
   ed25519(): Bytes32 {

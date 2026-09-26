@@ -1,4 +1,10 @@
-import type { ChainReader, TransactionAssembler, WalletKeys } from "../client/ports.js";
+import type {
+  ChainReader,
+  ProofDataSourceContext,
+  TransactionAssembler,
+  WalletKeys,
+} from "../client/ports.js";
+import { withProofDataRetry } from "../client/retry.js";
 import type {
   Address,
   Bytes32,
@@ -20,7 +26,9 @@ import { wrapWalletError } from "./error.js";
 import { authorizePrivateTransaction } from "./private-transaction.js";
 import { withdrawalSetupInstructions } from "../flows/settlement.js";
 
-export type PrivateTransactionClient = TransactionAssembler & Pick<ChainReader, "getAccount">;
+export type PrivateTransactionClient = TransactionAssembler &
+  Pick<ChainReader, "getAccount"> &
+  ProofDataSourceContext;
 
 export interface PrivateTransactionParams {
   readonly client: PrivateTransactionClient;
@@ -133,8 +141,13 @@ async function buildAuthorizedTransaction(
       input.approve,
       context,
     );
-    return await input.client.assembleAuthorizedPrivateTransaction(
-      { authorized, feePayer: input.feePayer, keys: input.keys },
+    return await withProofDataRetry(
+      input.client.proofDataSource,
+      (attempt) =>
+        input.client.assembleAuthorizedPrivateTransaction(
+          { authorized, feePayer: input.feePayer, keys: input.keys },
+          attempt,
+        ),
       context,
     );
   } catch (cause) {

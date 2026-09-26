@@ -74,6 +74,7 @@ if [[ "$tag" == *-zolana-* ]]; then
     git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
     git merge-base --is-ancestor "$sha" origin/main || { echo "a release must be built from a commit on origin/main" >&2; exit 1; }
 fi
+[[ "$tag" != gpu-* ]] || { echo "gpu tags belong to publish-gpu.yml" >&2; exit 1; }
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
     echo "working tree is dirty, the image would not match $sha" >&2
     exit 1
@@ -83,8 +84,15 @@ image="$registry/$repository"
 sha_image="$image:sha-$sha"
 tag_image="$image:$tag"
 
+build_args=(--platform linux/amd64)
+if [[ "$service" == prover ]]; then
+    # shellcheck source=/dev/null
+    source prover/server/release-build.env
+    build_args+=(--build-arg "GOAMD64=$PROVER_RELEASE_GOAMD64" --build-arg "PROVER_PGO=$PROVER_RELEASE_PGO")
+fi
+
 docker buildx build \
-    --platform linux/amd64 \
+    "${build_args[@]}" \
     --file "$file" \
     --tag "$sha_image" \
     --tag "$tag_image" \

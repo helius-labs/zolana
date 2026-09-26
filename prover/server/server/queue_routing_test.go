@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/indexed"
 )
 
 // Transfer/merge circuits share zk_transfer_queue; address-append keeps its own;
@@ -40,9 +41,7 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 
 func TestCustomRingWorkerRejectsOtherCircuits(t *testing.T) {
 	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
-	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"transfer"}`)}
-
-	if _, err := worker.generateProof(job); err == nil {
+	if _, err := worker.generatePreparedProof(&indexed.Resolved{Payload: json.RawMessage(`{"circuitType":"transfer"}`)}); err == nil {
 		t.Fatal("custom ring worker accepted a transfer proof")
 	}
 }

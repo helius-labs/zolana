@@ -671,7 +671,7 @@ export async function setTreeFeesInstruction(
   ]);
 }
 
-/** Mirrors Rust `MergeTransact::instruction`: the eight nullifier PDAs follow the pool program. */
+/** Mirrors Rust `MergeTransact::instruction`: the nullifier PDAs follow the pool program. */
 export async function mergeTransactInstruction(
   input: Readonly<{
     inputTree: Address;

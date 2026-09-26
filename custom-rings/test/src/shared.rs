@@ -22,7 +22,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError,
-    ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
+    ComputeBudgetConfig, IndexerRequirement, ProverClient, ProverLaunch, Rpc, SolanaRpc,
+    ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     pda,
@@ -34,11 +35,11 @@ use zolana_program::instruction::CreateProtocolConfig;
 use zolana_program::instruction::SetRingActivation;
 use zolana_program_test::{
     create_tree_instructions,
-    localnet::{LocalnetValidator, UpgradeableProgram},
+    localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram},
 };
 use zolana_ring_policy::{ListId, RuleTable};
 use zolana_test_utils::{
-    localnet::{env_localnet_ports, isolated_temp_path, WorkspaceArtifacts},
+    localnet::{isolated_temp_path, localnet_indexer_url, localnet_rpc_url, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, RegisterSplAsset},
@@ -347,7 +348,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         // `execute_sync_ix`. The custom-ring program never touches a smart account.
         cli_bin: cli.into(),
         working_dir: artifacts.root().into(),
-        ports: env_localnet_ports(),
+        ports: LocalnetPorts::checkout()?,
         account_dir: account_dir.into(),
         log_dir: artifacts.path("test-ledger").into(),
         programs: vec![
@@ -386,16 +387,21 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     validator.start_with_upgradeable_programs(&deployments)?;
 
     if let Some(keys) = std::env::var_os("ZOLANA_PROVER_KEYS_DIR") {
-        zolana_client::spawn_prover_with_artifacts(&validator.cli_bin, keys)
+        let photon = localnet_indexer_url();
+        ProverLaunch::new_with_cli(&validator.cli_bin)
+            .and_then(|launch| launch.with_keys_dir(keys))
+            .and_then(|launch| {
+                launch
+                    .with_indexer(photon, IndexerRequirement::Required)
+                    .spawn()
+            })
             .context("start the isolated ring prover")?;
     } else {
-        spawn_workspace_prover();
+        spawn_workspace_prover(IndexerRequirement::Required);
     }
 
-    let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
-    let indexer_url =
-        std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| "http://127.0.0.1:8784".to_string());
+    let rpc_url = localnet_rpc_url();
+    let indexer_url = localnet_indexer_url();
     let mut rpc = SolanaRpc::new(rpc_url.clone());
     let indexer = ZolanaIndexer::new(indexer_url.clone());
 

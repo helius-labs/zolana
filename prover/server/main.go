@@ -6,15 +6,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
+	"zolana/prover/buildcheck"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/logging"
+	"zolana/prover/prover/backend"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/extractor"
+	"zolana/prover/prover/indexed"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -451,10 +456,17 @@ func runCli() {
 				},
 			},
 			{
-				Name: "start",
+				Name:   "start",
+				Before: initializeProofBackend,
 				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "require-optimized-build", Usage: "Reject builds with disabled compiler or cryptographic optimization", EnvVars: []string{"PROVER_REQUIRE_OPTIMIZED_BUILD"}},
 					&cli.BoolFlag{Name: "json-logging", Usage: "enable JSON logging", Required: false},
 					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server", Value: "0.0.0.0:5000", Required: false},
+					&cli.StringFlag{Name: "indexer-url", Usage: "Indexer for server fetched proof data", EnvVars: []string{"PROVER_INDEXER_URL"}},
+					&cli.StringFlag{Name: "indexer-api-key", Usage: "Indexer authentication key", EnvVars: []string{"PROVER_INDEXER_API_KEY"}},
+					&cli.Uint64Flag{Name: "indexer-max-batch-leaves", Usage: "Maximum indexed forester replay leaves", Value: indexed.DefaultMaxBatchLeaves, EnvVars: []string{"PROVER_INDEXER_MAX_BATCH_LEAVES"}},
+					&cli.IntFlag{Name: "indexer-concurrency", Usage: "Concurrent indexer preparation requests", Value: 32, EnvVars: []string{"PROVER_INDEXER_CONCURRENCY"}},
+					&cli.IntFlag{Name: "transfer-concurrency", Usage: "Transfer proofs proved at once across direct and queued requests", Value: 1, EnvVars: []string{"PROVER_TRANSFER_CONCURRENCY"}},
 					&cli.StringFlag{Name: "metrics-address", Usage: "address for the metrics server", Value: "0.0.0.0:9998", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
@@ -497,6 +509,13 @@ func runCli() {
 					},
 				},
 				Action: func(context *cli.Context) error {
+					if err := buildcheck.Current(); err != nil {
+						if context.Bool("require-optimized-build") {
+							return err
+						}
+						logging.Logger().Warn().Err(err).Msg("Slow prover build")
+					}
+
 					if context.Bool("json-logging") {
 						logging.SetJSONOutput()
 					}
@@ -522,36 +541,40 @@ func runCli() {
 						Str("keys_dir", keysDirPath).
 						Msg("Initializing lazy key manager")
 
-					// Preload keys asynchronously to allow health checks to pass during startup
-					preloadAsync := func() {
+					var preloadMode common.RunMode
+					if preloadKeys != "all" && preloadKeys != "none" {
+						var err error
+						if preloadMode, err = parseRunMode(preloadKeys); err != nil {
+							return err
+						}
+					}
+					if _, err := keyManager.CircuitKeyPaths(preloadCircuits); err != nil {
+						return err
+					}
+					transferConcurrency := context.Int("transfer-concurrency")
+					if transferConcurrency < 1 {
+						return fmt.Errorf("invalid transfer concurrency %d", transferConcurrency)
+					}
+
+					readiness := server.NewReadiness()
+					preload := func() error {
 						if preloadKeys == "all" {
-							logging.Logger().Info().Msg("Preloading all keys (async)")
 							if err := keyManager.PreloadAll(); err != nil {
-								logging.Logger().Error().Err(err).Msg("Failed to preload all keys")
+								return err
 							}
 						} else if preloadKeys != "none" {
-							preloadRunMode, err := parseRunMode(preloadKeys)
-							if err != nil {
-								logging.Logger().Error().Err(err).Str("value", preloadKeys).Msg("Invalid --preload-keys value")
-							} else {
-								logging.Logger().Info().Str("run_mode", string(preloadRunMode)).Msg("Preloading keys for run mode (async)")
-								if err := keyManager.PreloadForRunMode(preloadRunMode); err != nil {
-									logging.Logger().Error().Err(err).Msg("Failed to preload keys for run mode")
-								}
+							if err := keyManager.PreloadForRunMode(preloadMode); err != nil {
+								return err
 							}
 						}
-
 						if len(preloadCircuits) > 0 {
-							logging.Logger().Info().Strs("circuits", preloadCircuits).Msg("Preloading specific circuits (async)")
 							if err := keyManager.PreloadCircuits(preloadCircuits); err != nil {
-								logging.Logger().Error().Err(err).Msg("Failed to preload circuits")
+								return err
 							}
 						}
-
-						stats := keyManager.GetStats()
-						logging.Logger().Info().
-							Interface("stats", stats).
-							Msg("Key preloading completed")
+						readiness.MarkReady()
+						logging.Logger().Info().Msg("Proving keys ready")
+						return nil
 					}
 
 					redisURL := context.String("redis-url")
@@ -575,9 +598,18 @@ func runCli() {
 					logging.Logger().Info().
 						Bool("enable_queue", enableQueue).
 						Bool("enable_server", enableServer).
-						Str("redis_url", redisURL).
+						Str("redis_url", redactedURL(redisURL)).
 						Msg("Starting ZK Prover service")
 
+					var indexer *indexed.Resolver
+					if context.String("indexer-url") != "" {
+						var err error
+						indexer, err = indexed.NewResolver(indexed.Config{MaxBatchLeaves: context.Uint64("indexer-max-batch-leaves"), URL: context.String("indexer-url"), APIKey: context.String("indexer-api-key"), Concurrency: context.Int("indexer-concurrency")})
+						if err != nil {
+							return err
+						}
+					}
+					transferExecution := server.NewExecution(transferConcurrency)
 					var workers []server.QueueWorker
 					var redisQueue *server.RedisQueue
 					var instance server.RunningJob
@@ -610,25 +642,20 @@ func runCli() {
 						startAll := len(enabledCircuits) == 0
 						var workersStarted []string
 
+						workerConfig := server.WorkerConfig{Queue: redisQueue, Keys: keyManager, Indexer: indexer, Ready: readiness.Done()}
+						startWorker := func(name string, worker server.QueueWorker) {
+							workers = append(workers, worker)
+							go worker.Start()
+							workersStarted = append(workersStarted, name)
+						}
 						if startAll || enabledCircuitsMap["address-append"] || enabledCircuitsMap["address-append-test"] {
-							addressAppendWorker := server.NewAddressAppendQueueWorker(redisQueue, keyManager)
-							workers = append(workers, addressAppendWorker)
-							go addressAppendWorker.Start()
-							workersStarted = append(workersStarted, "address-append")
+							startWorker("address-append", server.NewAddressAppendQueueWorker(workerConfig))
 						}
-
 						if startAll || enabledCircuitsMap["transfer"] || enableServer {
-							transferWorker := server.NewTransferQueueWorker(redisQueue, keyManager)
-							workers = append(workers, transferWorker)
-							go transferWorker.Start()
-							workersStarted = append(workersStarted, "transfer")
+							startWorker("transfer", server.NewTransferQueueWorker(workerConfig, transferExecution))
 						}
-
 						if startAll || ringCircuitEnabled(enabledCircuits) {
-							customRingWorker := server.NewCustomRingQueueWorker(redisQueue, keyManager)
-							workers = append(workers, customRingWorker)
-							go customRingWorker.Start()
-							workersStarted = append(workersStarted, "custom-ring")
+							startWorker("custom-ring", server.NewCustomRingQueueWorker(workerConfig))
 						}
 
 						logging.Logger().Info().
@@ -638,8 +665,11 @@ func runCli() {
 
 					if enableServer {
 						config := server.Config{
-							ProverAddress:  context.String("prover-address"),
-							MetricsAddress: context.String("metrics-address"),
+							Readiness:         readiness,
+							Indexer:           indexer,
+							TransferExecution: transferExecution,
+							ProverAddress:     context.String("prover-address"),
+							MetricsAddress:    context.String("metrics-address"),
 						}
 
 						if redisQueue != nil {
@@ -661,29 +691,56 @@ func runCli() {
 						return fmt.Errorf("at least one of server or queue mode must be enabled")
 					}
 
-					go preloadAsync()
+					preloadFailed := make(chan error, 1)
+					go func() {
+						if err := preload(); err != nil {
+							preloadFailed <- err
+						}
+					}()
 
 					sigint := make(chan os.Signal, 1)
-					signal.Notify(sigint, os.Interrupt)
-					<-sigint
-					logging.Logger().Info().Msg("Received sigint, shutting down")
-
-					if len(workers) > 0 {
-						logging.Logger().Info().Msg("Stopping queue workers...")
-						for i, worker := range workers {
-							logging.Logger().Info().Int("worker_id", i+1).Msg("Stopping worker")
-							worker.Stop()
-						}
-
-						time.Sleep(2 * time.Second)
-						logging.Logger().Info().Msg("All queue workers stopped")
+					signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
+					var exitErr error
+					select {
+					case <-sigint:
+						logging.Logger().Info().Msg("Received sigint, shutting down")
+					case exitErr = <-preloadFailed:
+						logging.Logger().Error().Err(exitErr).Msg("Key preload failed, shutting down")
 					}
 
-					if enableServer {
-						logging.Logger().Info().Msg("Stopping HTTP server...")
-						instance.RequestStop()
-						instance.AwaitStop()
-						logging.Logger().Info().Msg("HTTP server stopped")
+					drained := make(chan error, 1)
+					go func() {
+						if enableServer {
+							instance.RequestStop()
+						}
+
+						if len(workers) > 0 {
+							logging.Logger().Info().Msg("Stopping queue workers...")
+							for i, worker := range workers {
+								logging.Logger().Info().Int("worker_id", i+1).Msg("Stopping worker")
+								worker.Stop()
+							}
+
+							for _, worker := range workers {
+								worker.Wait()
+							}
+							logging.Logger().Info().Msg("All queue workers stopped")
+						}
+
+						if enableServer {
+							logging.Logger().Info().Msg("Stopping HTTP server...")
+							instance.AwaitStop()
+							logging.Logger().Info().Msg("HTTP server stopped")
+						}
+						drained <- backend.Close()
+					}()
+					select {
+					case err := <-drained:
+						if err != nil {
+							return err
+						}
+					case <-time.After(shutdownTimeout):
+						return fmt.Errorf("shutdown exceeded %s", shutdownTimeout)
 					}
 
 					if redisQueue != nil {
@@ -693,11 +750,13 @@ func runCli() {
 					}
 
 					logging.Logger().Info().Msg("Shutdown completed")
-					return nil
+					return exitErr
 				},
 			},
 			{
-				Name: "prove",
+				Name:   "prove",
+				Before: initializeProofBackend,
+				After:  closeProofBackend,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "address-append", Usage: "Run batch address append circuit", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where circuit key files are stored", Value: "./proving-keys/", Required: false},
@@ -747,7 +806,7 @@ func runCli() {
 
 						for _, provingSystem := range psv2 {
 							if provingSystem.TreeHeight == params.TreeHeight && provingSystem.BatchSize == params.BatchSize {
-								proof, err = nullifiertree.ProveBatchAddressAppend(provingSystem, &params)
+								proof, err = nullifiertree.BatchAddressAppendProof{System: provingSystem, Parameters: &params}.Prove()
 								if err != nil {
 									return err
 								}
@@ -776,6 +835,21 @@ func runCli() {
 	if err := app.Run(os.Args); err != nil {
 		logging.Logger().Fatal().Err(err).Msg("App failed.")
 	}
+}
+
+// Under the 30s ECS stop timeout.
+const shutdownTimeout = 25 * time.Second
+
+func initializeProofBackend(_ *cli.Context) error { return backend.Initialize() }
+
+func closeProofBackend(_ *cli.Context) error { return backend.Close() }
+
+func redactedURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return parsed.Redacted()
 }
 
 func parseRunMode(runModeString string) (common.RunMode, error) {

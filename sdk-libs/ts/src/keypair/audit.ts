@@ -347,10 +347,19 @@ export function policyPublicInputHash(
       countersDisclosureHash?: Bytes32;
     }>,
 ): Bytes32 {
+  const indexed = policyIndexedInputs(input);
   return hashChain([
-    ...auditChainElements(input),
-    checkedBytes(input.policyHash, 32, "policy hash"),
+    indexed[0]!,
     treeSlotsHashChain(inputTreeSlots(input.treeSlots)),
+    ...indexed.slice(1),
+  ]);
+}
+
+export function policyIndexedInputs(
+  input: Parameters<typeof policyPublicInputHash>[0],
+): readonly Bytes32[] {
+  return [
+    hashChain([...auditChainElements(input), checkedBytes(input.policyHash, 32, "policy hash")]),
     treeIdField(input.addressTreeId),
     checkedBytes(input.ringId, 32, "ring id"),
     checkedBytes(input.namespaceOwnerHash, 32, "namespace owner hash"),
@@ -363,7 +372,7 @@ export function policyPublicInputHash(
     ...(input.countersDisclosureHash === undefined
       ? []
       : [checkedBytes(input.countersDisclosureHash, 32, "counters disclosure hash")]),
-  ]);
+  ];
 }
 
 /** Mirrors Rust `pack_revocation_tree_indexes`, `Σ index_i · 8^i`, an index of 8 or more would alias its neighbour. */

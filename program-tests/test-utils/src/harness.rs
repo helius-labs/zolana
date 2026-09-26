@@ -34,7 +34,7 @@ use zolana_wallet::Wallet;
 
 use crate::{
     localnet::{
-        send_transaction, start_shielded_pool_localnet, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
+        localnet_indexer_url, localnet_rpc_url, send_transaction, start_shielded_pool_localnet,
     },
     smart_account::{self, StandardAccounts, StandardSigners},
     spl::{create_mint, create_token_account},
@@ -226,7 +226,9 @@ impl<D> LocalnetHarness<D> {
     pub fn start_stack(config: &BootstrapConfig) -> Result<(SolanaRpc, ZolanaIndexer)> {
         // The prover is independent of the validator and indexer, so start it
         // concurrently with the validator + Photon restart and join before use.
-        let prover = std::thread::spawn(crate::prover::spawn_workspace_prover);
+        let prover = std::thread::spawn(|| {
+            crate::prover::spawn_workspace_prover(zolana_client::IndexerRequirement::Required)
+        });
         let extra_programs: Vec<(String, &str)> = config
             .extra_programs
             .iter()
@@ -235,10 +237,8 @@ impl<D> LocalnetHarness<D> {
         start_shielded_pool_localnet(config.label, &extra_programs);
         prover.join().expect("prover startup thread panicked");
 
-        let rpc_url =
-            std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
-        let indexer_url =
-            std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| DEFAULT_INDEXER_URL.into());
+        let rpc_url = localnet_rpc_url();
+        let indexer_url = localnet_indexer_url();
         let rpc = SolanaRpc::new(rpc_url);
         let indexer = ZolanaIndexer::new(indexer_url);
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);

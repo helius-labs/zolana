@@ -34,13 +34,15 @@ pub use prover::timing;
 #[cfg(feature = "indexer-api")]
 pub use prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 pub use prover::{
-    attach_input_proofs, input_utxos_from_nullifiers, spawn_prover, spawn_prover_with_artifacts,
+    attach_input_proofs,
+    indexed::ProofDataSource,
+    input_utxos_from_nullifiers, spawn_prover,
     transact::{assemble, assemble_with_dummy_policy, AssembledTransfer, SpendProof},
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
     AsyncProverClient, BatchAddressAppendInputs, CacheReadInputs, Commitments,
-    CompressedCommitments, Delivery, MergeProofResult, MergeProver, Proof, ProofCompressed,
-    ProofInputUtxo, ProveRequest, ProverClient, PublicInputs, PublicTransfers,
-    RingAuthorityProofResult, RingAuthorityProver, RingTransferP256ProofResult,
+    CompressedCommitments, Delivery, IndexerRequirement, MergeProofResult, MergeProver, Proof,
+    ProofCompressed, ProofInputUtxo, ProveRequest, ProverClient, ProverLaunch, PublicInputs,
+    PublicTransfers, RingAuthorityProofResult, RingAuthorityProver, RingTransferP256ProofResult,
     RingTransferP256Prover, RingTransferProofResult, RingTransferProver, Shape, TransferInput,
     TransferInputUtxo, TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult,
     TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,

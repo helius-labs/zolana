@@ -39,6 +39,10 @@ impl ProverEndpoint {
         url.query_pairs_mut().append_pair("jobId", job_id);
         Ok(url)
     }
+
+    pub(crate) fn redacted(&self) -> String {
+        redact_api_key(self.base.as_ref().map_or("", Url::as_str))
+    }
 }
 
 /// Mask the `api-key` in the URL reqwest puts in its error text, which reaches

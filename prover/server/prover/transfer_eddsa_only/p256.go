@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"zolana/prover/prover/backend"
 
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -16,6 +18,12 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/std/math/emulated"
 )
+
+type P256Proof struct {
+	System     *common.TransferProofSystem
+	Parameters *P256TransferParameters
+	Timing     *timing.Trace
+}
 
 // P256TransferParameters is the flat witness for CustomRingP256Circuit.
 type P256TransferParameters struct {
@@ -323,24 +331,20 @@ func SetupP256Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSy
 	}, nil
 }
 
-func ProveP256Transfer(ps *common.TransferProofSystem, params *P256TransferParameters) (*common.Proof, error) {
-	if params == nil {
-		panic("params cannot be nil")
-	}
-	if err := params.ValidateShape(); err != nil {
+func (request P256Proof) Prove() (*common.Proof, error) {
+	ps, params := request.System, request.Parameters
+	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
+		if err := params.ValidateShape(); err != nil {
+			return nil, err
+		}
+		assignment, err := params.CreateWitness()
+		if err != nil {
+			return nil, fmt.Errorf("create P256 transfer witness: %w", err)
+		}
+		return assignment, nil
+	})
+	if err != nil {
 		return nil, err
-	}
-	assignment, err := params.CreateWitness()
-	if err != nil {
-		return nil, fmt.Errorf("error creating P256 circuit witness: %w", err)
-	}
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("error creating P256 witness: %w", err)
-	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
-	if err != nil {
-		return nil, fmt.Errorf("error proving P256 transfer: %w", err)
 	}
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }

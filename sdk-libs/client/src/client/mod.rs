@@ -14,9 +14,13 @@ mod validation;
 use std::sync::OnceLock;
 
 use crate::{
+    authority::ProofAuthority,
     error::ClientError,
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
-    prover::{AsyncProverClient, ProverClient},
+    prover::{
+        indexed::{PreparedIndexedTransfer, ProofDataSource, ProvenIndexedTransfer},
+        AsyncProverClient, ProverClient,
+    },
     rpc::{ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig},
 };
 
@@ -145,6 +149,34 @@ impl<R> ZolanaClient<R> {
         self
     }
 
+    #[must_use]
+    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
+        self.async_prover = self.async_prover.with_proof_data_source(source);
+        if let Some(prover) = self.prover.take() {
+            self.prover = OnceLock::from(prover.with_proof_data_source(source));
+        }
+        self
+    }
+
+    fn indexed_transfer(
+        &self,
+        preparation: TransferPreparation,
+        authority: &dyn ProofAuthority,
+    ) -> Result<ProvenIndexedTransfer, ClientError> {
+        self.blocking_prover()
+            .prove_indexed(&preparation.prepare(authority)?)
+    }
+
+    async fn indexed_transfer_async(
+        &self,
+        preparation: TransferPreparation,
+        authority: &dyn ProofAuthority,
+    ) -> Result<ProvenIndexedTransfer, ClientError> {
+        self.async_prover
+            .prove_indexed(&preparation.prepare(authority)?)
+            .await
+    }
+
     pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
         self.indexer_config = config;
         self
@@ -175,6 +207,25 @@ impl<R> ZolanaClient<R> {
                     .clone()
                     .expect("blocking prover URL is set when the client is deferred"),
             )
+            .with_proof_data_source(self.async_prover.proof_data_source())
+        })
+    }
+}
+
+struct TransferPreparation {
+    transaction: zolana_transaction::instructions::transact::SppProofInputs,
+    config: IndexerRpcConfig,
+}
+
+impl TransferPreparation {
+    fn prepare(
+        self,
+        authority: &dyn ProofAuthority,
+    ) -> Result<PreparedIndexedTransfer, ClientError> {
+        let prepared = PreparedIndexedTransfer::new(self.transaction, authority)?;
+        Ok(match self.config.require_slot {
+            Some(slot) => prepared.with_min_context_slot(slot),
+            None => prepared,
         })
     }
 }

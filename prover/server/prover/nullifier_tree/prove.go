@@ -3,10 +3,10 @@ package nullifiertree
 import (
 	"fmt"
 
+	"zolana/prover/prover/backend"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/timing"
 
-	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 )
 
@@ -56,29 +56,26 @@ func (p *BatchAddressAppendParameters) ValidateShape() error {
 	return nil
 }
 
-func ProveBatchAddressAppend(ps *common.BatchProofSystem, params *BatchAddressAppendParameters) (*common.Proof, error) {
-	if params == nil {
-		panic("params cannot be nil")
-	}
+type BatchAddressAppendProof struct {
+	System     *common.BatchProofSystem
+	Parameters *BatchAddressAppendParameters
+	Timing     *timing.Trace
+}
 
-	if err := params.ValidateShape(); err != nil {
+func (request BatchAddressAppendProof) Prove() (*common.Proof, error) {
+	ps, params := request.System, request.Parameters
+	proof, err := backend.ProveAssignment(request.Timing, ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
+		if err := params.ValidateShape(); err != nil {
+			return nil, err
+		}
+		assignment, err := params.CreateWitness()
+		if err != nil {
+			return nil, fmt.Errorf("create batch address append witness: %w", err)
+		}
+		return assignment, nil
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	assignment, err := params.CreateWitness()
-	if err != nil {
-		return nil, fmt.Errorf("error creating circuit: %v", err)
-	}
-
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("error creating witness: %v", err)
-	}
-
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
-	if err != nil {
-		return nil, fmt.Errorf("error proving: %v", err)
-	}
-
 	return &common.Proof{Proof: proof, ProvingKeySha256: ps.ProvingKeySha256}, nil
 }
