@@ -241,10 +241,7 @@ fn write<P: ZkProgram + Serialize>(fixture: &Fixture<P>) {
         .expect("proving key");
     std::fs::write(
         keys_dir().join(format!("{}.wtns", fixture.name)),
-        fixture
-            .program
-            .export_assignment()
-            .expect("proof inputs"),
+        fixture.program.export_assignment().expect("proof inputs"),
     )
     .expect("wtns");
     std::fs::create_dir_all(committed_dir()).expect("fixtures directory");
@@ -264,6 +261,11 @@ fn write_zkey<P: ZkProgram>(name: &str) {
     let ceremony = ceremony::ceremony::<P>(name);
     let zkey = keys_dir().join(format!("{name}.zkey"));
     std::fs::copy(ceremony.final_zkey(), &zkey).expect("zkey");
+    std::fs::copy(
+        ceremony.verification_key(),
+        keys_dir().join(format!("{name}.vkey.json")),
+    )
+    .expect("snarkjs verification key");
     let keys = Groth16Keys::load_zkey::<P>(&zkey).expect("zkey keys");
     std::fs::write(
         keys_dir().join(format!("{name}.zkey.vk")),

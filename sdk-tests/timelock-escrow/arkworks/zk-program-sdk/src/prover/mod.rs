@@ -1,6 +1,8 @@
 #[cfg(any(feature = "client", feature = "setup"))]
 mod groth16;
 #[cfg(feature = "client")]
+mod proof;
+#[cfg(feature = "client")]
 mod proof_inputs;
 #[cfg(feature = "client")]
 mod reduction;

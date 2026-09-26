@@ -14,13 +14,62 @@ pub use types::{
 };
 pub use zk_program_sdk_macros::ZkProgramWasm;
 
-use crate::{Groth16Keys, Groth16Prover, ProofInputs, RelationError, ZkProgram};
+#[cfg(feature = "wasm-prover")]
+use crate::{Groth16Keys, Groth16Prover, ProofInputs};
+use crate::{RelationError, ZkProgram};
 
 #[doc(hidden)]
 pub mod __private {
     pub use js_sys;
     pub use serde_wasm_bindgen;
     pub use wasm_bindgen;
+}
+
+#[cfg(feature = "wasm-prover")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __zk_program_wasm_prover {
+    ($prover:ident, $program:ty) => {
+        #[wasm_bindgen(wasm_bindgen = $crate::wasm::__private::wasm_bindgen)]
+        pub struct $prover($crate::Groth16Prover<$program>);
+
+        #[wasm_bindgen]
+        impl $prover {
+            #[wasm_bindgen(js_name = fromKey)]
+            pub fn from_key(
+                #[wasm_bindgen(js_name = provingKey)] proving_key: &[u8],
+            ) -> ::core::result::Result<$prover, $crate::wasm::__private::wasm_bindgen::JsValue>
+            {
+                $crate::wasm::prover_from_key::<$program>(proving_key).map(Self)
+            }
+
+            #[wasm_bindgen(js_name = fromZkey)]
+            pub fn from_zkey(
+                zkey: &[u8],
+            ) -> ::core::result::Result<$prover, $crate::wasm::__private::wasm_bindgen::JsValue>
+            {
+                $crate::wasm::prover_from_zkey::<$program>(zkey).map(Self)
+            }
+
+            #[wasm_bindgen(unchecked_return_type = "ProgramProof")]
+            pub fn prove(
+                &self,
+                #[wasm_bindgen(js_name = proofInputs)] proof_inputs: &[u8],
+            ) -> ::core::result::Result<
+                $crate::wasm::__private::wasm_bindgen::JsValue,
+                $crate::wasm::__private::wasm_bindgen::JsValue,
+            > {
+                $crate::wasm::prove(&self.0, proof_inputs)
+            }
+        }
+    };
+}
+
+#[cfg(not(feature = "wasm-prover"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __zk_program_wasm_prover {
+    ($prover:ident, $program:ty) => {};
 }
 
 pub fn js_error(error: RelationError) -> JsValue {
@@ -60,16 +109,19 @@ where
     to_js(&ProgramTransaction::try_from(&transaction).map_err(js_error)?)
 }
 
+#[cfg(feature = "wasm-prover")]
 pub fn prover_from_key<P: ZkProgram>(proving_key: &[u8]) -> Result<Groth16Prover<P>, JsValue> {
     Groth16Keys::from_bytes(proving_key)
         .and_then(Groth16Prover::new)
         .map_err(js_error)
 }
 
+#[cfg(feature = "wasm-prover")]
 pub fn prover_from_zkey<P: ZkProgram>(zkey: &[u8]) -> Result<Groth16Prover<P>, JsValue> {
     Groth16Prover::from_zkey_bytes(zkey).map_err(js_error)
 }
 
+#[cfg(feature = "wasm-prover")]
 pub fn prove<P: ZkProgram>(
     prover: &Groth16Prover<P>,
     proof_inputs: &[u8],

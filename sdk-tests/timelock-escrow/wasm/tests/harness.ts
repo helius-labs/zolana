@@ -1,6 +1,6 @@
 import { test as base, expect, type Page } from "@playwright/test";
 
-export type Harness = { page: Page };
+export type Harness = { page: Page; threads: number };
 
 export const test = base.extend<{ harness: Harness }, { escrowPage: Harness }>({
   escrowPage: [
@@ -8,7 +8,13 @@ export const test = base.extend<{ harness: Harness }, { escrowPage: Harness }>({
       const page = await browser.newPage();
       await page.goto("/");
       await page.waitForFunction(() => "escrow" in window, undefined, { timeout: 60_000 });
-      await use({ page });
+      expect(
+        await page.evaluate(() => self.crossOriginIsolated),
+        "the page is not cross-origin isolated: check the COOP/COEP headers in tools/serve.mjs",
+      ).toBe(true);
+      const info = await page.evaluate(() => window.escrow.workerInfo());
+      expect(info.crossOriginIsolated, "the prover worker is not cross-origin isolated").toBe(true);
+      await use({ page, threads: info.threads });
       await page.close();
     },
     { scope: "worker" },

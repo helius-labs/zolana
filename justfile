@@ -822,9 +822,13 @@ check-wasm:
     cargo check -p timelock-escrow-wasm --features test-exports --target wasm32-unknown-unknown
 
 # Builds the escrow wasm module (escrowTransaction, withdrawTransaction and
-# their provers) into sdk-tests/timelock-escrow/wasm/web/pkg. Needs wasm-pack.
+# their provers) into sdk-tests/timelock-escrow/wasm/web/pkg: multi-threaded,
+# on nightly with build-std (the page must be cross-origin isolated and prove
+# in a worker). `npm run build:single` in that directory builds the stable
+# single-threaded fallback. Needs wasm-pack and nightly-2026-05-18 with
+# rust-src and the wasm32 target.
 build-escrow-wasm:
-    cd sdk-tests/timelock-escrow/wasm && wasm-pack build --release --target web --out-dir web/pkg
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build
 
 # Writes the escrow wasm fixtures: the seeded proving keys and a throwaway
 # snarkjs zkey under target/escrow-wasm-fixtures (not committed), and the
@@ -834,15 +838,17 @@ regen-escrow-wasm-fixtures:
     cargo test --release -p timelock-escrow-arkworks --features snarkjs,wasm --test wasm_fixtures -- --ignored --nocapture
 
 # Runs the escrow wasm module's Playwright tests in Chromium: builds the
-# module with its test-only verifier, checks the generated types, proves in
-# the page and in a worker, and compares against the native fixtures.
+# threaded module with its test-only verifier and the prover-free
+# proof-inputs module, checks the generated types, proves in the worker, and
+# compares against the native fixtures and snarkjs.
 test-escrow-wasm: regen-escrow-wasm-fixtures
-    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run check:dts && npm test
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run build:inputs && npm run check:dts && npm test
 
-# Measures module load, key load and proof time of the escrow wasm module in
-# Chromium.
+# Measures proving time (witness generation + proof), key load and module
+# size of the escrow wasm module in Chromium, against snarkjs proving the
+# same Rust-generated proof inputs.
 bench-escrow-wasm: regen-escrow-wasm-fixtures
-    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run bench
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run build:inputs && npm run bench
 
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in

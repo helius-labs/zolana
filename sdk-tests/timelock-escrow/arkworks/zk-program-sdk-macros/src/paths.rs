@@ -68,7 +68,3 @@ pub(crate) fn hasher() -> TokenStream {
 pub(crate) fn wasm() -> TokenStream {
     quote!(::zk_program_sdk::wasm)
 }
-
-pub(crate) fn groth16_prover() -> TokenStream {
-    quote!(::zk_program_sdk::Groth16Prover)
-}

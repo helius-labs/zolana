@@ -14,6 +14,7 @@ type Attempt<T> = { value: T } | { error: { name: string; message: string } };
 
 interface EscrowHarness {
   moduleLoadMs: number;
+  workerInfo(): Promise<{ crossOriginIsolated: boolean; threads: number }>;
   transaction(
     program: string,
     inputs: unknown,

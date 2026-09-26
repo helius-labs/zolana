@@ -69,6 +69,9 @@ createServer((request, response) => {
     "Content-Type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
     "Content-Length": statSync(file).size,
     "Cache-Control": "no-store",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cross-Origin-Resource-Policy": "same-origin",
   });
   if (request.method === "HEAD") {
     response.end();

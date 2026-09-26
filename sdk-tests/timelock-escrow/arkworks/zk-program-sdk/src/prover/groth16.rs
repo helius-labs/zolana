@@ -6,8 +6,6 @@ use std::path::Path;
 use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_ec::AffineRepr;
 #[cfg(feature = "client")]
-use ark_groth16::Groth16;
-#[cfg(feature = "client")]
 use ark_std::{rand::rngs::OsRng, UniformRand};
 use groth16_solana::groth16::Groth16Verifyingkey;
 
@@ -16,8 +14,8 @@ pub use groth16_solana::vk::setup::SetupKind;
 
 #[cfg(feature = "client")]
 use super::{
+    proof::create_proof,
     proof_inputs::ProofInputs,
-    reduction::CircomReduction,
     synthesis::{ArkworksCircuit, CircuitMatrices, CircuitShape},
     zkey::Zkey,
 };
@@ -323,7 +321,10 @@ impl<P: ZkProgram> Groth16Prover<P> {
 
     #[cfg(feature = "setup")]
     pub fn new_with_test_setup() -> Result<Self, RelationError> {
+        use ark_groth16::Groth16;
         use ark_std::rand::{rngs::StdRng, SeedableRng};
+
+        use super::reduction::CircomReduction;
 
         let placeholder = P::placeholder()?;
         let proving_key =
@@ -353,18 +354,13 @@ impl<P: ZkProgram> Groth16Prover<P> {
     pub fn prove_inputs(&self, proof_inputs: &ProofInputs) -> Result<ProofResult, RelationError> {
         let assignment = proof_inputs.values();
         self.matrices.check(assignment)?;
-        let matrices = self.matrices.matrices();
-        let proof = SolanaProof::from(
-            &Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
-                &self.keys.proving_key,
-                Field::rand(&mut OsRng),
-                Field::rand(&mut OsRng),
-                matrices,
-                matrices.num_instance_variables,
-                matrices.num_constraints,
-                assignment,
-            )?,
-        );
+        let proof = SolanaProof::from(&create_proof(
+            &self.keys.proving_key,
+            Field::rand(&mut OsRng),
+            Field::rand(&mut OsRng),
+            self.matrices.matrices(),
+            assignment,
+        )?);
         let public_hash = proof_inputs.public_hash()?;
         proof.verify(&self.keys.verifying_key, public_hash)?;
         Ok(ProofResult { proof, public_hash })

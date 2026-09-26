@@ -1,5 +1,5 @@
 import init, * as wasm from "./pkg/timelock_escrow_wasm.js";
-import { createProvers, failure, fetchBytes, plain, PROVERS, toBytes } from "./prover.js";
+import { failure, fetchBytes, plain, toBytes } from "./util.js";
 
 const TRANSACTIONS = {
   escrow: wasm.escrowTransaction,
@@ -10,7 +10,6 @@ const moduleStart = performance.now();
 await init();
 const moduleLoadMs = performance.now() - moduleStart;
 
-const provers = createProvers();
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 const pending = new Map();
 let nextId = 0;
@@ -46,12 +45,9 @@ async function sha256(bytes) {
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function verifyingKey(source) {
-  return typeof source === "string" ? fetchBytes(source) : toBytes(source);
-}
-
 const api = {
   moduleLoadMs,
+  workerInfo: () => callWorker("info"),
   async transaction(program, inputs, sender, payer) {
     const transaction = TRANSACTIONS[program](inputs, toBytes(sender), payer);
     return {
@@ -62,13 +58,13 @@ const api = {
     };
   },
   prove(program, format, url, proofInputs) {
-    return provers.prove(program, format, url, proofInputs);
+    return callWorker("prove", program, format, url, proofInputs);
   },
   proveInWorker(program, format, url, proofInputs) {
     return callWorker("prove", program, format, url, proofInputs);
   },
-  async verify(source, proof) {
-    return wasm.verifyProof(await verifyingKey(source), proof);
+  verify(source, proof) {
+    return callWorker("verify", source, proof);
   },
   dummyWalletUtxo(treeId) {
     return plain(wasm.dummyWalletUtxo(treeId));
@@ -80,20 +76,11 @@ const api = {
       return failure(error);
     }
   },
-  async timeKeyLoad(program, format, url) {
-    const bytes = await fetchBytes(url);
-    const Prover = PROVERS[program];
-    const start = performance.now();
-    const prover = format === "zkey" ? Prover.fromZkey(bytes) : Prover.fromKey(bytes);
-    const keyLoadMs = performance.now() - start;
-    prover.free();
-    return keyLoadMs;
+  timeKeyLoad(program, format, url) {
+    return callWorker("timeKeyLoad", program, format, url);
   },
-  async timeProof(program, format, url, proofInputs) {
-    const prover = await provers.load(program, format, url);
-    const start = performance.now();
-    prover.prove(toBytes(proofInputs));
-    return performance.now() - start;
+  timeProof(program, format, url, proofInputs) {
+    return callWorker("timeProof", program, format, url, proofInputs);
   },
   timeTransaction(program, inputs, sender, payer) {
     const start = performance.now();

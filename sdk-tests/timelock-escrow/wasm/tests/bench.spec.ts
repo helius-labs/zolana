@@ -12,7 +12,7 @@ function median(values: number[]): number {
 test("witness generation, key load and proof time against snarkjs @bench", async ({ harness }) => {
   const rows: string[] = [];
   const moduleLoadMs = await harness.page.evaluate(() => window.escrow.moduleLoadMs);
-  rows.push(`module load: ${moduleLoadMs.toFixed(0)} ms`);
+  rows.push(`module load: ${moduleLoadMs.toFixed(0)} ms, prover threads: ${harness.threads}`);
   for (const program of programs) {
     const data = fixture(program);
     const timings = await harness.page.evaluate(

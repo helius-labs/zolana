@@ -2,6 +2,9 @@ use ark_ff::PrimeField;
 use ark_groth16::r1cs_to_qap::{LibsnarkReduction, R1CSToQAP};
 use ark_poly::EvaluationDomain;
 use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystemRef, SynthesisError};
+use ark_std::cfg_iter;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 pub(crate) struct CircomReduction;
 
@@ -31,15 +34,22 @@ impl R1CSToQAP for CircomReduction {
             return Err(SynthesisError::AssignmentMissing);
         }
 
+        let rows = cfg_iter!(matrices.a)
+            .zip(cfg_iter!(matrices.b))
+            .take(num_constraints)
+            .map(|(a_row, b_row)| {
+                let a_value = evaluate(a_row, full_assignment)?;
+                let b_value = evaluate(b_row, full_assignment)?;
+                Ok((a_value, b_value, a_value * b_value))
+            })
+            .collect::<Result<Vec<_>, SynthesisError>>()?;
         let mut a = Vec::with_capacity(domain_size);
         let mut b = Vec::with_capacity(domain_size);
         let mut c = Vec::with_capacity(domain_size);
-        for (a_row, b_row) in matrices.a.iter().zip(&matrices.b).take(num_constraints) {
-            let a_value = evaluate(a_row, full_assignment)?;
-            let b_value = evaluate(b_row, full_assignment)?;
+        for (a_value, b_value, c_value) in rows {
             a.push(a_value);
             b.push(b_value);
-            c.push(a_value * b_value);
+            c.push(c_value);
         }
         a.extend_from_slice(inputs);
         a.resize(domain_size, F::zero());

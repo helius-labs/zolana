@@ -3,12 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "wasm-pack build --release --target web --out-dir web/pkg",
-    "build:test": "wasm-pack build --release --target web --out-dir web/pkg -- --features test-exports",
+    "build": "node tools/build.mjs --threads",
+    "build:test": "node tools/build.mjs --threads --test-exports",
+    "build:single": "node tools/build.mjs",
+    "build:inputs": "node tools/build.mjs --inputs-only",
     "check:dts": "node tools/check-dts.mjs",
     "test": "playwright test --grep-invert @bench",
     "bench": "playwright test --grep @bench --reporter=list",
-    "serve": "node tools/serve.mjs"
+    "serve": "node tools/serve.mjs",
+    "profile": "node tools/profile.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

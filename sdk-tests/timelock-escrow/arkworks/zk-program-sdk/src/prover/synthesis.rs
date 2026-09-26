@@ -3,6 +3,9 @@ use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
 use ark_relations::r1cs::{
     ConstraintMatrices, ConstraintSynthesizer, OptimizationGoal, SynthesisError, SynthesisMode,
 };
+use ark_std::cfg_iter;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 use super::ProofInputs;
 use crate::{
@@ -47,18 +50,24 @@ impl CircuitMatrices {
         if assignment.len() != variables {
             return Err(RelationError::ProofInputsForAnotherCircuit);
         }
-        let rows = self
-            .matrices
-            .a
-            .iter()
-            .zip(&self.matrices.b)
-            .zip(&self.matrices.c);
-        for (constraint, ((a, b), c)) in rows.enumerate() {
-            if evaluate(a, assignment)? * evaluate(b, assignment)? != evaluate(c, assignment)? {
-                return Err(RelationError::Unsatisfied(constraint.to_string()));
+        let check = |(constraint, ((a, b), c)): (usize, ((&Vec<_>, &Vec<_>), &Vec<_>))| {
+            let satisfied = evaluate(a, assignment)
+                .and_then(|a| Ok(a * evaluate(b, assignment)? == evaluate(c, assignment)?));
+            match satisfied {
+                Ok(true) => None,
+                Ok(false) => Some(RelationError::Unsatisfied(constraint.to_string())),
+                Err(error) => Some(error),
             }
-        }
-        Ok(())
+        };
+        let rows = cfg_iter!(self.matrices.a)
+            .zip(cfg_iter!(self.matrices.b))
+            .zip(cfg_iter!(self.matrices.c))
+            .enumerate();
+        #[cfg(feature = "parallel")]
+        let failure = rows.find_map_first(check);
+        #[cfg(not(feature = "parallel"))]
+        let failure = rows.map(check).find_map(|failure| failure);
+        failure.map_or(Ok(()), Err)
     }
 }
 

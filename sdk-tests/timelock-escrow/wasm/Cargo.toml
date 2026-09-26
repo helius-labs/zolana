@@ -14,7 +14,14 @@ crate-type = ["cdylib"]
 console_error_panic_hook = { workspace = true }
 timelock-escrow-arkworks = { path = "../arkworks", default-features = false, features = ["wasm"] }
 wasm-bindgen = { workspace = true }
+wasm-bindgen-rayon = { version = "1.3", features = ["no-bundler"], optional = true }
 zk-program-sdk = { path = "../arkworks/zk-program-sdk", default-features = false, features = ["wasm"] }
 
 [features]
+default = ["prover"]
+prover = ["zk-program-sdk/wasm-prover"]
 test-exports = ["zk-program-sdk/wasm-verify"]
+threads = ["prover", "dep:wasm-bindgen-rayon", "zk-program-sdk/parallel"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O4", "--enable-simd", "--enable-threads", "--enable-bulk-memory", "--enable-mutable-globals"]

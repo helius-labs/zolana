@@ -25,7 +25,6 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
     let transaction_js = format!("{}Transaction", lower_first(&name));
     let prover = format_ident!("{}Prover", ident);
     let wasm = paths::wasm();
-    let groth16_prover = paths::groth16_prover();
 
     Ok(quote! {
         #[doc(hidden)]
@@ -46,31 +45,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
                 #wasm::program_transaction::<super::#ident>(inputs, sender, payer)
             }
 
-            #[wasm_bindgen(wasm_bindgen = #wasm::__private::wasm_bindgen)]
-            pub struct #prover(#groth16_prover<super::#ident>);
-
-            #[wasm_bindgen]
-            impl #prover {
-                #[wasm_bindgen(js_name = fromKey)]
-                pub fn from_key(
-                    #[wasm_bindgen(js_name = provingKey)] proving_key: &[u8],
-                ) -> ::core::result::Result<#prover, JsValue> {
-                    #wasm::prover_from_key::<super::#ident>(proving_key).map(Self)
-                }
-
-                #[wasm_bindgen(js_name = fromZkey)]
-                pub fn from_zkey(zkey: &[u8]) -> ::core::result::Result<#prover, JsValue> {
-                    #wasm::prover_from_zkey::<super::#ident>(zkey).map(Self)
-                }
-
-                #[wasm_bindgen(unchecked_return_type = "ProgramProof")]
-                pub fn prove(
-                    &self,
-                    #[wasm_bindgen(js_name = proofInputs)] proof_inputs: &[u8],
-                ) -> ::core::result::Result<JsValue, JsValue> {
-                    #wasm::prove(&self.0, proof_inputs)
-                }
-            }
+            ::zk_program_sdk::__zk_program_wasm_prover!(#prover, super::#ident);
         }
     })
 }
