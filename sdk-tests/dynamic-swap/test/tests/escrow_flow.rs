@@ -143,6 +143,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 blinding_seed,
                 output_tree_id: env.localnet.tree_id,
                 cache_accounts: Default::default(),
+                program_signers: Vec::new(),
             };
             let split_transact = env
                 .localnet
@@ -361,6 +362,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 blinding_seed,
                 output_tree_id: env.localnet.tree_id,
                 cache_accounts: Default::default(),
+                program_signers: Vec::new(),
             };
             let transact = env
                 .localnet
@@ -677,6 +679,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             blinding_seed,
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
+            program_signers: Vec::new(),
         };
         let transact = env
             .localnet

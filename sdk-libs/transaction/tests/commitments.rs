@@ -70,6 +70,7 @@ fn proof() -> SppProofInputs {
         external_data: ExternalData::new([2; 33], [3; 16], vec![], vec![], vec![]),
         payer: address(9),
         cache_accounts: Default::default(),
+        program_signers: Vec::new(),
     }
 }
 
@@ -568,5 +569,41 @@ fn signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies_and_p256
         vector["owner_identity"]["solana_owner_identity"]
             .as_str()
             .unwrap()
+    );
+}
+
+#[test]
+fn program_signers_follow_the_input_owners_without_duplicates() {
+    let alice = keypair(7);
+    let mut tx = proof();
+    tx.input_utxos = vec![SppProofInputUtxo::from(wallet_utxo(
+        &alice,
+        Mint::SOL,
+        10,
+        0,
+        1,
+    ))];
+    let alice_address =
+        Address::new_from_array(alice.signing_pubkey().confidential_view_tag().unwrap());
+    tx.program_signers = vec![
+        address(13),
+        alice_address,
+        tx.payer,
+        address(13),
+        address(14),
+    ];
+
+    assert_eq!(
+        (
+            tx.owner_signer_pubkeys().unwrap(),
+            tx.signer_pk_hashes(4).unwrap(),
+        ),
+        (
+            vec![alice_address, address(13), address(14)],
+            [tx.payer, alice_address, address(13), address(14)]
+                .iter()
+                .map(|a| solana_owner_identity(a.as_array()).unwrap())
+                .collect::<Vec<_>>(),
+        )
     );
 }

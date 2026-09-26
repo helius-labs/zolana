@@ -1,245 +1,215 @@
-use groth16_solana::{
-    decompression::{decompress_g1, decompress_g2},
-    groth16::Groth16Verifier,
-    vk::gnark::{parse_gnark_vk_bytes, Groth16VerifyingkeyOwned},
-};
-use solana_address::Address;
 use timelock_escrow_program::{
     instructions::{
-        escrow::EscrowProof,
+        escrow::{slot, EscrowProof, EscrowPublicInput},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
     verifying_keys::escrow::VERIFYINGKEY,
 };
-use timelock_escrow_prover::{CircuitId, EscrowProofInputs, EscrowTermsProofInput, PROVER};
-use timelock_escrow_sdk::state::DataHash;
-use zolana_client::ProofInputUtxo;
-use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
+use timelock_escrow_prover::{CircuitId, EscrowProofInputs, ProofInputUtxo};
+use timelock_escrow_sdk::{
+    instructions::escrow::EscrowTransaction,
+    state::EscrowTerms,
+    zk_program::{NewProgramUtxo, ProgramState},
+};
+use zolana_transaction::{
+    instructions::transact::PrivateTxHash, utxo::derive_private_tx_blinding, Mint,
+};
 
 mod shared;
-use shared::escrow_utxo_owner_hash;
-
-fn build_dir() -> std::path::PathBuf {
-    PROVER.keys_dir(CircuitId::Escrow)
-}
-
-fn ensure_keys() {
-    let dir = build_dir();
-    if !dir.join("pk.bin").exists() || !dir.join("vk.bin").exists() {
-        PROVER
-            .setup_insecure_test_keys(CircuitId::Escrow, &dir)
-            .expect("setup failed");
-    }
-}
-
-fn generated_vk() -> Groth16VerifyingkeyOwned {
-    let bytes = std::fs::read(build_dir().join("vk.bin")).expect("read vk.bin");
-    parse_gnark_vk_bytes(&bytes).expect("parse vk.bin")
-}
-
-fn fe(byte: u8) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[31] = byte;
-    out
-}
-
-fn blinding(byte: u8) -> Blinding {
-    let mut out = [0u8; 32];
-    out[31] = byte;
-    out
-}
-
-fn sample_terms() -> EscrowTermsProofInput {
-    EscrowTermsProofInput {
-        owner_hash: fe(99),
-        unlock: 1_700_000_000,
-    }
-}
-
-/// Both outputs of an escrow land in the same tree. A non-zero id keeps the test
-/// honest: a dropped tree id would change every commitment.
-const OUTPUT_TREE_ID: u16 = 3;
-
-fn build_inputs(escrow_amount: u64, change_amount: u64) -> EscrowProofInputs {
-    let terms = sample_terms();
-    let source_mint = Address::new_from_array([1u8; 32]);
-    let escrow_utxo = ProofInputUtxo::new(
-        escrow_utxo_owner_hash(&fe(42)),
-        &source_mint,
-        escrow_amount,
-        &blinding(7),
-        OUTPUT_TREE_ID,
-    )
-    .expect("escrow utxo")
-    .with_data_hash(terms.data_hash().expect("terms data hash"));
-    let change = ProofInputUtxo::new(
-        terms.owner_hash,
-        &source_mint,
-        change_amount,
-        &blinding(6),
-        OUTPUT_TREE_ID,
-    )
-    .expect("change utxo");
-    let source_input_hash = fe(5);
-    let external_data_hash = fe(8);
-    let private_tx_blinding = fe(21);
-    let private_tx_hash = PrivateTxHash::new(
-        &[source_input_hash, [0u8; 32]],
-        &[
-            change.hash().expect("change hash"),
-            escrow_utxo.hash().expect("escrow utxo hash"),
-        ],
-        &external_data_hash,
-        &private_tx_blinding,
-    )
-    .hash()
-    .expect("private tx hash");
-    EscrowProofInputs {
-        private_tx_hash,
-        terms,
-        escrow_utxo,
-        change,
-        source_input_hash,
-        external_data_hash,
-        private_tx_blinding,
-    }
-}
-
-fn sample_inputs() -> EscrowProofInputs {
-    build_inputs(250, 750)
-}
-
-fn verify_with_generated_vk(
-    vk: &Groth16VerifyingkeyOwned,
-    proof_a: &[u8; 32],
-    proof_b: &[u8; 64],
-    proof_c: &[u8; 32],
-    public_input: [u8; 32],
-) -> bool {
-    let a = match decompress_g1(proof_a) {
-        Ok(g1) => g1,
-        Err(_) => return false,
-    };
-    let b = match decompress_g2(proof_b) {
-        Ok(g2) => g2,
-        Err(_) => return false,
-    };
-    let c = match decompress_g1(proof_c) {
-        Ok(g1) => g1,
-        Err(_) => return false,
-    };
-    let public_inputs = [public_input];
-    let borrowed = vk.as_borrowed();
-    let mut verifier = match Groth16Verifier::new(&a, &b, &c, &public_inputs, &borrowed) {
-        Ok(parsed) => parsed,
-        Err(_) => return false,
-    };
-    verifier.verify().is_ok()
-}
+use shared::{
+    creator, ensure_keys, escrow, escrow_params, generated_vk, keypair, source, verifies, FUNDING,
+    TREE_ID, UNLOCK,
+};
 
 #[test]
 fn program_vk_has_no_commitment() {
-    assert_eq!(VERIFYINGKEY.nr_pubinputs, 1);
-    assert!(
-        VERIFYINGKEY.vk_commitment.is_none(),
-        "escrow circuit is standard Groth16: no BSB22 commitment"
-    );
     assert_eq!(
-        VERIFYINGKEY.vk_ic.len(),
-        2,
-        "standard Groth16 vk_ic length must be public_inputs + 1"
+        (
+            VERIFYINGKEY.nr_pubinputs,
+            VERIFYINGKEY.vk_commitment.is_none(),
+            VERIFYINGKEY.vk_ic.len()
+        ),
+        (1, true, 2)
     );
 }
 
 #[test]
 fn escrow_prove_verify() {
-    ensure_keys();
-    let vk = generated_vk();
-
-    let inputs = sample_inputs();
+    ensure_keys(CircuitId::Escrow);
+    let creator = creator();
+    let inputs = escrow(&creator, source(&creator, FUNDING), 250)
+        .to_proof_inputs()
+        .expect("escrow proof inputs");
     let proof = inputs.prove().expect("prove failed");
+    let program_proof: EscrowProof = proof.into();
 
-    let proof_a_zero = proof.proof_a.iter().all(|byte| *byte == 0);
-    assert!(!proof_a_zero, "proof_a must not be all zero");
-
-    assert!(
-        verify_with_generated_vk(
-            &vk,
-            &proof.proof_a,
-            &proof.proof_b,
-            &proof.proof_c,
-            inputs.private_tx_hash,
+    assert_eq!(
+        (
+            verifies(
+                &generated_vk(CircuitId::Escrow),
+                &proof,
+                inputs.public.public_input_hash
+            ),
+            verify_groth16(
+                CompressedGroth16Proof {
+                    a: &program_proof.proof_a,
+                    b: &program_proof.proof_b,
+                    c: &program_proof.proof_c,
+                    commitment: None,
+                },
+                inputs.public.public_input_hash,
+                &VERIFYINGKEY,
+            )
+            .is_ok(),
         ),
-        "groth16 proof must verify against the escrow verifying key with private_tx_hash as the sole public input"
-    );
-
-    let proof: EscrowProof = proof.into();
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        inputs.private_tx_hash,
-        &VERIFYINGKEY,
-    )
-    .expect(
-        "the committed escrow VERIFYINGKEY must accept the proof; run `just ensure-escrow-keys`",
+        (true, true),
+        "the escrow proof must verify under the generated and the committed key; run `just ensure-escrow-keys`"
     );
 }
 
 #[test]
 fn escrow_rejects_tampered_public_input() {
-    ensure_keys();
-    let vk = generated_vk();
-
-    let inputs = sample_inputs();
+    ensure_keys(CircuitId::Escrow);
+    let creator = creator();
+    let inputs = escrow(&creator, source(&creator, FUNDING), 250)
+        .to_proof_inputs()
+        .expect("escrow proof inputs");
     let proof = inputs.prove().expect("prove failed");
-
-    let mut tampered = inputs.private_tx_hash;
+    let mut tampered = inputs.public.public_input_hash;
     tampered[31] ^= 0x01;
 
-    assert!(
-        !verify_with_generated_vk(
-            &vk,
-            &proof.proof_a,
-            &proof.proof_b,
-            &proof.proof_c,
-            tampered
-        ),
-        "verification must fail for a tampered public input"
-    );
+    assert!(!verifies(
+        &generated_vk(CircuitId::Escrow),
+        &proof,
+        tampered
+    ));
 }
 
 #[test]
 fn escrow_rejects_zero_amount() {
-    ensure_keys();
+    ensure_keys(CircuitId::Escrow);
+    let creator = creator();
 
-    let inputs = build_inputs(0, 750);
-
-    assert!(
-        inputs.prove().is_err(),
-        "proving must fail when the escrow amount is zero (constraint violation)"
-    );
+    assert!(escrow(&creator, source(&creator, FUNDING), 0)
+        .to_proof_inputs()
+        .expect("escrow proof inputs")
+        .prove()
+        .is_err());
 }
 
 #[test]
 fn escrow_zero_change_proves() {
-    ensure_keys();
-    let vk = generated_vk();
-
-    let inputs = build_inputs(250, 0);
+    ensure_keys(CircuitId::Escrow);
+    let creator = creator();
+    let inputs = escrow(&creator, source(&creator, FUNDING), FUNDING)
+        .to_proof_inputs()
+        .expect("escrow proof inputs");
     let proof = inputs.prove().expect("prove failed");
 
-    assert!(
-        verify_with_generated_vk(
-            &vk,
-            &proof.proof_a,
-            &proof.proof_b,
-            &proof.proof_c,
-            inputs.private_tx_hash,
+    assert!(verifies(
+        &generated_vk(CircuitId::Escrow),
+        &proof,
+        inputs.public.public_input_hash
+    ));
+}
+
+#[test]
+fn escrow_outputs_are_derived_from_the_transaction_blinding_seed() {
+    ensure_keys(CircuitId::Escrow);
+    let creator = creator();
+    let mut inputs = escrow(&creator, source(&creator, FUNDING), 250)
+        .to_proof_inputs()
+        .expect("escrow proof inputs");
+    inputs.tx.blinding_seed[31] ^= 0x01;
+
+    assert!(inputs.prove().is_err());
+}
+
+fn with_source(transaction: &EscrowTransaction, source: ProofInputUtxo) -> EscrowProofInputs {
+    let mut inputs = transaction.to_proof_inputs().expect("escrow proof inputs");
+    let built = transaction.transaction();
+    inputs.source = source;
+    inputs.public.private_tx_hash = PrivateTxHash::new(
+        &[inputs.source.hash().expect("source hash"), [0u8; 32]],
+        &[
+            *built.output_hash(slot::CHANGE).expect("change hash"),
+            *built.output_hash(slot::ESCROW).expect("escrow hash"),
+        ],
+        &inputs.tx.external_data_hash,
+        &derive_private_tx_blinding(&inputs.tx.first_nullifier, &inputs.tx.blinding_seed)
+            .expect("private tx blinding"),
+    )
+    .hash()
+    .expect("private tx hash");
+    inputs.public.public_input_hash = EscrowPublicInput {
+        private_tx_hash: &inputs.public.private_tx_hash,
+        escrow_owner_hash: &inputs.public.escrow_owner_hash,
+    }
+    .hash()
+    .expect("public input hash");
+    inputs
+}
+
+#[test]
+fn escrow_spends_only_the_creator_s_source() {
+    ensure_keys(CircuitId::Escrow);
+    let creator = creator();
+    let transaction = escrow(&creator, source(&creator, FUNDING), 250);
+    let own_source =
+        ProofInputUtxo::try_from(transaction.source().expect("source")).expect("source inputs");
+    let locked_escrow = transaction
+        .escrow_utxo()
+        .proof_inputs()
+        .expect("escrow inputs")
+        .utxo;
+    let other_source =
+        ProofInputUtxo::try_from(&source(&keypair(6), FUNDING)).expect("other source inputs");
+
+    assert_eq!(
+        (
+            with_source(&transaction, own_source).prove().is_ok(),
+            with_source(&transaction, locked_escrow).prove().is_err(),
+            with_source(&transaction, other_source).prove().is_err(),
+            escrow_params(&creator, source(&keypair(6), FUNDING), 250)
+                .build(&creator)
+                .err()
+                .map(|e| e.to_string()),
         ),
-        "a zero-value change output is non-dummy: its real utxo hash enters private_tx_hash and the proof must verify, matching SPP"
+        (
+            true,
+            true,
+            true,
+            Some("the source belongs to another owner than the creator".to_string())
+        )
+    );
+}
+
+#[test]
+fn the_escrow_utxo_carries_its_terms_and_rebuilds_from_them() {
+    let creator = creator();
+    let transaction = escrow(&creator, source(&creator, FUNDING), 250);
+    let escrow_utxo = transaction.escrow_utxo();
+    let stored = transaction
+        .transaction()
+        .output(slot::ESCROW)
+        .expect("escrow output")
+        .data
+        .utxo_data()
+        .expect("escrow utxo data")
+        .to_vec();
+    let creator_address = creator.shielded_address().expect("creator address");
+    let terms = EscrowTerms::from_utxo_data(creator_address, &stored).expect("escrow terms");
+    let rebuilt = NewProgramUtxo::new(
+        *escrow_utxo.owner(),
+        terms.clone(),
+        Mint::SOL,
+        250,
+        creator_address.viewing_pubkey,
+    )
+    .created(*escrow_utxo.blinding(), TREE_ID);
+
+    assert_eq!(
+        (terms.unlock_timestamp, terms.utxo_data(), &rebuilt),
+        (UNLOCK, stored, escrow_utxo)
     );
 }

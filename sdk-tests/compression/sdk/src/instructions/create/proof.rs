@@ -1,5 +1,4 @@
-use anyhow::Result;
-use compression_example_program::state::{blinding_seed, output_blinding, private_tx_blinding};
+use anyhow::{anyhow, Result};
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_client::ProofInputUtxo;
@@ -9,16 +8,20 @@ use zolana_client::{
 };
 use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{
+    instruction::instruction_data::transact::TreeContext,
     state::cache::empty_cached_input_fields,
     tree_slot::{pack_input_flags, tree_id_field, TreeSlot},
     ADDRESS_DOMAIN, INPUT_TREES,
 };
 use zolana_keypair::{hash::owner_hash, PublicKey};
-use zolana_transaction::{instructions::transact::PrivateTxHash, Utxo};
+use zolana_program::compression::{
+    AddressSeed, CompressedAccount, NewAddress, PdaOwner, ACCOUNT_BLINDING_SEED,
+};
+use zolana_transaction::Utxo;
 
 use crate::{
     account_pda, err,
-    shared::{external_data, zero_nullifier_key, DEFAULT_TREE_ID},
+    shared::{zero_nullifier_key, ProgramTransaction, DEFAULT_TREE_ID},
     state::{AccountState, AccountUtxo},
 };
 
@@ -51,8 +54,7 @@ pub struct CreateProofInputParams {
 
 pub struct CreateCompressedAccount {
     pub transfer_inputs: TransferInputs,
-    pub nullifier_tree_root_index: u16,
-    pub utxo_tree_root_index: u16,
+    pub address_tree_context: TreeContext,
     pub output: Utxo,
     pub output_hash: [u8; 32],
     pub input_nullifier: [u8; 32],
@@ -83,26 +85,34 @@ impl CreateProofInputParams {
             nullifier_secret: Some(BigUint::ZERO),
         };
 
-        // The address nullifier is the transaction's only, and therefore first,
-        // nullifier, and the created version (0) is the deterministic
-        // blinding seed: the program recomputes both derived blindings
-        // from them, so the account output must sit in ACCOUNT_OUTPUT_SLOT.
-        let version = 0;
-        let blinding_seed = blinding_seed(version);
-        let private_tx_blinding = private_tx_blinding(&address_nullifier, version).map_err(err)?;
+        // The builder derives the account's blinding from the address, the
+        // transaction's only and therefore first nullifier.
+        let owner = PdaOwner::new(&pda).map_err(err)?;
+        let address =
+            NewAddress::derive(&owner, AddressSeed::owner(&owner), tree_id).map_err(err)?;
+        if *address.address() != address_nullifier {
+            return Err(anyhow!(
+                "address slot does not reserve the program's address"
+            ));
+        }
+        let address_tree_context = TreeContext {
+            utxo_tree_root_index: self.utxo_root_index,
+            nullifier_tree_root_index: self.non_inclusion.root_index,
+        };
+        let mut account: CompressedAccount<'_, AccountState> =
+            CompressedAccount::new_init(&owner, address, address_tree_context);
+        account.authority = self.authority.to_bytes();
+        account.value = self.new_value;
+        let program = ProgramTransaction::build(&pda, account, tree_id)?;
         let account_utxo = AccountUtxo {
             pda,
-            state: AccountState {
-                address: address_nullifier,
-                authority: self.authority.to_bytes(),
-                value: self.new_value,
-                version,
-                blinding: output_blinding(&address_nullifier, version).map_err(err)?,
-            },
+            state: program.state,
         };
         let output = account_utxo.output_utxo()?;
-        let payload = account_utxo.output_data()?;
-        let output_hash = output.hash(tree_id)?;
+        let output_hash = program.output_hash;
+        if output.hash(tree_id)? != output_hash {
+            return Err(anyhow!("client output does not match the program's output"));
+        }
         let proof_output = ProofInputUtxo::try_from((&output, tree_id))?;
         let transfer_output = TransferOutput {
             utxo: proof_output,
@@ -111,19 +121,8 @@ impl CreateProofInputParams {
             owner_pk_hash: be(&owner_pk_hash),
             nullifier_pk: be(&zero_nullifier_key().pubkey()?),
         };
-        let external = external_data(output_hash, &pda, payload);
-        let external_hash = external.hash()?;
-        // The address slot enters the chain by its nullifier, the compressed
-        // address itself, so the owner signature and the program both bind the
-        // account that is created.
-        let private_tx = PrivateTxHash {
-            input_hashes: &[zero],
-            output_hashes: &[output_hash],
-            address_nullifiers: Some(&[address_nullifier]),
-            external_data_hash: &external_hash,
-            blinding: &private_tx_blinding,
-        }
-        .hash()?;
+        let external_hash = program.external_data_hash;
+        let private_tx = program.private_tx_hash;
         let payer_hash = solana_owner_identity(self.authority.as_array())?;
         let signer_hashes = [payer_hash, owner_pk_hash];
         let output_owner_hashes = [owner_pk_hash];
@@ -157,7 +156,7 @@ impl CreateProofInputParams {
             outputs: vec![transfer_output],
             tree_slots: zolana_client::TreeSlotFields::encode_all(&tree_slots),
             output_tree_id: BigUint::from(tree_id),
-            blinding_seed: be(&blinding_seed),
+            blinding_seed: be(&ACCOUNT_BLINDING_SEED),
             external_data_hash: be(&external_hash),
             private_tx_hash: be(&private_tx),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),
@@ -171,8 +170,7 @@ impl CreateProofInputParams {
         };
         Ok(CreateCompressedAccount {
             transfer_inputs,
-            nullifier_tree_root_index: self.non_inclusion.root_index,
-            utxo_tree_root_index: self.utxo_root_index,
+            address_tree_context,
             output: account_utxo.utxo()?,
             output_hash,
             input_nullifier: address_nullifier,

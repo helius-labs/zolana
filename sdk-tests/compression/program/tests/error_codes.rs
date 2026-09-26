@@ -10,6 +10,11 @@ fn error_codes_are_stable() {
         (InvalidTree as u32, 12004),
         (HashingFailed as u32, 12008),
         (SerializationFailed as u32, 12009),
+        (ProofVerificationFailed as u32, 12010),
+        (InvalidNullifierPda as u32, 12011),
+        (StateSpent as u32, 12012),
+        (InvalidRootIndex as u32, 12013),
+        (InvalidTreeAccount as u32, 12014),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

@@ -606,6 +606,7 @@ impl Deposited<'_> {
                     nullifier_pubkey,
                     tree_id,
                     leaf_index: state.leaf_index,
+                    latest_tree_id: None,
                     data_hash: None,
                     ring_data_hash: None,
                     slot: 0,

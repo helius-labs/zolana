@@ -609,6 +609,7 @@ fn funded_utxo(keypair: &ShieldedKeypair, amount: u64) -> WalletUtxo {
         ring_data_hash: None,
         tree_id,
         leaf_index: 0,
+        latest_tree_id: None,
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         slot_index: 0,

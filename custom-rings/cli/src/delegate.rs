@@ -421,6 +421,7 @@ mod tests {
             data_hash: None,
             ring_data_hash: None,
             leaf_index: fixture.amount,
+            latest_tree_id: None,
             slot: 0,
             tx_signature: Signature::default(),
             slot_index: 0,

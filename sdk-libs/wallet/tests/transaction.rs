@@ -542,6 +542,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         ring_data_hash: None,
         tree_id: 0,
         leaf_index: 0,
+        latest_tree_id: None,
 
         slot: 0,
         tx_signature: solana_signature::Signature::default(),

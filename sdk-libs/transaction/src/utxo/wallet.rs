@@ -3,6 +3,7 @@
 use solana_signature::Signature;
 
 use super::{SppProofInputUtxo, Utxo};
+use crate::error::TransactionError;
 
 /// A decrypted note with indexer context. Missing data hashes require reconstruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +23,10 @@ pub struct WalletUtxo {
     /// Position of `utxo_hash` in its tree, which the inclusion proof is
     /// fetched by.
     pub leaf_index: u64,
+    /// The newest tree the indexer knew when it returned this UTXO: where a
+    /// transaction that spends it can append its outputs. `None` until the
+    /// indexer reports it.
+    pub latest_tree_id: Option<u16>,
     /// Where it was published. Ordering, history rows and re-fetch by signature
     /// read these.
     pub slot: u64,
@@ -30,6 +35,24 @@ pub struct WalletUtxo {
 }
 
 impl WalletUtxo {
+    pub fn dummy(tree_id: u16) -> Result<Self, TransactionError> {
+        let dummy = SppProofInputUtxo::dummy(tree_id)?;
+        Ok(Self {
+            utxo: dummy.utxo,
+            nullifier_pubkey: dummy.nullifier_pubkey,
+            utxo_hash: dummy.utxo_hash,
+            nullifier: dummy.nullifier,
+            data_hash: dummy.data_hash,
+            ring_data_hash: dummy.ring_data_hash,
+            tree_id: dummy.tree_id,
+            leaf_index: dummy.leaf_index,
+            latest_tree_id: None,
+            slot: 0,
+            tx_signature: Signature::default(),
+            slot_index: 0,
+        })
+    }
+
     pub fn tree_id(&self) -> u16 {
         self.tree_id
     }

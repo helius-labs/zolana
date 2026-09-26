@@ -686,6 +686,7 @@ fn bench_create_escrow(
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
         cache_accounts: Default::default(),
+        program_signers: Vec::new(),
     };
 
     let commitments = spp_proof_inputs
@@ -968,6 +969,7 @@ fn bench_settle(
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
         cache_accounts: Default::default(),
+        program_signers: Vec::new(),
     };
 
     let commitments = spp_proof_inputs

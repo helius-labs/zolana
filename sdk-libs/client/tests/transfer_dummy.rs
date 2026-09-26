@@ -295,6 +295,7 @@ fn dummy_transfer_2_3_proof_verifies() {
         allow_dummy_inputs: true,
         shape: Shape::new(2, 3),
         cache_accounts: Default::default(),
+        program_signers: Vec::new(),
     };
 
     let mut result = prover.build().expect("build witness with one real input");

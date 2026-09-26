@@ -444,6 +444,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
         cache_accounts: Default::default(),
+        program_signers: Vec::new(),
     };
 
     let commitments = spp_proof_inputs

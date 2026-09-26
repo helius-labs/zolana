@@ -4,11 +4,12 @@ use zolana_hasher::{
     Hasher, Poseidon,
 };
 use zolana_interface::tree_slot::tree_id_field;
-use zolana_transaction::{
-    utxo::SppProofInputUtxo,
-    utxo::{program_id_proof_input_hash, DUMMY_DOMAIN, UTXO_DOMAIN},
-    Blinding, SppProofOutputUtxo, TransactionError,
+
+use super::{
+    program_id_proof_input_hash, Blinding, SppProofInputUtxo, SppProofOutputUtxo, DUMMY_DOMAIN,
+    UTXO_DOMAIN,
 };
+use crate::TransactionError;
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct ProofInputUtxo {

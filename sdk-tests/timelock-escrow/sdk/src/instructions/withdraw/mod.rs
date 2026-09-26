@@ -2,4 +2,4 @@ mod instruction;
 mod proof;
 
 pub use instruction::Withdraw;
-pub use proof::WithdrawProofInputParams;
+pub use proof::{WithdrawProofInputParams, WithdrawTransaction};

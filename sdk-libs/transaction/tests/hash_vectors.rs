@@ -422,6 +422,7 @@ fn build(
         ),
         payer,
         cache_accounts: Default::default(),
+        program_signers: Vec::new(),
     };
     assert_eq!(proof_inputs.check_shape().expect("fixture shape"), shape);
     let first_nullifier = proof_inputs.first_nullifier().expect("first nullifier");
