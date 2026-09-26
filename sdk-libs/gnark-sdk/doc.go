@@ -12,9 +12,7 @@
 //	replace zolana/gnarksdk => <repo>/sdk-libs/gnark-sdk
 //	replace zolana/prover => <repo>/prover/server
 //
-// The transaction helpers never check membership, signatures or program
-// authorization; the shielded pool's transact proof over the same private
-// transaction hash does. UtxoRead is the exception: a read has no transact
-// proof, so it proves state-tree membership and nullifier-tree non-membership
-// itself.
+// The helpers never check membership, signatures or program authorization;
+// the shielded pool's transact proof over the same private transaction hash
+// does.
 package gnarksdk

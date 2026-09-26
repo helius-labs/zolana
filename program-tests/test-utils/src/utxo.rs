@@ -28,7 +28,6 @@ pub fn wallet(
         ring_data_hash,
         tree_id,
         leaf_index,
-        latest_tree_id: None,
         slot: 0,
         tx_signature: Default::default(),
         slot_index: 0,
@@ -113,7 +112,6 @@ pub fn finalized_transaction(
         ),
         payer,
         cache_accounts: Default::default(),
-        program_signers: Vec::new(),
     }
 }
 

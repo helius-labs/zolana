@@ -1,16 +1,16 @@
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use light_program_profiler::profile;
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use pinocchio::cpi::invoke_signed_with_bounds;
 use pinocchio::{
-    cpi::{Seed, Signer},
+    cpi::{invoke_with_bounds, Seed, Signer},
     error::ProgramError,
+    instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_hasher::{primitives::solana_owner_identity, Hasher, Poseidon};
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-use zolana_program::cpi::{SppTransactAccounts, TransactAccountsError};
+use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
 
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use crate::error::DynamicSwapError;
 
 pub fn u64_right_align(value: u64) -> [u8; 32] {
@@ -186,6 +186,40 @@ pub fn derive_authority_pda(_seed_label: &'static [u8], _pair: &Address) -> (Add
     unimplemented!("derive_authority_pda requires Solana runtime syscalls")
 }
 
+#[inline(never)]
+#[profile]
+pub fn cpi_spp_transact(spp_accounts: &[AccountView], transact_bytes: &[u8]) -> ProgramResult {
+    let spp_program_account = spp_accounts
+        .get(2)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    if spp_program_account.address() != &spp_id {
+        return Err(DynamicSwapError::InvalidShieldedPoolProgram.into());
+    }
+
+    let metas: Vec<InstructionAccount> = spp_accounts
+        .iter()
+        .map(|account| {
+            InstructionAccount::new(
+                account.address(),
+                account.is_writable(),
+                account.is_signer(),
+            )
+        })
+        .collect();
+
+    let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
+    instruction_data.push(TRANSACT);
+    instruction_data.extend_from_slice(transact_bytes);
+
+    let instruction = InstructionView {
+        program_id: &spp_id,
+        accounts: &metas,
+        data: &instruction_data,
+    };
+    invoke_with_bounds::<16, _>(&instruction, spp_accounts)
+}
+
 /// Flip every PDA in `pdas` to a signer for one `transact` CPI. Each tuple is
 /// `(seed_label, pair_address, derived_pda_address, bump)`; the caller derives
 /// each PDA beforehand (`[seed_label, pair.as_array()]` via [`verify_pda`]-style
@@ -205,9 +239,42 @@ pub fn cpi_spp_transact_signed_multi(
     transact_bytes: &[u8],
     pdas: &[(&[u8], Address, Address, u8)],
 ) -> ProgramResult {
-    let signer_pdas: Vec<&Address> = pdas.iter().map(|(_, _, pda, _)| pda).collect();
-    let spp = SppTransactAccounts::new(spp_accounts, &signer_pdas)
-        .map_err(|error| transact_accounts_error(error, pdas))?;
+    let spp_program_account = spp_accounts
+        .get(2)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    if spp_program_account.address() != &spp_id {
+        return Err(DynamicSwapError::InvalidShieldedPoolProgram.into());
+    }
+
+    for (seed_label, _pair_address, pda, _) in pdas {
+        if !spp_accounts.iter().any(|account| account.address() == pda) {
+            return Err(if *seed_label == crate::ESCROW_AUTHORITY_PDA_SEED {
+                DynamicSwapError::MissingEscrowAuthority.into()
+            } else {
+                DynamicSwapError::MissingPoolAuthority.into()
+            });
+        }
+    }
+
+    let metas: Vec<InstructionAccount> = spp_accounts
+        .iter()
+        .map(|account| {
+            let is_signer =
+                account.is_signer() || pdas.iter().any(|(_, _, pda, _)| account.address() == pda);
+            InstructionAccount::new(account.address(), account.is_writable(), is_signer)
+        })
+        .collect();
+
+    let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
+    instruction_data.push(TRANSACT);
+    instruction_data.extend_from_slice(transact_bytes);
+
+    let instruction = InstructionView {
+        program_id: &spp_id,
+        accounts: &metas,
+        data: &instruction_data,
+    };
 
     let bump_bytes: Vec<[u8; 1]> = pdas.iter().map(|(_, _, _, bump)| [*bump]).collect();
     let seed_sets: Vec<[Seed; 3]> = pdas
@@ -222,26 +289,8 @@ pub fn cpi_spp_transact_signed_multi(
         })
         .collect();
     let signers: Vec<Signer> = seed_sets.iter().map(|seeds| Signer::from(seeds)).collect();
-    spp.invoke::<16>(transact_bytes, &signers)
-}
 
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-fn transact_accounts_error(
-    error: TransactAccountsError,
-    pdas: &[(&[u8], Address, Address, u8)],
-) -> ProgramError {
-    match error {
-        TransactAccountsError::InvalidSppProgram => {
-            DynamicSwapError::InvalidShieldedPoolProgram.into()
-        }
-        TransactAccountsError::MissingPdaSigner { index } => match pdas.get(index) {
-            Some((seed_label, ..)) if *seed_label == crate::ESCROW_AUTHORITY_PDA_SEED => {
-                DynamicSwapError::MissingEscrowAuthority.into()
-            }
-            _ => DynamicSwapError::MissingPoolAuthority.into(),
-        },
-        TransactAccountsError::NotEnoughAccounts => ProgramError::NotEnoughAccountKeys,
-    }
+    invoke_signed_with_bounds::<16, _>(&instruction, spp_accounts, &signers)
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]

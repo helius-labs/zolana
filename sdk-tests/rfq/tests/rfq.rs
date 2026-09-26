@@ -76,7 +76,6 @@ fn cosigned_rfq_settlement() -> Result<()> {
         blinding_seed,
         output_tree_id: localnet.tree_id,
         cache_accounts: Default::default(),
-        program_signers: Vec::new(),
     };
 
     let data = localnet

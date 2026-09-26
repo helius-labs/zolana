@@ -6,7 +6,6 @@ use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use std::cell::RefCell;
 use zolana_event::OutputDataEncoding;
-use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
@@ -328,7 +327,7 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
 }
 
 #[test]
-fn shape_selection_boundaries_and_consolidation() {
+fn shape_selection_boundaries_and_explicit_consolidation() {
     // Literal expected order is independent of the selector's iterator.
     let shapes = [
         Shape::IN1_OUT1,
@@ -341,7 +340,6 @@ fn shape_selection_boundaries_and_consolidation() {
         Shape::IN5_OUT3,
         Shape::IN5_OUT4,
         Shape::IN1_OUT8,
-        Shape::IN36_OUT2,
     ];
     for n_in in 0..=37 {
         for n_out in 0..=9 {
@@ -374,14 +372,11 @@ fn shape_selection_boundaries_and_consolidation() {
     let notes: Vec<_> = (1..=6)
         .map(|n| wallet_utxo(&owner, Mint::SOL, 1, 7, n))
         .collect();
-    assert_eq!(
+    error(
         ConfidentialTransaction::new(notes.clone(), payer(&owner))
             .unwrap()
-            .encrypt(&owner)
-            .unwrap()
-            .check_shape()
-            .unwrap(),
-        Shape::IN36_OUT2
+            .encrypt(&owner),
+        E::UnsupportedShape { n_in: 6, n_out: 1 },
     );
     let mut tx = ConfidentialTransaction::new(notes, payer(&owner)).unwrap();
     tx.pad_utxos(Shape::IN36_OUT2, &sender).unwrap();
@@ -942,10 +937,8 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
         }
     }
     let mut tx = builder(&owner, 1);
-    error(
-        tx.add_output_utxo(SppProofOutputUtxo::default()),
-        E::OutputWithoutOwner { slot_index: 0 },
-    );
+    tx.add_output_utxo(SppProofOutputUtxo::default()).unwrap();
+    error(tx.encrypt(&owner), E::OutputWithoutOwner { slot_index: 0 });
 }
 
 #[test]
@@ -1170,7 +1163,7 @@ fn pda_sender_owner_tags_resolve_for_self_paid_and_relayed_transactions() {
 }
 
 #[test]
-fn builder_automatically_selects_every_supported_boundary() {
+fn builder_automatically_selects_every_supported_nonconsolidation_boundary() {
     let owner = keypair(1);
     let sender = owner.shielded_address().unwrap();
     for shape in [
@@ -1184,7 +1177,6 @@ fn builder_automatically_selects_every_supported_boundary() {
         Shape::IN5_OUT3,
         Shape::IN5_OUT4,
         Shape::IN1_OUT8,
-        Shape::IN36_OUT2,
     ] {
         let inputs = (0..shape.n_inputs())
             .map(|n| wallet_utxo(&owner, Mint::SOL, 10, 7, n as u8))
@@ -1302,227 +1294,4 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
             expected
         );
     }
-}
-
-#[test]
-fn blinding_seed_is_configurable_until_padding() {
-    let owner = keypair(1);
-    let sender = owner.shielded_address().unwrap();
-    let seed = [9u8; 32];
-    let mut tx = builder(&owner, 3).with_blinding_seed(seed).unwrap();
-    tx.pad_utxos(Shape::IN1_OUT1, &sender).unwrap();
-    let first = *tx.first_nullifier();
-    let proof = tx.encrypt(&owner).unwrap();
-    let output_seed = derive_output_blinding_seed(&first, &seed).unwrap();
-    let mut padded = builder(&owner, 3);
-    padded.pad_utxos(Shape::IN1_OUT1, &sender).unwrap();
-
-    assert_eq!(
-        (
-            proof.blinding_seed,
-            proof.output_utxos.first().map(|output| output.blinding),
-            padded.with_blinding_seed(seed).err(),
-        ),
-        (
-            seed,
-            Some(derive_transact_output_blinding(&first, &output_seed, 0).unwrap()),
-            Some(E::OutputUtxosAlreadyPadded),
-        )
-    );
-}
-
-#[test]
-fn wallet_dummy_pads_a_slot_between_real_inputs() {
-    let owner = keypair(1);
-    let sender = owner.shielded_address().unwrap();
-    let dummy = WalletUtxo::dummy(7).unwrap();
-    let mut tx = ConfidentialTransaction::new(
-        vec![
-            wallet_utxo(&owner, Mint::SOL, 5, 7, 1),
-            dummy.clone(),
-            wallet_utxo(&owner, Mint::SOL, 2, 7, 2),
-        ],
-        payer(&owner),
-    )
-    .unwrap();
-    tx.pad_utxos(Shape::IN3_OUT3, &sender).unwrap();
-    let proof = tx.encrypt(&owner).unwrap();
-
-    assert_eq!(
-        (
-            proof
-                .input_utxos
-                .iter()
-                .map(SppProofInputUtxo::is_dummy)
-                .collect::<Vec<_>>(),
-            proof.input_utxos.get(1).map(|input| input.utxo_hash),
-            ConfidentialTransaction::new(vec![WalletUtxo::dummy(7).unwrap()], payer(&owner)).err(),
-        ),
-        (
-            vec![false, true, false],
-            Some(dummy.utxo_hash),
-            Some(E::DummyInFirstInputSlot),
-        )
-    );
-}
-
-#[test]
-fn padding_without_an_owned_output_encrypts_to_a_throwaway_owner() {
-    let owner = keypair(1);
-    let sender = owner.shielded_address().unwrap();
-    let mut tx = builder(&owner, 3);
-    tx.settle(
-        Mint::SOL,
-        false,
-        3,
-        SettlementTarget::Sol {
-            user_sol_account: payer(&owner),
-        },
-    )
-    .unwrap();
-    tx.pad_utxos_with_empty_outputs(Shape::IN1_OUT2, &sender)
-        .unwrap();
-    let proof = tx.encrypt(&owner).unwrap();
-    let throwaway = proof
-        .external_data
-        .resolved_owner_tags
-        .first()
-        .copied()
-        .unwrap();
-
-    assert_eq!(
-        (
-            proof
-                .output_utxos
-                .iter()
-                .map(SppProofOutputUtxo::is_dummy)
-                .collect::<Vec<_>>(),
-            proof
-                .external_data
-                .outputs
-                .iter()
-                .map(|output| output.owner_tag)
-                .collect::<Vec<_>>(),
-            throwaway == sender.signing_pubkey.confidential_view_tag().unwrap(),
-        ),
-        (
-            vec![true, true],
-            vec![OwnerTag::Inline(throwaway); 2],
-            false
-        )
-    );
-}
-
-#[test]
-fn padding_independent_private_tx_hash_skips_padding_and_external_data() {
-    let owner = keypair(1);
-    let sender = owner.shielded_address().unwrap();
-    let mut tx = builder(&owner, 3);
-    tx.pad_utxos_with_empty_outputs(Shape::IN2_OUT3, &sender)
-        .unwrap();
-    let proof = tx.encrypt(&owner).unwrap();
-    let mut other_expiry = proof.clone();
-    other_expiry.external_data.expiry_unix_ts = proof.external_data.expiry_unix_ts.wrapping_add(1);
-    let chain = |hashes: Vec<[u8; 32]>| {
-        hashes.iter().fold([0u8; 32], |chain, hash| {
-            Poseidon::hashv(&[chain.as_slice(), hash.as_slice()]).unwrap()
-        })
-    };
-    let inputs = proof
-        .input_utxos
-        .iter()
-        .filter(|input| !input.is_dummy())
-        .map(|input| input.utxo_hash)
-        .collect();
-    let outputs = proof
-        .output_utxos
-        .iter()
-        .filter(|output| !output.is_dummy())
-        .map(|output| output.hash(proof.output_tree_id).unwrap())
-        .collect();
-    let expected = Poseidon::hashv(&[
-        chain(inputs).as_slice(),
-        chain(outputs).as_slice(),
-        [0u8; 32].as_slice(),
-        proof.private_tx_blinding().unwrap().as_slice(),
-    ])
-    .unwrap();
-
-    assert_eq!(
-        (
-            proof.padding_independent_private_tx_hash().ok(),
-            other_expiry.padding_independent_private_tx_hash().ok(),
-            other_expiry.message_hash().ok() == proof.message_hash().ok(),
-            proof
-                .output_utxos
-                .iter()
-                .map(SppProofOutputUtxo::is_dummy)
-                .collect::<Vec<_>>(),
-        ),
-        (
-            Some(expected),
-            Some(expected),
-            false,
-            vec![false, true, true]
-        )
-    );
-}
-
-#[test]
-fn finalized_transaction_encrypts_like_the_one_shot_path() {
-    let owner = keypair(1);
-    let sender = owner.shielded_address().unwrap();
-    let receiver = keypair(2).shielded_address().unwrap();
-    let mut tx = ConfidentialTransaction::new(
-        vec![
-            wallet_utxo(&owner, Mint::SOL, 50, 9, 1),
-            wallet_utxo(&owner, mint(2), 30, 9, 2),
-        ],
-        payer(&owner),
-    )
-    .unwrap()
-    .with_output_tree_id(12)
-    .unwrap();
-    tx.transfer_sol(&receiver, 20).unwrap();
-    tx.deposit(mint(2), 5, payer(&owner)).unwrap();
-    tx.withdraw_sol(3, payer(&owner)).unwrap();
-
-    let one_shot = tx.clone().encrypt(&owner).unwrap();
-    let finalized = tx.finalize(&sender).unwrap();
-    let finalized_output_hashes = finalized.output_hashes().unwrap();
-    let finalized_private_tx_hash = finalized.padding_independent_private_tx_hash().unwrap();
-    let finalized_transfers = finalized.interface_transfers().to_vec();
-    error(
-        finalized.clone().encrypt(&keypair(2)),
-        E::SenderAddressMismatch,
-    );
-    let encrypted = finalized.clone().encrypt(&owner).unwrap();
-
-    let ciphertext_independent = |proof: &SppProofInputs| {
-        (
-            proof
-                .output_utxos
-                .iter()
-                .map(|output| output.hash(proof.output_tree_id).unwrap())
-                .collect::<Vec<_>>(),
-            proof.padding_independent_private_tx_hash().unwrap(),
-            proof.external_data.interface_transfers.clone(),
-            proof.external_data.resolved_owner_tags.clone(),
-            proof.check_shape().unwrap(),
-        )
-    };
-    let expected = (
-        finalized_output_hashes,
-        finalized_private_tx_hash,
-        finalized_transfers,
-        finalized
-            .owner_tags()
-            .iter()
-            .map(|tag| tag.resolved)
-            .collect::<Vec<_>>(),
-        Shape::IN2_OUT3,
-    );
-    assert_eq!(ciphertext_independent(&encrypted), expected);
-    assert_eq!(ciphertext_independent(&one_shot), expected);
-    assert_ne!(encrypted.external_data.salt, one_shot.external_data.salt);
 }

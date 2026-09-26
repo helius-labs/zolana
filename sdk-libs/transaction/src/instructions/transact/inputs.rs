@@ -112,11 +112,6 @@ impl SppProofInputs {
             signer_hashes.push(hash);
             signers.push(address);
         }
-        for signer in &self.program_signers {
-            if *signer != self.payer && !signers.contains(signer) {
-                signers.push(*signer);
-            }
-        }
         Ok(signers)
     }
 

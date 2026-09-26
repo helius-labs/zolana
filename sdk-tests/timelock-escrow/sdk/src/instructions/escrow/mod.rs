@@ -2,4 +2,4 @@ mod instruction;
 mod proof;
 
 pub use instruction::Escrow;
-pub use proof::{EscrowProofInputParams, EscrowTransaction};
+pub use proof::{EscrowProofInputParams, SppTxHashes};

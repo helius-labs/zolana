@@ -3,7 +3,6 @@ mod hash;
 pub mod input;
 mod note;
 pub mod output;
-mod proof_input;
 pub mod wallet;
 
 pub use blinding::{
@@ -15,9 +14,7 @@ pub(crate) use hash::dummy_utxo_hash;
 pub use hash::{owner_utxo_hash, program_id_proof_input_hash, ring_program_id_proof_input_hash};
 pub use input::SppProofInputUtxo;
 pub(crate) use note::resolve_ring_program_id;
-// TODO: rename Utxo to CircuitUtxo, then WalletUtxo to Utxo, in its own PR (TS SDK too)
 pub use note::Utxo;
 pub use output::SppProofOutputUtxo;
-pub use proof_input::ProofInputUtxo;
 pub use wallet::WalletUtxo;
 pub use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};

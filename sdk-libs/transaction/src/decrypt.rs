@@ -69,7 +69,6 @@ pub fn decrypt<K: ShieldedKeys + ?Sized>(
                     ring_data_hash: decoded.ring_data_hash,
                     tree_id: slot.output_context.tree_id,
                     leaf_index: slot.output_context.leaf_index,
-                    latest_tree_id: None,
                     slot: tx.slot,
                     tx_signature: tx.tx_signature,
                     slot_index,

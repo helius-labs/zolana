@@ -1,16 +1,12 @@
 pub mod escrow;
 pub mod escrow_terms;
 pub mod proof;
-pub mod proof_inputs;
 pub mod withdraw;
-pub mod zk_program;
 
-pub use escrow::{EscrowProofInputs, EscrowPublicProofInputs};
+pub use escrow::EscrowProofInputs;
 pub use escrow_terms::EscrowTermsProofInput;
 pub use proof::TimelockProof;
-pub use proof_inputs::{proof_input_map, ProofInputWriter, ProofInputs};
-pub use withdraw::{WithdrawProofInputs, WithdrawPublicProofInputs};
-pub use zk_program::{ProgramUtxoProofInputs, TransactionProofInputs};
+pub use withdraw::WithdrawProofInputs;
 pub use zolana_client::ProofInputUtxo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

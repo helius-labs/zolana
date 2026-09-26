@@ -480,7 +480,6 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
         cache_accounts: Default::default(),
-        program_signers: Vec::new(),
     };
 
     let commitments = spp_proof_inputs
@@ -650,7 +649,6 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
         cache_accounts: Default::default(),
-        program_signers: Vec::new(),
     };
 
     let commitments = spp_proof_inputs
@@ -843,7 +841,6 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
         cache_accounts: Default::default(),
-        program_signers: Vec::new(),
     };
 
     let commitments = spp_proof_inputs
@@ -1006,7 +1003,6 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         blinding_seed,
         output_tree_id: BENCH_TREE_ID,
         cache_accounts: Default::default(),
-        program_signers: Vec::new(),
     };
 
     let commitments = spp_proof_inputs

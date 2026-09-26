@@ -1,17 +1,22 @@
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use light_program_profiler::profile;
+use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use pinocchio::{
-    address::address_eq,
-    cpi::{Seed, Signer},
-    error::ProgramError,
-    AccountView, Address, ProgramResult,
+    cpi::{invoke_signed_with_bounds, Seed, Signer},
+    instruction::{InstructionAccount, InstructionView},
 };
 use solana_address::address;
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{state::tree::read_tree_id, PROGRAM_ID_PUBKEY};
-use zolana_program::{compression::SppTransactCpi, cpi::SppTransactAccounts};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use zolana_interface::instruction::tag::TRANSACT;
+use zolana_interface::state::tree::read_tree_id;
 
 use crate::error::CompressionError;
 
 pub const DEFAULT_TREE: Address = address!("33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN");
+pub const SPP_PROGRAM: Address = address!("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub fn derive_pda(authority: &Address) -> (Address, u8) {
@@ -47,7 +52,7 @@ impl<'a> TransitionAccounts<'a> {
         }
         let output_tree = iter.next_account("output_tree")?;
         let spp_program = iter.next_account("spp_program")?;
-        if !address_eq(spp_program.address(), &PROGRAM_ID_PUBKEY) {
+        if !address_eq(spp_program.address(), &SPP_PROGRAM) {
             return Err(CompressionError::InvalidAccounts.into());
         }
         let system_program = iter.next_account("system_program")?;
@@ -88,25 +93,85 @@ pub fn tree_id(tree: &AccountView) -> Result<u16, ProgramError> {
     read_tree_id(&data).ok_or_else(|| CompressionError::InvalidTree.into())
 }
 
-/// Invokes `cpi` through the transact accounts that follow the authority,
-/// signing for the authority's PDA.
-pub fn invoke_signed_by_pda(
-    accounts: &[AccountView],
+/// `private_tx_hash` is blinded: the last preimage element is a private value
+/// derived from the blinding seed, without which an observer could test
+/// candidate input UTXO hashes against the published hash. `address_nullifier`
+/// is the address slot's public nullifier, the compressed address; `0` when the
+/// input slot is a spend.
+pub fn private_tx_hash(
+    input_hash: [u8; 32],
+    output_hash: [u8; 32],
+    address_nullifier: [u8; 32],
+    external_data_hash: &[u8; 32],
+    private_tx_blinding: &[u8; 32],
+) -> Result<[u8; 32], ProgramError> {
+    let input_chain = create_hash_chain_4_from_slice(&[input_hash])
+        .map_err(|_| CompressionError::HashingFailed)?;
+    let output_chain = create_hash_chain_4_from_slice(&[output_hash])
+        .map_err(|_| CompressionError::HashingFailed)?;
+    let address_chain = create_hash_chain_4_from_slice(&[address_nullifier])
+        .map_err(|_| CompressionError::HashingFailed)?;
+    Poseidon::hashv(&[
+        &input_chain,
+        &output_chain,
+        &address_chain,
+        external_data_hash,
+        private_tx_blinding,
+    ])
+    .map_err(|_| CompressionError::HashingFailed.into())
+}
+
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+#[inline(never)]
+#[profile]
+pub fn cpi_spp_transact_signed(
     authority: &Address,
     pda: &Address,
     bump: u8,
-    cpi: SppTransactCpi,
+    accounts: &[AccountView],
+    transact_bytes: &[u8],
 ) -> ProgramResult {
-    let transact_accounts = accounts
+    let spp_accounts = accounts
         .get(1..)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    let signer_pdas = [pda];
-    let spp = SppTransactAccounts::new(transact_accounts, &signer_pdas)?;
+    let metas: Vec<InstructionAccount> = spp_accounts
+        .iter()
+        .map(|account| {
+            InstructionAccount::new(
+                account.address(),
+                account.is_writable(),
+                account.is_signer() || address_eq(account.address(), pda),
+            )
+        })
+        .collect();
+    let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
+    instruction_data.push(TRANSACT);
+    instruction_data.extend_from_slice(transact_bytes);
+    let instruction = InstructionView {
+        program_id: &SPP_PROGRAM,
+        accounts: &metas,
+        data: &instruction_data,
+    };
     let bump_seed = [bump];
-    let seeds = [
+    let signer_seeds = [
         Seed::from(crate::ACCOUNT_PDA_SEED),
         Seed::from(authority.as_array().as_slice()),
         Seed::from(bump_seed.as_ref()),
     ];
-    cpi.invoke::<8>(&spp, &[Signer::from(seeds.as_ref())])
+    invoke_signed_with_bounds::<8, _>(
+        &instruction,
+        spp_accounts,
+        &[Signer::from(signer_seeds.as_ref())],
+    )
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+pub fn cpi_spp_transact_signed(
+    _authority: &Address,
+    _pda: &Address,
+    _bump: u8,
+    _accounts: &[AccountView],
+    _transact_bytes: &[u8],
+) -> ProgramResult {
+    unimplemented!("SPP CPI requires Solana runtime syscalls")
 }

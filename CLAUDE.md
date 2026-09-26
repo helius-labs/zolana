@@ -74,8 +74,7 @@ sdk-libs/
                           the emitting instruction plus the minimal on-chain event
   keypair/             -- shielded key material and hashes
   program/             -- SBF-buildable SDK for programs: shielded-pool instruction
-                          builders and on-chain SPP derivations; features `cpi`
-                          (transact CPI) and `compression` (compressed accounts)
+                          builders and on-chain SPP derivations
   program-test/        -- reusable local test/indexer harness
   transaction/         -- wallet, UTXO, encryption, and transaction logic
 

@@ -4,14 +4,12 @@
 //! UTXOs (ring/swap flows). The high level is
 //! [`ConfidentialTransaction`], which validates input order at construction,
 //! derives the change outputs and pads both inputs and outputs to a declared or
-//! automatically selected [`Shape`], then finalizes it into a keyless
-//! [`FinalizedTransaction`] that the key holder encrypts into [`SppProofInputs`].
+//! automatically selected [`Shape`], then encrypts the result into [`SppProofInputs`].
 //! [`PrivateTxHash`] produces the `private_tx_hash` shared as a public input by
 //! the SPP and ring proofs.
 
 mod encryption;
 pub mod external_data;
-mod finalized;
 mod inputs;
 mod outputs;
 mod ring;
@@ -27,7 +25,6 @@ pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
 pub use encryption::ResolvedOwnerTag;
 pub use external_data::{ExternalData, SettlementTransfer};
-pub use finalized::FinalizedTransaction;
 pub use inputs::{pad_input_utxos, validate_input_tree_order};
 pub use outputs::Recipient;
 pub use ring::inputs_require_p256;
@@ -102,14 +99,6 @@ impl ConfidentialTransaction {
 
     pub fn blinding_seed(&self) -> &[u8; 32] {
         &self.blinding_seed
-    }
-
-    pub fn with_blinding_seed(mut self, blinding_seed: [u8; 32]) -> Result<Self, TransactionError> {
-        if self.padded_inputs.is_some() {
-            return Err(TransactionError::OutputUtxosAlreadyPadded);
-        }
-        self.blinding_seed = blinding_seed;
-        Ok(self)
     }
 
     pub fn first_nullifier(&self) -> &[u8; 32] {

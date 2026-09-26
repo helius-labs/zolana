@@ -1,7 +1,6 @@
 use solana_address::Address;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::hash::sha256;
-pub use zolana_program::PrivateTxHash;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
+use zolana_keypair::hash::{poseidon, sha256};
 
 use super::{
     shape::{Shape, SPP_SUPPORTED_SHAPES},
@@ -27,7 +26,6 @@ pub struct SppProofInputs {
     pub external_data: ExternalData,
     pub payer: Address,
     pub cache_accounts: CacheAccounts,
-    pub program_signers: Vec<Address>,
 }
 
 impl SppProofInputs {
@@ -50,7 +48,7 @@ impl SppProofInputs {
     }
 
     pub fn private_tx_blinding(&self) -> Result<[u8; 32], TransactionError> {
-        private_tx_blinding(&self.input_utxos, &self.blinding_seed)
+        derive_private_tx_blinding(&self.first_nullifier()?, &self.blinding_seed)
     }
 
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {
@@ -65,8 +63,24 @@ impl SppProofInputs {
 
     pub fn message_hash(&self) -> Result<[u8; 32], TransactionError> {
         validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
-        let input_hashes = input_hashes(&self.input_utxos);
-        let output_hashes = output_hashes(&self.output_utxos, self.output_tree_id)?;
+        let mut input_hashes = Vec::with_capacity(self.input_utxos.len());
+        for input_utxo in &self.input_utxos {
+            if input_utxo.is_dummy() {
+                input_hashes.push([0u8; 32]);
+            } else {
+                input_hashes.push(input_utxo.hash());
+            }
+        }
+
+        let mut output_hashes = Vec::with_capacity(self.output_utxos.len());
+        for output in &self.output_utxos {
+            if output.is_dummy() {
+                output_hashes.push([0u8; 32]);
+            } else {
+                output_hashes.push(output.hash(self.output_tree_id)?);
+            }
+        }
+
         let external_data_hash = self.external_data.hash()?;
         let private_tx = PrivateTxHash::new(
             &input_hashes,
@@ -77,77 +91,52 @@ impl SppProofInputs {
         .hash()?;
         Ok(sha256(&private_tx))
     }
+}
 
-    pub fn padding_independent_private_tx_hash(&self) -> Result<[u8; 32], TransactionError> {
-        padding_independent_private_tx_hash(
-            &self.input_utxos,
-            &self.output_utxos,
-            self.output_tree_id,
-            &self.blinding_seed,
-        )
+pub struct PrivateTxHash<'a> {
+    pub input_hashes: &'a [[u8; 32]],
+    pub output_hashes: &'a [[u8; 32]],
+    /// One entry per input slot: the public nullifier of each address slot,
+    /// which is the compressed address SPP inserts, and `0` for real spends
+    /// and padding. `None` is a chain of zeros, a transaction that creates no
+    /// address.
+    pub address_nullifiers: Option<&'a [[u8; 32]]>,
+    pub external_data_hash: &'a [u8; 32],
+    /// Final preimage element. It is never published: every other element is
+    /// public or computable, so an observer who knew it could test candidate
+    /// input UTXO hashes against the published transaction hash.
+    pub blinding: &'a [u8; 32],
+}
+
+impl<'a> PrivateTxHash<'a> {
+    pub fn new(
+        input_hashes: &'a [[u8; 32]],
+        output_hashes: &'a [[u8; 32]],
+        external_data_hash: &'a [u8; 32],
+        blinding: &'a [u8; 32],
+    ) -> Self {
+        Self {
+            input_hashes,
+            output_hashes,
+            address_nullifiers: None,
+            external_data_hash,
+            blinding,
+        }
     }
-}
 
-pub(super) fn private_tx_blinding(
-    input_utxos: &[SppProofInputUtxo],
-    blinding_seed: &[u8; 32],
-) -> Result<[u8; 32], TransactionError> {
-    let first_nullifier = input_utxos
-        .first()
-        .ok_or(TransactionError::NoInputs)?
-        .nullifier();
-    derive_private_tx_blinding(&first_nullifier, blinding_seed)
-}
-
-pub(super) fn padding_independent_private_tx_hash(
-    input_utxos: &[SppProofInputUtxo],
-    output_utxos: &[SppProofOutputUtxo],
-    output_tree_id: u16,
-    blinding_seed: &[u8; 32],
-) -> Result<[u8; 32], TransactionError> {
-    validate_input_tree_order(input_utxos.iter().map(|input| input.tree_id))?;
-    Ok(Poseidon::hashv(&[
-        nonzero_hash_chain(&input_hashes(input_utxos))?.as_slice(),
-        nonzero_hash_chain(&output_hashes(output_utxos, output_tree_id)?)?.as_slice(),
-        nonzero_hash_chain(&[])?.as_slice(),
-        private_tx_blinding(input_utxos, blinding_seed)?.as_slice(),
-    ])?)
-}
-
-fn input_hashes(input_utxos: &[SppProofInputUtxo]) -> Vec<[u8; 32]> {
-    input_utxos
-        .iter()
-        .map(|input_utxo| {
-            if input_utxo.is_dummy() {
-                [0u8; 32]
-            } else {
-                input_utxo.hash()
-            }
-        })
-        .collect()
-}
-
-pub(super) fn output_hashes(
-    output_utxos: &[SppProofOutputUtxo],
-    output_tree_id: u16,
-) -> Result<Vec<[u8; 32]>, TransactionError> {
-    output_utxos
-        .iter()
-        .map(|output| {
-            if output.is_dummy() {
-                Ok([0u8; 32])
-            } else {
-                output.hash(output_tree_id)
-            }
-        })
-        .collect()
-}
-
-fn nonzero_hash_chain(values: &[[u8; 32]]) -> Result<[u8; 32], TransactionError> {
-    values
-        .iter()
-        .filter(|value| **value != [0u8; 32])
-        .try_fold([0u8; 32], |chain, value| {
-            Ok(Poseidon::hashv(&[chain.as_slice(), value.as_slice()])?)
-        })
+    pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        let input_chain = create_hash_chain_4_from_slice(self.input_hashes)?;
+        let output_chain = create_hash_chain_4_from_slice(self.output_hashes)?;
+        let address_chain = match self.address_nullifiers {
+            Some(address_nullifiers) => create_hash_chain_4_from_slice(address_nullifiers)?,
+            None => create_hash_chain_4_from_slice(&vec![[0u8; 32]; self.input_hashes.len()])?,
+        };
+        Ok(poseidon(&[
+            &input_chain,
+            &output_chain,
+            &address_chain,
+            self.external_data_hash,
+            self.blinding,
+        ])?)
+    }
 }

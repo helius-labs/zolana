@@ -1,6 +1,6 @@
 # Timelock Escrow -- CU Benchmark
 
-Compute unit profiling for the timelock escrow escrow/withdraw instructions, replayed under mollusk. The shielded-pool tree account is built directly (the program's `create_tree` init plus the input utxo hashes appended), and each instruction verifies its own Groth16 proof, then CPIs SPP `transact` (the `invoke_transact` row). Only the timelock escrow program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `invoke_transact` row as a black box and its internal functions do not appear here. Each instruction section also records its proving times (SPP transfer proof plus the escrow/withdraw circuit proof) and its serialized transaction size, measured twice: as a legacy transaction, which must prefix a compute-budget limit ix and may not exceed 1232 bytes, and as the transaction v1 these instructions are actually sent as, which states its compute ceilings in the message header and may run to 4096 bytes. The protocol now sits between the two, so the legacy column is what a row would have to fit to be sendable the old way, not a limit that binds today.
+Compute unit profiling for the timelock escrow escrow/withdraw instructions, replayed under mollusk. The shielded-pool tree account is built directly (the program's `create_tree` init plus the input utxo hashes appended), and each instruction verifies its own Groth16 proof, then CPIs SPP `transact` (the `cpi_spp_transact*` row). Only the timelock escrow program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_transact*` row as a black box and its internal functions do not appear here. Each instruction section also records its proving times (SPP transfer proof plus the escrow/withdraw circuit proof) and its serialized transaction size: the instruction prefixed with a compute-budget limit ix, as a legacy transaction and as a v0 transaction with every non-signer account and the program id in one address lookup table (Solana's packet limit is 1232 bytes).
 
 Regenerate with `just bench-escrow`.
 
@@ -16,35 +16,35 @@ Regenerate with `just bench-escrow`.
 
 ## 1. Escrow
 
-| Function              |   Total CU |     Net CU |
-| --------------------- | ---------- | ---------- |
-| `invoke_transact`     |    147,234 |    147,234 |
-| `process_escrow_ix`   |    245,563 |     98,329 |
+| Function                  |   Total CU |     Net CU |
+| ------------------------- | ---------- | ---------- |
+| `cpi_spp_transact`        |    162,070 |    162,070 |
+| `process_escrow_ix`       |    257,655 |     95,585 |
 
 **Proving Time**
 | SPP transfer proof | Escrow circuit proof | Total  |
 | ------------------ | -------------------- | ------ |
-|             160 ms |                21 ms | 181 ms |
+|             113 ms |                17 ms | 130 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts | Legacy Tx  | v1 Tx      |
-| ---------------- | -------- | ---------- | ---------- |
-|        740 bytes |        9 | 1151 bytes | 1123 bytes |
+| Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
+| ---------------- | -------- | ---------- | ----------- |
+|        748 bytes |        4 | 1026 bytes |  1000 bytes |
 
 ## 2. Withdraw
 
-| Function              |   Total CU |     Net CU |
-| --------------------- | ---------- | ---------- |
-| `invoke_transact`     |    138,353 |    138,353 |
-| `process_withdraw_ix` |    237,798 |     99,445 |
+| Function                  |   Total CU |     Net CU |
+| ------------------------- | ---------- | ---------- |
+| `cpi_spp_transact_signed` |    155,112 |    155,112 |
+| `process_withdraw_ix`     |    252,460 |     97,348 |
 
 **Proving Time**
-| SPP transfer proof | Escrow circuit proof | Total  |
-| ------------------ | -------------------- | ------ |
-|              90 ms |                15 ms | 106 ms |
+| SPP transfer proof | Escrow circuit proof | Total |
+| ------------------ | -------------------- | ----- |
+|              61 ms |                15 ms | 77 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts | Legacy Tx | v1 Tx     |
-| ---------------- | -------- | --------- | --------- |
-|        580 bytes |        9 | 959 bytes | 931 bytes |
+| Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
+| ---------------- | -------- | --------- | ----------- |
+|        559 bytes |        6 | 871 bytes |   814 bytes |
 

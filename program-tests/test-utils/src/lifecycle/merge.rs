@@ -260,7 +260,6 @@ impl LifecycleHarness {
                 ring_data_hash: None,
                 tree_id,
                 leaf_index: proof.leaf_index,
-                latest_tree_id: None,
                 slot: 0,
                 tx_signature: solana_signature::Signature::default(),
                 slot_index: 0,

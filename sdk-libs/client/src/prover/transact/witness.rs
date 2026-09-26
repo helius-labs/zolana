@@ -337,7 +337,6 @@ mod tests {
             ring_data_hash: None,
             tree_id,
             leaf_index: 0,
-            latest_tree_id: None,
             slot: 0,
             tx_signature: Default::default(),
             slot_index: 0,
@@ -443,7 +442,6 @@ mod tests {
             blinding_seed: [7; 32],
             output_tree_id: 0,
             cache_accounts: Default::default(),
-            program_signers: Vec::new(),
         };
 
         assert!(matches!(
@@ -472,7 +470,6 @@ mod tests {
             blinding_seed: [7; 32],
             output_tree_id: 0,
             cache_accounts: Default::default(),
-            program_signers: Vec::new(),
         };
         let transfers = proof_inputs.public_transfers().unwrap();
         assert_eq!(transfers.assets[0], asset_field(&mint).unwrap());

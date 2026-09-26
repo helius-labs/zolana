@@ -2,7 +2,6 @@ use anyhow::{anyhow, bail, Result};
 use solana_address::Address;
 use zolana_client::{EncryptedUtxoMatch, Rpc};
 use zolana_interface::event::OutputDataEncoding;
-use zolana_program::compression::CompressedAccountData;
 use zolana_transaction::WalletUtxo;
 
 use crate::{
@@ -52,7 +51,6 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
             ring_data_hash: None,
             tree_id,
             leaf_index: indexed.output_slot.output_context.leaf_index,
-            latest_tree_id: None,
             slot: indexed.slot,
             tx_signature: indexed.tx_signature,
             slot_index: 0,
@@ -110,7 +108,8 @@ fn discover_from_matches(
 mod tests {
     use super::*;
     use crate::shared::DEFAULT_TREE_ID;
-    use crate::{account_address, account_pda, state::AccountState};
+    use crate::{account_pda, state::AccountState};
+    use compression_example_program::state::output_blinding;
     use zolana_transaction::{OutputContext, OutputSlot};
 
     const AUTHORITY: [u8; 32] = [7u8; 32];
@@ -119,13 +118,21 @@ mod tests {
         account_pda(&Address::new_from_array(AUTHORITY))
     }
 
+    fn derived_address(pda: &Address) -> [u8; 32] {
+        compression_example_program::state::PdaOwner::new(pda.as_array())
+            .unwrap()
+            .address(DEFAULT_TREE_ID)
+            .unwrap()
+    }
+
     fn account_state(pda: &Address, value: u64, version: u64) -> AccountState {
+        let address = derived_address(pda);
         AccountState {
-            address: account_address(pda, DEFAULT_TREE_ID).unwrap(),
+            address,
             authority: AUTHORITY,
             value,
             version,
-            blinding: [7u8; 32],
+            blinding: output_blinding(&address, version).unwrap(),
         }
     }
 
@@ -158,10 +165,7 @@ mod tests {
                     tree_id: DEFAULT_TREE_ID,
                     leaf_index,
                 },
-                payload: borsh::to_vec(&OutputDataEncoding::Plaintext(
-                    borsh::to_vec(state).unwrap(),
-                ))
-                .unwrap(),
+                payload: state.to_output_data().unwrap(),
             },
             tx_viewing_pk: None,
             salt: None,

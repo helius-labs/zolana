@@ -41,11 +41,6 @@ impl ConfidentialTransaction {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
         }
-        if output.is_dummy() {
-            return Err(TransactionError::OutputWithoutOwner {
-                slot_index: self.outputs.len(),
-            });
-        }
         self.outputs.push(output);
         Ok(self)
     }
@@ -64,25 +59,6 @@ impl ConfidentialTransaction {
         &mut self,
         shape: Shape,
         sender: &ShieldedAddress,
-    ) -> Result<&mut Self, TransactionError> {
-        let mut padding = SppProofOutputUtxo::new(Mint::SOL, 0, *sender)?;
-        padding.ring_program_id = self.ring_program_id;
-        self.pad(shape, sender, padding)
-    }
-
-    pub fn pad_utxos_with_empty_outputs(
-        &mut self,
-        shape: Shape,
-        sender: &ShieldedAddress,
-    ) -> Result<&mut Self, TransactionError> {
-        self.pad(shape, sender, SppProofOutputUtxo::default())
-    }
-
-    fn pad(
-        &mut self,
-        shape: Shape,
-        sender: &ShieldedAddress,
-        padding: SppProofOutputUtxo,
     ) -> Result<&mut Self, TransactionError> {
         // 1. Reject repeated padding and validate the shape and public transfers.
         if self.padded_inputs.is_some() {
@@ -128,7 +104,11 @@ impl ConfidentialTransaction {
                 max: shape.n_outputs(),
             });
         }
-        outputs.resize(shape.n_outputs(), padding);
+        while outputs.len() < shape.n_outputs() {
+            let mut output = SppProofOutputUtxo::new(Mint::SOL, 0, *sender)?;
+            output.ring_program_id = self.ring_program_id;
+            outputs.push(output);
+        }
         for asset in self.assets(&outputs)? {
             let available = self
                 .input_sum(&asset)

@@ -51,7 +51,6 @@ fn proof(transfers: Vec<SettlementTransfer>) -> SppProofInputs {
         external_data,
         payer: address(1),
         cache_accounts: Default::default(),
-        program_signers: Vec::new(),
     }
 }
 fn builder() -> ConfidentialTransaction {

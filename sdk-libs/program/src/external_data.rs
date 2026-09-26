@@ -87,12 +87,6 @@ impl From<&TransactIxData> for TransactExternalData {
 
 impl TransactExternalData {
     pub fn single_output(output: TransactOutput) -> Self {
-        Self::from_outputs(alloc::vec![output])
-    }
-
-    /// External data carrying `outputs` and nothing else: no expiry, no
-    /// viewing key, salt, interface transfers, digests or messages.
-    pub fn from_outputs(outputs: Vec<TransactOutput>) -> Self {
         Self {
             expiry_unix_ts: u64::MAX,
             tx_viewing_pk: [0u8; 33],
@@ -100,7 +94,7 @@ impl TransactExternalData {
             interface_transfers: Vec::new(),
             data_hash: None,
             ring_data_hash: None,
-            outputs,
+            outputs: alloc::vec![output],
             messages: Vec::new(),
         }
     }

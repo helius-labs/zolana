@@ -287,7 +287,6 @@ jobs:
             sdk-tests/zk-program-swap/build/gnark/
             sdk-tests/timelock-escrow/build/gnark/
             sdk-tests/dynamic-swap/build/gnark/
-            sdk-tests/compression/build/gnark/
           if-no-files-found: error
           retention-days: 1
 

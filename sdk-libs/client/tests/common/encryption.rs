@@ -67,6 +67,5 @@ pub fn finalized_transaction(
         ),
         payer,
         cache_accounts: Default::default(),
-        program_signers: Vec::new(),
     }
 }

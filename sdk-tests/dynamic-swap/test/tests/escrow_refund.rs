@@ -168,7 +168,6 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             blinding_seed,
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
-            program_signers: Vec::new(),
         };
         let split_transact = env
             .localnet
@@ -381,7 +380,6 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             blinding_seed,
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
-            program_signers: Vec::new(),
         };
         let transact = env
             .localnet
@@ -672,7 +670,6 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             blinding_seed,
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
-            program_signers: Vec::new(),
         };
         let transact = env
             .localnet

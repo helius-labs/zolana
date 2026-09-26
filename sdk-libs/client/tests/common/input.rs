@@ -31,7 +31,6 @@ pub fn wallet_utxo(
         ring_data_hash,
         tree_id,
         leaf_index,
-        latest_tree_id: None,
         slot: 0,
         tx_signature: Signature::default(),
         slot_index: 0,

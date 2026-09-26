@@ -9,12 +9,7 @@ name = "compression_example_program"
 crate-type = ["cdylib", "lib"]
 
 [features]
-# The committed verifying keys come from an example setup nobody vouches for,
-# so they are generated as SetupKind::InsecureTest and do not compile without
-# this feature. On by default: this program is a test/example, never a
-# devnet or mainnet deployment.
-default = ["insecure-test-setup"]
-insecure-test-setup = []
+default = []
 bpf-entrypoint = []
 no-entrypoint = []
 cpi = ["no-entrypoint"]
@@ -23,7 +18,6 @@ profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
 borsh = { workspace = true }
-groth16-solana = { workspace = true, features = ["bsb22"] }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-address = { workspace = true }
@@ -33,7 +27,12 @@ wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["compression"] }
+zolana-program = { workspace = true }
+
+[dev-dependencies]
+zolana-client = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

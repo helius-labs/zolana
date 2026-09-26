@@ -33,7 +33,6 @@ wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["cpi"] }
 bytemuck = { workspace = true }
 
 [lints.rust.unexpected_cfgs]

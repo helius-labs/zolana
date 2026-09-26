@@ -1,10 +1,10 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactProof, SHIELDED_POOL_PROGRAM_ID,
+    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::{compression::CompressedAccountMeta, instruction::nullifier_pda_accounts};
+use zolana_program::instruction::nullifier_pda_accounts;
 
 use crate::{account_pda, err, tag, UpdateIxData};
 
@@ -12,15 +12,13 @@ pub struct Update {
     pub payer: Address,
     pub input_tree: Address,
     pub output_tree: Address,
-    /// The UTXO being spent, with the root indexes it is proven against.
-    pub meta: CompressedAccountMeta,
-    /// Nullifier of the UTXO being spent, whose nullifier PDA the transaction
-    /// creates.
-    pub input_nullifier: [u8; 32],
     pub old_value: u64,
     pub version: u64,
+    /// Blinding of the UTXO being spent, taken from the state the client
+    /// discovered; it is not derivable from the version alone.
+    pub old_blinding: [u8; 32],
     pub new_value: u64,
-    pub proof: TransactProof,
+    pub spp_proof: TransactIxData,
 }
 
 impl Update {
@@ -29,20 +27,27 @@ impl Update {
             payer,
             input_tree,
             output_tree,
-            meta,
-            input_nullifier,
             old_value,
             version,
+            old_blinding,
             new_value,
-            proof,
+            spp_proof,
         } = self;
 
+        let [input] = spp_proof.inputs.as_slice() else {
+            return Err(anyhow!("SPP transact must input_utxo exactly one input"));
+        };
+        let [tree_context] = spp_proof.tree_contexts.as_slice() else {
+            return Err(anyhow!("SPP transact must declare exactly one input tree"));
+        };
         let serialized_ix = wincode::serialize(&UpdateIxData {
             old_value,
             version,
+            old_blinding,
             new_value,
-            meta,
-            proof,
+            nullifier_tree_root_index: tree_context.nullifier_tree_root_index,
+            utxo_tree_root_index: tree_context.utxo_tree_root_index,
+            proof: spp_proof.proof,
         })
         .map_err(err)?;
 
@@ -54,7 +59,7 @@ impl Update {
             AccountMeta::new_readonly(Address::default(), false),
             AccountMeta::new(input_tree, false),
         ];
-        accounts.extend(nullifier_pda_accounts(&input_tree, [&input_nullifier]));
+        accounts.extend(nullifier_pda_accounts(&input_tree, [&input.nullifier_hash]));
         accounts.push(AccountMeta::new_readonly(account_pda(&payer), false));
         let mut instruction_data = vec![tag::UPDATE];
         instruction_data.extend_from_slice(&serialized_ix);

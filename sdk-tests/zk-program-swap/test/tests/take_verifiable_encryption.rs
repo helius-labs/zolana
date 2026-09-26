@@ -138,7 +138,6 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             blinding_seed,
             output_tree_id: localnet.tree_id,
             cache_accounts: Default::default(),
-            program_signers: Vec::new(),
         };
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
@@ -278,7 +277,6 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             blinding_seed,
             output_tree_id: localnet.tree_id,
             cache_accounts: Default::default(),
-            program_signers: Vec::new(),
         };
 
         let take_proof_inputs = TakeVerifiableEncryptionProofInputParams {

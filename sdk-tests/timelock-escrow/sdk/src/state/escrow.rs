@@ -1,21 +1,19 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use timelock_escrow_program::instructions::shared::u64_right_align;
 use timelock_escrow_prover::EscrowTermsProofInput;
-use zolana_keypair::{hash::poseidon, ShieldedAddress};
-
-use crate::{
-    err,
-    zk_program::{ProgramState, ProgramUtxo},
+use zolana_keypair::{
+    constants::BLINDING_LEN, hash::poseidon, NullifierKey, PublicKey, ShieldedAddress,
 };
+use zolana_transaction::{
+    instructions::transact::SppProofOutputUtxo,
+    utxo::{Blinding, SppProofInputUtxo, Utxo},
+    Data, Mint,
+};
+
+use crate::err;
 
 pub trait DataHash {
     fn data_hash(&self) -> Result<[u8; 32]>;
-}
-
-impl DataHash for EscrowTermsProofInput {
-    fn data_hash(&self) -> Result<[u8; 32]> {
-        poseidon(&[&self.owner_hash, &u64_right_align(self.unlock)]).map_err(err)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,38 +22,125 @@ pub struct EscrowTerms {
     pub unlock_timestamp: u64,
 }
 
+// escrow, withdraw: the escrow terms are private inputs to each circuit; the
+// escrow utxo's data hash is computed over them.
 impl EscrowTerms {
-    pub fn from_utxo_data(creator: ShieldedAddress, utxo_data: &[u8]) -> Result<Self> {
-        let unlock_timestamp: [u8; 8] = utxo_data.try_into().map_err(|_| {
-            anyhow!(
-                "escrow utxo data is {} bytes, the unlock timestamp is 8",
-                utxo_data.len()
-            )
-        })?;
+    pub fn data_hash(&self) -> Result<[u8; 32]> {
+        EscrowTermsProofInput::try_from(self)?.data_hash()
+    }
+}
+
+// escrow, withdraw: the terms enter the circuits in this form.
+impl TryFrom<&EscrowTerms> for EscrowTermsProofInput {
+    type Error = anyhow::Error;
+
+    fn try_from(terms: &EscrowTerms) -> Result<Self> {
         Ok(Self {
-            creator,
-            unlock_timestamp: u64::from_le_bytes(unlock_timestamp),
+            owner_hash: terms.creator.owner_hash().map_err(err)?,
+            unlock: terms.unlock_timestamp,
         })
     }
 }
 
-impl ProgramState for EscrowTerms {
-    type ProofInputs = EscrowTermsProofInput;
-
+// escrow, withdraw: the proofs recompute this hash from the terms.
+impl DataHash for EscrowTermsProofInput {
     fn data_hash(&self) -> Result<[u8; 32]> {
-        self.proof_inputs()?.data_hash()
-    }
-
-    fn proof_inputs(&self) -> Result<EscrowTermsProofInput> {
-        Ok(EscrowTermsProofInput {
-            owner_hash: self.creator.owner_hash().map_err(err)?,
-            unlock: self.unlock_timestamp,
-        })
-    }
-
-    fn utxo_data(&self) -> Vec<u8> {
-        self.unlock_timestamp.to_le_bytes().to_vec()
+        poseidon(&[&self.owner_hash, &u64_right_align(self.unlock)]).map_err(err)
     }
 }
 
-pub type EscrowUtxo = ProgramUtxo<EscrowTerms>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EscrowUtxo {
+    pub terms: EscrowTerms,
+    pub blinding: Blinding,
+    pub asset: Mint,
+    pub amount: u64,
+}
+
+// escrow mints to the synthetic escrow-authority owner; withdraw spends from
+// it.
+impl EscrowUtxo {
+    fn pda_owner() -> PublicKey {
+        PublicKey::from_ed25519(crate::escrow_authority_pda().as_array())
+    }
+
+    /// Constant nullifier key: the escrow-authority PDA is the sole
+    /// authorized spender, enforced by the timelock escrow program's
+    /// `invoke_signed`, not by nullifier-key secrecy.
+    fn nullifier_key() -> NullifierKey {
+        NullifierKey::from_secret([0u8; BLINDING_LEN])
+    }
+}
+
+// escrow: the escrow output; withdraw recomputes it to match the escrow
+// input it spends.
+impl EscrowUtxo {
+    pub fn output_utxo(&self) -> Result<SppProofOutputUtxo> {
+        let data_hash = self.terms.data_hash()?;
+        let nullifier_pubkey = Self::nullifier_key().pubkey().map_err(err)?;
+        let owner_address = ShieldedAddress {
+            signing_pubkey: Self::pda_owner(),
+            nullifier_pubkey,
+            viewing_pubkey: self.terms.creator.viewing_pubkey,
+        };
+        Ok(SppProofOutputUtxo {
+            asset: self.asset,
+            amount: self.amount,
+            blinding: self.blinding,
+            owner_address: Some(owner_address),
+            ..Default::default()
+        }
+        .with_utxo_data(Vec::new(), data_hash))
+    }
+}
+
+// withdraw: spend the escrow utxo and pay out the source funds to the
+// creator.
+impl EscrowUtxo {
+    /// The escrow input spend: the opening (terms + blinding) is the full
+    /// spend capability; the timelock escrow program signs for the PDA via
+    /// `invoke_signed`.
+    /// Takes the tree because the commitment and the nullifier both fold it
+    /// in; choosing it afterwards would leave the pair describing a UTXO in a
+    /// different tree.
+    pub fn to_input_utxo(&self, tree_id: u16, leaf_index: u64) -> Result<SppProofInputUtxo> {
+        let utxo = Utxo {
+            owner: Self::pda_owner(),
+            asset: self.asset,
+            amount: self.amount,
+            blinding: self.blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        };
+        let data_hash = self.terms.data_hash()?;
+        let key = &Self::nullifier_key();
+        let nullifier_pubkey = key.pubkey()?;
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &data_hash, &[0; 32], tree_id)?;
+        let nullifier = key.nullifier(&utxo_hash, &utxo.blinding)?;
+        Ok(SppProofInputUtxo {
+            utxo,
+            utxo_hash,
+            nullifier,
+            nullifier_pubkey,
+            data_hash: Some(data_hash),
+            ring_data_hash: None,
+            tree_id,
+            leaf_index,
+            cache_slot: None,
+        })
+    }
+
+    pub fn source_output(
+        &self,
+        recipient: ShieldedAddress,
+        blinding: Blinding,
+    ) -> SppProofOutputUtxo {
+        SppProofOutputUtxo {
+            asset: self.asset,
+            amount: self.amount,
+            blinding,
+            owner_address: Some(recipient),
+            ..Default::default()
+        }
+    }
+}
