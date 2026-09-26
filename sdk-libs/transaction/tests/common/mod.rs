@@ -46,6 +46,7 @@ pub fn wallet_utxo(
         ring_data_hash: None,
         tree_id,
         leaf_index: u64::from(nonce),
+        latest_tree_id: None,
         slot: u64::from(nonce),
         tx_signature: Signature::from([nonce; 64]),
         slot_index: 0,

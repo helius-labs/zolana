@@ -1,0 +1,11 @@
+error: `#[circuit]` goes on an impl block or a function
+ --> tests/ui/fail/attribute_misuse.rs:4:1
+  |
+4 | struct NotAnImplBlock;
+  | ^^^^^^^^^^^^^^^^^^^^^^
+
+error: `#[circuit]` takes no arguments
+ --> tests/ui/fail/attribute_misuse.rs:6:11
+  |
+6 | #[circuit(strict)]
+  |           ^^^^^^

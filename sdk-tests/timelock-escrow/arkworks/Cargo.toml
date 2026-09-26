@@ -1,0 +1,45 @@
+[package]
+name = "timelock-escrow-arkworks"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+borsh = { workspace = true }
+serde = { workspace = true, optional = true }
+timelock-escrow-program = { path = "../program" }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+zk-program-sdk = { path = "zk-program-sdk", default-features = false, features = ["client"] }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[features]
+default = ["native"]
+native = ["zk-program-sdk/setup", "zk-program-sdk/encrypt", "zk-program-sdk/parallel"]
+serde = ["dep:serde", "zk-program-sdk/serde", "zolana-keypair/serde", "zolana-transaction/serde"]
+snarkjs = []
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "zk-program-sdk/tsify"]
+wasm = ["tsify", "zk-program-sdk/wasm"]
+
+[[test]]
+name = "snarkjs"
+required-features = ["snarkjs"]
+
+[[test]]
+name = "wasm_fixtures"
+required-features = ["wasm"]
+
+[dev-dependencies]
+ark-bn254 = { workspace = true }
+ark-ec = "0.5"
+ark-ff = { workspace = true }
+ark-groth16 = { version = "0.5", default-features = false, features = ["std"] }
+ark-relations = { version = "0.5", default-features = false, features = ["std"] }
+hex = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+solana-address = { workspace = true }
+solana-signature = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true }

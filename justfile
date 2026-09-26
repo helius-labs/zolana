@@ -801,6 +801,55 @@ bench-escrow: ensure-escrow-keys
         -- --features bpf-entrypoint,profile-program
     cargo test -p timelock-escrow-test --test bench_cu -- --ignored --nocapture
 
+bench-zk-program-sdk:
+    ZK_PROGRAM_SDK_BENCHMARK=1 cargo test --release -p zk-program-sdk --test scenarios -- --test-threads=1
+
+test-zk-program-sdk-macros:
+    cargo test --release -p zk-program-sdk-macros
+
+# Runs a throwaway snarkjs ceremony on the exported escrow and withdraw r1cs
+# and proves from its zkeys. Needs `snarkjs` on PATH; the ptau and zkeys are
+# cached under target/tmp/snarkjs, keyed by the r1cs digest.
+test-arkworks-snarkjs:
+    cargo test --release -p timelock-escrow-arkworks --features snarkjs --test snarkjs
+
+# Checks that the ZK program SDK, the escrow circuits and the escrow wasm
+# module build for wasm32-unknown-unknown. Kept out of check-all: CI installs
+# no wasm target.
+check-wasm:
+    cargo check -p zk-program-sdk --no-default-features --features client --target wasm32-unknown-unknown
+    cargo check -p timelock-escrow-arkworks --no-default-features --features wasm --target wasm32-unknown-unknown
+    cargo check -p timelock-escrow-wasm --features test-exports --target wasm32-unknown-unknown
+
+# Builds the escrow wasm module (escrowTransaction, withdrawTransaction and
+# their provers) into sdk-tests/timelock-escrow/wasm/web/pkg: multi-threaded,
+# on nightly with build-std (the page must be cross-origin isolated and prove
+# in a worker). `npm run build:single` in that directory builds the stable
+# single-threaded fallback. Needs wasm-pack and nightly-2026-05-18 with
+# rust-src and the wasm32 target.
+build-escrow-wasm:
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build
+
+# Writes the escrow wasm fixtures: the seeded proving keys and a throwaway
+# snarkjs zkey under target/escrow-wasm-fixtures (not committed), and the
+# committed JSON fixtures the Playwright and TS SDK tests compare against.
+# Needs `snarkjs` on PATH.
+regen-escrow-wasm-fixtures:
+    cargo test --release -p timelock-escrow-arkworks --features snarkjs,wasm --test wasm_fixtures -- --ignored --nocapture
+
+# Runs the escrow wasm module's Playwright tests in Chromium: builds the
+# threaded module with its test-only verifier and the prover-free
+# proof-inputs module, checks the generated types, proves in the worker, and
+# compares against the native fixtures and snarkjs.
+test-escrow-wasm: regen-escrow-wasm-fixtures
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run build:inputs && npm run check:dts && npm test
+
+# Measures proving time (witness generation + proof), key load and module
+# size of the escrow wasm module in Chromium, against snarkjs proving the
+# same Rust-generated proof inputs.
+bench-escrow-wasm: regen-escrow-wasm-fixtures
+    cd sdk-tests/timelock-escrow/wasm && npm ci && npm run build:test && npm run build:inputs && npm run bench
+
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in
 # target/deploy either -- build the bench programs into their own dedicated

@@ -13,13 +13,39 @@ use crate::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(
+    feature = "tsify",
+    derive(tsify::Tsify),
+    tsify(large_number_types_as_bigints)
+)]
 pub struct Utxo {
     pub owner: PublicKey,
     /// The resolved mint. Commitments use its address; payloads use its ID.
     pub asset: Mint,
     pub amount: u64,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding: Blinding,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::option_address"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "string"))]
     pub ring_program_id: Option<Address>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub data: Data,
 }
 

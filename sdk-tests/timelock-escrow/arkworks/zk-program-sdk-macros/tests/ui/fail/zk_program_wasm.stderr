@@ -1,0 +1,11 @@
+error: `ZkProgramWasm` needs a concrete program; wrap a generic one in a non-generic struct
+ --> tests/ui/fail/zk_program_wasm.rs:4:15
+  |
+4 | struct Generic<T> {
+  |               ^^^
+
+error: `ZkProgramWasm` derives on the program's input struct
+ --> tests/ui/fail/zk_program_wasm.rs:9:6
+  |
+9 | enum NotAStruct {
+  |      ^^^^^^^^^^

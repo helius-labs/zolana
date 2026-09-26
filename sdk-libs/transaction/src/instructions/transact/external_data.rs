@@ -14,16 +14,45 @@ use crate::{error::TransactionError, SOL_MINT};
 /// canonical external-data hash. SPL legs retain their mint so proof public
 /// transfers can be derived without inspecting private inputs or outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(
+        tag = "kind",
+        rename_all = "camelCase",
+        rename_all_fields = "camelCase"
+    )
+)]
+#[cfg_attr(
+    feature = "tsify",
+    derive(tsify::Tsify),
+    tsify(large_number_types_as_bigints)
+)]
 pub enum SettlementTransfer {
     Sol {
         is_deposit: bool,
         amount: u64,
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::address")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         user_sol_account: Address,
     },
     Spl {
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::address")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         mint: Address,
         is_deposit: bool,
         amount: u64,
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::address")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         user_spl_token: Address,
     },
 }

@@ -4,19 +4,51 @@ use crate::error::TransactionError;
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 #[wincode(tag_encoding = "u8")]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(tag = "kind", content = "bytes", rename_all = "camelCase")
+)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub enum DataRecord {
     #[wincode(tag = 1)]
-    RingData(#[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")] Vec<u8>),
+    RingData(
+        #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::bytes")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
+        Vec<u8>,
+    ),
     #[wincode(tag = 2)]
-    UtxoData(#[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")] Vec<u8>),
+    UtxoData(
+        #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::bytes")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
+        Vec<u8>,
+    ),
     /// Free-form note for the output recipient. Encrypted into the output note
     /// but not bound by the on-chain commitment (`data_hash`/`ring_data_hash`
     /// cover only `UtxoData`/`RingData`), so it is informational only.
     #[wincode(tag = 3)]
-    Memo(#[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")] Vec<u8>),
+    Memo(
+        #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::bytes")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
+        Vec<u8>,
+    ),
 }
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub struct Data {
     #[wincode(with = "containers::Vec<DataRecord, FixIntLen<u8>>")]
     pub records: Vec<DataRecord>,

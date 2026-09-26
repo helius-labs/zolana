@@ -655,6 +655,19 @@ describe("address and instruction builders", () => {
   });
 });
 
+describe("ZK program transaction surface", () => {
+  it("exports the program adapters through @heliuslabs/zolana/transaction only", async () => {
+    const [transaction, root] = await Promise.all([
+      import("../src/transaction/index.js"),
+      import("../src/index.js"),
+    ]);
+    for (const name of ["decodeProgramTransaction", "toProgramWalletUtxo"] as const) {
+      expect(transaction[name]).toBeTypeOf("function");
+      expect(root).not.toHaveProperty(name);
+    }
+  });
+});
+
 describe("relayed decryption surface", () => {
   it("exports the plaintext decoders through @heliuslabs/zolana/transaction", async () => {
     // `syncWallet` decrypts and decodes in one step and needs the viewing key in

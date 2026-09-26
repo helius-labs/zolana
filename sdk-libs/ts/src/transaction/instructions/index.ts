@@ -37,5 +37,6 @@ export type {
   PreparedTransfer,
   PrivateTxHashInput,
   PublicAmounts,
+  SettlementTransfer,
   Shape,
 } from "./transact.js";

@@ -350,6 +350,7 @@ impl LifecycleHarness {
             ring_data_hash: None,
             tree_id: self.tree_id,
             leaf_index: slot.output_context.leaf_index,
+            latest_tree_id: None,
             slot: tx.slot,
             tx_signature: tx.tx_signature,
             slot_index: u32::try_from(position)?,

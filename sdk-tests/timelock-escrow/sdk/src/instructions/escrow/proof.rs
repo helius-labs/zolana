@@ -1,89 +1,118 @@
-use anyhow::{bail, Result};
-use timelock_escrow_prover::{EscrowProofInputs, EscrowTermsProofInput};
-use zolana_client::ProofInputUtxo;
-use zolana_transaction::instructions::transact::{
-    PrivateTxHash, SppProofInputs, SppProofOutputUtxo,
+use anyhow::{anyhow, bail, Result};
+use timelock_escrow_program::instructions::escrow::{slot, EscrowPublicInput, N_INPUTS, N_OUTPUTS};
+use timelock_escrow_prover::{EscrowProofInputs, EscrowPublicProofInputs};
+use zolana_keypair::{ShieldedAddress, ViewingKeyTrait};
+use zolana_transaction::{instructions::transact::SppProofInputs, SppProofOutputUtxo};
+
+use crate::{
+    err, escrow_authority,
+    state::{EscrowTerms, EscrowUtxo, FundingUtxo},
+    zk_program::{BuiltTransaction, NewProgramUtxo, ProgramState, ProgramTransaction},
 };
 
-use crate::{err, state::EscrowUtxo};
-
-/// The parts of the SPP transact this escrow CPIs into that the escrow proof has
-/// to reproduce byte-for-byte, or the two proofs bind different
-/// `private_tx_hash` values and the instruction can never land.
-pub struct SppTxHashes {
-    pub source_input_hash: [u8; 32],
-    pub external_data_hash: [u8; 32],
-    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
-    /// preimage element.
-    pub private_tx_blinding: [u8; 32],
-    /// Raw id of the tree the escrow and change outputs are appended to; it is
-    /// the second element of every output's commitment.
+pub struct EscrowProofInputParams {
+    pub creator: ShieldedAddress,
+    pub funding: FundingUtxo,
+    pub funding_leaf_index: u64,
+    pub amount: u64,
+    pub unlock_timestamp: u64,
     pub output_tree_id: u16,
 }
 
-impl SppTxHashes {
-    pub fn new(spp_proof_inputs: &SppProofInputs) -> Result<Self> {
-        let source_input = spp_proof_inputs
-            .input_utxos
-            .first()
-            .ok_or_else(|| err("missing source input"))?;
-        Ok(Self {
-            source_input_hash: source_input.hash(),
-            external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
-            private_tx_blinding: spp_proof_inputs.private_tx_blinding().map_err(err)?,
-            output_tree_id: spp_proof_inputs.output_tree_id,
+impl EscrowProofInputParams {
+    pub fn build(self, viewing_key: &impl ViewingKeyTrait) -> Result<EscrowTransaction> {
+        let Self {
+            creator,
+            funding,
+            funding_leaf_index,
+            amount,
+            unlock_timestamp,
+            output_tree_id,
+        } = self;
+        if funding.state().creator != creator {
+            bail!("the funding belongs to another creator");
+        }
+        let asset = funding.asset();
+        let change_amount = funding.amount().checked_sub(amount).ok_or_else(|| {
+            anyhow!(
+                "the funding holds {} but the escrow locks {amount}",
+                funding.amount()
+            )
+        })?;
+        let escrow_utxo = NewProgramUtxo::new(
+            escrow_authority(),
+            EscrowTerms {
+                creator,
+                unlock_timestamp,
+            },
+            asset,
+            amount,
+            creator.viewing_pubkey,
+        );
+        let change = SppProofOutputUtxo::new(asset, change_amount, creator).map_err(err)?;
+        let transaction = ProgramTransaction::<N_INPUTS, N_OUTPUTS>::new(
+            creator.solana_address().map_err(err)?,
+            output_tree_id,
+        )
+        .with_input(slot::SOURCE, funding.input(funding_leaf_index)?)?
+        .with_output(slot::CHANGE, change)?
+        .with_program_output(slot::ESCROW, &escrow_utxo)?
+        .build(viewing_key)?;
+        let escrow_utxo = transaction.created(slot::ESCROW, escrow_utxo)?;
+        Ok(EscrowTransaction {
+            transaction,
+            funding,
+            escrow_utxo,
         })
     }
 }
 
-pub struct EscrowProofInputParams {
-    pub escrow_utxo: EscrowUtxo,
-    pub change: SppProofOutputUtxo,
-    pub spp_tx_hashes: SppTxHashes,
+pub struct EscrowTransaction {
+    pub(super) transaction: BuiltTransaction<N_INPUTS, N_OUTPUTS>,
+    funding: FundingUtxo,
+    escrow_utxo: EscrowUtxo,
 }
 
-impl EscrowProofInputParams {
+impl EscrowTransaction {
+    pub fn spp_proof_inputs(&self) -> SppProofInputs {
+        self.transaction.spp_proof_inputs()
+    }
+
+    pub fn transaction(&self) -> &BuiltTransaction<N_INPUTS, N_OUTPUTS> {
+        &self.transaction
+    }
+
+    pub fn funding(&self) -> &FundingUtxo {
+        &self.funding
+    }
+
+    pub fn escrow_utxo(&self) -> &EscrowUtxo {
+        &self.escrow_utxo
+    }
+
+    pub fn change(&self) -> Result<&SppProofOutputUtxo> {
+        self.transaction.output(slot::CHANGE)
+    }
+
     pub fn to_proof_inputs(&self) -> Result<EscrowProofInputs> {
-        let terms = &self.escrow_utxo.terms;
-        if self.change.owner_address != Some(terms.creator) {
-            bail!("change owner does not match escrow creator");
+        let private_tx_hash = *self.transaction.private_tx_hash();
+        let escrow_owner_hash = self.escrow_utxo.owner().owner_hash()?;
+        let public_input_hash = EscrowPublicInput {
+            private_tx_hash: &private_tx_hash,
+            escrow_owner_hash: &escrow_owner_hash,
         }
-        if self.change.asset != self.escrow_utxo.asset {
-            bail!("change asset does not match escrow asset");
-        }
-        if self.change.data_hash.is_some()
-            || self.change.ring_data_hash.is_some()
-            || self.change.ring_program_id.is_some()
-        {
-            bail!("change output must not carry data or ring commitments");
-        }
-        let terms_input = EscrowTermsProofInput::try_from(terms)?;
-        // Both are created by this transaction, so both commit under the output
-        // tree's id.
-        let output_tree_id = self.spp_tx_hashes.output_tree_id;
-        let escrow_utxo =
-            ProofInputUtxo::try_from((&self.escrow_utxo.output_utxo()?, output_tree_id))
-                .map_err(err)?;
-        let change = ProofInputUtxo::try_from((&self.change, output_tree_id)).map_err(err)?;
-        let private_tx_hash = PrivateTxHash::new(
-            &[self.spp_tx_hashes.source_input_hash, [0u8; 32]],
-            &[
-                change.hash().map_err(err)?,
-                escrow_utxo.hash().map_err(err)?,
-            ],
-            &self.spp_tx_hashes.external_data_hash,
-            &self.spp_tx_hashes.private_tx_blinding,
-        )
         .hash()
         .map_err(err)?;
         Ok(EscrowProofInputs {
-            private_tx_hash,
-            terms: terms_input,
-            escrow_utxo,
-            change,
-            source_input_hash: self.spp_tx_hashes.source_input_hash,
-            external_data_hash: self.spp_tx_hashes.external_data_hash,
-            private_tx_blinding: self.spp_tx_hashes.private_tx_blinding,
+            public: EscrowPublicProofInputs {
+                public_input_hash,
+                private_tx_hash,
+                escrow_owner_hash,
+            },
+            tx: self.transaction.transaction_proof_inputs()?,
+            source: self.funding.proof_inputs()?,
+            terms: self.escrow_utxo.state().proof_inputs()?,
+            amount: self.escrow_utxo.amount(),
         })
     }
 }

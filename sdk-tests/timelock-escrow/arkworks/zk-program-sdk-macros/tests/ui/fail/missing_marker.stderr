@@ -1,0 +1,7 @@
+error[E0046]: not all trait items implemented, missing: `MARKER`
+  --> tests/ui/fail/missing_marker.rs:10:1
+   |
+10 | impl Circuit for HandWritten {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `MARKER` in implementation
+   |
+   = help: implement the missing item: `const MARKER: CircuitMarker = /* value */;`

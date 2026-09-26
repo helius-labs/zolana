@@ -52,6 +52,7 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
             ring_data_hash: None,
             tree_id,
             leaf_index: indexed.output_slot.output_context.leaf_index,
+            latest_tree_id: None,
             slot: indexed.slot,
             tx_signature: indexed.tx_signature,
             slot_index: 0,

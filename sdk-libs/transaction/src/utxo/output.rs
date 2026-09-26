@@ -24,16 +24,79 @@ fn canonical_data_order(record: &DataRecord) -> u8 {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(
+    feature = "tsify",
+    derive(tsify::Tsify),
+    tsify(large_number_types_as_bigints)
+)]
 pub struct SppProofOutputUtxo {
     pub asset: Mint,
     pub amount: u64,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding: Blinding,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::option_address"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "string"))]
     pub ring_program_id: Option<Address>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub ring_data_hash: Option<[u8; 32]>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub data_hash: Option<[u8; 32]>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub owner_address: Option<ShieldedAddress>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub owner_tag: Option<[u8; 32]>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub data: Data,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub cache_slot: Option<u8>,
 }
 
