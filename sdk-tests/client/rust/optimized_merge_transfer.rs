@@ -1,20 +1,17 @@
 use anyhow::{Context, Result};
 use client_example::{
-    cached_merge::{
-        assemble_cached_transfer, assert_cache_closed_and_refunded, wait_for_cache_commitment,
-    },
+    cached_merge::{assert_cache_closed_and_refunded, wait_for_cache_commitment, CachedTransfer},
     merge::{
         assert_balance_needs_merging, assert_balances_after_transfer,
-        assert_merge_needs_no_padding, assert_merge_output_is_predicted, landed_slot, log,
-        merge_instruction_data,
+        assert_merge_needs_no_padding, assert_merge_output_is_predicted, landed_slot,
+        proof_data_source, MergeRequest, MergedNote, Timeline,
     },
     setup_merge_scenario, MergeScenario,
 };
-use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::MergeCacheTarget, ComputeBudgetConfig, MergeProver, ProofAuthority, ProofCompressed,
-    ProverClient, Rpc, SolanaRpc, WitnessReader, ZolanaClient, ZolanaIndexer,
+    prover::MergeCacheTarget, ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient,
+    ZolanaIndexer,
 };
 use zolana_interface::instruction::instruction_data::CreateCacheData;
 use zolana_program::instruction::{
@@ -25,14 +22,14 @@ use zolana_transaction::{
         merge::MergeTransaction,
         transact::{ConfidentialTransaction, Shape},
     },
-    AssetRegistry, Data, Mint, Utxo, WalletUtxo,
+    AssetRegistry,
 };
 use zolana_user_registry_interface::user_record_pda;
 
 /// One merge spends exactly `MAX_MERGE_INPUTS` inputs.
 const UTXO_COUNT: usize = 36;
-const DEPOSIT_AMOUNT: u64 = 100_000_000;
-const TRANSFER_AMOUNT: u64 = 500_000_000;
+const DEPOSIT_AMOUNT: u64 = 100_000;
+const TRANSFER_AMOUNT: u64 = 500_000;
 /// Distinguishes this cache from any other the sponsor holds; the address is
 /// derived from the sponsor and this value.
 const CACHE_NONCE: u64 = 0;
@@ -72,16 +69,9 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 ///   forester fee, and is refunded when the cache closes. It holds no spending
 ///   key: a record that has opted into merging can be merged by any caller.
 ///
-/// The run prints its own timeline. The order it shows is the point:
-///
-/// ```text
-/// t+  0.000s  merge and transfer proofs requested
-/// t+  0.061s  transfer proof ready
-/// t+  1.131s  merge proof ready
-/// t+  1.652s  merge transaction confirmed
-/// t+  1.652s  cache slot 0 holds the merge output
-/// t+  2.168s  transfer transaction confirmed
-/// ```
+/// The run prints each stage as it ends, then a table of every stage and of
+/// every prover request with the spans the prover reports. The point is the
+/// order, with the transfer proof ending long before the merge lands.
 ///
 /// The critical path is `max(merge proof + merge lands, transfer proof)`
 /// instead of `merge proof + merge lands + indexing + transfer proof`.
@@ -89,6 +79,7 @@ fn main() -> Result<()> {
     // A registered sender whose private balance sits in 36 separate UTXOs, plus
     // a rent sponsor for the cache account.
     let MergeScenario {
+        cluster,
         rpc_url,
         indexer_url,
         prover_url,
@@ -99,11 +90,21 @@ fn main() -> Result<()> {
         rent_sponsor,
         utxos,
     } = setup_merge_scenario(UTXO_COUNT, DEPOSIT_AMOUNT)?;
+    let _refund = cluster.refund_on_exit(&rpc_url, vec![&sender, &rent_sponsor]);
 
-    let client =
-        ZolanaClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url.clone())?;
+    let source = proof_data_source()?;
+    let timeline = Timeline::start();
+    let client = ZolanaClient::from_urls(
+        SolanaRpc::new(rpc_url.clone()),
+        &indexer_url,
+        prover_url.clone(),
+    )?;
     let indexer = ZolanaIndexer::new(&indexer_url);
-    let prover = ProverClient::new(prover_url);
+    // One client per proof, so each request's timing is filed under its proof.
+    let merge_prover =
+        ProverClient::new(prover_url.clone()).with_timing(timeline.prover_sink("merge"));
+    let transfer_prover =
+        ProverClient::new(prover_url).with_timing(timeline.prover_sink("transfer"));
     let assets = AssetRegistry::default();
     let sender_address = sender.shielded_address()?;
     let recipient_address = recipient.shielded_address()?;
@@ -135,32 +136,24 @@ fn main() -> Result<()> {
     };
     let cache = create_cache.cache();
 
-    let (merge, merged_output) = {
-        let transaction = MergeTransaction::new(utxos.clone())?
-            .with_output_tree_id(tree_id)
-            .encrypt(&sender)?;
-        assert_merge_needs_no_padding(&transaction)?;
-
-        // Every input of one merge is proven against the same pair of roots, so
-        // the proofs come from one indexer call.
-        let commitments = transaction.input_utxo_hashes()?;
-        let witnesses =
-            indexer.input_witnesses(&commitments, &transaction.dummy_nullifiers(), None)?;
-
-        let output = transaction.output_utxo.clone();
-        let result = MergeProver {
+    let transaction = MergeTransaction::new(utxos.clone())?
+        .with_output_tree_id(tree_id)
+        .encrypt(&sender)?;
+    assert_merge_needs_no_padding(&transaction)?;
+    let merged_blinding = transaction.output_utxo.blinding;
+    // Every input of one merge is proven against the same pair of roots, so the
+    // proofs come from one indexer call, made here or by the prover.
+    let merge = timeline.stage("merge inputs", || {
+        MergeRequest {
             transaction,
-            nullifier_key: sender.nullifier_key.clone(),
-            proofs: witnesses.spend_proofs,
-            dummy_nullifier_proofs: witnesses.dummy_nullifier_proofs,
+            owner: &sender,
             cache: Some(MergeCacheTarget {
                 address: cache,
                 slot: CACHE_SLOT,
             }),
         }
-        .build()?;
-        (result, output)
-    };
+        .prepare(source, &indexer)
+    })?;
 
     // 2.2. Transfer proof inputs, from the merge's predicted output.
     //
@@ -169,35 +162,17 @@ fn main() -> Result<()> {
     // than drawn at random, so the client knows the output commitment exactly,
     // and a cached input is proven against that commitment instead of against a
     // Merkle path.
-    let merged_utxo = Utxo {
-        owner: sender_address.signing_pubkey,
-        asset: Mint::SOL,
-        amount: total,
-        blinding: merged_output.blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let nullifier_pubkey = sender.nullifier_key.pubkey()?;
-    let utxo_hash = merged_utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], tree_id)?;
     // The note exists only as a prediction, so it carries no leaf index or
     // publication slot: a cached input is proven against the commitment the
     // cache holds, never against a path into the tree.
-    let transfer_input = WalletUtxo {
-        nullifier: sender
-            .nullifier_key
-            .nullifier(&utxo_hash, &merged_utxo.blinding)?,
-        utxo: merged_utxo,
-        nullifier_pubkey,
-        utxo_hash,
-        data_hash: None,
-        ring_data_hash: None,
+    let transfer_input = MergedNote {
+        owner: &sender,
+        blinding: merged_blinding,
+        amount: total,
         tree_id,
-        leaf_index: 0,
-        slot: 0,
-        tx_signature: Signature::default(),
-        slot_index: 0,
-    };
-    assert_merge_output_is_predicted(&transfer_input, &merge)?;
+    }
+    .predict()?;
+    let predicted_input = transfer_input.clone();
 
     let mut transfer = ConfidentialTransaction::new(vec![transfer_input], sender.pubkey())?
         .with_output_tree_id(tree_id)?;
@@ -211,26 +186,28 @@ fn main() -> Result<()> {
     {
         *input = input.clone().with_cache_slot(CACHE_SLOT)?;
     }
-    let mut transfer = assemble_cached_transfer(&client, tree, proof_inputs)?;
-    sender.complete_inputs(&mut transfer.prover_inputs.inputs)?;
+    let transfer = timeline.stage("transfer inputs", || {
+        CachedTransfer {
+            transaction: proof_inputs,
+            owner: &sender,
+            tree,
+        }
+        .prepare(source, &client)
+    })?;
 
     // 3. Both proofs are requested at once, and the merge is sent the moment its
     // own proof is ready. Neither proof is an input to the other, so the
     // transfer's runs on its own thread while the merge proves, lands, and
-    // writes the cache. Both proof calls take `&self` on one shared prover
-    // client, and the SDK's proving path is synchronous, so this needs threads
-    // rather than an async runtime.
-    let started = std::time::Instant::now();
-    log(started, "merge and transfer proofs requested");
-    let transfer_proof = std::thread::scope(|scope| {
-        let transfer = scope.spawn(|| {
-            let proof = prover.prove_transfer(&transfer.prover_inputs);
-            log(started, "transfer proof ready");
-            proof
-        });
+    // writes the cache. The SDK's proving path is synchronous, so this needs
+    // threads rather than an async runtime.
+    let (transfer_data, merge_data) = std::thread::scope(|scope| {
+        let transfer =
+            scope.spawn(|| timeline.stage("transfer proof", || transfer.prove(&transfer_prover)));
 
-        let merge_proof = prover.prove_merge(&merge.inputs).context("merge proof")?;
-        log(started, "merge proof ready");
+        let merge_data = timeline
+            .stage("merge proof", || merge.prove(&merge_prover))
+            .context("merge proof")?;
+        assert_merge_output_is_predicted(&predicted_input, &merge_data)?;
 
         // 4. The rent sponsor sends the merge. Cache creation is permissionless
         // and idempotent, so every merge includes it: with several merges in
@@ -243,32 +220,34 @@ fn main() -> Result<()> {
             output_tree: tree,
             payer: rent_sponsor.pubkey(),
             user_record: user_record_pda(&sender.pubkey()).0,
-            data: merge_instruction_data(&merge, merge_proof)?,
+            data: merge_data.clone(),
             cache: Some(CacheWriteAccounts {
                 cache,
                 writer: rent_sponsor.pubkey(),
             }),
         }
         .instruction();
-        client.create_and_send_transaction(
-            &[create_cache.instruction(), merge_ix],
-            rent_sponsor.pubkey(),
-            &[&rent_sponsor],
-            ComputeBudgetConfig::new(MERGE_CU_LIMIT),
-        )?;
-        log(started, "merge transaction confirmed");
+        timeline.stage("merge send and confirm", || {
+            client.create_and_send_transaction(
+                &[create_cache.instruction(), merge_ix],
+                rent_sponsor.pubkey(),
+                &[&rent_sponsor],
+                ComputeBudgetConfig::new(MERGE_CU_LIMIT),
+            )
+        })?;
 
-        let transfer_proof = transfer.join().expect("transfer proving thread");
-        transfer_proof.context("transfer proof")
+        let transfer_data = transfer
+            .join()
+            .expect("transfer proving thread")
+            .context("transfer proof")?;
+        anyhow::Ok((transfer_data, merge_data))
     })?;
 
     // 5. Wait for the commitment to appear in the slot the transfer's proof
     // committed to.
-    wait_for_cache_commitment(&client, cache, CACHE_SLOT, &merge.output_hash)?;
-    log(
-        started,
-        &format!("cache slot {CACHE_SLOT} holds the merge output"),
-    );
+    timeline.stage("cache commitment", || {
+        wait_for_cache_commitment(&client, cache, CACHE_SLOT, &merge_data.output_utxo_hash)
+    })?;
 
     // 6. Send the transfer and close the cache account.
     let sponsor_before = client.get_balance(rent_sponsor.pubkey())?;
@@ -278,7 +257,7 @@ fn main() -> Result<()> {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transfer.with_proof(ProofCompressed::try_from(transfer_proof)?.to_transact_proof()),
+        data: transfer_data,
     }
     .instruction_with_cache_read(cache);
     let close_cache_ix = CloseCache {
@@ -287,14 +266,15 @@ fn main() -> Result<()> {
         writer: Some(rent_sponsor.pubkey()),
     }
     .instruction();
-    let signature = client.create_and_send_transaction(
-        &[transfer_ix, close_cache_ix],
-        sender.pubkey(),
-        &[&sender, &rent_sponsor],
-        client.compute_budget(),
-    )?;
-    let slot = landed_slot(&client, signature)?;
-    log(started, "transfer transaction confirmed");
+    let slot = timeline.stage("transfer send and confirm", || {
+        let signature = client.create_and_send_transaction(
+            &[transfer_ix, close_cache_ix],
+            sender.pubkey(),
+            &[&sender, &rent_sponsor],
+            client.compute_budget(),
+        )?;
+        landed_slot(&client, signature)
+    })?;
 
     assert_cache_closed_and_refunded(&client, cache, rent_sponsor.pubkey(), sponsor_before)?;
     assert_balances_after_transfer(
@@ -306,6 +286,7 @@ fn main() -> Result<()> {
         TRANSFER_AMOUNT,
         total - TRANSFER_AMOUNT,
     )?;
+    timeline.print_summary();
 
     Ok(())
 }

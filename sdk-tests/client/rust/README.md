@@ -71,13 +71,9 @@ registry record opted into merging, so any caller may merge for it.
    indexer for the output's Merkle proof and only then proves.
 5. Send the transfer.
 
-```text
-t+  0.000s  merge proof requested
-t+  1.102s  merge proof ready
-t+  1.625s  merge transaction confirmed
-t+  1.748s  merged output indexed, transfer proof ready
-t+  2.262s  transfer transaction confirmed
-```
+Each stage prints as it ends. The run closes with two tables, every stage with
+its start, end, and duration, and every prover request with its round trip and
+the stage spans the prover reports.
 
 ### Run
 
@@ -115,21 +111,13 @@ proof still proves the sender owns every input it draws from the cache.
 Step 2 works because the merged output's blinding is derived rather than
 random: the client knows the output commitment before the merge is submitted.
 
-The run prints its own timeline, which is where the ordering shows up:
-
-```text
-t+  0.000s  merge and transfer proofs requested
-t+  0.061s  transfer proof ready
-t+  1.131s  merge proof ready
-t+  1.652s  merge transaction confirmed
-t+  1.652s  cache slot 0 holds the merge output
-t+  2.168s  transfer transaction confirmed
-```
+The run prints the same stage and prover tables, and the ordering shows up in
+them: the transfer proof ends long before the merge lands.
 
 Helpers keep both examples down to their flow. `src/merge.rs` holds what they
-share: the timeline log, the merge proof packing, and the `assert_*` checks.
-`src/cached_merge.rs` holds the cache-specific parts: `assemble_cached_transfer`
-fetches the nullifier proofs for a spend whose input names its cache slot with
+share: the `Timeline`, `MergeRequest` for proving a merge by either proof data
+route, and the `assert_*` checks. `src/cached_merge.rs` holds the cache-specific
+parts: `CachedTransfer` proves a spend whose input names its cache slot with
 `with_cache_slot` and whose proof inputs name the cache with `with_read_cache`,
 and `wait_for_cache_commitment` polls the account. The SDK derives the cache
 selection itself, and because every input of the transfer's tree is cached or
@@ -155,3 +143,31 @@ the gap in production. The indexing wait grows with tree depth and indexer load,
 and the transfer proof grows with its shape -- a wide transfer proof costs
 seconds, and in the cached flow all of it overlaps the merge proof instead of
 following it.
+
+## Measure against a deployed prover
+
+Both merge examples also run against an existing deployment, where the numbers
+include a real network and a real cluster. The programs and the tree must already
+exist there.
+
+```bash
+ZOLANA_EXAMPLE_PAYER=~/devnet-payer.json \
+ZOLANA_RPC_URL=https://RPC \
+ZOLANA_INDEXER_URL=https://INDEXER \
+ZOLANA_PROVER_URL='https://PROVER?api-key=KEY' \
+ZOLANA_PROOF_DATA_SOURCE=prover \
+  cargo run -p client-example --example optimized_merge_transfer
+```
+
+- `ZOLANA_EXAMPLE_PAYER` names a funded keypair file. Setting it selects this
+  mode. The payer funds a fresh sender and rent sponsor and gets back what they
+  hold when the run exits, after an error or a panic too. A failure during setup
+  or a killed process strands those funds, a cache left open keeps its rent, and
+  the deposits always stay in a private balance whose keys the run discards.
+- `ZOLANA_PROOF_DATA_SOURCE` is `prover`, the default, where the prover
+  fetches the Merkle data from its own indexer, or `client`, where the example
+  fetches it. The prover route needs a prover started with an indexer.
+- `ZOLANA_TREE_ID` selects the tree, `0` by default.
+- The prover table shows server spans only from a prover started with
+  `PROVER_REQUEST_TIMING=true`. Without it the table shows round trips alone.
+
