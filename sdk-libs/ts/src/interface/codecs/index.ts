@@ -23,7 +23,7 @@ import type {
   TreeHeadRoots,
 } from "../types.js";
 import { validCacheAccess } from "../cache.js";
-import { MERGE_INPUT_COUNT } from "../constants.js";
+import { MERGE_SUPPORTED_INPUT_COUNTS } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
   CACHE_ACCOUNT_SIZE,
@@ -309,7 +309,7 @@ export function encodeTransactInstructionData(value: TransactInstructionData): U
 }
 
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
-  if (value.nullifiers.length !== MERGE_INPUT_COUNT) {
+  if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(value.nullifiers.length)) {
     fail("INTERFACE_INVALID_LENGTH", { nullifiers: value.nullifiers.length });
   }
   writer
@@ -330,10 +330,18 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     });
 }
 
+const MERGE_FIXED_DATA_LENGTH = 271;
+
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, value.cacheSlot === undefined ? 527 : 528);
+  return encoded(
+    value,
+    writeMergeData,
+    MERGE_FIXED_DATA_LENGTH +
+      32 * value.nullifiers.length +
+      (value.cacheSlot === undefined ? 0 : 1),
+  );
 }
 
 export function mergeExternalDataHash(

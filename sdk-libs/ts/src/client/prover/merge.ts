@@ -5,10 +5,15 @@ import type {
   RequestContext,
 } from "../../interface/types.js";
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
+import {
+  MAX_MERGE_INPUTS,
+  MERGE_SUPPORTED_INPUT_COUNTS,
+  mergePaddedInputCount,
+} from "../../interface/constants.js";
 import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
-import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
+import { PreparedMerge } from "../../transaction/instructions/builders.js";
 
 import { CACHE_CAPACITY } from "../../interface/state.js";
 import type {
@@ -305,7 +310,7 @@ export function prepareMerge(
     poseidon([
       hashChain4(inputHashes),
       bytesToBigInt(outputHash),
-      hashChain4(Array.from({ length: MERGE_INPUTS }, () => 0n)),
+      hashChain4(Array.from({ length: inputHashes.length }, () => 0n)),
       bytesToBigInt(externalDataHash),
       bytesField(privateTxBlinding, "merge private tx blinding"),
     ]),
@@ -440,9 +445,10 @@ function checkNullifierRoot(
 
 function validatePreparedMerge(prepared: PreparedMerge): void {
   if (!(prepared instanceof PreparedMerge)) throw new ClientError("CLIENT_INVALID_MERGE");
-  if (prepared.inputs.length !== MERGE_INPUTS) {
+  const actual = prepared.inputs.length;
+  if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(actual)) {
     throw new ClientError("CLIENT_INVALID_MERGE_SHAPE", {
-      details: { expected: MERGE_INPUTS, actual: prepared.inputs.length },
+      details: { expected: mergePaddedInputCount(actual) ?? MAX_MERGE_INPUTS, actual },
     });
   }
   let total = 0n;

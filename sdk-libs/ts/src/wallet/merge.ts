@@ -18,7 +18,7 @@ import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { initializePoseidon } from "../hasher/index.js";
-import { MERGE_INPUT_COUNT } from "../interface/constants.js";
+import { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../interface/constants.js";
 import {
   isPlainUtxo,
   selectUtxos,
@@ -125,9 +125,9 @@ function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
       .utxos()
       .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
     if (hashes.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-    if (hashes.length > MERGE_INPUT_COUNT) {
+    if (hashes.length > MAX_MERGE_INPUTS) {
       throw new WalletError("WALLET_TOO_MANY_INPUTS", {
-        details: { got: hashes.length, max: MERGE_INPUT_COUNT },
+        details: { got: hashes.length, max: MAX_MERGE_INPUTS },
       });
     }
     const seen = new Set<string>();
@@ -159,6 +159,7 @@ export interface MergeTransactionParams {
   readonly keys: WalletKeys;
   readonly feePayer: Address;
   readonly asset?: Address;
+  /** Up to `MAX_MERGE_INPUTS` named notes, else the `MERGE_INPUT_COUNT` smallest. */
   readonly inputs?: readonly Bytes32[];
   readonly approve?: ApprovalHandler;
 }

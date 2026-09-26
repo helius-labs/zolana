@@ -1127,7 +1127,7 @@ function checkProofAuthority(keys: unknown): asserts keys is ProofAuthority {
   if (!hasProofMethods(keys)) throw new ClientError("CLIENT_INVALID_PROOF_AUTHORITY");
 }
 
-/** Mirrors Rust `MERGE_CU_LIMIT`, the merge verifies one proof over eight inputs. */
+/** Mirrors Rust `MERGE_CU_LIMIT`. */
 export const MERGE_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 
 export async function buildUnsignedTransaction(

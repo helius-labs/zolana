@@ -5,12 +5,19 @@
  * package root, which imports the codecs.
  */
 
-/** Input slots a merge proof spends. The shape is fixed at 8-in/1-out. */
+/** Input slots of the narrower merge proof, the width an automatic merge sweeps. */
 export const MERGE_INPUT_COUNT = 8;
+
+export const MAX_MERGE_INPUTS = 36;
 
 export const MERGE_SUPPORTED_INPUT_COUNTS: readonly number[] = Object.freeze([
   MERGE_INPUT_COUNT,
-  36,
+  MAX_MERGE_INPUTS,
 ]);
+
+/** The narrowest merge proof holding `realInputs`, undefined above `MAX_MERGE_INPUTS`. */
+export function mergePaddedInputCount(realInputs: number): number | undefined {
+  return MERGE_SUPPORTED_INPUT_COUNTS.find((count) => count >= realInputs);
+}
 
 export const RING_SPEND_COUNTERS_SLOT_INDEX = 0xffff_ffff;

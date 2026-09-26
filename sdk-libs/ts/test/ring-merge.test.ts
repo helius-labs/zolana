@@ -15,6 +15,7 @@ import {
   mergePrivateTxBlinding,
 } from "../src/keypair/merge/index.js";
 import { Merge, PreparedMerge } from "../src/transaction/instructions/builders.js";
+import { privateTxHash } from "../src/transaction/instructions/transact.js";
 import { Data } from "../src/transaction/data.js";
 import { Utxo, ProofInputUtxo } from "../src/transaction/utxo.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
@@ -95,6 +96,59 @@ function spendProof(input: ProofInputUtxo): SpendProof {
       rootIndex: 0,
     },
     nullifier: nonInclusion(input.nullifier()),
+  };
+}
+
+function ringWallet(amounts: readonly bigint[]): Wallet {
+  const wallet = new Wallet({ identity: owner.shieldedAddress(), registry: new AssetRegistry() });
+  wallet._replace({
+    utxos: amounts.map((amount, index) => {
+      const proof = input(amount);
+      return {
+        utxo: proof.utxo,
+        outputContext: { hash: proof.hash(), tree: treeAddress(7), leafIndex: BigInt(index) },
+        nullifier: proof.nullifier(),
+        spent: false,
+      };
+    }),
+    transactions: [],
+    nullifiers: new Set(),
+  });
+  return wallet;
+}
+function provenMerge(prepared: PreparedMerge) {
+  return prepareMerge(prepared, treeAddress(7))
+    .finish({
+      slot: { id: 7, utxoRoot: field(1), nullifierRoot: field(2) },
+      utxoRootIndex: 0,
+      nullifierRootIndex: 0,
+    })
+    .instructionData({ a: field(0), b: new Uint8Array(128) as Bytes128, c: field(0) });
+}
+function ringMergeParams({
+  proveMerge,
+  wallet,
+  keys,
+  proofDataSource,
+}: Readonly<{
+  proveMerge: MergeAssembler["proveMerge"];
+  wallet: Wallet;
+  keys: LocalKeys;
+  proofDataSource: "client" | "prover";
+}>) {
+  return {
+    client: {
+      proofDataSource,
+      tree: treeAddress(7),
+      treeId: 7,
+      getAccount: async () => undefined,
+      getLatestBlockhash: async () => BLOCKHASH,
+      proveMerge,
+    },
+    ringProgramId: RING,
+    wallet,
+    keys,
+    feePayer: owner.shieldedAddress().solanaAddress(),
   };
 }
 
@@ -200,31 +254,12 @@ describe("ring merge", () => {
   );
 
   it("proves a ring merge through the client and retries a lagging prover indexer", async () => {
-    const wallet = new Wallet({ identity: owner.shieldedAddress(), registry: new AssetRegistry() });
-    wallet._replace({
-      utxos: [3n, 5n].map((amount) => {
-        const proof = input(amount);
-        return {
-          utxo: proof.utxo,
-          outputContext: { hash: proof.hash(), tree: treeAddress(7), leafIndex: 0n },
-          nullifier: proof.nullifier(),
-          spent: false,
-        };
-      }),
-      transactions: [],
-      nullifiers: new Set(),
-    });
+    const wallet = ringWallet([3n, 5n]);
     const answers: ("forged" | "lagging" | "proof")[] = ["forged", "lagging", "proof"];
     const proveMerge = vi.fn<MergeAssembler["proveMerge"]>(async ({ prepared }) => {
       const answer = answers.shift();
       if (answer === "lagging") throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
-      const data = prepareMerge(prepared, treeAddress(7))
-        .finish({
-          slot: { id: 7, utxoRoot: field(1), nullifierRoot: field(2) },
-          utxoRootIndex: 0,
-          nullifierRootIndex: 0,
-        })
-        .instructionData({ a: field(0), b: new Uint8Array(128) as Bytes128, c: field(0) });
+      const data = provenMerge(prepared);
       return {
         data: answer === "forged" ? { ...data, outputUtxoHash: field(9) } : data,
         outputHash: data.outputUtxoHash,
@@ -235,20 +270,7 @@ describe("ring merge", () => {
       proveMerge: vi.fn(),
     });
     const build = (proofDataSource: "client" | "prover") =>
-      buildRingMergeTransaction({
-        client: {
-          proofDataSource,
-          tree: treeAddress(7),
-          treeId: 7,
-          getAccount: async () => undefined,
-          getLatestBlockhash: async () => BLOCKHASH,
-          proveMerge,
-        },
-        ringProgramId: RING,
-        wallet,
-        keys,
-        feePayer: owner.shieldedAddress().solanaAddress(),
-      });
+      buildRingMergeTransaction(ringMergeParams({ proveMerge, wallet, keys, proofDataSource }));
     try {
       await expect(build("client")).rejects.toMatchObject({
         code: "RING_BUILD_MERGE",
@@ -262,15 +284,77 @@ describe("ring merge", () => {
     }
   });
 
-  it.each([2, 8])("preserves owner, asset, value and ring for %s fragmented inputs", (count) => {
+  it("merges up to maxInputs ring notes and refuses a width outside 2 through 36", async () => {
+    const wallet = ringWallet(Array.from({ length: 10 }, (_, index) => BigInt(index + 1)));
+    const proveMerge = vi.fn<MergeAssembler["proveMerge"]>(async ({ prepared }) => {
+      const data = provenMerge(prepared);
+      return { data, outputHash: data.outputUtxoHash };
+    });
+    const keys = LocalKeys.fromKeypair(owner, { prove: vi.fn(), proveMerge: vi.fn() });
+    const build = (maxInputs: number) =>
+      buildRingMergeTransaction({
+        ...ringMergeParams({ proveMerge, wallet, keys, proofDataSource: "prover" }),
+        maxInputs,
+      });
+    try {
+      for (const [maxInputs, causeCode] of [
+        [37, "RING_TOO_MANY_INPUTS"],
+        [1, "RING_NOTHING_TO_MERGE"],
+        [-1, "RING_NOTHING_TO_MERGE"],
+        [2.5, "RING_NOTHING_TO_MERGE"],
+        [Number.NaN, "RING_NOTHING_TO_MERGE"],
+      ] as const) {
+        await expect(build(maxInputs)).rejects.toMatchObject({
+          code: "RING_BUILD_MERGE",
+          causeCode,
+        });
+      }
+      expect(proveMerge).not.toHaveBeenCalled();
+      expect(wallet._reservationEntries()).toHaveLength(0);
+      await build(9);
+      const prepared = proveMerge.mock.calls[0]?.[0].prepared;
+      expect(prepared?.inputs).toHaveLength(36);
+      expect(prepared?.inputs.filter((spend) => !spend.isDummy())).toHaveLength(9);
+    } finally {
+      keys.destroy();
+    }
+  });
+
+  it.each([
+    [2, 8],
+    [8, 8],
+    [9, 36],
+    [36, 36],
+  ])("preserves owner, asset, value and ring for %s fragmented inputs", (count, width) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
     const prepared = merge(inputs).prepare();
-    expect(prepared.inputs).toHaveLength(8);
+    expect(prepared.inputs).toHaveLength(width);
     expect(prepared.output.amount).toBe(BigInt((count * (count + 1)) / 2));
     expect(prepared.output.asset).toBe(SOL_MINT);
     expect(prepared.output.ringProgramId).toBe(RING);
     expect(prepared.output.ownerAddress?.toBytes()).toEqual(owner.shieldedAddress().toBytes());
     expect(prepared.outputTreeId).toBe(7);
+  });
+
+  it.each([2, 9, 36])("chains one zero address per padded slot of a %i-input merge", (count) => {
+    const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
+    const prepared = merge(inputs).prepare();
+    const assembly = assembleMergeWithProofs(
+      prepared,
+      inputs.map(spendProof),
+      treeAddress(7),
+      prepared.dummyNullifiers().map(nonInclusion),
+    );
+    expect(assembly.privateTxHash).toEqual(
+      privateTxHash({
+        inputHashes: prepared.inputs.map((spend) =>
+          spend.isDummy() ? (new Uint8Array(32) as Bytes32) : spend.hash(),
+        ),
+        outputHashes: [assembly.outputHash],
+        externalDataHash: assembly.externalDataHash,
+        blinding: prepared.privateTxBlinding(),
+      }),
+    );
   });
 
   it("binds a separate output tree and sends a ring merge proof request", () => {
@@ -291,14 +375,14 @@ describe("ring merge", () => {
     expect(assembly.outputHash).not.toEqual(prepared.output.hash(7));
   });
 
-  it("refuses foreign rings, owner data, and more than eight inputs", () => {
+  it("refuses foreign rings, owner data, and more than 36 inputs", () => {
     expect(() => merge([input(3n), input(5n, treeAddress(1))])).toThrow(
       "TRANSACTION_MERGE_INPUT_RING_MISMATCH",
     );
     expect(() =>
       merge([input(3n, RING, new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]))]),
     ).toThrow("TRANSACTION_MERGE_INPUT_HAS_DATA");
-    expect(() => merge(Array.from({ length: 9 }, (_, index) => input(BigInt(index + 1))))).toThrow(
+    expect(() => merge(Array.from({ length: 37 }, (_, index) => input(BigInt(index + 1))))).toThrow(
       "TRANSACTION_TOO_MANY_INPUTS",
     );
   });

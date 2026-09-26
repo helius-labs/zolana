@@ -355,6 +355,37 @@ describe("private transaction construction", () => {
     expect(split).toMatchObject({ numOutputs: 2, perOutputAmount: 50n });
     expect(merge).toMatchObject({ numInputs: 2, mergedAmount: 50n });
   });
+
+  it("pads named merge inputs to the narrowest proof and refuses more than 36", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = fundedWallet(
+      keypair,
+      Array.from({ length: 37 }, (_, index) => BigInt(index + 1)),
+    );
+    const hashes = wallet.utxos().map((entry) => entry.outputContext.hash);
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+    for (const [count, width] of [
+      [8, 8],
+      [9, 36],
+      [36, 36],
+    ] as const) {
+      const merge = await createMerge({
+        wallet,
+        keys,
+        asset: SOL_MINT,
+        inputs: hashes.slice(0, count),
+      });
+      expect(merge.numInputs).toBe(count);
+      expect(merge.prepared.inputs).toHaveLength(width);
+      wallet._releaseReservation(merge.reservationId);
+    }
+    await expect(
+      createMerge({ wallet, keys, asset: SOL_MINT, inputs: hashes }),
+    ).rejects.toMatchObject({
+      code: "WALLET_TOO_MANY_INPUTS",
+      details: { got: 37, max: 36 },
+    });
+  });
 });
 
 describe("prover indexer lag", () => {

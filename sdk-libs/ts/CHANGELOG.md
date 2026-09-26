@@ -105,6 +105,9 @@ Breaking
 - `UtxoData`, `DepositEntry.utxoData` and `RingDepositEntry.dataHash` are
   removed, so a deposit output never carries application data → attach data
   to a UTXO through a proven transaction instead.
+- `MERGE_INPUTS` is removed from `@heliuslabs/zolana/transaction` → import
+  `MERGE_INPUT_COUNT`, the eight-input default, or `MAX_MERGE_INPUTS` from
+  `@heliuslabs/zolana/interface`.
 
 Added
 
@@ -150,8 +153,11 @@ Added
   then proves auditor-readable openings for up to eight deposits, and
   `GetByTagsRequest.ringProgramId` scopes a scan to one ring, deposits to
   unknown recipients included.
-- `buildRingMergeTransaction` and `createRingMergeSubmission` consolidate up to
-  eight ring notes of one owner and asset.
+- `Merge` and the named `inputs` of `buildMergeTransaction` take up to
+  `MAX_MERGE_INPUTS` (36) notes in one transaction, padded to the 36-input
+  proof above eight, and `buildRingMergeTransaction` and
+  `createRingMergeSubmission` consolidate up to `maxInputs` ring notes of one
+  owner and asset, eight by default and at most 36.
 - `createRingTransferSubmission` and its exit, withdrawal, delegate and
   registration counterparts return a `RingTransactionSubmission` that retries
   a stale key registry root or window failure and keeps the spent notes
@@ -188,6 +194,8 @@ Changed
 Fixed
 
 - `ProverClient` explicitly requests queued delivery after synchronous admission is refused.
+- Wallet sync skipped the output of a merge with more than eight inputs, such
+  as one the Rust SDK built, and the merged note now appears in the wallet.
 - `CLIENT_INVALID_FIELD` and `CLIENT_INVALID_INTEGER` copied the rejected
   value, a nullifier secret included, into `details` and the error's JSON,
   and `ZolanaClient.proveMerge` could throw an error other than

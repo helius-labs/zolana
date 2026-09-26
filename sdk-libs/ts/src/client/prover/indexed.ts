@@ -5,6 +5,7 @@ import {
 } from "../../interface/state.js";
 import { getBase58Decoder } from "@solana/kit";
 import { wireDecoder } from "../../interface/decode.js";
+import { MERGE_SUPPORTED_INPUT_COUNTS } from "../../interface/constants.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
   inputTreeSlots,
@@ -317,7 +318,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
   )
     throw invalid();
   if (inputs.circuit === "merge") {
-    if (inputs.payload.inputs.length !== 8 && inputs.payload.inputs.length !== 36) throw invalid();
+    if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(inputs.payload.inputs.length)) throw invalid();
   } else {
     if (
       inputs.payload.cacheIsCached.length !== 0 &&
