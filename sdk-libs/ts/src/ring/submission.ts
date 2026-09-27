@@ -28,6 +28,7 @@ import {
   type PendingWalletSubmission,
 } from "../transaction/wallet/state.js";
 import { equalBytes } from "../wallet/internal.js";
+import { assertVersion1Transaction } from "../flows/compile.js";
 import { RingError, RingProgramError } from "./error.js";
 
 /** Keeps the signed intent and validity bounds of one transaction attempt. */
@@ -393,6 +394,7 @@ export function createKitRingSubmissionTransport(
     send: async (transaction, context) => {
       assertIsFullySignedTransaction(transaction);
       assertIsTransactionWithinSizeLimit(transaction);
+      assertVersion1Transaction(transaction);
       return runKitRpc("sendTransaction", context, async (abortSignal) => {
         try {
           await send(transaction, { commitment: client.commitment, abortSignal });

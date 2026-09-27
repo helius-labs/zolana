@@ -237,6 +237,7 @@ impl AsyncRpc for AsyncSolanaRpc {
         transaction: &VersionedTransaction,
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
+        crate::rpc::transaction::ensure_version_1(&transaction.message)?;
         self.client
             .send_transaction_with_config(transaction, config)
             .await
@@ -258,6 +259,7 @@ impl AsyncRpc for AsyncSolanaRpc {
             operation: "process_transaction",
             source,
         };
+        crate::rpc::transaction::ensure_version_1(&transaction.message)?;
         let commitment = self.client.commitment();
         let signature = self
             .client

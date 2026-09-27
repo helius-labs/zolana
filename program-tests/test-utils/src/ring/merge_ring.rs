@@ -2,9 +2,8 @@
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
-use zolana_client::{MergeProver, ProverClient};
+use zolana_client::{ComputeBudgetConfig, MergeProver, ProverClient};
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
 };
@@ -15,7 +14,7 @@ use zolana_transaction::Utxo;
 
 use super::{MergeRingRecord, RingHarness, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{
-    localnet::{pack_merge_proof, send_transaction, ZERO},
+    localnet::{pack_merge_proof, send_transaction_with_budget, ZERO},
     nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::{
         assert_account_unchanged, assert_merge_ring, fetch_account, wait_for_indexed_transaction,
@@ -261,12 +260,12 @@ impl RingHarness {
             cache: None,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let send_result = send_transaction(
+        let send_result = send_transaction_with_budget(
             &mut self.rpc,
-            &[compute_budget, merge_ix.clone()],
+            &[merge_ix.clone()],
             &payer.pubkey(),
             &[&payer],
+            ComputeBudgetConfig::new(1_400_000),
         );
         if expect_proof_rejection {
             match send_result {
@@ -327,12 +326,12 @@ impl RingHarness {
             // distinct from the landed one, so the runtime reaches the program
             // instead of dropping it as an already-processed signature. In a v1
             // transaction that difference sits in the message header.
-            let replay_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_399_999);
-            match send_transaction(
+            match send_transaction_with_budget(
                 &mut self.rpc,
-                &[replay_budget, merge_ix],
+                &[merge_ix],
                 &payer.pubkey(),
                 &[&payer],
+                ComputeBudgetConfig::new(1_399_999),
             ) {
                 Ok(_) => return Err(anyhow!("replayed ring merge unexpectedly succeeded")),
                 Err(error) => {
@@ -416,12 +415,12 @@ impl RingHarness {
             cache: None,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        match send_transaction(
+        match send_transaction_with_budget(
             &mut self.rpc,
-            &[compute_budget, merge_ix],
+            &[merge_ix],
             &payer.pubkey(),
             &[&payer],
+            ComputeBudgetConfig::new(1_400_000),
         ) {
             Ok(_) => Err(anyhow!(
                 "ring merge with an invalid proof unexpectedly succeeded"

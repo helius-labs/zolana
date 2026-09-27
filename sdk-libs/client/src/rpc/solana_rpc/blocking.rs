@@ -258,9 +258,9 @@ impl Rpc for SolanaRpc {
         transaction: &VersionedTransaction,
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
-        // Sends and returns; it does not confirm, matching the legacy
-        // `send_transaction_with_config` above rather than the confirming
-        // `process_transaction` below.
+        crate::rpc::transaction::ensure_version_1(&transaction.message)?;
+        // Sends and returns; it does not confirm. Confirmation is
+        // `process_transaction`.
         self.client
             .send_transaction_with_config(transaction, config)
             .map_err(|source| ClientError::SolanaRpcTransaction {
@@ -281,6 +281,7 @@ impl Rpc for SolanaRpc {
             operation: "process_transaction",
             source,
         };
+        crate::rpc::transaction::ensure_version_1(&transaction.message)?;
         let commitment = self.client.commitment();
         let signature = self
             .client

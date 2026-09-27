@@ -187,8 +187,8 @@ export function ringWithdrawalsOf(
 
 /**
  * Mirrors Rust `ConfirmedInstructionGroups::from_confirmed_transaction` over a
- * `getTransaction` JSON result. A v0 transaction resolves program ids through
- * `loadedAddresses`, appended writable first.
+ * `getTransaction` JSON result. Version 1 lists every account in the message,
+ * so a lookup table's loaded addresses are rejected.
  */
 export function confirmedInstructionGroups(
   transaction: unknown,
@@ -201,10 +201,11 @@ export function confirmedInstructionGroups(
   const loaded = meta["loadedAddresses"];
   if (loaded !== undefined && loaded !== null) {
     const loadedRecord = record(loaded, "meta.loadedAddresses");
-    accountKeys.push(
-      ...addresses(loadedRecord["writable"], "meta.loadedAddresses.writable"),
-      ...addresses(loadedRecord["readonly"], "meta.loadedAddresses.readonly"),
-    );
+    const writable = addresses(loadedRecord["writable"], "meta.loadedAddresses.writable");
+    const readonly = addresses(loadedRecord["readonly"], "meta.loadedAddresses.readonly");
+    if (writable.length > 0 || readonly.length > 0) {
+      throw invalid("meta.loadedAddresses");
+    }
   }
   const groups = list(message["instructions"], "message.instructions").map(
     (instruction, index): { outer: OriginInstruction; inner: OriginInstruction[] } => ({

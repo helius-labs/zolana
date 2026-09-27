@@ -12,13 +12,10 @@ use mollusk_svm::{result::Check, Mollusk};
 use num_bigint::BigUint;
 use solana_account::Account;
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
-use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 use zolana_client::{
     transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof,
     ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
@@ -274,18 +271,9 @@ fn proving_time_table(spp: Duration) -> SectionTable {
     }
 }
 
-/// The instruction measured against both packet ceilings. The legacy row keeps
-/// its compute-budget prefix because a legacy transaction had to buy its budget
-/// with an instruction; v1 states the same ceilings in the message header, so
-/// its row is the instruction alone.
+/// The version 1 transaction this instruction is sent as. Its compute ceilings
+/// live in the message header.
 fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
-    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-
-    let message = Message::new(&[compute, ix.clone()], Some(payer));
-    let legacy = bincode::serialize(&Transaction::new_unsigned(message))
-        .expect("serialize legacy")
-        .len();
-
     let v1 = transaction_size(
         payer,
         std::slice::from_ref(ix),
@@ -296,16 +284,10 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
 
     SectionTable {
         title: "Transaction Size".into(),
-        headers: vec![
-            "Instruction Data".into(),
-            "Accounts".into(),
-            "Legacy Tx".into(),
-            "v1 Tx".into(),
-        ],
+        headers: vec!["Instruction Data".into(), "Accounts".into(), "v1 Tx".into()],
         rows: vec![vec![
             format!("{} bytes", ix.data.len()),
             ix.accounts.len().to_string(),
-            format!("{} bytes", legacy),
             format!("{} bytes", v1),
         ]],
     }
@@ -333,12 +315,8 @@ fn bench_cu_rfq() {
              `#[profile]` functions appear in the CU table; the tree account is built directly (the \
              program's `create_tree` init plus the input utxo hashes appended). The section also \
              records the SPP transfer proving time (warm, key already loaded) and the serialized \
-             transaction size, measured twice: as a legacy transaction, which must prefix a \
-             compute-budget limit ix and may not exceed 1232 bytes, and as the transaction v1 the \
-             settlement is actually sent as, which states its compute ceilings in the message \
-             header, carries two signatures, and may run to 4096 bytes. The protocol now sits \
-             between the two, so the legacy column is what a row would have to fit to be sendable \
-             the old way, not a limit that binds today."
+             size of the version 1 transaction the settlement is sent as, which states its compute \
+             ceilings in the message header and may run to 4096 bytes."
                 .into(),
         output_path: OUTPUT_PATH.into(),
         regenerate_command: Some("just bench-rfq".into()),

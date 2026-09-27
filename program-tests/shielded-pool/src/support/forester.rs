@@ -7,14 +7,15 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
+    BatchAddressAppendInputs, ComputeBudgetConfig, ProofCompressed, ProverClient, Rpc, SolanaRpc,
+    NULLIFIER_TREE_HEIGHT,
 };
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_program::instruction::BatchUpdateNullifierTree;
 use zolana_smart_account_client::execute_sync_ix;
-use zolana_test_utils::localnet::send_transaction;
+use zolana_test_utils::localnet::{send_transaction, send_transaction_with_budget};
 use zolana_transaction::instructions::transact::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
@@ -65,20 +66,14 @@ impl NullifierTestForester {
             &[batch_update],
         );
         let fee_payer = authority.signer.pubkey();
-        // Request the full budget so the caller's asserted CU ceiling sits
-        // below the enforced limit: a batch-update regression then fails the
-        // ceiling assert instead of aborting at the 200k default budget. The
-        // sender lifts this request into the v1 message header, which is where
-        // a v1 transaction states its ceilings.
-        let compute_budget =
-            solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-                1_400_000,
-            );
-        let signature = send_transaction(
+        // The full budget keeps a batch-update regression under the ceiling
+        // assert instead of aborting at the implicit per-instruction budget.
+        let signature = send_transaction_with_budget(
             rpc,
-            &[compute_budget, execute],
+            &[execute],
             &fee_payer,
             &[authority.signer],
+            ComputeBudgetConfig::new(1_400_000),
         )?;
         self.mark_batch_inserted(queued_nullifiers, batch_len)?;
         Ok(signature)
