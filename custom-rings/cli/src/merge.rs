@@ -237,6 +237,7 @@ mod tests {
             nullifier_pubkey: [0u8; 32],
             utxo_hash: [leaf_index as u8; 32],
             nullifier: [leaf_index as u8; 32],
+            tx_viewing_key: None,
             data_hash: None,
             ring_data_hash: None,
             tree_id,

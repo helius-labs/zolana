@@ -603,6 +603,7 @@ impl Deposited<'_> {
                     utxo,
                     utxo_hash,
                     nullifier,
+                    tx_viewing_key: None,
                     nullifier_pubkey,
                     tree_id,
                     leaf_index: state.leaf_index,

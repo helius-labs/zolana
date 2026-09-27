@@ -195,6 +195,7 @@ impl SyncCtx<'_> {
             nullifier_pubkey: self.nullifier_pk,
             utxo_hash,
             nullifier,
+            tx_viewing_key: None,
             data_hash,
             ring_data_hash,
             tree_id: site.tree_id,

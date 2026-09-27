@@ -605,6 +605,7 @@ fn funded_utxo(keypair: &ShieldedKeypair, amount: u64) -> WalletUtxo {
         nullifier_pubkey,
         utxo_hash: hash,
         nullifier,
+        tx_viewing_key: None,
         data_hash: None,
         ring_data_hash: None,
         tree_id,

@@ -48,6 +48,7 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
             nullifier_pubkey: nullifier_key.pubkey()?,
             utxo_hash: hash,
             nullifier,
+            tx_viewing_key: None,
             data_hash: Some(data_hash),
             ring_data_hash: None,
             tree_id,

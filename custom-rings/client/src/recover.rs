@@ -219,6 +219,7 @@ impl<'a> MemberRecovery<'a> {
                     nullifier_pubkey: self.source.address.nullifier_pubkey,
                     utxo_hash: output_context.hash,
                     nullifier,
+                    tx_viewing_key: None,
                     data_hash: hashes.data_hash,
                     ring_data_hash: hashes.ring_data_hash,
                     tree_id,
@@ -296,6 +297,7 @@ impl<'a> MemberRecovery<'a> {
             seen.insert(output_context.hash);
             candidates.push(WalletUtxo {
                 nullifier: utxo.nullifier(&output_context.hash, self.source.nullifier_key)?,
+                tx_viewing_key: None,
                 utxo,
                 nullifier_pubkey: self.source.address.nullifier_pubkey,
                 utxo_hash: output_context.hash,
@@ -612,6 +614,7 @@ impl MergeOpening<'_, '_> {
         }
         Ok(Some(WalletUtxo {
             nullifier: utxo.nullifier(&slot.output_context.hash, self.source.nullifier_key)?,
+            tx_viewing_key: None,
             utxo,
             nullifier_pubkey: self.source.address.nullifier_pubkey,
             utxo_hash: slot.output_context.hash,

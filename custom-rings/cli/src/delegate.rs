@@ -418,6 +418,7 @@ mod tests {
             nullifier_pubkey: owner.nullifier_key.pubkey().expect("nullifier pubkey"),
             utxo_hash: [fixture.amount as u8; 32],
             nullifier: [fixture.amount as u8; 32],
+            tx_viewing_key: None,
             data_hash: None,
             ring_data_hash: None,
             leaf_index: fixture.amount,

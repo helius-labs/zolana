@@ -256,6 +256,7 @@ impl LifecycleHarness {
                 nullifier_pubkey: nullifier_pk,
                 utxo_hash: input_hash,
                 nullifier: input.nullifier(&input_hash, &keypair.nullifier_key)?,
+                tx_viewing_key: None,
                 data_hash: None,
                 ring_data_hash: None,
                 tree_id,

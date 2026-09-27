@@ -538,6 +538,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         nullifier_pubkey: nullifier_pk,
         utxo_hash: hash,
         nullifier,
+        tx_viewing_key: None,
         data_hash: None,
         ring_data_hash: None,
         tree_id: 0,

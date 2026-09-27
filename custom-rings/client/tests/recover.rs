@@ -92,6 +92,7 @@ impl Fixture {
             nullifier: utxo
                 .nullifier(&hash, &self.member.nullifier_key)
                 .expect("nullifier"),
+            tx_viewing_key: None,
             utxo,
             data_hash: output.data_hash,
             ring_data_hash: output.ring_data_hash,

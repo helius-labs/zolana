@@ -7,7 +7,7 @@ use super::{sender_owner_tag, ConfidentialTransaction, FinalizedTransaction};
 use crate::{
     error::TransactionError,
     instructions::transact::{ExternalData, SppProofInputs},
-    keys::{ShieldedKeys, TransactionKeyRequest},
+    keys::{first_input_transaction_key, ShieldedKeys},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
@@ -133,15 +133,12 @@ impl FinalizedTransaction {
         self,
         shielded_keys: &K,
     ) -> Result<SppProofInputs, TransactionError> {
-        let tx_viewing_key = shielded_keys.transaction_keys(&[TransactionKeyRequest {
-            viewing_pubkey: self.sender.viewing_pubkey,
-            first_nullifier: self.first_nullifier()?,
-        }])?;
-        let got = tx_viewing_key.len();
-        let tx_viewing_key = tx_viewing_key
-            .into_iter()
-            .next()
-            .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })?;
+        let tx_viewing_key = first_input_transaction_key(
+            shielded_keys,
+            self.sender.viewing_pubkey,
+            self.first_nullifier()?,
+            self.tx_viewing_key,
+        )?;
         self.encrypt_with_viewing_key(&tx_viewing_key)
     }
 

@@ -65,6 +65,7 @@ pub fn decrypt<K: ShieldedKeys + ?Sized>(
                     nullifier_pubkey: address.nullifier_pubkey,
                     utxo_hash: hash,
                     nullifier: [0; 32],
+                    tx_viewing_key: None,
                     data_hash: decoded.data_hash,
                     ring_data_hash: decoded.ring_data_hash,
                     tree_id: slot.output_context.tree_id,

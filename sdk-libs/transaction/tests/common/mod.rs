@@ -42,6 +42,7 @@ pub fn wallet_utxo(
         nullifier_pubkey,
         utxo_hash,
         nullifier,
+        tx_viewing_key: None,
         data_hash: None,
         ring_data_hash: None,
         tree_id,

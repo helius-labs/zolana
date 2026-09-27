@@ -50,6 +50,16 @@ pub struct WalletUtxo {
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
+    pub tx_viewing_key: Option<[u8; 32]>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub data_hash: Option<[u8; 32]>,
     #[cfg_attr(
         feature = "serde",
@@ -99,6 +109,7 @@ impl WalletUtxo {
             nullifier_pubkey: dummy.nullifier_pubkey,
             utxo_hash: dummy.utxo_hash,
             nullifier: dummy.nullifier,
+            tx_viewing_key: None,
             data_hash: dummy.data_hash,
             ring_data_hash: dummy.ring_data_hash,
             tree_id: dummy.tree_id,

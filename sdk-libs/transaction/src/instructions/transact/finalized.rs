@@ -28,6 +28,7 @@ pub struct FinalizedTransaction {
     pub(super) padding_owner: ShieldedAddress,
     pub(super) owner_tags: Vec<ResolvedOwnerTag>,
     pub(super) interface_transfers: Vec<SettlementTransfer>,
+    pub(super) tx_viewing_key: Option<[u8; 32]>,
 }
 
 impl ConfidentialTransaction {
@@ -83,6 +84,7 @@ impl ConfidentialTransaction {
             padding_owner,
             owner_tags,
             interface_transfers,
+            tx_viewing_key: self.inputs.first().and_then(|input| input.tx_viewing_key),
         })
     }
 }
