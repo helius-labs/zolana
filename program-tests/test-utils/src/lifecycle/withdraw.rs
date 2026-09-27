@@ -148,7 +148,7 @@ impl LifecycleHarness {
         .instruction();
         let sig = send_transaction_with_budget(
             &mut self.rpc,
-            &[withdraw_ix.clone()],
+            std::slice::from_ref(&withdraw_ix),
             &fee_payer.pubkey(),
             &[&fee_payer],
             ComputeBudgetConfig::new(1_400_000),

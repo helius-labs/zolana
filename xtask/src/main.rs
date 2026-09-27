@@ -704,10 +704,7 @@ fn tx_size(args: Vec<String>) {
             "| {:<14} | N | M | {:>11} | {:>20} | {:>18} |",
             "Circuit", "ix data (B)", "transfer v1 (B/addr)", "shield v1 (B/addr)",
         );
-        println!(
-            "|{:-<16}|---|---|{:-<13}|{:-<22}|{:-<20}|",
-            "", "", "", ""
-        );
+        println!("|{:-<16}|---|---|{:-<13}|{:-<22}|{:-<20}|", "", "", "", "");
     };
     let print_shape_row = |n: usize, m: usize, sizes: &ShapeSizes, transfer_applies: bool| {
         // A shape with no recipient position is not a transfer at all, so its

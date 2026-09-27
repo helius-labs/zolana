@@ -262,7 +262,7 @@ impl RingHarness {
         .instruction();
         let send_result = send_transaction_with_budget(
             &mut self.rpc,
-            &[merge_ix.clone()],
+            std::slice::from_ref(&merge_ix),
             &payer.pubkey(),
             &[&payer],
             ComputeBudgetConfig::new(1_400_000),
