@@ -67,7 +67,7 @@ impl Placeholder for Withdrawal {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         CircuitError,
@@ -89,8 +89,6 @@ mod circuit {
     }
 
     impl Circuit for Withdrawal {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;

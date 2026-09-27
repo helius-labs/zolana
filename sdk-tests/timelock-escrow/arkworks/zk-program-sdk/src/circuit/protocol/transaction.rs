@@ -4,15 +4,14 @@ use zolana_program::{
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
 
-use super::{
-    constant,
-    labels::Scope,
-    nonzero_hash_chain, poseidon,
-    utxo::{Output, SpentInput},
-    var::system_of,
-    zero, Assert, Bool, CircuitVar, DataUtxo, PublicTransfer, TokenUtxo, Uint, Utxo, UtxoData,
+use super::utxo::{Output, SpentInput};
+use crate::{
+    circuit::{
+        builtins::field::var::system_of, constant, labels::Scope, nonzero_hash_chain, poseidon,
+        zero, Assert, Bool, CircuitVar, DataUtxo, PublicTransfer, TokenUtxo, Uint, Utxo, UtxoData,
+    },
+    CircuitError, CircuitErrorKind, SlotKind,
 };
-use crate::{CircuitError, CircuitErrorKind, SlotKind};
 
 #[derive(Clone, Debug)]
 pub struct TxContext {

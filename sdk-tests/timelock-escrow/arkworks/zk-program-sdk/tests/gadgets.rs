@@ -544,10 +544,7 @@ fn integer_arithmetic_refuses_underflow_narrowing_and_zero_divisors() {
                 0 => vec![left.add::<65>(&right).var()],
                 1 => vec![left.checked_sub(&right, "no underflow")?.var()],
                 2 => vec![left.mul::<128>(&right).var()],
-                3 => vec![left
-                    .add::<65>(&right)
-                    .narrow::<64>("fits in 64 bits")?
-                    .var()],
+                3 => vec![left.checked_add(&right, "fits in 64 bits")?.var()],
                 _ => {
                     let (quotient, remainder) = left.div_rem::<64, 64>(&right, "divides")?;
                     vec![quotient.var(), remainder.var()]

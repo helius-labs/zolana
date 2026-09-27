@@ -4,7 +4,7 @@ error[E0277]: a circuit does no field arithmetic on `CircuitVar`
 4 |     let sum = left.clone() + right;
   |                            ^ field arithmetic wraps around the modulus, so it proves nothing about integers
   |
-  = help: the trait `circuit::var::rules::ArithmeticNeedsUint` is not implemented for `&CircuitVar`
+  = help: the trait `circuit::builtins::field::var::rules::ArithmeticNeedsUint` is not implemented for `&CircuitVar`
   = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the field operations `inverse`, `div` and `pow` of `Arithmetic`
   = note: required for `CircuitVar` to implement `Add<&CircuitVar>`
 
@@ -14,7 +14,7 @@ error[E0277]: a circuit does no field arithmetic on `CircuitVar`
 5 |     let scaled = &sum * Field::from(2u64);
   |                       ^ field arithmetic wraps around the modulus, so it proves nothing about integers
   |
-  = help: the trait `circuit::var::rules::ArithmeticNeedsUint` is not implemented for `ark_ff::fields::models::fp::Fp<ark_ff::fields::models::fp::montgomery_backend::MontBackend<ark_bn254::fields::fr::FrConfig, 4>, 4>`
+  = help: the trait `circuit::builtins::field::var::rules::ArithmeticNeedsUint` is not implemented for `ark_ff::fields::models::fp::Fp<ark_ff::fields::models::fp::montgomery_backend::MontBackend<ark_bn254::fields::fr::FrConfig, 4>, 4>`
   = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the field operations `inverse`, `div` and `pow` of `Arithmetic`
   = note: required for `&CircuitVar` to implement `Mul<ark_ff::fields::models::fp::Fp<ark_ff::fields::models::fp::montgomery_backend::MontBackend<ark_bn254::fields::fr::FrConfig, 4>, 4>>`
 
@@ -24,7 +24,7 @@ error[E0277]: a circuit does no field arithmetic on `CircuitVar`
 6 |     let mut total = scaled - right.clone();
   |                            ^ field arithmetic wraps around the modulus, so it proves nothing about integers
   |
-  = help: the trait `circuit::var::rules::ArithmeticNeedsUint` is not implemented for `CircuitVar`
+  = help: the trait `circuit::builtins::field::var::rules::ArithmeticNeedsUint` is not implemented for `CircuitVar`
   = note: turn the value into a range-checked `Uint<BITS>` with `Uint::from_var`, or use the field operations `inverse`, `div` and `pow` of `Arithmetic`
   = note: required for `CircuitVar` to implement `Sub`
 
@@ -34,7 +34,7 @@ error[E0277]: cannot add-assign `CircuitVar` to `CircuitVar`
 7 |     total += right.clone();
   |           ^^ no implementation for `CircuitVar += CircuitVar`
   |
-  = help: the trait `circuit::var::rules::ArithmeticNeedsUint` is not implemented for `CircuitVar`
+  = help: the trait `circuit::builtins::field::var::rules::ArithmeticNeedsUint` is not implemented for `CircuitVar`
   = note: required for `CircuitVar` to implement `AddAssign`
 
 error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
@@ -43,7 +43,7 @@ error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
 12 |     left == right || left < right
    |          ^^ no implementation for `&CircuitVar == &CircuitVar`
    |
-   = help: the trait `circuit::var::rules::ComparisonNeedsAssertOrUint` is not implemented for `CircuitVar`
+   = help: the trait `circuit::builtins::field::var::rules::ComparisonNeedsAssertOrUint` is not implemented for `CircuitVar`
    = note: required for `CircuitVar` to implement `PartialEq`
    = note: 1 redundant requirement hidden
    = note: required for `&CircuitVar` to implement `PartialEq<&CircuitVar>`
@@ -54,7 +54,7 @@ error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
 12 |     left == right || left < right
    |                           ^ no implementation for `&CircuitVar < &CircuitVar` and `&CircuitVar > &CircuitVar`
    |
-   = help: the trait `circuit::var::rules::ComparisonNeedsAssertOrUint` is not implemented for `CircuitVar`
+   = help: the trait `circuit::builtins::field::var::rules::ComparisonNeedsAssertOrUint` is not implemented for `CircuitVar`
    = note: required for `CircuitVar` to implement `PartialOrd`
    = note: 1 redundant requirement hidden
    = note: required for `&CircuitVar` to implement `PartialOrd<&CircuitVar>`

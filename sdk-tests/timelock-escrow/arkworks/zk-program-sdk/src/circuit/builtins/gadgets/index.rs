@@ -1,25 +1,10 @@
-use super::{constant, field, var::collect_array, Assert, Bool, CircuitVar, Field};
-use crate::{CircuitError, CircuitErrorKind};
-
-pub trait Select: Clone {
-    fn select(condition: &Bool, if_true: &Self, if_false: &Self) -> Self;
-}
-
-impl Select for CircuitVar {
-    fn select(condition: &Bool, if_true: &Self, if_false: &Self) -> Self {
-        if_false.plus(&condition.var().times(&if_true.minus(if_false)))
-    }
-}
-
-impl<T: Select, const N: usize> Select for [T; N] {
-    fn select(condition: &Bool, if_true: &Self, if_false: &Self) -> Self {
-        let mut selected = if_true.clone();
-        for (slot, alternative) in selected.iter_mut().zip(if_false) {
-            *slot = T::select(condition, slot, alternative);
-        }
-        selected
-    }
-}
+use crate::{
+    circuit::{
+        builtins::field::{primitive, var::collect_array},
+        constant, Assert, Bool, CircuitVar, Field, Select,
+    },
+    CircuitError, CircuitErrorKind,
+};
 
 #[track_caller]
 pub fn one_hot<const N: usize>(index: &CircuitVar) -> Result<[Bool; N], CircuitError> {
@@ -29,7 +14,7 @@ pub fn one_hot<const N: usize>(index: &CircuitVar) -> Result<[Bool; N], CircuitE
     }
     let flags: [Bool; N] = collect_array(flags)?;
     let vars: Vec<CircuitVar> = flags.iter().map(Bool::var).collect();
-    field::sum(&vars)
+    primitive::sum(&vars)
         .assert_equal(&constant(1u64), "the index is inside the array")
         .map_err(|error| match error.kind() {
             CircuitErrorKind::RuleBroken(_) => {

@@ -1,7 +1,10 @@
-use super::{
-    constant, field, labels::Scope, Assert, Bits, CircuitVar, Compare, Field, Select, Uint,
+use crate::{
+    circuit::{
+        builtins::field::primitive, constant, labels::Scope, Assert, Bits, CircuitVar, Compare,
+        Field, Select,
+    },
+    CircuitError,
 };
-use crate::CircuitError;
 
 #[derive(Clone, Debug)]
 pub struct Bool(CircuitVar);
@@ -29,10 +32,6 @@ impl Bool {
 
     pub fn var(&self) -> CircuitVar {
         self.0.clone()
-    }
-
-    pub fn to_uint(&self) -> Uint<1> {
-        Uint::trusted(self.0.clone())
     }
 
     pub fn not(&self) -> Self {
@@ -102,7 +101,7 @@ impl Bool {
 }
 
 fn sum(flags: &[Bool]) -> CircuitVar {
-    field::sum(flags.iter().map(|flag| &flag.0))
+    primitive::sum(flags.iter().map(|flag| &flag.0))
 }
 
 impl Assert for Bool {

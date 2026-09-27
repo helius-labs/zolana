@@ -78,7 +78,7 @@ impl Placeholder for SplitWithdraw {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
             Utxo,
         },
@@ -106,8 +106,6 @@ mod circuit {
     }
 
     impl Circuit for SplitWithdraw {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;

@@ -1,45 +1,24 @@
-mod arithmetic;
-mod asset;
-mod boolean;
-mod bytes;
+pub(crate) mod builtins;
 mod circuit_type;
-mod compare;
-pub(crate) mod field;
 pub(crate) mod labels;
-mod membership;
-mod owner;
-mod select;
-mod transaction;
-mod transfer;
-mod uint;
-mod utxo;
-pub(crate) mod var;
+mod protocol;
 
-pub use arithmetic::Arithmetic;
-pub use asset::Asset;
-pub use boolean::Bool;
-pub use bytes::Bytes;
-pub use circuit_type::{CircuitDefault, CircuitMarker, CircuitType};
-pub use compare::Compare;
+pub use builtins::{
+    assert_in, constant, from_bits_le, hash_bytes, is_in, nonzero_hash_chain, one_hot, poseidon,
+    select_index, value, zero, Arithmetic, Assert, Bits, Bool, Bytes, CircuitSystem, CircuitVar,
+    Compare, ConstraintSystem, Field, Select, Uint, Unsigned, U128, U16, U32, U64, U8,
+};
+pub use circuit_type::{CircuitDefault, CircuitType};
 pub use labels::{CircuitLabel, CircuitSize, FailedConstraint, LabelKind, VariableRole};
-pub use membership::{assert_in, is_in};
-pub use owner::{Owner, OwnerKey};
-pub use select::{one_hot, select_index, Select};
-pub use transaction::{CheckedTransaction, ConfidentialTransaction, PublicInputs, TxContext};
-pub(crate) use transfer::PublicTransfer;
-pub use uint::{Uint, Unsigned};
-pub use utxo::{checked_utxo_data, Balance, DataHash, DataUtxo, TokenUtxo, Utxo, UtxoData};
-pub use var::{
-    constant, from_bits_le, value, zero, Assert, Bits, CircuitSystem, CircuitVar, ConstraintSystem,
-    Field,
+pub(crate) use protocol::PublicTransfer;
+pub use protocol::{
+    checked_utxo_data, Asset, Balance, CheckedTransaction, ConfidentialTransaction, DataHash,
+    DataUtxo, Owner, OwnerKey, PublicInputs, TokenUtxo, TxContext, Utxo, UtxoData,
 };
 pub use zk_program_sdk_macros::{CircuitType, PublicInputs};
 
-pub use crate::circuit_lib::{hash_bytes, nonzero_hash_chain, poseidon};
 use crate::CircuitError;
 
 pub trait Circuit: CircuitType {
-    const MARKER: CircuitMarker;
-
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError>;
 }

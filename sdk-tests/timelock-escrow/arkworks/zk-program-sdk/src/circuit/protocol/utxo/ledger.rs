@@ -2,8 +2,9 @@ use ark_r1cs_std::boolean::Boolean;
 
 use crate::{
     circuit::{
-        field, labels::Scope, var::range_check, zero, Asset, Bytes, CircuitSystem, CircuitVar,
-        Owner, PublicTransfer, Uint,
+        builtins::field::{bits::range_check, primitive},
+        labels::Scope,
+        zero, Asset, Bytes, CircuitSystem, CircuitVar, Owner, PublicTransfer, Uint,
     },
     CircuitError, CircuitErrorKind,
 };
@@ -41,7 +42,7 @@ impl Accumulator {
             Err(_) => u32::MAX,
         };
         Self {
-            var: field::sum(amounts),
+            var: primitive::sum(amounts),
             bits: AMOUNT_BITS.saturating_add(growth),
         }
     }

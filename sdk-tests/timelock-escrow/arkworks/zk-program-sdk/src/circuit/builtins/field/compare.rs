@@ -1,5 +1,7 @@
-use super::{zero, Assert, Bool, CircuitVar};
-use crate::CircuitError;
+use crate::{
+    circuit::{zero, Assert, Bool, CircuitVar},
+    CircuitError,
+};
 
 pub trait Compare: Sized {
     #[track_caller]

@@ -260,7 +260,7 @@ impl Placeholder for Register {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
@@ -289,8 +289,6 @@ mod circuit {
     }
 
     impl Circuit for Payment {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;
@@ -315,8 +313,6 @@ mod circuit {
     }
 
     impl Circuit for Sweep {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;
@@ -374,8 +370,6 @@ mod circuit {
     }
 
     impl Circuit for Register {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

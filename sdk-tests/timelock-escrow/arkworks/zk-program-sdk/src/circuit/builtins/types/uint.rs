@@ -1,13 +1,19 @@
 use ark_ff::{AdditiveGroup, BigInteger, One, PrimeField};
 use ark_relations::r1cs::SynthesisError;
 
-use super::{
-    constant, field,
-    labels::{self, Scope},
-    var::{bits_le, range_check, system_of},
-    zero, Assert, Bool, CircuitVar, Field, Select,
+use crate::{
+    circuit::{
+        builtins::field::{
+            bits::{bits_le, range_check},
+            primitive,
+            var::system_of,
+        },
+        constant,
+        labels::{self, Scope},
+        zero, Assert, Bool, CircuitVar, Field, Select,
+    },
+    CircuitError, CircuitErrorKind,
 };
-use crate::{CircuitError, CircuitErrorKind};
 
 const MAX_BITS: u32 = 253;
 const MAX_ORDERED_BITS: u32 = 252;
@@ -18,6 +24,12 @@ const MAX_DIVIDED_BITS: u32 = 128;
 pub struct Uint<const BITS: u32> {
     var: CircuitVar,
 }
+
+pub type U8 = Uint<8>;
+pub type U16 = Uint<16>;
+pub type U32 = Uint<32>;
+pub type U64 = Uint<64>;
+pub type U128 = Uint<128>;
 
 mod sealed {
     pub trait Sealed {}
@@ -111,29 +123,34 @@ impl<const BITS: u32> Uint<BITS> {
             )
         };
         Uint {
-            var: field::sum(values.iter().map(|value| &value.var)),
-        }
-    }
-
-    pub fn widen<const OUT: u32>(&self) -> Uint<OUT> {
-        const {
-            assert!(
-                OUT >= BITS && OUT <= MAX_BITS,
-                "widen goes to at least as many bits and at most 253"
-            )
-        };
-        Uint {
-            var: self.var.clone(),
+            var: primitive::sum(values.iter().map(|value| &value.var)),
         }
     }
 
     #[track_caller]
-    pub fn narrow<const OUT: u32>(&self, rule: &'static str) -> Result<Uint<OUT>, CircuitError> {
-        const { assert!(OUT >= 1 && OUT < BITS, "narrow goes to fewer bits") };
-        fits(&self.var, OUT, rule)?;
-        Ok(Uint {
-            var: self.var.clone(),
-        })
+    pub fn checked_add(&self, other: &Self, rule: &'static str) -> Result<Self, CircuitError> {
+        const {
+            assert!(
+                BITS < MAX_BITS,
+                "checked_add adds values of at most 252 bits"
+            )
+        };
+        let sum = self.var.plus(&other.var);
+        fits(&sum, BITS, rule)?;
+        Ok(Self { var: sum })
+    }
+
+    #[track_caller]
+    pub fn checked_mul(&self, other: &Self, rule: &'static str) -> Result<Self, CircuitError> {
+        const {
+            assert!(
+                2 * BITS <= MAX_BITS,
+                "checked_mul multiplies values of at most 126 bits"
+            )
+        };
+        let product = self.var.times(&other.var);
+        fits(&product, BITS, rule)?;
+        Ok(Self { var: product })
     }
 
     #[track_caller]
@@ -295,6 +312,43 @@ impl<const BITS: u32> Uint<BITS> {
         let top = bits.last().ok_or(SynthesisError::Unsatisfiable)?;
         Ok(Bool::from_checked(top.clone()))
     }
+}
+
+impl<const BITS: u32> From<Bool> for Uint<BITS> {
+    fn from(bit: Bool) -> Self {
+        Uint::trusted(bit.var())
+    }
+}
+
+macro_rules! conversions {
+    ($($narrow:literal => $($wide:literal),+);* $(;)?) => {$($(
+        impl From<Uint<$narrow>> for Uint<$wide> {
+            fn from(value: Uint<$narrow>) -> Self {
+                Uint { var: value.var }
+            }
+        }
+
+        impl TryFrom<Uint<$wide>> for Uint<$narrow> {
+            type Error = CircuitError;
+
+            #[track_caller]
+            fn try_from(value: Uint<$wide>) -> Result<Self, CircuitError> {
+                fits(
+                    &value.var,
+                    $narrow,
+                    concat!("a value does not fit in ", stringify!($narrow), " bits"),
+                )?;
+                Ok(Uint { var: value.var })
+            }
+        }
+    )+)*};
+}
+
+conversions! {
+    8 => 16, 32, 64, 128;
+    16 => 32, 64, 128;
+    32 => 64, 128;
+    64 => 128;
 }
 
 impl<const BITS: u32> Select for Uint<BITS> {

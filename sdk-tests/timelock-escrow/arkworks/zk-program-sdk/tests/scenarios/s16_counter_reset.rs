@@ -67,7 +67,7 @@ impl Placeholder for Reset {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
         CircuitError,
@@ -91,8 +91,6 @@ mod circuit {
     }
 
     impl Circuit for Reset {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;

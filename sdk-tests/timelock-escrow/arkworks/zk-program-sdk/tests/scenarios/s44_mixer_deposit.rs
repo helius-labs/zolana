@@ -113,7 +113,7 @@ impl Placeholder for MixerDeposit {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, zero, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
@@ -159,8 +159,6 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for MixerDeposit {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

@@ -66,7 +66,7 @@ impl Placeholder for Merge {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Utxo,
         },
         CircuitError,
@@ -89,8 +89,6 @@ mod circuit {
     }
 
     impl Circuit for Merge {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_burn(&private.token_utxos_asset_a)?;

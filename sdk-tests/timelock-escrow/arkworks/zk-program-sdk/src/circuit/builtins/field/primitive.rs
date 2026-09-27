@@ -7,8 +7,11 @@ use ark_r1cs_std::{
 };
 use ark_relations::r1cs::SynthesisError;
 
-use super::{labels, CircuitSystem, CircuitVar, Field, VariableRole};
-use crate::CircuitError;
+use super::var::{CircuitSystem, CircuitVar, Field};
+use crate::{
+    circuit::labels::{self, VariableRole},
+    CircuitError,
+};
 
 impl CircuitVar {
     pub(crate) fn cs(&self) -> CircuitSystem {

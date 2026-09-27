@@ -29,10 +29,6 @@ pub(crate) fn circuit_default() -> TokenStream {
     quote!(::zk_program_sdk::circuit::CircuitDefault)
 }
 
-pub(crate) fn circuit_marker() -> TokenStream {
-    quote!(::zk_program_sdk::circuit::CircuitMarker)
-}
-
 pub(crate) fn circuit_var() -> TokenStream {
     quote!(::zk_program_sdk::circuit::CircuitVar)
 }

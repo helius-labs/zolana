@@ -82,9 +82,8 @@ impl Placeholder for Swap {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint,
-            Utxo,
+            poseidon, Assert, Asset, Balance, CheckedTransaction, Circuit, CircuitVar,
+            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         CircuitError,
     };
@@ -119,8 +118,6 @@ mod circuit {
     }
 
     impl Circuit for Swap {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;

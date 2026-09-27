@@ -72,8 +72,8 @@ impl Placeholder for CompareTwo {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
+            PublicInputs, TxContext, Uint, Utxo,
         },
         CircuitError,
     };
@@ -98,8 +98,6 @@ mod circuit {
     }
 
     impl Circuit for CompareTwo {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let first = DataUtxo::new_mut(&private.first_utxo, &private.first)?;

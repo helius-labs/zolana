@@ -1,7 +1,7 @@
 use zk_program_sdk::{
     circuit::{
-        poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-        ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+        poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+        DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
     },
     CircuitError,
 };
@@ -26,8 +26,6 @@ pub struct EscrowPublicInputs {
 }
 
 impl Circuit for Escrow {
-    const MARKER: CircuitMarker = CircuitMarker;
-
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         private.amount.assert_not_zero("the escrow locks nothing")?;

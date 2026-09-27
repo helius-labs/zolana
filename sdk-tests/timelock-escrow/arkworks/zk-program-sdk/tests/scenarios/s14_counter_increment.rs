@@ -66,8 +66,8 @@ impl Placeholder for Increment {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
+            PublicInputs, TxContext, Uint, Utxo,
         },
         CircuitError,
     };
@@ -90,15 +90,12 @@ mod circuit {
     }
 
     impl Circuit for Increment {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
             counter.count = counter
                 .count
-                .add::<65>(&self.public.step)
-                .narrow::<64>("the counter overflows")?;
+                .checked_add(&self.public.step, "the counter overflows")?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_data_utxo(counter)

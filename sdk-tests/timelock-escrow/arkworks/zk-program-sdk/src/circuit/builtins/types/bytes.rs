@@ -1,11 +1,16 @@
 use zolana_hasher::primitives::PACK_BE_CHUNK_BYTES;
 
-use super::{
-    constant, hash_bytes,
-    var::{all_equal, assert_all_equal, assert_all_equal_if, bits_le, collect_array},
-    zero, Assert, Bool, CircuitVar, Field, Select,
+use crate::{
+    circuit::{
+        builtins::{
+            field::{bits::bits_le, var::collect_array},
+            gadgets::hash_bytes::packed,
+            ops::assert::{all_equal, assert_all_equal, assert_all_equal_if},
+        },
+        constant, hash_bytes, zero, Assert, Bool, CircuitVar, Field, Select,
+    },
+    CircuitError, CircuitErrorKind,
 };
-use crate::{circuit_lib::packed, CircuitError, CircuitErrorKind};
 
 #[derive(Clone, Debug)]
 pub struct Bytes<const N: usize> {

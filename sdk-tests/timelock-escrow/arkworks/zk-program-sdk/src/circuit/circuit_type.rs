@@ -27,9 +27,6 @@ impl CircuitType for TxContext {}
 
 impl<T: CircuitType, const N: usize> CircuitType for [T; N] {}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CircuitMarker;
-
 pub trait CircuitDefault {
     fn circuit_default() -> Self;
 }

@@ -52,8 +52,7 @@ impl Circuit for CreateAndUpdate {
         let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;
         profile.score = profile
             .score
-            .add::<65>(&Uint::<64>::constant(1)?)
-            .narrow::<64>("the score overflows")?;
+            .checked_add(&Uint::<64>::constant(1)?, "the score overflows")?;
         let mut badge = DataUtxo::<BadgeCircuit>::new_init(&self.public.badge_owner, &Asset::sol());
         badge.level = private.level.clone();
 

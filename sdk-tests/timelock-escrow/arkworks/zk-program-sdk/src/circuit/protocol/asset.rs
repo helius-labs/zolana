@@ -4,11 +4,17 @@ use ark_r1cs_std::boolean::Boolean;
 use solana_address::Address;
 use zolana_transaction::SOL_MINT;
 
-use super::{
-    var::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless, cached},
-    Assert, Bool, Bytes, CircuitVar, Field, Select,
+use crate::{
+    circuit::{
+        builtins::{
+            field::var::cached,
+            gadgets::hash_bytes::packed,
+            ops::assert::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless},
+        },
+        Assert, Bool, Bytes, CircuitVar, Field, Select,
+    },
+    CircuitError,
 };
-use crate::{circuit_lib::packed, CircuitError};
 
 #[derive(Clone, Debug)]
 pub struct Asset {

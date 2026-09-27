@@ -66,8 +66,8 @@ impl Placeholder for Decrement {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
+            PublicInputs, TxContext, Uint, Utxo,
         },
         CircuitError,
     };
@@ -90,8 +90,6 @@ mod circuit {
     }
 
     impl Circuit for Decrement {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;

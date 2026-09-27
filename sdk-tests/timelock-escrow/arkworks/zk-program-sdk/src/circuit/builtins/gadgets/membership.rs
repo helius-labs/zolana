@@ -1,5 +1,7 @@
-use super::{constant, Bool, CircuitVar, Compare};
-use crate::CircuitError;
+use crate::{
+    circuit::{constant, Bool, CircuitVar, Compare},
+    CircuitError,
+};
 
 #[track_caller]
 pub fn is_in(value: &CircuitVar, set: &[CircuitVar]) -> Result<Bool, CircuitError> {

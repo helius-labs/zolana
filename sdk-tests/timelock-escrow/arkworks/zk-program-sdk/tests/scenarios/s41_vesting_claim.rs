@@ -133,9 +133,9 @@ impl Placeholder for VestingClaim {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
-            TokenUtxo, TxContext, Uint, Utxo, UtxoData,
+            poseidon, zero, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
+            Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -197,8 +197,6 @@ mod circuit {
     }
 
     impl Circuit for VestingClaim {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;

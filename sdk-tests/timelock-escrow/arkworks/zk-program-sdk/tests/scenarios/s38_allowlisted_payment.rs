@@ -75,7 +75,7 @@ impl Placeholder for AllowlistedPayment {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         CircuitError,
@@ -101,8 +101,6 @@ mod circuit {
     }
 
     impl Circuit for AllowlistedPayment {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;

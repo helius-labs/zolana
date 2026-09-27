@@ -1,5 +1,8 @@
 use zk_program_sdk::{
-    circuit::{value, Assert, Bool, CircuitSystem, CircuitVar, ConstraintSystem, Field, Uint},
+    circuit::{
+        value, Assert, Bool, CircuitSystem, CircuitVar, ConstraintSystem, Field, Uint, U128, U16,
+        U64, U8,
+    },
     conversion::{Allocator, FromCircuit, ProofInput},
     CircuitError,
 };
@@ -46,9 +49,11 @@ fn constants_compute_natively_and_name_the_broken_rule() {
         (
             number(&a.add::<65>(&b)),
             number(&a.mul::<128>(&b)),
+            number(&a.checked_add(&b, "a plus b fits").unwrap()),
+            number(&a.checked_mul(&b, "a times b fits").unwrap()),
             number(&a.checked_sub(&b, "a covers b").unwrap()),
-            number(&a.narrow::<9>("fits in 9 bits").unwrap()),
-            number(&a.widen::<128>()),
+            number(&U16::try_from(a.clone()).unwrap()),
+            number(&U128::from(a.clone())),
             number(&Uint::<64>::sum::<66, 3>(&[
                 a.clone(),
                 b.clone(),
@@ -57,6 +62,8 @@ fn constants_compute_natively_and_name_the_broken_rule() {
             (number(&quotient), number(&remainder)),
         ),
         (
+            Field::from(500u64),
+            Field::from(60_000u64),
             Field::from(500u64),
             Field::from(60_000u64),
             Field::from(100u64),
@@ -68,8 +75,10 @@ fn constants_compute_natively_and_name_the_broken_rule() {
     );
     assert_eq!(
         (
+            violated(native::<64>(u64::MAX).checked_add(&native(1), "the sum overflows")),
+            violated(native::<64>(1 << 32).checked_mul(&native(1 << 32), "the product overflows")),
             violated(b.checked_sub(&a, "b is below a")),
-            violated(a.narrow::<8>("300 needs 9 bits")),
+            violated(U8::try_from(a.clone())),
             violated(a.assert_less_or_equal(&b, "a is above b")),
             violated(a.assert_less_than(&a, "a is not below itself")),
             violated(a.div_rem::<64, 64>(&native(0), "divides by zero")),
@@ -81,8 +90,10 @@ fn constants_compute_natively_and_name_the_broken_rule() {
                 .map(|error| error.to_string()),
         ),
         (
+            Some("the sum overflows"),
+            Some("the product overflows"),
             Some("b is below a"),
-            Some("300 needs 9 bits"),
+            Some("a value does not fit in 8 bits"),
             Some("a is above b"),
             Some("a is not below itself"),
             Some("divides by zero"),
@@ -106,7 +117,7 @@ fn constant_comparisons_are_constant_bools() {
             truth(&a.is_less_or_equal(&a).unwrap()),
             truth(&a.is_less_than(&a).unwrap()),
             truth(&b.is_less_than(&a).unwrap()),
-            truth(&a.is_equal(&a.widen::<128>()).unwrap()),
+            truth(&a.is_equal(&U128::from(a.clone())).unwrap()),
             truth(&native::<64>(0).is_zero().unwrap()),
         ],
         [0u64, 1, 1, 0, 1, 1, 1].map(Field::from)
@@ -121,9 +132,11 @@ fn each_operation_costs_its_documented_constraints() {
     let seven = uint::<64>(&cs, 7);
     let (add, sum) = cost(&cs, || a.add::<65>(&b));
     let (mul, product) = cost(&cs, || a.mul::<128>(&b));
+    let (checked_add, checked_sum) = cost(&cs, || a.checked_add(&b, "a plus b fits").unwrap());
+    let (checked_mul, checked_product) = cost(&cs, || a.checked_mul(&b, "a times b fits").unwrap());
     let (checked_sub, difference) = cost(&cs, || a.checked_sub(&b, "a covers b").unwrap());
-    let (narrow, narrowed) = cost(&cs, || a.narrow::<9>("fits in 9 bits").unwrap());
-    let (widen, widened) = cost(&cs, || a.widen::<128>());
+    let (try_from, narrowed) = cost(&cs, || U16::try_from(a.clone()).unwrap());
+    let (from, widened) = cost(&cs, || U128::from(a.clone()));
     let (less_or_equal, below) = cost(&cs, || b.is_less_or_equal(&a).unwrap());
     let (less_than, not_below) = cost(&cs, || a.is_less_than(&b).unwrap());
     let (assert_ordered, ()) = cost(&cs, || b.assert_less_than(&a, "b is below a").unwrap());
@@ -139,8 +152,10 @@ fn each_operation_costs_its_documented_constraints() {
     let expectations = [
         sum.assert_equal(&native::<65>(500), "sum"),
         product.assert_equal(&native::<128>(60_000), "product"),
+        checked_sum.assert_equal(&native::<64>(500), "checked sum"),
+        checked_product.assert_equal(&native::<64>(60_000), "checked product"),
         difference.assert_equal(&native::<64>(100), "difference"),
-        narrowed.assert_equal(&native::<9>(300), "narrowed"),
+        narrowed.assert_equal(&native::<16>(300), "narrowed"),
         widened.assert_equal(&native::<128>(300), "widened"),
         below.assert_equal(&Bool::constant(true), "below"),
         not_below.assert_equal(&Bool::constant(false), "not below"),
@@ -157,9 +172,11 @@ fn each_operation_costs_its_documented_constraints() {
                 from_var,
                 add,
                 mul,
+                checked_add,
+                checked_mul,
                 checked_sub,
-                narrow,
-                widen,
+                try_from,
+                from,
                 less_or_equal,
                 less_than,
                 assert_ordered,
@@ -173,7 +190,7 @@ fn each_operation_costs_its_documented_constraints() {
             cs.is_satisfied().unwrap(),
         ),
         (
-            [65, 0, 1, 65, 10, 0, 66, 66, 65, 2, 2, 1, 0, 196],
+            [65, 0, 1, 65, 66, 65, 17, 0, 66, 66, 65, 2, 2, 1, 0, 196],
             true,
             true
         )
@@ -200,9 +217,17 @@ fn a_broken_rule_leaves_the_constraints_unsatisfied() {
                     .checked_sub(&uint(cs, 300), "200 is below 300")
                     .map(|_| ())
             }),
-            unsatisfied(|cs| uint::<64>(cs, 300)
-                .narrow::<8>("300 needs 9 bits")
-                .map(|_| ())),
+            unsatisfied(|cs| {
+                uint::<64>(cs, u64::MAX)
+                    .checked_add(&uint(cs, 1), "the sum overflows")
+                    .map(|_| ())
+            }),
+            unsatisfied(|cs| {
+                uint::<64>(cs, 1 << 32)
+                    .checked_mul(&uint(cs, 1 << 32), "the product overflows")
+                    .map(|_| ())
+            }),
+            unsatisfied(|cs| U8::try_from(uint::<64>(cs, 300)).map(|_| ())),
             unsatisfied(|cs| uint::<64>(cs, 3).assert_less_than(&uint(cs, 3), "3 is not below 3")),
             unsatisfied(|cs| {
                 uint::<64>(cs, 3)
@@ -220,7 +245,7 @@ fn a_broken_rule_leaves_the_constraints_unsatisfied() {
                 bit.assert_equal(&Bool::constant(true), "300 is at most 200")
             }),
         ],
-        [true; 8]
+        [true; 10]
     );
 }
 
@@ -232,7 +257,7 @@ fn a_bool_selects_between_uints_and_becomes_a_bit() {
     let a = uint::<64>(&cs, 300);
     let b = uint::<64>(&cs, 200);
     let (select, selected) = cost(&cs, || chosen.select(&a, &b));
-    let counted = b.add::<65>(&chosen.to_uint().widen::<64>());
+    let counted = b.add::<65>(&U64::from(chosen.clone()));
     let checks = [
         selected.assert_equal(&native::<64>(300), "selected"),
         counted.assert_equal(&native::<65>(201), "counted"),

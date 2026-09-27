@@ -118,9 +118,9 @@ impl Placeholder for Settle {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, Bool, CheckedTransaction, Circuit, CircuitMarker,
-            CircuitVar, ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs,
-            TokenUtxo, TxContext, Uint, Utxo, UtxoData,
+            poseidon, Assert, Balance, Bool, CheckedTransaction, Circuit, CircuitVar,
+            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
+            Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -172,8 +172,6 @@ mod circuit {
     }
 
     impl Circuit for Settle {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let price = &self.public.execution_price;

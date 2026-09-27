@@ -1,8 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{parse2, parse_quote, Attribute, Error, ImplItem, Item, ItemImpl, ItemMod, Result};
-
-use crate::paths;
+use syn::{parse2, parse_quote, Attribute, Error, Item, ItemImpl, ItemMod, Result};
 
 mod rename;
 
@@ -41,11 +39,6 @@ fn expand_item(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
 
 fn prepare_impl(item: &mut ItemImpl) -> Result<()> {
     rename::to_twin(&mut item.self_ty)?;
-    if is_circuit_impl(item) && !has_marker(item) {
-        let marker = paths::circuit_marker();
-        item.items
-            .insert(0, parse_quote!(const MARKER: #marker = #marker;));
-    }
     Ok(())
 }
 
@@ -110,19 +103,6 @@ fn circuit_attribute(attrs: &[Attribute]) -> Option<&Attribute> {
             .last()
             .is_some_and(|segment| segment.ident == "circuit")
     })
-}
-
-fn is_circuit_impl(item: &ItemImpl) -> bool {
-    item.trait_
-        .as_ref()
-        .and_then(|(_, path, _)| path.segments.last())
-        .is_some_and(|segment| segment.ident == "Circuit")
-}
-
-fn has_marker(item: &ItemImpl) -> bool {
-    item.items
-        .iter()
-        .any(|item| matches!(item, ImplItem::Const(constant) if constant.ident == "MARKER"))
 }
 
 fn add_lint_levels(attrs: &mut Vec<Attribute>) {

@@ -66,7 +66,7 @@ impl Placeholder for TopUp {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Balance, Bytes, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         CircuitError,
@@ -88,8 +88,6 @@ mod circuit {
     }
 
     impl Circuit for TopUp {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

@@ -3,9 +3,9 @@ use zolana_interface::DUMMY_DOMAIN;
 use super::{utxo_domain, Accumulator, Balance, HasLedger, Ledger, Output, SpentInput, Utxo};
 use crate::{
     circuit::{
+        builtins::{field::var::system_of, ops::assert::assert_equal_unless},
         constant,
         labels::Scope,
-        var::{assert_equal_unless, system_of},
         zero, Assert, Asset, Bool, CircuitVar, Owner, PublicTransfer, Uint,
     },
     CircuitError, CircuitErrorKind,

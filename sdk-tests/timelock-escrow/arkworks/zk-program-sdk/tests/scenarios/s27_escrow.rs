@@ -113,9 +113,8 @@ impl Placeholder for Escrow {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
-            Uint, Utxo, UtxoData,
+            poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -162,8 +161,6 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for Escrow {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             private.amount.assert_not_zero("the escrow locks nothing")?;

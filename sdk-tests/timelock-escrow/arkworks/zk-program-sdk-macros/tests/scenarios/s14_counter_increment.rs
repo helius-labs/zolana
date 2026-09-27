@@ -37,8 +37,7 @@ impl Circuit for Increment {
         let mut counter = DataUtxo::new_mut(&private.counter, &private.state)?;
         counter.count = counter
             .count
-            .add::<65>(&self.public.step)
-            .narrow::<64>("the counter overflows")?;
+            .checked_add(&self.public.step, "the counter overflows")?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(counter)

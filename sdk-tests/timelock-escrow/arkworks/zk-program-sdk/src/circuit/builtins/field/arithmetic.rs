@@ -1,6 +1,6 @@
 use ark_ff::{Field as _, Zero};
 
-use super::{constant, CircuitVar};
+use super::var::{constant, CircuitVar};
 use crate::{CircuitError, CircuitErrorKind};
 
 pub trait Arithmetic: Sized {

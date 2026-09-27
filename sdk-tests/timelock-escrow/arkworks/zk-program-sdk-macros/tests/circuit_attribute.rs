@@ -1,8 +1,8 @@
 use zk_program_sdk::{
     circuit,
     circuit::{
-        value, CheckedTransaction, Circuit, CircuitMarker, ConfidentialTransaction, Field,
-        PublicInputs, Uint,
+        value, CheckedTransaction, Circuit, ConfidentialTransaction, Field, PublicInputs, Uint,
+        U16, U32,
     },
     conversion::{to_bytes, Allocator, ProofInput},
     CircuitError, TxContext,
@@ -42,14 +42,16 @@ impl Circuit for Empty {
 }
 
 #[circuit]
-fn shaped_sum<const N: usize>(values: &[Uint<16>; N]) -> Result<Uint<32>, CircuitError> {
-    let total = Uint::<16>::sum::<24, N>(values);
+fn shaped_sum<const N: usize>(values: &[U16; N]) -> Result<U32, CircuitError> {
+    let total = values.iter().try_fold(U32::zero(), |total, value| {
+        total.checked_add(&U32::from(value.clone()), "the sum fits in 32 bits")
+    })?;
     let scaled = if const { N > 2 } {
-        total.add::<25>(&total)
+        total.checked_add(&total, "the sum fits in 32 bits")?
     } else if const { N > 1 } {
-        total.widen::<25>()
+        total
     } else {
-        Uint::zero()
+        U32::zero()
     };
     let label = match const { N } {
         0 => 0u64,
@@ -59,9 +61,7 @@ fn shaped_sum<const N: usize>(values: &[Uint<16>; N]) -> Result<Uint<32>, Circui
     for _ in values {
         count += 1;
     }
-    Ok(scaled
-        .add::<26>(&Uint::<25>::constant(label + count)?)
-        .widen::<32>())
+    scaled.checked_add(&U32::constant(label + count)?, "the sum fits in 32 bits")
 }
 
 #[derive(Clone, ProofInput)]
@@ -145,8 +145,7 @@ fn a_module_renames_its_impls_and_leaves_other_items_alone() {
 }
 
 #[test]
-fn a_module_writes_the_circuit_marker_on_each_circuit_twin() {
-    assert_eq!(<whole::SoloCircuit as Circuit>::MARKER, CircuitMarker);
+fn a_module_renames_a_circuit_impl_to_its_twin() {
     let solo = whole::Solo {
         private: whole::SoloPrivateInputs {
             tx_context: TxContext::new(),
@@ -173,8 +172,7 @@ fn an_inherent_impl_is_written_against_the_circuit_twin() {
 }
 
 #[test]
-fn the_attribute_writes_the_circuit_marker_on_the_twin() {
-    assert_eq!(<EmptyCircuit as Circuit>::MARKER, CircuitMarker);
+fn the_attribute_renames_a_circuit_impl_to_its_twin() {
     let empty = Empty {
         private: EmptyPrivateInputs {
             tx_context: TxContext::new(),

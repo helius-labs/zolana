@@ -2,7 +2,7 @@ use solana_address::Address;
 
 use super::{var::integer_value, Allocator, FromCircuit, Placeholder, ProofInput};
 use crate::{
-    circuit::{self, var::range_check, Field, VariableRole},
+    circuit::{self, builtins::field::bits::range_check, Field, VariableRole},
     client, CircuitError, CircuitErrorKind,
 };
 

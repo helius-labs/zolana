@@ -1,8 +1,7 @@
 use ark_r1cs_std::boolean::Boolean;
 
-use super::poseidon;
 use crate::{
-    circuit::{labels::Scope, var::system_of, zero, Bool, CircuitVar},
+    circuit::{builtins::field::var::system_of, labels::Scope, poseidon, zero, Bool, CircuitVar},
     CircuitError,
 };
 

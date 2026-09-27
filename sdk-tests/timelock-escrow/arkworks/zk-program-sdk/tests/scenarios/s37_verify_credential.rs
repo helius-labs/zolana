@@ -90,9 +90,8 @@ impl Placeholder for VerifyCredential {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TxContext, Uint,
-            Utxo,
+            poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            DataHash, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
         CircuitError,
     };
@@ -121,8 +120,6 @@ mod circuit {
     }
 
     impl Circuit for VerifyCredential {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;

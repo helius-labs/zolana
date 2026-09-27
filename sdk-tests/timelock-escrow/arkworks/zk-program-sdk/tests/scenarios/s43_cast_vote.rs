@@ -87,7 +87,7 @@ impl Placeholder for CastVote {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
         CircuitError,
@@ -117,8 +117,6 @@ mod circuit {
     }
 
     impl Circuit for CastVote {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let public = &self.public;
@@ -133,8 +131,8 @@ mod circuit {
             public
                 .root
                 .assert_equal(&poll.root, "the voter root is not the poll's")?;
-            let choice = private.choice.narrow::<2>("the choice is not an option")?;
-            choice.assert_not_equal(&Uint::<2>::constant(3)?, "the choice is not an option")?;
+            let choice = &private.choice;
+            choice.assert_less_than(&Uint::<64>::constant(3)?, "the choice is not an option")?;
             private
                 .path
                 .root(&poseidon(std::slice::from_ref(&private.secret_key))?)?
@@ -142,10 +140,8 @@ mod circuit {
             poseidon(&[public.poll_id.var(), private.secret_key.clone()])?
                 .assert_equal(&public.nullifier, "the nullifier is not the voter's")?;
             for (tally, option) in poll.tally.iter_mut().zip(0u64..) {
-                let voted = choice.is_equal(&Uint::<2>::constant(option)?)?;
-                *tally = tally
-                    .add::<65>(&voted.to_uint().widen::<64>())
-                    .narrow::<64>("a tally overflows")?;
+                let voted = choice.is_equal(&Uint::<64>::constant(option)?)?;
+                *tally = tally.checked_add(&Uint::from(voted), "a tally overflows")?;
             }
 
             ConfidentialTransaction::new(&private.tx_context, public)

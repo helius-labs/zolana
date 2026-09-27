@@ -70,8 +70,8 @@ impl<const N: usize, const R: usize> Placeholder for Payment<N, R> {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
+            poseidon, Balance, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            Owner, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
         },
         CircuitError,
     };
@@ -92,8 +92,6 @@ mod circuit {
     }
 
     impl<const N: usize, const R: usize> Circuit for Payment<N, R> {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

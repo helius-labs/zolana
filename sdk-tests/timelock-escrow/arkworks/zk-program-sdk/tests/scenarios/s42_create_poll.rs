@@ -117,7 +117,7 @@ impl Placeholder for CreatePoll {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, zero, Asset, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, Owner, PublicInputs, TokenUtxo, TxContext,
             Uint, Utxo, UtxoData,
         },
@@ -168,8 +168,6 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for CreatePoll {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let tokens = TokenUtxo::new_mut(&private.token_utxos_asset_a)?;

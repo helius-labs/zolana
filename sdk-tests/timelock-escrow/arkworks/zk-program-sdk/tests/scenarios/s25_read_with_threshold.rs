@@ -99,9 +99,8 @@ impl Placeholder for ReadThreshold {
 pub(crate) mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
-            ConfidentialTransaction, DataHash, DataUtxo, PublicInputs, TxContext, Uint, Utxo,
-            UtxoData,
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataHash,
+            DataUtxo, PublicInputs, TxContext, Uint, Utxo, UtxoData,
         },
         CircuitError,
     };
@@ -145,8 +144,6 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for ReadThreshold {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;

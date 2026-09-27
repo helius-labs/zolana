@@ -1,5 +1,4 @@
 pub mod circuit;
-mod circuit_lib;
 mod client;
 pub mod conversion;
 mod error;

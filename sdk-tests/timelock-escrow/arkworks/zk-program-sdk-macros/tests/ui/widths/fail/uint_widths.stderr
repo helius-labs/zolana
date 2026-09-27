@@ -4,7 +4,7 @@ error[E0080]: evaluation panicked: a Uint holds between 1 and 253 bits
   |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zk_program_sdk::circuit::Uint::<0>::VALID` failed here
   |
- ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
   |       const VALID: () = assert!(
   |  _______________________-
@@ -14,7 +14,7 @@ error[E0080]: evaluation panicked: a Uint holds between 1 and 253 bits
   | |_____- in this macro invocation
 
 note: erroneous constant encountered
- --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
   |         let () = Self::VALID;
   |                  ^^^^^^^^^^^
@@ -31,7 +31,7 @@ error[E0080]: evaluation panicked: a sum of two Uint<BITS> needs more than BITS 
   |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zk_program_sdk::circuit::Uint::<64>::add::<64>::{constant#0}` failed here
   |
- ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
   | /             assert!(
   | |                 OUT > BITS && OUT <= MAX_BITS,
@@ -40,7 +40,7 @@ error[E0080]: evaluation panicked: a sum of two Uint<BITS> needs more than BITS 
   | |_____________- in this macro invocation
 
 note: erroneous constant encountered
- --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
   | /         const {
   | |             assert!(
@@ -62,7 +62,7 @@ error[E0080]: evaluation panicked: a product of two Uint<BITS> needs at least 2 
   |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zk_program_sdk::circuit::Uint::<64>::mul::<100>::{constant#0}` failed here
   |
- ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
   | /             assert!(
   | |                 OUT >= 2 * BITS && OUT <= MAX_BITS,
@@ -71,7 +71,7 @@ error[E0080]: evaluation panicked: a product of two Uint<BITS> needs at least 2 
   | |_____________- in this macro invocation
 
 note: erroneous constant encountered
- --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
   | /         const {
   | |             assert!(
@@ -87,28 +87,36 @@ note: the above error was encountered while instantiating `fn Uint::<64>::mul::<
 7 |     let truncated = amount.mul::<100>(&amount);
   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error[E0080]: evaluation panicked: narrow goes to fewer bits
+error[E0080]: evaluation panicked: checked_mul multiplies values of at most 126 bits
  --> $RUST/core/src/panic.rs
   |
-  |         $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zk_program_sdk::circuit::Uint::<64>::narrow::<64>::{constant#0}` failed here
+  |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zk_program_sdk::circuit::Uint::<128>::checked_mul::{constant#0}` failed here
   |
- ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
-  |         const { assert!(OUT >= 1 && OUT < BITS, "narrow goes to fewer bits") };
-  |                 ------------------------------------------------------------ in this macro invocation
+  | /             assert!(
+  | |                 2 * BITS <= MAX_BITS,
+  | |                 "checked_mul multiplies values of at most 126 bits"
+  | |             )
+  | |_____________- in this macro invocation
 
 note: erroneous constant encountered
- --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
-  |         const { assert!(OUT >= 1 && OUT < BITS, "narrow goes to fewer bits") };
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | /         const {
+  | |             assert!(
+  | |                 2 * BITS <= MAX_BITS,
+  | |                 "checked_mul multiplies values of at most 126 bits"
+  | |             )
+  | |         };
+  | |_________^
 
-note: the above error was encountered while instantiating `fn Uint::<64>::narrow::<64>`
+note: the above error was encountered while instantiating `fn Uint::<128>::checked_mul`
  --> tests/ui/widths/fail/uint_widths.rs:8:19
   |
-8 |     let widened = amount.narrow::<64>("not narrower");
-  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+8 |     let squared = U128::zero().checked_mul(&U128::zero(), "fits in 128 bits");
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked: subtraction and comparison work on at most 252 bits
  --> $RUST/core/src/panic.rs
@@ -116,7 +124,7 @@ error[E0080]: evaluation panicked: subtraction and comparison work on at most 25
   |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zk_program_sdk::circuit::Uint::<253>::ORDERED` failed here
   |
- ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ ::: $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
   |       const ORDERED: () = assert!(
   |  _________________________-
@@ -126,7 +134,7 @@ error[E0080]: evaluation panicked: subtraction and comparison work on at most 25
   | |_____- in this macro invocation
 
 note: erroneous constant encountered
- --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/uint.rs
+ --> $WORKSPACE/sdk-tests/timelock-escrow/arkworks/zk-program-sdk/src/circuit/builtins/types/uint.rs
   |
   |         let () = Self::ORDERED;
   |                  ^^^^^^^^^^^^^

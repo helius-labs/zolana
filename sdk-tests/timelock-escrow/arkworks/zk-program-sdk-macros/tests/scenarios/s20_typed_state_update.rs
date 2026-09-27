@@ -45,13 +45,11 @@ impl Circuit for TypedUpdate {
         let mut state = DataUtxo::new_mut(&private.state_utxo, &private.state)?;
         state.amount = state
             .amount
-            .add::<65>(&private.delta)
-            .narrow::<64>("the amount overflows")?;
+            .checked_add(&private.delta, "the amount overflows")?;
         state.count = self.public.count.clone();
         state.kind = state
             .kind
-            .add::<17>(&Uint::<16>::constant(1)?)
-            .narrow::<16>("the kind overflows")?;
+            .checked_add(&Uint::<16>::constant(1)?, "the kind overflows")?;
         state.active = state.active.not();
         state.tag = poseidon(&[state.tag.clone()])?;
         state.owner_hash = private.new_owner.hash()?;

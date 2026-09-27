@@ -1,6 +1,6 @@
 use zk_program_sdk::{
     circuit::{
-        poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+        poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
         ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxo, TxContext, Uint, Utxo,
     },
     CircuitError,
@@ -25,8 +25,6 @@ pub struct WithdrawPublicInputs {
 }
 
 impl Circuit for Withdraw {
-    const MARKER: CircuitMarker = CircuitMarker;
-
     fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut escrow = DataUtxo::new_burn(&private.escrow, &private.terms)?;

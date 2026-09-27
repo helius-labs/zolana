@@ -55,8 +55,7 @@ impl Circuit for IssueCredential {
             .assert_equal(&issuer_hash, "the issuer state is another issuer's")?;
         issuer.issued = issuer
             .issued
-            .add::<65>(&Uint::<64>::constant(1)?)
-            .narrow::<64>("the issued count overflows")?;
+            .checked_add(&Uint::<64>::constant(1)?, "the issued count overflows")?;
         let mut credential = DataUtxo::<CredentialCircuit>::new_init(&private.user, &Asset::sol());
         credential.issuer_hash = issuer_hash;
         credential.attribute_commitment =

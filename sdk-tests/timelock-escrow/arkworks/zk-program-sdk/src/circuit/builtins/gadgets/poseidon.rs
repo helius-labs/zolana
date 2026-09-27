@@ -1,7 +1,7 @@
 use light_poseidon::{parameters::bn254_x5::get_poseidon_parameters, PoseidonParameters};
 
 use crate::{
-    circuit::{labels::Scope, var::system_of, zero, CircuitVar, Field},
+    circuit::{builtins::field::var::system_of, labels::Scope, zero, CircuitVar, Field},
     CircuitError, CircuitErrorKind,
 };
 

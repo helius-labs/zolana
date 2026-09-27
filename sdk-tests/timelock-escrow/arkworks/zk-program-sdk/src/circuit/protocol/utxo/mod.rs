@@ -13,7 +13,7 @@ pub(crate) use output::Output;
 pub use token::TokenUtxo;
 use zolana_interface::UTXO_DOMAIN;
 
-use super::{constant, CircuitVar};
+use crate::circuit::{constant, CircuitVar};
 
 fn utxo_domain() -> CircuitVar {
     constant(u64::from(UTXO_DOMAIN))

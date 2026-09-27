@@ -3,12 +3,17 @@ use std::{cell::OnceCell, rc::Rc};
 use ark_r1cs_std::boolean::Boolean;
 use zolana_hasher::primitives::{P256_OWNER_TAG, SOLANA_OWNER_TAG};
 
-use super::{
-    hash_bytes, poseidon,
-    var::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless, cached},
-    zero, Assert, Bool, Bytes, CircuitVar, DataHash, Field, Select,
+use crate::{
+    circuit::{
+        builtins::{
+            field::var::cached,
+            gadgets::hash_bytes::packed,
+            ops::assert::{all_equal, assert_all_equal, assert_all_equal_if, assert_equal_unless},
+        },
+        hash_bytes, poseidon, zero, Assert, Bool, Bytes, CircuitVar, DataHash, Field, Select,
+    },
+    CircuitError,
 };
-use crate::{circuit_lib::packed, CircuitError};
 
 #[derive(Clone, Debug)]
 pub struct OwnerKey {

@@ -1,5 +1,7 @@
-use super::{constant, poseidon, Asset, Bytes, CircuitVar, Uint};
-use crate::CircuitError;
+use crate::{
+    circuit::{constant, poseidon, Asset, Bytes, CircuitVar, Uint},
+    CircuitError,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct PublicTransfer {

@@ -48,8 +48,7 @@ impl Circuit for UpdateTwo {
             .assert_equal(&owner, "the profile has another owner")?;
         profile.score = profile
             .score
-            .add::<65>(&Uint::<64>::constant(10)?)
-            .narrow::<64>("the score overflows")?;
+            .checked_add(&Uint::<64>::constant(10)?, "the score overflows")?;
         let mut badge = DataUtxo::new_mut(&private.badge_utxo, &private.badge)?;
         badge
             .owner()
@@ -57,8 +56,7 @@ impl Circuit for UpdateTwo {
             .assert_equal(&owner, "the badge has another owner")?;
         badge.level = badge
             .level
-            .add::<17>(&Uint::<16>::constant(1)?)
-            .narrow::<16>("the level overflows")?;
+            .checked_add(&Uint::<16>::constant(1)?, "the level overflows")?;
 
         ConfidentialTransaction::new(&private.tx_context, &self.public)
             .with_data_utxo(profile)

@@ -1,8 +1,7 @@
 use zolana_hasher::primitives::PACK_BE_CHUNK_BYTES;
 
-use super::poseidon;
 use crate::{
-    circuit::{labels::Scope, var::system_of, zero, CircuitVar, Field},
+    circuit::{builtins::field::var::system_of, labels::Scope, poseidon, zero, CircuitVar, Field},
     CircuitError,
 };
 

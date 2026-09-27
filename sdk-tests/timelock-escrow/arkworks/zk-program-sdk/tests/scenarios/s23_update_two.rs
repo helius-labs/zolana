@@ -73,7 +73,7 @@ impl Placeholder for UpdateTwo {
 mod circuit {
     use zk_program_sdk::{
         circuit::{
-            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitMarker, CircuitVar,
+            poseidon, Assert, Balance, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataUtxo, Owner, PublicInputs, TxContext, Uint, Utxo,
         },
         CircuitError,
@@ -99,8 +99,6 @@ mod circuit {
     }
 
     impl Circuit for UpdateTwo {
-        const MARKER: CircuitMarker = CircuitMarker;
-
         fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
             let private = &self.private;
             let owner = self.public.owner.hash()?;
@@ -111,8 +109,7 @@ mod circuit {
                 .assert_equal(&owner, "the profile has another owner")?;
             profile.score = profile
                 .score
-                .add::<65>(&Uint::<64>::constant(10)?)
-                .narrow::<64>("the score overflows")?;
+                .checked_add(&Uint::<64>::constant(10)?, "the score overflows")?;
             let mut badge = DataUtxo::new_mut(&private.badge_utxo, &private.badge)?;
             badge
                 .owner()
@@ -120,8 +117,7 @@ mod circuit {
                 .assert_equal(&owner, "the badge has another owner")?;
             badge.level = badge
                 .level
-                .add::<17>(&Uint::<16>::constant(1)?)
-                .narrow::<16>("the level overflows")?;
+                .checked_add(&Uint::<16>::constant(1)?, "the level overflows")?;
 
             ConfidentialTransaction::new(&private.tx_context, &self.public)
                 .with_data_utxo(profile)
