@@ -1,6 +1,6 @@
 # Dynamic Swap -- CU Benchmark
 
-Compute unit profiling for the dynamic-swap create_pair/update_price/create_escrow/settle instructions, replayed under mollusk. Every PDA account (Pair, Escrow) and the shielded-pool tree account are built directly, as if the prior instruction chain already ran -- only the ONE instruction under measurement is actually replayed. Only the dynamic-swap program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_transact*` row as a black box and its internal functions do not appear here. update_price never verifies a proof or CPI into SPP at all (the whole point of keeping it cheap); create_escrow and settle each verify their own Groth16 proof and then CPI SPP `transact`, which verifies its own. Each proof-carrying instruction's section also records its proving times (SPP transfer proof plus the dynamic-swap circuit proof) and the serialized size of the version 1 transaction, which states its compute ceilings in the message header. The byte column is written the next time the bench runs.
+Compute unit profiling for the dynamic-swap create_pair/update_price/create_escrow/settle instructions, replayed under mollusk. Every PDA account (Pair, Escrow) and the shielded-pool tree account are built directly, as if the prior instruction chain already ran -- only the ONE instruction under measurement is actually replayed. Only the dynamic-swap program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_transact*` row as a black box and its internal functions do not appear here. update_price never verifies a proof or CPI into SPP at all (the whole point of keeping it cheap); create_escrow and settle each verify their own Groth16 proof and then CPI SPP `transact`, which verifies its own. Each proof-carrying instruction's section also records its proving times (SPP transfer proof plus the dynamic-swap circuit proof) and the serialized size of the version 1 transaction, which states its compute ceilings in the message header.
 
 Regenerate with `just bench-dynamic-swap`.
 
@@ -29,9 +29,9 @@ Regenerate with `just bench-dynamic-swap`.
 |             116 ms |                      90 ms | 206 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        861 bytes |        9 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        861 bytes |        9 | 1308 bytes |
 
 ## 2. Create Pair
 
@@ -40,9 +40,9 @@ Regenerate with `just bench-dynamic-swap`.
 | `process_create_pair_ix`        |      9,094 |      9,094 |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        121 bytes |        3 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        121 bytes |        3 | 370 bytes |
 
 ## 3. Settle
 
@@ -57,9 +57,9 @@ Regenerate with `just bench-dynamic-swap`.
 |             116 ms |                     132 ms | 249 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        811 bytes |        8 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        811 bytes |        8 | 1225 bytes |
 
 ## 4. Update Price
 
@@ -68,7 +68,7 @@ Regenerate with `just bench-dynamic-swap`.
 | `process_update_price_ix`       |         65 |         65 |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|          9 bytes |        2 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|          9 bytes |        2 | 225 bytes |
 

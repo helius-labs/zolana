@@ -1,6 +1,6 @@
 # Timelock Escrow -- CU Benchmark
 
-Compute unit profiling for the timelock escrow escrow/withdraw instructions, replayed under mollusk. The shielded-pool tree account is built directly (the program's `create_tree` init plus the input utxo hashes appended), and each instruction verifies its own Groth16 proof, then CPIs SPP `transact` (the `cpi_spp_transact*` row). Only the timelock escrow program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_transact*` row as a black box and its internal functions do not appear here. Each instruction section also records its proving times (SPP transfer proof plus the escrow/withdraw circuit proof) and the serialized size of the version 1 transaction, which states its compute ceilings in the message header. The byte column is written the next time the bench runs.
+Compute unit profiling for the timelock escrow escrow/withdraw instructions, replayed under mollusk. The shielded-pool tree account is built directly (the program's `create_tree` init plus the input utxo hashes appended), and each instruction verifies its own Groth16 proof, then CPIs SPP `transact` (the `cpi_spp_transact*` row). Only the timelock escrow program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_transact*` row as a black box and its internal functions do not appear here. Each instruction section also records its proving times (SPP transfer proof plus the escrow/withdraw circuit proof) and the serialized size of the version 1 transaction, which states its compute ceilings in the message header.
 
 Regenerate with `just bench-escrow`.
 
@@ -27,9 +27,9 @@ Regenerate with `just bench-escrow`.
 |             113 ms |                17 ms | 130 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        748 bytes |        4 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        748 bytes |        4 | 1030 bytes |
 
 ## 2. Withdraw
 
@@ -44,7 +44,7 @@ Regenerate with `just bench-escrow`.
 |              61 ms |                15 ms | 77 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        559 bytes |        6 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        559 bytes |        6 | 907 bytes |
 

@@ -1,6 +1,6 @@
 # Confidential Swap -- CU Benchmark
 
-Compute unit profiling for the confidential swap make/take/take_verifiable_encryption/cancel instructions, replayed under mollusk. The shielded-pool tree account is built directly (the program's `create_tree` init plus the input utxo hashes appended), and each instruction hashes its public input, verifies its own Groth16 proof, then CPIs SPP `transact` (the `cpi_spp_transact*` row). Only the swap program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_transact*` row as a black box and its internal functions do not appear here. Each instruction section also records its proving times (SPP transfer proof plus swap circuit proof) and the serialized size of the version 1 transaction, which states its compute ceilings in the message header. The byte column is written the next time the bench runs.
+Compute unit profiling for the confidential swap make/take/take_verifiable_encryption/cancel instructions, replayed under mollusk. The shielded-pool tree account is built directly (the program's `create_tree` init plus the input utxo hashes appended), and each instruction hashes its public input, verifies its own Groth16 proof, then CPIs SPP `transact` (the `cpi_spp_transact*` row). Only the swap program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_transact*` row as a black box and its internal functions do not appear here. Each instruction section also records its proving times (SPP transfer proof plus swap circuit proof) and the serialized size of the version 1 transaction, which states its compute ceilings in the message header.
 
 Regenerate with `just bench-swap`.
 
@@ -29,9 +29,9 @@ Regenerate with `just bench-swap`.
 |              63 ms |              18 ms | 81 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        559 bytes |        6 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        559 bytes |        6 | 907 bytes |
 
 ## 2. Make
 
@@ -46,9 +46,9 @@ Regenerate with `just bench-swap`.
 |             112 ms |              19 ms | 132 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        910 bytes |        4 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        910 bytes |        4 | 1192 bytes |
 
 ## 3. Take
 
@@ -63,9 +63,9 @@ Regenerate with `just bench-swap`.
 |             113 ms |              29 ms | 142 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        745 bytes |        5 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        745 bytes |        5 | 1060 bytes |
 
 ## 4. Take Verifiable Encryption
 
@@ -80,7 +80,7 @@ Regenerate with `just bench-swap`.
 |             111 ms |             134 ms | 245 ms |
 
 **Transaction Size**
-| Instruction Data | Accounts |
-| ---------------- | -------- |
-|        792 bytes |        5 |
+| Instruction Data | Accounts | v1 Tx |
+| ---------------- | -------- | ----- |
+|        792 bytes |        5 | 1107 bytes |
 
