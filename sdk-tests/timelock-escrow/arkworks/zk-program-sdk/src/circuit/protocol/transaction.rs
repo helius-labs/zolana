@@ -10,7 +10,7 @@ use crate::{
         builtins::field::var::system_of, constant, labels::Scope, nonzero_hash_chain, poseidon,
         zero, Assert, Bool, CircuitVar, DataUtxo, PublicTransfer, TokenUtxo, Uint, Utxo, UtxoData,
     },
-    CircuitError, CircuitErrorKind, SlotKind,
+    CircuitError, CircuitErrorKind,
 };
 
 #[derive(Clone, Debug)]
@@ -67,11 +67,7 @@ fn output_blinding(
     output_blinding_seed: &CircuitVar,
     slot: usize,
 ) -> Result<CircuitVar, CircuitError> {
-    let slot = u64::try_from(slot).map_err(|_| CircuitErrorKind::Slot {
-        kind: SlotKind::Output,
-        index: slot,
-        problem: "is outside the transaction",
-    })?;
+    let slot = u64::try_from(slot).map_err(|_| CircuitErrorKind::ValueTooLarge { bits: 64 })?;
     poseidon(&[
         constant(u64::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_V1)),
         first_nullifier.clone(),

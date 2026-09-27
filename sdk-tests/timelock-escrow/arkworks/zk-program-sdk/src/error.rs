@@ -82,12 +82,6 @@ impl fmt::Display for SlotKind {
 pub enum CircuitErrorKind {
     #[error("{0}")]
     RuleBroken(&'static str),
-    #[error("{kind} slot {index} {problem}")]
-    Slot {
-        kind: SlotKind,
-        index: usize,
-        problem: &'static str,
-    },
     #[error("{0}")]
     WrongLength(&'static str),
     #[error("a value does not fit in {bits} bits")]
@@ -126,7 +120,6 @@ impl CircuitErrorKind {
     fn name(&self) -> &'static str {
         match self {
             Self::RuleBroken(_) => "CircuitError.RuleBroken",
-            Self::Slot { .. } => "CircuitError.Slot",
             Self::WrongLength(_) => "CircuitError.WrongLength",
             Self::ValueTooLarge { .. } => "CircuitError.ValueTooLarge",
             Self::BitWidthTooLarge { .. } => "CircuitError.BitWidthTooLarge",
@@ -546,6 +539,15 @@ impl ProverError {
 
     pub fn name(&self) -> &'static str {
         self.kind.name()
+    }
+}
+
+impl ProverError {
+    pub(crate) fn at_origin_of(kind: ProverErrorKind, error: &CircuitError) -> Self {
+        Self {
+            kind,
+            location: error.location,
+        }
     }
 }
 

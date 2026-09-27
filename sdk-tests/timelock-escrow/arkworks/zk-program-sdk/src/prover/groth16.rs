@@ -141,8 +141,9 @@ impl Groth16Keys {
             ProvingKeySource::File(export.proving_key),
         )
         .map_err(ProverErrorKind::VerifyingKeyExport);
-        std::fs::remove_file(&raw).map_err(|error| key_file(&raw, error))?;
-        Ok(generated?)
+        let removed = std::fs::remove_file(&raw).map_err(|error| key_file(&raw, error));
+        generated?;
+        Ok(removed?)
     }
 }
 

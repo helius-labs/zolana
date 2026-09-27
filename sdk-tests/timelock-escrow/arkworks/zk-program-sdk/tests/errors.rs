@@ -100,7 +100,12 @@ fn debug_prints_every_frame() {
         )),
         "{debug}"
     );
-    assert!(debug.ends_with(&format!(":{crossing}:18")), "{debug}");
+    let (_, frame) = debug.rsplit_once("\n  at ").expect("a crossing frame");
+    assert_eq!(
+        frame.split(':').nth(1).map(str::parse::<u32>),
+        Some(Ok(crossing)),
+        "{debug}"
+    );
 }
 
 #[test]

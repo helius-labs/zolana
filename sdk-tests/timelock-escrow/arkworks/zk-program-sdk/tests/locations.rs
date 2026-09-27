@@ -1,13 +1,13 @@
-use ark_relations::r1cs::SynthesisMode;
+use ark_relations::r1cs::{SynthesisError, SynthesisMode};
 use zk_program_sdk::{
     circuit,
     circuit::{
         constant, select_index, value, Assert, Asset, Balance, Bool, CheckedTransaction, Circuit,
         ConfidentialTransaction, ConstraintSystem, Field, PublicInputs, TokenUtxo, Uint,
     },
-    conversion::{Allocator, ProofInput},
+    conversion::{Allocator, Placeholder, ProofInput},
     testing::constraint_labels,
-    CircuitError, CircuitErrorKind, TxContext,
+    CircuitError, CircuitErrorKind, Groth16Prover, TxContext,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Mint, WalletUtxo};
@@ -44,6 +44,29 @@ impl Circuit for Payment {
             .with_token_utxos(tokens)
             .with_token_utxos(payment)
             .check()
+    }
+}
+
+#[derive(Clone)]
+struct SetupReader(Payment);
+
+impl ProofInput for SetupReader {
+    type Circuit = PaymentCircuit;
+
+    fn instantiate(&self, allocator: &Allocator) -> Result<PaymentCircuit, CircuitError> {
+        if let Allocator::R1cs(cs) = allocator {
+            if cs.is_in_setup_mode() {
+                Err::<(), _>(SynthesisError::AssignmentMissing)?;
+            }
+        }
+        self.0.instantiate(allocator)
+    }
+}
+const SETUP_READ_LINE: u32 = line!() - 6;
+
+impl Placeholder for SetupReader {
+    fn placeholder() -> Result<Self, CircuitError> {
+        Ok(Self(Payment::placeholder()?))
     }
 }
 
@@ -159,4 +182,20 @@ fn reading_a_variable_points_at_its_caller() {
     let line = line!() + 1;
     let result = value(&allocated);
     assert_eq!(at_line(result, line), (true, line, line));
+}
+
+#[test]
+fn reading_a_value_while_the_shape_is_built_points_at_its_caller() {
+    let error = Groth16Prover::<SetupReader>::new_with_test_setup()
+        .err()
+        .expect("the setup reads a value");
+    let location = error.location();
+    assert_eq!(
+        (
+            error.name(),
+            location.file().ends_with("tests/locations.rs"),
+            location.line(),
+        ),
+        ("ProverError.ReadsValueDuringSetup", true, SETUP_READ_LINE)
+    );
 }

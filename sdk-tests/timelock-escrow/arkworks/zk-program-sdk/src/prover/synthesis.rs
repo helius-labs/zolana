@@ -309,7 +309,7 @@ where
         let cs = constraint_system(SynthesisMode::Setup);
         self.synthesize(&cs).map_err(|error| match error.kind() {
             CircuitErrorKind::Internal(SynthesisError::AssignmentMissing) => {
-                ProverError::from(ProverErrorKind::ReadsValueDuringSetup)
+                ProverError::at_origin_of(ProverErrorKind::ReadsValueDuringSetup, &error)
             }
             _ => ProverError::from(error),
         })?;
