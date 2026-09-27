@@ -14,9 +14,11 @@ use crate::{error::TransactionError, SOL_MINT};
 /// canonical external-data hash. SPL legs retain their mint so proof public
 /// transfers can be derived without inspecting private inputs or outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Serialize-only. Settlement legs are built in Rust and written into the
+// finalized transaction; they are not decoded from JSON.
 #[cfg_attr(
     feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
+    derive(serde::Serialize),
     serde(
         tag = "kind",
         rename_all = "camelCase",

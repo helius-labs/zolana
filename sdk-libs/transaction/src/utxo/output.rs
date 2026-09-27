@@ -24,9 +24,11 @@ fn canonical_data_order(record: &DataRecord) -> u8 {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
+// Serialize-only. These values are produced while finalizing a transaction and
+// never decoded; a deserializer would turn a misspelled field into a dummy.
 #[cfg_attr(
     feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
+    derive(serde::Serialize),
     serde(rename_all = "camelCase")
 )]
 #[cfg_attr(

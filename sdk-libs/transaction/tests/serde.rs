@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_transaction::{
-    instructions::transact::SettlementTransfer, Data, DataRecord, Mint, WalletUtxo,
+    instructions::transact::SettlementTransfer, Data, DataRecord, Mint, Utxo, WalletUtxo,
 };
 
 fn without_indexer_metadata(utxo: &WalletUtxo) -> serde_json::Value {
@@ -102,6 +102,42 @@ fn settlement_transfers_are_tagged_by_kind() {
                 "amount": 11,
                 "userSplToken": account.to_string(),
             }),
+        ),
+    );
+}
+
+#[test]
+fn decoded_notes_reject_unknown_fields() {
+    let dummy = WalletUtxo::dummy(3).unwrap();
+    let mut wallet = without_indexer_metadata(&dummy);
+    wallet["ownerAddress"] = serde_json::json!("typo");
+    let mut note = wallet["utxo"].clone();
+    note["extra"] = serde_json::json!(1);
+    let mut mint = serde_json::to_value(Mint::SOL).unwrap();
+    mint["extra"] = serde_json::json!(1);
+
+    assert_eq!(
+        (
+            serde_json::from_value::<WalletUtxo>(wallet).unwrap_err().to_string(),
+            serde_json::from_value::<Utxo>(note).unwrap_err().to_string(),
+            serde_json::from_value::<Mint>(mint).unwrap_err().to_string(),
+            serde_json::from_value::<Data>(serde_json::json!({"records": [], "extra": 1}))
+                .unwrap_err()
+                .to_string(),
+            serde_json::from_value::<DataRecord>(serde_json::json!({
+                "kind": "memo",
+                "bytes": [],
+                "extra": 1,
+            }))
+            .unwrap_err()
+            .to_string(),
+        ),
+        (
+            "unknown field `ownerAddress`, expected one of `utxo`, `nullifierPubkey`, `utxoHash`, `nullifier`, `txViewingKey`, `dataHash`, `ringDataHash`, `treeId`, `leafIndex`, `latestTreeId`, `slot`, `txSignature`, `slotIndex`".to_string(),
+            "unknown field `extra`, expected one of `owner`, `asset`, `amount`, `blinding`, `ringProgramId`, `data`".to_string(),
+            "unknown field `extra`, expected `asset` or `assetId`".to_string(),
+            "unknown field `extra`, expected `records`".to_string(),
+            "invalid value: string \"extra\", expected \"kind\" or \"bytes\"".to_string(),
         ),
     );
 }

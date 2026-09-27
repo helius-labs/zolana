@@ -7,7 +7,12 @@ use crate::error::TransactionError;
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(tag = "kind", content = "bytes", rename_all = "camelCase")
+    serde(
+        tag = "kind",
+        content = "bytes",
+        rename_all = "camelCase",
+        deny_unknown_fields
+    )
 )]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub enum DataRecord {
@@ -47,7 +52,11 @@ pub enum DataRecord {
 }
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub struct Data {
     #[wincode(with = "containers::Vec<DataRecord, FixIntLen<u8>>")]

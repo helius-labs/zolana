@@ -16,7 +16,7 @@ use crate::{
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "camelCase")
+    serde(rename_all = "camelCase", deny_unknown_fields)
 )]
 #[cfg_attr(
     feature = "tsify",
