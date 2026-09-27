@@ -96,6 +96,13 @@ Added
 
 - `buildRegistrationTransaction({ payer })` lets a sponsor fund the record's
   rent and pay the transaction fee; the owner still signs and may hold 0 SOL.
+- `getUserRecordPda(owner)` from `@heliuslabs/zolana/addresses` derives a
+  registry record, and `getRegisterInstruction`,
+  `getSetMergingEnabledInstruction`, `getUpdateKeysInstruction`,
+  `getP256KeyBindingMessage` and `getP256VerifyInstruction` from
+  `@heliuslabs/zolana/instructions` build the user-registry instructions
+  one by one, so a caller can register and enable merging in one
+  transaction.
 - `setRingCoSignerInstruction` and `clearRingCoSignerInstruction` set and close
   a ring's co-signer, a second Solana key that must sign the transfers,
   deposits or withdrawals in its scope, every ring builder takes `cosigner`

@@ -20,6 +20,13 @@ export {
   type SignerAccount,
 } from "./interface/instructions/index.js";
 export {
+  getP256KeyBindingMessage,
+  getP256VerifyInstruction,
+  getRegisterInstruction,
+  getSetMergingEnabledInstruction,
+  getUpdateKeysInstruction,
+} from "./wallet/registry.js";
+export {
   DepositAsset,
   TransactWithdrawal,
   type AssetDeposit,

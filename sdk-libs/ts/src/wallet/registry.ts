@@ -1,5 +1,4 @@
 import {
-  AccountRole,
   address,
   getAddressDecoder,
   getAddressEncoder,
@@ -10,11 +9,14 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
-import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
+import { meta, type SignerAccount } from "../interface/instructions/index.js";
+import { addressBytes, fail } from "../interface/internal.js";
+import { SECP256R1_PROGRAM_ID, USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
 import {
   type Address,
   type Bytes32,
   type Bytes33,
+  type Bytes64,
   type Instruction,
   type RequestContext,
   type Transaction,
@@ -30,8 +32,26 @@ type AccountReader = Pick<ChainReader, "getAccount">;
 type ProgramAccountReader = Pick<ChainReader, "getProgramAccounts">;
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
+const INSTRUCTIONS_SYSVAR = address("Sysvar1nstructions1111111111111111111111111");
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
+const REGISTER = 0;
 const SET_MERGING_ENABLED = 1;
+const UPDATE_KEYS = 2;
+const P256_KEY_BINDING_MESSAGE_LEN = 161;
+// 28 ASCII bytes zero-padded to 32, matching `P256_KEY_BINDING_DOMAIN` in Rust.
+const P256_KEY_BINDING_DOMAIN = concat(
+  new TextEncoder().encode("zolana:user-registry:p256:v1"),
+  new Uint8Array(4),
+);
+// secp256r1 precompile wire layout: u8 num_signatures, u8 padding, one 14-byte
+// offsets record, then pubkey, signature, and message. The registry program
+// pins every offset and the `0xffff` "this instruction" indices, so the proof
+// cannot reference data from another instruction in the transaction.
+const SECP256R1_DATA_START = 16;
+const SECP256R1_PUBKEY_OFFSET = SECP256R1_DATA_START;
+const SECP256R1_SIGNATURE_OFFSET = SECP256R1_PUBKEY_OFFSET + 33;
+const SECP256R1_MESSAGE_OFFSET = SECP256R1_SIGNATURE_OFFSET + 64;
+const SECP256R1_THIS_INSTRUCTION = 0xffff;
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
 
@@ -437,14 +457,11 @@ export async function buildSetMergingEnabledTransaction(
       lifetime,
       computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [
-        {
-          programAddress: USER_REGISTRY_PROGRAM_ID,
-          accounts: [
-            { address: recordAddress, role: AccountRole.WRITABLE },
-            { address: input.owner, role: AccountRole.READONLY_SIGNER },
-          ],
-          data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
-        },
+        getSetMergingEnabledInstruction({
+          userRecord: recordAddress,
+          owner: input.owner,
+          enabled: input.enabled,
+        }),
       ],
     });
   } catch (cause) {
@@ -460,27 +477,159 @@ function registrationInstruction(
   existing: UserRecord | undefined,
 ): Instruction | undefined {
   if (existing !== undefined && publishedKeysMatch(existing, shieldedAddress)) return undefined;
-  const ownerP256 =
-    shieldedAddress.signingPublicKey.signatureType() === "p256"
-      ? shieldedAddress.signingPublicKey.p256().toBytes()
-      : undefined;
+  const keys = {
+    userRecord: pda.address,
+    owner,
+    ...(shieldedAddress.signingPublicKey.signatureType() === "p256"
+      ? { ownerP256: shieldedAddress.signingPublicKey.p256().toBytes() }
+      : {}),
+    nullifierPublicKey: shieldedAddress.nullifierPublicKey,
+    viewingPublicKey: shieldedAddress.viewingPublicKey.toBytes(),
+  };
+  return existing === undefined
+    ? getRegisterInstruction({ ...keys, payer })
+    : getUpdateKeysInstruction(keys);
+}
+
+function fixedBytes(value: Uint8Array, length: number, name: string): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length !== length) {
+    fail("INTERFACE_CODEC", {
+      name,
+      expected: length,
+      actual: value instanceof Uint8Array ? value.length : "non-bytes",
+    });
+  }
+  return value;
+}
+
+interface RegistryKeys {
+  readonly ownerP256?: Bytes33;
+  readonly nullifierPublicKey: Bytes32;
+  readonly viewingPublicKey: Bytes33;
+}
+
+/** Borsh `RegisterData` / `UpdateKeysData`: `Option<[u8; 33]>`, `[u8; 32]`, `[u8; 33]`. */
+function encodeRegistryKeys(input: RegistryKeys): Uint8Array {
+  return concat(
+    Uint8Array.of(input.ownerP256 === undefined ? 0 : 1),
+    ...(input.ownerP256 === undefined ? [] : [fixedBytes(input.ownerP256, 33, "ownerP256")]),
+    fixedBytes(input.nullifierPublicKey, 32, "nullifierPublicKey"),
+    fixedBytes(input.viewingPublicKey, 33, "viewingPublicKey"),
+  );
+}
+
+/**
+ * Accounts: user record (writable), owner (signer), payer (writable signer),
+ * system program, then the Instructions sysvar only when `ownerP256` is set.
+ * `payer` funds the record's rent and defaults to the owner; the message
+ * compiler merges the two metas into one signer. A P-256 register must be
+ * immediately preceded by `getP256VerifyInstruction`.
+ */
+export function getRegisterInstruction(
+  input: Readonly<{
+    userRecord: Address;
+    owner: SignerAccount;
+    payer?: SignerAccount;
+    ownerP256?: Bytes33;
+    nullifierPublicKey: Bytes32;
+    viewingPublicKey: Bytes33;
+  }>,
+): Instruction {
   return {
     programAddress: USER_REGISTRY_PROGRAM_ID,
     accounts: [
-      { address: pda.address, role: AccountRole.WRITABLE },
-      { address: owner, role: AccountRole.READONLY_SIGNER },
-      ...(existing === undefined
-        ? [
-            { address: payer, role: AccountRole.WRITABLE_SIGNER as const },
-            { address: SYSTEM_PROGRAM, role: AccountRole.READONLY as const },
-          ]
-        : []),
+      meta(input.userRecord, false, true),
+      meta(input.owner, true, false),
+      meta(input.payer ?? input.owner, true, true),
+      meta(SYSTEM_PROGRAM, false, false),
+      ...(input.ownerP256 === undefined ? [] : [meta(INSTRUCTIONS_SYSVAR, false, false)]),
     ],
-    data: concat(
-      Uint8Array.of(existing === undefined ? 0 : 2, ownerP256 === undefined ? 0 : 1),
-      ...(ownerP256 === undefined ? [] : [ownerP256]),
-      shieldedAddress.nullifierPublicKey,
-      shieldedAddress.viewingPublicKey.toBytes(),
-    ),
+    data: concat(Uint8Array.of(REGISTER), encodeRegistryKeys(input)),
+  };
+}
+
+/** Accounts: user record (writable), owner (signer). */
+export function getSetMergingEnabledInstruction(
+  input: Readonly<{ userRecord: Address; owner: SignerAccount; enabled: boolean }>,
+): Instruction {
+  if (typeof input.enabled !== "boolean") {
+    fail("INTERFACE_CODEC", { name: "enabled", actual: input.enabled });
+  }
+  return {
+    programAddress: USER_REGISTRY_PROGRAM_ID,
+    accounts: [meta(input.userRecord, false, true), meta(input.owner, true, false)],
+    data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
+  };
+}
+
+/**
+ * Accounts: user record (writable), owner (signer), then the Instructions
+ * sysvar only when `ownerP256` is set.
+ */
+export function getUpdateKeysInstruction(
+  input: Readonly<{
+    userRecord: Address;
+    owner: SignerAccount;
+    ownerP256?: Bytes33;
+    nullifierPublicKey: Bytes32;
+    viewingPublicKey: Bytes33;
+  }>,
+): Instruction {
+  return {
+    programAddress: USER_REGISTRY_PROGRAM_ID,
+    accounts: [
+      meta(input.userRecord, false, true),
+      meta(input.owner, true, false),
+      ...(input.ownerP256 === undefined ? [] : [meta(INSTRUCTIONS_SYSVAR, false, false)]),
+    ],
+    data: concat(Uint8Array.of(UPDATE_KEYS), encodeRegistryKeys(input)),
+  };
+}
+
+/**
+ * The 161-byte proof-of-possession message a P-256 owner signs: domain,
+ * registry program id, user record, owner, and the P-256 key it binds.
+ */
+export function getP256KeyBindingMessage(
+  input: Readonly<{ userRecord: Address; owner: Address; ownerP256: Bytes33 }>,
+): Uint8Array {
+  return concat(
+    P256_KEY_BINDING_DOMAIN,
+    addressBytes(USER_REGISTRY_PROGRAM_ID, "programAddress"),
+    addressBytes(input.userRecord, "userRecord"),
+    addressBytes(input.owner, "owner"),
+    fixedBytes(input.ownerP256, 33, "ownerP256"),
+  );
+}
+
+/**
+ * The self-contained secp256r1 precompile instruction the registry program
+ * requires immediately before a P-256 register or key update. No accounts.
+ */
+export function getP256VerifyInstruction(
+  input: Readonly<{ message: Uint8Array; signature: Bytes64; pubkey: Bytes33 }>,
+): Instruction {
+  const message = fixedBytes(input.message, P256_KEY_BINDING_MESSAGE_LEN, "message");
+  const signature = fixedBytes(input.signature, 64, "signature");
+  const pubkey = fixedBytes(input.pubkey, 33, "pubkey");
+  const offsets = [
+    SECP256R1_SIGNATURE_OFFSET,
+    SECP256R1_THIS_INSTRUCTION,
+    SECP256R1_PUBKEY_OFFSET,
+    SECP256R1_THIS_INSTRUCTION,
+    SECP256R1_MESSAGE_OFFSET,
+    P256_KEY_BINDING_MESSAGE_LEN,
+    SECP256R1_THIS_INSTRUCTION,
+  ];
+  const head = new Uint8Array(SECP256R1_DATA_START);
+  head[0] = 1;
+  offsets.forEach((value, index) => {
+    head[2 + index * 2] = value & 0xff;
+    head[3 + index * 2] = value >>> 8;
+  });
+  return {
+    programAddress: SECP256R1_PROGRAM_ID,
+    accounts: [],
+    data: concat(head, pubkey, signature, message),
   };
 }
