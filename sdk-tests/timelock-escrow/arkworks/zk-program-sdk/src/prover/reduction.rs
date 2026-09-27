@@ -1,7 +1,7 @@
 use ark_ff::PrimeField;
 use ark_groth16::r1cs_to_qap::{LibsnarkReduction, R1CSToQAP};
 use ark_poly::EvaluationDomain;
-use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystemRef, SynthesisError};
+use ark_relations::gr1cs::{ConstraintSystemRef, Matrix, SynthesisError};
 use ark_std::cfg_iter;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -19,23 +19,26 @@ impl R1CSToQAP for CircomReduction {
     }
 
     fn witness_map_from_matrices<F: PrimeField, D: EvaluationDomain<F>>(
-        matrices: &ConstraintMatrices<F>,
+        matrices: &[Matrix<F>],
         num_inputs: usize,
         num_constraints: usize,
         full_assignment: &[F],
     ) -> Result<Vec<F>, SynthesisError> {
+        let [a, b, ..] = matrices else {
+            return Err(SynthesisError::ArityMismatch);
+        };
         let domain =
             D::new(num_constraints + num_inputs).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
         let domain_size = domain.size();
         let inputs = full_assignment
             .get(..num_inputs)
             .ok_or(SynthesisError::AssignmentMissing)?;
-        if matrices.a.len() < num_constraints || matrices.b.len() < num_constraints {
+        if a.len() < num_constraints || b.len() < num_constraints {
             return Err(SynthesisError::AssignmentMissing);
         }
 
-        let rows = cfg_iter!(matrices.a)
-            .zip(cfg_iter!(matrices.b))
+        let rows = cfg_iter!(a)
+            .zip(cfg_iter!(b))
             .take(num_constraints)
             .map(|(a_row, b_row)| {
                 let a_value = evaluate(a_row, full_assignment)?;

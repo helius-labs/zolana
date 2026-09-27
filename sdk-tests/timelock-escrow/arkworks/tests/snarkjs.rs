@@ -207,7 +207,7 @@ fn a_libsnark_reduction_proof_does_not_verify_against_a_zkey() {
             keys.proving_key(),
             Fr::from(3u64),
             Fr::from(5u64),
-            &matrices,
+            &matrices.abc,
             matrices.num_instance_variables,
             matrices.num_constraints,
             &assignment,

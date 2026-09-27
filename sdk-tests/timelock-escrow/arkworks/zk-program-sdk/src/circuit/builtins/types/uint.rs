@@ -1,6 +1,6 @@
 use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, BigInteger, One, PrimeField};
-use ark_relations::r1cs::SynthesisError;
+use ark_relations::gr1cs::SynthesisError;
 
 use crate::{
     circuit::{

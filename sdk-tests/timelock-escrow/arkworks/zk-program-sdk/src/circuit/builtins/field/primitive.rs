@@ -4,9 +4,9 @@ use ark_r1cs_std::{
     boolean::Boolean,
     eq::EqGadget,
     fields::{fp::FpVar, FieldVar},
-    R1CSVar,
+    GR1CSVar,
 };
-use ark_relations::r1cs::SynthesisError;
+use ark_relations::gr1cs::SynthesisError;
 
 use super::var::{CircuitSystem, CircuitVar};
 use crate::{

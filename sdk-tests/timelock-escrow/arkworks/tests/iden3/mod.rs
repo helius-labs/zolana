@@ -1,6 +1,5 @@
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField, Zero};
-use ark_relations::r1cs::ConstraintMatrices;
 
 pub type Row = Vec<(Fr, usize)>;
 
@@ -24,33 +23,16 @@ pub struct R1cs {
 }
 
 impl R1cs {
-    pub fn matrices(&self) -> ConstraintMatrices<Fr> {
-        let non_zero = |rows: &[Row]| rows.iter().map(Vec::len).sum();
-        ConstraintMatrices {
-            num_instance_variables: self.header.public_inputs + 1,
-            num_witness_variables: self.header.private_inputs,
-            num_constraints: self.header.constraints,
-            a_num_non_zero: non_zero(&self.a),
-            b_num_non_zero: non_zero(&self.b),
-            c_num_non_zero: non_zero(&self.c),
-            a: self.a.clone(),
-            b: self.b.clone(),
-            c: self.c.clone(),
-        }
-    }
-
     pub fn first_unsatisfied(&self, witness: &[Fr]) -> Option<usize> {
-        let matrices = self.matrices();
         let evaluate = |row: &Row| {
             row.iter().fold(Fr::zero(), |sum, (coefficient, variable)| {
                 sum + *coefficient * witness.get(*variable).expect("witness variable")
             })
         };
-        matrices
-            .a
+        self.a
             .iter()
-            .zip(&matrices.b)
-            .zip(&matrices.c)
+            .zip(&self.b)
+            .zip(&self.c)
             .position(|((a, b), c)| evaluate(a) * evaluate(b) != evaluate(c))
     }
 }

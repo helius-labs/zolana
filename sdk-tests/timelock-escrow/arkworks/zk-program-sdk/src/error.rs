@@ -1,7 +1,7 @@
 use core::{fmt, panic::Location};
 use std::path::PathBuf;
 
-use ark_relations::r1cs::SynthesisError;
+use ark_relations::gr1cs::SynthesisError;
 use zolana_hasher::HasherError;
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;

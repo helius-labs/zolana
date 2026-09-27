@@ -1,4 +1,4 @@
-use ark_relations::r1cs::SynthesisError;
+use ark_relations::gr1cs::SynthesisError;
 use timelock_escrow_arkworks::escrow_authority;
 use timelock_escrow_arkworks::{
     Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw, WithdrawPrivateInputs,

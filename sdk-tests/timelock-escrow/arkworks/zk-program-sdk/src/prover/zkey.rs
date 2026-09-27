@@ -2,9 +2,11 @@ use ark_bn254::{Fq, Fq2, Fr, G1Affine, G2Affine};
 use ark_ec::AffineRepr;
 use ark_ff::{BigInt, One, PrimeField, Zero};
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
-use ark_relations::r1cs::ConstraintMatrices;
 
-use super::groth16::{ProvingKey, VerifyingKey};
+use super::{
+    groth16::{ProvingKey, VerifyingKey},
+    synthesis::R1csMatrices,
+};
 use crate::{ProverError, ProverErrorKind};
 
 const G1_BYTES: usize = 64;
@@ -91,10 +93,7 @@ impl Zkey {
         })
     }
 
-    pub(crate) fn check_circuit(
-        &self,
-        matrices: &ConstraintMatrices<Fr>,
-    ) -> Result<(), ProverError> {
+    pub(crate) fn check_circuit(&self, matrices: &R1csMatrices) -> Result<(), ProverError> {
         let domain_size = GeneralEvaluationDomain::<Fr>::new(
             matrices.num_constraints + matrices.num_instance_variables,
         )
@@ -126,15 +125,14 @@ fn non_identity<P: AffineRepr>(point: P, name: &'static str) -> Result<P, Prover
     Ok(point)
 }
 
-fn circuit_coefficients(
-    matrices: &ConstraintMatrices<Fr>,
-) -> Result<Vec<Coefficient>, ProverError> {
+fn circuit_coefficients(matrices: &R1csMatrices) -> Result<Vec<Coefficient>, ProverError> {
     let index =
         |value: usize| u32::try_from(value).map_err(|_| ProverErrorKind::KeysForAnotherCircuit);
+    let non_zero = |rows: &[_]| rows.iter().map(Vec::len).sum::<usize>();
     let mut coefficients = Vec::with_capacity(
-        matrices.a_num_non_zero + matrices.b_num_non_zero + matrices.num_instance_variables,
+        non_zero(matrices.a()) + non_zero(matrices.b()) + matrices.num_instance_variables,
     );
-    for (matrix, rows) in [(MATRIX_A, &matrices.a), (MATRIX_B, &matrices.b)] {
+    for (matrix, rows) in [(MATRIX_A, matrices.a()), (MATRIX_B, matrices.b())] {
         for (constraint, row) in rows.iter().enumerate() {
             for (value, variable) in row {
                 coefficients.push(Coefficient {

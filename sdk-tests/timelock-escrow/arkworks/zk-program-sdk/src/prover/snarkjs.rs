@@ -1,14 +1,14 @@
 use ark_bn254::Fr;
 use ark_ff::{BigInt, BigInteger, PrimeField};
-#[cfg(feature = "setup")]
-use ark_relations::r1cs::ConstraintMatrices;
 
+#[cfg(feature = "setup")]
+use super::synthesis::R1csMatrices;
 use crate::{ProverError, ProverErrorKind};
 
 const FIELD_BYTES: u32 = 32;
 
 #[cfg(feature = "setup")]
-pub(crate) fn r1cs(matrices: &ConstraintMatrices<Fr>) -> Result<Vec<u8>, ProverError> {
+pub(crate) fn r1cs(matrices: &R1csMatrices) -> Result<Vec<u8>, ProverError> {
     let variables = matrices.num_instance_variables + matrices.num_witness_variables;
 
     let mut header = Vec::new();
@@ -24,7 +24,7 @@ pub(crate) fn r1cs(matrices: &ConstraintMatrices<Fr>) -> Result<Vec<u8>, ProverE
     header.extend_from_slice(&u64_of(variables)?.to_le_bytes());
     put_u32(&mut header, matrices.num_constraints)?;
 
-    let complete = [&matrices.a, &matrices.b, &matrices.c]
+    let complete = [matrices.a(), matrices.b(), matrices.c()]
         .iter()
         .all(|rows| rows.len() == matrices.num_constraints);
     if !complete {
@@ -35,7 +35,7 @@ pub(crate) fn r1cs(matrices: &ConstraintMatrices<Fr>) -> Result<Vec<u8>, ProverE
     }
 
     let mut constraints = Vec::new();
-    let rows = matrices.a.iter().zip(&matrices.b).zip(&matrices.c);
+    let rows = matrices.a().iter().zip(matrices.b()).zip(matrices.c());
     for ((a, b), c) in rows {
         for row in [a, b, c] {
             put_u32(&mut constraints, row.len())?;

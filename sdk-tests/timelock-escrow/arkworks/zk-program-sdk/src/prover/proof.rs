@@ -3,7 +3,7 @@ use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::{BigInteger256, PrimeField, Zero};
 use ark_groth16::r1cs_to_qap::R1CSToQAP;
 use ark_poly::GeneralEvaluationDomain;
-use ark_relations::r1cs::{ConstraintMatrices, SynthesisError};
+use ark_relations::gr1cs::SynthesisError;
 use ark_std::cfg_iter;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use super::{
     groth16::{Proof, ProvingKey},
     reduction::CircomReduction,
+    synthesis::R1csMatrices,
 };
 use crate::{ProverError, ProverErrorKind};
 
@@ -18,12 +19,12 @@ pub(crate) fn create_proof(
     proving_key: &ProvingKey,
     r: Fr,
     s: Fr,
-    matrices: &ConstraintMatrices<Fr>,
+    matrices: &R1csMatrices,
     full_assignment: &[Fr],
 ) -> Result<Proof, ProverError> {
     let num_inputs = matrices.num_instance_variables;
     let h = CircomReduction::witness_map_from_matrices::<Fr, GeneralEvaluationDomain<Fr>>(
-        matrices,
+        matrices.as_slice(),
         num_inputs,
         matrices.num_constraints,
         full_assignment,

@@ -1,6 +1,6 @@
 use ark_bn254::Fr;
 use ark_ff::{Field as _, Zero};
-use ark_r1cs_std::{boolean::Boolean, R1CSVar};
+use ark_r1cs_std::{boolean::Boolean, GR1CSVar};
 
 use crate::{
     circuit::{constant, labels, zero, Bool, CircuitVar},

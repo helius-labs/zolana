@@ -7,7 +7,7 @@ use std::{
 
 use ark_bn254::Fr;
 use ark_r1cs_std::fields::fp::FpVar;
-use ark_relations::r1cs::ConstraintSystemRef;
+use ark_relations::gr1cs::ConstraintSystemRef;
 
 use crate::{CircuitError, CircuitErrorKind};
 
@@ -77,7 +77,7 @@ impl fmt::Display for Field {
 }
 
 pub type CircuitSystem = ConstraintSystemRef<Fr>;
-pub type ConstraintSystem = ark_relations::r1cs::ConstraintSystem<Fr>;
+pub type ConstraintSystem = ark_relations::gr1cs::ConstraintSystem<Fr>;
 
 #[must_use]
 #[derive(Clone)]

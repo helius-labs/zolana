@@ -1,7 +1,8 @@
 use ark_bn254::Fr;
 use ark_ff::{UniformRand, Zero};
-use ark_relations::r1cs::{
-    ConstraintMatrices, ConstraintSynthesizer, OptimizationGoal, SynthesisError, SynthesisMode,
+use ark_relations::gr1cs::{
+    ConstraintSynthesizer, Matrix, OptimizationGoal, SynthesisError, SynthesisMode,
+    R1CS_PREDICATE_LABEL,
 };
 use ark_std::{
     cfg_iter,
@@ -26,8 +27,36 @@ pub(crate) struct CircuitShape {
     pub(crate) witness_variables: usize,
 }
 
+/// The a, b and c matrices of the R1CS predicate plus the system counts that
+/// arkworks 0.5's `ConstraintMatrices` used to carry.
+pub(crate) struct R1csMatrices {
+    matrices: [Matrix<Fr>; 3],
+    pub(crate) num_instance_variables: usize,
+    pub(crate) num_witness_variables: usize,
+    pub(crate) num_constraints: usize,
+}
+
+impl R1csMatrices {
+    pub(crate) fn a(&self) -> &Matrix<Fr> {
+        &self.matrices[0]
+    }
+
+    pub(crate) fn b(&self) -> &Matrix<Fr> {
+        &self.matrices[1]
+    }
+
+    pub(crate) fn c(&self) -> &Matrix<Fr> {
+        &self.matrices[2]
+    }
+
+    /// The matrices in a, b, c order, as `R1CSToQAP` implementations take them.
+    pub(crate) fn as_slice(&self) -> &[Matrix<Fr>] {
+        &self.matrices
+    }
+}
+
 pub(crate) struct CircuitMatrices {
-    matrices: ConstraintMatrices<Fr>,
+    matrices: R1csMatrices,
     labels: Vec<CircuitLabel>,
 }
 
@@ -57,7 +86,7 @@ impl CircuitMatrices {
             .position(|(left, right)| left != right)
     }
 
-    pub(crate) fn matrices(&self) -> &ConstraintMatrices<Fr> {
+    pub(crate) fn matrices(&self) -> &R1csMatrices {
         &self.matrices
     }
 
@@ -116,9 +145,9 @@ impl CircuitMatrices {
             for row in rows {
                 let (Some((a, b, c)), Some(row_a), Some(row_b), Some(row_c)) = (
                     honest.get(*row),
-                    self.matrices.a.get(*row),
-                    self.matrices.b.get(*row),
-                    self.matrices.c.get(*row),
+                    self.matrices.a().get(*row),
+                    self.matrices.b().get(*row),
+                    self.matrices.c().get(*row),
                 ) else {
                     return Err(ProverErrorKind::ProofInputsForAnotherCircuit.into());
                 };
@@ -153,9 +182,9 @@ impl CircuitMatrices {
                 Err(kind) => Some(kind),
             }
         };
-        let rows = cfg_iter!(self.matrices.a)
-            .zip(cfg_iter!(self.matrices.b))
-            .zip(cfg_iter!(self.matrices.c))
+        let rows = cfg_iter!(self.matrices.a())
+            .zip(cfg_iter!(self.matrices.b()))
+            .zip(cfg_iter!(self.matrices.c()))
             .enumerate();
         #[cfg(feature = "parallel")]
         let failure = rows.find_map_first(check);
@@ -170,12 +199,12 @@ impl CircuitMatrices {
 
 type Row<'a> = (&'a [(Fr, usize)], &'a [(Fr, usize)], &'a [(Fr, usize)]);
 
-fn rows(matrices: &ConstraintMatrices<Fr>) -> impl Iterator<Item = Row<'_>> {
+fn rows(matrices: &R1csMatrices) -> impl Iterator<Item = Row<'_>> {
     matrices
-        .a
+        .a()
         .iter()
-        .zip(&matrices.b)
-        .zip(&matrices.c)
+        .zip(matrices.b())
+        .zip(matrices.c())
         .map(|((a, b), c)| (a.as_slice(), b.as_slice(), c.as_slice()))
 }
 
@@ -212,7 +241,22 @@ fn constraint_system(mode: SynthesisMode) -> CircuitSystem {
 
 fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, ProverError> {
     cs.finalize();
-    let matrices = cs.to_matrices().ok_or(SynthesisError::MissingCS)?;
+    // The circuits synthesize R1CS constraints only, so the R1CS predicate is
+    // the only entry in the map and holds exactly the a, b and c matrices.
+    let mut predicates = cs.to_matrices()?;
+    let r1cs = predicates
+        .remove(R1CS_PREDICATE_LABEL)
+        .filter(|_| predicates.is_empty())
+        .ok_or(ProverErrorKind::Internal(SynthesisError::PredicateNotFound))?;
+    let matrices: [Matrix<Fr>; 3] = r1cs
+        .try_into()
+        .map_err(|_| ProverErrorKind::Internal(SynthesisError::ArityMismatch))?;
+    let matrices = R1csMatrices {
+        matrices,
+        num_instance_variables: cs.num_instance_variables(),
+        num_witness_variables: cs.num_witness_variables(),
+        num_constraints: cs.num_constraints(),
+    };
     one_public_input(matrices.num_instance_variables)?;
     Ok(CircuitMatrices {
         matrices,
@@ -223,8 +267,8 @@ fn circuit_matrices(cs: &CircuitSystem) -> Result<CircuitMatrices, ProverError> 
 fn assignment_of(cs: &CircuitSystem) -> Result<Vec<Fr>, CircuitError> {
     let system = cs.borrow().ok_or(SynthesisError::MissingCS)?;
     Ok([
-        system.instance_assignment.as_slice(),
-        system.witness_assignment.as_slice(),
+        system.instance_assignment()?,
+        system.witness_assignment()?,
     ]
     .concat())
 }
@@ -316,6 +360,7 @@ where
     pub(crate) fn synthesized(&self) -> Result<Synthesized, ProverError> {
         let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: true,
+            generate_lc_assignments: true,
         });
         self.synthesize(&cs)?;
         let assignment = assignment_of(&cs)?;
@@ -332,6 +377,7 @@ where
     fn assignment(&self) -> Result<Vec<Fr>, CircuitError> {
         let cs = constraint_system(SynthesisMode::Prove {
             construct_matrices: false,
+            generate_lc_assignments: true,
         });
         self.synthesize(&cs)?;
         assignment_of(&cs)
