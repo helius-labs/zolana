@@ -1,7 +1,7 @@
 name: pr review
 
-# Advisory Codex review for each pushed PR head. Posts one PR comment and
-# updates it on later pushes. Not a required check.
+# Advisory Codex review for each pushed PR head. Posts inline review comments
+# with suggested fixes or flags. Not a required check.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -90,7 +90,38 @@ jobs:
             - 75: verified, important, or explicitly called out in an instruction file
             - 100: certain and frequent
 
-            Report only issues scoring 80 or higher. Output Markdown only: either "No issues found." or a numbered list where each item has one sentence, the reason (for example "CLAUDE.md: meaningful errors" or "bug"), and a `path:line` reference.
+            Report only issues scoring 80 or higher, as `findings`. Return an empty list when there are none. For each finding:
+
+            - `path`, `start_line`, `end_line`: the line range in the file at the PR head. Prefer lines inside a hunk in `diff.patch`.
+            - `title`: one sentence.
+            - `reason`: for example "CLAUDE.md: meaningful errors" or "bug".
+            - `body`: what is wrong and why, in at most two sentences.
+            - `suggestion`: the exact replacement text for lines `start_line` to `end_line`, with the original indentation, or null. Give one only when the fix is complete and limited to those lines.
+          output-schema: |
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["findings"],
+              "properties": {
+                "findings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path", "start_line", "end_line", "title", "reason", "body", "suggestion"],
+                    "properties": {
+                      "path": { "type": "string" },
+                      "start_line": { "type": "integer" },
+                      "end_line": { "type": "integer" },
+                      "title": { "type": "string" },
+                      "reason": { "type": "string" },
+                      "body": { "type": "string" },
+                      "suggestion": { "type": ["string", "null"] }
+                    }
+                  }
+                }
+              }
+            }
 
   # Separate job so the write token never shares a runner with Codex or PR code.
   comment:
@@ -101,20 +132,70 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - name: Post or update review comment
+      - name: Post inline review
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEW: ${{ needs.review.outputs.review }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           PR: ${{ github.event.pull_request.number }}
+        shell: python
         run: |
-          set -euo pipefail
-          marker='<!-- codex-pr-review -->'
-          body="$(printf '%s\n### Codex review for %s\n\n%s\n' "$marker" "${HEAD::7}" "$REVIEW")"
-          id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
-            -q ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)"
-          if [[ -n "$id" ]]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body"
-          else
-            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$body"
-          fi
+          import hashlib, json, os, re, subprocess
+
+          repo, pr, head = os.environ["GITHUB_REPOSITORY"], os.environ["PR"], os.environ["HEAD"]
+
+          def gh(*args, data=None):
+              cmd = ["gh", "api", *args] + (["--input", "-"] if data is not None else [])
+              stdin = json.dumps(data) if data is not None else None
+              return subprocess.run(cmd, input=stdin, capture_output=True, text=True, check=True).stdout
+
+          def pages(path):
+              return [item for page in json.loads(gh("--paginate", "--slurp", path)) for item in page]
+
+          # GitHub only accepts inline comments on lines inside a diff hunk.
+          hunks = {}
+          for f in pages(f"repos/{repo}/pulls/{pr}/files"):
+              hunks[f["filename"]] = [
+                  (int(m[1]), int(m[1]) + int(m[2] or 1) - 1)
+                  for m in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", f.get("patch", ""), re.M)
+              ]
+
+          seen = set()
+          for c in pages(f"repos/{repo}/pulls/{pr}/comments") + pages(f"repos/{repo}/pulls/{pr}/reviews"):
+              if c["user"]["login"] == "github-actions[bot]":
+                  seen.update(re.findall(r"<!-- codex-pr-review:(\w+) -->", c.get("body") or ""))
+
+          comments, outside = [], []
+          for f in json.loads(os.environ["REVIEW"])["findings"]:
+              fp = hashlib.sha1(f"{f['path']}:{f['title']}".encode()).hexdigest()[:12]
+              if fp in seen:
+                  continue
+              label = "Fix" if f["suggestion"] is not None else "Flag"
+              text = f"**{label}:** {f['title']}\n\n{f['body']}\n\n_Reason: {f['reason']}_"
+              if f["suggestion"] is not None:
+                  text += f"\n\n```suggestion\n{f['suggestion'].rstrip(chr(10))}\n```"
+              text += f"\n<!-- codex-pr-review:{fp} -->"
+              start, end = f["start_line"], f["end_line"]
+              if any(a <= start <= end <= b for a, b in hunks.get(f["path"], [])):
+                  comment = {"path": f["path"], "line": end, "side": "RIGHT", "body": text}
+                  if start < end:
+                      comment.update(start_line=start, start_side="RIGHT")
+                  comments.append(comment)
+              else:
+                  outside.append(f"`{f['path']}:{start}`\n\n{text}")
+
+          if not comments and not outside:
+              print("No new findings.")
+              raise SystemExit
+
+          body = f"Codex review for {head[:7]}."
+          if outside:
+              body += "\n\nOutside the diff:\n\n" + "\n\n---\n\n".join(outside)
+          review = {"commit_id": head, "event": "COMMENT", "body": body, "comments": comments}
+          try:
+              gh("-X", "POST", f"repos/{repo}/pulls/{pr}/reviews", data=review)
+          except subprocess.CalledProcessError:
+              # One rejected inline position fails the whole review; fall back to the review body.
+              review["body"] += "\n\n---\n\n" + "\n\n---\n\n".join(f"`{c['path']}:{c['line']}`\n\n{c['body']}" for c in comments)
+              review["comments"] = []
+              gh("-X", "POST", f"repos/{repo}/pulls/{pr}/reviews", data=review)
