@@ -1,9 +1,14 @@
 pub mod circom;
+pub mod circomlib;
+pub mod digest;
+pub mod equivalence;
 pub mod field;
+pub mod fixture;
 pub mod iden3;
 pub mod normalize;
 pub mod picus;
 pub mod snarkjs;
+mod tests;
 
 use std::{
     fs::File,

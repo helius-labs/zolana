@@ -1,97 +1,55 @@
-use std::fmt::Debug;
-
 use ark_bn254::Fr;
 use ark_ff::One;
 use proptest::prelude::*;
 use zk_program_sdk::{
-    circuit::{value, Constraints, Field},
-    conversion::Allocator,
+    circuit::{value, CircuitVar, Field},
     testing::{check_tampered, Tamper},
     ZkCircuit,
 };
 
 use super::fixtures::{
-    every_form, every_form_name, outcome, variable_form_names, variable_forms, Operands, Refusal,
-    Variables, Visit, RULE, RULE_BROKEN,
+    every_form, every_form_name, variable_form_names, variable_forms, Variables, RULE, RULE_BROKEN,
 };
 use crate::harness::{
     field::random,
-    iden3::{read_r1cs, read_wtns},
+    fixture::{assignment, each, native_circuit, Fixture, Native, Visit},
+    iden3::read_r1cs,
 };
 
 fn arbitrary_field() -> impl Strategy<Value = Field> {
     any::<[u8; 32]>().prop_map(random)
 }
 
-fn every<T: Clone>(forms: Vec<&'static str>, value: T) -> Vec<(&'static str, T)> {
-    forms
-        .into_iter()
-        .map(|form| (form, value.clone()))
-        .collect()
-}
-
-struct Native;
-
-impl Visit for Native {
-    type Output = Result<(), Refusal>;
-
-    fn visit<F>(&self, fixture: F) -> Self::Output
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        outcome(
-            fixture
-                .instantiate(&Allocator::native())
-                .and_then(|circuit| circuit.constraints()),
-        )
-    }
-}
-
 struct NativeSum;
 
-impl Visit for NativeSum {
+impl Visit<CircuitVar> for NativeSum {
     type Output = Field;
 
-    fn visit<F>(&self, fixture: F) -> Field
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        let circuit = fixture
-            .instantiate(&Allocator::native())
-            .expect("native instantiation");
-        value(&circuit.form()).expect("constant sum")
+    fn visit<F: Fixture<CircuitVar>>(&self, fixture: &F) -> Field {
+        let circuit = native_circuit(fixture).expect("native instantiation");
+        value(&F::computed(&circuit)).expect("constant sum")
     }
 }
 
 struct CheckConstraints;
 
-impl Visit for CheckConstraints {
+impl<C> Visit<C> for CheckConstraints {
     type Output = Option<usize>;
 
-    fn visit<F>(&self, fixture: F) -> Option<usize>
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
+    fn visit<F: Fixture<C>>(&self, fixture: &F) -> Option<usize> {
         fixture.check_constraints().ok()
     }
 }
 
 struct TamperSum(Field);
 
-impl Visit for TamperSum {
+impl<C> Visit<C> for TamperSum {
     type Output = Option<&'static str>;
 
-    fn visit<F>(&self, fixture: F) -> Option<&'static str>
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        let variables = read_wtns(&fixture.export_assignment().expect("assignment")).len();
+    fn visit<F: Fixture<C>>(&self, fixture: &F) -> Option<&'static str> {
+        let variables = assignment(fixture).len();
         check_tampered(
-            &fixture,
+            fixture,
             Tamper::PrivateVariable {
                 index: variables - 2,
                 value: self.0,
@@ -114,7 +72,7 @@ proptest! {
         let expected = if sum == left + right { Ok(()) } else { Err(RULE_BROKEN) };
         prop_assert_eq!(
             every_form(&Native, (left, right, sum)),
-            every(every_form_name(), expected)
+            each(&every_form_name(), expected)
         );
     }
 
@@ -125,7 +83,7 @@ proptest! {
     ) {
         prop_assert_eq!(
             variable_forms(&CheckConstraints, (left, right, left + right)),
-            every(variable_form_names(), Some(1))
+            each(&variable_form_names(), Some(1))
         );
     }
 
@@ -145,8 +103,8 @@ proptest! {
                 r1cs.first_unsatisfied(&witness),
             ),
             (
-                every(every_form_name(), Err(RULE_BROKEN)),
-                every(every_form_name(), Some(RULE)),
+                each(&every_form_name(), Err(RULE_BROKEN)),
+                each(&every_form_name(), Some(RULE)),
                 Some(0),
             )
         );
@@ -159,7 +117,7 @@ proptest! {
     ) {
         prop_assert_eq!(
             every_form(&NativeSum, (left, right, left + right)),
-            every(every_form_name(), left + right)
+            each(&every_form_name(), left + right)
         );
     }
 }

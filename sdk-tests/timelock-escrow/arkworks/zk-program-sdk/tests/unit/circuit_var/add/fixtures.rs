@@ -1,23 +1,15 @@
-use std::fmt::Debug;
-
 use zk_program_sdk::{
     circuit::{Assert, CircuitType, CircuitVar, Constraints, Field},
     conversion::{Allocator, Placeholder, ProofInput},
-    CircuitError, ZkCircuit,
+    CircuitError,
 };
 
-use super::vectors::Vector;
+use crate::harness::fixture::{rule_broken, Fixture, Refusal, Visit, Visited};
 
 pub const RULE: &str = "the sum is left plus right";
 pub const FILE: &str = file!();
 
-pub type Refusal = (&'static str, Option<&'static str>, &'static str);
-
-pub fn outcome<T>(result: Result<T, CircuitError>) -> Result<T, Refusal> {
-    result.map_err(|error| (error.name(), error.broken_rule(), error.location().file()))
-}
-
-pub const RULE_BROKEN: Refusal = ("CircuitError.RuleBroken", Some(RULE), FILE);
+pub const RULE_BROKEN: Refusal = rule_broken(RULE, FILE);
 
 type VariableForm = fn(&CircuitVar, &CircuitVar) -> CircuitVar;
 type ConstantForm = fn(&CircuitVar, Field) -> CircuitVar;
@@ -67,6 +59,12 @@ impl<const FORM: usize> Operands for VariablesCircuit<FORM> {
     }
 }
 
+impl<const FORM: usize> Fixture<CircuitVar> for Variables<FORM> {
+    fn computed(circuit: &VariablesCircuit<FORM>) -> CircuitVar {
+        circuit.form()
+    }
+}
+
 impl<const FORM: usize> Constraints for VariablesCircuit<FORM> {
     fn constraints(&self) -> Result<(), CircuitError> {
         self.form().assert_equal(&self.sum, RULE)
@@ -109,41 +107,36 @@ impl<const FORM: usize> Operands for WithConstantCircuit<FORM> {
     }
 }
 
+impl<const FORM: usize> Fixture<CircuitVar> for WithConstant<FORM> {
+    fn computed(circuit: &WithConstantCircuit<FORM>) -> CircuitVar {
+        circuit.form()
+    }
+}
+
 impl<const FORM: usize> Constraints for WithConstantCircuit<FORM> {
     fn constraints(&self) -> Result<(), CircuitError> {
         self.form().assert_equal(&self.sum, RULE)
     }
 }
 
-pub trait Visit {
-    type Output;
-
-    fn visit<F>(&self, fixture: F) -> Self::Output
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands;
-}
-
-pub type Visited<T> = Vec<(&'static str, T)>;
-
-pub fn variable_forms<V: Visit>(
+pub fn variable_forms<V: Visit<CircuitVar>>(
     visitor: &V,
     (left, right, sum): (Field, Field, Field),
 ) -> Visited<V::Output> {
     variable_form_names()
         .into_iter()
         .zip([
-            visitor.visit(Variables::<0> { left, right, sum }),
-            visitor.visit(Variables::<1> { left, right, sum }),
-            visitor.visit(Variables::<2> { left, right, sum }),
-            visitor.visit(Variables::<3> { left, right, sum }),
-            visitor.visit(Variables::<4> { left, right, sum }),
-            visitor.visit(Variables::<5> { left, right, sum }),
+            visitor.visit(&Variables::<0> { left, right, sum }),
+            visitor.visit(&Variables::<1> { left, right, sum }),
+            visitor.visit(&Variables::<2> { left, right, sum }),
+            visitor.visit(&Variables::<3> { left, right, sum }),
+            visitor.visit(&Variables::<4> { left, right, sum }),
+            visitor.visit(&Variables::<5> { left, right, sum }),
         ])
         .collect()
 }
 
-pub fn constant_forms<V: Visit>(
+pub fn constant_forms<V: Visit<CircuitVar>>(
     visitor: &V,
     (left, right, sum): (Field, Field, Field),
 ) -> Visited<V::Output> {
@@ -151,44 +144,20 @@ pub fn constant_forms<V: Visit>(
     constant_form_names()
         .into_iter()
         .zip([
-            visitor.visit(WithConstant::<0> { left, right, sum }),
-            visitor.visit(WithConstant::<1> { left, right, sum }),
-            visitor.visit(WithConstant::<2> { left, right, sum }),
+            visitor.visit(&WithConstant::<0> { left, right, sum }),
+            visitor.visit(&WithConstant::<1> { left, right, sum }),
+            visitor.visit(&WithConstant::<2> { left, right, sum }),
         ])
         .collect()
 }
 
-pub fn every_form<V: Visit>(visitor: &V, fields: (Field, Field, Field)) -> Visited<V::Output> {
+pub fn every_form<V: Visit<CircuitVar>>(
+    visitor: &V,
+    fields: (Field, Field, Field),
+) -> Visited<V::Output> {
     let mut outputs = variable_forms(visitor, fields);
     outputs.extend(constant_forms(visitor, fields));
     outputs
-}
-
-pub fn per_vector<T>(
-    vectors: &[Vector],
-    forms: impl Fn((Field, Field, Field)) -> Visited<T>,
-) -> Visited<Visited<T>> {
-    vectors
-        .iter()
-        .map(|vector| (vector.name, forms(vector.fields())))
-        .collect()
-}
-
-pub fn expected<T>(
-    vectors: &[Vector],
-    forms: &[&'static str],
-    value: impl Fn(&Vector, &'static str) -> T,
-) -> Visited<Visited<T>> {
-    vectors
-        .iter()
-        .map(|vector| {
-            let outputs = forms
-                .iter()
-                .map(|form| (*form, value(vector, form)))
-                .collect();
-            (vector.name, outputs)
-        })
-        .collect()
 }
 
 pub fn variable_form_names() -> Vec<&'static str> {

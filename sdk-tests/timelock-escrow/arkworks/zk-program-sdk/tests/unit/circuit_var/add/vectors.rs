@@ -1,8 +1,11 @@
 use zk_program_sdk::circuit::Field;
 
-use crate::harness::field::{
-    field, HALF_ABOVE, HALF_BELOW, MODULUS, MODULUS_MINUS_1, MODULUS_MINUS_2, TWO_POW_253,
-    TWO_POW_64, TWO_POW_64_MINUS_1,
+use crate::harness::{
+    field::{
+        field, HALF_ABOVE, HALF_BELOW, MODULUS, MODULUS_MINUS_1, MODULUS_MINUS_2, TWO_POW_253,
+        TWO_POW_64, TWO_POW_64_MINUS_1,
+    },
+    fixture::Named,
 };
 
 const X: &str = "12345678901234567890123456789012345678901234567890123456789012345678901234567";
@@ -20,6 +23,12 @@ pub struct Vector {
     pub left: &'static str,
     pub right: &'static str,
     pub sum: &'static str,
+}
+
+impl Named for Vector {
+    fn name(&self) -> &'static str {
+        self.name
+    }
 }
 
 impl Vector {

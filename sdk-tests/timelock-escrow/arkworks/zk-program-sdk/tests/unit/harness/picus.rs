@@ -28,14 +28,26 @@
 
 #![cfg(feature = "external-tools")]
 
-use std::process::Command;
+use std::{
+    fs::File,
+    os::unix::process::CommandExt,
+    path::Path,
+    process::Command,
+    thread,
+    time::{Duration, Instant},
+};
 
 use super::{
+    circom::Compiled,
     iden3::{read_r1cs, write_r1cs, R1cs},
     path, WorkDir,
 };
 
 const SOLVER: &str = "cvc5";
+const POLL: Duration = Duration::from_millis(50);
+
+/// The wall-clock limit of one `run-picus` call unless a test sets its own.
+pub const DEFAULT_LIMIT: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -45,21 +57,85 @@ pub enum Verdict {
 }
 
 pub fn verdict(work: &WorkDir, name: &str, r1cs: &[u8]) -> Verdict {
-    let r1cs = work.write(&format!("{name}.r1cs"), r1cs);
-    let output = Command::new("run-picus")
-        .args(["--solver", SOLVER, path(&r1cs)])
-        .output()
+    verdict_within(work, name, r1cs, DEFAULT_LIMIT)
+}
+
+/// Like [`verdict`], but a run that outlasts `limit` is killed and reported
+/// as `Unknown`, the verdict Picus gives when its solver times out.
+pub fn verdict_within(work: &WorkDir, name: &str, r1cs: &[u8], limit: Duration) -> Verdict {
+    run(name, &work.write(&format!("{name}.r1cs"), r1cs), limit)
+}
+
+/// Picus on a compiled circom reference, with its `.sym` beside the `.r1cs`
+/// so a counterexample names circom's signals. The targets are circom's
+/// `signal output`s; to target private inputs, [`promote_all`] the bytes of
+/// `compiled.r1cs` and pass them to [`verdict_within`].
+pub fn circom_verdict(work: &WorkDir, name: &str, compiled: &Compiled, limit: Duration) -> Verdict {
+    let r1cs = work.join(&format!("{name}.r1cs"));
+    std::fs::copy(&compiled.r1cs, &r1cs).expect("circom r1cs copy");
+    std::fs::copy(&compiled.sym, work.join(&format!("{name}.sym"))).expect("circom sym copy");
+    run(name, &r1cs, limit)
+}
+
+// Picus runs as racket under a bash wrapper, with cvc5 below it: a timeout
+// kills the whole process group. Its output goes to files, not pipes, so a
+// long log cannot block it while the harness polls.
+fn run(name: &str, r1cs: &Path, limit: Duration) -> Verdict {
+    let log = |stream: &str| r1cs.with_extension(format!("picus.{stream}"));
+    let (stdout, stderr) = (log("stdout"), log("stderr"));
+    let mut child = Command::new("run-picus")
+        .args(["--solver", SOLVER, path(r1cs)])
+        .stdout(File::create(&stdout).expect("picus stdout"))
+        .stderr(File::create(&stderr).expect("picus stderr"))
+        .process_group(0)
+        .spawn()
         .expect("run-picus on PATH");
-    match output.status.code() {
+    let deadline = Instant::now() + limit;
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("run-picus status") {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let group = format!("-{}", child.id());
+            let _ = Command::new("kill").args(["-KILL", &group]).status();
+            let _ = child.wait();
+            return Verdict::Unknown;
+        }
+        thread::sleep(POLL);
+    };
+    match status.code() {
         Some(8) => Verdict::Safe,
         Some(9) => Verdict::Unsafe,
         Some(0) => Verdict::Unknown,
         code => panic!(
             "run-picus {name} failed with {code:?}:\n{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
+            std::fs::read_to_string(&stdout).unwrap_or_default(),
+            std::fs::read_to_string(&stderr).unwrap_or_default()
         ),
     }
+}
+
+/// The wire of an `export_picus_r1cs` file that holds `variable`, a wire of
+/// the `export_r1cs` file and the exported assignment. The two orders differ
+/// once a gadget allocates a witness: the Picus export puts gadget witnesses
+/// first as outputs and inverse hints last.
+pub fn picus_wire(picus_r1cs: &[u8], variable: usize) -> usize {
+    let label = u64::try_from(variable).expect("variable label");
+    read_r1cs(picus_r1cs)
+        .wire_labels
+        .iter()
+        .position(|wire_label| *wire_label == label)
+        .expect("a wire labelled with the variable")
+}
+
+/// Promotes every wire of `wires` to an output, as [`promote`] does for one;
+/// the wires are numbered as in `r1cs`.
+pub fn promote_all(r1cs: &[u8], wires: &[usize]) -> Vec<u8> {
+    let mut sorted = wires.to_vec();
+    sorted.sort_unstable();
+    sorted
+        .into_iter()
+        .fold(r1cs.to_vec(), |promoted, wire| promote(&promoted, wire))
 }
 
 /// Moves the private input at `wire` to the end of the outputs, so Picus asks

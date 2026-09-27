@@ -1,8 +1,8 @@
-# Invariant Extraction Prompt: zk-program-sdk builtins
+# Invariant Extraction Prompt: zk-program-sdk builtins and protocol types
 
 You are a Senior ZK Circuit & Testing Engineer with deep experience auditing arkworks R1CS gadgets, circom circuits and Groth16 toolchains (snarkjs, ark-groth16).
 
-Your only task is to extract from the source code a maximally complete, precise, and actionable list of invariants that must be covered by tests for one SDK builtin at a time. Do not generate the tests themselves -- only the list of invariants.
+Your only task is to extract from the source code a maximally complete, precise, and actionable list of invariants that must be covered by tests for one SDK builtin or protocol type at a time. Do not generate the tests themselves -- only the list of invariants.
 
 ### Analysis Scope
 
@@ -15,6 +15,11 @@ Analyze the following code (a builtin's behavior is spread between the DSL, the 
 - `src/circuit/mod.rs` (`Constraints`) and `src/client/zk_circuit.rs` (`ZkCircuit`) -- the constraint-only circuit the builtin fixtures are written as
 - `src/testing.rs` -- `check_tampered`, `check_private_variables`, `constraint_labels`
 - `../spec.md` -- the source of truth for the DSL semantics; use it only as a reference
+
+For a protocol type, also analyze (mandatory):
+
+- `src/circuit/protocol/**` -- the protocol types: `asset.rs` (`Asset`), `owner.rs` (`OwnerKey`, `Owner`, `DataHash`), `transfer.rs` (`PublicTransfer`), `transaction.rs` (`TxContext`, `ConfidentialTransaction::check`, `PublicInputs`), `utxo/` (`Utxo`, `SpentInput`, `Output`, `Balance`, `TokenUtxo`, `DataUtxo`, `UtxoData`, `checked_utxo_data`)
+- the native references every circuit value must equal: `zolana-hasher` (`program-libs/hasher`: Poseidon, `hash_bytes`), `zolana-keypair` (`sdk-libs/keypair`: the owner hash and the nullifier), `zolana-transaction` (`sdk-libs/transaction`: `Utxo::hash`, `OutputUtxo::hash`, `FinalizedTransaction`, `transaction_hash`), and `src/program/transfer.rs` (`PublicTransfer::hash`)
 
 ### Hard Rules
 
@@ -42,7 +47,8 @@ Analyze the following code (a builtin's behavior is spread between the DSL, the 
 - `completeness` -- every honest witness satisfies every row
 - `soundness` -- every dishonest witness is refused; no private variable is free
 - `shape` -- setup (from the placeholder) and proving synthesize identical matrices; setup reads no value
-- `equivalence` -- the builtin matches its circom reference: normalized rows, headers, witnesses
+- `equivalence` -- the builtin matches its circom reference: normalized rows, headers, witnesses, or, when the variable layouts differ, the same accepted and rejected (inputs, claimed outputs) cases, pinned constraint counts and Picus determinism
+- `native equivalence` -- a circuit value equals the native Rust implementation's value for the same inputs: a hash, a nullifier, a blinding, a transaction hash
 - `interop` -- snarkjs accepts the exports: `wtns check`, Groth16 setup, prove and verify
 - `error` -- a condition results in exactly this named rule or exactly this error kind
 
@@ -56,10 +62,11 @@ Analyze the following code (a builtin's behavior is spread between the DSL, the 
 6. **Errors** -- for every named rule and every `CircuitErrorKind` or `ProverErrorKind` the builtin can return, at least one invariant of the form "condition C results in exactly error E", natively and in R1CS (`check_tampered`).
 7. **Equivalence with circom** -- one reference `.circom` per builtin: normalized constraint multisets, headers and label maps, witnesses computed with `ark_circom::WitnessCalculator`, and witness calculation failing for every invalid vector.
 8. **Interop with snarkjs** -- the independent JavaScript implementation, kept deliberately because the SDK is built on arkworks: `wtns check` on honest, tampered and cross pairs, and Groth16 setup, prove and verify on the SDK export.
+9. **Native equivalence (protocol types)** -- for every valid vector, the circuit's value (natively and as the R1CS witness) equals the native reference's value; every preimage field changes the value; a value the native reference refuses is refused by the circuit with exactly the named rule or error.
 
 ### Completeness Requirement: coverage matrix
 
-Provide in `README.md` a matrix with one row per builtin operation (for example `CircuitVar +`, `CircuitVar *`, `Uint::checked_add`) and these columns: Semantics, Constraint, Completeness, Soundness, Shape, Error, Equivalence, Interop, Properties. An empty cell = a gap in the list -- either add an invariant or flag it as `INSUFFICIENT_INFO`.
+Provide in `README.md` a matrix with one row per builtin operation (for example `CircuitVar +`, `CircuitVar *`, `Uint::checked_add`) and these columns: Semantics, Constraint, Completeness, Soundness, Shape, Error, Equivalence, Interop, Properties. An empty cell = a gap in the list -- either add an invariant or flag it as `INSUFFICIENT_INFO`. For a protocol type, the Equivalence cell lists its `native equivalence` invariants next to any circom ones.
 
 ### Output Format (strict)
 
@@ -67,11 +74,17 @@ Do NOT answer inline. Write the results as md files into `zk-program-sdk/invaria
 
 | File | Covers |
 |---|---|
-| `circuit_var.md` | `CircuitVar` operators and methods: `+`, `-`, `*`, unary `-`, `inverse`, `div`, `pow` |
+| `circuit_var.md` | `CircuitVar` operators and methods: `+`, `-`, `*`, unary `-`, `inverse`, `div`, `pow`, the bit methods, `constant`/`zero`/`value` |
 | `uint.md` | `Uint<BITS>`: arithmetic, comparisons, range checks, `div_rem` |
 | `bool.md` | `Bool`: logic, `select`, assertions |
 | `bytes.md` | `Bytes<N>`: allocation checks, packing and splitting |
+| `ops.md` | the `Assert` and `Select` traits: trait-level helpers, `CircuitVar` and array impls |
 | `gadgets.md` | `poseidon`, `hash_bytes`, `nonzero_hash_chain`, membership and indexing |
+| `asset.md` | `Asset` |
+| `owner.md` | `OwnerKey`, `Owner` |
+| `transfer.md` | `PublicTransfer` |
+| `utxo.md` | `Utxo`, `SpentInput`, `Balance`, `TokenUtxo`, `DataUtxo`, `UtxoData` |
+| `transaction.md` | `TxContext`, `ConfidentialTransaction::check`, `PublicInputs` |
 | `cross-cutting.md` | invariants every builtin and fixture shares: native and R1CS agreement, the export format, setup/proving shape, the constraint-only statement |
 | `README.md` | coverage matrix + summary (format below) |
 
@@ -86,7 +99,7 @@ Each builtin file uses this structure:
 
 ### <Kind>
 - [ ] **INV-<TYPE>-<OP>-<NN>: <short name>**
-  - Kind: semantics | constraint | completeness | soundness | shape | equivalence | interop | error
+  - Kind: semantics | constraint | completeness | soundness | shape | equivalence | native equivalence | interop | error
   - Statement: <one precise claim with explicit quantifiers and snapshots>
   - Location: `src/<path>.rs:<lines>` (`fn <name>` or `macro <name>`)
   - Error: `CircuitErrorKind::<Variant>` or `ProverErrorKind::<Variant>` (if applicable)
@@ -94,7 +107,7 @@ Each builtin file uses this structure:
   - Suggested test: positive | negative | property (proptest) | external (circom, snarkjs); `tests/unit/<type>/<op>/<file>.rs`
 ```
 
-`<TYPE>-<OP>` is a short slug (e.g. `CV-ADD` for `CircuitVar +`, `CV-MUL`, `UINT-ADD`); cross-cutting invariants use `INV-XC-<NN>`. IDs are stable once assigned -- never renumber.
+`<TYPE>-<OP>` is a short slug (e.g. `CV-ADD` for `CircuitVar +`, `CV-MUL`, `UINT-ADD`); each file's header lists its ID prefixes (`INV-BOOL`, `INV-TX`, ...), and cross-cutting invariants use `INV-XC-<NN>`. IDs are stable once assigned -- never renumber.
 
 When a test covering an invariant lands, tick its checkbox and append a `Covered by:` line with the test path and test name. When the behavior is exercised but a postcondition is not asserted, leave the box unticked and append a `Partial coverage:` line stating what is missing.
 
@@ -125,16 +138,17 @@ Matrix cells contain the invariant IDs covering that cell (e.g. `INV-CV-ADD-07`)
 
 ### Test Layout (one directory per builtin operation)
 
-Every invariant is covered from `tests/unit/<type>/<op>/`, which holds the same files for every builtin, on top of the shared `tests/unit/harness/`:
+Every invariant is covered from `tests/unit/<type>/<op>/` (`tests/unit/protocol/<type>/` for a protocol type), which holds the same files for every builtin, on top of the shared `tests/unit/harness/`:
 
 | File | Holds |
 |---|---|
-| `fixtures.rs` | one `ZkCircuit` fixture per operand form, each asserting `<form> == output` with a named rule |
+| `fixtures.rs` | one `ZkCircuit` fixture per operand form, each asserting `<form> == output` with a named rule; a protocol fixture calls the type's methods (or `ConfidentialTransaction::check`) and asserts the result against the native value |
 | `vectors.rs` | hardcoded decimal edge vectors, valid and invalid |
 | `<op>.circom` | the circom reference, private inputs in the fixture's field order |
 | `native.rs` | semantics and native errors |
 | `r1cs.rs` | golden rows, counts, completeness, soundness, shape, R1CS errors |
-| `external.rs` | circom equivalence and snarkjs interop |
+| `external.rs` | circom equivalence (`harness/equivalence.rs` when the layouts differ) and snarkjs interop |
+| `picus.rs` | Picus determinism of the SDK export (and of the circom reference) |
 | `properties.rs` | proptest over random field elements |
 
 ### Anti-Patterns (do not include in the list)

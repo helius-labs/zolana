@@ -39,6 +39,10 @@ pub fn field(decimal: &str) -> Field {
     Field::from(fr(decimal))
 }
 
+pub fn decimal(value: Field) -> String {
+    BigUint::from(Fr::from(value).into_bigint()).to_string()
+}
+
 pub fn be_bytes(decimal: &str) -> [u8; 32] {
     let bytes = integer(decimal).to_bytes_be();
     let mut padded = [0u8; 32];

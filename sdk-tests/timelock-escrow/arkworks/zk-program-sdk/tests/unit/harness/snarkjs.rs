@@ -7,9 +7,13 @@ use std::{
 
 use serde_json::Value;
 
-use super::{artifacts, locked, path, WorkDir};
+use super::{
+    artifacts,
+    iden3::{read_r1cs, R1csHeader},
+    locked, path, WorkDir,
+};
 
-const PTAU_POWER: &str = "4";
+const MIN_PTAU_POWER: u32 = 4;
 
 pub fn output(args: &[&str]) -> (bool, String) {
     let output = Command::new("snarkjs")
@@ -49,17 +53,32 @@ pub fn wtns_check(r1cs: &Path, wtns: &Path) -> WtnsCheck {
     }
 }
 
-pub fn throwaway_ptau() -> PathBuf {
+/// The smallest power (at least 4) whose ptau `groth16 setup` accepts for
+/// this header: snarkjs needs 2^power > constraints + public inputs + public
+/// outputs.
+pub fn ptau_power(header: &R1csHeader) -> u32 {
+    let rows = header.constraints + header.public_inputs + header.public_outputs;
+    (usize::BITS - rows.leading_zeros()).max(MIN_PTAU_POWER)
+}
+
+/// A throwaway phase-1 ptau of 2^power, created once per power and cached.
+pub fn throwaway_ptau(power: u32) -> PathBuf {
     let dir = artifacts().join("snarkjs");
-    let ptau = dir.join(format!("throwaway_{PTAU_POWER}_final.ptau"));
+    let ptau = dir.join(format!("throwaway_{power}_final.ptau"));
     let _lock = locked(&dir);
     if ptau.exists() {
         return ptau;
     }
-    let initial = dir.join("throwaway_0000.ptau");
-    let contributed = dir.join("throwaway_0001.ptau");
-    let prepared = dir.join("throwaway_prepared.ptau");
-    run(&["powersoftau", "new", "bn128", PTAU_POWER, path(&initial)]);
+    let initial = dir.join(format!("throwaway_{power}_0000.ptau"));
+    let contributed = dir.join(format!("throwaway_{power}_0001.ptau"));
+    let prepared = dir.join(format!("throwaway_{power}_prepared.ptau"));
+    run(&[
+        "powersoftau",
+        "new",
+        "bn128",
+        &power.to_string(),
+        path(&initial),
+    ]);
     run(&[
         "powersoftau",
         "contribute",
@@ -82,8 +101,11 @@ pub fn throwaway_ptau() -> PathBuf {
     ptau
 }
 
+/// Groth16 setup, prove and verify over the throwaway ptau of the smallest
+/// power the circuit fits.
 pub fn groth16(work: &WorkDir, r1cs: &Path, wtns: &Path) -> (bool, Value) {
-    let ptau = throwaway_ptau();
+    let header = read_r1cs(&std::fs::read(r1cs).expect("r1cs")).header;
+    let ptau = throwaway_ptau(ptau_power(&header));
     let zkey = work.join("circuit.zkey");
     let verification_key = work.join("verification_key.json");
     let proof = work.join("proof.json");

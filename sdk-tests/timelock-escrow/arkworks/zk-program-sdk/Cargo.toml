@@ -71,9 +71,11 @@ external-tools = []
 [dev-dependencies]
 ark-circom = { version = "0.6.0", default-features = false }
 groth16-solana = { workspace = true, features = ["gnark-vk"] }
+hex = { workspace = true }
 num-bigint = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 wasmer = { version = "6.1", default-features = false }
 
 [[test]]

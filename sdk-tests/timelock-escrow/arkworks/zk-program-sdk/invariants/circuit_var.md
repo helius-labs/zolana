@@ -1,8 +1,11 @@
 # CircuitVar Invariants
 
-Covers the `CircuitVar` operators of `src/circuit/builtins/field/var.rs`. For now only
-addition (`INV-CV-ADD`); `-`, `*`, unary `-`, `inverse`, `div` and `pow` follow the same
-pattern. Invariants every builtin shares live in `cross-cutting.md`.
+Covers the `CircuitVar` operators and constants of `src/circuit/builtins/field/var.rs`,
+the methods of `src/circuit/builtins/field/arithmetic.rs` and the bit methods of
+`src/circuit/builtins/field/bits.rs`. For now only addition (`INV-CV-ADD`) is
+extracted; the sections after it are placeholders with their ID prefixes, filled by
+running [`PROMPT.md`](PROMPT.md) for each operation. Invariants every builtin shares live
+in `cross-cutting.md`.
 
 ## Addition (`+`, `+=`)
 
@@ -301,3 +304,35 @@ non-canonical claim (p - 1) + 1 = p.
   - Location: `src/prover/snarkjs.rs:10-69` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/circuit_var/add/external.rs`
+
+## Subtraction (`-`, `-=`)
+
+`INV-CV-SUB`
+
+## Multiplication (`*`, `*=`)
+
+`INV-CV-MUL`
+
+## Negation (unary `-`)
+
+`INV-CV-NEG`
+
+## Inverse (`inverse`)
+
+`INV-CV-INV`
+
+## Division (`div`)
+
+`INV-CV-DIV`
+
+## Power (`pow`)
+
+`INV-CV-POW`
+
+## Bits (`check_bits`, `check_is_bool`, `to_bits_le`, `from_bits_le`)
+
+`INV-CV-BITS`
+
+## Constants (`constant`, `zero`, `value`)
+
+`INV-CV-CONST`

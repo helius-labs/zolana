@@ -1,53 +1,26 @@
-use std::fmt::Debug;
-
 use ark_bn254::Fr;
 use zk_program_sdk::{
-    circuit::{constant, value, zero, CircuitVar, Constraints, Field},
+    circuit::{constant, value, zero, CircuitVar, Field},
     conversion::{self, Allocator, ProofInput},
-    CircuitError, ZkCircuit,
+    CircuitError,
 };
 
 use super::{
-    fixtures::{
-        every_form, every_form_name, expected, outcome, per_vector, Operands, Refusal, Visit,
-        RULE_BROKEN,
-    },
+    fixtures::{every_form, every_form_name, RULE_BROKEN},
     vectors::{INVALID, NON_CANONICAL, VALID},
 };
-use crate::harness::field::{be_bytes, canonical, field, integer, modulus};
-
-struct Native;
-
-impl Visit for Native {
-    type Output = Result<(), Refusal>;
-
-    fn visit<F>(&self, fixture: F) -> Self::Output
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        outcome(
-            fixture
-                .instantiate(&Allocator::native())
-                .and_then(|circuit| circuit.constraints()),
-        )
-    }
-}
+use crate::harness::{
+    field::{be_bytes, canonical, field, integer, modulus},
+    fixture::{expected, native_circuit, outcome, per_vector, Fixture, Native, Refusal, Visit},
+};
 
 struct NativeSum;
 
-impl Visit for NativeSum {
+impl Visit<CircuitVar> for NativeSum {
     type Output = (String, Result<Field, Refusal>);
 
-    fn visit<F>(&self, fixture: F) -> Self::Output
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        let sum = fixture
-            .instantiate(&Allocator::native())
-            .expect("native instantiation")
-            .form();
+    fn visit<F: Fixture<CircuitVar>>(&self, fixture: &F) -> Self::Output {
+        let sum = F::computed(&native_circuit(fixture).expect("native instantiation"));
         (format!("{sum:?}"), outcome(value(&sum)))
     }
 }
@@ -55,7 +28,7 @@ impl Visit for NativeSum {
 #[test]
 fn every_valid_vector_holds_natively_in_every_form() {
     assert_eq!(
-        per_vector(&VALID, |fields| every_form(&Native, fields)),
+        per_vector(&VALID, |vector| every_form(&Native, vector.fields())),
         expected(&VALID, &every_form_name(), |_, _| Ok(()))
     );
 }
@@ -63,7 +36,7 @@ fn every_valid_vector_holds_natively_in_every_form() {
 #[test]
 fn every_invalid_vector_breaks_exactly_the_fixture_rule_natively() {
     assert_eq!(
-        per_vector(&INVALID, |fields| every_form(&Native, fields)),
+        per_vector(&INVALID, |vector| every_form(&Native, vector.fields())),
         expected(&INVALID, &every_form_name(), |_, _| Err(RULE_BROKEN))
     );
 }
@@ -80,7 +53,7 @@ fn the_native_sum_is_field_addition_modulo_p_in_every_form() {
     assert_eq!(
         (
             field_sums,
-            per_vector(&VALID, |fields| every_form(&NativeSum, fields))
+            per_vector(&VALID, |vector| every_form(&NativeSum, vector.fields()))
         ),
         (
             VALID.iter().map(|vector| field(vector.sum)).collect(),

@@ -1,50 +1,36 @@
-use std::fmt::Debug;
-
 use ark_bn254::Fr;
 use ark_ff::One;
 use zk_program_sdk::{
-    circuit::Field,
-    testing::{check_private_variables, check_tampered, PrivateVariableReport, Tamper},
-    ProverError, ProverErrorKind, ZkCircuit,
+    circuit::{CircuitVar, Field},
+    testing::{self, Tamper},
+    ZkCircuit,
 };
 
 use super::{
     fixtures::{
-        constant_form_names, constant_forms, every_form, every_form_name, expected, per_vector,
-        variable_form_names, variable_forms, AddThenSubtract, Double, Operands, PlusFive,
-        Unasserted, Variables, Visit, WithConstant, RULE,
+        constant_form_names, constant_forms, every_form, every_form_name, variable_form_names,
+        variable_forms, AddThenSubtract, Double, PlusFive, Unasserted, Variables, WithConstant,
+        RULE,
     },
     vectors::{INVALID, VALID},
 };
 use crate::harness::{
     field::field,
-    iden3::{read_r1cs, read_wtns, R1cs, R1csHeader, Row},
+    fixture::{
+        assignment, breaks_rule, check_constraints, check_tampered, constraints_differ, each,
+        expected, exported, no_free_variable, per_vector, prover_refusal, with_wires, Assignment,
+        CheckConstraints, Export, Fixture, FreeVariables, ProverRefusal, Visit,
+    },
+    iden3::{R1cs, R1csHeader, Row},
 };
-
-type Refusal = (&'static str, Option<usize>, Option<&'static str>);
-
-fn refusal(error: ProverError) -> Refusal {
-    match error.kind() {
-        ProverErrorKind::ConstraintsDiffer(failed)
-        | ProverErrorKind::ProofInputsBreakRule(failed) => (
-            error.name(),
-            Some(failed.row),
-            failed.label.as_ref().map(|label| label.text),
-        ),
-        _ => (error.name(), None, None),
-    }
-}
-
-fn exported<F: ZkCircuit>() -> R1cs {
-    read_r1cs(&F::export_r1cs().expect("r1cs export"))
-}
-
-fn assignment<F: ZkCircuit>(fixture: &F) -> Vec<Fr> {
-    read_wtns(&fixture.export_assignment().expect("assignment"))
-}
 
 fn rows(r1cs: R1cs) -> (Vec<Row>, Vec<Row>, Vec<Row>) {
     (r1cs.a, r1cs.b, r1cs.c)
+}
+
+fn tampered_sum(witness: Vec<Fr>) -> Vec<Fr> {
+    let (wire, sum) = (witness.len() - 1, *witness.last().expect("sum"));
+    with_wires(witness, &[(wire, sum + Fr::one())])
 }
 
 fn is_variable_form(form: &str) -> bool {
@@ -66,20 +52,6 @@ fn a_plus_b_exports_exactly_the_golden_row_and_header() {
     );
 }
 
-struct Export;
-
-impl Visit for Export {
-    type Output = Vec<u8>;
-
-    fn visit<F>(&self, _fixture: F) -> Vec<u8>
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        F::export_r1cs().expect("r1cs export")
-    }
-}
-
 #[test]
 fn every_form_of_one_operand_kind_exports_byte_identical_r1cs() {
     let fields = VALID[0].fields();
@@ -91,14 +63,8 @@ fn every_form_of_one_operand_kind_exports_byte_identical_r1cs() {
             constant_forms(&Export, fields)
         ),
         (
-            variable_form_names()
-                .into_iter()
-                .map(|form| (form, variables.clone()))
-                .collect(),
-            constant_form_names()
-                .into_iter()
-                .map(|form| (form, constants.clone()))
-                .collect()
+            each(&variable_form_names(), variables),
+            each(&constant_form_names(), constants)
         )
     );
 }
@@ -113,7 +79,7 @@ fn adding_allocates_no_variable_and_adds_no_constraint() {
         (
             exported::<Unasserted>(),
             assignment(&fixture),
-            fixture.check_constraints().map_err(refusal)
+            check_constraints(&fixture)
         ),
         (
             R1cs {
@@ -178,24 +144,13 @@ fn a_plus_a_constant_puts_exactly_the_constant_on_variable_zero() {
     );
 }
 
-struct CheckConstraints;
-
-impl Visit for CheckConstraints {
-    type Output = Result<usize, Refusal>;
-
-    fn visit<F>(&self, fixture: F) -> Self::Output
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        fixture.check_constraints().map_err(refusal)
-    }
-}
-
 #[test]
 fn every_valid_vector_checks_one_constraint_in_every_variable_form() {
     assert_eq!(
-        per_vector(&VALID, |fields| variable_forms(&CheckConstraints, fields)),
+        per_vector(&VALID, |vector| variable_forms(
+            &CheckConstraints,
+            vector.fields()
+        )),
         expected(&VALID, &variable_form_names(), |_, _| Ok(1))
     );
 }
@@ -203,35 +158,24 @@ fn every_valid_vector_checks_one_constraint_in_every_variable_form() {
 #[test]
 fn a_constant_other_than_the_placeholders_builds_a_different_row() {
     assert_eq!(
-        per_vector(&VALID, |fields| constant_forms(&CheckConstraints, fields)),
+        per_vector(&VALID, |vector| constant_forms(
+            &CheckConstraints,
+            vector.fields()
+        )),
         expected(&VALID, &constant_form_names(), |vector, _| {
             if vector.right == "0" {
                 Ok(1)
             } else {
-                Err(("ProverError.ConstraintsDiffer", Some(0), Some(RULE)))
+                Err(constraints_differ(0, RULE))
             }
         })
     );
 }
 
-struct Assignment;
-
-impl Visit for Assignment {
-    type Output = Vec<Fr>;
-
-    fn visit<F>(&self, fixture: F) -> Vec<Fr>
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        assignment(&fixture)
-    }
-}
-
 #[test]
 fn the_assignment_is_the_constant_one_then_the_variable_inputs() {
     assert_eq!(
-        per_vector(&VALID, |fields| every_form(&Assignment, fields)),
+        per_vector(&VALID, |vector| every_form(&Assignment, vector.fields())),
         expected(&VALID, &every_form_name(), |vector, form| {
             let (left, right, sum) = vector.fields();
             if is_variable_form(form) {
@@ -245,20 +189,13 @@ fn the_assignment_is_the_constant_one_then_the_variable_inputs() {
 
 struct ExportedRow;
 
-impl Visit for ExportedRow {
+impl Visit<CircuitVar> for ExportedRow {
     type Output = (Option<usize>, Option<usize>);
 
-    fn visit<F>(&self, fixture: F) -> Self::Output
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
+    fn visit<F: Fixture<CircuitVar>>(&self, fixture: &F) -> Self::Output {
         let r1cs = exported::<F>();
-        let honest = assignment(&fixture);
-        let mut tampered = honest.clone();
-        if let Some(sum) = tampered.last_mut() {
-            *sum += Fr::one();
-        }
+        let honest = assignment(fixture);
+        let tampered = tampered_sum(honest.clone());
         (
             r1cs.first_unsatisfied(&honest),
             r1cs.first_unsatisfied(&tampered),
@@ -269,7 +206,10 @@ impl Visit for ExportedRow {
 #[test]
 fn every_valid_vector_satisfies_the_row_and_a_tampered_sum_breaks_it() {
     assert_eq!(
-        per_vector(&VALID, |fields| variable_forms(&ExportedRow, fields)),
+        per_vector(&VALID, |vector| variable_forms(
+            &ExportedRow,
+            vector.fields()
+        )),
         expected(&VALID, &variable_form_names(), |_, _| (None, Some(0)))
     );
 }
@@ -285,10 +225,7 @@ fn a_constant_fixed_in_the_circuit_exports_a_row_every_honest_witness_satisfies(
                 a,
                 sum: a + Field::from(5u64),
             });
-            let mut tampered = honest.clone();
-            if let Some(sum) = tampered.last_mut() {
-                *sum += Fr::one();
-            }
+            let tampered = tampered_sum(honest.clone());
             (
                 vector.name,
                 r1cs.first_unsatisfied(&honest),
@@ -327,26 +264,14 @@ fn every_invalid_vector_breaks_the_row() {
 
 struct Tampered;
 
-impl Visit for Tampered {
-    type Output = (Result<(), Refusal>, Result<(), Refusal>);
+impl Visit<CircuitVar> for Tampered {
+    type Output = (Result<(), ProverRefusal>, Result<(), ProverRefusal>);
 
-    fn visit<F>(&self, fixture: F) -> Self::Output
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        let honest = assignment(&fixture);
+    fn visit<F: Fixture<CircuitVar>>(&self, fixture: &F) -> Self::Output {
+        let honest = assignment(fixture);
+        let wire = honest.len() - 1;
         let sum = *honest.last().expect("sum");
-        let tamper = |value: Fr| {
-            check_tampered(
-                &fixture,
-                Tamper::PrivateVariable {
-                    index: honest.len() - 2,
-                    value: Field::from(value),
-                },
-            )
-            .map_err(refusal)
-        };
+        let tamper = |value: Fr| check_tampered(fixture, wire, Field::from(value));
         (tamper(sum), tamper(sum + Fr::one()))
     }
 }
@@ -354,39 +279,20 @@ impl Visit for Tampered {
 #[test]
 fn the_proving_rows_accept_the_honest_sum_and_name_the_rule_for_another() {
     assert_eq!(
-        per_vector(&VALID, |fields| every_form(&Tampered, fields)),
+        per_vector(&VALID, |vector| every_form(&Tampered, vector.fields())),
         expected(&VALID, &every_form_name(), |_, _| (
             Ok(()),
-            Err(("ProverError.ProofInputsBreakRule", Some(0), Some(RULE)))
+            Err(breaks_rule(0, RULE))
         ))
     );
-}
-
-struct FreeVariables;
-
-impl Visit for FreeVariables {
-    type Output = PrivateVariableReport;
-
-    fn visit<F>(&self, fixture: F) -> PrivateVariableReport
-    where
-        F: ZkCircuit + Copy + Debug,
-        F::Circuit: Operands,
-    {
-        check_private_variables(&fixture).expect("private variable report")
-    }
 }
 
 #[test]
 fn no_private_variable_is_free_in_any_form() {
     assert_eq!(
-        per_vector(&VALID, |fields| every_form(&FreeVariables, fields)),
+        per_vector(&VALID, |vector| every_form(&FreeVariables, vector.fields())),
         expected(&VALID, &every_form_name(), |_, form| {
-            PrivateVariableReport {
-                constraints: 1,
-                private_variables: if is_variable_form(form) { 3 } else { 2 },
-                free: vec![],
-                tolerated: vec![],
-            }
+            no_free_variable(1, if is_variable_form(form) { 3 } else { 2 })
         })
     );
 }
@@ -395,11 +301,11 @@ fn no_private_variable_is_free_in_any_form() {
 fn a_constraint_only_circuit_has_no_public_hash_to_tamper() {
     let (left, right, sum) = VALID[1].fields();
     assert_eq!(
-        check_tampered(
+        testing::check_tampered(
             &Variables::<3> { left, right, sum },
             Tamper::PublicHash(Field::from(1u64))
         )
-        .map_err(refusal),
+        .map_err(prover_refusal),
         Err(("ProverError.WrongPublicInputCount", None, None))
     );
 }
